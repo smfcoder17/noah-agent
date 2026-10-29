@@ -10,31 +10,78 @@ import {
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import { ArrowDown, ArrowUp, Check, Copy, FileText, Loader2, Paperclip, Square, TriangleAlert, X } from "lucide-react";
-import { createContext, useContext, useState } from "react";
+import { useContext, useState } from "react";
 import remarkGfm from "remark-gfm";
-import { mediaUrl, send } from "@/lib/api";
+import { AgentContext } from "@/lib/agentContext";
+import { mediaUrl, rawFileUrl, send } from "@/lib/api";
+import { NoahTile } from "./Noah";
 import { Button } from "./ui";
+import { canFrame, useViewer } from "./Viewer";
+import { ApolloWidget } from "./Widgets";
 
-export const AgentContext = createContext<{ agentId: string; agentName: string; hint: string }>({
-  agentId: "",
-  agentName: "",
-  hint: "",
-});
+export { AgentContext };
 
 // « MEDIA:/chemin.png » ou un chemin d'image de la machine devient une image markdown servie par Apollo.
 const MEDIA_RE = /(?:MEDIA:\s*)?(\/(?:opt\/data|tmp)\/[^\s"'`)\]]+\.(?:png|jpe?g|gif|webp))/gi;
+// Un autre fichier de l'espace de travail devient un lien qui s'ouvre dans la visionneuse.
+const FILE_RE = /`?(\/opt\/data\/workspace\/[^\s"'`)\]]+\.[a-z0-9]{1,6})`?/gi;
+
+// Une app ou un PDF se montre en aperçu intégré, même si l'agent n'a donné que le chemin.
+const PREVIEW_EXT = /\.(html?|pdf)$/i;
+
+/** Transforme les chemins hors des blocs de code (les widgets gardent leur JSON intact). */
+function linkPaths(text: string, agentId: string) {
+  const previewed = new Set(text.match(/"path"\s*:\s*"([^"]+)"/g)?.map((m) => m.replace(/^"path"\s*:\s*"|"$/g, "")) ?? []);
+  return text
+    .split(/(```[\s\S]*?(?:```|$))/)
+    .map((chunk, i) =>
+      i % 2
+        ? chunk
+        : chunk
+            .replace(MEDIA_RE, (_m, path: string) => `\n\n![${path.split("/").pop()}](${mediaUrl(agentId, path)})\n\n`)
+            .replace(FILE_RE, (m, path: string, offset: number, all: string) => {
+              if (all.slice(Math.max(0, offset - 2), offset).includes("](") || all[offset - 1] === "(") return m;
+              if (PREVIEW_EXT.test(path) && !previewed.has(path)) {
+                previewed.add(path);
+                return `\n\n\`\`\`apollo\n${JSON.stringify({ type: "preview", path })}\n\`\`\`\n\n`;
+              }
+              return `[${path.split("/").pop()}](${rawFileUrl(agentId, path)})`;
+            }),
+    )
+    .join("");
+}
 
 function MarkdownText() {
   const { agentId } = useContext(AgentContext);
+  const view = useViewer();
   return (
     <MarkdownTextPrimitive
       className="prose-chat"
       remarkPlugins={[remarkGfm]}
-      preprocess={(text) => text.replace(MEDIA_RE, (_m, path: string) => `\n\n![Image de l'agent](${mediaUrl(agentId, path)})\n\n`)}
+      componentsByLanguage={{ apollo: { SyntaxHighlighter: ApolloWidget, CodeHeader: () => null } }}
+      preprocess={(text) => linkPaths(text, agentId)}
       components={{
-        a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" />,
+        a: ({ node: _node, href, children, ...props }) =>
+          href?.includes("/files/raw/") ? (
+            <button
+              type="button"
+              className="inline-flex cursor-pointer items-center gap-1 rounded-md bg-muted px-1.5 py-px align-baseline text-[0.92em] font-medium text-accent hover:underline"
+              onClick={() =>
+                canFrame(href) ? view({ kind: "file", url: href, title: String(children) }) : window.open(`${href}?download=1`, "_self")
+              }
+            >
+              <FileText className="size-3.5" />{children}
+            </button>
+          ) : (
+            <a {...props} href={href} target="_blank" rel="noopener noreferrer">{children}</a>
+          ),
         img: ({ node: _node, ...props }) => (
-          <img {...props} loading="lazy" onClick={() => props.src && window.open(String(props.src), "_blank")} />
+          <img
+            {...props}
+            loading="lazy"
+            className="cursor-zoom-in"
+            onClick={() => props.src && view({ kind: "image", src: String(props.src), title: props.alt })}
+          />
         ),
       }}
     />
@@ -132,10 +179,12 @@ function UserMessage() {
 }
 
 function AssistantMessage() {
+  const { agentColor } = useContext(AgentContext);
   const running = useAuiState((s) => s.message.status?.type === "running");
   const empty = useAuiState((s) => s.message.content.length === 0);
   return (
-    <MessagePrimitive.Root className="group flex flex-col gap-1 py-2">
+    <MessagePrimitive.Root className="group relative flex flex-col gap-1 py-2 md:pl-11">
+      <NoahTile color={agentColor} className="absolute top-2 left-0 hidden size-8 md:grid" />
       <div className="max-w-[92%] min-w-0">
         {empty && running ? (
           <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
@@ -194,6 +243,11 @@ function Composer() {
   );
 }
 
+function EmptyNoah() {
+  const { agentColor } = useContext(AgentContext);
+  return <NoahTile color={agentColor} className="mb-2 size-20" />;
+}
+
 export function Thread() {
   const { agentName, hint } = useContext(AgentContext);
   return (
@@ -203,6 +257,7 @@ export function Thread() {
           <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col pt-6">
             <ThreadPrimitive.Empty>
               <div className="m-auto flex max-w-md flex-col items-center gap-2 text-center">
+                <EmptyNoah />
                 <p className="text-xl font-semibold">Que doit faire {agentName} ?</p>
                 <p className="text-sm text-muted-foreground">{hint}</p>
               </div>

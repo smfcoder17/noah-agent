@@ -1,15 +1,19 @@
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
-import { Bug, LogOut, Menu, MessageSquarePlus, MonitorPlay, Plus, Settings2, Trash2, X } from "lucide-react";
+import { ArrowLeft, Bug, Menu, MonitorPlay, PanelRight, Plus } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { AgentDialog } from "@/components/AgentDialog";
 import { AuthScreen } from "@/components/AuthScreen";
 import { ModelPicker } from "@/components/ModelPicker";
+import { NoahTile, agentColor } from "@/components/Noah";
 import { type PanelTab, SidePanel } from "@/components/SidePanel";
-import { AgentContext, Thread } from "@/components/Thread";
+import { STATE_WORD, Sidebar, StateShape } from "@/components/Sidebar";
+import { Thread } from "@/components/Thread";
+import { ViewerProvider } from "@/components/Viewer";
 import { Button, Dialog, DialogContent } from "@/components/ui";
-import { type Agent, ApiError, type Conversation, type CurrentModel, del, get, send, type Status, type Usage } from "@/lib/api";
+import { type Agent, ApiError, type Conversation, type CurrentModel, get, send, type Status, type Usage } from "@/lib/api";
+import { AgentContext } from "@/lib/agentContext";
 import { useAgentChat } from "@/lib/useAgentChat";
-import { cn, money } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
 type Screen = "loading" | "setup" | "login" | "model" | "app" | "error";
 
@@ -54,8 +58,9 @@ export default function App() {
 function Shell({ onLogout }: { onLogout: () => void }) {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [agentId, setAgentId] = useState<string | null>(null);
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [conversations, setConversations] = useState<Conversation[] | null>(null);
+  // Fil ouvert à la place de la conversation principale (null = conversation principale).
+  const [threadId, setThreadId] = useState<string | null>(null);
   const [model, setModel] = useState<CurrentModel>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -66,6 +71,9 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const [refreshKey, setRefreshKey] = useState(0);
 
   const agent = agents.find((a) => a.id === agentId) ?? null;
+  const main = conversations?.find((c) => c.main) ?? null;
+  const thread = conversations?.find((c) => c.id === threadId) ?? null;
+  const shown = thread ?? main;
 
   const refreshAgents = useCallback(async () => {
     try {
@@ -83,7 +91,8 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   }, []);
   const refreshConversations = useCallback(async () => {
     if (!agentId) return setConversations([]);
-    setConversations(await get<Conversation[]>(`/api/agents/${agentId}/conversations`).catch(() => []));
+    const list = await get<Conversation[]>(`/api/agents/${agentId}/conversations`).catch(() => null);
+    if (list) setConversations(list);
   }, [agentId]);
 
   useEffect(() => {
@@ -93,12 +102,15 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     return () => clearInterval(t);
   }, [refreshAgents, refreshModel]);
   useEffect(() => {
+    setConversations(null);
     refreshConversations();
+    const t = setInterval(refreshConversations, 4000);
+    return () => clearInterval(t);
   }, [refreshConversations]);
 
   const selectAgent = (id: string) => {
     setAgentId(id);
-    setConversationId(null);
+    setThreadId(null);
     setSidebarOpen(false);
   };
 
@@ -108,198 +120,179 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     setRefreshKey((k) => k + 1);
   }, [refreshConversations, refreshModel]);
 
+  const pin = async (a: Agent, pinned: boolean) => {
+    await send(`/api/agents/${a.id}/look`, { pinned }, "PATCH");
+    refreshAgents();
+  };
+
   const logout = async () => {
     await send("/api/logout", {});
     onLogout();
   };
 
+  const state = shown?.state ?? "idle";
   return (
-    // Le panneau devient une colonne seulement sur grand écran ; en dessous il glisse par-dessus le chat.
-    <div className={cn("grid h-full md:grid-cols-[272px_minmax(0,1fr)]", panel && "xl:grid-cols-[272px_minmax(0,1fr)_minmax(400px,40%)]")}>
-      {/* Colonne de gauche : agents et conversations */}
-      <aside
-        className={cn(
-          "fixed inset-y-0 left-0 z-30 flex w-[min(300px,85vw)] -translate-x-full flex-col gap-5 border-r border-border bg-sidebar p-3 pt-[max(12px,env(safe-area-inset-top))] pb-[max(12px,env(safe-area-inset-bottom))] transition-transform md:static md:w-auto md:translate-x-0",
-          sidebarOpen && "translate-x-0",
-        )}
-      >
-        <div className="flex items-center justify-between px-1">
-          <div className="flex items-center gap-2">
-            <img src="/assets/icon.svg" alt="" className="size-7" />
-            <strong className="text-lg tracking-tight">Apollo</strong>
-          </div>
-          <Button variant="ghost" size="icon-sm" className="md:hidden" onClick={() => setSidebarOpen(false)} aria-label="Fermer le menu"><X /></Button>
-        </div>
-
-        <section className="flex flex-col gap-1">
-          <div className="flex items-center justify-between px-2">
-            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Agents</span>
-            <Button variant="ghost" size="icon-sm" onClick={() => setAgentDialog({ open: true, agent: null })} aria-label="Nouvel agent"><Plus /></Button>
-          </div>
-          {agents.map((a) => (
-            <button
-              key={a.id}
-              type="button"
-              onClick={() => selectAgent(a.id)}
-              aria-current={a.id === agentId}
-              className={cn(
-                "flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface",
-                a.id === agentId && "bg-surface shadow-sm ring-1 ring-border",
-              )}
-            >
-              <span className="grid size-7 shrink-0 place-items-center rounded-full bg-accent-soft text-xs font-semibold text-accent">{a.name.slice(0, 1).toUpperCase()}</span>
-              <span className="min-w-0 flex-1 truncate font-medium">{a.name}</span>
-              <span className={cn("size-2 shrink-0 rounded-full", a.online ? "bg-ok" : a.step ? "animate-pulse bg-warn" : "bg-muted-foreground")} />
-            </button>
-          ))}
-        </section>
-
-        <section className="flex min-h-0 flex-1 flex-col gap-1">
-          <div className="flex items-center justify-between px-2">
-            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Conversations</span>
-            <Button variant="ghost" size="icon-sm" onClick={() => { setConversationId(null); setSidebarOpen(false); }} aria-label="Nouvelle conversation"><MessageSquarePlus /></Button>
-          </div>
-          <div className="flex min-h-0 flex-col gap-0.5 overflow-y-auto">
-            {conversations.map((c) => (
-              <div key={c.id} className={cn("group flex items-center rounded-lg hover:bg-surface", c.id === conversationId && "bg-surface ring-1 ring-border")}>
-                <button
-                  type="button"
-                  className="min-w-0 flex-1 cursor-pointer truncate px-2 py-1.5 text-left text-sm"
-                  onClick={() => { setConversationId(c.id); setSidebarOpen(false); }}
-                >
-                  {c.title}
-                </button>
-                <button
-                  type="button"
-                  aria-label="Supprimer la conversation"
-                  className="mr-1 hidden cursor-pointer rounded p-1 text-muted-foreground hover:text-danger group-hover:block"
-                  onClick={async () => {
-                    await del(`/api/conversations/${c.id}`);
-                    if (c.id === conversationId) setConversationId(null);
-                    refreshConversations();
-                  }}
-                >
-                  <Trash2 className="size-3.5" />
-                </button>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <div className="flex flex-col gap-1 border-t border-border pt-3">
-          <button type="button" onClick={() => setModelOpen(true)} className="flex cursor-pointer flex-col rounded-lg px-2 py-1.5 text-left hover:bg-surface">
-            <span className="text-xs text-muted-foreground">Modèle et budget</span>
-            <span className="truncate font-mono text-[13px]">{model?.model ?? "aucun"}</span>
-            {usage && (
-              <span className="text-xs text-muted-foreground">
-                Ce mois-ci : {money(usage.month_cost)} ${usage.budget != null ? ` sur ${money(usage.budget)} $` : ""}
-              </span>
-            )}
-          </button>
-          <Button variant="ghost" size="sm" className="justify-start text-muted-foreground" onClick={logout}><LogOut />Se déconnecter</Button>
-        </div>
-      </aside>
-      {sidebarOpen && <div className="fixed inset-0 z-20 bg-black/40 md:hidden" onClick={() => setSidebarOpen(false)} />}
-
-      {/* Conversation */}
-      <main className="flex min-h-0 min-w-0 flex-col">
-        <header className="flex items-center gap-2 border-b border-border px-3 py-2.5 pt-[max(10px,env(safe-area-inset-top))]">
-          <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setSidebarOpen(true)} aria-label="Ouvrir le menu"><Menu /></Button>
-          <div className="min-w-0 flex-1">
-            <p className="truncate font-semibold">{agent?.name ?? "Aucun agent"}</p>
-            <p className="text-xs text-muted-foreground">{agent ? agent.step || (agent.online ? "En ligne" : "Hors ligne") : "Crée ton premier agent avec +"}</p>
-          </div>
-          <Button
-            variant={details ? "outline" : "ghost"}
-            size="icon-sm"
-            onClick={() => setDetails(!details)}
-            aria-pressed={details}
-            title="Afficher les détails techniques (appels d'outils)"
-            aria-label="Détails techniques"
-          >
-            <Bug />
-          </Button>
-          {agent && (
-            <Button variant="ghost" size="icon-sm" onClick={() => setPanel(panel === "details" ? null : "details")} aria-label="Réglages et détails de l'agent">
-              <Settings2 />
-            </Button>
+    <ViewerProvider>
+      {/* Le panneau devient une colonne seulement sur grand écran ; en dessous il glisse par-dessus le chat. */}
+      <div className={cn("grid h-full md:grid-cols-[264px_minmax(0,1fr)]", panel && "xl:grid-cols-[264px_minmax(0,1fr)_minmax(400px,40%)]")}>
+        {/* Colonne de gauche : les agents, rien d'autre */}
+        <aside
+          className={cn(
+            "fixed inset-y-0 left-0 z-30 flex w-[min(300px,85vw)] -translate-x-full flex-col gap-4 border-r border-border bg-sidebar p-3 pt-[max(12px,env(safe-area-inset-top))] pb-[max(12px,env(safe-area-inset-bottom))] transition-transform md:static md:w-auto md:translate-x-0",
+            sidebarOpen && "translate-x-0",
           )}
-          {agent && (
-            <Button variant={panel === "computer" ? "outline" : "default"} size="sm" onClick={() => setPanel(panel ? null : "computer")} aria-pressed={!!panel}>
-              <MonitorPlay />Ordinateur
-            </Button>
-          )}
-        </header>
-        <div className="min-h-0 flex-1">
-          {agent ? (
-            <AgentChat
-              key={agent.id}
-              agent={agent}
-              conversationId={conversationId}
-              details={details}
-              onConversationCreated={setConversationId}
-              onRunFinished={onRunFinished}
-            />
-          ) : (
-            <div className="grid h-full place-items-center p-6 text-center text-muted-foreground">
-              <div className="flex flex-col items-center gap-3">
-                <p>Aucun agent pour l'instant.</p>
-                <Button onClick={() => setAgentDialog({ open: true, agent: null })}><Plus />Créer un agent</Button>
-              </div>
-            </div>
-          )}
-        </div>
-      </main>
-
-      {/* Panneau Détails / Fichiers / Ordinateur */}
-      {panel && agent && (
-        <aside className="fixed inset-y-0 right-0 z-30 min-h-0 w-full border-l border-border bg-surface shadow-2xl sm:w-[min(520px,92vw)] xl:static xl:z-auto xl:w-auto xl:shadow-none">
-          <SidePanel
-            agent={agent}
-            model={model?.model ?? ""}
-            tab={panel}
-            onTab={setPanel}
-            onClose={() => setPanel(null)}
-            onEditAgent={() => setAgentDialog({ open: true, agent })}
-            refreshKey={refreshKey}
+        >
+          <Sidebar
+            agents={agents}
+            agentId={agentId}
+            model={model}
+            usage={usage}
+            onClose={() => setSidebarOpen(false)}
+            onSelectAgent={selectAgent}
+            onPin={pin}
+            onCustomize={(a) => setAgentDialog({ open: true, agent: a })}
+            onNewAgent={() => setAgentDialog({ open: true, agent: null })}
+            onModel={() => setModelOpen(true)}
+            onLogout={logout}
           />
         </aside>
-      )}
+        {sidebarOpen && <div className="fixed inset-0 z-20 bg-black/40 md:hidden" onClick={() => setSidebarOpen(false)} />}
 
-      <AgentDialog
-        open={agentDialog.open}
-        agent={agentDialog.agent}
-        onOpenChange={(open) => setAgentDialog((d) => ({ ...d, open }))}
-        onSaved={(id) => {
-          setAgentDialog({ open: false, agent: null });
-          refreshAgents().then(() => selectAgent(id));
-        }}
-        onDeleted={() => {
-          setAgentDialog({ open: false, agent: null });
-          setAgentId(null);
-          setPanel(null);
-          refreshAgents();
-        }}
-      />
-      <Dialog open={modelOpen} onOpenChange={setModelOpen}>
-        {modelOpen && (
-          <DialogContent
-            title="Le cerveau de tes agents"
-            description="La clé reste chiffrée sur cette machine. Les agents ne la voient jamais : ils passent par Apollo."
-            className="max-w-4xl"
-          >
-            <ModelPicker
-              onCancel={() => setModelOpen(false)}
-              onDone={() => {
-                setModelOpen(false);
-                refreshModel();
-                refreshAgents();
+        {/* Conversation avec l'agent (ou l'un de ses fils) */}
+        <main className="flex min-h-0 min-w-0 flex-col">
+          <header className="flex items-center gap-2.5 border-b border-border px-3 py-2 pt-[max(8px,env(safe-area-inset-top))]">
+            <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setSidebarOpen(true)} aria-label="Ouvrir le menu"><Menu /></Button>
+            {thread ? (
+              <Button variant="ghost" size="icon-sm" onClick={() => setThreadId(null)} aria-label={`Revenir à la conversation avec ${agent?.name}`}>
+                <ArrowLeft />
+              </Button>
+            ) : (
+              agent && <NoahTile color={agentColor(agent)} className="size-9" />
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-semibold">{thread ? thread.title : agent?.name ?? "Aucun agent"}</p>
+              <p className="truncate text-xs text-muted-foreground">
+                {!agent
+                  ? "Crée ton premier agent"
+                  : thread
+                    ? `Fil de ${agent.name}${thread.archived ? " · archivé" : ""}`
+                    : agent.step || (agent.online ? "En ligne" : "Hors ligne")}
+              </p>
+            </div>
+            {STATE_WORD[state] && state !== "done" && (
+              <span
+                role="status"
+                className={cn(
+                  "hidden h-7 shrink-0 items-center gap-2 rounded-full px-3 text-xs font-semibold sm:inline-flex",
+                  state === "approve" || state === "choice" ? "bg-warn-soft text-warn" : state === "work" ? "bg-accent-soft text-accent" : "bg-muted text-muted-foreground",
+                )}
+              >
+                <StateShape state={state} />
+                {STATE_WORD[state].replace(/^./, (c) => c.toUpperCase())}
+              </span>
+            )}
+            <Button
+              variant={details ? "outline" : "ghost"}
+              size="icon-sm"
+              onClick={() => setDetails(!details)}
+              aria-pressed={details}
+              title="Afficher les détails techniques (appels d'outils)"
+              aria-label="Détails techniques"
+            >
+              <Bug />
+            </Button>
+            {agent && (
+              <Button variant={panel && panel !== "computer" ? "outline" : "ghost"} size="sm" onClick={() => setPanel(panel && panel !== "computer" ? null : "details")} aria-pressed={!!panel && panel !== "computer"}>
+                <PanelRight /><span className="hidden sm:inline">Détails</span>
+              </Button>
+            )}
+            {agent && (
+              <Button variant={panel === "computer" ? "outline" : "default"} size="sm" onClick={() => setPanel(panel === "computer" ? null : "computer")} aria-pressed={panel === "computer"}>
+                <MonitorPlay /><span className="hidden sm:inline">Ordinateur</span>
+              </Button>
+            )}
+          </header>
+          <div className="min-h-0 flex-1">
+            {agent && conversations ? (
+              <AgentChat
+                key={`${agent.id}-${threadId ?? "main"}`}
+                agent={agent}
+                conversationId={shown?.id ?? null}
+                details={details}
+                onConversationCreated={refreshConversations}
+                onRunFinished={onRunFinished}
+              />
+            ) : agent ? (
+              <p className="p-10 text-center text-sm text-muted-foreground">Chargement de la conversation…</p>
+            ) : (
+              <div className="grid h-full place-items-center p-6 text-center text-muted-foreground">
+                <div className="flex flex-col items-center gap-3">
+                  <p>Aucun agent pour l'instant.</p>
+                  <Button onClick={() => setAgentDialog({ open: true, agent: null })}><Plus />Créer un agent</Button>
+                </div>
+              </div>
+            )}
+          </div>
+        </main>
+
+        {/* Panneau Détails / Fichiers / Ordinateur */}
+        {panel && agent && (
+          <aside className="fixed inset-y-0 right-0 z-30 min-h-0 w-full border-l border-border bg-surface shadow-2xl sm:w-[min(520px,92vw)] xl:static xl:z-auto xl:w-auto xl:shadow-none">
+            <SidePanel
+              agent={agent}
+              model={model?.model ?? ""}
+              tab={panel}
+              onTab={setPanel}
+              onClose={() => setPanel(null)}
+              onEditAgent={() => setAgentDialog({ open: true, agent })}
+              refreshKey={refreshKey}
+              threads={(conversations ?? []).filter((c) => !c.main)}
+              threadId={threadId}
+              onOpenThread={setThreadId}
+              onArchiveThread={async (id, archived) => {
+                await send(`/api/conversations/${id}/archive`, { archived });
+                if (archived && id === threadId) setThreadId(null);
+                refreshConversations();
               }}
             />
-          </DialogContent>
+          </aside>
         )}
-      </Dialog>
-    </div>
+
+        <AgentDialog
+          open={agentDialog.open}
+          agent={agentDialog.agent}
+          onOpenChange={(open) => setAgentDialog((d) => ({ ...d, open }))}
+          onSaved={(id) => {
+            setAgentDialog({ open: false, agent: null });
+            refreshAgents().then(() => selectAgent(id));
+          }}
+          onDeleted={() => {
+            setAgentDialog({ open: false, agent: null });
+            setAgentId(null);
+            setPanel(null);
+            refreshAgents();
+          }}
+        />
+        <Dialog open={modelOpen} onOpenChange={setModelOpen}>
+          {modelOpen && (
+            <DialogContent
+              title="Le cerveau de tes agents"
+              description="La clé reste chiffrée sur cette machine. Les agents ne la voient jamais : ils passent par Apollo."
+              className="max-w-4xl"
+            >
+              <ModelPicker
+                onCancel={() => setModelOpen(false)}
+                onDone={() => {
+                  setModelOpen(false);
+                  refreshModel();
+                  refreshAgents();
+                }}
+              />
+            </DialogContent>
+          )}
+        </Dialog>
+      </div>
+    </ViewerProvider>
   );
 }
 
@@ -307,16 +300,22 @@ function AgentChat(props: {
   agent: Agent;
   conversationId: string | null;
   details: boolean;
-  onConversationCreated: (id: string) => void;
+  onConversationCreated: () => void;
   onRunFinished: () => void;
 }) {
   const runtime = useAgentChat({ agentId: props.agent.id, ...props });
+  const say = useCallback(
+    (text: string) => runtime.thread.append({ role: "user", content: [{ type: "text", text }] }),
+    [runtime],
+  );
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <AgentContext.Provider
         value={{
+          say,
           agentId: props.agent.id,
           agentName: props.agent.name,
+          agentColor: agentColor(props.agent),
           hint: props.agent.role ? props.agent.role.slice(0, 180) : "Pose une question, confie une tâche ou envoie un fichier.",
         }}
       >

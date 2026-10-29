@@ -51,8 +51,29 @@ export type Model = {
 export type ModelGroup = { id: string; title: string; hint: string; models: Model[] };
 export type Catalog = { needs_key: boolean; groups: ModelGroup[]; models: Model[] };
 export type CurrentModel = { provider: string; model: string; has_key: boolean } | null;
-export type Agent = { id: string; name: string; role: string; online: boolean; step: string | null };
-export type Conversation = { id: string; title: string; updated_at: string };
+export type TaskState = "work" | "approve" | "choice" | "done" | "error" | "idle";
+export type Agent = {
+  id: string;
+  name: string;
+  role: string;
+  online: boolean;
+  step: string | null;
+  tasks: Partial<Record<"work" | "approve" | "choice", number>>;
+  /** État de la conversation principale. */
+  state: TaskState;
+  color: string;
+  pinned: boolean;
+};
+/** main : la conversation unique avec l'agent ; les autres sont des fils (origin "agent" s'il les a ouverts). */
+export type Conversation = {
+  id: string;
+  title: string;
+  updated_at: string;
+  state: TaskState;
+  main: boolean;
+  archived: boolean;
+  origin: "user" | "agent";
+};
 export type StoredMessage = { role: "user" | "agent" | "error"; text: string; created_at: string };
 export type AgentUsage = {
   agent_id: string;
@@ -112,5 +133,6 @@ export async function uploadFile(agentId: string, file: File, signal?: AbortSign
 export const mediaUrl = (agentId: string, path: string) =>
   `/api/agents/${agentId}/media?path=${encodeURIComponent(path)}`;
 
+/** Fichier de l'espace de travail ; accepte un chemin relatif ou complet (/opt/data/workspace/...). */
 export const rawFileUrl = (agentId: string, path: string) =>
-  `/api/agents/${agentId}/files/raw/${path.split("/").map(encodeURIComponent).join("/")}`;
+  `/api/agents/${agentId}/files/raw/${path.replace(/^\/opt\/data\/workspace\//, "").split("/").map(encodeURIComponent).join("/")}`;

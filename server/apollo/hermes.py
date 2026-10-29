@@ -71,6 +71,25 @@ def browser_host(agent_id: str) -> str:
     return f"apollo-browser-{agent_id}"
 
 
+async def restart_browser(agent_id: str) -> None:
+    await _launcher("POST", f"/agents/{agent_id}/browser/restart")
+
+
+# Identité Camoufox partagée par l'agent et l'écran : l'onglet que l'utilisateur voit est celui de l'agent.
+BROWSER_USER = "apollo"
+
+
+async def browser_call(agent_id: str, method: str, path: str, timeout: float = 5, **kw) -> dict:
+    """Appel direct à l'API Camoufox de l'agent. Lève httpx.HTTPError si le conteneur ne répond pas."""
+    api_key, _ = browser_secrets(agent_id)
+    async with httpx.AsyncClient(timeout=timeout) as c:
+        r = await c.request(method, f"http://{browser_host(agent_id)}:9377{path}", headers={"Authorization": f"Bearer {api_key}"}, **kw)
+    try:
+        return r.json() | {"http_status": r.status_code}
+    except ValueError:
+        return {"http_status": r.status_code}
+
+
 async def ensure_browser(agent_id: str) -> None:
     api_key, vnc_password = browser_secrets(agent_id)
     await _launcher("POST", f"/agents/{agent_id}/browser", json={"api_key": api_key, "vnc_password": vnc_password})
@@ -158,16 +177,71 @@ async def configure(agent_id: str, model: dict, role: str | None = None) -> None
     # Navigateur Camoufox (anti-détection), profil et cookies gardés entre les sessions.
     browser = cfg.setdefault("browser", {})
     browser["cloud_provider"] = "camofox"
-    browser.setdefault("camofox", {})["managed_persistence"] = True
+    camofox = browser.setdefault("camofox", {})
+    camofox["managed_persistence"] = True
+    # Un seul onglet nommé, partagé avec l'écran d'Apollo (qui peut le rouvrir quand l'écran est vide).
+    camofox["user_id"] = BROWSER_USER
+    camofox["session_key"] = BROWSER_USER
+    camofox["adopt_existing_tab"] = True
     # Les commandes de l'agent démarrent dans son espace de travail, pas au milieu de sa config.
     cfg.setdefault("terminal", {})["cwd"] = "/opt/data/workspace"
     files["config.yaml"] = yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True)
 
     if role is not None:
         files["SOUL.md"] = role.strip() + "\n"
+    files["apollo.py"] = AGENT_TOOL.replace("__TOKEN__", token_for(agent_id))
 
     await _launcher("PUT", f"/agents/{agent_id}/files", json={"files": files})
     await restart(agent_id)
+
+
+# Outil en ligne de commande posé dans la machine de l'agent : il parle au serveur avec le jeton de relais.
+AGENT_TOOL = r'''#!/usr/bin/env python3
+"""Outil de l'agent pour parler à Apollo : diagnostic, navigateur, fils de travail."""
+import json
+import sys
+import urllib.error
+import urllib.request
+
+URL = "http://apollo-server:8080/agent-api"
+TOKEN = "__TOKEN__"
+AIDE = """Utilisation : python3 /opt/data/apollo.py <commande>
+  etat                         diagnostic (navigateur, écran, budget) avec un conseil
+  navigateur reveiller         rallume le navigateur et son écran
+  navigateur redemarrer        redémarre le navigateur (écran noir, figé, injoignable) ; profil et cookies gardés
+  fil "Titre" "consigne"       ouvre un fil de travail parallèle, visible par l'utilisateur dans Détails
+  fil-etat <id>                état et dernière réponse d'un fil"""
+
+
+def call(method, path, body=None):
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(URL + path, data=data, method=method,
+                                 headers={"Authorization": "Bearer " + TOKEN, "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r:
+            return json.load(r)
+    except urllib.error.HTTPError as e:
+        return {"erreur": e.read().decode(errors="replace")[:500]}
+    except OSError as e:
+        return {"erreur": "Apollo injoignable : %s" % e}
+
+
+a = sys.argv[1:]
+if a[:1] == ["etat"]:
+    out = call("GET", "/etat")
+elif a[:2] == ["navigateur", "reveiller"]:
+    out = call("POST", "/navigateur/reveiller")
+elif a[:2] == ["navigateur", "redemarrer"]:
+    out = call("POST", "/navigateur/redemarrer")
+elif a[:1] == ["fil"] and len(a) >= 3:
+    out = call("POST", "/fils", {"titre": a[1], "consigne": " ".join(a[2:])})
+elif a[:1] == ["fil-etat"] and len(a) == 2:
+    out = call("GET", "/fils/" + a[1])
+else:
+    print(AIDE)
+    sys.exit(0)
+print(json.dumps(out, ensure_ascii=False, indent=2))
+'''
 
 
 # --- Gateway Hermes ---------------------------------------------------------------

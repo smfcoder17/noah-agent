@@ -4,7 +4,7 @@
 :root {
   --background: #f6f7f9;
   --surface: #ffffff;
-  --sidebar: #eef1f5;
+  --sidebar: #eef0f4;
   --muted: #eceff3;
   --border: #dde2e8;
   --foreground: #141b24;
@@ -12,10 +12,10 @@
   --accent: #2a47c9;
   --accent-foreground: #ffffff;
   --accent-soft: #e4e9fb;
-  --warn: #b4541a;
-  --warn-soft: #f9e8dc;
+  --warn: #b45309;
+  --warn-soft: #fdf1e3;
   --danger: #b42318;
-  --ok: #12b76a;
+  --ok: #13804b;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
@@ -53,8 +53,8 @@
   --color-warn-soft: var(--warn-soft);
   --color-danger: var(--danger);
   --color-ok: var(--ok);
-  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
-  --font-mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+  --font-sans: "Geist", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
 }
 
 html, body, #root { height: 100%; }

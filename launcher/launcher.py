@@ -55,6 +55,8 @@ class NewAgent(BaseModel):
 BROWSER_IMAGE = os.environ.get("BROWSER_IMAGE", "ghcr.io/jo-inc/camofox-browser:latest")
 BROWSER_PREFIX = "apollo-browser-"
 BROWSER_LABEL = "apollo.browser"
+# Version des réglages du navigateur ; un conteneur plus ancien est recréé (le profil reste dans son volume).
+BROWSER_VERSION = "3"
 
 
 class BrowserKeys(BaseModel):
@@ -73,9 +75,11 @@ def ensure_browser(agent_id: str, body: BrowserKeys):
     name = BROWSER_PREFIX + agent_id
     try:
         c = client.containers.get(name)
-        if c.status != "running":
-            c.start()
-        return {"host": name, "created": False}
+        if c.labels.get("apollo.browser.version") == BROWSER_VERSION:
+            if c.status != "running":
+                c.start()
+            return {"host": name, "created": False}
+        c.remove(force=True)
     except NotFound:
         pass
     client.containers.run(
@@ -83,7 +87,7 @@ def ensure_browser(agent_id: str, body: BrowserKeys):
         name=name,
         hostname=name,
         detach=True,
-        labels={BROWSER_LABEL: agent_id},
+        labels={BROWSER_LABEL: agent_id, "apollo.browser.version": BROWSER_VERSION},
         environment={
             "CAMOFOX_PORT": "9377",
             "CAMOFOX_BIND_HOST": "0.0.0.0",
@@ -92,11 +96,16 @@ def ensure_browser(agent_id: str, body: BrowserKeys):
             "CAMOFOX_COOKIES_DIR": "/data/cookies",
             "CAMOFOX_CRASH_REPORT_ENABLED": "false",
             "ENABLE_VNC": "1",
-            "VNC_RESOLUTION": "1280x800",
+            "VNC_RESOLUTION": "1920x1080",  # taille de la fenêtre Camoufox : rien n'est coupé à l'écran
             "VNC_PASSWORD": body.vnc_password,
             "VNC_BIND": "0.0.0.0",
             "NOVNC_PORT": "6080",
             "MAX_OLD_SPACE_SIZE": "256",
+            # Par défaut, Camoufox ferme une session après 10 min sans appel et s'éteint 5 min plus tard,
+            # même quand l'utilisateur a la main sur l'écran. On garde l'onglet 1 h et la session 2 h.
+            "TAB_INACTIVITY_MS": "3600000",
+            "SESSION_TIMEOUT_MS": "7200000",
+            "BROWSER_IDLE_TIMEOUT_MS": "1800000",
         },
         volumes={name: {"bind": "/data", "mode": "rw"}},
         network=NETWORK,
@@ -107,6 +116,20 @@ def ensure_browser(agent_id: str, body: BrowserKeys):
         security_opt=["no-new-privileges"],
     )
     return {"host": name, "created": True}
+
+
+@app.post("/agents/{agent_id}/browser/restart", dependencies=[Depends(auth)])
+def restart_browser(agent_id: str):
+    """Redémarre le conteneur du navigateur (écran figé, navigateur planté). Profil et cookies restent."""
+    check_id(agent_id)
+    try:
+        c = client.containers.get(BROWSER_PREFIX + agent_id)
+    except NotFound:
+        raise HTTPException(404, "Navigateur introuvable")
+    if c.labels.get(BROWSER_LABEL) != agent_id:
+        raise HTTPException(403, "Ce conteneur n'est pas un navigateur Apollo")
+    c.restart(timeout=10)
+    return {"ok": True}
 
 
 # --- Fichiers de l'espace de travail ----------------------------------------------
@@ -218,6 +241,10 @@ def create(agent_id: str, body: NewAgent):
     return {"id": agent_id, "host": PREFIX + agent_id}
 
 
+# Fichiers que le serveur peut écrire dans /opt/data : config d'Hermes, rôle, et l'outil `apollo.py` de l'agent.
+CONFIG_FILES = (".env", "config.yaml", "SOUL.md", "apollo.py")
+
+
 class Files(BaseModel):
     # chemin relatif dans /opt/data -> contenu texte
     files: dict[str, str]
@@ -226,7 +253,7 @@ class Files(BaseModel):
 @app.get("/agents/{agent_id}/files/{name}", dependencies=[Depends(auth)])
 def read_file(agent_id: str, name: str):
     check_id(agent_id)
-    if name not in (".env", "config.yaml", "SOUL.md"):
+    if name not in CONFIG_FILES:
         raise HTTPException(400, "Fichier non autorisé")
     try:
         stream, _ = container(agent_id).get_archive(f"{DATA}/{name}")
@@ -241,7 +268,7 @@ def read_file(agent_id: str, name: str):
 def write_files(agent_id: str, body: Files):
     check_id(agent_id)
     for name in body.files:
-        if name not in (".env", "config.yaml", "SOUL.md"):
+        if name not in CONFIG_FILES:
             raise HTTPException(400, f"Fichier non autorisé : {name}")
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w") as tar:
@@ -249,7 +276,7 @@ def write_files(agent_id: str, body: Files):
             data = content.encode()
             info = tarfile.TarInfo(name)
             info.size = len(data)
-            info.mode = 0o644
+            info.mode = 0o755 if name.endswith(".py") else 0o644
             info.mtime = int(time.time())
             tar.addfile(info, io.BytesIO(data))
     container(agent_id).put_archive(DATA, buf.getvalue())

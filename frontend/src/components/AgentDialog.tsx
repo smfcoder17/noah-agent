@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { type Agent, del, send } from "@/lib/api";
+import { cn } from "@/lib/utils";
+import { NOAH_COLORS, NoahTile, agentColor } from "./Noah";
 import { Button, Dialog, DialogContent, ErrorText, Input, Label, Textarea } from "./ui";
 
 export function AgentDialog({
@@ -19,7 +21,7 @@ export function AgentDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       {open && (
         <DialogContent
-          title={agent ? `Réglages de ${agent.name}` : "Nouvel agent"}
+          title={agent ? `Personnaliser ${agent.name}` : "Nouvel agent"}
           description="Chaque agent a sa propre machine, son navigateur, sa mémoire et ses fichiers."
         >
           <AgentForm key={agent?.id ?? "new"} agent={agent} onSaved={onSaved} onDeleted={onDeleted} onCancel={() => onOpenChange(false)} />
@@ -32,6 +34,7 @@ export function AgentDialog({
 function AgentForm({ agent, onSaved, onDeleted, onCancel }: { agent: Agent | null; onSaved: (id: string) => void; onDeleted: () => void; onCancel: () => void }) {
   const [name, setName] = useState(agent?.name ?? "");
   const [role, setRole] = useState(agent?.role ?? "");
+  const [color, setColor] = useState(agent ? agentColor(agent) : NOAH_COLORS[0].hex);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(false);
@@ -40,13 +43,13 @@ function AgentForm({ agent, onSaved, onDeleted, onCancel }: { agent: Agent | nul
     e.preventDefault();
     setBusy(true);
     try {
-      if (agent) {
+      // Le nom et le rôle redémarrent l'agent ; la couleur seule non.
+      let id = agent?.id;
+      if (!agent) id = (await send<{ id: string }>("/api/agents", { name: name.trim(), role: role.trim() })).id;
+      else if (name.trim() !== agent.name || role.trim() !== agent.role)
         await send(`/api/agents/${agent.id}`, { name: name.trim(), role: role.trim() }, "PATCH");
-        onSaved(agent.id);
-      } else {
-        const { id } = await send<{ id: string }>("/api/agents", { name: name.trim(), role: role.trim() });
-        onSaved(id);
-      }
+      await send(`/api/agents/${id}/look`, { color }, "PATCH");
+      onSaved(id!);
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);
@@ -63,9 +66,30 @@ function AgentForm({ agent, onSaved, onDeleted, onCancel }: { agent: Agent | nul
 
   return (
     <form onSubmit={save} className="flex flex-col gap-4">
+      <div className="flex items-center gap-4">
+        <NoahTile color={color} className="size-20" />
+        <fieldset className="flex flex-col gap-2">
+          <legend className="mb-2 text-sm font-medium">Couleur</legend>
+          <div className="flex flex-wrap gap-2">
+            {NOAH_COLORS.map((c) => (
+              <button
+                key={c.hex}
+                type="button"
+                aria-label={c.name}
+                aria-pressed={color === c.hex}
+                title={c.name}
+                onClick={() => setColor(c.hex)}
+                className={cn("size-7 cursor-pointer rounded-full ring-offset-2 ring-offset-surface", color === c.hex && "ring-2 ring-foreground")}
+                style={{ background: c.hex }}
+              />
+            ))}
+          </div>
+          <span className="text-xs text-muted-foreground">Accessoires (lunettes, nœud…) : bientôt.</span>
+        </fieldset>
+      </div>
       <Label>
         Nom
-        <Input required maxLength={40} placeholder="Ex. Courriel, Recherche" value={name} onChange={(e) => setName(e.target.value)} />
+        <Input required maxLength={40} placeholder="Ex. Noah, Dots, Grok Bot" value={name} onChange={(e) => setName(e.target.value)} />
       </Label>
       <Label>
         Rôle et consignes

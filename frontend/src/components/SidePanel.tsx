@@ -1,8 +1,10 @@
 // Panneau de droite : Détails de l'agent, ses Fichiers, et son Ordinateur (écran du navigateur en direct).
-import { Download, ExternalLink, Eye, Hand, MonitorPlay, RefreshCw, X } from "lucide-react";
+import { Archive, ArchiveRestore, ChevronDown, Download, ExternalLink, Eye, Hand, Loader2, MonitorPlay, Power, RefreshCw, Sunrise, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { type Agent, get, mediaUrl, rawFileUrl, type Usage, type WorkspaceFile } from "@/lib/api";
+import { type Agent, type Conversation, get, mediaUrl, rawFileUrl, send, type Usage, type WorkspaceFile } from "@/lib/api";
 import { cn, fileSize, money } from "@/lib/utils";
+import { NoahTile, agentColor } from "./Noah";
+import { STATE_WORD, StateShape } from "./Sidebar";
 import { Button, Dialog, DialogContent, Tabs, TabsContent, TabsList, TabsTrigger } from "./ui";
 
 export type PanelTab = "details" | "files" | "computer";
@@ -15,6 +17,10 @@ export function SidePanel({
   onClose,
   onEditAgent,
   refreshKey,
+  threads,
+  threadId,
+  onOpenThread,
+  onArchiveThread,
 }: {
   agent: Agent;
   model: string;
@@ -23,6 +29,10 @@ export function SidePanel({
   onClose: () => void;
   onEditAgent: () => void;
   refreshKey: number;
+  threads: Conversation[];
+  threadId: string | null;
+  onOpenThread: (id: string | null) => void;
+  onArchiveThread: (id: string, archived: boolean) => void;
 }) {
   return (
     <Tabs value={tab} onValueChange={(v) => onTab(v as PanelTab)} className="flex h-full min-h-0 flex-col gap-3 p-3 pt-[max(12px,env(safe-area-inset-top))]">
@@ -35,7 +45,9 @@ export function SidePanel({
         <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Fermer le panneau"><X /></Button>
       </div>
       <TabsContent value="details" className="min-h-0 flex-1 overflow-y-auto">
-        <Details agent={agent} model={model} onEdit={onEditAgent} refreshKey={refreshKey} />
+        <Details agent={agent} model={model} onEdit={onEditAgent} refreshKey={refreshKey}>
+          <Threads threads={threads} threadId={threadId} onOpen={onOpenThread} onArchive={onArchiveThread} />
+        </Details>
       </TabsContent>
       <TabsContent value="files" className="min-h-0 flex-1 overflow-y-auto">
         <Files agentId={agent.id} refreshKey={refreshKey} />
@@ -56,7 +68,7 @@ function Stat({ label, value }: { label: string; value: string | number }) {
   );
 }
 
-function Details({ agent, model, onEdit, refreshKey }: { agent: Agent; model: string; onEdit: () => void; refreshKey: number }) {
+function Details({ agent, model, onEdit, refreshKey, children }: { agent: Agent; model: string; onEdit: () => void; refreshKey: number; children: React.ReactNode }) {
   const [usage, setUsage] = useState<Usage | null>(null);
   useEffect(() => {
     get<Usage>("/api/usage").then(setUsage).catch(() => {});
@@ -66,14 +78,13 @@ function Details({ agent, model, onEdit, refreshKey }: { agent: Agent; model: st
   return (
     <div className="flex flex-col gap-4 px-1">
       <div className="flex items-center gap-3">
-        <div className="grid size-12 place-items-center rounded-full bg-accent text-lg font-semibold text-accent-foreground">
-          {agent.name.slice(0, 1).toUpperCase()}
-        </div>
+        <NoahTile color={agentColor(agent)} className="size-14" />
         <div className="min-w-0">
           <p className="truncate font-semibold">{agent.name}</p>
           <p className="text-sm text-muted-foreground">{agent.step || (agent.online ? "En ligne" : "Hors ligne")}</p>
         </div>
       </div>
+      {children}
       <div className="text-sm"><span className="text-muted-foreground">Modèle : </span><span className="font-mono text-[13px]">{model || "—"}</span></div>
       <div className="grid grid-cols-2 gap-2">
         <Stat label="Coût ce mois-ci" value={`${money(mine?.cost ?? 0)} $`} />
@@ -85,8 +96,83 @@ function Details({ agent, model, onEdit, refreshKey }: { agent: Agent; model: st
         <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Rôle</span>
         <p className="text-sm whitespace-pre-wrap">{agent.role || "Aucun rôle précis."}</p>
       </div>
-      <Button variant="outline" onClick={onEdit}>Modifier le nom et le rôle</Button>
+      <Button variant="outline" onClick={onEdit}>Personnaliser (nom, couleur, rôle)</Button>
     </div>
+  );
+}
+
+/** Fils de l'agent : travaux parallèles qu'il a ouverts. Les vieux et les archivés restent repliés. */
+function Threads({
+  threads,
+  threadId,
+  onOpen,
+  onArchive,
+}: {
+  threads: Conversation[];
+  threadId: string | null;
+  onOpen: (id: string | null) => void;
+  onArchive: (id: string, archived: boolean) => void;
+}) {
+  const [showArchived, setShowArchived] = useState(false);
+  const active = threads.filter((t) => !t.archived);
+  const archived = threads.filter((t) => t.archived);
+  const row = (t: Conversation) => (
+    <div key={t.id} className={cn("group flex items-center gap-1 rounded-lg hover:bg-muted", t.id === threadId && "bg-muted")}>
+      <button
+        type="button"
+        onClick={() => onOpen(t.id === threadId ? null : t.id)}
+        aria-current={t.id === threadId ? "page" : undefined}
+        className="flex min-w-0 flex-1 cursor-pointer flex-col gap-0.5 px-2.5 py-1.5 text-left"
+      >
+        <span className="truncate text-sm">{t.title}</span>
+        <span
+          className={cn(
+            "flex items-center gap-1.5 text-xs",
+            t.state === "approve" || t.state === "choice" ? "font-medium text-warn" : "text-muted-foreground",
+          )}
+        >
+          <StateShape state={t.state} />
+          {STATE_WORD[t.state] || "en pause"}
+          {t.origin === "agent" && <span className="text-muted-foreground"> · ouvert par l'agent</span>}
+        </span>
+      </button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+        onClick={() => onArchive(t.id, !t.archived)}
+        aria-label={t.archived ? `Désarchiver « ${t.title} »` : `Archiver « ${t.title} »`}
+        title={t.archived ? "Désarchiver" : "Archiver"}
+      >
+        {t.archived ? <ArchiveRestore /> : <Archive />}
+      </Button>
+    </div>
+  );
+  return (
+    <section className="flex flex-col gap-1">
+      <h3 className="flex items-baseline justify-between text-xs font-medium tracking-wide text-muted-foreground uppercase">
+        Fils de travail <span className="normal-case tracking-normal">{active.length || ""}</span>
+      </h3>
+      {active.length ? (
+        active.map(row)
+      ) : (
+        <p className="text-sm text-muted-foreground">Aucun fil en cours. L'agent en ouvre un quand il mène un travail en parallèle.</p>
+      )}
+      {archived.length > 0 && (
+        <>
+          <button
+            type="button"
+            aria-expanded={showArchived}
+            onClick={() => setShowArchived(!showArchived)}
+            className="mt-1 flex cursor-pointer items-center gap-1.5 self-start rounded-md px-1 py-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+          >
+            <ChevronDown className={cn("size-3.5 transition-transform", !showArchived && "-rotate-90")} />
+            Archivés ({archived.length})
+          </button>
+          {showArchived && <div className="flex flex-col gap-0.5 opacity-80">{archived.map(row)}</div>}
+        </>
+      )}
+    </section>
   );
 }
 
@@ -178,26 +264,28 @@ function Files({ agentId, refreshKey }: { agentId: string; refreshKey: number })
   );
 }
 
+type ScreenStatus = { awake: boolean; reachable: boolean; running: boolean; tabs: number };
+
 function Computer({ agentId }: { agentId: string }) {
   const [control, setControl] = useState(false);
   const [url, setUrl] = useState("");
   const [nonce, setNonce] = useState(0);
-  const [awake, setAwake] = useState<boolean | null>(null);
+  const [status, setStatus] = useState<ScreenStatus | null>(null);
+  const [fixing, setFixing] = useState<"wake" | "restart" | null>(null);
+  const [fixError, setFixError] = useState("");
 
-  // L'écran n'existe que quand le navigateur tourne : il s'éteint après quelques minutes sans activité.
+  const poll = useCallback(
+    () =>
+      get<ScreenStatus>(`/api/agents/${agentId}/screen-status`)
+        .then(setStatus)
+        .catch(() => setStatus({ awake: false, reachable: false, running: false, tabs: 0 })),
+    [agentId],
+  );
   useEffect(() => {
-    let cancelled = false;
-    const poll = () =>
-      get<{ awake: boolean }>(`/api/agents/${agentId}/screen-status`)
-        .then((s) => !cancelled && setAwake(s.awake))
-        .catch(() => !cancelled && setAwake(false));
     poll();
     const t = setInterval(poll, 3000);
-    return () => {
-      cancelled = true;
-      clearInterval(t);
-    };
-  }, [agentId]);
+    return () => clearInterval(t);
+  }, [poll]);
 
   useEffect(() => {
     let cancelled = false;
@@ -209,30 +297,76 @@ function Computer({ agentId }: { agentId: string }) {
     };
   }, [agentId, control, nonce]);
 
+  const fix = async (how: "wake" | "restart") => {
+    setFixing(how);
+    setFixError("");
+    try {
+      const s = await send<{ ecran_actif: boolean; conseil: string }>(`/api/agents/${agentId}/browser/${how}`, {});
+      if (!s.ecran_actif) setFixError(s.conseil);
+      setNonce((n) => n + 1);
+    } catch (e) {
+      setFixError((e as Error).message);
+    } finally {
+      setFixing(null);
+      poll();
+    }
+  };
+
+  // Sans page ouverte, l’écran est noir : on le traite comme en veille.
+  const awake = !!status?.awake;
+  const visible = awake && (status?.tabs ?? 0) > 0;
   return (
     <>
       <div className={cn("relative min-h-64 flex-1 overflow-hidden rounded-xl border border-border bg-[#0b0f14]", control && awake && "ring-3 ring-warn")}>
-        {url && awake ? (
+        {url && visible && !fixing ? (
           <iframe key={`${url}-${nonce}`} src={url} title="Écran de l'agent" className="absolute inset-0 size-full border-0" />
         ) : (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-6 text-center text-[#e6ebf0]">
-            <MonitorPlay className="size-8 opacity-60" />
-            <strong>{awake === null ? "Connexion à l'écran…" : "L'ordinateur est en veille"}</strong>
-            {awake === false && (
-              <span className="max-w-xs text-sm opacity-70">
-                Le navigateur s'allume dès que l'agent en a besoin. Demande-lui d'ouvrir une page pour le voir ici.
-              </span>
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center text-[#e6ebf0]">
+            {fixing ? <Loader2 className="size-8 animate-spin opacity-70" /> : <MonitorPlay className="size-8 opacity-60" />}
+            <strong>
+              {fixing === "wake"
+                ? "Réveil du navigateur…"
+                : fixing === "restart"
+                  ? "Redémarrage du navigateur…"
+                  : status === null
+                    ? "Connexion à l'écran…"
+                    : !status.reachable
+                      ? "Le navigateur ne répond pas"
+                      : awake
+                        ? "Aucune page ouverte"
+                        : "Le navigateur est en veille"}
+            </strong>
+            {!fixing && status && (
+              <>
+                <span className="max-w-xs text-sm opacity-70">
+                  {status.reachable
+                    ? "Il s'éteint après un moment sans activité et se rallume dès que l'agent navigue."
+                    : "Son conteneur est arrêté ou planté. Un redémarrage garde tes sessions connectées."}
+                </span>
+                <div className="flex flex-wrap justify-center gap-2">
+                  {status.reachable && (
+                    <Button onClick={() => fix("wake")}><Sunrise />{awake ? "Ouvrir une page" : "Réveiller"}</Button>
+                  )}
+                  <Button variant={status.reachable ? "outline" : "default"} className={status.reachable ? "border-white/30 bg-transparent text-white hover:bg-white/10" : ""} onClick={() => fix("restart")}>
+                    <Power />Redémarrer
+                  </Button>
+                </div>
+              </>
             )}
+            {fixError && <span className="max-w-xs text-sm text-[#fbbf8a]">{fixError}</span>}
           </div>
         )}
       </div>
       <div className="flex flex-wrap gap-2">
-        <Button variant={control ? "warn" : "default"} onClick={() => setControl(!control)}>
+        <Button variant={control ? "warn" : "default"} onClick={() => setControl(!control)} disabled={!visible}>
           <Hand />{control ? "Rendre la main à l'agent" : "Prendre le contrôle"}
         </Button>
-        <Button variant="outline" onClick={() => setNonce((n) => n + 1)}><RefreshCw />Rafraîchir</Button>
-        {url && (
-          <Button variant="outline" asChild>
+        <Button variant="outline" onClick={() => setNonce((n) => n + 1)}><RefreshCw />Rafraîchir l'écran</Button>
+        {awake && (
+          <Button variant="ghost" onClick={() => fix("restart")} disabled={!!fixing}><Power />Redémarrer le navigateur</Button>
+        )}
+        {url && visible && (
+          <Button variant="ghost" asChild>
             <a href={url} target="_blank" rel="noopener"><ExternalLink />Plein écran</a>
           </Button>
         )}

@@ -66,6 +66,20 @@ def init() -> None:
         columns = {r["name"] for r in db.execute("PRAGMA table_info(usage)")}
         if "cached_tokens" not in columns:
             db.execute("ALTER TABLE usage ADD COLUMN cached_tokens INTEGER NOT NULL DEFAULT 0")
+        _add_columns(db, "agents", {"color": "TEXT NOT NULL DEFAULT ''", "pinned": "INTEGER NOT NULL DEFAULT 0"})
+        # main = la conversation unique avec l'agent ; les autres sont des fils (ouverts par l'agent ou anciens).
+        _add_columns(db, "conversations", {
+            "main": "INTEGER NOT NULL DEFAULT 0",
+            "archived": "INTEGER NOT NULL DEFAULT 0",
+            "origin": "TEXT NOT NULL DEFAULT 'user'",
+        })
+
+
+def _add_columns(db, table: str, wanted: dict[str, str]) -> None:
+    have = {r["name"] for r in db.execute(f"PRAGMA table_info({table})")}
+    for name, decl in wanted.items():
+        if name not in have:
+            db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
 
 
 @contextmanager
