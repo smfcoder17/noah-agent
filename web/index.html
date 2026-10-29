@@ -41,16 +41,27 @@
   </template>
 
   <template id="tpl-model">
-    <form class="card" id="form-model">
-      <h1>Le cerveau de tes agents</h1>
-      <p class="muted">La clé est chiffrée sur cette machine et n'est envoyée qu'au fournisseur choisi.</p>
+    <form class="card wide" id="form-model">
+      <div>
+        <h1>Le cerveau de tes agents</h1>
+        <p class="muted">La clé reste chiffrée sur cette machine. Les agents ne la voient jamais : ils passent par Apollo.</p>
+      </div>
       <div class="providers" id="providers" role="radiogroup" aria-label="Fournisseur"></div>
-      <label id="key-field">Clé API <input id="api-key" type="password" autocomplete="off"></label>
-      <label>Modèle <input id="model" required></label>
+      <div class="key-row" id="key-field">
+        <label>Clé API <input id="api-key" type="password" autocomplete="off"></label>
+        <button type="button" class="ghost" id="load-models">Afficher les modèles</button>
+      </div>
+      <input type="search" id="model-search" placeholder="Rechercher un modèle (ex. claude, gemini, deepseek)…" aria-label="Rechercher un modèle">
+      <div class="catalog" id="catalog"><p class="muted">Chargement des modèles…</p></div>
+      <div class="picked">
+        <div><span class="muted">Modèle choisi</span><strong id="picked-name">aucun</strong></div>
+        <label class="budget">Budget mensuel ($) <input id="budget" type="number" min="0" step="1" placeholder="Illimité"></label>
+      </div>
+      <p class="usage muted" id="usage-line" hidden></p>
       <p class="error" hidden></p>
       <div class="row end">
         <button type="button" class="ghost" id="model-cancel" hidden>Annuler</button>
-        <button type="submit">Enregistrer</button>
+        <button type="submit" id="model-save">Enregistrer</button>
       </div>
     </form>
   </template>
@@ -86,7 +97,8 @@
           <ul class="list" id="conversations"></ul>
         </div>
         <div class="side-foot">
-          <button type="button" class="link" id="open-model">Modèle : <span id="model-name">…</span></button>
+          <button type="button" class="link" id="open-model">Modèle et budget : <span id="model-name">…</span></button>
+          <span class="muted small" id="spend"></span>
           <button type="button" class="link" id="logout">Se déconnecter</button>
         </div>
       </aside>

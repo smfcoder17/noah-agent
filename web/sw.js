@@ -1,6 +1,6 @@
 // Service worker minimal : rend l'app installable et garde la coquille hors ligne.
 // Les appels /api/ passent toujours au réseau (données toujours fraîches).
-const CACHE = "apollo-v1";
+const CACHE = "apollo-v2";
 const SHELL = ["/", "/assets/style.css", "/assets/app.js", "/assets/icon.svg"];
 
 self.addEventListener("install", (e) => {

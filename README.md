@@ -42,11 +42,22 @@ Les modèles `:cloud` d'Ollama fonctionnent aussi. Choisis un modèle qui gère 
 Les données sont dans les volumes Docker `apollo_apollo-data` (compte, clé chiffrée, historique)
 et `apollo-agent-*` (un par agent). `sh scripts/reset.sh` efface tout.
 
+## Relais de modèle et budget
+
+Les agents n'ont jamais la clé du fournisseur. Ils appellent `apollo-server` (`/relay/v1`, compatible OpenAI)
+avec un jeton propre à chacun ; le serveur ajoute la clé, transmet la requête et enregistre les jetons
+et le coût de chaque appel (coût exact avec OpenRouter, estimé avec les prix publics sinon).
+Un budget mensuel optionnel bloque les appels une fois atteint. La dépense du mois s'affiche en bas
+de la colonne de gauche.
+
+## Images
+
+Quand un agent veut montrer une capture, il l'enregistre dans `/opt/data/workspace/captures/` et écrit
+`MEDIA:/chemin.png`. L'interface l'affiche dans la conversation. Le lanceur ne sert que des images,
+et seulement depuis les dossiers de travail de l'agent.
+
 ## Limites connues
 
-- La clé du fournisseur est copiée dans le conteneur de chaque agent : un agent manipulé
-  (par exemple par une page web piégée) pourrait la lire. Prochaine étape : un relais de modèle
-  dans le serveur, qui garde la clé et mesure les coûts.
 - Le lanceur a accès au socket Docker. Il n'expose qu'un petit vocabulaire, mais reste
   le composant le plus sensible.
 - Un seul compte administrateur pour l'instant.
@@ -55,7 +66,8 @@ et `apollo-agent-*` (un par agent). `sh scripts/reset.sh` efface tout.
 
 1. ~~Un agent derrière une interface simple.~~
 2. ~~Plusieurs agents, un conteneur chacun, historique, version mobile.~~
-3. Relais de modèle (clé hors des agents, budgets), navigateur visible et prise de contrôle.
+3. ~~Relais de modèle (clé hors des agents, budgets), choix du modèle par catalogue, images.~~
+   Navigateur Camoufox, vue en direct et prise de contrôle.
 4. Veille programmatique (collecte sans LLM, triage par petit modèle), Gmail et Agenda.
 5. Apps mobile et desktop, appairage par QR code, installation en une commande sur VPS.
 

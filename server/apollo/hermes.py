@@ -56,48 +56,52 @@ async def restart(agent_id: str) -> None:
     await _launcher("POST", f"/agents/{agent_id}/restart")
 
 
+async def media(agent_id: str, path: str) -> httpx.Response:
+    async with httpx.AsyncClient(timeout=30) as c:
+        return await c.get(f"{LAUNCHER_URL}/agents/{agent_id}/media", params={"path": path}, headers=LAUNCHER)
+
+
 async def _read(agent_id: str, name: str) -> str:
     return (await _launcher("GET", f"/agents/{agent_id}/files/{name}"))["content"]
 
 
 # --- Configuration du modèle et du rôle ------------------------------------------
 
+# "env" ne sert plus qu'à nettoyer d'anciennes clés dans les agents et à savoir si une clé est requise.
 PROVIDERS = {
     "openrouter": {"label": "OpenRouter", "env": "OPENROUTER_API_KEY", "model": "anthropic/claude-sonnet-4.5"},
     "anthropic": {"label": "Anthropic (Claude)", "env": "ANTHROPIC_API_KEY", "model": "claude-sonnet-4-5"},
     "openai": {"label": "OpenAI", "env": "OPENAI_API_KEY", "model": "gpt-5"},
     "gemini": {"label": "Google Gemini", "env": "GEMINI_API_KEY", "model": "gemini-2.5-pro"},
-    # Hermes traite Ollama comme un fournisseur "custom" compatible OpenAI.
-    "ollama": {"label": "Ollama", "env": None, "model": "gpt-oss:20b", "base_url": "http://host.docker.internal:11434/v1"},
+    "ollama": {"label": "Ollama", "env": None, "model": "gpt-oss:20b"},
 }
 
 
-def _set_env_line(text: str, key: str, value: str) -> str:
-    lines = [l for l in text.splitlines() if not l.startswith(f"{key}=")]
-    lines.append(f"{key}={value}")
+def _strip_provider_keys(text: str) -> str:
+    """Retire toute clé de fournisseur du .env de l'agent : elles restent dans le serveur."""
+    names = {p["env"] for p in PROVIDERS.values() if p["env"]}
+    lines = [l for l in text.splitlines() if l.split("=", 1)[0].strip() not in names]
     return "\n".join(lines) + "\n"
 
 
 async def configure(agent_id: str, model: dict, role: str | None = None) -> None:
-    """Écrit la clé, le modèle (et le rôle) dans les fichiers de l'agent, puis le redémarre.
+    """Branche l'agent sur le relais du serveur avec le modèle choisi (et son rôle), puis le redémarre.
 
-    `model` : {"provider", "model", "api_key", "base_url"}.
+    L'agent ne reçoit jamais la clé du fournisseur : seulement l'adresse du relais et son jeton.
     """
+    from .relay import RELAY_URL, token_for
+
     p = PROVIDERS[model["provider"]]
-    files: dict[str, str] = {}
-    if p["env"] and model.get("api_key"):
-        files[".env"] = _set_env_line(await _read(agent_id, ".env"), p["env"], model["api_key"])
+    files: dict[str, str] = {".env": _strip_provider_keys(await _read(agent_id, ".env"))}
 
     cfg = yaml.safe_load(await _read(agent_id, "config.yaml") or "{}") or {}
-    if model["provider"] == "ollama":
-        cfg["model"] = {
-            "provider": "custom",
-            "default": model.get("model") or p["model"],
-            "base_url": model.get("base_url") or p["base_url"],
-            "api_key": "none",
-        }
-    else:
-        cfg["model"] = {"provider": model["provider"], "default": model.get("model") or p["model"], "base_url": ""}
+    cfg["model"] = {
+        "provider": "custom",
+        "default": model.get("model") or p["model"],
+        "base_url": RELAY_URL,
+        "api_key": token_for(agent_id),
+        "api_mode": "chat_completions",
+    }
     # Les commandes de l'agent démarrent dans son espace de travail, pas au milieu de sa config.
     cfg.setdefault("terminal", {})["cwd"] = "/opt/data/workspace"
     files["config.yaml"] = yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True)

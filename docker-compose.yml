@@ -17,6 +17,9 @@ services:
       LAUNCHER_KEY: ${LAUNCHER_KEY}
     volumes:
       - apollo-data:/data
+    # Le relais de modèle joint Ollama sur la machine hôte.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks: [apollo]
     depends_on: [launcher]
 

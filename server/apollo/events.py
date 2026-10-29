@@ -39,6 +39,8 @@ def friendly_error(raw: str) -> str:
     text = raw.lower()
     if "401" in text or "authentication" in text or "api key" in text:
         return "Le fournisseur a refusé la clé API. Vérifie-la avec le bouton « Modèle »."
+    if "budget mensuel" in text:
+        return "Budget mensuel atteint. Augmente-le dans « Modèle et budget » pour continuer."
     if "402" in text or "credit" in text or "quota" in text:
         return "Le compte du fournisseur n'a plus de crédit ou a atteint sa limite."
     if "429" in text or "rate limit" in text:

@@ -12,7 +12,7 @@ import time
 
 import docker
 from docker.errors import NotFound
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from pydantic import BaseModel
 
 KEY = os.environ["LAUNCHER_KEY"]
@@ -128,6 +128,29 @@ def write_files(agent_id: str, body: Files):
             tar.addfile(info, io.BytesIO(data))
     container(agent_id).put_archive(DATA, buf.getvalue())
     return {"ok": True}
+
+
+MEDIA_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
+MEDIA_ROOTS = ("/opt/data/workspace/", "/opt/data/home/", "/opt/data/browser_screenshots/", "/opt/data/cache/", "/tmp/")
+MEDIA_MAX = 10 * 1024 * 1024
+
+
+@app.get("/agents/{agent_id}/media", dependencies=[Depends(auth)])
+def media(agent_id: str, path: str):
+    """Rend une image produite par l'agent (capture, graphique). Images seulement, dossiers de travail seulement."""
+    check_id(agent_id)
+    ext = os.path.splitext(path)[1].lower()
+    if ".." in path or ext not in MEDIA_TYPES or not path.startswith(MEDIA_ROOTS):
+        raise HTTPException(400, "Fichier non autorisé")
+    try:
+        stream, stat = container(agent_id).get_archive(path)
+    except NotFound:
+        raise HTTPException(404, "Image introuvable")
+    if stat["size"] > MEDIA_MAX:
+        raise HTTPException(413, "Image trop lourde")
+    with tarfile.open(fileobj=io.BytesIO(b"".join(stream))) as tar:
+        data = tar.extractfile(tar.getmembers()[0]).read()
+    return Response(data, media_type=MEDIA_TYPES[ext], headers={"Cache-Control": "private, max-age=86400"})
 
 
 @app.post("/agents/{agent_id}/restart", dependencies=[Depends(auth)])

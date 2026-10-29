@@ -4,24 +4,41 @@ import re
 import secrets
 import uuid
 
+import httpx
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import auth, db, events, hermes
+from . import auth, catalog, db, events, hermes, relay
 from .config import WEB_DIR
 from .hermes import Agent
 
 app = FastAPI(title="Apollo")
+app.include_router(relay.router)
 
 # Agents en cours de création : id -> message d'étape ou d'erreur affiché dans l'interface.
 provisioning: dict[str, str] = {}
 
+# Version du branchement des agents ; l'augmenter reconfigure tous les agents au démarrage.
+AGENT_SETUP_VERSION = "2-relay"
+
 
 @app.on_event("startup")
-def startup() -> None:
+async def startup() -> None:
     db.init()
+    if db.get_setting("agent_setup") != AGENT_SETUP_VERSION and current_model():
+        asyncio.create_task(_upgrade_agents())
+
+
+async def _upgrade_agents() -> None:
+    """Rebranche les agents existants sur le relais (et retire leurs anciennes clés)."""
+    for a in _agents():
+        agent = Agent(a["id"], a["api_key"])
+        if await _wait_online(agent, 60):
+            provisioning[a["id"]] = "Mise à jour de l'agent…"
+            await _provision(agent, _soul(a["name"], a["role"]))
+    db.set_setting("agent_setup", AGENT_SETUP_VERSION)
 
 
 # --- État, compte, connexion -------------------------------------------------------
@@ -102,6 +119,60 @@ def current_model() -> dict | None:
     }
 
 
+class ModelQuery(BaseModel):
+    provider: str
+    api_key: str | None = None
+
+
+@app.post("/api/models")
+async def list_models(body: ModelQuery, user: int = Depends(auth.current_user)):
+    """Modèles disponibles pour un fournisseur, avec les groupes recommandés."""
+    if body.provider not in hermes.PROVIDERS:
+        raise HTTPException(400, "Fournisseur inconnu")
+    key = body.api_key
+    if not key and db.get_setting("provider") == body.provider and db.get_setting("api_key"):
+        key = db.get_setting("api_key", secret=True)
+    try:
+        models = await catalog.models_for(body.provider, key)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code in (401, 403):
+            raise HTTPException(400, "Le fournisseur a refusé cette clé API.")
+        raise HTTPException(502, "Le fournisseur n'a pas répondu correctement. Réessaie.")
+    except httpx.HTTPError:
+        if body.provider == "ollama":
+            raise HTTPException(502, "Ollama est injoignable. Vérifie qu'il tourne sur cette machine.")
+        raise HTTPException(502, "Impossible de joindre le fournisseur.")
+    return {
+        "needs_key": not models and hermes.PROVIDERS[body.provider]["env"] is not None and not key,
+        "groups": catalog.groups(body.provider, models),
+        "models": sorted(models, key=lambda m: -m["created"]),
+    }
+
+
+# --- Consommation -------------------------------------------------------------------------
+
+@app.get("/api/usage")
+def usage(user: int = Depends(auth.current_user)):
+    with db.connect() as c:
+        rows = c.execute(
+            "SELECT u.agent_id, COALESCE(a.name, u.agent_id) AS name, SUM(u.cost) AS cost, "
+            "SUM(u.prompt_tokens + u.completion_tokens) AS tokens, COUNT(*) AS calls "
+            "FROM usage u LEFT JOIN agents a ON a.id = u.agent_id "
+            "WHERE u.created_at >= strftime('%Y-%m-01', 'now') GROUP BY u.agent_id ORDER BY cost DESC"
+        ).fetchall()
+    return {"month_cost": relay.month_cost(), "budget": relay.budget(), "agents": [dict(r) for r in rows]}
+
+
+class Budget(BaseModel):
+    monthly: float | None = Field(default=None, ge=0, le=100000)
+
+
+@app.post("/api/budget")
+def set_budget(body: Budget, user: int = Depends(auth.current_user)):
+    db.set_setting("budget_monthly", "" if body.monthly is None else str(body.monthly))
+    return {"ok": True}
+
+
 @app.get("/api/model")
 def get_model(user: int = Depends(auth.current_user)):
     m = current_model()
@@ -152,7 +223,10 @@ def _soul(name: str, role: str) -> str:
     """Identité donnée à l'agent : il se présente sous son nom, pas comme le moteur qui le fait tourner."""
     intro = (
         f"Tu t'appelles {name}. Tu es un agent personnel qui travaille pour l'utilisateur dans Apollo. "
-        "Présente-toi sous ce nom ; ne parle du logiciel ou du modèle qui te fait fonctionner que si on te le demande."
+        "Présente-toi sous ce nom ; ne parle du logiciel ou du modèle qui te fait fonctionner que si on te le demande.\n\n"
+        "Images : l'interface d'Apollo affiche les images. Pour montrer une capture d'écran ou une image, "
+        "copie-la dans /opt/data/workspace/captures/ avec un nom parlant (une capture peut être écrasée par la suivante), "
+        "puis écris sur sa propre ligne MEDIA:/opt/data/workspace/captures/nom.png"
     )
     return f"{intro}\n\n{role}" if role else intro
 
@@ -353,6 +427,15 @@ class ApprovalAnswer(BaseModel):
 async def approval(agent_id: str, run_id: str, body: ApprovalAnswer, user: int = Depends(auth.current_user)):
     await hermes.answer_approval(_agent(agent_id), run_id, body.request_id, body.generation, body.approve)
     return {"ok": True}
+
+
+@app.get("/api/agents/{agent_id}/media")
+async def agent_media(agent_id: str, path: str, user: int = Depends(auth.current_user)):
+    _agent(agent_id)
+    r = await hermes.media(agent_id, path)
+    if r.status_code != 200:
+        raise HTTPException(r.status_code, "Image indisponible")
+    return Response(r.content, media_type=r.headers.get("content-type"), headers={"Cache-Control": "private, max-age=86400"})
 
 
 @app.post("/api/agents/{agent_id}/runs/{run_id}/stop")
