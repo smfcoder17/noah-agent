@@ -42,6 +42,21 @@ Les modèles `:cloud` d'Ollama fonctionnent aussi. Choisis un modèle qui gère 
 Les données sont dans les volumes Docker `apollo_apollo-data` (compte, clé chiffrée, historique)
 et `apollo-agent-*` (un par agent). `sh scripts/reset.sh` efface tout.
 
+## Interface
+
+`frontend/` : Vite + React + TypeScript + Tailwind, avec [assistant-ui](https://www.assistant-ui.com)
+pour le chat (runtime « external store » branché sur nos événements SSE) et des composants
+dans l'esprit de shadcn/ui. L'image Docker du serveur la compile et la sert ; rien à installer
+pour l'utilisateur.
+
+Pour la développer avec rechargement à chaud (le serveur Apollo doit tourner dans Docker) :
+
+```sh
+cd frontend && npm install && npm run dev
+```
+
+puis ouvre http://localhost:5173 (l'API et l'écran noVNC sont relayés vers le port 8080).
+
 ## Relais de modèle et budget
 
 Les agents n'ont jamais la clé du fournisseur. Ils appellent `apollo-server` (`/relay/v1`, compatible OpenAI)
@@ -94,7 +109,7 @@ et seulement depuis les dossiers de travail de l'agent.
 2. ~~Plusieurs agents, un conteneur chacun, historique, version mobile.~~
 3. ~~Relais de modèle (clé hors des agents, budgets), choix du modèle par catalogue, images.~~
    ~~Navigateur Camoufox, vue en direct et prise de contrôle, fichiers.~~
-   Nouvelle interface (assistant-ui + shadcn), modèle par agent.
+   ~~Nouvelle interface (assistant-ui + shadcn).~~ Modèle par agent.
 4. Veille programmatique (collecte sans LLM, triage par petit modèle), Gmail et Agenda.
 5. Apps mobile et desktop, appairage par QR code, installation en une commande sur VPS.
 

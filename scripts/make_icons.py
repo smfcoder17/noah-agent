@@ -1,6 +1,6 @@
-"""Génère les icônes PNG de la PWA (192 et 512 px) à partir du même dessin que web/icon.svg.
+"""Génère les icônes PNG de la PWA (192 et 512 px) à partir du même dessin que frontend/public/assets/icon.svg.
 
-Usage : docker run --rm -v "$PWD/web:/web" -v "$PWD/scripts:/s" python:3.12-slim \
+Usage : docker run --rm -v "$PWD/frontend/public/assets:/web" -v "$PWD/scripts:/s" python:3.12-slim \
           sh -c "pip install -q pillow && python /s/make_icons.py"
 """
 from PIL import Image, ImageDraw

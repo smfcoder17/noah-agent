@@ -538,6 +538,19 @@ def screen_url(agent_id: str, view_only: bool = False, user: int = Depends(auth.
     return {"url": f"{base}/vnc.html?{urlencode(params)}"}
 
 
+@app.get("/api/agents/{agent_id}/screen-status")
+async def screen_status(agent_id: str, user: int = Depends(auth.current_user)):
+    """Le navigateur s'éteint après quelques minutes sans activité ; son écran avec lui."""
+    _agent(agent_id)
+    api_key, _ = hermes.browser_secrets(agent_id)
+    try:
+        async with httpx.AsyncClient(timeout=5) as c:
+            r = await c.get(f"http://{hermes.browser_host(agent_id)}:9377/vnc/status", headers={"Authorization": f"Bearer {api_key}"})
+        return {"awake": bool(r.json().get("running")), "reachable": True}
+    except (httpx.HTTPError, ValueError):
+        return {"awake": False, "reachable": False}
+
+
 @app.get("/api/agents/{agent_id}/screen/{path:path}")
 async def screen_files(agent_id: str, path: str, request: Request, user: int = Depends(auth.current_user)):
     _agent(agent_id)
@@ -607,7 +620,8 @@ def _sse(obj: dict) -> str:
 # --- Interface web -------------------------------------------------------------------------
 
 if WEB_DIR.exists():
-    app.mount("/assets", StaticFiles(directory=WEB_DIR), name="assets")
+    # Fichiers compilés par Vite (noms avec empreinte) et icônes.
+    app.mount("/assets", StaticFiles(directory=WEB_DIR / "assets"), name="assets")
 
     @app.get("/")
     def index():
