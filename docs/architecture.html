@@ -1,0 +1,401 @@
+<title>Architecture de l'agent personnel</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@500;700;800&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout : plan d'architecture lu de haut en bas, une bande par couche, panneau de détail sous le schéma */
+:root{
+  --bg:#EDF0F3; --paper:#F8FAFB; --ink:#15202B; --muted:#5A6774; --line:#C5CED6;
+  --user:#2A47C9; --user-soft:#DFE5FA;
+  --core:#15202B; --core-soft:#DCE2E8;
+  --machine:#0E7C74; --machine-soft:#D4EDEA;
+  --ext:#7A5A1E; --ext-soft:#F1E7D2;
+  --warn:#B4541A; --warn-soft:#F7E2D3;
+  --on-core:#F8FAFB;
+  --f-display:"Schibsted Grotesk","Segoe UI",system-ui,sans-serif;
+  --f-body:"Source Sans 3","Segoe UI",system-ui,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0F151B; --paper:#17202A; --ink:#E4EAF0; --muted:#94A2B0; --line:#2C3946;
+  --user:#8FA6FF; --user-soft:#1C2850;
+  --core:#E4EAF0; --core-soft:#24303C;
+  --machine:#5CC9BE; --machine-soft:#123632;
+  --ext:#E0B76A; --ext-soft:#3A2E17;
+  --warn:#F09A62; --warn-soft:#40261A;
+  --on-core:#0F151B; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0F151B; --paper:#17202A; --ink:#E4EAF0; --muted:#94A2B0; --line:#2C3946;
+  --user:#8FA6FF; --user-soft:#1C2850;
+  --core:#E4EAF0; --core-soft:#24303C;
+  --machine:#5CC9BE; --machine-soft:#123632;
+  --ext:#E0B76A; --ext-soft:#3A2E17;
+  --warn:#F09A62; --warn-soft:#40261A;
+  --on-core:#0F151B; color-scheme:dark}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:400 16px/1.55 var(--f-body)}
+.wrap{max-width:1080px;margin:0 auto;padding-block:40px 64px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  display:flex;flex-direction:column;gap:56px}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;line-height:1.15}
+h1{font-size:clamp(30px,5vw,46px);font-weight:800;letter-spacing:-.02em}
+h2{font-size:24px;font-weight:700;letter-spacing:-.01em}
+h3{font-size:17px;font-weight:700}
+p{margin:0}
+.eyebrow{font:600 12px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.lede{max-width:64ch;color:var(--muted);font-size:18px}
+header{display:flex;flex-direction:column;gap:14px}
+.legend{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:6px}
+.legend span{display:inline-flex;align-items:center;gap:8px;font-size:14px;color:var(--muted)}
+.legend i{width:12px;height:12px;border-radius:3px;display:inline-block}
+section{display:flex;flex-direction:column;gap:18px}
+.sec-head{display:flex;flex-direction:column;gap:6px}
+.sec-head p{color:var(--muted);max-width:68ch}
+
+/* ---- Schéma ---- */
+.diagram{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:22px;
+  display:flex;flex-direction:column;
+  background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
+  background-size:24px 24px;background-position:-1px -1px}
+.diagram{background-color:var(--paper)}
+.tier{display:grid;grid-template-columns:150px 1fr;gap:16px;align-items:stretch}
+.tier-label{display:flex;flex-direction:column;justify-content:center;gap:4px;padding-right:4px}
+.tier-label b{font:700 15px/1.2 var(--f-display)}
+.tier-label small{font-size:13px;color:var(--muted);line-height:1.35}
+.tier-body{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));min-width:0}
+.node{appearance:none;font:inherit;color:inherit;text-align:left;cursor:pointer;
+  border:1.5px solid var(--c);background:var(--paper);border-radius:10px;padding:11px 13px;
+  display:flex;flex-direction:column;gap:3px;transition:transform .15s,box-shadow .15s,background .15s;min-width:0}
+.node:hover{transform:translateY(-2px);box-shadow:0 4px 0 var(--c-soft)}
+.node:focus-visible{outline:3px solid var(--user);outline-offset:2px}
+.node[aria-pressed="true"]{background:var(--c-soft);box-shadow:inset 0 0 0 1.5px var(--c)}
+.node b{font:700 15px/1.25 var(--f-display)}
+.node span{font-size:13px;color:var(--muted);line-height:1.35}
+.node code{font:600 11.5px/1.3 var(--f-mono);color:var(--c);margin-top:3px}
+.t-user{--c:var(--user);--c-soft:var(--user-soft)}
+.t-core{--c:var(--core);--c-soft:var(--core-soft)}
+.t-machine{--c:var(--machine);--c-soft:var(--machine-soft)}
+.t-ext{--c:var(--ext);--c-soft:var(--ext-soft)}
+.tier.t-core .tier-body{background:var(--core-soft);border-radius:12px;padding:10px}
+.link{display:grid;grid-template-columns:150px 1fr;gap:16px;height:46px}
+.link div{position:relative;display:flex;align-items:center;justify-content:center}
+.link div::before{content:"";position:absolute;left:50%;top:4px;bottom:4px;border-left:2px dashed var(--muted)}
+.link div::after{content:"";position:absolute;left:calc(50% - 5px);bottom:2px;border:5px solid transparent;border-top-color:var(--muted);border-bottom:0}
+.link em{position:relative;z-index:1;font:600 12px/1 var(--f-mono);font-style:normal;background:var(--paper);
+  color:var(--ink);border:1px solid var(--line);border-radius:999px;padding:6px 10px;white-space:nowrap}
+.machines{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+.machine{border:1.5px dashed var(--machine);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.machine header{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.machine header b{font:700 14px/1.2 var(--f-display)}
+.machine header span{font:600 11px/1 var(--f-mono);color:var(--machine)}
+.machine .node{padding:8px 10px}
+.machine.ghost{opacity:.6}
+
+/* ---- Panneau de détail ---- */
+.detail{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:24px;background:var(--paper);
+  border:1px solid var(--line);border-left:6px solid var(--dc,var(--core));border-radius:14px;padding:22px 24px}
+.detail .kicker{font:600 12px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--dc)}
+.detail h3{font-size:22px;margin:8px 0 10px}
+.detail p{color:var(--ink);max-width:60ch}
+.detail ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}
+.detail li{display:grid;grid-template-columns:96px 1fr;gap:10px;font-size:14.5px}
+.detail li b{font:600 12px/1.6 var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font:600 12px/1 var(--f-mono);padding:5px 8px;border-radius:6px;background:var(--bg);border:1px solid var(--line)}
+.hint{font-size:13px;color:var(--muted)}
+
+/* ---- Abstraction ---- */
+.split{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.pane{border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.pane.front{background:var(--paper);border:1px solid var(--line)}
+.pane.back{background:var(--core-soft);border:1px solid var(--line)}
+.pane h3{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.pane h3 small{font:600 11px/1 var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.bubble{background:var(--user-soft);border-radius:12px 12px 12px 4px;padding:11px 13px;font-size:15px;max-width:44ch}
+.bubble.me{align-self:flex-end;background:var(--bg);border:1px solid var(--line);border-radius:12px 12px 4px 12px}
+.approve{border:1.5px solid var(--warn);background:var(--warn-soft);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.approve .eyebrow{color:var(--warn)}
+.approve .btns{display:flex;gap:8px;flex-wrap:wrap}
+.btn{font:600 14px/1 var(--f-body);padding:9px 14px;border-radius:8px;border:1.5px solid var(--warn);background:transparent;color:var(--ink);cursor:pointer}
+.btn.primary{background:var(--warn);color:var(--paper)}
+.btn:focus-visible{outline:3px solid var(--user);outline-offset:2px}
+.log{margin:0;font:400 12.5px/1.65 var(--f-mono);overflow-x:auto;white-space:pre;color:var(--ink)}
+.log .k{color:var(--machine);font-weight:600}
+.log .d{color:var(--muted)}
+.log .w{color:var(--warn);font-weight:600}
+.filter{font-size:14px;color:var(--muted);text-align:center}
+
+/* ---- Flux OAuth ---- */
+.flow{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;counter-reset:fl}
+.flow li{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:6px;position:relative}
+.flow li::before{counter-increment:fl;content:counter(fl);font:700 13px/1 var(--f-mono);color:var(--paper);background:var(--user);width:24px;height:24px;border-radius:50%;display:grid;place-items:center}
+.flow li:nth-child(4){border-color:var(--core);box-shadow:inset 0 0 0 1px var(--core)}
+.flow b{font:700 15px/1.2 var(--f-display)}
+.flow p{font-size:14px;color:var(--muted)}
+.flow code,.sec-head code{font:600 12.5px/1 var(--f-mono)}
+@media (max-width:860px){.flow{grid-template-columns:1fr 1fr}}
+@media (max-width:440px){.flow{grid-template-columns:1fr}}
+
+/* ---- Installation ---- */
+.install{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:16px}
+.term{background:var(--core);color:var(--on-core);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.term .bar{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.term .bar span{font:600 11px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;opacity:.7}
+.term pre{margin:0;font:400 14px/1.6 var(--f-mono);overflow-x:auto;white-space:pre}
+.copy{font:600 12px/1 var(--f-mono);background:transparent;color:var(--on-core);border:1px solid currentColor;border-radius:6px;padding:6px 9px;cursor:pointer;opacity:.85}
+.compose{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:10px}
+.compose table{width:100%;border-collapse:collapse;font-size:14px}
+.compose td{padding:7px 0;border-top:1px solid var(--line);vertical-align:top}
+.compose td:first-child{font:600 12.5px/1.6 var(--f-mono);width:42%;padding-right:10px}
+.compose td:last-child{color:var(--muted)}
+
+/* ---- Phases ---- */
+.phases{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(4,1fr);gap:0;counter-reset:ph}
+.phases li{padding:16px 16px 16px 0;border-top:3px solid var(--line);display:flex;flex-direction:column;gap:6px;position:relative}
+.phases li:first-child{border-top-color:var(--user)}
+.phases li::before{counter-increment:ph;content:"Phase " counter(ph);font:600 12px/1 var(--f-mono);color:var(--muted);letter-spacing:.04em}
+.phases li:first-child::before{color:var(--user)}
+.phases p{font-size:14.5px;color:var(--muted)}
+
+/* ---- Risques ---- */
+.risks{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.risk{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:6px}
+.risk .eyebrow{color:var(--warn)}
+.risk p{font-size:14.5px;color:var(--muted)}
+footer{font-size:13px;color:var(--muted);border-top:1px solid var(--line);padding-top:16px}
+
+@media (max-width:760px){
+  .tier,.link{grid-template-columns:1fr}
+  .link{height:40px}
+  .tier-label{padding:0}
+  .link>span{display:none}
+  .detail,.split,.install{grid-template-columns:1fr}
+  .phases{grid-template-columns:1fr 1fr;gap:0 16px}
+  .risks{grid-template-columns:1fr}
+  .diagram{padding:14px}
+}
+@media (max-width:440px){.phases{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+  <header>
+    <span class="eyebrow">Plan d'architecture · v0 · 29 octobre 2026</span>
+    <h1>Un agent personnel auto-hébergé, construit sur Hermes Agent</h1>
+    <p class="lede">Une machine par agent, un orchestrateur qui cache la mécanique, une interface aussi simple que Claude Duet ou dots. Tout s'installe en une commande avec Docker.</p>
+    <div class="legend" aria-label="Légende des couches">
+      <span><i style="background:var(--user)"></i>Ce que l'utilisateur touche</span>
+      <span><i style="background:var(--core)"></i>Ce qu'on construit</span>
+      <span><i style="background:var(--machine)"></i>Hermes Agent, réutilisé tel quel</span>
+      <span><i style="background:var(--ext)"></i>Services externes</span>
+    </div>
+  </header>
+
+  <section>
+    <div class="sec-head">
+      <h2>Vue d'ensemble</h2>
+      <p>Clique sur un bloc pour voir son rôle, les technologies proposées et leur licence.</p>
+    </div>
+
+    <div class="diagram" id="diagram">
+      <div class="tier t-user">
+        <div class="tier-label"><b>Interfaces</b><small>Web, mobile, alertes</small></div>
+        <div class="tier-body">
+          <button class="node" data-id="pwa"><b>App web (PWA)</b><span>Agents, chat, à valider, résumé du jour</span><code>Next.js</code></button>
+          <button class="node" data-id="mobile"><b>App mobile</b><span>La PWA installée, puis une app native</span><code>PWA → Expo</code></button>
+          <button class="node" data-id="notif"><b>Notifications</b><span>Alertes et demandes d'approbation</span><code>Web Push · ntfy</code></button>
+        </div>
+      </div>
+
+      <div class="link"><span></span><div><em>HTTPS · flux SSE</em></div></div>
+
+      <div class="tier t-core">
+        <div class="tier-label"><b>Control plane</b><small>Le seul code vraiment neuf</small></div>
+        <div class="tier-body">
+          <button class="node" data-id="proxy"><b>Accès sécurisé</b><span>TLS, accès à distance sans ouvrir de port</span><code>Caddy · Tailscale</code></button>
+          <button class="node" data-id="lifecycle"><b>Gestion des agents</b><span>Créer, nommer, pauser, supprimer une machine</span><code>Docker API</code></button>
+          <button class="node" data-id="events"><b>Traducteur d'événements</b><span>Transforme le flux Hermes en messages simples</span><code>FastAPI</code></button>
+          <button class="node" data-id="approvals"><b>Approbations</b><span>Lecture libre, envoi sous validation</span><code>règles par action</code></button>
+          <button class="node" data-id="callback"><b>Retour de connexion</b><span>Reçoit le code Google et le passe à Hermes</span><code>/oauth/callback</code></button>
+          <button class="node" data-id="store"><b>Base et secrets</b><span>Comptes, agents, tâches, clés chiffrées</span><code>Postgres</code></button>
+        </div>
+      </div>
+
+      <div class="link"><span></span><div><em>API compatible OpenAI · :8642</em></div></div>
+
+      <div class="tier t-machine">
+        <div class="tier-label"><b>Machines</b><small>Un conteneur isolé par agent</small></div>
+        <div class="tier-body machines">
+          <div class="machine">
+            <header><b>« Assistant courriel »</b><span>agent-01</span></header>
+            <button class="node" data-id="hermes"><b>Hermes gateway</b><span>Cerveau, mémoire, compétences, cron</span><code>nousresearch/hermes-agent</code></button>
+            <button class="node" data-id="desktop"><b>Bureau virtuel</b><span>Navigateur visible en direct</span><code>Chromium · noVNC</code></button>
+            <button class="node" data-id="mcp"><b>Serveurs MCP</b><span>Gmail, Agenda, fichiers</span><code>stdio · HTTP</code></button>
+          </div>
+          <div class="machine">
+            <header><b>« Recherche »</b><span>agent-02</span></header>
+            <button class="node" data-id="hermes"><b>Hermes gateway</b><span>Profil, mémoire et clés séparés</span><code>volume /opt/data</code></button>
+            <button class="node" data-id="desktop"><b>Bureau virtuel</b><span>Navigation et téléchargements</span><code>Chromium · noVNC</code></button>
+          </div>
+          <div class="machine ghost">
+            <header><b>Agent N</b><span>agent-…</span></header>
+            <button class="node" data-id="scale"><b>Autant que la machine hôte supporte</b><span>Plus tard : microVM pour une isolation plus forte</span><code>Firecracker</code></button>
+          </div>
+        </div>
+      </div>
+
+      <div class="link"><span></span><div><em>Clé API · OAuth</em></div></div>
+
+      <div class="tier t-ext">
+        <div class="tier-label"><b>Externe</b><small>Cerveau et comptes</small></div>
+        <div class="tier-body">
+          <button class="node" data-id="llm"><b>Modèle de langage</b><span>Clé API de l'utilisateur, ou modèle local</span><code>Anthropic · OpenAI · OpenRouter · Ollama</code></button>
+          <button class="node" data-id="oauth"><b>Client OAuth Google</b><span>Créé une fois, guidé pas à pas par l'app</span><code>Google Cloud Console</code></button>
+          <button class="node" data-id="apps"><b>Apps de l'utilisateur</b><span>Ce que l'agent surveille et utilise</span><code>Gmail · Agenda · Slack</code></button>
+        </div>
+      </div>
+    </div>
+
+    <div class="detail" id="detail" aria-live="polite"></div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>Ce que l'utilisateur voit, et ce qui se passe derrière</h2>
+      <p>Le traducteur d'événements garde les résultats et les décisions. Les prompts, les appels d'outils et les commandes restent dans un mode « détails » facultatif. Exemple fictif.</p>
+    </div>
+    <div class="split">
+      <div class="pane front">
+        <h3>App web <small>vue utilisateur</small></h3>
+        <div class="bubble">Bonjour ! Ta boîte est triée : 42 courriels lus, 3 demandent ta réponse. La réunion avec Julie passe à 14 h.</div>
+        <div class="bubble me">Réponds à Marc que je confirme pour jeudi.</div>
+        <div class="approve">
+          <span class="eyebrow">À valider</span>
+          <p>Envoyer à Marc : « Parfait, je confirme pour jeudi 10 h. Bonne journée ! »</p>
+          <div class="btns"><button class="btn primary" type="button">Envoyer</button><button class="btn" type="button">Modifier</button></div>
+        </div>
+      </div>
+      <div class="pane back">
+        <h3>Hermes Agent <small>masqué par défaut</small></h3>
+<pre class="log"><span class="d">07:00 cron      morning-brief (skill)</span>
+<span class="k">tool</span> gmail.search  q="is:unread newer_than:1d"
+<span class="k">tool</span> gmail.read    ×42
+<span class="d">     memory    recall "contacts prioritaires"</span>
+<span class="k">tool</span> calendar.list today
+<span class="d">     llm       classify urgency → 3 high</span>
+<span class="k">tool</span> calendar.diff → event moved 13:00→14:00
+<span class="d">07:01 deliver   → api_server stream</span>
+
+<span class="d">09:12 user      "Réponds à Marc…"</span>
+<span class="k">tool</span> gmail.thread  id=18f3…
+<span class="d">     llm       draft reply</span>
+<span class="w">hold</span> gmail.send    → approval required</pre>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>Connecter Gmail en un clic</h2>
+      <p>Hermes sait déjà s'authentifier auprès de Google. Aujourd'hui, l'adresse de retour pointe vers <code>localhost</code>, que ton navigateur ne peut pas joindre, d'où le copier-coller d'URL. On remplace seulement ce retour.</p>
+    </div>
+    <ol class="flow">
+      <li><b>Clic</b><p>L'utilisateur touche « Connecter Gmail » dans l'app.</p></li>
+      <li><b>URL Google</b><p>Le control plane demande l'URL de connexion à Hermes et ouvre Google.</p></li>
+      <li><b>Accepter</b><p>L'utilisateur se connecte et accepte les accès demandés.</p></li>
+      <li><b>Retour</b><p>Google renvoie vers <code>/oauth/callback</code>, qui transmet le code au conteneur de l'agent.</p></li>
+      <li><b>Connecté</b><p>Hermes stocke le jeton, l'app affiche « Gmail connecté ✓ ».</p></li>
+    </ol>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>Installation en une commande</h2>
+      <p>Le script vérifie Docker, génère les secrets, lance la pile et affiche l'adresse à ouvrir.</p>
+    </div>
+    <div class="install">
+      <div class="term">
+        <div class="bar"><span>Terminal</span><button class="copy" id="copy" type="button">Copier</button></div>
+<pre id="cmd">curl -fsSL https://notre-domaine/install.sh | sh</pre>
+<pre style="opacity:.7">✓ Docker détecté
+✓ Secrets générés dans ~/.agent/.env
+✓ docker compose up -d (5 services)
+→ Ouvre https://agent.local et colle ta clé API</pre>
+      </div>
+      <div class="compose">
+        <h3>Ce que lance docker compose</h3>
+        <table>
+          <tr><td>caddy</td><td>HTTPS et seul port exposé</td></tr>
+          <tr><td>control-plane</td><td>API, gestion des agents, approbations</td></tr>
+          <tr><td>web</td><td>App web et mobile (PWA)</td></tr>
+          <tr><td>postgres</td><td>État et secrets chiffrés</td></tr>
+          <tr><td>agent-*</td><td>Créés à la demande depuis l'interface</td></tr>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>Feuille de route</h2></div>
+    <ol class="phases">
+      <li><h3>Un agent qui parle</h3><p>Compose avec Hermes, le control plane et l'app. Un seul agent, outils masqués dans le chat.</p></li>
+      <li><h3>Plusieurs machines</h3><p>Un conteneur par agent, navigateur visible en direct, approbations.</p></li>
+      <li><h3>Proactif</h3><p>OAuth Gmail et Agenda, résumé du matin, vérifications périodiques, notifications.</p></li>
+      <li><h3>Distribuable</h3><p>Script d'installation, PWA mobile soignée, option microVM.</p></li>
+    </ol>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>Points de vigilance</h2></div>
+    <div class="risks">
+      <div class="risk"><span class="eyebrow">Injection de prompt</span><p>Un courriel ou une page web peut contenir des instructions. Toute action sortante passe par une approbation.</p></div>
+      <div class="risk"><span class="eyebrow">Port 8642</span><p>Jamais exposé à Internet. Seul le control plane y accède, avec <code>API_SERVER_KEY</code>.</p></div>
+      <div class="risk"><span class="eyebrow">Isolation</span><p>Les profils Hermes ne cloisonnent pas les fichiers. D'où un conteneur par agent.</p></div>
+      <div class="risk"><span class="eyebrow">Coûts du modèle</span><p>Un agent toujours actif consomme en continu. Budget mensuel et plafond par agent.</p></div>
+    </div>
+  </section>
+
+  <footer>Sources : documentation Hermes Agent (Nous Research), Open WebUI, et la couverture presse de Claude Duet, OpenAI dots et Grok Bot. Les versions et ports sont à revérifier avant l'implémentation.</footer>
+</div>
+
+<script>
+const D={
+  pwa:{t:"user",k:"Interface",n:"App web (PWA)",p:"L'écran principal. Liste des agents avec leur état, un chat par agent, une boîte « À valider » et le résumé du jour. Elle ne parle qu'au control plane, jamais directement à Hermes.",tech:["Next.js","React","SSE"],lic:"MIT",why:"Une seule base de code pour le web et le mobile installable."},
+  mobile:{t:"user",k:"Interface",n:"App mobile",p:"Au départ, la PWA ajoutée à l'écran d'accueil suffit, avec les notifications push. Une app Expo vient plus tard si on veut le partage natif ou les widgets.",tech:["PWA","Expo (plus tard)"],lic:"MIT",why:"Éviter deux applications à maintenir au début."},
+  notif:{t:"user",k:"Interface",n:"Notifications",p:"Alertes du résumé du matin, des vérifications périodiques et des demandes d'approbation. Un tap ouvre directement la bonne carte.",tech:["Web Push","ntfy (auto-hébergé)"],lic:"Apache-2.0 (ntfy)",why:"C'est ce qui rend l'agent proactif, comme Duet ou dots."},
+  proxy:{t:"core",k:"Control plane",n:"Accès sécurisé",p:"Caddy gère le HTTPS automatiquement et c'est le seul port exposé. Pour joindre l'agent depuis l'extérieur sans ouvrir de port sur la box, Tailscale ou Cloudflare Tunnel.",tech:["Caddy","Tailscale","Cloudflare Tunnel"],lic:"Apache-2.0 (Caddy)",why:"Sécurité par défaut, sans configuration réseau pour l'utilisateur."},
+  lifecycle:{t:"core",k:"Control plane",n:"Gestion des agents",p:"Crée une machine quand l'utilisateur clique « Nouvel agent » : un conteneur Hermes avec son volume, sa clé et son nom. Met en pause, redémarre, supprime, et fixe la version de l'image.",tech:["Docker Engine API","docker-py / dockerode"],lic:"À nous",why:"C'est ce qui donne « plusieurs machines » comme Grok Bot."},
+  events:{t:"core",k:"Control plane",n:"Traducteur d'événements",p:"Lit le flux de l'API Hermes et le réduit à quatre types : message, tâche en cours, résultat, demande d'approbation. Les appels d'outils et les prompts sont gardés pour un mode « détails ».",tech:["FastAPI","SSE","Postgres"],lic:"À nous",why:"Le cœur du projet : l'abstraction que l'utilisateur ne voit pas."},
+  approvals:{t:"core",k:"Control plane",n:"Approbations",p:"Des règles par type d'action. Lire un courriel ou chercher sur le web passe directement. Envoyer, payer, supprimer ou publier crée une carte « À valider » et l'agent attend.",tech:["Règles en YAML","Hooks d'outils Hermes"],lic:"À nous",why:"Protège contre l'injection de prompt, comme la recherche en lecture seule de dots."},
+  store:{t:"core",k:"Control plane",n:"Base et secrets",p:"Comptes, agents, historique simplifié, tâches et approbations. Les clés API et jetons OAuth sont chiffrés et injectés dans le conteneur au démarrage.",tech:["Postgres","chiffrement libsodium"],lic:"PostgreSQL",why:"L'utilisateur ne touche jamais un fichier .env."},
+  hermes:{t:"machine",k:"Machine · Hermes Agent",n:"Hermes gateway",p:"Le cerveau, réutilisé tel quel : boucle d'agent, mémoire entre les sessions, compétences en Markdown, tâches cron, client MCP. On active l'API serveur à la place de Telegram.",tech:["nousresearch/hermes-agent","API_SERVER_ENABLED","port 8642"],lic:"MIT",why:"Pas de harnais à écrire de zéro."},
+  desktop:{t:"machine",k:"Machine",n:"Bureau virtuel",p:"Un écran virtuel avec Chromium que l'agent pilote et que l'utilisateur peut regarder en direct dans l'app, ou reprendre en main pour une connexion.",tech:["Xvfb","Chromium","noVNC","AIO Sandbox"],lic:"MPL / Apache selon la brique",why:"C'est la « VM avec son navigateur » de Duet et Grok Bot."},
+  mcp:{t:"machine",k:"Machine",n:"Serveurs MCP",p:"Les outils de l'agent : Gmail, Agenda, Drive, fichiers locaux. Hermes les découvre automatiquement. Les jetons sont obtenus par le flux de connexion d'Hermes, automatisé par notre retour de connexion.",tech:["MCP stdio","MCP HTTP"],lic:"Selon le serveur",why:"Standard ouvert, donc ajouter un service = ajouter un serveur."},
+  scale:{t:"machine",k:"Machine",n:"Agents supplémentaires",p:"Chaque agent est un conteneur de plus. Sur un petit serveur, quelques agents tournent sans problème. Pour une isolation plus forte entre utilisateurs, on passera à des microVM.",tech:["Docker","Firecracker","E2B Embed"],lic:"Apache-2.0",why:"Commencer simple, durcir quand il y a plusieurs utilisateurs."},
+  llm:{t:"ext",k:"Externe",n:"Modèle de langage",p:"L'utilisateur colle sa clé API une fois dans l'app. Hermes accepte de nombreux fournisseurs, et un modèle local via Ollama est possible pour la confidentialité.",tech:["Anthropic","OpenAI","OpenRouter","Ollama"],lic:"Clé de l'utilisateur",why:"Le choix du cerveau reste à l'utilisateur."},
+  oauth:{t:"ext",k:"Externe",n:"Client OAuth Google",p:"L'identifiant qui autorise notre installation à demander l'accès à Gmail et à l'Agenda. Chaque utilisateur le crée une fois dans Google Cloud, avec un assistant dans l'app, puis colle l'ID et le secret. Un client partagé pour tous demanderait une vérification de Google.",tech:["Google Cloud Console","OAuth 2.0"],lic:"—",why:"Pas de service intermédiaire : Hermes garde son propre mécanisme Google."},
+  callback:{t:"core",k:"Control plane",n:"Retour de connexion",p:"L'adresse de retour déclarée chez Google. Elle reçoit le code après « Accepter » et le transmet au conteneur Hermes du bon agent, à la place du copier-coller d'URL. L'app affiche ensuite « Gmail connecté ».",tech:["FastAPI","Caddy (HTTPS)"],lic:"À nous",why:"Supprime l'étape manuelle d'Hermes sans réécrire son authentification."},
+  apps:{t:"ext",k:"Externe",n:"Apps de l'utilisateur",p:"Les services que l'agent lit et utilise. La première version vise Gmail et Google Agenda, puis Slack et les fichiers.",tech:["Gmail","Google Agenda","Slack","Drive"],lic:"—",why:"Ce sont les cas d'usage du résumé du matin."}
+};
+const colors={user:"var(--user)",core:"var(--core)",machine:"var(--machine)",ext:"var(--ext)"};
+const detail=document.getElementById("detail");
+const nodes=[...document.querySelectorAll(".node")];
+function show(id){
+  const d=D[id]; if(!d) return;
+  nodes.forEach(n=>n.setAttribute("aria-pressed",n.dataset.id===id?"true":"false"));
+  detail.style.setProperty("--dc",colors[d.t]);
+  detail.innerHTML=`<div><span class="kicker">${d.k}</span><h3>${d.n}</h3><p>${d.p}</p></div>
+  <ul><li><b>Techno</b><div class="chips">${d.tech.map(x=>`<span class="chip">${x}</span>`).join("")}</div></li>
+  <li><b>Licence</b><span>${d.lic}</span></li><li><b>Pourquoi</b><span>${d.why}</span></li></ul>`;
+}
+nodes.forEach(n=>n.addEventListener("click",()=>show(n.dataset.id)));
+show("events");
+document.getElementById("copy").addEventListener("click",e=>{
+  const t=document.getElementById("cmd").textContent;
+  navigator.clipboard.writeText(t).then(()=>{e.target.textContent="Copié"},()=>{
+    const r=document.createRange();r.selectNodeContents(document.getElementById("cmd"));
+    const s=getSelection();s.removeAllRanges();s.addRange(r);});
+});
+</script>

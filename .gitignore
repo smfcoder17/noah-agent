@@ -1,0 +1,11 @@
+# Données locales (comptes, clés, mémoire des agents)
+data/
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Node
+node_modules/

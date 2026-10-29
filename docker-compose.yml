@@ -1,0 +1,63 @@
+name: apollo
+
+services:
+  # Interface web + API Apollo : le seul service exposé.
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    container_name: apollo-server
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${APOLLO_PORT:-8080}:8080"
+    environment:
+      HERMES_URL: http://hermes:8642
+      HERMES_API_KEY: ${HERMES_API_KEY}
+      HERMES_CONTAINER: apollo-hermes
+      APOLLO_SECRET_KEY: ${APOLLO_SECRET_KEY}
+      DOCKER_URL: http://docker-proxy:2375
+    volumes:
+      - apollo-data:/data
+      - hermes-data:/hermes-data
+    depends_on:
+      - hermes
+      - docker-proxy
+
+  # Un agent Hermes. Joignable uniquement depuis le réseau interne, jamais publié.
+  hermes:
+    image: nousresearch/hermes-agent:stable
+    container_name: apollo-hermes
+    restart: unless-stopped
+    command: gateway run
+    environment:
+      API_SERVER_ENABLED: "true"
+      API_SERVER_HOST: 0.0.0.0
+      API_SERVER_KEY: ${HERMES_API_KEY}
+    volumes:
+      # Volume nommé : SQLite n'est pas fiable sur un dossier partagé avec Windows ou macOS.
+      - hermes-data:/opt/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: "2.0"
+
+  # Accès Docker restreint aux conteneurs (pas d'exec, d'images, de volumes ni de réseaux).
+  # POST est requis par ce proxy pour autoriser les redémarrages. À remplacer en phase 2 par
+  # un lanceur dédié qui valide chaque demande, car /containers/create reste ouvert ici.
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:0.3.0
+    container_name: apollo-docker-proxy
+    restart: unless-stopped
+    environment:
+      CONTAINERS: 1
+      ALLOW_RESTARTS: 1
+      POST: 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+volumes:
+  apollo-data:
+  hermes-data:

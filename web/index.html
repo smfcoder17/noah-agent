@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Apollo</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+  <main id="app" aria-live="polite">
+    <p class="muted center">Chargement…</p>
+  </main>
+
+  <template id="tpl-account">
+    <form class="card" id="form-account">
+      <h1>Bienvenue sur Apollo</h1>
+      <p class="muted">Crée le compte administrateur. Il reste sur cette machine.</p>
+      <label>Nom d'utilisateur <input id="username" autocomplete="username" required minlength="2"></label>
+      <label>Mot de passe <input id="password" type="password" autocomplete="new-password" required minlength="8"></label>
+      <p class="error" hidden></p>
+      <button type="submit">Créer le compte</button>
+    </form>
+  </template>
+
+  <template id="tpl-login">
+    <form class="card" id="form-login">
+      <h1>Apollo</h1>
+      <label>Nom d'utilisateur <input id="username" autocomplete="username" required></label>
+      <label>Mot de passe <input id="password" type="password" autocomplete="current-password" required></label>
+      <p class="error" hidden></p>
+      <button type="submit">Se connecter</button>
+    </form>
+  </template>
+
+  <template id="tpl-model">
+    <form class="card" id="form-model">
+      <h1>Choisis le cerveau de ton agent</h1>
+      <p class="muted">La clé est stockée sur cette machine et n'est envoyée qu'au fournisseur choisi.</p>
+      <div class="providers" id="providers" role="radiogroup"></div>
+      <label id="key-field">Clé API <input id="api-key" type="password" autocomplete="off"></label>
+      <label>Modèle <input id="model"></label>
+      <p class="error" hidden></p>
+      <button type="submit">Enregistrer et démarrer l'agent</button>
+    </form>
+  </template>
+
+  <template id="tpl-chat">
+    <section class="chat">
+      <header class="bar">
+        <strong>Apollo</strong>
+        <span class="status" id="agent-status">…</span>
+        <label class="toggle"><input type="checkbox" id="details"> Détails</label>
+        <button type="button" class="ghost" id="change-model">Modèle</button>
+        <button type="button" class="ghost" id="new-chat">Nouvelle conversation</button>
+      </header>
+      <div class="messages" id="messages">
+        <p class="muted center" id="empty">Demande quelque chose à ton agent.</p>
+      </div>
+      <form class="composer" id="composer">
+        <textarea id="input" rows="1" placeholder="Écris à ton agent…" required></textarea>
+        <button type="submit" id="send">Envoyer</button>
+      </form>
+    </section>
+  </template>
+
+  <script src="/assets/app.js"></script>
+</body>
+</html>
