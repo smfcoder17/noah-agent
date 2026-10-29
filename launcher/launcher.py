@@ -1,0 +1,147 @@
+"""Lanceur d'agents : seul service qui parle à Docker.
+
+Il n'accepte qu'un petit vocabulaire (créer, écrire la config, redémarrer, supprimer un agent)
+et construit lui-même chaque conteneur à partir d'une image fixe, sans montage de l'hôte ni
+privilège. Le serveur Apollo n'a donc jamais accès au socket Docker.
+"""
+import io
+import os
+import re
+import tarfile
+import time
+
+import docker
+from docker.errors import NotFound
+from fastapi import Depends, FastAPI, Header, HTTPException
+from pydantic import BaseModel
+
+KEY = os.environ["LAUNCHER_KEY"]
+IMAGE = os.environ.get("AGENT_IMAGE", "nousresearch/hermes-agent:stable")
+NETWORK = os.environ["AGENT_NETWORK"]
+PREFIX = "apollo-agent-"
+LABEL = "apollo.agent"
+DATA = "/opt/data"
+ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
+
+client = docker.from_env()
+app = FastAPI(title="Apollo launcher")
+
+
+def auth(authorization: str = Header("")) -> None:
+    if authorization != f"Bearer {KEY}":
+        raise HTTPException(401, "Clé du lanceur invalide")
+
+
+def check_id(agent_id: str) -> str:
+    if not ID_RE.match(agent_id):
+        raise HTTPException(400, "Identifiant d'agent invalide")
+    return agent_id
+
+
+def container(agent_id: str):
+    try:
+        c = client.containers.get(PREFIX + agent_id)
+    except NotFound:
+        raise HTTPException(404, "Agent introuvable")
+    if c.labels.get(LABEL) != agent_id:
+        raise HTTPException(403, "Ce conteneur n'est pas un agent Apollo")
+    return c
+
+
+class NewAgent(BaseModel):
+    api_key: str
+
+
+@app.get("/agents", dependencies=[Depends(auth)])
+def list_agents():
+    return [
+        {"id": c.labels[LABEL], "status": c.status}
+        for c in client.containers.list(all=True, filters={"label": LABEL})
+    ]
+
+
+@app.post("/agents/{agent_id}", dependencies=[Depends(auth)])
+def create(agent_id: str, body: NewAgent):
+    check_id(agent_id)
+    try:
+        client.containers.get(PREFIX + agent_id)
+        raise HTTPException(409, "Cet agent existe déjà")
+    except NotFound:
+        pass
+    client.containers.run(
+        IMAGE,
+        command="gateway run",
+        name=PREFIX + agent_id,
+        hostname=PREFIX + agent_id,
+        detach=True,
+        labels={LABEL: agent_id},
+        environment={
+            "API_SERVER_ENABLED": "true",
+            "API_SERVER_HOST": "0.0.0.0",
+            "API_SERVER_KEY": body.api_key,
+        },
+        volumes={PREFIX + agent_id: {"bind": DATA, "mode": "rw"}},
+        network=NETWORK,
+        extra_hosts={"host.docker.internal": "host-gateway"},
+        restart_policy={"Name": "unless-stopped"},
+        mem_limit="4g",
+        nano_cpus=2_000_000_000,
+        security_opt=["no-new-privileges"],
+        cap_drop=["NET_RAW", "SYS_ADMIN", "MKNOD"],
+    )
+    return {"id": agent_id, "host": PREFIX + agent_id}
+
+
+class Files(BaseModel):
+    # chemin relatif dans /opt/data -> contenu texte
+    files: dict[str, str]
+
+
+@app.get("/agents/{agent_id}/files/{name}", dependencies=[Depends(auth)])
+def read_file(agent_id: str, name: str):
+    check_id(agent_id)
+    if name not in (".env", "config.yaml", "SOUL.md"):
+        raise HTTPException(400, "Fichier non autorisé")
+    try:
+        stream, _ = container(agent_id).get_archive(f"{DATA}/{name}")
+    except NotFound:
+        return {"content": ""}
+    with tarfile.open(fileobj=io.BytesIO(b"".join(stream))) as tar:
+        member = tar.getmembers()[0]
+        return {"content": tar.extractfile(member).read().decode()}
+
+
+@app.put("/agents/{agent_id}/files", dependencies=[Depends(auth)])
+def write_files(agent_id: str, body: Files):
+    check_id(agent_id)
+    for name in body.files:
+        if name not in (".env", "config.yaml", "SOUL.md"):
+            raise HTTPException(400, f"Fichier non autorisé : {name}")
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as tar:
+        for name, content in body.files.items():
+            data = content.encode()
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            info.mode = 0o644
+            info.mtime = int(time.time())
+            tar.addfile(info, io.BytesIO(data))
+    container(agent_id).put_archive(DATA, buf.getvalue())
+    return {"ok": True}
+
+
+@app.post("/agents/{agent_id}/restart", dependencies=[Depends(auth)])
+def restart(agent_id: str):
+    container(check_id(agent_id)).restart(timeout=10)
+    return {"ok": True}
+
+
+@app.delete("/agents/{agent_id}", dependencies=[Depends(auth)])
+def delete(agent_id: str):
+    c = container(check_id(agent_id))
+    c.remove(force=True)
+    try:
+        client.volumes.get(PREFIX + agent_id).remove(force=True)
+    except NotFound:
+        pass
+    return {"ok": True}

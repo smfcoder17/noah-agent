@@ -3,7 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#2A47C9">
   <title>Apollo</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/assets/icon-192.png">
   <link rel="stylesheet" href="/assets/style.css">
 </head>
 <body>
@@ -12,55 +16,100 @@
   </main>
 
   <template id="tpl-account">
-    <form class="card" id="form-account">
-      <h1>Bienvenue sur Apollo</h1>
-      <p class="muted">Crée le compte administrateur. Il reste sur cette machine.</p>
-      <label>Nom d'utilisateur <input id="username" autocomplete="username" required minlength="2"></label>
-      <label>Mot de passe <input id="password" type="password" autocomplete="new-password" required minlength="8"></label>
-      <p class="error" hidden></p>
-      <button type="submit">Créer le compte</button>
-    </form>
+    <div class="screen">
+      <form class="card" id="form-account">
+        <h1>Bienvenue sur Apollo</h1>
+        <p class="muted">Crée le compte administrateur. Il reste sur cette machine.</p>
+        <label>Nom d'utilisateur <input id="username" autocomplete="username" required minlength="2"></label>
+        <label>Mot de passe <input id="password" type="password" autocomplete="new-password" required minlength="8"></label>
+        <p class="error" hidden></p>
+        <button type="submit">Créer le compte</button>
+      </form>
+    </div>
   </template>
 
   <template id="tpl-login">
-    <form class="card" id="form-login">
-      <h1>Apollo</h1>
-      <label>Nom d'utilisateur <input id="username" autocomplete="username" required></label>
-      <label>Mot de passe <input id="password" type="password" autocomplete="current-password" required></label>
-      <p class="error" hidden></p>
-      <button type="submit">Se connecter</button>
-    </form>
+    <div class="screen">
+      <form class="card" id="form-login">
+        <h1>Apollo</h1>
+        <label>Nom d'utilisateur <input id="username" autocomplete="username" required></label>
+        <label>Mot de passe <input id="password" type="password" autocomplete="current-password" required></label>
+        <p class="error" hidden></p>
+        <button type="submit">Se connecter</button>
+      </form>
+    </div>
   </template>
 
   <template id="tpl-model">
     <form class="card" id="form-model">
-      <h1>Choisis le cerveau de ton agent</h1>
-      <p class="muted">La clé est stockée sur cette machine et n'est envoyée qu'au fournisseur choisi.</p>
-      <div class="providers" id="providers" role="radiogroup"></div>
+      <h1>Le cerveau de tes agents</h1>
+      <p class="muted">La clé est chiffrée sur cette machine et n'est envoyée qu'au fournisseur choisi.</p>
+      <div class="providers" id="providers" role="radiogroup" aria-label="Fournisseur"></div>
       <label id="key-field">Clé API <input id="api-key" type="password" autocomplete="off"></label>
-      <label>Modèle <input id="model"></label>
+      <label>Modèle <input id="model" required></label>
       <p class="error" hidden></p>
-      <button type="submit">Enregistrer et démarrer l'agent</button>
+      <div class="row end">
+        <button type="button" class="ghost" id="model-cancel" hidden>Annuler</button>
+        <button type="submit">Enregistrer</button>
+      </div>
     </form>
   </template>
 
-  <template id="tpl-chat">
-    <section class="chat">
-      <header class="bar">
-        <strong>Apollo</strong>
-        <span class="status" id="agent-status">…</span>
-        <label class="toggle"><input type="checkbox" id="details"> Détails</label>
-        <button type="button" class="ghost" id="change-model">Modèle</button>
-        <button type="button" class="ghost" id="new-chat">Nouvelle conversation</button>
-      </header>
-      <div class="messages" id="messages">
-        <p class="muted center" id="empty">Demande quelque chose à ton agent.</p>
+  <template id="tpl-agent">
+    <form class="card" id="form-agent">
+      <h1 id="agent-title">Nouvel agent</h1>
+      <p class="muted">Chaque agent a sa propre machine, sa mémoire et ses fichiers.</p>
+      <label>Nom <input id="agent-name" required maxlength="40" placeholder="Ex. Courriel, Recherche"></label>
+      <label>Rôle et consignes <textarea id="agent-role" rows="5" maxlength="4000" placeholder="Ex. Tu tries mes courriels chaque matin et tu me signales seulement ce qui demande une réponse."></textarea></label>
+      <p class="error" hidden></p>
+      <div class="row end">
+        <button type="button" class="ghost danger" id="agent-delete" hidden>Supprimer</button>
+        <button type="button" class="ghost" id="agent-cancel">Annuler</button>
+        <button type="submit" id="agent-save">Créer l'agent</button>
       </div>
-      <form class="composer" id="composer">
-        <textarea id="input" rows="1" placeholder="Écris à ton agent…" required></textarea>
-        <button type="submit" id="send">Envoyer</button>
-      </form>
-    </section>
+    </form>
+  </template>
+
+  <template id="tpl-shell">
+    <div class="shell">
+      <aside class="side" id="side">
+        <div class="side-head">
+          <strong class="brand">Apollo</strong>
+          <button type="button" class="icon only-mobile" id="close-side" aria-label="Fermer le menu">✕</button>
+        </div>
+        <div class="side-section">
+          <div class="side-title"><span>Agents</span><button type="button" class="link" id="add-agent">+ Nouveau</button></div>
+          <ul class="list" id="agents"></ul>
+        </div>
+        <div class="side-section grow">
+          <div class="side-title"><span>Conversations</span><button type="button" class="link" id="new-chat">+ Nouvelle</button></div>
+          <ul class="list" id="conversations"></ul>
+        </div>
+        <div class="side-foot">
+          <button type="button" class="link" id="open-model">Modèle : <span id="model-name">…</span></button>
+          <button type="button" class="link" id="logout">Se déconnecter</button>
+        </div>
+      </aside>
+      <div class="scrim only-mobile" id="scrim" hidden></div>
+      <section class="chat">
+        <header class="bar">
+          <button type="button" class="icon only-mobile" id="open-side" aria-label="Ouvrir le menu">☰</button>
+          <div class="agent-head">
+            <strong id="agent-name-head">…</strong>
+            <span class="status" id="agent-status"></span>
+          </div>
+          <label class="toggle"><input type="checkbox" id="details"> Détails</label>
+          <button type="button" class="ghost small" id="edit-agent">Réglages</button>
+        </header>
+        <div class="messages" id="messages"></div>
+        <form class="composer" id="composer">
+          <textarea id="input" rows="1" placeholder="Écris à ton agent…" required></textarea>
+          <button type="submit" id="send">Envoyer</button>
+          <button type="button" class="ghost" id="stop" hidden>Arrêter</button>
+        </form>
+      </section>
+      <div class="modal" id="modal" hidden></div>
+    </div>
   </template>
 
   <script src="/assets/app.js"></script>

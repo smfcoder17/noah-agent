@@ -1,37 +1,62 @@
 # Apollo
 
-Un agent personnel auto-hébergé, construit sur [Hermes Agent](https://github.com/NousResearch/hermes-agent).
-Apollo ajoute une interface simple au-dessus d'Hermes : un compte local, le choix du modèle en quelques clics, et un chat qui montre ce que fait l'agent sans afficher ses prompts ni ses commandes.
+Des agents personnels auto-hébergés, construits sur [Hermes Agent](https://github.com/NousResearch/hermes-agent).
+Apollo ajoute une interface simple au-dessus d'Hermes : un compte local, le choix du modèle en quelques clics,
+plusieurs agents isolés, et un chat qui montre ce que fait l'agent sans afficher ses prompts ni ses commandes.
 
 ## Démarrer
 
-Prérequis : Docker.
+Prérequis : Docker (Docker Desktop sous Windows et macOS).
 
 ```sh
-./install.sh
+sh install.sh
 ```
 
 Puis ouvre http://localhost:8080 :
 
 1. crée le compte administrateur (il reste sur ta machine) ;
-2. choisis un fournisseur (OpenRouter, Anthropic, OpenAI, Gemini ou Ollama) et colle ta clé ;
-3. parle à ton agent.
+2. choisis un fournisseur (OpenRouter, Anthropic, OpenAI, Gemini ou Ollama), colle ta clé et le modèle ;
+3. ton premier agent, « Assistant », démarre en une trentaine de secondes ;
+4. crée d'autres agents avec « + Nouveau » : un nom et un rôle suffisent.
+
+### Avec Ollama
+
+Ollama doit tourner sur la machine hôte. Les agents le joignent via `host.docker.internal:11434`.
+Les modèles `:cloud` d'Ollama fonctionnent aussi. Choisis un modèle qui gère les outils (*tools*).
+
+### Depuis ton téléphone
+
+1. Dans `.env`, mets `APOLLO_BIND=0.0.0.0`, puis relance `docker compose up -d`.
+2. Sur le téléphone, connecté au même Wi-Fi, ouvre `http://<adresse-IP-du-PC>:8080`.
+3. Pour l'installer comme une app (« Ajouter à l'écran d'accueil »), le navigateur exige HTTPS :
+   passe par Tailscale (`tailscale serve 8080`) ou un nom de domaine avec Caddy.
 
 ## Ce qui tourne
 
 | Service | Rôle |
 |---|---|
-| `apollo-server` | API, comptes, traduction des événements d'Hermes, interface web. Seul port exposé, en local. |
-| `apollo-hermes` | La gateway Hermes Agent, avec son API activée. Jamais exposée hors du réseau Docker. |
-| `apollo-docker-proxy` | Accès Docker restreint : le serveur peut seulement redémarrer des conteneurs. |
+| `apollo-server` | API, comptes, traduction des événements d'Hermes, interface web. Seul port exposé. |
+| `apollo-launcher` | Seul service qui parle à Docker. Crée un conteneur par agent à partir d'une image fixe, sans privilège ni montage de l'hôte. |
+| `apollo-agent-*` | Un conteneur Hermes par agent, avec son volume (mémoire, fichiers). Jamais exposé. |
 
-Les données (compte, clés, mémoire de l'agent) sont dans les volumes Docker `apollo_apollo-data` et `apollo_hermes-data`.
+Les données sont dans les volumes Docker `apollo_apollo-data` (compte, clé chiffrée, historique)
+et `apollo-agent-*` (un par agent). `sh scripts/reset.sh` efface tout.
+
+## Limites connues
+
+- La clé du fournisseur est copiée dans le conteneur de chaque agent : un agent manipulé
+  (par exemple par une page web piégée) pourrait la lire. Prochaine étape : un relais de modèle
+  dans le serveur, qui garde la clé et mesure les coûts.
+- Le lanceur a accès au socket Docker. Il n'expose qu'un petit vocabulaire, mais reste
+  le composant le plus sensible.
+- Un seul compte administrateur pour l'instant.
 
 ## Feuille de route
 
-1. Un agent derrière une interface simple (ce dépôt aujourd'hui).
-2. Plusieurs agents, un conteneur chacun, navigateur visible et prise de contrôle.
-3. Veille programmatique (collecte sans LLM, triage par petit modèle), Gmail et Agenda.
-4. Apps mobile et desktop, appairage par QR code, installation en une commande sur VPS.
+1. ~~Un agent derrière une interface simple.~~
+2. ~~Plusieurs agents, un conteneur chacun, historique, version mobile.~~
+3. Relais de modèle (clé hors des agents, budgets), navigateur visible et prise de contrôle.
+4. Veille programmatique (collecte sans LLM, triage par petit modèle), Gmail et Agenda.
+5. Apps mobile et desktop, appairage par QR code, installation en une commande sur VPS.
 
 L'architecture complète est décrite dans [docs/architecture.html](docs/architecture.html).
