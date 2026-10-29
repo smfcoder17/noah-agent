@@ -12,7 +12,7 @@ import time
 
 import docker
 from docker.errors import NotFound
-from fastapi import Depends, FastAPI, Header, HTTPException, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from pydantic import BaseModel
 
 KEY = os.environ["LAUNCHER_KEY"]
@@ -50,6 +50,132 @@ def container(agent_id: str):
 
 class NewAgent(BaseModel):
     api_key: str
+
+
+BROWSER_IMAGE = os.environ.get("BROWSER_IMAGE", "ghcr.io/jo-inc/camofox-browser:latest")
+BROWSER_PREFIX = "apollo-browser-"
+BROWSER_LABEL = "apollo.browser"
+
+
+class BrowserKeys(BaseModel):
+    api_key: str
+    vnc_password: str
+
+
+@app.post("/agents/{agent_id}/browser", dependencies=[Depends(auth)])
+def ensure_browser(agent_id: str, body: BrowserKeys):
+    """Crée (si besoin) le navigateur Camoufox de l'agent, avec son écran partagé en noVNC.
+
+    Le profil (cookies, sessions connectées) vit dans un volume à part, gardé entre les redémarrages.
+    """
+    check_id(agent_id)
+    container(agent_id)  # l'agent doit exister
+    name = BROWSER_PREFIX + agent_id
+    try:
+        c = client.containers.get(name)
+        if c.status != "running":
+            c.start()
+        return {"host": name, "created": False}
+    except NotFound:
+        pass
+    client.containers.run(
+        BROWSER_IMAGE,
+        name=name,
+        hostname=name,
+        detach=True,
+        labels={BROWSER_LABEL: agent_id},
+        environment={
+            "CAMOFOX_PORT": "9377",
+            "CAMOFOX_BIND_HOST": "0.0.0.0",
+            "CAMOFOX_API_KEY": body.api_key,
+            "CAMOFOX_PROFILE_DIR": "/data/profiles",
+            "CAMOFOX_COOKIES_DIR": "/data/cookies",
+            "CAMOFOX_CRASH_REPORT_ENABLED": "false",
+            "ENABLE_VNC": "1",
+            "VNC_RESOLUTION": "1280x800",
+            "VNC_PASSWORD": body.vnc_password,
+            "VNC_BIND": "0.0.0.0",
+            "NOVNC_PORT": "6080",
+            "MAX_OLD_SPACE_SIZE": "256",
+        },
+        volumes={name: {"bind": "/data", "mode": "rw"}},
+        network=NETWORK,
+        restart_policy={"Name": "unless-stopped"},
+        mem_limit="2g",
+        nano_cpus=2_000_000_000,
+        shm_size="1g",
+        security_opt=["no-new-privileges"],
+    )
+    return {"host": name, "created": True}
+
+
+# --- Fichiers de l'espace de travail ----------------------------------------------
+
+WORKSPACE = "/opt/data/workspace"
+FILE_MAX = 100 * 1024 * 1024
+
+
+def _workspace_path(path: str) -> str:
+    path = "/" + path.strip("/")
+    full = WORKSPACE + path if not path.startswith(WORKSPACE) else path
+    if ".." in full.split("/") or not full.startswith(WORKSPACE + "/"):
+        raise HTTPException(400, "Chemin hors de l'espace de travail")
+    return full
+
+
+@app.get("/agents/{agent_id}/files", dependencies=[Depends(auth)])
+def list_files(agent_id: str):
+    c = container(check_id(agent_id))
+    res = c.exec_run(
+        ["find", WORKSPACE, "-maxdepth", "6", "-type", "f", "-not", "-path", "*/node_modules/*",
+         "-not", "-path", "*/.git/*", "-printf", "%P\t%s\t%T@\n"],
+        user="root",
+    )
+    files = []
+    for line in res.output.decode(errors="replace").splitlines()[:1000]:
+        parts = line.split("\t")
+        if len(parts) == 3:
+            files.append({"path": parts[0], "size": int(parts[1]), "modified": float(parts[2])})
+    files.sort(key=lambda f: -f["modified"])
+    return files
+
+
+@app.get("/agents/{agent_id}/file", dependencies=[Depends(auth)])
+def read_workspace_file(agent_id: str, path: str):
+    full = _workspace_path(path)
+    try:
+        stream, stat = container(check_id(agent_id)).get_archive(full)
+    except NotFound:
+        raise HTTPException(404, "Fichier introuvable")
+    if stat["size"] > FILE_MAX:
+        raise HTTPException(413, "Fichier trop lourd")
+    with tarfile.open(fileobj=io.BytesIO(b"".join(stream))) as tar:
+        member = tar.getmembers()[0]
+        if not member.isfile():
+            raise HTTPException(400, "Ce n'est pas un fichier")
+        return Response(tar.extractfile(member).read(), media_type="application/octet-stream")
+
+
+@app.put("/agents/{agent_id}/upload", dependencies=[Depends(auth)])
+async def upload(agent_id: str, name: str, request: Request):
+    """Dépose un fichier de l'utilisateur dans workspace/uploads/ (lisible par l'agent)."""
+    c = container(check_id(agent_id))
+    safe = re.sub(r"[^\w.\- ()]+", "_", os.path.basename(name)).strip() or "fichier"
+    data = await request.body()
+    if len(data) > FILE_MAX:
+        raise HTTPException(413, "Fichier trop lourd (100 Mo max)")
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as tar:
+        info = tarfile.TarInfo(f"uploads/{safe}")
+        info.size = len(data)
+        info.mode = 0o644
+        info.mtime = int(time.time())
+        tar.addfile(info, io.BytesIO(data))
+    c.exec_run(["mkdir", "-p", f"{WORKSPACE}/uploads"], user="root")
+    c.put_archive(WORKSPACE, buf.getvalue())
+    # L'agent tourne sous son propre utilisateur : on lui rend la propriété du dossier.
+    c.exec_run(["sh", "-c", f"chown -R --reference={WORKSPACE} {WORKSPACE}/uploads"], user="root")
+    return {"path": f"{WORKSPACE}/uploads/{safe}"}
 
 
 @app.get("/agents", dependencies=[Depends(auth)])
@@ -164,7 +290,14 @@ def delete(agent_id: str):
     c = container(check_id(agent_id))
     c.remove(force=True)
     try:
-        client.volumes.get(PREFIX + agent_id).remove(force=True)
+        b = client.containers.get(BROWSER_PREFIX + agent_id)
+        if b.labels.get(BROWSER_LABEL) == agent_id:
+            b.remove(force=True)
     except NotFound:
         pass
+    for volume in (PREFIX + agent_id, BROWSER_PREFIX + agent_id):
+        try:
+            client.volumes.get(volume).remove(force=True)
+        except NotFound:
+            pass
     return {"ok": True}

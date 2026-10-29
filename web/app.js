@@ -264,6 +264,24 @@ async function shell() {
     if (state.runId) post(`/api/agents/${state.agentId}/runs/${state.runId}/stop`, {}).catch(() => {});
   });
 
+  // Panneau Détails / Fichiers / Ordinateur
+  $("toggle-panel").addEventListener("click", () => ($("panel").hidden ? openPanel(state.panelTab || "computer") : closePanel()));
+  $("close-panel").addEventListener("click", closePanel);
+  document.querySelectorAll(".tabs [data-tab]").forEach((b) => b.addEventListener("click", () => openPanel(b.dataset.tab)));
+  $("take-control").addEventListener("click", () => { state.viewOnly = !state.viewOnly; loadScreen(); });
+  $("screen-reload").addEventListener("click", loadScreen);
+  $("preview-close").addEventListener("click", () => { $("preview").hidden = true; $("preview-frame").src = "about:blank"; });
+
+  // Pièces jointes
+  $("file-input").addEventListener("change", (e) => { uploadFiles([...e.target.files]); e.target.value = ""; });
+  const chat = document.querySelector(".chat");
+  chat.addEventListener("dragover", (e) => e.preventDefault());
+  chat.addEventListener("drop", (e) => { e.preventDefault(); uploadFiles([...e.dataTransfer.files]); });
+  input.addEventListener("paste", (e) => {
+    const files = [...(e.clipboardData?.files || [])];
+    if (files.length) { e.preventDefault(); uploadFiles(files); }
+  });
+
   refreshModel();
   await refreshAgents();
   if (state.agents.length) selectAgent(state.agentId && state.agents.some((a) => a.id === state.agentId) ? state.agentId : state.agents[0].id);
@@ -310,9 +328,199 @@ function renderAgentHead() {
 
 async function selectAgent(id) {
   state.agentId = id;
+  state.attachments = [];
+  renderAttachments();
   refreshAgents();
   await refreshConversations();
   openConversation(null);
+  if (!$("panel").hidden) openPanel(state.panelTab);
+}
+
+// --- Panneau latéral -----------------------------------------------------------------
+
+function openPanel(tab) {
+  state.panelTab = tab;
+  $("panel").hidden = false;
+  document.querySelector(".shell").classList.add("with-panel");
+  $("toggle-panel").setAttribute("aria-pressed", "true");
+  document.querySelectorAll(".tabs [data-tab]").forEach((b) => b.setAttribute("aria-selected", b.dataset.tab === tab));
+  for (const t of ["details", "files", "computer"]) $(`tab-${t}`).hidden = t !== tab;
+  if (tab === "details") renderDetails();
+  if (tab === "files") renderFiles();
+  if (tab === "computer") loadScreen();
+  else $("screen").src = "about:blank"; // coupe le flux vidéo quand on ne le regarde pas
+}
+
+function closePanel() {
+  $("panel").hidden = true;
+  $("screen").src = "about:blank";
+  document.querySelector(".shell").classList.remove("with-panel");
+  $("toggle-panel").setAttribute("aria-pressed", "false");
+}
+
+async function renderDetails() {
+  const box = $("tab-details");
+  const a = currentAgent();
+  box.replaceChildren();
+  if (!a) return;
+  const usage = await json("/api/usage").catch(() => null);
+  const mine = usage?.agents.find((u) => u.agent_id === a.id);
+  const cacheRate = mine && mine.prompt_tokens ? Math.round((100 * mine.cached_tokens) / mine.prompt_tokens) : 0;
+  box.innerHTML = `
+    <div class="kv"><span>Agent</span><p><strong></strong></p></div>
+    <div class="kv"><span>État</span><p class="state"></p></div>
+    <div class="kv"><span>Modèle</span><p class="model"></p></div>
+    <div class="stats">
+      <div class="stat"><span>Coût ce mois-ci</span><b class="cost"></b></div>
+      <div class="stat"><span>Appels au modèle</span><b class="calls"></b></div>
+      <div class="stat"><span>Jetons</span><b class="tokens"></b></div>
+      <div class="stat"><span>Lus depuis le cache</span><b class="cache"></b></div>
+    </div>
+    <div class="kv"><span>Rôle</span><p class="role"></p></div>
+    <button type="button" class="ghost" id="details-edit">Modifier le nom et le rôle</button>`;
+  box.querySelector("strong").textContent = a.name;
+  box.querySelector(".state").textContent = a.step || (a.online ? "En ligne" : "Hors ligne");
+  box.querySelector(".model").textContent = state.model?.model || "—";
+  box.querySelector(".cost").textContent = `${money(mine?.cost || 0)} $`;
+  box.querySelector(".calls").textContent = mine?.calls || 0;
+  box.querySelector(".tokens").textContent = (mine?.tokens || 0).toLocaleString("fr-CA");
+  box.querySelector(".cache").textContent = `${cacheRate} %`;
+  box.querySelector(".role").textContent = a.role || "Aucun rôle précis.";
+  $("details-edit").addEventListener("click", () => agentModal(a));
+}
+
+const FILE_GROUPS = [
+  ["outputs/", "Livrables"],
+  ["apps/", "Applications"],
+  ["captures/", "Captures"],
+  ["uploads/", "Envoyés par toi"],
+  ["", "Autres fichiers"],
+];
+const size = (n) => (n < 1024 ? `${n} o` : n < 1048576 ? `${Math.round(n / 1024)} Ko` : `${(n / 1048576).toFixed(1).replace(".", ",")} Mo`);
+
+async function renderFiles() {
+  const box = $("tab-files");
+  const agentId = state.agentId;
+  box.innerHTML = '<p class="muted">Chargement…</p>';
+  let files;
+  try { files = await json(`/api/agents/${agentId}/files`); } catch (err) { box.innerHTML = '<p class="error"></p>'; box.firstChild.textContent = err.message; return; }
+  box.replaceChildren();
+  if (!files.length) {
+    box.innerHTML = '<p class="muted">Aucun fichier pour l\'instant. Ce que l\'agent crée et ce que tu lui envoies apparaîtra ici.</p>';
+    return;
+  }
+  const used = new Set();
+  for (const [prefix, title] of FILE_GROUPS) {
+    const group = files.filter((f) => !used.has(f.path) && f.path.startsWith(prefix));
+    // Une application = un dossier : on montre son index.html plutôt que chaque fichier.
+    const items = prefix === "apps/" ? group.filter((f) => /^apps\/[^/]+\/index\.html$/.test(f.path)) : group;
+    group.forEach((f) => used.add(f.path));
+    if (!items.length) continue;
+    const section = document.createElement("section");
+    section.className = "files-group";
+    section.innerHTML = "<h3></h3>";
+    section.querySelector("h3").textContent = title;
+    for (const f of items.slice(0, 100)) section.append(fileRow(agentId, f, prefix === "apps/"));
+    box.append(section);
+  }
+}
+
+function fileRow(agentId, f, isApp) {
+  const raw = `/api/agents/${agentId}/files/raw/${f.path.split("/").map(encodeURIComponent).join("/")}`;
+  const row = document.createElement("div");
+  row.className = "file";
+  const isImage = /\.(png|jpe?g|gif|webp)$/i.test(f.path);
+  if (isImage) {
+    const img = document.createElement("img");
+    img.src = `/api/agents/${agentId}/media?path=${encodeURIComponent("/opt/data/workspace/" + f.path)}`;
+    img.alt = "";
+    img.loading = "lazy";
+    row.append(img);
+  }
+  const name = document.createElement("span");
+  name.className = "name";
+  name.textContent = isApp ? f.path.split("/")[1] : f.path.replace(/^(outputs|uploads|captures)\//, "");
+  name.title = f.path;
+  const sz = document.createElement("span");
+  sz.className = "size";
+  sz.textContent = size(f.size);
+  row.append(name, sz);
+  if (isApp || /\.(html?|pdf|txt|md|csv|json|svg)$/i.test(f.path) || isImage) {
+    const open = Object.assign(document.createElement("button"), { type: "button", className: "ghost", textContent: isApp ? "Ouvrir l'app" : "Aperçu" });
+    open.addEventListener("click", () => {
+      $("preview-title").textContent = name.textContent;
+      $("preview-frame").src = raw;
+      $("preview-open").href = raw;
+      $("preview").hidden = false;
+    });
+    row.append(open);
+  }
+  const dl = Object.assign(document.createElement("a"), { className: "ghost button", textContent: "↓", href: raw + "?download=1", title: "Télécharger" });
+  dl.style.padding = "4px 8px";
+  row.append(dl);
+  return row;
+}
+
+async function loadScreen() {
+  const a = currentAgent();
+  const frame = $("screen");
+  if (state.viewOnly === undefined) state.viewOnly = true;
+  $("take-control").textContent = state.viewOnly ? "Prendre le contrôle" : "Rendre la main à l'agent";
+  $("control-hint").textContent = state.viewOnly
+    ? "Lecture seule : l'agent garde la main. Prends le contrôle pour te connecter à un site ou résoudre un CAPTCHA, puis dis-lui de continuer."
+    : "Tu as la main : clique et tape directement dans l'écran. Quand tu as fini, rends la main et dis à l'agent de continuer.";
+  document.querySelector(".screen").classList.toggle("control", !state.viewOnly);
+  if (!a) return;
+  try {
+    const { url } = await json(`/api/agents/${a.id}/screen-url?view_only=${state.viewOnly ? 1 : 0}`);
+    frame.hidden = false;
+    $("screen-empty").hidden = true;
+    frame.src = url;
+    $("screen-open").href = url;
+  } catch (err) {
+    frame.hidden = true;
+    $("screen-empty").hidden = false;
+  }
+}
+
+// --- Pièces jointes ------------------------------------------------------------------
+
+async function uploadFiles(files) {
+  if (!state.agentId || !files.length) return;
+  state.attachments = state.attachments || [];
+  for (const file of files) {
+    const item = { name: file.name, path: null, busy: true };
+    state.attachments.push(item);
+    renderAttachments();
+    try {
+      const res = await api(`/api/agents/${state.agentId}/upload?name=${encodeURIComponent(file.name)}`, {
+        method: "POST",
+        body: file,
+        headers: { "Content-Type": "application/octet-stream" },
+      });
+      item.path = (await res.json()).path;
+    } catch (err) {
+      item.error = err.message;
+    }
+    item.busy = false;
+    renderAttachments();
+  }
+}
+
+function renderAttachments() {
+  const box = $("attachments");
+  if (!box) return;
+  const list = state.attachments || [];
+  box.hidden = !list.length;
+  box.replaceChildren(...list.map((item, i) => {
+    const chip = document.createElement("span");
+    chip.className = "chip" + (item.busy ? " busy" : "");
+    chip.textContent = item.error ? `${item.name} (échec)` : item.busy ? `${item.name}…` : item.name;
+    const x = Object.assign(document.createElement("button"), { type: "button", textContent: "✕", title: "Retirer" });
+    x.addEventListener("click", () => { state.attachments.splice(i, 1); renderAttachments(); });
+    chip.append(x);
+    return chip;
+  }));
 }
 
 async function refreshConversations() {
@@ -391,7 +599,15 @@ function addMessage(cls, text) {
 
 async function send(text) {
   const agentId = state.agentId;
-  addMessage("msg user", text);
+  if ((state.attachments || []).some((a) => a.busy)) {
+    addMessage("msg error", "Attends la fin de l'envoi des fichiers, puis renvoie ton message.");
+    $("input").value = text;
+    return;
+  }
+  const attachments = (state.attachments || []).filter((a) => a.path).map((a) => a.path);
+  state.attachments = [];
+  renderAttachments();
+  addMessage("msg user", attachments.length ? `${text}\n\n📎 ${attachments.map((p) => p.split("/").pop()).join(", ")}` : text);
   state.busy = true;
   $("send").hidden = true;
   $("stop").hidden = false;
@@ -400,7 +616,7 @@ async function send(text) {
   try {
     const res = await api("/api/chat", {
       method: "POST",
-      body: JSON.stringify({ agent_id: agentId, text, conversation_id: state.conversationId, details: $("details").checked }),
+      body: JSON.stringify({ agent_id: agentId, text, attachments, conversation_id: state.conversationId, details: $("details").checked }),
     });
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -427,6 +643,7 @@ async function send(text) {
     renderAgentHead();
     refreshConversations();
     refreshModel();
+    if (!$("panel").hidden && state.panelTab !== "computer") openPanel(state.panelTab);
   }
 }
 

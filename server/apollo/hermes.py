@@ -1,5 +1,8 @@
 """Client des agents : le lanceur (cycle de vie, fichiers) et la gateway Hermes de chaque agent."""
+import hashlib
+import hmac
 import json
+import re
 import secrets
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -56,6 +59,39 @@ async def restart(agent_id: str) -> None:
     await _launcher("POST", f"/agents/{agent_id}/restart")
 
 
+def browser_secrets(agent_id: str) -> tuple[str, str]:
+    """Clé d'API Camoufox et mot de passe VNC propres à l'agent (dérivés, rien à stocker)."""
+    from .config import SECRET_KEY
+
+    base = hmac.new(SECRET_KEY.encode(), f"browser:{agent_id}".encode(), hashlib.sha256).hexdigest()
+    return base[:48], base[48:56]  # x11vnc ne lit que 8 caractères de mot de passe
+
+
+def browser_host(agent_id: str) -> str:
+    return f"apollo-browser-{agent_id}"
+
+
+async def ensure_browser(agent_id: str) -> None:
+    api_key, vnc_password = browser_secrets(agent_id)
+    await _launcher("POST", f"/agents/{agent_id}/browser", json={"api_key": api_key, "vnc_password": vnc_password})
+
+
+async def list_files(agent_id: str) -> list[dict]:
+    return await _launcher("GET", f"/agents/{agent_id}/files")
+
+
+async def read_file(agent_id: str, path: str) -> httpx.Response:
+    async with httpx.AsyncClient(timeout=120) as c:
+        return await c.get(f"{LAUNCHER_URL}/agents/{agent_id}/file", params={"path": path}, headers=LAUNCHER)
+
+
+async def upload(agent_id: str, name: str, data: bytes) -> str:
+    async with httpx.AsyncClient(timeout=120) as c:
+        r = await c.put(f"{LAUNCHER_URL}/agents/{agent_id}/upload", params={"name": name}, content=data, headers=LAUNCHER)
+    r.raise_for_status()
+    return r.json()["path"]
+
+
 async def media(agent_id: str, path: str) -> httpx.Response:
     async with httpx.AsyncClient(timeout=30) as c:
         return await c.get(f"{LAUNCHER_URL}/agents/{agent_id}/media", params={"path": path}, headers=LAUNCHER)
@@ -77,11 +113,20 @@ PROVIDERS = {
 }
 
 
-def _strip_provider_keys(text: str) -> str:
-    """Retire toute clé de fournisseur du .env de l'agent : elles restent dans le serveur."""
-    names = {p["env"] for p in PROVIDERS.values() if p["env"]}
-    lines = [l for l in text.splitlines() if l.split("=", 1)[0].strip() not in names]
+def _agent_env(text: str, agent_id: str) -> str:
+    """Retire toute clé de fournisseur du .env de l'agent (elles restent dans le serveur)
+    et le branche sur son navigateur Camoufox."""
+    api_key, _ = browser_secrets(agent_id)
+    managed = {"CAMOFOX_URL": f"http://{browser_host(agent_id)}:9377", "CAMOFOX_API_KEY": api_key}
+    drop = {p["env"] for p in PROVIDERS.values() if p["env"]} | set(managed)
+    lines = [l for l in text.splitlines() if l.split("=", 1)[0].strip() not in drop]
+    lines += [f"{k}={v}" for k, v in managed.items()]
     return "\n".join(lines) + "\n"
+
+
+# Familles qui ont besoin de marqueurs de cache explicites (style Anthropic) ; les autres
+# fournisseurs mettent en cache tout seuls tant que le début du prompt ne change pas.
+CACHE_MARKER_MODELS = re.compile(r"claude|kimi|moonshot|qwen", re.I)
 
 
 async def configure(agent_id: str, model: dict, role: str | None = None) -> None:
@@ -92,16 +137,28 @@ async def configure(agent_id: str, model: dict, role: str | None = None) -> None
     from .relay import RELAY_URL, token_for
 
     p = PROVIDERS[model["provider"]]
-    files: dict[str, str] = {".env": _strip_provider_keys(await _read(agent_id, ".env"))}
+    model_id = model.get("model") or p["model"]
+    files: dict[str, str] = {".env": _agent_env(await _read(agent_id, ".env"), agent_id)}
 
     cfg = yaml.safe_load(await _read(agent_id, "config.yaml") or "{}") or {}
     cfg["model"] = {
         "provider": "custom",
-        "default": model.get("model") or p["model"],
+        "default": model_id,
         "base_url": RELAY_URL,
         "api_key": token_for(agent_id),
         "api_mode": "chat_completions",
     }
+    # Déclare le relais comme route connue pour activer le cache de prompt quand le modèle en a besoin.
+    cfg["custom_providers"] = [{
+        "name": "apollo",
+        "base_url": RELAY_URL,
+        "api_key": token_for(agent_id),
+        "models": {model_id: {"prompt_caching": bool(CACHE_MARKER_MODELS.search(model_id))}},
+    }]
+    # Navigateur Camoufox (anti-détection), profil et cookies gardés entre les sessions.
+    browser = cfg.setdefault("browser", {})
+    browser["cloud_provider"] = "camofox"
+    browser.setdefault("camofox", {})["managed_persistence"] = True
     # Les commandes de l'agent démarrent dans son espace de travail, pas au milieu de sa config.
     cfg.setdefault("terminal", {})["cwd"] = "/opt/data/workspace"
     files["config.yaml"] = yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True)

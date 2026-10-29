@@ -50,6 +50,32 @@ et le coût de chaque appel (coût exact avec OpenRouter, estimé avec les prix 
 Un budget mensuel optionnel bloque les appels une fois atteint. La dépense du mois s'affiche en bas
 de la colonne de gauche.
 
+## Navigateur et écran de l'agent
+
+Chaque agent a son navigateur [Camoufox](https://camoufox.com) (Firefox anti-détection), dans un conteneur
+`apollo-browser-*` basé sur [camofox-browser](https://github.com/jo-inc/camofox-browser), que Hermes pilote
+nativement (`CAMOFOX_URL`). Le profil (cookies, sessions connectées) est gardé dans un volume.
+
+Le bouton « Ordinateur » ouvre l'écran du navigateur en direct (noVNC, relayé par le serveur derrière ta
+connexion). « Prendre le contrôle » passe en mode interactif : tu te connectes toi-même à un site ou tu
+résous un CAPTCHA, puis tu dis à l'agent de continuer. L'agent a pour consigne de ne jamais demander de mot
+de passe dans la conversation.
+
+## Fichiers
+
+- Joindre : bouton « + », glisser-déposer ou coller dans la zone de message. Les fichiers arrivent dans
+  `/opt/data/workspace/uploads/` et le message les cite à l'agent.
+- L'onglet « Fichiers » liste l'espace de travail de l'agent (livrables, applications, captures, envois)
+  avec téléchargement et aperçu. Les applications web générées s'ouvrent dans un bac à sable sans accès
+  à la session Apollo.
+
+## Cache de prompt
+
+Le début du prompt de chaque agent (identité, capacités) est un texte fixe ; le rôle propre vient à la fin.
+Les fournisseurs mettent ce préfixe en cache. Pour Claude, Kimi et Qwen, qui demandent des marqueurs
+explicites, le relais est déclaré à Hermes comme route avec `prompt_caching`. La part lue depuis le cache
+s'affiche dans l'onglet « Détails ».
+
 ## Images
 
 Quand un agent veut montrer une capture, il l'enregistre dans `/opt/data/workspace/captures/` et écrit
@@ -67,7 +93,8 @@ et seulement depuis les dossiers de travail de l'agent.
 1. ~~Un agent derrière une interface simple.~~
 2. ~~Plusieurs agents, un conteneur chacun, historique, version mobile.~~
 3. ~~Relais de modèle (clé hors des agents, budgets), choix du modèle par catalogue, images.~~
-   Navigateur Camoufox, vue en direct et prise de contrôle.
+   ~~Navigateur Camoufox, vue en direct et prise de contrôle, fichiers.~~
+   Nouvelle interface (assistant-ui + shadcn), modèle par agent.
 4. Veille programmatique (collecte sans LLM, triage par petit modèle), Gmail et Agenda.
 5. Apps mobile et desktop, appairage par QR code, installation en une commande sur VPS.
 

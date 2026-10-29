@@ -63,6 +63,9 @@ def init() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     with connect() as db:
         db.executescript(SCHEMA)
+        columns = {r["name"] for r in db.execute("PRAGMA table_info(usage)")}
+        if "cached_tokens" not in columns:
+            db.execute("ALTER TABLE usage ADD COLUMN cached_tokens INTEGER NOT NULL DEFAULT 0")
 
 
 @contextmanager

@@ -61,6 +61,7 @@ async def _record(agent_id: str, model: str, usage: dict | None) -> None:
         return
     prompt = int(usage.get("prompt_tokens") or 0)
     completion = int(usage.get("completion_tokens") or 0)
+    cached = int((usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)
     cost = usage.get("cost")
     if cost is None and db.get_setting("provider") != "ollama":
         price = (await catalog.price_index()).get(catalog._norm(model))
@@ -68,8 +69,9 @@ async def _record(agent_id: str, model: str, usage: dict | None) -> None:
             cost = (prompt * price["price_in"] + completion * price["price_out"]) / 1e6
     with db.connect() as c:
         c.execute(
-            "INSERT INTO usage (agent_id, model, prompt_tokens, completion_tokens, cost) VALUES (?, ?, ?, ?, ?)",
-            (agent_id, model, prompt, completion, float(cost or 0)),
+            "INSERT INTO usage (agent_id, model, prompt_tokens, completion_tokens, cost, cached_tokens) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (agent_id, model, prompt, completion, float(cost or 0), cached),
         )
 
 

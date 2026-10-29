@@ -110,16 +110,60 @@
             <strong id="agent-name-head">…</strong>
             <span class="status" id="agent-status"></span>
           </div>
-          <label class="toggle"><input type="checkbox" id="details"> Détails</label>
+          <label class="toggle"><input type="checkbox" id="details"> Détails techniques</label>
           <button type="button" class="ghost small" id="edit-agent">Réglages</button>
+          <button type="button" class="ghost small" id="toggle-panel" aria-pressed="false">Ordinateur</button>
         </header>
         <div class="messages" id="messages"></div>
+        <div class="attachments" id="attachments" hidden></div>
         <form class="composer" id="composer">
+          <label class="attach" title="Joindre des fichiers" aria-label="Joindre des fichiers">
+            <input type="file" id="file-input" multiple hidden>+
+          </label>
           <textarea id="input" rows="1" placeholder="Écris à ton agent…" required></textarea>
           <button type="submit" id="send">Envoyer</button>
           <button type="button" class="ghost" id="stop" hidden>Arrêter</button>
         </form>
       </section>
+      <aside class="panel" id="panel" hidden>
+        <div class="panel-head">
+          <div class="tabs" role="tablist">
+            <button type="button" role="tab" data-tab="details">Détails</button>
+            <button type="button" role="tab" data-tab="files">Fichiers</button>
+            <button type="button" role="tab" data-tab="computer">Ordinateur</button>
+          </div>
+          <button type="button" class="icon" id="close-panel" aria-label="Fermer le panneau">✕</button>
+        </div>
+        <div class="tab-body" id="tab-details" hidden></div>
+        <div class="tab-body" id="tab-files" hidden></div>
+        <div class="tab-body" id="tab-computer" hidden>
+          <div class="screen">
+            <iframe id="screen" title="Écran de l'agent" hidden></iframe>
+            <div class="screen-empty" id="screen-empty">
+              <strong>Navigateur de l'agent</strong>
+              <span class="muted">L'écran apparaît ici dès que l'agent ouvre une page.</span>
+            </div>
+          </div>
+          <div class="row">
+            <button type="button" id="take-control">Prendre le contrôle</button>
+            <button type="button" class="ghost" id="screen-reload">Rafraîchir</button>
+            <a class="ghost button" id="screen-open" target="_blank" rel="noopener">Plein écran</a>
+          </div>
+          <p class="muted small" id="control-hint">Lecture seule : l'agent garde la main. Prends le contrôle pour te connecter à un site ou résoudre un CAPTCHA, puis dis-lui de continuer.</p>
+        </div>
+      </aside>
+      <div class="modal" id="preview" hidden>
+        <div class="preview-box">
+          <div class="preview-head">
+            <strong id="preview-title"></strong>
+            <div class="row">
+              <a class="ghost button" id="preview-open" target="_blank" rel="noopener">Ouvrir dans un onglet</a>
+              <button type="button" class="icon" id="preview-close" aria-label="Fermer l'aperçu">✕</button>
+            </div>
+          </div>
+          <iframe id="preview-frame" title="Aperçu" sandbox="allow-scripts allow-forms allow-popups allow-modals"></iframe>
+        </div>
+      </div>
       <div class="modal" id="modal" hidden></div>
     </div>
   </template>
