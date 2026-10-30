@@ -90,9 +90,40 @@ async def browser_call(agent_id: str, method: str, path: str, timeout: float = 5
         return {"http_status": r.status_code}
 
 
+# Langue par pays (et région pour le Canada) quand on déduit l'identité du navigateur de l'IP.
+LOCALES = {"FR": "fr-FR", "BE": "fr-BE", "CH": "fr-CH", "LU": "fr-LU", "MA": "fr-MA", "SN": "fr-SN", "CI": "fr-CI",
+           "CM": "fr-CM", "US": "en-US", "GB": "en-GB", "AU": "en-AU", "DE": "de-DE", "ES": "es-ES", "IT": "it-IT",
+           "PT": "pt-PT", "BR": "pt-BR", "MX": "es-MX", "NL": "nl-NL", "JP": "ja-JP"}
+
+
+async def browser_identity() -> dict:
+    """Langue et fuseau du navigateur : ceux de .env (APOLLO_LOCALE / APOLLO_TIMEZONE), sinon déduits
+    une fois de l'adresse IP publique du serveur (la même que voient les sites)."""
+    from . import db
+    from .config import BROWSER_LOCALE, BROWSER_TIMEZONE
+
+    if BROWSER_LOCALE and BROWSER_TIMEZONE:
+        return {"locale": BROWSER_LOCALE, "timezone": BROWSER_TIMEZONE}
+    saved = db.get_setting("browser_identity")
+    if saved:
+        return json.loads(saved)
+    try:
+        async with httpx.AsyncClient(timeout=5) as c:
+            geo = (await c.get("http://ip-api.com/json/?fields=countryCode,region,timezone")).json()
+    except (httpx.HTTPError, ValueError):
+        return {"locale": "", "timezone": ""}
+    country = geo.get("countryCode", "")
+    locale = "fr-CA" if country == "CA" and geo.get("region") == "QC" else ("en-CA" if country == "CA" else LOCALES.get(country, "en-US"))
+    identity = {"locale": locale, "timezone": geo.get("timezone", "")}
+    if identity["timezone"]:
+        db.set_setting("browser_identity", json.dumps(identity))
+    return identity
+
+
 async def ensure_browser(agent_id: str) -> None:
     api_key, vnc_password = browser_secrets(agent_id)
-    await _launcher("POST", f"/agents/{agent_id}/browser", json={"api_key": api_key, "vnc_password": vnc_password})
+    await _launcher("POST", f"/agents/{agent_id}/browser",
+                    json={"api_key": api_key, "vnc_password": vnc_password, **await browser_identity()})
 
 
 async def list_files(agent_id: str) -> list[dict]:

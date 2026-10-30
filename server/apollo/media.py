@@ -273,6 +273,67 @@ def _wav(pcm: bytes, rate: int) -> bytes:
     return header + b"data" + struct.pack("<I", len(pcm)) + pcm
 
 
+# --- Voix rapide du mode vocal --------------------------------------------------------------
+# Le cerveau de l'agent fait le travail (outils, navigateur, fichiers) mais met plusieurs secondes.
+# Un petit modèle très rapide répond tout de suite à voix haute, et relit le résultat à la fin.
+VOICE_MODELS = ["google/gemini-3.1-flash-lite", "openai/gpt-6-luna-pro", "anthropic/claude-haiku-5.5", "google/gemini-3.8-flash"]
+
+VOICE_TURN = """Tu es la voix de {name}, un agent personnel. L'utilisateur te parle à voix haute ; l'agent, lui, a un ordinateur,
+un navigateur, des fichiers, une mémoire et des outils, mais il met du temps à répondre.
+Réponds uniquement par un objet JSON : {{"dire": "...", "action": true ou false}}.
+- action = true si la demande demande à l'agent d'agir ou de chercher (naviguer, créer, écrire un fichier, consulter ses
+  courriels, se souvenir, programmer une routine, chercher une info récente ou précise). « dire » est alors un accusé
+  très court et naturel qui reformule ce qui va être fait (« D'accord, je regarde tes derniers courriels. »), sans inventer de résultat.
+- action = false pour une conversation simple ou une question générale à laquelle tu peux répondre sûrement :
+  « dire » est la réponse, une à trois phrases.
+Parle comme à l'oral, en français, sans liste ni mise en forme.{role}"""
+
+VOICE_RESULT = """Tu es la voix de {name}. L'agent vient de terminer le travail demandé. Résume son résultat à voix haute
+en une ou deux phrases naturelles, en français, sans lire les chemins de fichiers, le code ni les listes en entier.
+Si quelque chose attend l'utilisateur (un choix, une validation, un fichier à regarder), dis-le. Réponds en texte simple."""
+
+
+async def voice_model() -> str:
+    chosen = db.get_setting("media_voice_brain") or "auto"
+    if chosen != "auto":
+        return chosen
+    from . import catalog
+
+    ids = {m["id"] for m in await catalog.models_for("openrouter", _key())}
+    return next((m for m in VOICE_MODELS if m in ids), VOICE_MODELS[0])
+
+
+async def voice_reply(agent_id: str, name: str, role: str, text: str, history: list[dict], mode: str) -> dict:
+    """Réponse orale immédiate. mode « turn » : {dire, action} ; mode « result » : {dire} (résumé du travail)."""
+    _check_budget()
+    model = await voice_model()
+    if mode == "result":
+        messages = [{"role": "system", "content": VOICE_RESULT.format(name=name)}, {"role": "user", "content": text[:12000]}]
+    else:
+        system = VOICE_TURN.format(name=name, role=f"\nRôle de l'agent : {role[:600]}" if role else "")
+        messages = [{"role": "system", "content": system}]
+        messages += [{"role": "assistant" if h.get("role") == "assistant" else "user", "content": str(h.get("text", ""))[:1500]} for h in history[-6:]]
+        messages.append({"role": "user", "content": text})
+    body = {"model": model, "messages": messages, "max_tokens": 300, "temperature": 0.4,
+            "provider": {"sort": "latency"}}
+    if mode != "result":
+        body["response_format"] = {"type": "json_object"}
+    async with httpx.AsyncClient(timeout=30, headers=_headers()) as c:
+        r = await c.post(f"{BASE}/chat/completions", json=body)
+    if r.status_code != 200:
+        raise _fail(r)
+    j = r.json()
+    _record(agent_id, model, (j.get("usage") or {}).get("cost"))
+    content = (j["choices"][0]["message"].get("content") or "").strip()
+    if mode == "result":
+        return {"dire": content, "action": False}
+    try:
+        data = json.loads(content[content.find("{"): content.rfind("}") + 1])
+        return {"dire": str(data.get("dire", "")).strip(), "action": bool(data.get("action"))}
+    except ValueError:
+        return {"dire": content, "action": True}
+
+
 async def transcribe(agent_id: str, audio: bytes, fmt: str, language: str | None = "fr") -> str:
     _check_budget()
     model = await resolve("transcription")

@@ -62,6 +62,10 @@ BROWSER_VERSION = "3"
 class BrowserKeys(BaseModel):
     api_key: str
     vnc_password: str
+    # Langue et fuseau de la connexion de l'utilisateur : un navigateur en UTC/en-US derrière une IP
+    # de Montréal est un signal de robot classique (X, Google, banques).
+    locale: str = ""
+    timezone: str = ""
 
 
 @app.post("/agents/{agent_id}/browser", dependencies=[Depends(auth)])
@@ -73,9 +77,10 @@ def ensure_browser(agent_id: str, body: BrowserKeys):
     check_id(agent_id)
     container(agent_id)  # l'agent doit exister
     name = BROWSER_PREFIX + agent_id
+    version = f"{BROWSER_VERSION}:{body.locale}:{body.timezone}"
     try:
         c = client.containers.get(name)
-        if c.labels.get("apollo.browser.version") == BROWSER_VERSION:
+        if c.labels.get("apollo.browser.version") == version:
             if c.status != "running":
                 c.start()
             return {"host": name, "created": False}
@@ -87,7 +92,7 @@ def ensure_browser(agent_id: str, body: BrowserKeys):
         name=name,
         hostname=name,
         detach=True,
-        labels={BROWSER_LABEL: agent_id, "apollo.browser.version": BROWSER_VERSION},
+        labels={BROWSER_LABEL: agent_id, "apollo.browser.version": version},
         environment={
             "CAMOFOX_PORT": "9377",
             "CAMOFOX_BIND_HOST": "0.0.0.0",
@@ -106,6 +111,8 @@ def ensure_browser(agent_id: str, body: BrowserKeys):
             "TAB_INACTIVITY_MS": "3600000",
             "SESSION_TIMEOUT_MS": "7200000",
             "BROWSER_IDLE_TIMEOUT_MS": "1800000",
+            **({"CAMOFOX_LOCALE": body.locale, "CAMOFOX_TIMEZONE": body.timezone, "TZ": body.timezone}
+               if body.locale and body.timezone else {}),
         },
         volumes={name: {"bind": "/data", "mode": "rw"}},
         network=NETWORK,

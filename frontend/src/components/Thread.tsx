@@ -15,6 +15,7 @@ import remarkGfm from "remark-gfm";
 import { AgentContext } from "@/lib/agentContext";
 import { mediaUrl, rawFileUrl, send } from "@/lib/api";
 import { NoahTile } from "./Noah";
+import { cn } from "@/lib/utils";
 import { Button } from "./ui";
 import { canFrame, useViewer } from "./Viewer";
 import { DictateButton, VoiceMode, VoiceModeButton } from "./Voice";
@@ -187,6 +188,7 @@ function AssistantMessage() {
   const { agentColor } = useContext(AgentContext);
   const running = useAuiState((s) => s.message.status?.type === "running");
   const empty = useAuiState((s) => s.message.content.length === 0);
+  const isLast = useAuiState((s) => s.thread.messages[s.thread.messages.length - 1]?.id === s.message.id);
   return (
     <MessagePrimitive.Root className="group relative flex flex-col gap-1 py-2 md:pl-11">
       <NoahTile color={agentColor} className="absolute top-2 left-0 hidden size-8 md:grid" />
@@ -199,16 +201,24 @@ function AssistantMessage() {
           <MessagePrimitive.Parts components={{ Text: MarkdownText, tools: TOOLS }} />
         )}
       </div>
-      {!running && (
-        <ActionBarPrimitive.Root hideWhenRunning autohide="not-last" className="flex gap-1 opacity-70 transition-opacity group-hover:opacity-100">
-          <ActionBarPrimitive.Copy asChild>
-            <Button variant="ghost" size="icon-sm" aria-label="Copier la réponse">
-              <MessagePrimitive.If copied><Check /></MessagePrimitive.If>
-              <MessagePrimitive.If copied={false}><Copy /></MessagePrimitive.If>
-            </Button>
-          </ActionBarPrimitive.Copy>
-        </ActionBarPrimitive.Root>
-      )}
+      {/* Place réservée : le bouton apparaît au survol sans décaler le texte en dessous. */}
+      <div className="h-8">
+        {!running && (
+          <ActionBarPrimitive.Root
+            className={cn(
+              "flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100",
+              isLast && "opacity-70",
+            )}
+          >
+            <ActionBarPrimitive.Copy asChild>
+              <Button variant="ghost" size="icon-sm" aria-label="Copier la réponse">
+                <MessagePrimitive.If copied><Check /></MessagePrimitive.If>
+                <MessagePrimitive.If copied={false}><Copy /></MessagePrimitive.If>
+              </Button>
+            </ActionBarPrimitive.Copy>
+          </ActionBarPrimitive.Root>
+        )}
+      </div>
     </MessagePrimitive.Root>
   );
 }

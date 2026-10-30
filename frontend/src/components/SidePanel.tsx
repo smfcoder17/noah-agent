@@ -1,5 +1,5 @@
 // Panneau de droite : Détails de l'agent, ses Fichiers, et son Ordinateur (écran du navigateur en direct).
-import { Archive, ArchiveRestore, ChevronDown, Download, ExternalLink, Eye, Hand, Loader2, MonitorPlay, Power, RefreshCw, Sunrise, X } from "lucide-react";
+import { Archive, ArchiveRestore, ChevronDown, Download, ExternalLink, Eye, Hand, Loader2, LogIn, MonitorPlay, Power, RefreshCw, Sunrise, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { type Agent, type Conversation, get, mediaUrl, rawFileUrl, send, type Usage, type WorkspaceFile } from "@/lib/api";
 import { cn, fileSize, money } from "@/lib/utils";
@@ -266,6 +266,69 @@ function Files({ agentId, refreshKey }: { agentId: string; refreshKey: number })
 
 type ScreenStatus = { awake: boolean; reachable: boolean; running: boolean; tabs: number };
 
+/** Reprendre une session ouverte dans le navigateur habituel : X, Google et les banques bloquent souvent
+ * la connexion depuis un navigateur automatisé, mais acceptent une session déjà ouverte. */
+function CookieImport({ agentId }: { agentId: string }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ count: number; sites: string[] } | null>(null);
+  const [error, setError] = useState("");
+  const submit = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      setResult(await send(`/api/agents/${agentId}/browser/cookies`, { cookies: text }));
+      setText("");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <Button variant="ghost" onClick={() => { setOpen(true); setResult(null); }}><LogIn />Importer une session</Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        {open && (
+          <DialogContent title="Importer une session" description="Pour les sites qui bloquent la connexion depuis un navigateur automatisé (X, Google, banques).">
+            <ol className="flex list-decimal flex-col gap-1 pl-5 text-sm">
+              <li>Dans ton navigateur habituel, connecte-toi au site.</li>
+              <li>Avec l'extension Cookie-Editor, ouvre-la sur ce site puis Export → JSON.</li>
+              <li>Colle le résultat ici (ou choisis un fichier cookies.txt).</li>
+            </ol>
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              rows={7}
+              placeholder='[{"name": "auth_token", "domain": ".x.com", …}]'
+              className="w-full rounded-lg border border-border bg-background p-3 font-mono text-xs"
+              aria-label="Cookies exportés"
+            />
+            <input
+              type="file"
+              accept=".json,.txt"
+              aria-label="Fichier de cookies"
+              className="text-sm"
+              onChange={async (e) => {
+                const f = e.target.files?.[0];
+                if (f) setText(await f.text());
+              }}
+            />
+            <p className="text-xs text-muted-foreground">Ces cookies valent un mot de passe : ils restent sur ta machine, dans le navigateur de cet agent.</p>
+            {error && <p className="text-sm text-danger">{error}</p>}
+            {result && <p className="text-sm text-ok">{result.count} cookies importés : {result.sites.join(", ")}. Demande à l'agent d'ouvrir le site.</p>}
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setOpen(false)}>Fermer</Button>
+              <Button onClick={submit} disabled={busy || text.trim().length < 2}>{busy ? <Loader2 className="animate-spin" /> : <LogIn />}Importer</Button>
+            </div>
+          </DialogContent>
+        )}
+      </Dialog>
+    </>
+  );
+}
+
 function Computer({ agentId }: { agentId: string }) {
   const [control, setControl] = useState(false);
   const [url, setUrl] = useState("");
@@ -370,6 +433,7 @@ function Computer({ agentId }: { agentId: string }) {
             <a href={url} target="_blank" rel="noopener"><ExternalLink />Plein écran</a>
           </Button>
         )}
+        <CookieImport agentId={agentId} />
       </div>
       <p className="text-xs text-muted-foreground">
         {control

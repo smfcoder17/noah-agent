@@ -5,7 +5,7 @@ import { useAui, useAuiState } from "@assistant-ui/react";
 import { AudioLines, Loader2, Mic, Square, X } from "lucide-react";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { AgentContext } from "@/lib/agentContext";
-import { request } from "@/lib/api";
+import { request, send } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { NoahTile } from "./Noah";
 import { Button } from "./ui";
@@ -27,7 +27,7 @@ function useRecorder() {
     analyser.fftSize = 1024;
     ctx.createMediaStreamSource(stream).connect(analyser);
     const buf = new Uint8Array(analyser.fftSize);
-    // Fin de phrase : on a entendu de la voix, puis 1,2 s de silence.
+    // Fin de phrase : on a entendu de la voix, puis 0,8 s de silence.
     let heard = 0;
     let quietSince = 0;
     const timer = window.setInterval(() => {
@@ -42,7 +42,7 @@ function useRecorder() {
         quietSince = 0;
       } else if (heard > 300) {
         quietSince += 100;
-        if (quietSince > 1200) {
+        if (quietSince > 800) {
           heard = 0;
           quietSince = 0;
           onSilence();
@@ -171,23 +171,77 @@ export function VoiceModeButton({ onClick }: { onClick: () => void }) {
   );
 }
 
-type Phase = "listening" | "transcribing" | "thinking" | "speaking" | "error";
+type Phase = "listening" | "transcribing" | "speaking" | "waiting" | "error";
 
-/** Mode vocal : écoute → transcription → message → réponse lue à voix haute → écoute, dans le même fil. */
+/** Lit un texte phrase par phrase : la première part pendant que la suivante se prépare. */
+function useSpeaker(agentId: string) {
+  const current = useRef<HTMLAudioElement | null>(null);
+  const token = useRef(0);
+  const fetchAudio = useCallback(
+    (text: string) =>
+      request("/api/voice/speak", { method: "POST", body: JSON.stringify({ text, agent_id: agentId }) })
+        .then((r) => r.blob())
+        .then((b) => URL.createObjectURL(b)),
+    [agentId],
+  );
+  const speak = useCallback(
+    async (text: string) => {
+      const run = ++token.current;
+      const parts = text.match(/[^.!?…]+[.!?…]*\s*/g)?.map((s) => s.trim()).filter(Boolean) ?? [text];
+      // Regroupe les phrases très courtes pour éviter les pauses entre deux appels.
+      const chunks: string[] = [];
+      for (const p of parts) {
+        if (chunks.length && chunks[chunks.length - 1].length < 60) chunks[chunks.length - 1] += ` ${p}`;
+        else chunks.push(p);
+      }
+      let next = fetchAudio(chunks[0]);
+      for (let i = 0; i < chunks.length; i++) {
+        const url = await next;
+        if (run !== token.current) return;
+        if (i + 1 < chunks.length) next = fetchAudio(chunks[i + 1]);
+        await new Promise<void>((resolve) => {
+          const a = new Audio(url);
+          current.current = a;
+          a.onended = () => resolve();
+          a.onerror = () => resolve();
+          a.onpause = () => resolve();
+          a.play().catch(() => resolve());
+        });
+        if (run !== token.current) return;
+      }
+    },
+    [fetchAudio],
+  );
+  const cancel = useCallback(() => {
+    token.current++;
+    current.current?.pause();
+  }, []);
+  return { speak, cancel };
+}
+
+/**
+ * Mode vocal. Une voix rapide répond tout de suite (moins d'une seconde) pendant que l'agent fait le travail
+ * avec son cerveau et ses outils ; à la fin, elle résume son résultat. Tout reste écrit dans la conversation.
+ */
 export function VoiceMode({ onClose }: { onClose: () => void }) {
   const { agentId, agentName, agentColor, say } = useContext(AgentContext);
   const running = useAuiState((s) => s.thread.isRunning);
-  const lastText = useAuiState((s) => {
-    const m = s.thread.messages[s.thread.messages.length - 1];
-    return m?.role === "assistant" ? m.content.map((p) => (p.type === "text" ? p.text : "")).join("") : "";
-  });
+  const messages = useAuiState((s) => s.thread.messages);
   const { start, stop, level } = useRecorder();
+  const { speak, cancel } = useSpeaker(agentId);
   const [phase, setPhase] = useState<Phase>("listening");
+  const [note, setNote] = useState("");
   const [error, setError] = useState("");
-  const audio = useRef<HTMLAudioElement | null>(null);
-  const sent = useRef(false);
-  const started = useRef(false); // la réponse a commencé (sinon on relirait l'ancienne)
   const alive = useRef(true);
+  const busy = useRef(false); // un tour est en cours : on attend la fin du run de l'agent
+  const started = useRef(false);
+  const action = useRef(false);
+  const queue = useRef<string[]>([]);
+  const textOf = (m: (typeof messages)[number]) => m.content.map((p) => (p.type === "text" ? p.text : "")).join("");
+  // Les rappels du micro gardent la première version des fonctions : l'historique passe par une référence.
+  const latest = useRef(messages);
+  latest.current = messages;
+  const history = () => latest.current.slice(-6).map((m) => ({ role: m.role, text: spoken(textOf(m)).slice(0, 800) }));
 
   const listen = useCallback(async () => {
     if (!alive.current) return;
@@ -199,10 +253,8 @@ export function VoiceMode({ onClose }: { onClose: () => void }) {
         try {
           const text = blob ? await transcribe(blob, agentId) : "";
           if (!alive.current) return;
-          if (!text) return listen();
-          sent.current = true;
-          setPhase("thinking");
-          say(text);
+          if (text) await turn(text);
+          else listen();
         } catch (e) {
           setError((e as Error).message);
           setPhase("error");
@@ -212,68 +264,96 @@ export function VoiceMode({ onClose }: { onClose: () => void }) {
       setError("Micro refusé ou indisponible.");
       setPhase("error");
     }
-  }, [start, stop, agentId, say]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [start, stop, agentId]);
+
+  /** Un tour : le message part à l'agent et, en même temps, la voix rapide répond. */
+  const turn = async (text: string) => {
+    if (busy.current) {
+      // L'agent travaille encore : on garde la demande pour la lui donner juste après.
+      queue.current.push(text);
+      setNote(`Noté pour après : « ${text.slice(0, 60)} »`);
+      return listen();
+    }
+    busy.current = true;
+    started.current = false;
+    say(text);
+    setPhase("speaking");
+    try {
+      const reply = await send<{ dire: string; action: boolean }>("/api/voice/reply", { agent_id: agentId, text, history: history() });
+      action.current = reply.action;
+      if (reply.dire && alive.current) await speak(reply.dire);
+    } catch {
+      action.current = true; // pas de voix rapide : on attendra le résultat de l'agent
+    }
+    if (!alive.current || !busy.current) return; // l'agent a déjà fini : la suite est déjà lancée
+    setPhase("waiting");
+    listen();
+  };
 
   useEffect(() => {
     alive.current = true;
     listen();
     return () => {
       alive.current = false;
-      audio.current?.pause();
+      cancel();
       void stop(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // La réponse est finie : on la lit, puis on écoute de nouveau.
+  // L'agent a fini : on lit le résumé de ce qu'il a fait (s'il a agi), puis la demande suivante part.
   useEffect(() => {
-    if (!sent.current || phase !== "thinking") return;
+    if (!busy.current) return;
     if (running) {
       started.current = true;
       return;
     }
     if (!started.current) return;
-    sent.current = false;
+    busy.current = false;
     started.current = false;
-    const text = spoken(lastText);
-    if (!text) return void listen();
-    setPhase("speaking");
-    request("/api/voice/speak", { method: "POST", body: JSON.stringify({ text, agent_id: agentId }) })
-      .then((r) => r.blob())
-      .then((b) => {
-        if (!alive.current) return;
-        audio.current = new Audio(URL.createObjectURL(b));
-        audio.current.onended = () => listen();
-        return audio.current.play();
-      })
-      .catch((e) => {
-        setError((e as Error).message);
-        setPhase("error");
-      });
-  }, [running, phase, lastText, agentId, listen]);
+    const last = messages[messages.length - 1];
+    const result = last?.role === "assistant" ? textOf(last) : "";
+    (async () => {
+      if (action.current && result.trim()) {
+        await stop(false);
+        setPhase("speaking");
+        try {
+          const r = await send<{ dire: string }>("/api/voice/reply", { agent_id: agentId, text: result, mode: "result" });
+          if (alive.current && r.dire) await speak(r.dire);
+        } catch {
+          if (alive.current) await speak(spoken(result).slice(0, 400));
+        }
+      }
+      if (!alive.current) return;
+      const next = queue.current.shift();
+      setNote("");
+      if (next) await turn(next);
+      else if (phase !== "listening") listen();
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [running]);
 
   const interrupt = async () => {
-    audio.current?.pause();
-    if (phase === "listening") {
+    cancel();
+    if (phase === "listening" || phase === "waiting") {
       // Envoyer tout de suite ce qui a été dit, sans attendre le silence.
       setPhase("transcribing");
       const blob = await stop();
       const text = blob ? await transcribe(blob, agentId).catch(() => "") : "";
-      if (text) {
-        sent.current = true;
-        setPhase("thinking");
-        say(text);
-      } else listen();
+      if (text) await turn(text);
+      else listen();
       return;
     }
+    await stop(false);
     listen();
   };
 
   const words: Record<Phase, string> = {
     listening: "Je t'écoute…",
     transcribing: "Je transcris…",
-    thinking: `${agentName} réfléchit…`,
     speaking: `${agentName} parle…`,
+    waiting: `${agentName} s'en occupe… tu peux continuer à parler`,
     error: error || "Le mode vocal s'est arrêté.",
   };
 
@@ -284,13 +364,13 @@ export function VoiceMode({ onClose }: { onClose: () => void }) {
       </span>
       <div className="min-w-0 flex-1">
         <p className={cn("text-sm font-semibold", phase === "error" && "text-warn")} aria-live="polite">{words[phase]}</p>
-        <p className="text-xs text-muted-foreground">
-          {phase === "listening" ? "Parle, j'envoie quand tu fais une pause." : phase === "speaking" ? "Touche « Interrompre » pour reprendre la parole." : "Ce que tu dis apparaît dans la conversation."}
+        <p className="truncate text-xs text-muted-foreground">
+          {note || (phase === "listening" || phase === "waiting" ? "Parle, j'envoie quand tu fais une pause." : phase === "speaking" ? "Touche « Interrompre » pour reprendre la parole." : "Ce que tu dis apparaît dans la conversation.")}
         </p>
       </div>
-      {phase === "listening" && <span className="text-accent"><Level level={level} /></span>}
-      {(phase === "transcribing" || phase === "thinking") && <Loader2 className="size-5 animate-spin text-accent" />}
-      {(phase === "speaking" || phase === "listening") && (
+      {(phase === "listening" || phase === "waiting") && <span className="text-accent"><Level level={level} /></span>}
+      {(phase === "transcribing" || (phase === "waiting" && running)) && <Loader2 className="size-5 animate-spin text-accent" />}
+      {phase !== "error" && phase !== "transcribing" && (
         <Button variant="outline" size="sm" onClick={interrupt}>
           {phase === "speaking" ? <><Square className="fill-current" />Interrompre</> : <>Envoyer</>}
         </Button>

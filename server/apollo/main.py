@@ -37,8 +37,18 @@ AGENT_SETUP_VERSION = "8-consignes-a-jour"
 async def startup() -> None:
     db.init()
     _migrate_threads()
+    asyncio.create_task(_refresh_browsers())
     if db.get_setting("agent_setup") != AGENT_SETUP_VERSION and current_model():
         asyncio.create_task(_upgrade_agents())
+
+
+async def _refresh_browsers() -> None:
+    """Recrée au besoin le navigateur de chaque agent (nouveaux réglages, langue et fuseau)."""
+    for a in _agents():
+        try:
+            await hermes.ensure_browser(a["id"])
+        except Exception:
+            pass  # agent en cours de création ou lanceur pas encore prêt : réessayé au prochain démarrage
 
 
 def _migrate_threads() -> None:
@@ -788,6 +798,71 @@ async def browser_wake(agent_id: str, user: int = Depends(auth.current_user)):
     return await _browser_wake(agent_id)
 
 
+SAME_SITE = {"no_restriction": "None", "none": "None", "lax": "Lax", "strict": "Strict"}
+
+
+def _parse_cookies(text: str) -> list[dict]:
+    """Cookies exportés d'un navigateur : JSON (Cookie-Editor, EditThisCookie) ou cookies.txt (Netscape)."""
+    text = text.strip()
+    out = []
+    if text.startswith("[") or text.startswith("{"):
+        data = json.loads(text)
+        items = data.get("cookies", []) if isinstance(data, dict) else data
+        for c in items:
+            if not isinstance(c, dict) or not c.get("name") or not c.get("domain"):
+                continue
+            cookie = {"name": str(c["name"]), "value": str(c.get("value", "")), "domain": str(c["domain"]),
+                      "path": c.get("path") or "/", "secure": bool(c.get("secure")), "httpOnly": bool(c.get("httpOnly"))}
+            expires = c.get("expirationDate", c.get("expires"))
+            if isinstance(expires, (int, float)) and expires > 0:
+                cookie["expires"] = int(expires)
+            same = SAME_SITE.get(str(c.get("sameSite", "")).lower())
+            if same:
+                cookie["sameSite"] = same
+            out.append(cookie)
+        return out
+    for line in text.splitlines():
+        http_only = line.startswith("#HttpOnly_")
+        if http_only:
+            line = line[len("#HttpOnly_"):]
+        parts = line.split("\t")
+        if line.startswith("#") or len(parts) < 7:
+            continue
+        domain, _, path, secure, expires, name, value = parts[:7]
+        cookie = {"name": name, "value": value, "domain": domain, "path": path or "/", "secure": secure.upper() == "TRUE", "httpOnly": http_only}
+        if expires.isdigit() and int(expires) > 0:
+            cookie["expires"] = int(expires)
+        out.append(cookie)
+    return out
+
+
+class CookieImport(BaseModel):
+    cookies: str = Field(min_length=2, max_length=2_000_000)
+
+
+@app.post("/api/agents/{agent_id}/browser/cookies")
+async def browser_cookies(agent_id: str, body: CookieImport, user: int = Depends(auth.current_user)):
+    """Reprend une session ouverte dans le navigateur habituel de l'utilisateur (X, Google…),
+    sans repasser par l'écran de connexion, souvent bloqué pour les navigateurs automatisés."""
+    _agent(agent_id)
+    try:
+        cookies = _parse_cookies(body.cookies)
+    except ValueError:
+        raise HTTPException(400, "Format non reconnu : colle l'export JSON de Cookie-Editor ou un fichier cookies.txt.")
+    if not cookies:
+        raise HTTPException(400, "Aucun cookie trouvé dans ce texte.")
+    await _browser_wake(agent_id)
+    api_key, _ = hermes.browser_secrets(agent_id)
+    async with httpx.AsyncClient(timeout=30) as c:
+        for i in range(0, len(cookies), 500):
+            r = await c.post(f"http://{hermes.browser_host(agent_id)}:9377/sessions/{hermes.BROWSER_USER}/cookies",
+                             json={"cookies": cookies[i:i + 500]}, headers={"Authorization": f"Bearer {api_key}"})
+            if r.status_code != 200:
+                raise HTTPException(400, f"Le navigateur a refusé ces cookies : {r.text[:200]}")
+    sites = sorted({c["domain"].lstrip(".") for c in cookies})
+    return {"count": len(cookies), "sites": sites[:12]}
+
+
 @app.post("/api/agents/{agent_id}/browser/restart")
 async def browser_restart(agent_id: str, user: int = Depends(auth.current_user)):
     _agent(agent_id)
@@ -859,6 +934,28 @@ async def voice_speak(body: SpeakBody, user: int = Depends(auth.current_user)):
     except media.MediaError as e:
         raise HTTPException(400, str(e))
     return Response(data, media_type=ctype, headers={"Cache-Control": "no-store"})
+
+
+class VoiceTurn(BaseModel):
+    agent_id: str
+    text: str = Field(min_length=1, max_length=20000)
+    history: list[dict] = Field(default_factory=list, max_length=12)
+    mode: str = Field(default="turn", pattern="^(turn|result)$")
+
+
+@app.post("/api/voice/reply")
+async def voice_reply(body: VoiceTurn, user: int = Depends(auth.current_user)):
+    """Mode vocal : réponse orale immédiate pendant que l'agent travaille, puis résumé de son résultat."""
+    with db.connect() as c:
+        row = c.execute("SELECT name, role FROM agents WHERE id = ?", (body.agent_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "Agent introuvable")
+    try:
+        return await media.voice_reply(body.agent_id, row["name"], row["role"], body.text, body.history, body.mode)
+    except media.MediaError as e:
+        raise HTTPException(400, str(e))
+    except httpx.HTTPError:
+        raise HTTPException(502, "La voix rapide ne répond pas.")
 
 
 class MediaRequest(BaseModel):
