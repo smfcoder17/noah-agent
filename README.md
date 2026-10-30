@@ -120,8 +120,24 @@ nativement (`CAMOFOX_URL`). Le profil (cookies, sessions connectées) est gardé
 
 Le bouton « Ordinateur » ouvre l'écran du navigateur en direct (noVNC, relayé par le serveur derrière ta
 connexion). « Prendre le contrôle » passe en mode interactif : tu te connectes toi-même à un site ou tu
-résous un CAPTCHA, puis tu dis à l'agent de continuer. L'agent a pour consigne de ne jamais demander de mot
-de passe dans la conversation.
+résous un CAPTCHA. L'agent a pour consigne de ne jamais demander de mot de passe dans la conversation : quand
+une étape est la tienne, il t'appelle (`noah.py appeler`). Un bandeau s'affiche au-dessus de la conversation, son
+écran s'ouvre, une notification arrive sur l'ordinateur, et il attend ton « C'est fait » pour reprendre.
+
+## Comptes : Google
+
+Détails → Connexions → Google : tu coches ce que l'agent peut faire (lire ou écrire tes courriels, voir ou
+modifier ton agenda, lire ou modifier Drive, Docs et Sheets, voir tes contacts), et tu donnes ton accord une
+seule fois. Noah Agent étant auto-hébergé, il passe par ta propre application Google :
+
+1. La première fois, l'agent la crée dans son navigateur en suivant une recette (`noah.py recette google`) :
+   projet Google Cloud, API utiles, écran d'accord publié (sinon Google coupe l'accès tous les 7 jours), ID
+   client « Application de bureau ». Il t'appelle pour te connecter et accepter les conditions.
+2. Noah Agent ouvre la page d'accord dans l'écran de l'agent. Google renvoie vers une adresse locale qui ne
+   répond pas ; Noah Agent lit le code dans la barre d'adresse et l'échange lui-même, sans rien à recopier.
+
+Les identifiants servent ensuite à tous tes agents ; chaque agent a son propre jeton, limité aux accès cochés.
+Si tu as déjà un fichier d'identifiants, « J'ai déjà un fichier d'identifiants » saute l'étape 1.
 
 ## Fichiers
 
@@ -157,7 +173,8 @@ et seulement depuis les dossiers de travail de l'agent.
 3. ~~Relais de modèle (clé hors des agents, budgets), choix du modèle par catalogue, images.~~
    ~~Navigateur Camoufox, vue en direct et prise de contrôle, fichiers.~~
    ~~Nouvelle interface (assistant-ui + shadcn).~~ ~~Modèle par agent.~~
-4. ~~Veille programmatique (collecte sans LLM, triage par petit modèle).~~ Gmail et Agenda.
+4. ~~Veille programmatique (collecte sans LLM, triage par petit modèle).~~ ~~Google (Gmail, Agenda, Drive) en un accord.~~
+   Microsoft (Outlook, Calendrier, OneDrive) sur le même modèle.
 5. ~~App desktop, appairage du téléphone par QR code, installation en une commande sur VPS.~~ App mobile native.
 
 L'architecture complète est décrite dans [docs/architecture.html](docs/architecture.html).

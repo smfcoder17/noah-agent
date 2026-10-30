@@ -3,6 +3,7 @@ import { QuoteContext, useQuoteState } from "@/lib/quotes";
 import { ArrowLeft, Bug, Menu, MonitorPlay, PanelRight, Plus } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { AuthScreen } from "@/components/AuthScreen";
+import { HandoffBanner } from "@/components/Handoff";
 import { NoahTile, agentColor } from "@/components/Noah";
 import type { PanelTab } from "@/components/SidePanel";
 import { STATE_WORD, Sidebar, StateShape } from "@/components/Sidebar";
@@ -12,6 +13,7 @@ import { ViewerProvider } from "@/components/Viewer";
 import { Button } from "@/components/ui";
 import { type Agent, ApiError, type Conversation, type CurrentModel, get, send, type Status, type Usage } from "@/lib/api";
 import { AgentContext } from "@/lib/agentContext";
+import { takeAsk } from "@/lib/askAgent";
 import { useAgentChat } from "@/lib/useAgentChat";
 import { cn } from "@/lib/utils";
 
@@ -103,6 +105,12 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const [refreshKey, setRefreshKey] = useState(0);
 
   const agent = agents.find((a) => a.id === agentId) ?? null;
+  // Message envoyé à l'agent depuis Détails : il part dans la conversation principale.
+  useEffect(() => {
+    const toMain = () => setThreadId(null);
+    window.addEventListener("noah:ask", toMain);
+    return () => window.removeEventListener("noah:ask", toMain);
+  }, []);
   const main = conversations?.find((c) => c.main) ?? null;
   const thread = conversations?.find((c) => c.id === threadId) ?? null;
   const shown = thread ?? main;
@@ -246,11 +254,13 @@ function Shell({ onLogout }: { onLogout: () => void }) {
               </Button>
             )}
           </header>
+          {agent && <HandoffBanner agentId={agent.id} onOpenScreen={() => setPanel("computer")} />}
           <div className="min-h-0 flex-1">
             {agent && conversations ? (
               <AgentChat
                 key={`${agent.id}-${threadId ?? "main"}`}
                 agent={agent}
+                main={!threadId}
                 conversationId={shown?.id ?? null}
                 updatedAt={shown?.updated_at}
                 details={details}
@@ -330,6 +340,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
 
 function AgentChat(props: {
   agent: Agent;
+  main: boolean;
   conversationId: string | null;
   updatedAt?: string;
   details: boolean;
@@ -342,6 +353,21 @@ function AgentChat(props: {
     (text: string) => runtime.thread.append({ role: "user", content: [{ type: "text", text }] }),
     [runtime],
   );
+  // Message demandé depuis Détails : la conversation principale l'envoie (après son historique si elle vient d'apparaître).
+  const { main } = props;
+  useEffect(() => {
+    if (!main) return;
+    const send = () => {
+      const text = takeAsk();
+      if (text) say(text);
+    };
+    const first = setTimeout(send, 900);
+    window.addEventListener("noah:ask", send);
+    return () => {
+      clearTimeout(first);
+      window.removeEventListener("noah:ask", send);
+    };
+  }, [main, say]);
   // Valeur stable : tous les messages du fil lisent ce contexte, un objet neuf les redessinerait à chaque jeton.
   const { id, name, role } = props.agent;
   const color = agentColor(props.agent);

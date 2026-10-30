@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import auth, catalog, db, desktop, events, hermes, machine, media, relay, watch
+from . import accounts, auth, catalog, db, desktop, events, handoff, hermes, machine, media, relay, watch
 from .config import WEB_DIR
 from .hermes import Agent
 
@@ -24,6 +24,8 @@ app.include_router(relay.router)
 app.include_router(machine.router)
 app.include_router(desktop.router)
 app.include_router(watch.router)
+app.include_router(handoff.router)
+app.include_router(accounts.router)
 
 # Agents en cours de création : id -> message d'étape ou d'erreur affiché dans l'interface.
 provisioning: dict[str, str] = {}
@@ -33,7 +35,7 @@ provisioning: dict[str, str] = {}
 task_state: dict[str, str] = {}
 
 # Version du branchement des agents ; l'augmenter reconfigure tous les agents au démarrage.
-AGENT_SETUP_VERSION = "19-veilles"
+AGENT_SETUP_VERSION = "20-comptes"
 
 
 @app.on_event("startup")
@@ -44,6 +46,7 @@ async def startup() -> None:
     asyncio.create_task(machine.deliver_routines(_save_message, _main_conversation))
     watch.init()
     watch.setup(_save_message, _main_conversation)
+    accounts.setup(_save_message, _main_conversation)
     asyncio.create_task(watch.run_watches(_save_message, _main_conversation))
     if db.get_setting("agent_setup") != AGENT_SETUP_VERSION and current_model():
         asyncio.create_task(_upgrade_agents())
@@ -388,9 +391,16 @@ Le résultat de chaque passage arrive tout seul dans cette conversation. L'utili
 Propose une routine quand tu remarques une tâche qui revient.
 
 ## Gmail, Agenda, Drive et autres applications
-Si l'utilisateur a connecté Google dans Détails → Connexions, utilise la compétence google-workspace. Les applications connectées là
-(Notion, Todoist, Linear, Figma…) t'apportent leurs propres outils. Pour une application pas encore connectée, invite-le à le faire
-dans Détails → Connexions plutôt que de lui demander des identifiants.
+Si l'utilisateur a connecté Google dans Détails → Connexions, utilise la compétence google-workspace (seulement pour les accès
+qu'il a cochés). Les applications connectées là (Notion, Todoist, Linear, Figma…) t'apportent leurs propres outils. Pour une
+application pas encore connectée, invite-le à le faire dans Détails → Connexions plutôt que de lui demander des identifiants.
+Quand on te demande de connecter Google, suis la recette : `python3 /opt/data/noah.py recette google`.
+
+## Appeler l'utilisateur
+Quand une étape doit rester la sienne (se connecter, code 2FA, CAPTCHA, accepter des conditions, cliquer sur « Autoriser »),
+ne finis pas ton tour : `python3 /opt/data/noah.py appeler "ce qu'il doit faire, en une phrase"`. Noah Agent lui montre ton
+écran et le prévient ; la commande rend sa réponse (« fait », « impossible ») ou « en_attente » avec un id : relance alors
+`python3 /opt/data/noah.py attendre <id>`. Après « fait », recharge la page avant de vérifier.
 
 ## Fichiers (l'utilisateur les voit dans l'onglet « Fichiers » de Noah Agent et peut les télécharger)
 - Ton espace de travail : /opt/data/workspace. Range-y tout ce que tu produis.
@@ -403,7 +413,7 @@ dans Détails → Connexions plutôt que de lui demander des identifiants.
 ## Navigateur
 Tu pilotes un vrai navigateur (Firefox anti-détection). L'utilisateur peut voir son écran en direct et en prendre le contrôle depuis l'onglet « Ordinateur ».
 Ne demande jamais de mot de passe, de code ou de carte bancaire dans la conversation. Quand une page demande une connexion, un code 2FA ou un CAPTCHA :
-arrête-toi sur cette page, demande à l'utilisateur d'ouvrir l'onglet « Ordinateur » pour le faire lui-même, puis reprends quand il te le dit. La session reste connectée ensuite.
+reste sur cette page et appelle l'utilisateur (`noah.py appeler`, voir plus bas) pour qu'il le fasse lui-même dans l'onglet « Ordinateur », puis reprends. La session reste connectée ensuite.
 L'écran qu'il voit et tes onglets partagent les mêmes cookies. Quand il dit qu'il s'est connecté, recharge la page (ou rouvre l'adresse)
 avant de vérifier : une page chargée avant sa connexion reste affichée comme déconnectée. S'il insiste alors que la page semble
 déconnectée, ne le contredis pas : recharge, prends une capture, et décris ce que tu vois.

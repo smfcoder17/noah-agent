@@ -291,6 +291,10 @@ AIDE = """Utilisation : python3 /opt/data/noah.py <commande>
   veille "Nom" "https://…" "ce qui compte" [--minutes 60]   surveille une page ou un flux sans modèle (alerte si pertinent)
   veilles                                       liste les veilles
   veille-action <id> pause|reprendre|verifier|supprimer
+  appeler "ce qu'il doit faire"          appelle l'utilisateur (connexion, code, accord) et attend sa réponse
+  attendre <id>                          continue d'attendre la réponse à un appel « en_attente »
+  recette <service>                      étapes pour connecter un service à sa place (google)
+  google-identifiants <ID client> <code secret>   enregistre l'accès Google créé avec la recette
 Sur l'ordinateur de l'utilisateur (application de bureau ouverte ; il confirme les actions sensibles) :
   ordinateur ouvrir <chemin|adresse>     ouvre un fichier ou dossier partagé (/opt/data/dossiers/…) ou une page web
   ordinateur notifier "titre" "texte"    notification sur son écran (fin d'une tâche, rappel, résultat de routine)
@@ -361,6 +365,17 @@ elif a[:1] == ["veilles"]:
     out = call("GET", "/veilles")
 elif a[:1] == ["veille-action"] and len(a) == 3:
     out = call("POST", "/veilles/action", {"id": a[1], "action": a[2]})
+elif a[:1] == ["appeler"] and len(a) >= 2:
+    out = call("POST", "/appel", {"message": " ".join(a[1:])})
+elif a[:1] == ["attendre"] and len(a) == 2:
+    out = call("GET", "/appel/" + a[1])
+elif a[:1] == ["recette"] and len(a) == 2:
+    out = call("GET", "/recettes/" + a[1])
+    if "recette" in out:
+        print(out["recette"])
+        sys.exit(0)
+elif a[:1] == ["google-identifiants"] and len(a) == 3:
+    out = call("POST", "/google/identifiants", {"client_id": a[1], "client_secret": a[2]})
 elif a[:1] == ["fil-etat"] and len(a) == 2:
     out = call("GET", "/fils/" + a[1])
 else:

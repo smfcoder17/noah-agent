@@ -2,6 +2,7 @@
 import { Check, ChevronDown, ExternalLink, FolderOpen, HardDrive, Loader2, Pause, Pencil, Play, Plus, Trash2, Zap } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { get, send } from "@/lib/api";
+import { askAgent } from "@/lib/askAgent";
 import { desktop } from "@/lib/desktop";
 import { cn, fileSize } from "@/lib/utils";
 import { Button, ErrorText, Input, Textarea } from "./ui";
@@ -294,7 +295,7 @@ function MemoryList({ title, entries, limit, empty, onSave }: { title: string; e
 
 // --- Connexions -------------------------------------------------------------------------------
 
-type GoogleState = { disponible: boolean; connecte?: boolean; identifiants?: boolean };
+type GoogleState = { disponible: boolean; connecte?: boolean };
 
 type App = { nom: string; description: string; source: string | null; oauth: boolean; hote: string | null; installe: boolean; connecte: boolean };
 type ConnectionsState = { google: GoogleState; applications: App[] };
@@ -302,7 +303,7 @@ type ConnectionsState = { google: GoogleState; applications: App[] };
 const appLabel = (name: string) => name.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
 export function Connections({ agentId }: { agentId: string }) {
-  const { data, setData, error, setError, load } = useAgentData<ConnectionsState>(`/api/agents/${agentId}/connections`);
+  const { data, error, setError, load } = useAgentData<ConnectionsState>(`/api/agents/${agentId}/connections`);
   const [browsing, setBrowsing] = useState(false);
   const [query, setQuery] = useState("");
   const google = data?.google;
@@ -313,9 +314,7 @@ export function Connections({ agentId }: { agentId: string }) {
   return (
     <Section title="Connexions" count={(google?.connecte ? 1 : 0) + connected.filter((a) => a.connecte).length}>
       {!data && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture…</p>}
-      {google?.disponible && data && (
-        <GoogleCard agentId={agentId} state={google} onState={(g) => setData({ ...data, google: g })} onError={setError} />
-      )}
+      {google?.disponible && data && <GoogleCard agentId={agentId} onError={setError} />}
       {connected.map((a) => <AppRow key={a.nom} agentId={agentId} app={a} onChange={load} onError={setError} />)}
       {data && (browsing ? (
         <div className="flex flex-col gap-1.5 rounded-xl border border-border p-2">
@@ -406,12 +405,45 @@ function AppRow({ agentId, app, onChange, onError }: { agentId: string; app: App
   );
 }
 
-function GoogleCard({ agentId, state, onState, onError }: { agentId: string; state: GoogleState; onState: (g: GoogleState) => void; onError: (e: string) => void }) {
-  const [step, setStep] = useState<"idle" | "secret" | "code">("idle");
-  const [secret, setSecret] = useState("");
-  const [code, setCode] = useState("");
+type GoogleAccess = { id: string; service: string; nom: string };
+type GoogleAccount = {
+  identifiants: boolean;
+  connecte: boolean;
+  compte: string;
+  permissions: string[];
+  catalogue: GoogleAccess[];
+  etape: "configuration" | "accord" | "fini" | "erreur" | null;
+  message: string;
+  voulu: string[];
+  consigne?: string;
+};
+
+// « Écrire » comprend « lire » : cocher l'un coche l'autre, décocher la lecture retire l'écriture.
+const WRITE_OF: Record<string, string> = { gmail_ecrire: "gmail_lire", agenda_ecrire: "agenda_lire", drive_ecrire: "drive_lire" };
+const DEFAULT_ACCESS = ["gmail_lire", "agenda_lire", "drive_lire"];
+
+/**
+ * Google en un seul accord : l'utilisateur coche ce que l'agent peut faire. La première fois, l'agent crée
+ * lui-même l'accès Google de l'utilisateur dans son navigateur (il l'appelle pour se connecter) ; ensuite Noah Agent
+ * ouvre la page d'accord dans l'écran de l'agent et voit tout seul quand c'est accepté.
+ */
+function GoogleCard({ agentId, onError }: { agentId: string; onError: (e: string) => void }) {
+  const base = `/api/agents/${agentId}/google`;
+  const [state, setState] = useState<GoogleAccount | null>(null);
+  const [picking, setPicking] = useState(false);
+  const [chosen, setChosen] = useState<string[]>(DEFAULT_ACCESS);
   const [busy, setBusy] = useState(false);
-  const base = `/api/agents/${agentId}/connections/google`;
+  const waiting = state?.etape === "configuration" || state?.etape === "accord";
+
+  const load = useCallback(() => get<GoogleAccount>(base).then(setState).catch((e) => onError((e as Error).message)), [base, onError]);
+  useEffect(() => {
+    load();
+  }, [load]);
+  useEffect(() => {
+    if (!waiting) return;
+    const t = setInterval(load, 2500);
+    return () => clearInterval(t);
+  }, [waiting, load]);
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -424,22 +456,37 @@ function GoogleCard({ agentId, state, onState, onError }: { agentId: string; sta
       setBusy(false);
     }
   };
-  const authorize = () =>
-    run(async () => {
-      const r = await send<{ adresse: string }>(`${base}/start`, secret ? { client_secret: secret } : {});
-      window.open(r.adresse, "_blank", "noopener");
-      setStep("code");
+  const toggle = (id: string) =>
+    setChosen((cur) => {
+      if (cur.includes(id)) return cur.filter((x) => x !== id && WRITE_OF[x] !== id);
+      return [...new Set([...cur, id, ...(WRITE_OF[id] ? [WRITE_OF[id]] : [])])];
     });
-  const finish = () =>
+  const connect = () =>
     run(async () => {
-      onState(await send<GoogleState>(`${base}/finish`, { code }));
-      setStep("idle");
-      setCode("");
+      const r = await send<GoogleAccount>(`${base}/connect`, { permissions: chosen });
+      setState(r);
+      setPicking(false);
+      if (r.consigne) askAgent(r.consigne);
     });
+  const cancel = () => run(async () => setState(await send<GoogleAccount>(`${base}/cancel`, {})));
   const disconnect = () =>
     run(async () => {
-      if (confirm("Déconnecter Google ? L'agent n'aura plus accès à Gmail, Agenda ni Drive.")) onState(await send<GoogleState>(`${base}/revoke`, {}));
+      if (confirm("Déconnecter Google de cet agent ? Il n'aura plus accès à tes courriels, ton agenda ni tes fichiers.")) {
+        setState(await send<GoogleAccount>(`${base}/disconnect`, {}));
+      }
     });
+  const uploadClient = (file: File | undefined) =>
+    file &&
+    run(async () => {
+      await send("/api/google/client", { fichier: await file.text() });
+      await load();
+    });
+
+  if (!state) return null;
+  const services = [...new Set(state.catalogue.map((a) => a.service))];
+  // Sans répéter la lecture quand l'écriture est accordée.
+  const names = (ids: string[]) =>
+    state.catalogue.filter((a) => ids.includes(a.id) && !ids.some((x) => WRITE_OF[x] === a.id)).map((a) => a.nom.toLowerCase());
 
   return (
     <div className="flex flex-col gap-2 rounded-xl border border-border p-3">
@@ -447,60 +494,70 @@ function GoogleCard({ agentId, state, onState, onError }: { agentId: string; sta
         <span className="grid size-8 place-items-center rounded-lg bg-muted text-sm font-bold">G</span>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium">Google</p>
-          <p className="text-xs text-muted-foreground">Gmail, Agenda, Drive, Docs, Sheets</p>
+          <p className="truncate text-xs text-muted-foreground">{state.connecte ? state.compte || "Compte connecté" : "Gmail, Agenda, Drive, Docs, Sheets, Contacts"}</p>
         </div>
-        {state.connecte ? (
+        {state.connecte && !waiting ? (
           <span className="flex items-center gap-1 text-xs font-medium text-ok"><Check className="size-3.5" />Connecté</span>
-        ) : step === "idle" ? (
-          <Button size="sm" onClick={() => (state.identifiants ? authorize() : setStep("secret"))} disabled={busy}>
-            {busy && <Loader2 className="animate-spin" />}Connecter
-          </Button>
+        ) : !picking && !waiting ? (
+          <Button size="sm" onClick={() => { setChosen(state.voulu.length ? state.voulu : DEFAULT_ACCESS); setPicking(true); }}>Connecter</Button>
         ) : null}
       </div>
 
-      {step === "secret" && (
-        <div className="flex flex-col gap-2 text-sm">
-          <p className="text-xs text-muted-foreground">
-            Noah Agent est auto-hébergé : il se connecte à Google avec ta propre « application ». À faire une seule fois (5 minutes) :
-          </p>
-          <ol className="list-decimal space-y-1 pl-5 text-xs text-muted-foreground">
-            <li>
-              Dans <a className="text-accent underline" href="https://console.cloud.google.com/apis/library" target="_blank" rel="noopener">Google Cloud</a>, active Gmail API, Google Calendar API et Google Drive API.
-            </li>
-            <li>
-              Dans <a className="text-accent underline" href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Identifiants</a>, crée un « ID client OAuth » de type <b>Application de bureau</b> et télécharge le JSON.
-            </li>
-            <li>
-              Dans <a className="text-accent underline" href="https://console.cloud.google.com/auth/audience" target="_blank" rel="noopener">Audience</a>, ajoute ton adresse comme utilisateur test.
-            </li>
-          </ol>
-          <label className="flex cursor-pointer items-center gap-2 self-start rounded-lg border border-dashed border-border px-3 py-2 text-xs hover:bg-muted">
-            <input type="file" accept="application/json,.json" className="sr-only" onChange={async (e) => setSecret((await e.target.files?.[0]?.text()) ?? "")} />
-            {secret ? <><Check className="size-3.5 text-ok" />Fichier chargé</> : "Choisir le fichier JSON téléchargé"}
-          </label>
+      {state.connecte && !picking && !waiting && (
+        <p className="text-xs text-muted-foreground">L'agent peut : {names(state.permissions).join(", ") || "rien pour l'instant"}.</p>
+      )}
+
+      {picking && (
+        <div className="flex flex-col gap-2.5">
+          <p className="text-xs text-muted-foreground">Ce que l'agent pourra faire (tu donnes ton accord une seule fois, dans Google) :</p>
+          {services.map((s) => (
+            <div key={s} className="flex flex-col gap-1">
+              <p className="text-xs font-semibold">{s}</p>
+              {state.catalogue.filter((a) => a.service === s).map((a) => (
+                <label key={a.id} className="flex cursor-pointer items-center gap-2 text-sm">
+                  <input type="checkbox" className="size-4 accent-accent" checked={chosen.includes(a.id)} onChange={() => toggle(a.id)} />
+                  {a.nom}
+                </label>
+              ))}
+            </div>
+          ))}
+          {!state.identifiants && (
+            <p className="text-xs text-muted-foreground">
+              Première fois : l'agent crée ton accès Google dans son navigateur (environ 5 minutes). Il t'appelle seulement pour te connecter et
+              accepter les conditions.{" "}
+              <label className="cursor-pointer text-accent underline">
+                J'ai déjà un fichier d'identifiants
+                <input type="file" accept="application/json,.json" className="sr-only" onChange={(e) => uploadClient(e.target.files?.[0])} />
+              </label>
+            </p>
+          )}
           <div className="flex justify-end gap-2">
-            <Button size="sm" variant="ghost" onClick={() => setStep("idle")}>Annuler</Button>
-            <Button size="sm" onClick={authorize} disabled={!secret || busy}>{busy ? <Loader2 className="animate-spin" /> : <ExternalLink />}Autoriser dans Google</Button>
+            <Button size="sm" variant="ghost" onClick={() => setPicking(false)}>Annuler</Button>
+            <Button size="sm" onClick={connect} disabled={!chosen.length || busy}>
+              {busy && <Loader2 className="animate-spin" />}{state.connecte ? "Mettre à jour les accès" : "Connecter Google"}
+            </Button>
           </div>
         </div>
       )}
 
-      {step === "code" && (
-        <div className="flex flex-col gap-2">
-          <p className="text-xs text-muted-foreground">
-            Après avoir accepté, Google t'envoie sur une page qui ne s'affiche pas (adresse « localhost »). C'est normal :
-            copie l'adresse complète de cette page et colle-la ici.
-          </p>
-          <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="http://localhost:1/?code=…" aria-label="Adresse de retour de Google" />
-          <div className="flex justify-end gap-2">
-            <Button size="sm" variant="ghost" onClick={authorize} disabled={busy}>Rouvrir Google</Button>
-            <Button size="sm" onClick={finish} disabled={!code.trim() || busy}>{busy && <Loader2 className="animate-spin" />}Terminer</Button>
-          </div>
+      {waiting && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="size-3.5 shrink-0 animate-spin" />
+          <span className="flex-1">
+            {state.etape === "configuration"
+              ? "L'agent crée ton accès Google (il t'appellera quand ce sera à toi)."
+              : "Donne ton accord dans l'écran de l'agent (onglet Ordinateur)."}
+          </span>
+          <Button size="sm" variant="ghost" onClick={cancel} disabled={busy}>Annuler</Button>
         </div>
       )}
+      {state.etape === "erreur" && <p className="text-xs text-danger">{state.message}</p>}
 
-      {state.connecte && (
-        <Button size="sm" variant="ghost" className="self-start text-muted-foreground" onClick={disconnect} disabled={busy}>Déconnecter</Button>
+      {state.connecte && !picking && !waiting && (
+        <div className="flex gap-1">
+          <Button size="sm" variant="ghost" onClick={() => { setChosen(state.permissions); setPicking(true); }}><Pencil />Modifier les accès</Button>
+          <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={disconnect} disabled={busy}>Déconnecter</Button>
+        </div>
       )}
     </div>
   );

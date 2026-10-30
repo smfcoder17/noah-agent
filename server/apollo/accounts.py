@@ -1,0 +1,396 @@
+"""Comptes : connecter Google en choisissant ce que l'agent peut faire, avec un seul accord.
+
+Noah Agent est auto-hébergé : il se connecte à Google avec la propre « application » OAuth de l'utilisateur
+(un projet Google Cloud à son nom). L'agent la crée lui-même dans son navigateur en suivant une recette et
+n'appelle l'utilisateur que pour ce qui doit rester le sien (se connecter, accepter les conditions). Ces
+identifiants servent ensuite à tous ses agents.
+
+L'accord se donne dans le navigateur de l'agent, où l'utilisateur est déjà connecté à Google : Google renvoie vers
+une adresse locale qui ne répond pas, Noah Agent lit le code dans la barre d'adresse et l'échange lui-même. Aucune
+adresse à recopier. Le jeton obtenu est posé dans la machine de l'agent pour sa compétence google-workspace.
+"""
+import asyncio
+import base64
+import hashlib
+import json
+import re
+import secrets
+import time
+from datetime import datetime, timedelta, timezone
+from urllib.parse import parse_qs, urlencode, urlparse
+
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
+
+from . import auth, db, handoff, hermes, relay
+from .machine import _check, admin
+
+router = APIRouter()
+
+G = "https://www.googleapis.com/auth/"
+# Ce que l'utilisateur coche, et ce que ça demande à Google. « api » : à activer dans son projet Google Cloud.
+GOOGLE_PERMISSIONS = [
+    {"id": "gmail_lire", "service": "Gmail", "nom": "Lire mes courriels", "scopes": [G + "gmail.readonly"],
+     "api": ["gmail.googleapis.com"]},
+    {"id": "gmail_ecrire", "service": "Gmail", "nom": "Écrire, envoyer et ranger mes courriels",
+     "scopes": [G + "gmail.modify", G + "gmail.send"], "api": ["gmail.googleapis.com"]},
+    {"id": "agenda_lire", "service": "Agenda", "nom": "Voir mon agenda", "scopes": [G + "calendar.readonly"],
+     "api": ["calendar-json.googleapis.com"]},
+    {"id": "agenda_ecrire", "service": "Agenda", "nom": "Créer et modifier des événements", "scopes": [G + "calendar"],
+     "api": ["calendar-json.googleapis.com"]},
+    {"id": "drive_lire", "service": "Drive", "nom": "Lire mes fichiers Drive, Docs et Sheets", "scopes": [G + "drive.readonly"],
+     "api": ["drive.googleapis.com", "docs.googleapis.com", "sheets.googleapis.com"]},
+    {"id": "drive_ecrire", "service": "Drive", "nom": "Créer et modifier mes fichiers Drive, Docs et Sheets",
+     "scopes": [G + "drive", G + "documents", G + "spreadsheets"],
+     "api": ["drive.googleapis.com", "docs.googleapis.com", "sheets.googleapis.com"]},
+    {"id": "contacts_lire", "service": "Contacts", "nom": "Voir mes contacts", "scopes": [G + "contacts.readonly"],
+     "api": ["people.googleapis.com"]},
+]
+PERMS = {p["id"]: p for p in GOOGLE_PERMISSIONS}
+# Toujours demandés, sans risque : savoir quel compte est connecté.
+BASE_SCOPES = ["openid", G + "userinfo.email"]
+# Un droit plus large couvre le plus étroit.
+IMPLIES = {G + "gmail.modify": [G + "gmail.readonly"], G + "calendar": [G + "calendar.readonly"],
+           G + "drive": [G + "drive.readonly"]}
+
+AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+TOKEN_URL = "https://oauth2.googleapis.com/token"
+# Application « de bureau » : Google accepte une adresse de bouclage sur n'importe quel port. Rien n'y répond ;
+# le navigateur garde l'adresse, code compris, dans sa barre d'adresse.
+REDIRECT = "http://127.0.0.1:1/"
+CONSENT_MINUTES = 15
+
+# Accord en cours, par agent : {etat, verifier, permissions, statut, message, depuis}.
+_flows: dict[str, dict] = {}
+
+
+def _client() -> dict | None:
+    raw = db.get_setting("google_client")
+    return json.loads(raw) if raw else None
+
+
+def _account(agent_id: str) -> dict | None:
+    raw = db.get_setting(f"google_{agent_id}")
+    return json.loads(raw) if raw else None
+
+
+def _scopes(perms: list[str]) -> list[str]:
+    return sorted(set(BASE_SCOPES + [s for p in perms for s in PERMS[p]["scopes"]]))
+
+
+def _granted(scopes: list[str]) -> list[str]:
+    have = set(scopes) | {i for s in scopes for i in IMPLIES.get(s, [])}
+    return [p["id"] for p in GOOGLE_PERMISSIONS if all(s in have for s in p["scopes"])]
+
+
+def apis_for(perms: list[str]) -> list[str]:
+    return sorted({a for p in perms for a in PERMS[p]["api"]})
+
+
+def _state(agent_id: str) -> dict:
+    account = _account(agent_id)
+    flow = _flows.get(agent_id)
+    return {
+        "identifiants": _client() is not None,
+        "connecte": bool(account),
+        "compte": (account or {}).get("compte", ""),
+        "permissions": (account or {}).get("permissions", []),
+        "catalogue": [{k: p[k] for k in ("id", "service", "nom")} for p in GOOGLE_PERMISSIONS],
+        "etape": flow["statut"] if flow else None,
+        "message": flow.get("message", "") if flow else "",
+        "voulu": json.loads(db.get_setting(f"google_voulu_{agent_id}") or "[]"),
+    }
+
+
+# --- Accord ---------------------------------------------------------------------------------------
+
+async def _open_tab(agent_id: str, url: str) -> None:
+    user = {"userId": hermes.BROWSER_USER}
+    try:
+        await hermes.browser_call(agent_id, "POST", "/start", timeout=60)
+    except httpx.HTTPError:
+        await hermes.ensure_browser(agent_id)
+    await hermes.browser_call(agent_id, "POST", "/tabs", timeout=60, json={**user, "sessionKey": hermes.BROWSER_USER, "url": url})
+
+
+async def _returned(agent_id: str, state: str) -> dict | None:
+    """Paramètres de la page de retour de Google pour cet accord (un ancien retour peut traîner dans un autre onglet)."""
+    try:
+        tabs = (await hermes.browser_call(agent_id, "GET", "/tabs", params={"userId": hermes.BROWSER_USER})).get("tabs") or []
+    except httpx.HTTPError:
+        return None
+    for t in tabs:
+        if str(t.get("url", "")).startswith(REDIRECT):
+            q = {k: v[0] for k, v in parse_qs(urlparse(t["url"]).query).items()}
+            if q.get("state") == state:
+                return q
+    return None
+
+
+async def start_consent(agent_id: str, perms: list[str]) -> None:
+    client = _client()
+    verifier = secrets.token_urlsafe(64)
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    state = secrets.token_urlsafe(16)
+    url = AUTH_URL + "?" + urlencode({
+        "client_id": client["client_id"], "redirect_uri": REDIRECT, "response_type": "code",
+        "scope": " ".join(_scopes(perms)), "access_type": "offline", "prompt": "consent",
+        "state": state, "code_challenge": challenge, "code_challenge_method": "S256",
+    })
+    old = _flows.get(agent_id)
+    if old and old.get("tache"):
+        old["tache"].cancel()
+    flow = {"etat": state, "verifier": verifier, "permissions": perms, "statut": "accord", "depuis": time.time(),
+            "message": "Autorise l'accès dans l'écran de l'agent."}
+    _flows[agent_id] = flow
+    await _open_tab(agent_id, url)
+    handoff.open_call(agent_id, "Google te demande ton accord dans l'écran de l'agent. Si Google affiche « Cette application "
+                      "n'a pas été validée », c'est la tienne : clique sur « Paramètres avancés » puis « Accéder à… ». "
+                      "Vérifie les accès cochés, puis clique sur « Continuer ».", origin="google")
+    flow["tache"] = asyncio.create_task(_watch_consent(agent_id, flow))
+
+
+def _finish(agent_id: str, flow: dict, status: str, message: str) -> None:
+    flow.update(statut=status, message=message)
+    flow.pop("tache", None)
+    handoff.close_call(agent_id, None, "fait" if status == "fini" else "impossible")
+
+
+async def _watch_consent(agent_id: str, flow: dict) -> None:
+    deadline = time.time() + CONSENT_MINUTES * 60
+    while time.time() < deadline:
+        await asyncio.sleep(1.5)
+        q = await _returned(agent_id, flow["etat"])
+        if not q:
+            continue
+        await _close_redirect_tabs(agent_id)
+        if q.get("error"):
+            _finish(agent_id, flow, "erreur", "Accès refusé dans Google." if q["error"] == "access_denied" else f"Google a répondu : {q['error']}")
+            return
+        try:
+            await _exchange(agent_id, flow, q.get("code", ""))
+        except Exception as e:  # noqa: BLE001 - l'erreur est montrée à l'utilisateur
+            _finish(agent_id, flow, "erreur", str(e)[:300])
+            return
+        _finish(agent_id, flow, "fini", "Google est connecté.")
+        return
+    _finish(agent_id, flow, "erreur", "Pas d'accord dans les 15 minutes. Recommence quand tu veux.")
+
+
+async def _close_redirect_tabs(agent_id: str) -> None:
+    try:
+        tabs = (await hermes.browser_call(agent_id, "GET", "/tabs", params={"userId": hermes.BROWSER_USER})).get("tabs") or []
+        for t in tabs:
+            if str(t.get("url", "")).startswith(REDIRECT) and t.get("tabId"):
+                await hermes.browser_call(agent_id, "DELETE", f"/tabs/{t['tabId']}", params={"userId": hermes.BROWSER_USER})
+    except httpx.HTTPError:
+        pass
+
+
+def _email(id_token: str) -> str:
+    try:
+        payload = id_token.split(".")[1]
+        return json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4))).get("email", "")
+    except (IndexError, ValueError):
+        return ""
+
+
+async def _exchange(agent_id: str, flow: dict, code: str) -> None:
+    client = _client()
+    r = await relay.upstream_client().post(TOKEN_URL, data={
+        "code": code, "client_id": client["client_id"], "client_secret": client["client_secret"],
+        "redirect_uri": REDIRECT, "grant_type": "authorization_code", "code_verifier": flow["verifier"],
+    }, timeout=30)
+    if r.status_code != 200:
+        raise RuntimeError(f"Google a refusé l'échange : {r.text[:200]}")
+    t = r.json()
+    if not t.get("refresh_token"):
+        raise RuntimeError("Google n'a pas donné d'accès durable : recommence la connexion.")
+    scopes = (t.get("scope") or "").split()
+    expiry = datetime.now(timezone.utc) + timedelta(seconds=int(t.get("expires_in", 3600)) - 60)
+    # Format « authorized_user » de google-auth, celui qu'attend la compétence google-workspace d'Hermes.
+    token = {"type": "authorized_user", "token": t["access_token"], "refresh_token": t["refresh_token"],
+             "token_uri": TOKEN_URL, "client_id": client["client_id"], "client_secret": client["client_secret"],
+             "scopes": scopes, "expiry": expiry.strftime("%Y-%m-%dT%H:%M:%SZ")}
+    installed = {"installed": {"client_id": client["client_id"], "client_secret": client["client_secret"],
+                               "auth_uri": AUTH_URL, "token_uri": TOKEN_URL, "redirect_uris": [REDIRECT]}}
+    await admin(agent_id, "google_installer", {"client": installed, "token": token})
+    granted = _granted(scopes)
+    account = {"compte": _email(t.get("id_token", "")), "permissions": granted, "depuis": int(time.time())}
+    db.set_setting(f"google_{agent_id}", json.dumps(account, ensure_ascii=False))
+    _tell_agent(agent_id, account)
+
+
+_hooks: dict = {}
+
+
+def setup(save_message, main_conversation) -> None:
+    _hooks.update(save=save_message, main=main_conversation)
+
+
+def _tell_agent(agent_id: str, account: dict) -> None:
+    """L'agent l'apprend à son prochain message (sans réveiller la conversation)."""
+    conv = _hooks.get("main") and _hooks["main"](agent_id)
+    if not conv:
+        return
+    names = ", ".join(PERMS[p]["nom"].lower() for p in account["permissions"]) or "aucun accès"
+    note = (f"Google est connecté ({account['compte'] or 'compte Google'}) : {names}. Utilise la compétence google-workspace ; "
+            "pour un accès qui manque, l'utilisateur l'ajoute dans Détails → Connexions.")
+    pending = json.loads(db.get_setting(f"contexte_{conv}") or "[]")
+    db.set_setting(f"contexte_{conv}", json.dumps((pending + [note])[-5:], ensure_ascii=False))
+
+
+# --- Recette : l'agent crée l'application Google de l'utilisateur ----------------------------------
+
+def recipe(perms: list[str]) -> str:
+    apis = ",".join(apis_for(perms))
+    return f"""# Recette : créer l'accès Google de l'utilisateur (une seule fois pour tous ses agents)
+
+But : un projet Google Cloud à son nom, avec un « ID client OAuth » de type Application de bureau. Noah Agent s'en sert
+ensuite pour demander son accord. Travaille dans ton navigateur (l'utilisateur voit ton écran). Prends une capture
+quand tu hésites : l'interface de Google change souvent, cherche le bouton équivalent plutôt que d'abandonner.
+
+Règle : tout ce qui est un mot de passe, un code, une case « J'accepte » ou un choix de pays/conditions, c'est à l'utilisateur.
+Appelle-le avec `python3 /opt/data/noah.py appeler "ce qu'il doit faire, en une phrase"` et attends sa réponse
+(relance `attendre <id>` tant que la réponse est « en_attente »). Ne le fais jamais à sa place.
+
+1. Ouvre https://console.cloud.google.com/ . Page de connexion → appelle-le : « Connecte-toi à ton compte Google dans
+   mon écran (onglet Ordinateur), puis clique sur C'est fait. » Conditions d'utilisation de Google Cloud → appelle-le
+   pour qu'il les lise et les accepte lui-même.
+2. Crée le projet : https://console.cloud.google.com/projectcreate , nom « Noah Agent », puis « Créer ». Attends qu'il
+   existe et note son identifiant (ex. noah-agent-123456). S'il existe déjà un projet « Noah Agent », réutilise-le.
+3. Active les API d'un coup : https://console.cloud.google.com/flows/enableapi?apiid={apis}&project=<identifiant>
+   puis « Suivant » / « Activer ».
+4. Écran d'accord : https://console.cloud.google.com/auth/overview?project=<identifiant> → « Commencer » (Get started).
+   Nom de l'application « Noah Agent », adresse d'assistance = l'adresse de l'utilisateur, audience « Externe »,
+   adresse de contact = la même. La case d'accord du règlement sur les données : appelle-le pour qu'il la coche
+   et clique sur « Créer ».
+5. Publication : https://console.cloud.google.com/auth/audience?project=<identifiant> → « Publier l'application »
+   puis confirme. Indispensable : en mode « Test », Google coupe l'accès tous les 7 jours. Pas besoin de validation
+   par Google : l'application ne sert qu'à lui.
+6. Identifiant : https://console.cloud.google.com/auth/clients/create?project=<identifiant> → type « Application de
+   bureau » (Desktop app), nom « Noah », « Créer ». La fenêtre affiche l'ID client et le code secret : lis-les
+   (capture si besoin) avant de la fermer, puis lance
+   `python3 /opt/data/noah.py google-identifiants <ID client> <code secret>`.
+7. Noah Agent ouvre alors lui-même la page d'accord dans ton navigateur et appelle l'utilisateur. Ne clique pas
+   sur « Continuer » ou « Autoriser » à sa place. Dis-lui en une phrase que c'est prêt, puis arrête-toi : Noah Agent
+   te préviendra quand Google sera connecté.
+"""
+
+
+def recipe_prompt(perms: list[str]) -> str:
+    names = ", ".join(PERMS[p]["nom"].lower() for p in perms)
+    return (f"Connecte mon compte Google ({names}). Il faut d'abord créer mon accès Google : "
+            "lis la recette avec `python3 /opt/data/noah.py recette google` et suis-la. "
+            "Appelle-moi seulement quand c'est à moi d'agir.")
+
+
+# --- API de l'interface ---------------------------------------------------------------------------
+
+class Connect(BaseModel):
+    permissions: list[str] = Field(min_length=1, max_length=len(GOOGLE_PERMISSIONS))
+
+
+def _valid(perms: list[str]) -> list[str]:
+    bad = [p for p in perms if p not in PERMS]
+    if bad:
+        raise HTTPException(400, f"Accès inconnu : {', '.join(bad)}")
+    return sorted(set(perms))
+
+
+@router.get("/api/agents/{agent_id}/google")
+async def google_state(agent_id: str, user: int = Depends(auth.current_user)):
+    return _state(_check(agent_id))
+
+
+@router.post("/api/agents/{agent_id}/google/connect")
+async def google_connect(agent_id: str, body: Connect, user: int = Depends(auth.current_user)):
+    """Avec les identifiants : ouvre l'accord dans l'écran de l'agent. Sans : rend la consigne à envoyer à l'agent
+    pour qu'il les crée (l'accord suivra tout seul)."""
+    agent_id = _check(agent_id)
+    perms = _valid(body.permissions)
+    db.set_setting(f"google_voulu_{agent_id}", json.dumps(perms))
+    if not _client():
+        _flows[agent_id] = {"statut": "configuration", "permissions": perms, "depuis": time.time(),
+                            "message": "L'agent crée ton accès Google."}
+        return _state(agent_id) | {"consigne": recipe_prompt(perms)}
+    await start_consent(agent_id, perms)
+    return _state(agent_id)
+
+
+@router.post("/api/agents/{agent_id}/google/cancel")
+async def google_cancel(agent_id: str, user: int = Depends(auth.current_user)):
+    flow = _flows.pop(_check(agent_id), None)
+    if flow and flow.get("tache"):
+        flow["tache"].cancel()
+    handoff.close_call(agent_id, None, "impossible")
+    return _state(agent_id)
+
+
+@router.post("/api/agents/{agent_id}/google/disconnect")
+async def google_disconnect(agent_id: str, user: int = Depends(auth.current_user)):
+    """Efface le jeton de cet agent. Pas de révocation chez Google : elle retirerait l'accord de toute
+    l'application, donc aussi aux autres agents. L'utilisateur peut tout retirer sur myaccount.google.com."""
+    agent_id = _check(agent_id)
+    await admin(agent_id, "google_revoquer", {"local": True})
+    db.set_setting(f"google_{agent_id}", "")
+    return _state(agent_id)
+
+
+class ClientIds(BaseModel):
+    client_id: str = Field(min_length=10, max_length=300)
+    client_secret: str = Field(min_length=6, max_length=300)
+
+
+def _save_client(body: ClientIds) -> None:
+    cid, secret = body.client_id.strip(), body.client_secret.strip()
+    if not re.fullmatch(r"[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com", cid):
+        raise HTTPException(400, "Ce n'est pas un ID client Google (il finit par .apps.googleusercontent.com).")
+    db.set_setting("google_client", json.dumps({"client_id": cid, "client_secret": secret}))
+
+
+class ClientFile(BaseModel):
+    fichier: str = Field(min_length=10, max_length=20000)
+
+
+@router.post("/api/google/client")
+async def google_client_file(body: ClientFile, user: int = Depends(auth.current_user)):
+    """Pour qui a déjà un fichier d'identifiants (« Application de bureau ») : le dépose à la place de la recette."""
+    try:
+        data = json.loads(body.fichier)
+        ids = data.get("installed") or data.get("web") or {}
+        _save_client(ClientIds(client_id=ids.get("client_id", ""), client_secret=ids.get("client_secret", "")))
+    except (ValueError, AttributeError):
+        raise HTTPException(400, "Ce fichier n'est pas un identifiant OAuth de Google.")
+    return {"ok": True}
+
+
+# --- API de l'agent -------------------------------------------------------------------------------
+
+@router.get("/agent-api/recettes/{name}")
+async def agent_recipe(name: str, request: Request):
+    agent_id = relay._agent_from(request)
+    if name != "google":
+        raise HTTPException(404, "Recette inconnue (disponibles : google)")
+    perms = json.loads(db.get_setting(f"google_voulu_{agent_id}") or "[]") or [p["id"] for p in GOOGLE_PERMISSIONS]
+    if _client():
+        return {"recette": "L'accès Google existe déjà. Rien à créer : dis à l'utilisateur de cliquer sur « Connecter » "
+                           "dans Détails → Connexions → Google."}
+    return {"recette": recipe(perms)}
+
+
+@router.post("/agent-api/google/identifiants")
+async def agent_client_ids(body: ClientIds, request: Request):
+    agent_id = relay._agent_from(request)
+    _save_client(body)
+    perms = json.loads(db.get_setting(f"google_voulu_{agent_id}") or "[]")
+    if not perms:
+        return {"ok": True, "suite": "Identifiants enregistrés. L'utilisateur choisit ses accès dans Détails → Connexions → Google."}
+    try:
+        await start_consent(agent_id, perms)
+    except (httpx.HTTPError, HTTPException) as e:
+        return {"ok": True, "suite": f"Identifiants enregistrés, mais la page d'accord n'a pas pu s'ouvrir ({e}). "
+                                     "Dis à l'utilisateur de cliquer sur « Connecter » dans Détails → Connexions → Google."}
+    return {"ok": True, "suite": "Identifiants enregistrés. La page d'accord de Google est ouverte dans ton navigateur et "
+                                 "l'utilisateur est prévenu. Ne clique pas à sa place : dis-lui que c'est prêt et arrête-toi."}

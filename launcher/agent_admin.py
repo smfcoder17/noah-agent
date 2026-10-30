@@ -190,42 +190,25 @@ def google(_):
             "identifiants": (DATA / "google_client_secret.json").exists()}
 
 
-def google_start(body):
-    """Enregistre au besoin les identifiants OAuth (application de bureau), puis rend l'adresse d'autorisation."""
-    secret = body.get("client_secret")
-    if secret:
+def google_install(body):
+    """Pose les identifiants et le jeton obtenus par Noah Agent (accord donné dans le navigateur de l'agent)."""
+    if "installed" not in (body.get("client") or {}) or not (body.get("token") or {}).get("refresh_token"):
+        fail("Identifiants ou jeton manquants")
+    for name, data in (("google_client_secret.json", body["client"]), ("google_token.json", body["token"])):
+        f = DATA / name
+        f.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        f.chmod(0o600)
+    (DATA / "google_oauth_pending.json").unlink(missing_ok=True)
+    return {"ok": True}
+
+
+def google_revoke(body):
+    # « local » : Noah Agent gère l'accord ; révoquer chez Google le retirerait aussi aux autres agents.
+    if not (body or {}).get("local"):
         try:
-            parsed = json.loads(secret)
-        except json.JSONDecodeError:
-            fail("Le fichier d'identifiants n'est pas du JSON")
-        if "installed" not in parsed:
-            fail("Ce n'est pas un identifiant OAuth de type « Application de bureau »")
-        f = NOAH / "client_secret.json"
-        f.parent.mkdir(parents=True, exist_ok=True)
-        f.write_text(json.dumps(parsed))
-        _gsetup("--client-secret", str(f))
-        f.unlink()
-    elif not (DATA / "google_client_secret.json").exists():
-        fail("Ajoute d'abord le fichier d'identifiants OAuth de Google")
-    url = next((l for l in _gsetup("--auth-url") if l.startswith("https://")), None)
-    if not url:
-        fail("Google n'a pas rendu d'adresse d'autorisation")
-    return {"adresse": url}
-
-
-def google_finish(body):
-    code = (body.get("code") or "").strip()
-    if not code:
-        fail("Colle l'adresse de la page d'erreur (ou le code)")
-    _gsetup("--auth-code", code)
-    return google(None)
-
-
-def google_revoke(_):
-    try:
-        _gsetup("--revoke")
-    except SystemExit:
-        pass
+            _gsetup("--revoke")
+        except SystemExit:
+            pass
     for name in ("google_token.json", "google_client_secret.json"):
         (DATA / name).unlink(missing_ok=True)
     return google(None)
@@ -353,7 +336,8 @@ ACTIONS = {
     "memoire": memory, "memoire_ecrire": memory_write,
     "routines": routines, "routine_creer": routine_create, "routine_action": routine_action,
     "routines_sorties": routine_outputs,
-    "google": google, "google_debut": google_start, "google_fin": google_finish, "google_revoquer": google_revoke,
+    "google": google, "google_revoquer": google_revoke,
+    "google_installer": google_install,
 }
 
 if __name__ == "__main__":

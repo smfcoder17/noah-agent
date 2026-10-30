@@ -152,15 +152,7 @@ def pop_context(conv_id: str) -> str:
             + "\n\n".join(t[:4000] for t in pending) + "\n[Fin. Message de l'utilisateur :]\n\n")
 
 
-# --- Connexions : Google (Gmail, Agenda, Drive) -----------------------------------------------
-
-class GoogleStart(BaseModel):
-    client_secret: str | None = Field(default=None, max_length=20000)
-
-
-class GoogleFinish(BaseModel):
-    code: str = Field(min_length=4, max_length=4000)
-
+# --- Connexions : Google (détail dans accounts.py) et applications ------------------------
 
 @router.get("/api/agents/{agent_id}/connections")
 async def connections(agent_id: str, user: int = Depends(auth.current_user)):
@@ -189,21 +181,6 @@ async def app_action(agent_id: str, name: str, action: str, body: AppFinish | No
     else:
         raise HTTPException(400, "Action inconnue")
     return out
-
-
-@router.post("/api/agents/{agent_id}/connections/google/start")
-async def google_start(agent_id: str, body: GoogleStart, user: int = Depends(auth.current_user)):
-    return await admin(_check(agent_id), "google_debut", body.model_dump())
-
-
-@router.post("/api/agents/{agent_id}/connections/google/finish")
-async def google_finish(agent_id: str, body: GoogleFinish, user: int = Depends(auth.current_user)):
-    return await admin(_check(agent_id), "google_fin", body.model_dump())
-
-
-@router.post("/api/agents/{agent_id}/connections/google/revoke")
-async def google_revoke(agent_id: str, user: int = Depends(auth.current_user)):
-    return await admin(_check(agent_id), "google_revoquer")
 
 
 # --- Dossiers de l'ordinateur ---------------------------------------------------------------
@@ -243,7 +220,7 @@ async def set_folders(agent_id: str, body: SharedFolders, user: int = Depends(au
     _check(agent_id)
     out, used = [], set()
     for f in body.dossiers:
-        chemin = f.chemin.strip().rstrip("\/") or f.chemin.strip()
+        chemin = f.chemin.strip().rstrip("\\/") or f.chemin.strip()
         base = _slug(f.nom or re.split(r"[\/]", chemin)[-1])
         nom, i = base, 2
         while nom in used:
