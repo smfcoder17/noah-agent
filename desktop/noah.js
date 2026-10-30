@@ -77,4 +77,32 @@ async function start(home, step, restart = false) {
   throw new Error("Noah ne répond pas. Regarde « docker compose logs server » dans le dossier de Noah.");
 }
 
-module.exports = { start, ensureShareRoots, readEnv };
+/** Écrit (ou remplace) une ligne CLÉ=valeur du .env. */
+function setEnv(home, key, value) {
+  const file = path.join(home, ".env");
+  const lines = fs.existsSync(file) ? fs.readFileSync(file, "utf8").split(/\r?\n/) : [];
+  const i = lines.findIndex((l) => l.startsWith(`${key}=`));
+  if (i >= 0) lines[i] = `${key}=${value}`;
+  else lines.push(`${key}=${value}`);
+  fs.writeFileSync(file, lines.join("\n"));
+}
+
+/** Adresse de l'ordinateur sur le réseau local (Wi-Fi ou Ethernet), sans les cartes virtuelles. */
+function lanAddress() {
+  const skip = /vEthernet|VirtualBox|VMware|Loopback|WSL|Docker|Hyper-V|Tailscale|ZeroTier|vpn/i;
+  for (const [name, addrs] of Object.entries(os.networkInterfaces())) {
+    if (skip.test(name)) continue;
+    for (const a of addrs || []) {
+      if (a.family === "IPv4" && !a.internal && /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(a.address)) return a.address;
+    }
+  }
+  return null;
+}
+
+/** Noah joignable par les appareils du réseau local (téléphone) : le serveur écoute sur toutes les interfaces. */
+async function openToLan(home) {
+  setEnv(home, "APOLLO_BIND", "0.0.0.0");
+  await run("docker", ["compose", "up", "-d", "server"], home);
+}
+
+module.exports = { start, ensureShareRoots, readEnv, lanAddress, openToLan };

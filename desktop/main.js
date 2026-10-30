@@ -54,7 +54,7 @@ function status(text, failed = false) {
 async function boot() {
   await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(LOADING)}`);
   try {
-    const home = await noahHome();
+    home = await noahHome();
     // Premier lancement : on autorise le partage du dossier personnel ; le lanceur doit alors être relancé.
     const changed = noah.ensureShareRoots(home);
     const url = await noah.start(home, status, changed);
@@ -125,6 +125,32 @@ ipcMain.handle("noah:pick-folder", async (e) => {
   if (!origin || !e.senderFrame.url.startsWith(origin)) return null;
   const r = await dialog.showOpenDialog(win, { title: "Dossier à confier à Noah", properties: ["openDirectory"] });
   return r.canceled ? null : r.filePaths[0];
+});
+// Téléphone : adresse de l'ordinateur sur le réseau local, et ouverture de Noah à ce réseau (après accord).
+let home = "";
+const lanUrl = () => {
+  const ip = noah.lanAddress();
+  return ip ? `http://${ip}:${noah.readEnv(home).APOLLO_PORT || 8080}` : null;
+};
+ipcMain.handle("noah:lan-status", async (e) => {
+  if (!origin || !e.senderFrame.url.startsWith(origin) || !home) return { open: false, url: null };
+  return { open: noah.readEnv(home).APOLLO_BIND === "0.0.0.0", url: lanUrl() };
+});
+ipcMain.handle("noah:open-lan", async (e) => {
+  if (!origin || !e.senderFrame.url.startsWith(origin) || !home) return { open: false, url: null };
+  const r = await dialog.showMessageBox(win, {
+    type: "question",
+    title: "Ouvrir Noah à ton réseau",
+    message: "Rendre Noah joignable par les appareils de ton réseau Wi-Fi ?",
+    detail: "Ton téléphone pourra ouvrir Noah. La page de connexion sera visible sur ce réseau : à éviter sur un Wi-Fi public.",
+    buttons: ["Ouvrir", "Annuler"],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+  });
+  if (r.response !== 0) return { open: false, url: lanUrl() };
+  await noah.openToLan(home);
+  return { open: true, url: lanUrl() };
 });
 ipcMain.handle("noah:open-path", async (e, p) => {
   if (!origin || !e.senderFrame.url.startsWith(origin)) return;

@@ -3,6 +3,7 @@ import qrcode from "qrcode-generator";
 import { Loader2, Smartphone } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { send } from "@/lib/api";
+import { desktop } from "@/lib/desktop";
 import { Button, ErrorText } from "./ui";
 
 type Pairing = { adresse: string; expire: number; local: boolean };
@@ -23,6 +24,24 @@ export function PhonePairing() {
   const [left, setLeft] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // App de bureau : l'adresse de l'ordinateur sur le Wi-Fi remplace « localhost » dans le QR code.
+  const app = desktop();
+  const [lan, setLan] = useState<{ open: boolean; url: string | null } | null>(null);
+  useEffect(() => {
+    app?.lanStatus().then(setLan).catch(() => {});
+  }, [app]);
+  const openLan = async () => {
+    setBusy(true);
+    try {
+      setLan(await app!.openLan());
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const viaLan = !!(pairing?.local && lan?.open && lan.url);
+  const target = pairing && viaLan ? pairing.adresse.replace(/^https?:\/\/[^/]+/, lan!.url!) : pairing?.adresse ?? "";
 
   const create = async () => {
     setBusy(true);
@@ -52,13 +71,19 @@ export function PhonePairing() {
       </p>
       {pairing && left > 0 ? (
         <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-start">
-          <QR text={pairing.adresse} />
+          <QR text={target} />
           <div className="flex min-w-0 flex-col gap-2 text-sm">
             <p>
               Valable encore <b>{Math.floor(left / 60)} min {String(left % 60).padStart(2, "0")} s</b>, pour un seul téléphone.
             </p>
-            <p className="break-all font-mono text-xs text-muted-foreground">{pairing.adresse}</p>
-            {pairing.local && (
+            <p className="break-all font-mono text-xs text-muted-foreground">{target}</p>
+            {viaLan && <p className="text-xs text-muted-foreground">Ton téléphone doit être sur le même Wi-Fi que cet ordinateur.</p>}
+            {pairing.local && app && !lan?.open && (
+              <Button size="sm" className="self-start" onClick={openLan} disabled={busy || !lan?.url}>
+                Ouvrir Noah à mon Wi-Fi
+              </Button>
+            )}
+            {pairing.local && !viaLan && !app && (
               <p className="rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn">
                 Cette adresse ne marche que sur cet ordinateur. Pour ton téléphone, ouvre Noah depuis l'adresse de
                 l'ordinateur sur ton réseau (avec <code>APOLLO_BIND=0.0.0.0</code> dans <code>.env</code>), ou installe

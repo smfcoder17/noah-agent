@@ -4,6 +4,10 @@ export type NoahDesktop = {
   pickFolder(): Promise<string | null>;
   /** Ouvre un dossier ou un fichier de l'ordinateur dans l'explorateur. */
   openPath(path: string): Promise<void>;
+  /** Adresse de l'ordinateur sur le réseau local, et si Noah y est déjà ouvert. */
+  lanStatus(): Promise<{ open: boolean; url: string | null }>;
+  /** Ouvre Noah aux appareils du réseau local (l'utilisateur confirme dans une fenêtre du système). */
+  openLan(): Promise<{ open: boolean; url: string | null }>;
   version: string;
 };
 

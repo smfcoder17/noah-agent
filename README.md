@@ -26,6 +26,10 @@ Les modèles `:cloud` d'Ollama fonctionnent aussi. Choisis un modèle qui gère 
 
 ### Depuis ton téléphone
 
+**Réglages → Téléphone** affiche un QR code à usage unique (10 min) : le téléphone qui le scanne arrive connecté.
+Dans l'application de bureau, « Ouvrir Noah à mon Wi-Fi » fait le réglage ci-dessous et met l'adresse Wi-Fi du PC
+dans le QR code. À la main :
+
 1. Dans `.env`, mets `APOLLO_BIND=0.0.0.0`, puis relance `docker compose up -d`.
 2. Sur le téléphone, connecté au même Wi-Fi, ouvre `http://<adresse-IP-du-PC>:8080`.
 3. Pour l'installer comme une app (« Ajouter à l'écran d'accueil »), le navigateur exige HTTPS :
@@ -154,6 +158,6 @@ et seulement depuis les dossiers de travail de l'agent.
    ~~Navigateur Camoufox, vue en direct et prise de contrôle, fichiers.~~
    ~~Nouvelle interface (assistant-ui + shadcn).~~ ~~Modèle par agent.~~
 4. Veille programmatique (collecte sans LLM, triage par petit modèle), Gmail et Agenda.
-5. Apps mobile et desktop, appairage par QR code, installation en une commande sur VPS.
+5. ~~App desktop, appairage du téléphone par QR code, installation en une commande sur VPS.~~ App mobile native.
 
 L'architecture complète est décrite dans [docs/architecture.html](docs/architecture.html).
