@@ -95,8 +95,12 @@ export function useAgentChat(opts: {
   onRunFinished: () => void;
   /** Dernière mise à jour connue côté serveur : un message arrivé sans nous (routine) déclenche un rechargement. */
   updatedAt?: string;
+  /** Citations à mettre devant le message (vidées à l'envoi). */
+  takeQuotes?: () => string;
 }) {
   const { agentId, conversationId, details, onConversationCreated, onRunFinished, updatedAt } = opts;
+  const takeQuotes = useRef(opts.takeQuotes);
+  takeQuotes.current = opts.takeQuotes;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isRunning, setRunning] = useState(false);
   const runRef = useRef<{ runId: string | null; abort: AbortController | null }>({ runId: null, abort: null });
@@ -139,13 +143,14 @@ export function useAgentChat(opts: {
 
   const onNew = useCallback(
     async (message: AppendMessage) => {
-      const text = message.content
+      const typed = message.content
         .filter((p): p is { type: "text"; text: string } => p.type === "text")
         .map((p) => p.text)
         .join("\n")
         .trim();
       const attachments = (message.attachments ?? []).map((a) => a.id).filter((id) => id.startsWith("/opt/data/"));
-      if (!text) return;
+      if (!typed) return;
+      const text = (takeQuotes.current?.() ?? "") + typed;
       const userMsg: ChatMessage = {
         id: uid("u"),
         role: "user",

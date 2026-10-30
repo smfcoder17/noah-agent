@@ -4,16 +4,18 @@ import {
   AttachmentPrimitive,
   ComposerPrimitive,
   MessagePrimitive,
+  type TextMessagePartProps,
   type ToolCallMessagePartProps,
   ThreadPrimitive,
   useAuiState,
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
-import { ArrowDown, ArrowUp, Check, Copy, FileText, Loader2, Paperclip, Square, TriangleAlert, X } from "lucide-react";
-import { useContext, useState } from "react";
+import { ArrowDown, ArrowUp, Check, Copy, FileText, Loader2, Paperclip, Reply, Square, TriangleAlert, X } from "lucide-react";
+import { useContext, useEffect, useState } from "react";
 import remarkGfm from "remark-gfm";
 import { AgentContext } from "@/lib/agentContext";
 import { mediaUrl, rawFileUrl, send } from "@/lib/api";
+import { imageQuote, splitQuotes, useQuotes } from "@/lib/quotes";
 import { NoahTile } from "./Noah";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui";
@@ -59,6 +61,7 @@ const WIDGET_LANGUAGES = { noah: widget, apollo: widget };
 function MarkdownText() {
   const { agentId } = useContext(AgentContext);
   const view = useViewer();
+  const { add: addQuote } = useQuotes();
   return (
     <MarkdownTextPrimitive
       className="prose-chat"
@@ -81,12 +84,24 @@ function MarkdownText() {
             <a {...props} href={href} target="_blank" rel="noopener noreferrer">{children}</a>
           ),
         img: ({ node: _node, ...props }) => (
-          <img
-            {...props}
-            loading="lazy"
-            className="cursor-zoom-in"
-            onClick={() => props.src && view({ kind: "image", src: String(props.src), title: props.alt })}
-          />
+          <span className="group/img relative inline-block">
+            <img
+              {...props}
+              loading="lazy"
+              className="cursor-zoom-in"
+              onClick={() => props.src && view({ kind: "image", src: String(props.src), title: props.alt })}
+            />
+            {props.src && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="absolute top-2 right-2 h-7 bg-surface/90 text-xs opacity-0 shadow-sm group-hover/img:opacity-100 focus-visible:opacity-100"
+                onClick={() => addQuote(imageQuote(String(props.src), props.alt))}
+              >
+                <Reply />Répondre à ceci
+              </Button>
+            )}
+          </span>
         ),
       }}
     />
@@ -171,6 +186,21 @@ function AttachmentChip() {
   );
 }
 
+/** Texte de l'utilisateur : les passages cités en tête s'affichent en citations, au-dessus de sa question. */
+function UserText({ text }: TextMessagePartProps) {
+  const { quotes, rest } = splitQuotes(text);
+  return (
+    <>
+      {quotes.map((q, i) => (
+        <span key={i} className="mb-2 block max-h-28 overflow-hidden border-l-2 border-accent/60 pl-2.5 text-[13px] text-muted-foreground [mask-image:linear-gradient(to_bottom,black_75%,transparent)]">
+          {q}
+        </span>
+      ))}
+      {rest}
+    </>
+  );
+}
+
 function UserMessage() {
   return (
     <MessagePrimitive.Root className="flex flex-col items-end gap-1.5 py-2">
@@ -178,9 +208,69 @@ function UserMessage() {
         <MessagePrimitive.Attachments components={{ Attachment: AttachmentChip }} />
       </div>
       <div className="max-w-[85%] rounded-2xl rounded-br-md bg-surface px-4 py-2.5 whitespace-pre-wrap shadow-sm ring-1 ring-border">
-        <MessagePrimitive.Parts />
+        <MessagePrimitive.Parts components={{ Text: UserText }} />
       </div>
     </MessagePrimitive.Root>
+  );
+}
+
+/** Bouton flottant sur un passage sélectionné d'une réponse : il le joint au prochain message. */
+function SelectionReply() {
+  const { add } = useQuotes();
+  const [spot, setSpot] = useState<{ x: number; y: number; text: string } | null>(null);
+  useEffect(() => {
+    const update = () => {
+      const sel = window.getSelection();
+      const text = sel?.toString().trim() ?? "";
+      const node = sel?.anchorNode;
+      const el = node instanceof Element ? node : node?.parentElement;
+      if (!sel || sel.isCollapsed || text.length < 2 || !el?.closest("[data-reply-source]")) return setSpot(null);
+      const r = sel.getRangeAt(0).getBoundingClientRect();
+      setSpot({ x: Math.min(Math.max(r.left + r.width / 2, 80), window.innerWidth - 80), y: Math.max(r.top - 8, 8), text });
+    };
+    document.addEventListener("selectionchange", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      document.removeEventListener("selectionchange", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, []);
+  if (!spot) return null;
+  return (
+    <Button
+      size="sm"
+      className="fixed z-50 h-8 -translate-x-1/2 -translate-y-full shadow-lg"
+      style={{ left: spot.x, top: spot.y }}
+      // mousedown sans perdre la sélection avant le clic
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={() => {
+        add({ label: spot.text.slice(0, 80), text: spot.text });
+        window.getSelection()?.removeAllRanges();
+        setSpot(null);
+        document.querySelector<HTMLTextAreaElement>("[data-composer-input]")?.focus();
+      }}
+    >
+      <Reply />Répondre à ceci
+    </Button>
+  );
+}
+
+/** Passages joints au prochain message, au-dessus de la zone de saisie. */
+function QuoteChips() {
+  const { quotes, remove } = useQuotes();
+  if (!quotes.length) return null;
+  return (
+    <div className="flex flex-col gap-1">
+      {quotes.map((q, i) => (
+        <div key={i} className="flex items-center gap-2 rounded-lg border-l-2 border-accent bg-muted/60 py-1 pr-1 pl-2.5 text-[13px]">
+          <Reply className="size-3.5 shrink-0 text-accent" />
+          <span className="min-w-0 flex-1 truncate text-muted-foreground">{q.label}</span>
+          <button type="button" className="cursor-pointer rounded-full p-0.5 text-muted-foreground hover:bg-muted" onClick={() => remove(i)} aria-label="Retirer la citation">
+            <X className="size-3.5" />
+          </button>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -190,7 +280,7 @@ function AssistantMessage() {
   const empty = useAuiState((s) => s.message.content.length === 0);
   const isLast = useAuiState((s) => s.thread.messages[s.thread.messages.length - 1]?.id === s.message.id);
   return (
-    <MessagePrimitive.Root className="group relative flex flex-col gap-1 py-2 md:pl-11">
+    <MessagePrimitive.Root data-reply-source className="group relative flex flex-col gap-1 py-2 md:pl-11">
       <NoahTile color={agentColor} className="absolute top-2 left-0 hidden size-8 md:grid" />
       <div className="max-w-[92%] min-w-0">
         {empty && running ? (
@@ -228,6 +318,7 @@ function AssistantMessage() {
 function Composer({ onVoiceMode }: { onVoiceMode: () => void }) {
   return (
     <ComposerPrimitive.Root className="flex w-full flex-col gap-2 rounded-2xl border border-border bg-surface p-2 shadow-sm focus-within:border-accent">
+      <QuoteChips />
       <div className="flex flex-wrap gap-1.5 empty:hidden">
         <ComposerPrimitive.Attachments components={{ Attachment: AttachmentChip }} />
       </div>
@@ -238,6 +329,7 @@ function Composer({ onVoiceMode }: { onVoiceMode: () => void }) {
           </Button>
         </ComposerPrimitive.AddAttachment>
         <ComposerPrimitive.Input
+          data-composer-input
           rows={1}
           autoFocus
           placeholder="Écris à ton agent… (glisse ou colle des fichiers ici)"
@@ -270,6 +362,7 @@ export function Thread() {
   const [voice, setVoice] = useState(false);
   return (
     <ThreadPrimitive.Root className="flex h-full min-h-0 flex-col">
+      <SelectionReply />
       <ComposerPrimitive.AttachmentDropzone className="flex min-h-0 flex-1 flex-col data-[dragging=true]:bg-accent-soft/40">
         <ThreadPrimitive.Viewport className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4">
           <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col pt-6">

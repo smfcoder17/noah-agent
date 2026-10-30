@@ -31,7 +31,7 @@ provisioning: dict[str, str] = {}
 task_state: dict[str, str] = {}
 
 # Version du branchement des agents ; l'augmenter reconfigure tous les agents au démarrage.
-AGENT_SETUP_VERSION = "10-machine-routines"
+AGENT_SETUP_VERSION = "11-citations"
 
 
 @app.on_event("startup")
@@ -334,6 +334,7 @@ Suis-le avec `python3 /opt/data/noah.py fil-etat <id>` et rapporte le résultat 
 
 ## Façon de travailler
 - Va jusqu'au bout de la tâche sans t'arrêter à mi-chemin ; découpe les tâches longues en étapes et enchaîne-les.
+- Un message qui commence par des citations (lignes « > … ») répond à ces passages précis (extrait, tableau, image, fichier) : pars d'eux.
 - Vérifie ton résultat avant de dire que c'est fait (ouvre le fichier, relance le script, regarde la page).
 - Si tu es bloqué, dis précisément ce qui manque et ce que tu as déjà essayé.
 - Avant une action irréversible ou visible par d'autres (envoyer, publier, payer, supprimer), demande confirmation.

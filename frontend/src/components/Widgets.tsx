@@ -2,11 +2,12 @@
 // Graphique, tableau, grille d'éléments, question à choix. Le JSON invalide retombe en bloc de code.
 import type { SyntaxHighlighterProps } from "@assistant-ui/react-markdown";
 import { useAuiState } from "@assistant-ui/react";
-import { Check, Download, ExternalLink, FileText, Maximize2 } from "lucide-react";
+import { Check, Download, ExternalLink, FileText, Maximize2, Reply } from "lucide-react";
 import { useContext, useMemo, useState } from "react";
 import { mediaUrl, rawFileUrl } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { AgentContext } from "@/lib/agentContext";
+import { useQuotes, widgetQuote } from "@/lib/quotes";
 import { Button } from "./ui";
 import { canFrame, isImagePath, useViewer } from "./Viewer";
 
@@ -316,6 +317,29 @@ function Choice({ spec }: { spec: ChoiceSpec }) {
   );
 }
 
+/** Un widget qu'on peut joindre au prochain message (« Répondre à ceci »), avec sa place réservée sous lui. */
+function Quotable({ spec, children }: { spec: Spec; children: React.ReactNode }) {
+  const { add } = useQuotes();
+  const quote = widgetQuote(spec as unknown as Record<string, unknown>);
+  return (
+    <div className="group/quote">
+      {children}
+      {quote && (
+        <div className="-mt-2 mb-1 flex h-7 justify-end">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs text-muted-foreground opacity-0 group-hover/quote:opacity-100 focus-visible:opacity-100"
+            onClick={() => add(quote)}
+          >
+            <Reply />Répondre à ceci
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function NoahWidget({ code, components }: SyntaxHighlighterProps) {
   let spec: Spec | null = null;
   try {
@@ -328,11 +352,11 @@ export function NoahWidget({ code, components }: SyntaxHighlighterProps) {
     return <div className="my-3 h-24 animate-pulse rounded-2xl border border-border bg-muted/60" aria-label="Widget en préparation" />;
   }
   switch (spec.type) {
-    case "chart": return <Chart spec={spec} />;
-    case "table": return <Table spec={spec} />;
-    case "grid": return <Grid spec={spec} />;
+    case "chart": return <Quotable spec={spec}><Chart spec={spec} /></Quotable>;
+    case "table": return <Quotable spec={spec}><Table spec={spec} /></Quotable>;
+    case "grid": return <Quotable spec={spec}><Grid spec={spec} /></Quotable>;
     case "choice": return <Choice spec={spec} />;
-    case "preview": return <Preview spec={spec} />;
+    case "preview": return <Quotable spec={spec}><Preview spec={spec} /></Quotable>;
     default:
       return <components.Pre><components.Code>{code}</components.Code></components.Pre>;
   }

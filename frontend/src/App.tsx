@@ -1,4 +1,5 @@
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
+import { QuoteContext, useQuoteState } from "@/lib/quotes";
 import { ArrowLeft, Bug, Menu, MonitorPlay, PanelRight, Plus } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { AgentDialog } from "@/components/AgentDialog";
@@ -299,7 +300,8 @@ function AgentChat(props: {
   onConversationCreated: () => void;
   onRunFinished: () => void;
 }) {
-  const runtime = useAgentChat({ agentId: props.agent.id, ...props });
+  const quotes = useQuoteState();
+  const runtime = useAgentChat({ agentId: props.agent.id, ...props, takeQuotes: quotes.take });
   const say = useCallback(
     (text: string) => runtime.thread.append({ role: "user", content: [{ type: "text", text }] }),
     [runtime],
@@ -315,7 +317,9 @@ function AgentChat(props: {
           hint: props.agent.role ? props.agent.role.slice(0, 180) : "Pose une question, confie une tâche ou envoie un fichier.",
         }}
       >
-        <Thread />
+        <QuoteContext.Provider value={quotes.value}>
+          <Thread />
+        </QuoteContext.Provider>
       </AgentContext.Provider>
     </AssistantRuntimeProvider>
   );
