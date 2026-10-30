@@ -38,10 +38,27 @@ Retenu par les deux audits (Opus et Kimi K3) :
 - **Base** : index sur `usage`, `messages` et `conversations`, mode WAL, et vérification de santé des agents
   ramenée de 3 s à 1 s.
 
+## Mode vocal : premier son
+
+Délai entre la fin de la phrase transcrite et le premier son entendu, mesuré dans le navigateur (médiane de 6,
+trois phrases : salutation, demande d'action, question).
+
+| | Avant | Après |
+|---|---|---|
+| Premier son | 1 116 ms | 754 ms |
+
+- **Voix rapide sur gpt-oss-120b** (Cerebras, Groq) au lieu de Gemini 3.1 Flash Lite : premier mot en ~0,25 s
+  au lieu de ~0,6 s. Juste dans 8 cas sur 8 pour le tri action / conversation, réponses naturelles en français.
+- **Synthèse en flux** : le navigateur ouvre `/api/voice/audio/<id>` en même temps qu'il envoie la demande. Le serveur
+  synthétise chaque phrase dès que le modèle l'a écrite, et le MP3 part au fil de l'eau. Plus d'aller-retour entre
+  la réponse et la synthèse, plus d'attente du fichier complet. Sur un VPS, l'aller-retour économisé compte davantage
+  qu'en local.
+- **Micro gardé ouvert** pendant tout le mode vocal : chaque tour reprend l'écoute sans redemander le micro au
+  navigateur, et le début de la phrase suivante n'est plus coupé.
+- La synthèse elle-même (MAI Voice 2.1 Flash, ~0,35 s avant le premier octet) est déjà parmi les plus rapides avec
+  une voix française. Les voix qui ne rendent que du PCM (Gemini TTS, HeyGen) passent en WAV dans le même flux.
+
 ## Prochaines pistes (non faites)
 
-- **TTS en flux** : lire la voix pendant qu'elle arrive, ou un accusé pré-rendu. C'est le plus gros gain
-  restant sur le premier son en mode vocal, environ 1 s.
-- **Micro gardé ouvert** pendant toute la session vocale, au lieu de le rouvrir à chaque tour.
 - **Historique paginé** (80 derniers messages) et `content-visibility` sur les messages.
 - **Taux de cache de prompt** à relever dans `/api/usage`, puis à corriger si le modèle ne profite pas du cache.

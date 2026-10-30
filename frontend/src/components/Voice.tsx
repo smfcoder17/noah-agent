@@ -10,18 +10,20 @@ import { cn } from "@/lib/utils";
 import { NoahTile } from "./Noah";
 import { Button } from "./ui";
 
-/** Micro : enregistre, mesure le niveau, et prévient quand la personne a fini de parler. */
-function useRecorder() {
-  const rec = useRef<{ recorder: MediaRecorder; stream: MediaStream; ctx: AudioContext; timer: number; chunks: Blob[] } | null>(null);
+/**
+ * Micro : enregistre, mesure le niveau, et prévient quand la personne a fini de parler.
+ * `persistent` (mode vocal) garde le micro ouvert entre deux phrases : chaque tour démarre sans attendre
+ * l'autorisation du navigateur, et le début de la phrase n'est pas coupé.
+ */
+function useRecorder(persistent = false) {
+  const mic = useRef<{ stream: MediaStream; ctx: AudioContext; timer: number } | null>(null);
+  const rec = useRef<{ recorder: MediaRecorder; chunks: Blob[] } | null>(null);
+  const vad = useRef<{ onSilence?: () => void; heard: number; quiet: number }>({ heard: 0, quiet: 0 });
   const [level, setLevel] = useState(0);
 
-  const start = useCallback(async (onSilence?: () => void) => {
+  const open = useCallback(async () => {
+    if (mic.current) return mic.current.stream;
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
-    const mime = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((m) => MediaRecorder.isTypeSupported(m));
-    const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-    const chunks: Blob[] = [];
-    recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
-    recorder.start(250);
     const ctx = new AudioContext();
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 1024;
@@ -29,46 +31,80 @@ function useRecorder() {
     const buf = new Uint8Array(analyser.fftSize);
     // Fin de phrase : on a entendu de la voix, puis 0,6 s de silence (relevé toutes les 50 ms).
     const TICK = 50;
-    let heard = 0;
-    let quietSince = 0;
     const timer = window.setInterval(() => {
+      if (!rec.current) return; // micro ouvert mais pas d'enregistrement : l'agent parle
       analyser.getByteTimeDomainData(buf);
       let sum = 0;
       for (const v of buf) sum += ((v - 128) / 128) ** 2;
       const rms = Math.sqrt(sum / buf.length);
       setLevel(Math.min(1, rms * 8));
-      if (!onSilence) return;
+      const v = vad.current;
+      if (!v.onSilence) return;
       if (rms > 0.035) {
-        heard += TICK;
-        quietSince = 0;
-      } else if (heard > 300) {
-        quietSince += TICK;
-        if (quietSince > 600) {
-          heard = 0;
-          quietSince = 0;
-          onSilence();
+        v.heard += TICK;
+        v.quiet = 0;
+      } else if (v.heard > 300) {
+        v.quiet += TICK;
+        if (v.quiet > 600) {
+          const cb = v.onSilence;
+          vad.current = { heard: 0, quiet: 0 };
+          cb();
         }
       }
     }, TICK);
-    rec.current = { recorder, stream, ctx, timer, chunks };
+    mic.current = { stream, ctx, timer };
+    return stream;
+  }, []);
+
+  const close = useCallback(() => {
+    const m = mic.current;
+    if (!m) return;
+    mic.current = null;
+    clearInterval(m.timer);
+    m.stream.getTracks().forEach((t) => t.stop());
+    m.ctx.close();
   }, []);
 
   /** Arrête et rend l'enregistrement (ou null si on annule). */
-  const stop = useCallback(async (keep = true): Promise<Blob | null> => {
-    const r = rec.current;
-    if (!r) return null;
-    rec.current = null;
-    clearInterval(r.timer);
-    setLevel(0);
-    const done = new Promise<void>((resolve) => (r.recorder.onstop = () => resolve()));
-    if (r.recorder.state !== "inactive") r.recorder.stop();
-    await done;
-    r.stream.getTracks().forEach((t) => t.stop());
-    r.ctx.close();
-    return keep && r.chunks.length ? new Blob(r.chunks, { type: r.recorder.mimeType }) : null;
-  }, []);
+  const stop = useCallback(
+    async (keep = true): Promise<Blob | null> => {
+      const r = rec.current;
+      rec.current = null;
+      vad.current = { heard: 0, quiet: 0 };
+      setLevel(0);
+      if (r) {
+        const done = new Promise<void>((resolve) => (r.recorder.onstop = () => resolve()));
+        if (r.recorder.state !== "inactive") r.recorder.stop();
+        await done;
+      }
+      if (!persistent) close();
+      return r && keep && r.chunks.length ? new Blob(r.chunks, { type: r.recorder.mimeType }) : null;
+    },
+    [close, persistent],
+  );
 
-  useEffect(() => () => void stop(false), [stop]);
+  const start = useCallback(
+    async (onSilence?: () => void) => {
+      if (rec.current) await stop(false);
+      const stream = await open();
+      const mime = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((m) => MediaRecorder.isTypeSupported(m));
+      const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      const chunks: Blob[] = [];
+      recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+      recorder.start(250);
+      vad.current = { onSilence, heard: 0, quiet: 0 };
+      rec.current = { recorder, chunks };
+    },
+    [open, stop],
+  );
+
+  useEffect(
+    () => () => {
+      void stop(false);
+      close();
+    },
+    [stop, close],
+  );
   return { start, stop, level };
 }
 
@@ -174,50 +210,62 @@ export function VoiceModeButton({ onClick }: { onClick: () => void }) {
 
 type Phase = "listening" | "transcribing" | "speaking" | "waiting" | "error";
 
-/** Lit un texte phrase par phrase : la première part pendant que la suivante se prépare. */
+/** Identifiant d'un flux audio (crypto.randomUUID n'existe qu'en HTTPS ; getRandomValues partout). */
+const audioId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
+
+type VoiceReply = { dire: string; action: boolean };
+
+/**
+ * Voix de l'agent en flux : le navigateur ouvre /api/voice/audio/<id> pendant que le serveur écrit la réponse
+ * et la synthétise phrase par phrase. Le son commence au premier morceau reçu.
+ */
 function useSpeaker(agentId: string) {
   const current = useRef<HTMLAudioElement | null>(null);
-  const token = useRef(0);
-  const fetchAudio = useCallback(
-    (text: string) =>
-      request("/api/voice/speak", { method: "POST", body: JSON.stringify({ text, agent_id: agentId }) })
-        .then((r) => r.blob())
-        .then((b) => URL.createObjectURL(b)),
-    [agentId],
+  const play = useCallback(
+    (id: string) =>
+      new Promise<void>((resolve) => {
+        current.current?.pause();
+        const a = new Audio(`/api/voice/audio/${id}`);
+        current.current = a;
+        a.onended = a.onerror = a.onpause = () => resolve();
+        a.play().catch(() => resolve());
+      }),
+    [],
   );
+  /** Lit un texte déjà connu. */
   const speak = useCallback(
     async (text: string) => {
-      const run = ++token.current;
-      const parts = text.match(/[^.!?…]+[.!?…]*\s*/g)?.map((s) => s.trim()).filter(Boolean) ?? [text];
-      // Regroupe les phrases très courtes pour éviter les pauses entre deux appels.
-      const chunks: string[] = [];
-      for (const p of parts) {
-        if (chunks.length && chunks[chunks.length - 1].length < 60) chunks[chunks.length - 1] += ` ${p}`;
-        else chunks.push(p);
-      }
-      let next = fetchAudio(chunks[0]);
-      for (let i = 0; i < chunks.length; i++) {
-        const url = await next;
-        if (run !== token.current) return;
-        if (i + 1 < chunks.length) next = fetchAudio(chunks[i + 1]);
-        await new Promise<void>((resolve) => {
-          const a = new Audio(url);
-          current.current = a;
-          a.onended = () => resolve();
-          a.onerror = () => resolve();
-          a.onpause = () => resolve();
-          a.play().catch(() => resolve());
-        });
-        if (run !== token.current) return;
+      const id = audioId();
+      send("/api/voice/say", { text, agent_id: agentId, audio_id: id }).catch(() => current.current?.pause());
+      await play(id);
+    },
+    [agentId, play],
+  );
+  /** Réponse de la voix rapide (ou résumé du résultat), entendue pendant qu'elle s'écrit. */
+  const reply = useCallback(
+    async (body: { text: string; history?: unknown[]; mode?: "turn" | "result" }) => {
+      const id = audioId();
+      const answer = send<VoiceReply>("/api/voice/reply", { agent_id: agentId, ...body, audio_id: id });
+      const heard = play(id);
+      try {
+        const r = await answer;
+        await heard;
+        return r;
+      } catch (e) {
+        current.current?.pause();
+        throw e;
       }
     },
-    [fetchAudio],
+    [agentId, play],
   );
   const cancel = useCallback(() => {
-    token.current++;
-    current.current?.pause();
+    const a = current.current;
+    if (!a) return;
+    a.pause();
+    a.removeAttribute("src"); // coupe le téléchargement : le serveur arrête la synthèse
+    a.load();
   }, []);
-  return { speak, cancel };
+  return { speak, reply, cancel };
 }
 
 /**
@@ -228,8 +276,8 @@ export function VoiceMode({ onClose }: { onClose: () => void }) {
   const { agentId, agentName, agentColor, say } = useContext(AgentContext);
   const running = useAuiState((s) => s.thread.isRunning);
   const messages = useAuiState((s) => s.thread.messages);
-  const { start, stop, level } = useRecorder();
-  const { speak, cancel } = useSpeaker(agentId);
+  const { start, stop, level } = useRecorder(true);
+  const { speak, reply: speakReply, cancel } = useSpeaker(agentId);
   const [phase, setPhase] = useState<Phase>("listening");
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
@@ -281,9 +329,7 @@ export function VoiceMode({ onClose }: { onClose: () => void }) {
     say(text);
     setPhase("speaking");
     try {
-      const reply = await send<{ dire: string; action: boolean }>("/api/voice/reply", { agent_id: agentId, text, history: history() });
-      action.current = reply.action;
-      if (reply.dire && alive.current) await speak(reply.dire);
+      action.current = (await speakReply({ text, history: history() })).action;
     } catch {
       action.current = true; // pas de voix rapide : on attendra le résultat de l'agent
     }
@@ -324,8 +370,7 @@ export function VoiceMode({ onClose }: { onClose: () => void }) {
         if (short.length <= 240) {
           if (alive.current) await speak(short);
         } else try {
-          const r = await send<{ dire: string }>("/api/voice/reply", { agent_id: agentId, text: result, mode: "result" });
-          if (alive.current && r.dire) await speak(r.dire);
+          if (alive.current) await speakReply({ text: result, mode: "result" });
         } catch {
           if (alive.current) await speak(spoken(result).slice(0, 400));
         }

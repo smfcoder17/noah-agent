@@ -437,7 +437,8 @@ def _wav(pcm: bytes, rate: int) -> bytes:
 # --- Voix rapide du mode vocal --------------------------------------------------------------
 # Le cerveau de l'agent fait le travail (outils, navigateur, fichiers) mais met plusieurs secondes.
 # Un petit modèle très rapide répond tout de suite à voix haute, et relit le résultat à la fin.
-VOICE_MODELS = ["google/gemini-3.1-flash-lite", "openai/gpt-6-luna-pro", "anthropic/claude-haiku-5.5", "google/gemini-3.8-flash"]
+# gpt-oss-120b : premier mot en ~0,25 s (Cerebras, Groq), bonnes réponses en français et bon tri action / conversation.
+VOICE_MODELS = ["openai/gpt-oss-120b", "google/gemini-3.1-flash-lite", "openai/gpt-6-luna-pro", "anthropic/claude-haiku-5.5", "google/gemini-3.8-flash"]
 
 VOICE_TURN = """Tu es la voix de {name}, un agent personnel. L'utilisateur te parle à voix haute ; l'agent, lui, a un ordinateur,
 un navigateur, des fichiers, une mémoire et des outils, mais il met du temps à répondre.
@@ -464,34 +465,270 @@ async def voice_model() -> str:
     return next((m for m in VOICE_MODELS if m in ids), VOICE_MODELS[0])
 
 
-async def voice_reply(agent_id: str, name: str, role: str, text: str, history: list[dict], mode: str) -> dict:
-    """Réponse orale immédiate. mode « turn » : {dire, action} ; mode « result » : {dire} (résumé du travail)."""
-    _check_budget()
-    model = await voice_model()
-    if mode == "result":
-        messages = [{"role": "system", "content": VOICE_RESULT.format(name=name)}, {"role": "user", "content": text[:12000]}]
-    else:
-        system = VOICE_TURN.format(name=name, role=f"\nRôle de l'agent : {role[:600]}" if role else "")
-        messages = [{"role": "system", "content": system}]
-        messages += [{"role": "assistant" if h.get("role") == "assistant" else "user", "content": str(h.get("text", ""))[:1500]} for h in history[-6:]]
-        messages.append({"role": "user", "content": text})
-    body = {"model": model, "messages": messages, "max_tokens": 300, "temperature": 0.4,
-            "provider": {"sort": "latency"}}
-    if mode != "result":
-        body["response_format"] = {"type": "json_object"}
-    r = await relay.upstream_client().post(f"{BASE}/chat/completions", json=body, headers=_headers(), timeout=30)
-    if r.status_code != 200:
-        raise _fail(r)
-    j = r.json()
-    _record(agent_id, model, (j.get("usage") or {}).get("cost"))
-    content = (j["choices"][0]["message"].get("content") or "").strip()
-    if mode == "result":
-        return {"dire": content, "action": False}
+async def voice_reply(agent_id: str, name: str, role: str, text: str, history: list[dict], mode: str,
+                      out: "AudioStream | None" = None) -> dict:
+    """Réponse orale immédiate. mode « turn » : {dire, action} ; mode « result » : {dire} (résumé du travail).
+
+    Avec `out`, chaque phrase part à la synthèse vocale dès qu'elle est écrite : le navigateur entend la première
+    pendant que le modèle écrit encore la suite.
+    """
+    sentences: asyncio.Queue = asyncio.Queue()
+    if out:  # lancé avant tout : même en cas d'échec, le flux reçoit sa fin (None dans finally)
+        _background(speak_stream(agent_id, _drain(sentences), out))
+    split = _Sentences(sentences.put_nowait)
+    reader = _DireReader() if mode != "result" else None
+    content, cost = "", None
     try:
-        data = json.loads(content[content.find("{"): content.rfind("}") + 1])
-        return {"dire": str(data.get("dire", "")).strip(), "action": bool(data.get("action"))}
-    except ValueError:
-        return {"dire": content, "action": True}
+        _check_budget()
+        model = await voice_model()
+        if mode == "result":
+            messages = [{"role": "system", "content": VOICE_RESULT.format(name=name)}, {"role": "user", "content": text[:12000]}]
+        else:
+            system = VOICE_TURN.format(name=name, role=f"\nRôle de l'agent : {role[:600]}" if role else "")
+            messages = [{"role": "system", "content": system}]
+            messages += [{"role": "assistant" if h.get("role") == "assistant" else "user", "content": str(h.get("text", ""))[:1500]} for h in history[-6:]]
+            messages.append({"role": "user", "content": text})
+        body = {"model": model, "messages": messages, "max_tokens": 300, "temperature": 0.4,
+                "provider": {"sort": "latency"}, "stream": True, "usage": {"include": True}}
+        if mode != "result":
+            body["response_format"] = {"type": "json_object"}
+        if "gpt-oss" in model:  # modèle à raisonnement : le minimum, et rien de lu à voix haute
+            body["reasoning"] = {"effort": "low", "exclude": True}
+        async with relay.upstream_client().stream("POST", f"{BASE}/chat/completions", json=body, headers=_headers(), timeout=30) as r:
+            if r.status_code != 200:
+                await r.aread()
+                raise _fail(r)
+            async for line in r.aiter_lines():
+                if not line.startswith("data:") or line[5:].strip() == "[DONE]":
+                    continue
+                try:
+                    j = json.loads(line[5:])
+                except ValueError:
+                    continue
+                cost = (j.get("usage") or {}).get("cost", cost)
+                for ch in j.get("choices", []):
+                    piece = (ch.get("delta") or {}).get("content") or ""
+                    content += piece
+                    split.feed(reader.feed(piece) if reader else piece)
+        content = content.strip()
+        if mode == "result":
+            result = {"dire": content, "action": False}
+        else:
+            try:
+                data = json.loads(content[content.find("{"): content.rfind("}") + 1])
+                result = {"dire": str(data.get("dire", "")).strip(), "action": bool(data.get("action"))}
+            except ValueError:
+                result = {"dire": content, "action": True}
+            if reader.start is None:  # « dire » introuvable pendant le flux : on lit la réponse entière
+                split.feed(result["dire"])
+        split.flush()
+    finally:
+        sentences.put_nowait(None)
+    _record(agent_id, model, cost)
+    return result
+
+
+# --- Voix en flux ---------------------------------------------------------------------------
+# Le navigateur ouvre /api/voice/audio/<id> pendant que le serveur produit le son : la lecture commence au premier
+# morceau de MP3 reçu, sans attendre la fin de la réponse du modèle ni celle de la synthèse.
+
+class AudioStream:
+    def __init__(self) -> None:
+        self.queue: asyncio.Queue = asyncio.Queue()
+        self.closed = False  # le navigateur a coupé : inutile de continuer à synthétiser
+        self.born = time.monotonic()
+        self.ctype = "audio/mpeg"
+
+    def put(self, data: bytes | None) -> None:
+        if not self.closed:
+            self.queue.put_nowait(data)
+
+
+def _wav_header(rate: int) -> bytes:
+    import struct
+
+    unknown = 0xFFFFFFFF  # longueur inconnue : les navigateurs lisent jusqu'à la fin du flux
+    return b"RIFF" + struct.pack("<I", unknown) + b"WAVEfmt " + struct.pack("<IHHIIHH", 16, 1, 1, rate, rate * 2, 2, 16) \
+        + b"data" + struct.pack("<I", unknown)
+
+
+_PCM_ONLY: set[str] = set()
+_streams: dict[str, AudioStream] = {}
+_tasks: set[asyncio.Task] = set()
+
+
+def audio_stream(sid: str) -> AudioStream:
+    """Même flux pour celui qui écrit (la réponse) et celui qui lit (le navigateur), quel que soit l'ordre d'arrivée."""
+    now = time.monotonic()
+    for k in [k for k, s in _streams.items() if now - s.born > 300]:
+        _streams.pop(k).closed = True
+    return _streams.setdefault(sid, AudioStream())
+
+
+def drop_stream(sid: str) -> None:
+    s = _streams.pop(sid, None)
+    if s:
+        s.closed = True
+
+
+def _background(coro) -> None:
+    task = asyncio.create_task(coro)
+    _tasks.add(task)
+    task.add_done_callback(_tasks.discard)
+
+
+async def _drain(q: asyncio.Queue):
+    while (item := await q.get()) is not None:
+        yield item
+
+
+async def _drain_list(items: list[str]):
+    for item in items:
+        yield item
+
+
+def say(agent_id: str, text: str, sid: str) -> None:
+    """Lit un texte déjà connu dans le flux `sid`, en tâche de fond."""
+    _background(speak_stream(agent_id, _drain_list(chunks_of(text)), audio_stream(sid)))
+
+
+def chunks_of(text: str) -> list[str]:
+    out: list[str] = []
+    split = _Sentences(out.append)
+    split.feed(text)
+    split.flush()
+    return out
+
+
+class _Sentences:
+    """Découpe un texte qui arrive par morceaux : la première phrase part seule (le plus tôt possible), les suivantes
+    sont regroupées par 80 caractères au moins pour garder une intonation naturelle."""
+    END = re.compile(r"[.!?…]+[\"»)]*\s+")
+
+    def __init__(self, emit) -> None:
+        self.emit = emit
+        self.buf = ""
+        self.count = 0
+
+    def feed(self, text: str) -> None:
+        self.buf += text
+        ends = [m.end() for m in self.END.finditer(self.buf)]
+        if not ends:
+            return
+        cut = ends[0] if not self.count else (ends[-1] if len(self.buf[:ends[-1]].strip()) >= 80 else 0)
+        if cut:
+            self._out(self.buf[:cut])
+            self.buf = self.buf[cut:]
+
+    def flush(self) -> None:
+        self._out(self.buf)
+        self.buf = ""
+
+    def _out(self, text: str) -> None:
+        text = text.strip()
+        if text:
+            self.count += 1
+            self.emit(text)
+
+
+class _DireReader:
+    """Lit la valeur de « dire » dans un JSON qui arrive par morceaux, caractère par caractère."""
+    ESCAPES = {"n": " ", "t": " ", "r": " ", "b": "", "f": ""}
+
+    def __init__(self) -> None:
+        self.raw = ""
+        self.start: int | None = None
+        self.pos = 0
+        self.done = False
+
+    def feed(self, piece: str) -> str:
+        self.raw += piece
+        if self.start is None:
+            m = re.search(r'"dire"\s*:\s*"', self.raw)
+            if not m:
+                return ""
+            self.start = self.pos = m.end()
+        out, i, raw = [], self.pos, self.raw
+        while i < len(raw) and not self.done:
+            ch = raw[i]
+            if ch == "\\":
+                if i + 1 >= len(raw) or (raw[i + 1] == "u" and i + 6 > len(raw)):
+                    break  # échappement coupé entre deux morceaux : on attend la suite
+                if raw[i + 1] == "u":
+                    code = int(raw[i + 2:i + 6], 16)
+                    if not 0xD800 <= code <= 0xDFFF:
+                        out.append(chr(code))
+                    i += 6
+                    continue
+                out.append(self.ESCAPES.get(raw[i + 1], raw[i + 1]))
+                i += 2
+                continue
+            if ch == '"':
+                self.done = True
+                break
+            out.append(ch)
+            i += 1
+        self.pos = i
+        return "".join(out)
+
+
+async def speak_stream(agent_id: str, texts, out: AudioStream) -> None:
+    """Synthèse phrase par phrase dans `out`, en MP3. La phrase suivante est demandée dès qu'elle est connue,
+    pendant que la précédente est lue : pas de blanc entre deux phrases."""
+    model = None
+    try:
+        _check_budget()
+        model = await resolve("speech")
+        voice = await voice_for(model)
+        parts: asyncio.Queue = asyncio.Queue()
+
+        async def fetch(text: str, q: asyncio.Queue) -> None:
+            try:
+                for fmt in ("pcm",) if model in _PCM_ONLY else ("mp3", "pcm"):
+                    body = {"model": model, "input": text[:4000], "response_format": fmt, **({"voice": voice} if voice else {})}
+                    async with relay.upstream_client().stream("POST", f"{BASE}/audio/speech", json=body, headers=_headers(), timeout=60) as r:
+                        if r.status_code != 200:
+                            await r.aread()
+                            if fmt == "mp3" and r.status_code == 400 and "pcm" in r.text.lower():
+                                _PCM_ONLY.add(model)  # Gemini TTS, HeyGen : PCM seulement
+                                continue
+                            raise _fail(r)
+                        if fmt == "pcm":  # le débit vient avant le son : l'en-tête WAV en a besoin
+                            q.put_nowait(int((re.search(r"rate=(\d+)", r.headers.get("content-type", "")) or [0, 24000])[1]))
+                        async for data in r.aiter_bytes():
+                            if out.closed:
+                                return
+                            q.put_nowait(data)
+                    return
+            except (httpx.HTTPError, MediaError) as e:
+                print(f"[voix] synthèse impossible : {e}", flush=True)
+            finally:
+                q.put_nowait(None)
+
+        async def feed() -> None:
+            async for text in texts:
+                if out.closed:
+                    break
+                q: asyncio.Queue = asyncio.Queue()
+                _background(fetch(text, q))
+                parts.put_nowait(q)
+            parts.put_nowait(None)
+
+        _background(feed())
+        while (q := await parts.get()) is not None:
+            while (data := await q.get()) is not None:
+                if isinstance(data, int):  # PCM : un seul en-tête WAV « longueur inconnue » pour tout le flux
+                    if out.ctype != "audio/wav":
+                        out.ctype = "audio/wav"
+                        out.put(_wav_header(data))
+                    continue
+                out.put(data)
+    except MediaError as e:
+        print(f"[voix] {e}", flush=True)
+    finally:
+        out.put(None)
+        if model:
+            _record(agent_id, model, None)
 
 
 async def transcribe(agent_id: str, audio: bytes, fmt: str, language: str | None = "fr") -> str:

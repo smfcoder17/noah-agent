@@ -988,22 +988,68 @@ async def voice_speak(body: SpeakBody, user: int = Depends(auth.current_user)):
     return Response(data, media_type=ctype, headers={"Cache-Control": "no-store"})
 
 
+AUDIO_ID = r"^[0-9a-f-]{16,64}$"
+
+
+class SayBody(SpeakBody):
+    audio_id: str = Field(pattern=AUDIO_ID)
+
+
+@app.post("/api/voice/say")
+async def voice_say(body: SayBody, user: int = Depends(auth.current_user)):
+    """Lance la lecture d'un texte dans le flux `audio_id`, que le navigateur ouvre en même temps."""
+    media.say(body.agent_id, body.text, body.audio_id)
+    return {"ok": True}
+
+
+@app.get("/api/voice/audio/{audio_id}")
+async def voice_audio(audio_id: str, user: int = Depends(auth.current_user)):
+    """Le son d'une réponse, envoyé au navigateur au fur et à mesure qu'il est synthétisé."""
+    if not re.match(AUDIO_ID, audio_id):
+        raise HTTPException(400, "Identifiant invalide")
+    stream = media.audio_stream(audio_id)
+    # Le premier morceau décide du type (MP3, ou WAV pour les voix qui ne rendent que du PCM).
+    try:
+        first = await asyncio.wait_for(stream.queue.get(), 30)
+    except asyncio.TimeoutError:
+        first = None
+    if first is None:
+        media.drop_stream(audio_id)
+        return Response(status_code=204)
+
+    async def body():
+        try:
+            yield first
+            while (data := await asyncio.wait_for(stream.queue.get(), 30)) is not None:
+                yield data
+        except asyncio.TimeoutError:
+            pass
+        finally:
+            media.drop_stream(audio_id)
+
+    return StreamingResponse(body(), media_type=stream.ctype, headers={"Cache-Control": "no-store"})
+
+
 class VoiceTurn(BaseModel):
     agent_id: str
     text: str = Field(min_length=1, max_length=20000)
     history: list[dict] = Field(default_factory=list, max_length=12)
     mode: str = Field(default="turn", pattern="^(turn|result)$")
+    audio_id: str | None = Field(default=None, pattern=AUDIO_ID)
 
 
 @app.post("/api/voice/reply")
 async def voice_reply(body: VoiceTurn, user: int = Depends(auth.current_user)):
     """Mode vocal : réponse orale immédiate pendant que l'agent travaille, puis résumé de son résultat."""
+    out = media.audio_stream(body.audio_id) if body.audio_id else None
     with db.connect() as c:
         row = c.execute("SELECT name, role FROM agents WHERE id = ?", (body.agent_id,)).fetchone()
     if not row:
+        if out:
+            out.put(None)  # le navigateur qui attend ce flux reçoit une fin, pas 30 s de silence
         raise HTTPException(404, "Agent introuvable")
     try:
-        return await media.voice_reply(body.agent_id, row["name"], row["role"], body.text, body.history, body.mode)
+        return await media.voice_reply(body.agent_id, row["name"], row["role"], body.text, body.history, body.mode, out)
     except media.MediaError as e:
         raise HTTPException(400, str(e))
     except httpx.HTTPError:

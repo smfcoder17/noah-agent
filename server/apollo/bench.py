@@ -15,6 +15,7 @@ import json
 import statistics
 import sys
 import time
+import uuid
 
 import httpx
 
@@ -76,6 +77,28 @@ async def _timed(client: httpx.AsyncClient, method: str, path: str, **kw) -> flo
     return (time.perf_counter() - t0) * 1000
 
 
+async def _first_sound(client: httpx.AsyncClient, agent: str, text: str) -> dict:
+    """Délai avant le premier son en mode vocal : réponse puis synthèse complète (ancien), ou tout en flux (nouveau)."""
+    turn = {"agent_id": agent, "text": text, "history": [], "mode": "turn"}
+    t0 = time.perf_counter()
+    r = await client.post(f"{BASE}/api/voice/reply", json=turn)
+    dire = r.json().get("dire") or "D'accord."
+    (await client.post(f"{BASE}/api/voice/speak", json={"agent_id": agent, "text": dire.split(". ")[0]})).raise_for_status()
+    old = (time.perf_counter() - t0) * 1000
+
+    sid = uuid.uuid4().hex
+    t0 = time.perf_counter()
+
+    async def listen() -> float | None:
+        async with client.stream("GET", f"{BASE}/api/voice/audio/{sid}") as s:
+            async for _ in s.aiter_bytes():
+                return (time.perf_counter() - t0) * 1000
+        return None
+
+    first, _ = await asyncio.gather(listen(), client.post(f"{BASE}/api/voice/reply", json={**turn, "audio_id": sid}))
+    return {"ancien": old, "flux": first}
+
+
 async def main() -> None:
     label = sys.argv[1] if len(sys.argv) > 1 else "mesure"
     reps = int(sys.argv[2]) if len(sys.argv) > 2 else 2
@@ -86,13 +109,16 @@ async def main() -> None:
         for name, path in (("agents", "/api/agents"), ("conversations", f"/api/agents/{agent}/conversations"),
                            ("messages", f"/api/conversations/{main_conv}/messages"), ("page", "/")):
             out["api"][name] = round(statistics.median([await _timed(c, "GET", path) for _ in range(5)]))
-        for name, text in PROMPTS:
+        for name, text in PROMPTS if "voix" not in sys.argv[3:] else ():
             runs = [await _chat(c, agent, conv, text) for _ in range(reps)]
             out["chat"][name] = {k: round(statistics.median([r[k] for r in runs if r[k] is not None]))
                                  for k in runs[0] if any(r[k] is not None for r in runs)}
         try:
             out["voix"] = round(statistics.median([await _timed(c, "POST", "/api/voice/reply", json={
                 "agent_id": agent, "text": "Salut, tu vas bien ?", "history": [], "mode": "turn"}) for _ in range(reps)]))
+            sounds = [await _first_sound(c, agent, text) for text in ("Salut, tu vas bien ?", "Regarde mes derniers courriels.")
+                      for _ in range(reps)]
+            out["voix_premier_son"] = {k: round(statistics.median([s[k] for s in sounds if s[k]])) for k in ("ancien", "flux")}
         except httpx.HTTPError:
             pass
     print(json.dumps(out, ensure_ascii=False, indent=1))
