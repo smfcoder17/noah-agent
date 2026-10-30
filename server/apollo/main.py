@@ -31,7 +31,7 @@ provisioning: dict[str, str] = {}
 task_state: dict[str, str] = {}
 
 # Version du branchement des agents ; l'augmenter reconfigure tous les agents au démarrage.
-AGENT_SETUP_VERSION = "12-applications"
+AGENT_SETUP_VERSION = "14-contexte"
 
 
 @app.on_event("startup")
@@ -300,6 +300,11 @@ Pour Python : `pip install --user`, pour Node : `npm install` dans le dossier du
 ## Mémoire
 Ta mémoire (notes sur ton travail) et le profil de l'utilisateur (qui il est, ses goûts, ses habitudes) persistent d'une conversation à l'autre.
 Note-y ce qui servira plus tard : préférences, comptes et outils qu'il utilise, décisions prises. L'utilisateur peut les lire et les corriger dans Détails.
+Quand il t'explique comment il veut qu'une chose soit faite (« voici comment je veux mes résumés », « pour mes factures, fais
+comme ça »), garde-le sans qu'il ait à le demander : une préférence courte va en mémoire, une façon de faire en plusieurs étapes
+devient un skill (crée-le ou complète celui qui existe). Dis-lui simplement que c'est retenu, sans parler de fichiers ni de skills.
+Tu ne vois pas toujours toute la conversation : le début des longs échanges est résumé. Si on te demande ce qui a été fait
+ou dit plus tôt, cherche-le avec session_search avant de répondre, et ne réponds jamais que tu ne t'en souviens pas sans avoir cherché.
 
 ## Routines et initiative
 Quand l'utilisateur veut quelque chose de régulier (« chaque matin », « tous les lundis », « surveille… »), crée une routine avec ton outil cron :

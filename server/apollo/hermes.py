@@ -221,6 +221,15 @@ async def configure(agent_id: str, model: dict, role: str | None = None) -> None
     camofox["adopt_existing_tab"] = True
     # Les commandes de l'agent démarrent dans son espace de travail, pas au milieu de sa config.
     cfg.setdefault("terminal", {})["cwd"] = "/opt/data/workspace"
+    # Contexte : Hermes garde l'historique de chaque conversation et ne reçoit que le nouveau message. Sans plafond, il
+    # attend la moitié de la fenêtre du modèle (500 000 jetons sur un modèle à 1 M) pour résumer : chaque tour renvoie
+    # alors tout l'historique. Au-delà de 200 000 jetons (~13 000 de consignes et d'outils compris), le début devient
+    # un résumé et la fin reste mot pour mot ; l'agent retrouve le détail avec session_search. Après 30 min sans
+    # message, le cache du fournisseur a expiré : on résume avant de repartir, ça ne coûte rien de plus.
+    compression = cfg.setdefault("compression", {})
+    compression["enabled"] = True
+    compression["threshold_tokens"] = 200000
+    compression["idle_compact_after_seconds"] = 1800
     # Les routines (« chaque matin à 8 h ») suivent l'heure de l'utilisateur, pas UTC.
     tz = (await browser_identity()).get("timezone")
     if tz:

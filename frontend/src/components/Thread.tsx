@@ -20,7 +20,7 @@ import { NoahTile } from "./Noah";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui";
 import { canFrame, useViewer } from "./Viewer";
-import { DictateButton, VoiceMode, VoiceModeButton } from "./Voice";
+import { DictateButton, useDictation, VoiceMode, VoiceModeButton } from "./Voice";
 import { NoahWidget } from "./Widgets";
 
 export { AgentContext };
@@ -323,6 +323,9 @@ function AssistantMessage() {
 // --- Zone de saisie -----------------------------------------------------------------
 
 function Composer({ onVoiceMode }: { onVoiceMode: () => void }) {
+  const dictation = useDictation();
+  const running = useAuiState((s) => s.thread.isRunning);
+  const dictating = dictation.state !== "idle";
   return (
     <ComposerPrimitive.Root className="flex w-full flex-col gap-2 rounded-2xl border border-border bg-surface p-2 shadow-sm focus-within:border-accent">
       <QuoteChips />
@@ -339,15 +342,36 @@ function Composer({ onVoiceMode }: { onVoiceMode: () => void }) {
           data-composer-input
           rows={1}
           autoFocus
-          placeholder="Écris à ton agent… (glisse ou colle des fichiers ici)"
+          placeholder={dictating ? "Parle, le texte arrive ici…" : "Écris à ton agent… (glisse ou colle des fichiers ici)"}
           className="max-h-48 min-h-9 flex-1 resize-none bg-transparent px-1 py-2 text-[15px] outline-none placeholder:text-muted-foreground"
+          onKeyDown={(e) => {
+            // Entrée pendant la dictée : on termine la transcription, puis le message part.
+            if (dictating && e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              void dictation.finish(!running);
+            }
+          }}
         />
-        <DictateButton />
+        <DictateButton dictation={dictation} />
         <VoiceModeButton onClick={onVoiceMode} />
         <ThreadPrimitive.If running={false}>
-          <ComposerPrimitive.Send asChild>
-            <Button size="icon" aria-label="Envoyer" className="rounded-xl"><ArrowUp /></Button>
-          </ComposerPrimitive.Send>
+          {dictating ? (
+            <Button
+              type="button"
+              size="icon"
+              aria-label="Envoyer"
+              title="Termine la transcription puis envoie"
+              className="rounded-xl"
+              disabled={dictation.state === "finishing"}
+              onClick={() => void dictation.finish(true)}
+            >
+              <ArrowUp />
+            </Button>
+          ) : (
+            <ComposerPrimitive.Send asChild>
+              <Button size="icon" aria-label="Envoyer" className="rounded-xl"><ArrowUp /></Button>
+            </ComposerPrimitive.Send>
+          )}
         </ThreadPrimitive.If>
         <ThreadPrimitive.If running>
           <ComposerPrimitive.Cancel asChild>
