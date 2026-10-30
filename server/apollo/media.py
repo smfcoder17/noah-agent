@@ -409,11 +409,12 @@ async def speak(agent_id: str, text: str) -> tuple[bytes, str, str]:
     voice = await voice_for(model)
     if voice:
         body["voice"] = voice
-    async with httpx.AsyncClient(timeout=120, headers=_headers()) as c:
-        r = await c.post(f"{BASE}/audio/speech", json=body)
-        if r.status_code == 400 and "format" in r.text.lower():  # modèle qui ne rend que du PCM
-            body["response_format"] = "pcm"
-            r = await c.post(f"{BASE}/audio/speech", json=body)
+    # Client partagé avec le relais : la connexion à OpenRouter reste ouverte entre deux tours de voix.
+    c = relay.upstream_client()
+    r = await c.post(f"{BASE}/audio/speech", json=body, headers=_headers(), timeout=120)
+    if r.status_code == 400 and "format" in r.text.lower():  # modèle qui ne rend que du PCM
+        body["response_format"] = "pcm"
+        r = await c.post(f"{BASE}/audio/speech", json=body, headers=_headers(), timeout=120)
     if r.status_code != 200:
         raise _fail(r)
     ctype = r.headers.get("content-type", "audio/mpeg")
@@ -478,8 +479,7 @@ async def voice_reply(agent_id: str, name: str, role: str, text: str, history: l
             "provider": {"sort": "latency"}}
     if mode != "result":
         body["response_format"] = {"type": "json_object"}
-    async with httpx.AsyncClient(timeout=30, headers=_headers()) as c:
-        r = await c.post(f"{BASE}/chat/completions", json=body)
+    r = await relay.upstream_client().post(f"{BASE}/chat/completions", json=body, headers=_headers(), timeout=30)
     if r.status_code != 200:
         raise _fail(r)
     j = r.json()
@@ -500,8 +500,7 @@ async def transcribe(agent_id: str, audio: bytes, fmt: str, language: str | None
     body = {"model": model, "input_audio": {"data": base64.b64encode(audio).decode(), "format": fmt}}
     if language:
         body["language"] = language
-    async with httpx.AsyncClient(timeout=120, headers=_headers()) as c:
-        r = await c.post(f"{BASE}/audio/transcriptions", json=body)
+    r = await relay.upstream_client().post(f"{BASE}/audio/transcriptions", json=body, headers=_headers(), timeout=120)
     if r.status_code != 200:
         raise _fail(r)
     j = r.json()

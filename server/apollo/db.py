@@ -73,6 +73,12 @@ def init() -> None:
             "archived": "INTEGER NOT NULL DEFAULT 0",
             "origin": "TEXT NOT NULL DEFAULT 'user'",
         })
+        # Requêtes de chaque appel au modèle (budget du mois) et de chaque ouverture de conversation.
+        db.execute("CREATE INDEX IF NOT EXISTS usage_created ON usage(created_at)")
+        db.execute("CREATE INDEX IF NOT EXISTS messages_conversation ON messages(conversation_id)")
+        db.execute("CREATE INDEX IF NOT EXISTS conversations_agent ON conversations(agent_id)")
+        # WAL : les lectures ne bloquent plus pendant une écriture (flux de chat et relais en parallèle).
+        db.execute("PRAGMA journal_mode = WAL")
 
 
 def _add_columns(db, table: str, wanted: dict[str, str]) -> None:
@@ -87,6 +93,7 @@ def connect():
     db = sqlite3.connect(DATA_DIR / "apollo.db")
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA foreign_keys = ON")
+    db.execute("PRAGMA synchronous = NORMAL")
     try:
         yield db
         db.commit()

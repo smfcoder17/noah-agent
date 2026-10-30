@@ -1185,6 +1185,17 @@ async def stop(agent_id: str, run_id: str, user: int = Depends(auth.current_user
     return {"ok": True}
 
 
+class HashedAssets(StaticFiles):
+    """Fichiers de l'interface dont le nom porte une empreinte (index-AbC123xy.js) : le navigateur les garde
+    sans jamais redemander, une nouvelle version change de nom."""
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        if response.status_code == 200 and re.search(r"-[A-Za-z0-9_-]{8}\.(js|css|svg|woff2?)$", path):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
+
+
 def _sse(obj: dict) -> str:
     return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
 
@@ -1193,7 +1204,7 @@ def _sse(obj: dict) -> str:
 
 if WEB_DIR.exists():
     # Fichiers compilés par Vite (noms avec empreinte) et icônes.
-    app.mount("/assets", StaticFiles(directory=WEB_DIR / "assets"), name="assets")
+    app.mount("/assets", HashedAssets(directory=WEB_DIR / "assets"), name="assets")
 
     @app.get("/")
     def index():

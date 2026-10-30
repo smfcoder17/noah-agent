@@ -316,7 +316,8 @@ print(json.dumps(out, ensure_ascii=False, indent=2))
 
 async def health(agent: Agent) -> bool:
     try:
-        async with httpx.AsyncClient(timeout=3) as c:
+        # Court : la liste des agents attend la réponse de chacun, un agent arrêté ne doit pas la ralentir.
+        async with httpx.AsyncClient(timeout=1) as c:
             r = await c.get(f"{agent.url}/health")
         return r.status_code == 200
     except httpx.HTTPError:

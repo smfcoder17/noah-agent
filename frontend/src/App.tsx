@@ -1,21 +1,25 @@
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import { QuoteContext, useQuoteState } from "@/lib/quotes";
 import { ArrowLeft, Bug, Menu, MonitorPlay, PanelRight, Plus } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
-import { AgentDialog } from "@/components/AgentDialog";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { AuthScreen } from "@/components/AuthScreen";
-import { ModelPicker } from "@/components/ModelPicker";
 import { NoahTile, agentColor } from "@/components/Noah";
-import { type PanelTab, SidePanel } from "@/components/SidePanel";
+import type { PanelTab } from "@/components/SidePanel";
 import { STATE_WORD, Sidebar, StateShape } from "@/components/Sidebar";
 import { Thread } from "@/components/Thread";
-import { SettingsDialog, type SettingsTab } from "@/components/Settings";
+import type { SettingsTab } from "@/components/Settings";
 import { ViewerProvider } from "@/components/Viewer";
 import { Button } from "@/components/ui";
 import { type Agent, ApiError, type Conversation, type CurrentModel, get, send, type Status, type Usage } from "@/lib/api";
 import { AgentContext } from "@/lib/agentContext";
 import { useAgentChat } from "@/lib/useAgentChat";
 import { cn } from "@/lib/utils";
+
+// Chargés à la première ouverture : le premier écran n'attend que le chat.
+const AgentDialog = lazy(() => import("@/components/AgentDialog").then((m) => ({ default: m.AgentDialog })));
+const ModelPicker = lazy(() => import("@/components/ModelPicker").then((m) => ({ default: m.ModelPicker })));
+const SidePanel = lazy(() => import("@/components/SidePanel").then((m) => ({ default: m.SidePanel })));
+const SettingsDialog = lazy(() => import("@/components/Settings").then((m) => ({ default: m.SettingsDialog })));
 
 type Screen = "loading" | "setup" | "login" | "model" | "app" | "error";
 
@@ -51,7 +55,9 @@ export default function App() {
       <div className="mx-auto max-w-4xl px-4 py-10">
         <h1 className="mb-1 text-2xl font-semibold">Le cerveau de tes agents</h1>
         <p className="mb-6 text-sm text-muted-foreground">La clé reste chiffrée sur cette machine. Les agents ne la voient jamais : ils passent par Noah Agent.</p>
-        <ModelPicker first onDone={() => setScreen("app")} />
+        <Suspense fallback={<p className="text-sm text-muted-foreground">Chargement…</p>}>
+          <ModelPicker first onDone={() => setScreen("app")} />
+        </Suspense>
       </div>
     );
   return <Shell onLogout={boot} />;
@@ -240,6 +246,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
 
         {/* Panneau Détails / Fichiers / Ordinateur */}
         {panel && agent && (
+          <Suspense fallback={null}>
           <aside className="fixed inset-y-0 right-0 z-30 min-h-0 w-full border-l border-border bg-surface shadow-2xl sm:w-[min(520px,92vw)] xl:static xl:z-auto xl:w-auto xl:shadow-none">
             <SidePanel
               agent={agent}
@@ -259,9 +266,11 @@ function Shell({ onLogout }: { onLogout: () => void }) {
               }}
             />
           </aside>
+          </Suspense>
         )}
 
-        <AgentDialog
+        <Suspense fallback={null}>
+        {agentDialog.open && <AgentDialog
           open={agentDialog.open}
           agent={agentDialog.agent}
           onOpenChange={(open) => setAgentDialog((d) => ({ ...d, open }))}
@@ -275,8 +284,8 @@ function Shell({ onLogout }: { onLogout: () => void }) {
             setPanel(null);
             refreshAgents();
           }}
-        />
-        <SettingsDialog
+        />}
+        {settings && <SettingsDialog
           open={!!settings}
           tab={settings ?? "brain"}
           onTab={setSettings}
@@ -286,7 +295,8 @@ function Shell({ onLogout }: { onLogout: () => void }) {
             refreshModel();
             refreshAgents();
           }}
-        />
+        />}
+        </Suspense>
       </div>
     </ViewerProvider>
   );
@@ -306,17 +316,22 @@ function AgentChat(props: {
     (text: string) => runtime.thread.append({ role: "user", content: [{ type: "text", text }] }),
     [runtime],
   );
+  // Valeur stable : tous les messages du fil lisent ce contexte, un objet neuf les redessinerait à chaque jeton.
+  const { id, name, role } = props.agent;
+  const color = agentColor(props.agent);
+  const context = useMemo(
+    () => ({
+      say,
+      agentId: id,
+      agentName: name,
+      agentColor: color,
+      hint: role ? role.slice(0, 180) : "Pose une question, confie une tâche ou envoie un fichier.",
+    }),
+    [say, id, name, color, role],
+  );
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <AgentContext.Provider
-        value={{
-          say,
-          agentId: props.agent.id,
-          agentName: props.agent.name,
-          agentColor: agentColor(props.agent),
-          hint: props.agent.role ? props.agent.role.slice(0, 180) : "Pose une question, confie une tâche ou envoie un fichier.",
-        }}
-      >
+      <AgentContext.Provider value={context}>
         <QuoteContext.Provider value={quotes.value}>
           <Thread />
         </QuoteContext.Provider>

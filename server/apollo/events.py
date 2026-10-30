@@ -9,8 +9,8 @@ Le détail brut (appels d'outils, arguments) n'est envoyé que si l'interface de
 """
 
 # Ce que l'utilisateur voit pendant le travail : une seule ligne, remplacée au fil de l'eau.
-# Seules les étapes qui ont un sens pour lui ont un libellé ; les commandes, fichiers, compétences
-# et la mémoire restent invisibles (la ligne garde l'étape précédente).
+# Les étapes qui ont un sens pour lui ont leur libellé ; les commandes, fichiers, compétences et la
+# mémoire restent sans détail technique, mais la ligne dit que l'agent avance (sinon il semble figé).
 TOOL_LABELS = {
     "web_search": "Cherche sur le web",
     "web_extract": "Lit une page web",
@@ -28,7 +28,7 @@ def tool_label(name: str) -> str | None:
         return TOOL_LABELS["browser"]
     if name.startswith("mcp_") or "__" in name:
         return "Utilise une app connectée"
-    return None
+    return "Travaille sur ta demande"
 
 
 def friendly_error(raw: str) -> str:

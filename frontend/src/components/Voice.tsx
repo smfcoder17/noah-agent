@@ -27,7 +27,8 @@ function useRecorder() {
     analyser.fftSize = 1024;
     ctx.createMediaStreamSource(stream).connect(analyser);
     const buf = new Uint8Array(analyser.fftSize);
-    // Fin de phrase : on a entendu de la voix, puis 0,8 s de silence.
+    // Fin de phrase : on a entendu de la voix, puis 0,6 s de silence (relevé toutes les 50 ms).
+    const TICK = 50;
     let heard = 0;
     let quietSince = 0;
     const timer = window.setInterval(() => {
@@ -38,17 +39,17 @@ function useRecorder() {
       setLevel(Math.min(1, rms * 8));
       if (!onSilence) return;
       if (rms > 0.035) {
-        heard += 100;
+        heard += TICK;
         quietSince = 0;
       } else if (heard > 300) {
-        quietSince += 100;
-        if (quietSince > 800) {
+        quietSince += TICK;
+        if (quietSince > 600) {
           heard = 0;
           quietSince = 0;
           onSilence();
         }
       }
-    }, 100);
+    }, TICK);
     rec.current = { recorder, stream, ctx, timer, chunks };
   }, []);
 
@@ -318,7 +319,11 @@ export function VoiceMode({ onClose }: { onClose: () => void }) {
       if (action.current && result.trim()) {
         await stop(false);
         setPhase("speaking");
-        try {
+        // Réponse déjà courte : on la lit telle quelle, sans repasser par le modèle rapide (−0,7 s).
+        const short = spoken(result);
+        if (short.length <= 240) {
+          if (alive.current) await speak(short);
+        } else try {
           const r = await send<{ dire: string }>("/api/voice/reply", { agent_id: agentId, text: result, mode: "result" });
           if (alive.current && r.dire) await speak(r.dire);
         } catch {

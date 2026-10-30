@@ -11,7 +11,7 @@ import {
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import { ArrowDown, ArrowUp, Check, Copy, FileText, Loader2, Paperclip, Reply, Square, TriangleAlert, X } from "lucide-react";
-import { useContext, useEffect, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import remarkGfm from "remark-gfm";
 import { AgentContext } from "@/lib/agentContext";
 import { mediaUrl, rawFileUrl, send } from "@/lib/api";
@@ -57,18 +57,16 @@ function linkPaths(text: string, agentId: string) {
 
 const widget = { SyntaxHighlighter: NoahWidget, CodeHeader: () => null };
 const WIDGET_LANGUAGES = { noah: widget, apollo: widget };
+const PLUGINS = [remarkGfm];
 
 function MarkdownText() {
   const { agentId } = useContext(AgentContext);
   const view = useViewer();
   const { add: addQuote } = useQuotes();
-  return (
-    <MarkdownTextPrimitive
-      className="prose-chat"
-      remarkPlugins={[remarkGfm]}
-      componentsByLanguage={WIDGET_LANGUAGES}
-      preprocess={(text) => linkPaths(text, agentId)}
-      components={{
+  // Props stables : sans ça, chaque jeton reçu refait l'analyse Markdown de tous les messages du fil.
+  const preprocess = useCallback((text: string) => linkPaths(text, agentId), [agentId]);
+  const components = useMemo<NonNullable<React.ComponentProps<typeof MarkdownTextPrimitive>["components"]>>(
+    () => ({
         a: ({ node: _node, href, children, ...props }) =>
           href?.includes("/files/raw/") ? (
             <button
@@ -103,7 +101,16 @@ function MarkdownText() {
             )}
           </span>
         ),
-      }}
+    }),
+    [view, addQuote],
+  );
+  return (
+    <MarkdownTextPrimitive
+      className="prose-chat"
+      remarkPlugins={PLUGINS}
+      componentsByLanguage={WIDGET_LANGUAGES}
+      preprocess={preprocess}
+      components={components}
     />
   );
 }

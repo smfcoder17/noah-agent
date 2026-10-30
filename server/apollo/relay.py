@@ -28,6 +28,19 @@ UPSTREAMS = {
 RELAY_URL = "http://apollo-server:8080/relay/v1"
 
 
+# Un seul client pour tous les appels au fournisseur : la connexion TLS reste ouverte d'un appel à l'autre
+# (un run avec outils en fait plusieurs ; sans ça, chacun repaie la négociation).
+_client: httpx.AsyncClient | None = None
+
+
+def upstream_client() -> httpx.AsyncClient:
+    global _client
+    if _client is None or _client.is_closed:
+        _client = httpx.AsyncClient(timeout=httpx.Timeout(600, connect=20),
+                                    limits=httpx.Limits(max_keepalive_connections=20, keepalive_expiry=120))
+    return _client
+
+
 def token_for(agent_id: str) -> str:
     return hmac.new(SECRET_KEY.encode(), f"relay:{agent_id}".encode(), hashlib.sha256).hexdigest()
 
@@ -96,8 +109,7 @@ async def relay(path: str, request: Request):
     headers = _upstream_headers(provider, api_key)
 
     if request.method == "GET":
-        async with httpx.AsyncClient(timeout=30) as c:
-            r = await c.get(url, headers=headers, params=request.query_params)
+        r = await upstream_client().get(url, headers=headers, params=request.query_params, timeout=30)
         return Response(r.content, status_code=r.status_code, media_type=r.headers.get("content-type"))
 
     limit = budget()
@@ -117,10 +129,11 @@ async def relay(path: str, request: Request):
             body["stream_options"] = {**(body.get("stream_options") or {}), "include_usage": True}
         if provider == "openrouter":
             body["usage"] = {"include": True}  # OpenRouter renvoie alors le coût exact
+            # Le fournisseur le plus réactif pour ce modèle plutôt que le moins cher : c'est le premier mot qui compte.
+            body.setdefault("provider", {"sort": "latency"})
 
     if not stream:
-        async with httpx.AsyncClient(timeout=600) as c:
-            r = await c.post(url, headers=headers, json=body)
+        r = await upstream_client().post(url, headers=headers, json=body)
         if r.status_code == 200:
             try:
                 await _record(agent_id, model, r.json().get("usage"))
@@ -128,12 +141,11 @@ async def relay(path: str, request: Request):
                 pass
         return Response(r.content, status_code=r.status_code, media_type=r.headers.get("content-type"))
 
-    client = httpx.AsyncClient(timeout=httpx.Timeout(600, connect=20))
+    client = upstream_client()
     upstream = await client.send(client.build_request("POST", url, headers=headers, json=body), stream=True)
     if upstream.status_code != 200:
         content = await upstream.aread()
         await upstream.aclose()
-        await client.aclose()
         return Response(content, status_code=upstream.status_code, media_type=upstream.headers.get("content-type"))
 
     async def passthrough():
@@ -152,7 +164,6 @@ async def relay(path: str, request: Request):
                             pass
         finally:
             await upstream.aclose()
-            await client.aclose()
             await _record(agent_id, model, usage)
 
     return StreamingResponse(passthrough(), status_code=200, media_type=upstream.headers.get("content-type", "text/event-stream"))

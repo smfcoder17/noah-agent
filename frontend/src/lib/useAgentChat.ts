@@ -164,6 +164,22 @@ export function useAgentChat(opts: {
       runRef.current = { runId: null, abort };
       const update = (fn: (m: ChatMessage) => ChatMessage) =>
         setMessages((all) => all.map((m) => (m.id === reply.id ? fn(m) : m)));
+      // Les jetons arrivent plus vite que l'écran ne se redessine : on les applique une fois par image.
+      let pending: ChatEvent[] = [];
+      let frame = 0;
+      const flush = () => {
+        frame = 0;
+        const evs = pending;
+        pending = [];
+        if (evs.length) update((m) => evs.reduce((acc, ev) => apply(acc, ev, runRef.current.runId), m));
+      };
+      const queue = (ev: ChatEvent) => {
+        pending.push(ev);
+        if (ev.type === "done") {
+          cancelAnimationFrame(frame);
+          flush();
+        } else if (!frame) frame = requestAnimationFrame(flush);
+      };
       try {
         await streamChat(
           { agent_id: agentId, text, conversation_id: ownConversation.current, attachments, details },
@@ -176,7 +192,7 @@ export function useAgentChat(opts: {
               }
               return;
             }
-            update((m) => apply(m, ev, runRef.current.runId));
+            queue(ev);
           },
           abort.signal,
         );
@@ -185,6 +201,8 @@ export function useAgentChat(opts: {
           update((m) => apply(m, { type: "done", status: "failed", error: (err as Error).message }, null));
         }
       } finally {
+        cancelAnimationFrame(frame);
+        flush();
         update((m) => ({ ...m, content: settle(m.content), running: false }));
         setRunning(false);
         runRef.current = { runId: null, abort: null };
