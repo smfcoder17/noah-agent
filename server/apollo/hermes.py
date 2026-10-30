@@ -244,7 +244,8 @@ AIDE = """Utilisation : python3 /opt/data/noah.py <commande>
   navigateur redemarrer        redémarre le navigateur (écran noir, figé, injoignable) ; profil et cookies gardés
   fil "Titre" "consigne"       ouvre un fil de travail parallèle, visible par l'utilisateur dans Détails
   fil-etat <id>                état et dernière réponse d'un fil
-  image "description" [--format 16:9]               crée une image
+  image "description" [--format 16:9] [--contexte "goûts connus"] [--generer]
+                                                    crée une image (ou conseille SVG/code si plus adapté)
   video "description" [--duree 5] [--format 16:9]   crée une vidéo (quelques minutes)
   musique "description"                             crée un morceau de musique
   voix "texte à dire"                               lit un texte à voix haute (MP3)
@@ -267,9 +268,12 @@ def call(method, path, body=None):
 def media(kind, args):
     opts, words, i = {}, [], 0
     while i < len(args):
-        if args[i] in ("--format", "--duree") and i + 1 < len(args):
+        if args[i] in ("--format", "--duree", "--contexte") and i + 1 < len(args):
             opts[args[i][2:]] = args[i + 1]
             i += 2
+        elif args[i] == "--generer":
+            opts["generer"] = True
+            i += 1
         else:
             words.append(args[i])
             i += 1

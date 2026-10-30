@@ -1,0 +1,45 @@
+{
+  "_note": "Cas de référence du routeur. methode attendue ; tags = au moins une de ces forces doit appartenir au modèle choisi (si methode = generation). Lancer : python -m apollo.routing_eval dans le conteneur du serveur.",
+  "image": [
+    {"demande": "Fais-moi un logo SVG pour mon entreprise Bleu Café : une tasse simple et le nom", "methode": "svg"},
+    {"demande": "Une petite image d'une banane jaune sur un fond bleu", "methode": "svg"},
+    {"demande": "Une icône de cloche pour mon application", "methode": "svg"},
+    {"demande": "Un favicon pour mon site, la lettre N dans un cercle orange", "methode": "svg"},
+    {"demande": "Un schéma avec trois boîtes reliées par des flèches : client, serveur, base de données", "methode": "svg"},
+    {"demande": "Un fond dégradé violet vers bleu en 1920x1080", "methode": "svg"},
+    {"demande": "Un drapeau du Québec stylisé", "methode": "svg"},
+    {"demande": "Un bouton « Acheter » arrondi vert", "methode": "svg"},
+    {"demande": "Un graphique en barres de mes ventes : janvier 12, février 30, mars 7", "methode": "code"},
+    {"demande": "Mets ces trois photos côte à côte dans une seule image", "methode": "code"},
+    {"demande": "Un QR code vers mon site smfcoder.com", "methode": "code"},
+    {"demande": "Redimensionne cette image en 1080x1080", "methode": "code"},
+    {"demande": "Une carte avec la citation « Fais-le maintenant » en noir sur fond blanc, police simple", "methode": "code"},
+    {"demande": "Une photo réaliste d'un café à Montréal sous la neige le soir", "methode": "generation", "tags": ["photo", "réalisme", "polyvalent"]},
+    {"demande": "Un portrait professionnel d'une femme souriante dans un bureau lumineux", "methode": "generation", "tags": ["photo", "réalisme", "polyvalent"]},
+    {"demande": "Une miniature YouTube avec le titre « J'ai tout automatisé » en gros et un visage surpris", "methode": "generation", "tags": ["texte", "affiche"]},
+    {"demande": "Une affiche pour un concert de jazz le 12 novembre, avec la date et le lieu bien lisibles", "methode": "generation", "tags": ["texte", "affiche"]},
+    {"demande": "Une infographie sur les 5 étapes pour lancer un podcast", "methode": "generation", "tags": ["texte", "infographie", "affiche"]},
+    {"demande": "Un petit robot qui lit dans une bibliothèque, style aquarelle", "methode": "generation", "tags": ["polyvalent", "illustration", "artistique"]},
+    {"demande": "Une mascotte 3D en gomme orange, mignonne, pour mon application", "methode": "generation", "tags": ["polyvalent", "illustration", "créatif"]},
+    {"demande": "Un paysage de montagne au lever du soleil, style peinture à l'huile", "methode": "generation", "tags": ["artistique", "polyvalent", "illustration"]},
+    {"demande": "Retire l'arrière-plan de cette photo de produit et mets un fond studio", "methode": "generation", "tags": ["édition", "produit", "polyvalent"]},
+    {"demande": "Change la couleur de la voiture sur cette photo en rouge", "methode": "generation", "tags": ["édition", "polyvalent"]},
+    {"demande": "Un visuel produit pour une bouteille de parfum sur fond marbre, style catalogue", "methode": "generation", "tags": ["produit", "photo", "réalisme"]},
+    {"demande": "Un logo détaillé en vectoriel : un lion stylisé avec une crinière en flammes", "methode": "generation", "tags": ["vectoriel", "logo"]},
+    {"demande": "Donne-moi 4 idées rapides de vignettes, juste des brouillons", "methode": "generation", "tags": ["rapide", "économique"]},
+    {"demande": "Génère avec l'IA une image d'une banane sur fond bleu", "methode": "generation", "tags": ["polyvalent", "rapide", "économique", "illustration", "photo"]},
+    {"demande": "Un menu de restaurant illustré avec les plats et les prix", "methode": "generation", "tags": ["texte", "affiche", "infographie"]},
+    {"demande": "Une scène de science-fiction : une ville futuriste avec des voitures volantes", "methode": "generation", "tags": ["polyvalent", "créatif", "artistique", "illustration"]},
+    {"demande": "Un pictogramme de poubelle pour la signalétique", "methode": "svg"}
+  ],
+  "video": [
+    {"demande": "Une vidéo de 5 secondes d'une vague qui s'écrase, très réaliste avec le son", "methode": "generation", "tags": ["réalisme", "son", "cinéma"]},
+    {"demande": "Un brouillon rapide d'animation d'un chat qui saute, pas besoin de qualité", "methode": "generation", "tags": ["rapide", "économique"]},
+    {"demande": "Un présentateur qui lit ce texte face caméra", "methode": "generation", "tags": ["avatar", "présentateur"]},
+    {"demande": "Une scène avec deux personnages qui discutent dans un café, plusieurs plans", "methode": "generation", "tags": ["personnages", "multi-plans", "mouvement"]}
+  ],
+  "music": [
+    {"demande": "Un jingle de 10 secondes pour l'intro de ma vidéo", "methode": "generation", "tags": ["jingle", "court"]},
+    {"demande": "Une chanson complète avec des paroles sur l'été à Montréal", "methode": "generation", "tags": ["chanson", "paroles", "long"]}
+  ]
+}

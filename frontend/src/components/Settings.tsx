@@ -4,17 +4,19 @@ import { Check, Loader2, Play } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { get, request, send } from "@/lib/api";
 import { ModelPicker } from "./ModelPicker";
+import { type MediaModel, ModelSelect } from "./ModelSelect";
 import { Dialog, DialogContent, Tabs, TabsContent, TabsList, TabsTrigger } from "./ui";
 import { Button } from "./ui";
 
 export type SettingsTab = "brain" | "create" | "voice";
 
-type Kind = { label: string; setting: string; auto: string | null; models: { id: string; name: string }[] };
+type Kind = { label: string; setting: string; auto: string | null; routed?: boolean; models: MediaModel[] };
 type MediaState = {
   available: boolean;
   reason: string | null;
   kinds: Record<string, Kind>;
   voice?: { setting: string; auto: string | null; voices: string[] };
+  preferences?: string;
 };
 
 const HINTS: Record<string, string> = {
@@ -46,7 +48,7 @@ export function SettingsDialog({ open, tab, onTab, onOpenChange, onBrainSaved }:
               <ModelPicker onCancel={() => onOpenChange(false)} onDone={onBrainSaved} />
             </TabsContent>
             <TabsContent value="create">
-              <MediaPanel kinds={["image", "video", "music"]} />
+              <MediaPanel kinds={["image", "video", "music"]} withPreferences />
             </TabsContent>
             <TabsContent value="voice">
               <MediaPanel kinds={["transcription", "speech"]} withVoice />
@@ -58,9 +60,8 @@ export function SettingsDialog({ open, tab, onTab, onOpenChange, onBrainSaved }:
   );
 }
 
-const shortName = (name: string) => name.replace(/^[^:]+:\s*/, "");
 
-function MediaPanel({ kinds, withVoice }: { kinds: string[]; withVoice?: boolean }) {
+function MediaPanel({ kinds, withVoice, withPreferences }: { kinds: string[]; withVoice?: boolean; withPreferences?: boolean }) {
   const [state, setState] = useState<MediaState | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const load = useCallback(() => get<MediaState>("/api/media").then(setState).catch((e) => setState({ available: false, reason: e.message, kinds: {} })), []);
@@ -83,9 +84,8 @@ function MediaPanel({ kinds, withVoice }: { kinds: string[]; withVoice?: boolean
       {kinds.map((kind) => {
         const k = state.kinds[kind];
         if (!k) return null;
-        const autoName = k.models.find((m) => m.id === k.auto)?.name;
         return (
-          <div key={kind} className="grid gap-2 rounded-2xl border border-border p-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] sm:items-center">
+          <div key={kind} className="grid gap-2 rounded-2xl border border-border p-4 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1.6fr)] sm:items-start">
             <div className="min-w-0">
               <p className="flex items-center gap-2 text-sm font-semibold">
                 {k.label}
@@ -94,29 +94,42 @@ function MediaPanel({ kinds, withVoice }: { kinds: string[]; withVoice?: boolean
               <p className="text-xs text-muted-foreground">{HINTS[kind]}</p>
             </div>
             {k.models.length ? (
-              <select
-                aria-label={k.label}
-                value={k.setting}
-                onChange={(e) => choose(kind, e.target.value)}
-                className="h-10 w-full min-w-0 cursor-pointer rounded-lg border border-border bg-background px-3 text-sm"
-              >
-                <option value="auto">Automatique{autoName ? ` · ${shortName(autoName)}` : ""}</option>
-                {k.models.map((m) => (
-                  <option key={m.id} value={m.id}>{shortName(m.name)}</option>
-                ))}
-              </select>
+              <ModelSelect label={k.label} models={k.models} value={k.setting} auto={k.auto} routed={k.routed} onChange={(id) => choose(kind, id)} />
             ) : (
               <p className="text-sm text-muted-foreground">Aucun modèle de ce type avec ta clé.</p>
             )}
           </div>
         );
       })}
+      {withPreferences && <Preferences initial={state.preferences ?? ""} onSave={(v) => choose("preferences", v)} />}
       {withVoice && state.voice && state.voice.voices.length > 0 && (
         <VoiceRow voice={state.voice} onChoose={(v) => choose("voice", v)} />
       )}
       <p className="text-xs text-muted-foreground">
         « Automatique » suit les nouveaux modèles : Noah Agent prend le meilleur disponible, en qualité d'abord puis en coût.
       </p>
+    </div>
+  );
+}
+
+/** Ce que le routeur doit savoir de tes goûts : prioritaire sur ses propres règles. */
+function Preferences({ initial, onSave }: { initial: string; onSave: (v: string) => void }) {
+  const [value, setValue] = useState(initial);
+  return (
+    <div className="flex flex-col gap-2 rounded-2xl border border-border p-4">
+      <label htmlFor="media-prefs" className="text-sm font-semibold">Tes préférences de création</label>
+      <p className="text-xs text-muted-foreground">
+        Le routeur les suit avant ses propres règles. L'agent y ajoute ce que sa mémoire sait de tes goûts.
+      </p>
+      <textarea
+        id="media-prefs"
+        rows={3}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={() => value !== initial && onSave(value)}
+        placeholder="Ex. Logos toujours en SVG. Couleurs de marque : corail et bleu nuit. Miniatures YouTube très contrastées. Budget serré : modèles économiques sauf si je dis « qualité max »."
+        className="w-full rounded-lg border border-border bg-background p-3 text-sm"
+      />
     </div>
   );
 }

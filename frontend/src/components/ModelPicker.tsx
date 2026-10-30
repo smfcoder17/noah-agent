@@ -3,6 +3,7 @@ import { Eye, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { type Catalog, type CurrentModel, get, type Model, type Provider, send, type Usage } from "@/lib/api";
 import { cn, contextSize, money } from "@/lib/utils";
+import { ProviderLogo } from "./ProviderLogo";
 import { Button, ErrorText, Input, Label } from "./ui";
 
 const HINTS: Record<string, string> = {
@@ -31,6 +32,13 @@ const TIER_ORDER = [
   { id: "smart", name: "Le plus fort", desc: "Longues recherches, code, décisions délicates.", speed: "Mène des tâches de plusieurs heures" },
 ];
 
+/** Le modèle proposé pour un niveau. « Le plus fort » : le modèle phare du premier grand labo (ordre du catalogue).
+ * Les autres : le plus récent de la gamme, pour ne pas proposer une génération dépassée. */
+const tierModel = (catalog: Catalog, tier: string) => {
+  const models = catalog.groups.find((g) => g.id === tier)?.models ?? [];
+  return tier === "smart" ? models[0] : [...models].sort((a, b) => b.created - a.created)[0];
+};
+
 function ModelRow({ m, selected, onPick }: { m: Model; selected: boolean; onPick: () => void }) {
   return (
     <button
@@ -43,7 +51,7 @@ function ModelRow({ m, selected, onPick }: { m: Model; selected: boolean; onPick
         selected && "bg-accent-soft ring-2 ring-accent hover:bg-accent-soft",
       )}
     >
-      <span className="grid size-6 shrink-0 place-items-center rounded-md bg-muted text-[11px] font-bold uppercase">{(m.lab || m.id).slice(0, 1)}</span>
+      <ProviderLogo modelId={m.id} />
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="truncate font-medium">{shortName(m)}</span>
         <span className="truncate font-mono text-[11px] text-muted-foreground">{m.id}</span>
@@ -136,10 +144,10 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
   const keySaved = current?.provider === provider?.id && current?.has_key;
   // Le modèle actuel n'est pas un niveau proposé : on ouvre directement la liste précise.
   useEffect(() => {
-    if (catalog && picked && !TIER_ORDER.some((t) => catalog.groups.find((g) => g.id === t.id)?.models[0]?.id === picked.id)) setMode("precise");
+    if (catalog && picked && !TIER_ORDER.some((t) => tierModel(catalog, t.id)?.id === picked.id)) setMode("precise");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [catalog]);
-  const tiers = TIER_ORDER.map((t) => ({ ...t, model: catalog?.groups.find((g) => g.id === t.id)?.models[0] })).filter((t) => t.model);
+  const tiers = TIER_ORDER.map((t) => ({ ...t, model: catalog ? tierModel(catalog, t.id) : undefined })).filter((t) => t.model);
   const pickedTier = tiers.find((t) => t.model!.id === picked?.id)?.id;
   const precise = mode === "precise" || !tiers.length;
   const list = useMemo(() => {
@@ -245,7 +253,7 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
                     <span className="min-h-9 text-[13px] leading-snug text-muted-foreground">{t.desc}</span>
                     <span className="text-xs">{t.speed}</span>
                     <span className="text-xs font-medium tabular-nums">{costLabel(t.model!)}</span>
-                    <span className="w-full truncate text-xs text-muted-foreground">Aujourd'hui : {shortName(t.model!)}</span>
+                    <span className="flex w-full items-center gap-1.5 truncate text-xs text-muted-foreground"><ProviderLogo modelId={t.model!.id} className="size-5" />{shortName(t.model!)}</span>
                   </button>
                 );
               })}

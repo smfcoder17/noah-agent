@@ -10,6 +10,7 @@ import base64
 import json
 import re
 import time
+from pathlib import Path
 
 import httpx
 
@@ -97,8 +98,100 @@ def _fail(r: httpx.Response) -> MediaError:
 _cache: dict[str, tuple[float, list[dict]]] = {}
 
 
+# Repères par famille de modèles (qualité, vitesse, forces) : routing/models.json.
+KNOWLEDGE = json.loads((Path(__file__).parent / "routing" / "models.json").read_text(encoding="utf-8"))
+
+
+def knowledge(kind: str, model_id: str) -> dict:
+    for rule in KNOWLEDGE.get(kind, []):
+        if re.search(rule["match"], model_id):
+            return {k: v for k, v in rule.items() if k != "match"}
+    return {}
+
+
+def _money(v: float) -> str:
+    return f"{v:.3f}".rstrip("0").rstrip(".").replace(".", ",") if v < 1 else f"{v:.2f}".replace(".", ",")
+
+
+# Jetons de sortie d'une image 1K (Gemini, GPT Image) : sert à convertir un prix au jeton en prix par image.
+IMAGE_TOKENS = 1290
+
+
+def _image_cost(pricing: list[dict] | None) -> float | None:
+    rows = [p for p in pricing or [] if p.get("billable") == "output_image"]
+    if not rows:
+        return None
+    base = next((p for p in rows if p.get("variant") in (None, "1k", "low_1k")), rows[0])
+    cost = float(base.get("cost_usd") or 0)
+    unit = base.get("unit")
+    if unit == "token":
+        return cost * IMAGE_TOKENS
+    return cost  # « image » ou « megapixel » (≈ une image 1K)
+
+
+def _video_cost_per_second(skus: dict | None) -> float | None:
+    """Prix d'une seconde de vidéo en 720p, à partir des grilles hétérogènes des fournisseurs."""
+    if not skus:
+        return None
+    def val(k):
+        return float(skus[k]) / (100 if k.startswith("cents") else 1)
+    for pattern in ("720p", "duration_seconds$", "without_audio$", "with_audio$", "per_second_output$", "duration_seconds", "second"):
+        keys = [k for k in skus if re.search(pattern, k) and "image" not in k and "4k" not in k]
+        if keys:
+            return val(sorted(keys, key=len)[0])
+    if "video_tokens" in skus:  # environ 21 600 jetons par seconde en 720p, 24 images/s
+        return float(skus["video_tokens"]) * 21600
+    return None
+
+
+def _cost(kind: str, raw: dict) -> dict | None:
+    """Coût dans une unité parlante : par image, par 5 s de vidéo, par minute de voix ou de dictée."""
+    if kind == "image":
+        v = _image_cost(raw.get("_pricing"))
+        return {"value": v, "label": f"≈ {_money(v)} $ / image"} if v else None
+    if kind == "video":
+        v = _video_cost_per_second(raw.get("pricing_skus"))
+        return {"value": v * 5, "label": f"≈ {_money(v * 5)} $ / 5 s"} if v else None
+    p = raw.get("pricing") or {}
+    prompt = float(p.get("prompt") or 0)
+    completion = float(p.get("completion") or 0)
+    if kind == "speech":
+        # Prix au caractère (~900 caractères par minute de parole), ou au jeton audio (~1 900 par minute).
+        v = prompt * 900 + completion * 1900
+        if raw["id"].endswith(":free"):
+            return {"value": 0, "label": "Gratuit"}
+        return {"value": v, "label": f"≈ {_money(v)} $ / minute"} if v else None
+    if kind == "transcription":
+        if completion:  # modèle au jeton : ~1 500 jetons audio et ~150 jetons de texte par minute
+            v = prompt * 1500 + completion * 150
+        elif prompt > 0.01:  # prix à l'heure
+            v = prompt / 60
+        else:  # prix à la seconde
+            v = prompt * 60
+        return {"value": v, "label": f"≈ {_money(v)} $ / minute"} if v else None
+    return None
+
+
+async def _image_prices(c: httpx.AsyncClient, items: list[dict]) -> None:
+    """Le prix d'un modèle d'image est sur sa page d'« endpoints » : une requête par modèle, en parallèle."""
+    sem = asyncio.Semaphore(12)
+
+    async def one(m):
+        async with sem:
+            try:
+                r = await c.get("https://openrouter.ai" + m["endpoints"] if m.get("endpoints", "").startswith("/") else m["endpoints"])
+                j = r.json()
+                data = j.get("data", j)
+                rows = data.get("endpoints", data) if isinstance(data, dict) else data
+                m["_pricing"] = rows[0].get("pricing") if rows else None
+            except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
+                m["_pricing"] = None
+
+    await asyncio.gather(*(one(m) for m in items if m.get("endpoints")))
+
+
 async def models(kind: str) -> list[dict]:
-    """Modèles disponibles pour un type : [{id, name, voices?}], du plus récent au plus ancien."""
+    """Modèles disponibles pour un type, du plus récent au plus ancien, avec coût, qualité, vitesse et forces."""
     hit = _cache.get(kind)
     if hit and time.time() - hit[0] < CACHE_SECONDS:
         return hit[1]
@@ -110,11 +203,25 @@ async def models(kind: str) -> list[dict]:
         else:
             modality = {"music": "audio", "speech": "speech", "transcription": "transcription"}[kind]
             r = await c.get(f"{BASE}/models", params={"output_modalities": modality})
-    r.raise_for_status()
-    items = r.json().get("data", [])
-    if kind == "music":  # sortie audio = musique (Lyria) ; les modèles de conversation vocale n'en sont pas
-        items = [m for m in items if "lyria" in m["id"] or "music" in m["id"]]
-    out = [{"id": m["id"], "name": m.get("name") or m["id"], **({"voices": m["supported_voices"]} if m.get("supported_voices") else {})} for m in items]
+        r.raise_for_status()
+        items = r.json().get("data", [])
+        if kind == "music":  # sortie audio = musique (Lyria) ; les modèles de conversation vocale n'en sont pas
+            items = [m for m in items if "lyria" in m["id"] or "music" in m["id"]]
+        if kind == "image":
+            await _image_prices(c, items)
+    out = []
+    for m in items:
+        info = knowledge(kind, m["id"])
+        cost = _cost(kind, m)
+        if not cost and info.get("price_label"):
+            cost = {"value": None, "label": info["price_label"]}
+        out.append({
+            "id": m["id"], "name": m.get("name") or m["id"], "created": m.get("created") or 0,
+            "cost": cost, "quality": info.get("quality"), "speed": info.get("speed"),
+            "strengths": info.get("strengths", []), "note": info.get("note"),
+            **({"voices": m["supported_voices"]} if m.get("supported_voices") else {}),
+            **({"description": (m.get("description") or "")[:240]} if m.get("description") else {}),
+        })
     _cache[kind] = (time.time(), out)
     return out
 
@@ -123,10 +230,63 @@ def setting(kind: str) -> str:
     return db.get_setting(f"media_{kind}") or "auto"
 
 
-async def resolve(kind: str, prompt: str = "") -> str:
-    """Modèle à utiliser : celui choisi par l'utilisateur, sinon le meilleur disponible pour cette demande."""
+async def resolve(kind: str, prompt: str = "", context: str = "") -> str:
+    """Modèle à utiliser : celui choisi par l'utilisateur, sinon celui que le routeur choisit pour cette demande."""
     chosen = setting(kind)
-    return chosen if chosen != "auto" else await auto_choice(kind, prompt)
+    if chosen != "auto":
+        return chosen
+    if kind in ROUTED and prompt:
+        decision = await route(kind, prompt, context)
+        if decision.get("modele"):
+            return decision["modele"]
+    return await auto_choice(kind, prompt)
+
+
+# --- Routeur « Automatique » ---------------------------------------------------------------
+# Un modèle rapide lit la demande, les préférences de l'utilisateur et le contexte de l'agent, puis choisit
+# la méthode (SVG, code, génération) et le modèle parmi ceux disponibles, avec leurs repères et leur prix.
+ROUTED = ("image", "video", "music")
+GUIDE = (Path(__file__).parent / "routing" / "guide.md").read_text(encoding="utf-8")
+
+
+def _table(kind: str, ms: list[dict]) -> str:
+    rows = []
+    for m in ms:
+        if not m.get("quality"):
+            continue  # sans repère, le routeur ne peut pas juger : il reste choisissable à la main
+        rows.append(f"- {m['id']} | qualité {m['quality']}/5 | vitesse {m['speed']}/5 | "
+                    f"{', '.join(m['strengths'])} | {(m.get('cost') or {}).get('label', 'prix inconnu')}")
+    return "\n".join(rows[:45])
+
+
+async def route(kind: str, request: str, context: str = "") -> dict:
+    """{methode, modele, raison}. Ne lève pas : en cas de souci, retombe sur le classement fixe."""
+    ms = await models(kind)
+    available = {m["id"] for m in ms}
+    prefs = db.get_setting("media_preferences") or ""
+    user = (f"Type : {KINDS[kind]}\nDemande : {request[:1500]}\n"
+            f"Préférences de l'utilisateur : {prefs[:800] or 'aucune'}\nContexte de l'agent : {context[:800] or 'aucun'}\n"
+            f"Modèles disponibles :\n{_table(kind, ms)}")
+    try:
+        async with httpx.AsyncClient(timeout=20, headers=_headers()) as c:
+            r = await c.post(f"{BASE}/chat/completions", json={
+                "model": await voice_model(), "temperature": 0, "max_tokens": 200,
+                "response_format": {"type": "json_object"}, "provider": {"sort": "latency"},
+                "messages": [{"role": "system", "content": GUIDE}, {"role": "user", "content": user}],
+            })
+        j = r.json()
+        _record("routeur", j.get("model", "routeur"), (j.get("usage") or {}).get("cost"))
+        content = j["choices"][0]["message"]["content"]
+        d = json.loads(content[content.find("{"): content.rfind("}") + 1])
+        methode = d.get("methode") if d.get("methode") in ("svg", "code", "generation") else "generation"
+        if kind != "image":
+            methode = "generation"
+        modele = d.get("modele") if d.get("modele") in available else None
+        if methode == "generation" and not modele:
+            modele = await auto_choice(kind, request)
+        return {"methode": methode, "modele": modele if methode == "generation" else None, "raison": str(d.get("raison", ""))[:300]}
+    except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError, MediaError):
+        return {"methode": "generation", "modele": await auto_choice(kind, request), "raison": "Choix par défaut (routeur indisponible)."}
 
 
 async def auto_choice(kind: str, prompt: str = "") -> str:
@@ -157,10 +317,10 @@ async def voice_for(model: str) -> str | None:
 EXT = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/svg+xml": "svg"}
 
 
-async def image(agent_id: str, prompt: str, aspect_ratio: str | None = None) -> tuple[bytes, str, str]:
+async def image(agent_id: str, prompt: str, aspect_ratio: str | None = None, model: str | None = None) -> tuple[bytes, str, str]:
     """Rend (octets, extension, modèle)."""
     _check_budget()
-    model = await resolve("image", prompt)
+    model = model or await resolve("image", prompt)
     body = {"model": model, "prompt": prompt}
     if aspect_ratio:
         body["aspect_ratio"] = aspect_ratio
@@ -176,10 +336,10 @@ async def image(agent_id: str, prompt: str, aspect_ratio: str | None = None) -> 
     return base64.b64decode(item["b64_json"]), EXT.get(item.get("media_type", ""), "png"), model
 
 
-async def music(agent_id: str, prompt: str) -> tuple[bytes, str, str]:
+async def music(agent_id: str, prompt: str, model: str | None = None) -> tuple[bytes, str, str]:
     """Lyria passe par chat/completions en flux : l'audio arrive en base64 dans les deltas."""
     _check_budget()
-    model = await resolve("music", prompt)
+    model = model or await resolve("music", prompt)
     chunks: list[str] = []
     cost = None
     async with httpx.AsyncClient(timeout=600, headers=_headers()) as c:
@@ -208,10 +368,10 @@ async def music(agent_id: str, prompt: str) -> tuple[bytes, str, str]:
     return b"".join(base64.b64decode(x) for x in chunks), "mp3", model
 
 
-async def video(agent_id: str, prompt: str, duration: int | None = None, aspect_ratio: str | None = None) -> tuple[bytes, str, str]:
+async def video(agent_id: str, prompt: str, duration: int | None = None, aspect_ratio: str | None = None, model: str | None = None) -> tuple[bytes, str, str]:
     """Tâche asynchrone : on soumet, on attend la fin (jusqu'à 10 min), puis on télécharge le MP4."""
     _check_budget()
-    model = await resolve("video", prompt)
+    model = model or await resolve("video", prompt)
     body = {"model": model, "prompt": prompt}
     if duration:
         body["duration"] = duration

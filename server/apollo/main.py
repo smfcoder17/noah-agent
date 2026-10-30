@@ -30,7 +30,7 @@ provisioning: dict[str, str] = {}
 task_state: dict[str, str] = {}
 
 # Version du branchement des agents ; l'augmenter reconfigure tous les agents au démarrage.
-AGENT_SETUP_VERSION = "8-consignes-a-jour"
+AGENT_SETUP_VERSION = "9-routeur-creation"
 
 
 @app.on_event("startup")
@@ -298,10 +298,13 @@ Si un outil échoue d'une façon inattendue (navigateur qui ne répond plus, pag
 Ne demande de l'aide à l'utilisateur qu'après avoir essayé.
 
 ## Créer des images, des vidéos, de la musique, une voix
-Utilise les vrais modèles de création, jamais un dessin ou un son fabriqué par un script :
-`python3 /opt/data/noah.py image "description précise"` (option `--format 16:9`), `video "…"` (options `--duree 5 --format 16:9`, compte quelques minutes),
-`musique "style, ambiance, durée, paroles éventuelles"`, `voix "texte à lire"`. La commande enregistre le fichier dans outputs/
-et rend le bloc `noah` à recopier tel quel dans ta réponse pour le montrer. Une vidéo ou une musique coûte plus cher qu'une image : n'en crée que si on te le demande.
+Passe toujours par `python3 /opt/data/noah.py image "description précise"` (options `--format 16:9`, `--contexte "goûts connus de l'utilisateur"`),
+`video "…"` (options `--duree 5 --format 16:9`, compte quelques minutes), `musique "style, ambiance, durée, paroles"`, `voix "texte à lire"`.
+Le routeur choisit la meilleure méthode et le meilleur modèle. Mets dans --contexte ce que ta mémoire sait des goûts de l'utilisateur (style, couleurs, marque).
+Il peut répondre « methode : svg » ou « code » avec un conseil : fais alors l'image toi-même comme indiqué (SVG écrit à la main,
+ou script), sauf si l'utilisateur veut explicitement une image générée (relance avec --generer).
+Sinon la commande enregistre le fichier dans outputs/ et rend le bloc `noah` à recopier tel quel pour le montrer.
+Une vidéo ou une musique coûte plus cher qu'une image : n'en crée que si on te le demande.
 
 ## Une seule conversation, des fils pour le travail parallèle
 Ta conversation avec l'utilisateur est unique et continue. Pour un travail long ou parallèle (plusieurs pistes de recherche, une tâche de fond),
@@ -879,11 +882,12 @@ async def media_settings(user: int = Depends(auth.current_user)):
         for kind, label in media.KINDS.items():
             ms = await media.models(kind)
             auto = await media.auto_choice(kind) if ms else None
-            out["kinds"][kind] = {"label": label, "setting": media.setting(kind), "auto": auto,
-                                  "models": [{"id": m["id"], "name": m["name"]} for m in ms]}
+            out["kinds"][kind] = {"label": label, "setting": media.setting(kind), "auto": auto, "routed": kind in media.ROUTED,
+                                  "models": [{k: v for k, v in m.items() if k != "voices"} for m in ms]}
         model = await media.resolve("speech") if out["kinds"]["speech"]["models"] else None
         voices = next((m.get("voices", []) for m in await media.models("speech") if m["id"] == model), [])
         out["voice"] = {"setting": db.get_setting("media_voice") or "auto", "auto": await media.voice_for(model) if model else None, "voices": voices}
+        out["preferences"] = db.get_setting("media_preferences") or ""
     except media.MediaError as e:
         return {"kinds": {}, "available": False, "reason": str(e)}
     except httpx.HTTPError:
@@ -893,14 +897,14 @@ async def media_settings(user: int = Depends(auth.current_user)):
 
 class MediaChoice(BaseModel):
     kind: str
-    model: str = Field(min_length=1, max_length=200)
+    model: str = Field(min_length=0, max_length=2000)
 
 
 @app.post("/api/media")
 def set_media(body: MediaChoice, user: int = Depends(auth.current_user)):
-    if body.kind not in (*media.KINDS, "voice"):
+    if body.kind not in (*media.KINDS, "voice", "preferences"):
         raise HTTPException(400, "Type inconnu")
-    db.set_setting("media_voice" if body.kind == "voice" else f"media_{body.kind}", body.model)
+    db.set_setting("media_voice" if body.kind == "voice" else f"media_{body.kind}", body.model.strip())
     return {"ok": True}
 
 
@@ -963,6 +967,10 @@ class MediaRequest(BaseModel):
     description: str = Field(min_length=1, max_length=8000)
     format: str | None = Field(default=None, max_length=10)
     duree: int | None = Field(default=None, ge=1, le=30)
+    # Ce que l'agent sait des goûts de l'utilisateur (mémoire), prioritaire pour le routeur.
+    contexte: str | None = Field(default=None, max_length=2000)
+    # Ignorer le conseil SVG/code du routeur et générer quand même.
+    generer: bool = False
 
 
 @app.post("/agent-api/media")
@@ -972,13 +980,23 @@ async def agent_media_create(body: MediaRequest, request: Request):
     stamp = time.strftime("%Y%m%d-%H%M%S")
     plain = unicodedata.normalize("NFKD", body.description.lower()).encode("ascii", "ignore").decode()
     slug = re.sub(r"[^a-z0-9]+", "-", plain)[:40].strip("-") or "media"
+    kind = {"image": "image", "video": "video", "musique": "music"}.get(body.type)
+    model = None
     try:
+        if kind and media.setting(kind) == "auto":
+            decision = await media.route(kind, body.description, body.contexte or "")
+            if decision["methode"] != "generation" and not body.generer:
+                how = "écris le SVG toi-même" if decision["methode"] == "svg" else "produis l'image par programme (Python, Pillow, matplotlib ou HTML capturé)"
+                return {"methode": decision["methode"], "raison": decision["raison"],
+                        "conseil": f"Pas besoin d'un modèle de génération : {how}, enregistre-la dans outputs/ et montre-la avec le widget preview. "
+                                   "Si l'utilisateur veut quand même une image générée, relance avec --generer."}
+            model = decision["modele"]
         if body.type == "image":
-            data, ext, model = await media.image(agent_id, body.description, body.format)
+            data, ext, model = await media.image(agent_id, body.description, body.format, model)
         elif body.type == "video":
-            data, ext, model = await media.video(agent_id, body.description, body.duree, body.format)
+            data, ext, model = await media.video(agent_id, body.description, body.duree, body.format, model)
         elif body.type == "musique":
-            data, ext, model = await media.music(agent_id, body.description)
+            data, ext, model = await media.music(agent_id, body.description, model)
         elif body.type == "voix":
             data, ctype, model = await media.speak(agent_id, body.description)
             ext = "wav" if ctype == "audio/wav" else "mp3"
