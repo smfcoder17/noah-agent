@@ -668,3 +668,125 @@ export function Folders({ agentId }: { agentId: string }) {
     </Section>
   );
 }
+
+// --- Veilles ------------------------------------------------------------------------------------
+
+type Watch = {
+  id: string;
+  nom: string;
+  url: string;
+  critere: string;
+  minutes: number;
+  active: boolean;
+  dernier_passage: number | null;
+  derniere_alerte: number | null;
+  erreur: string | null;
+  passages: number;
+  alertes: number;
+};
+
+const EVERY: [number, string][] = [
+  [15, "toutes les 15 min"],
+  [60, "toutes les heures"],
+  [360, "toutes les 6 h"],
+  [1440, "une fois par jour"],
+];
+const everyLabel = (m: number) => EVERY.find(([v]) => v === m)?.[1] ?? `toutes les ${m} min`;
+const ago = (t: number | null) => (t ? when(new Date(t * 1000).toISOString()) : null);
+
+/**
+ * Veilles : Noah Agent relève une page ou un flux lui-même, sans modèle, et ne prévient l'agent que si les nouveautés
+ * correspondent à ce que l'utilisateur cherche. Bien moins cher qu'une routine pour « préviens-moi si… ».
+ */
+export function Watches({ agentId }: { agentId: string }) {
+  const { data, error, setError, load } = useAgentData<{ veilles: Watch[] }>(`/api/agents/${agentId}/watches`);
+  const [adding, setAdding] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [form, setForm] = useState({ nom: "", url: "", critere: "", minutes: 60 });
+  const list = data?.veilles ?? [];
+
+  const act = async (w: Watch, action: string) => {
+    if (action === "supprimer" && !confirm(`Supprimer la veille « ${w.nom} » ?`)) return;
+    setBusy(w.id + action);
+    try {
+      await send(`/api/agents/${agentId}/watches/${w.id}/${action}`, {});
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+  const create = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy("new");
+    setError("");
+    try {
+      await send(`/api/agents/${agentId}/watches`, form);
+      setForm({ nom: "", url: "", critere: "", minutes: 60 });
+      setAdding(false);
+      await load();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <Section title="Veilles" count={list.length}>
+      {data && !list.length && !adding && (
+        <p className="text-sm text-muted-foreground">
+          Surveille une page ou un flux sans faire travailler l'agent : il n'est prévenu que si une nouveauté compte pour toi.
+          Demande-le-lui (« préviens-moi si ce produit passe sous 300 $ ») ou crée-la ici.
+        </p>
+      )}
+      {list.map((w) => (
+        <div key={w.id} className="flex flex-col gap-1 rounded-xl border border-border p-2.5">
+          <div className="flex items-start gap-2">
+            <span className={cn("mt-1.5 size-2 shrink-0 rounded-full", !w.active ? "bg-muted-foreground/40" : w.erreur ? "bg-danger" : "bg-ok")} />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">{w.nom}</p>
+              <p className="truncate text-xs text-muted-foreground" title={w.url}>{w.url}</p>
+              <p className="text-xs text-muted-foreground">
+                {everyLabel(w.minutes)}
+                {!w.active ? " · en pause" : w.dernier_passage ? ` · vue ${ago(w.dernier_passage)}` : ""}
+                {w.alertes > 0 && ` · ${w.alertes} alerte${w.alertes > 1 ? "s" : ""}`}
+              </p>
+            </div>
+          </div>
+          {w.critere && <p className="line-clamp-2 pl-4 text-xs text-muted-foreground">Ce qui compte : {w.critere}</p>}
+          {w.erreur && <p className="pl-4 text-xs text-danger">{w.erreur}</p>}
+          <div className="flex gap-1 pl-3">
+            <Button size="sm" variant="ghost" onClick={() => act(w, w.active ? "pause" : "reprendre")} disabled={!!busy}>
+              {w.active ? <Pause /> : <Play />}{w.active ? "Pause" : "Reprendre"}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => act(w, "verifier")} disabled={!!busy}>
+              {busy === w.id + "verifier" ? <Loader2 className="animate-spin" /> : <Zap />}Vérifier
+            </Button>
+            <Button size="sm" variant="ghost" className="ml-auto text-muted-foreground" onClick={() => act(w, "supprimer")} disabled={!!busy} aria-label="Supprimer la veille">
+              <Trash2 />
+            </Button>
+          </div>
+        </div>
+      ))}
+      {adding ? (
+        <form onSubmit={create} className="flex flex-col gap-2 rounded-xl border border-border p-2.5">
+          <Input value={form.nom} onChange={(e) => setForm({ ...form, nom: e.target.value })} className="h-9" placeholder="Nom (ex. Prix du vélo)" aria-label="Nom de la veille" required />
+          <Input value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} className="h-9" placeholder="https://… (page ou flux RSS)" aria-label="Adresse à surveiller" type="url" required />
+          <Textarea value={form.critere} onChange={(e) => setForm({ ...form, critere: e.target.value })} rows={2} placeholder="Ce qui compte (vide : toute nouveauté)" aria-label="Ce qui compte" />
+          <select value={form.minutes} onChange={(e) => setForm({ ...form, minutes: Number(e.target.value) })} className="h-9 rounded-md border border-border bg-surface px-2 text-sm" aria-label="Fréquence">
+            {EVERY.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+          <div className="flex gap-2">
+            <Button type="submit" size="sm" disabled={busy === "new"}>{busy === "new" && <Loader2 className="animate-spin" />}Créer et relever</Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setAdding(false)}>Annuler</Button>
+          </div>
+        </form>
+      ) : (
+        <Button variant="outline" size="sm" className="self-start" onClick={() => setAdding(true)}><Plus />Nouvelle veille</Button>
+      )}
+      <ErrorText>{error}</ErrorText>
+    </Section>
+  );
+}

@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import auth, catalog, db, desktop, events, hermes, machine, media, relay
+from . import auth, catalog, db, desktop, events, hermes, machine, media, relay, watch
 from .config import WEB_DIR
 from .hermes import Agent
 
@@ -23,6 +23,7 @@ app = FastAPI(title="Noah Agent")
 app.include_router(relay.router)
 app.include_router(machine.router)
 app.include_router(desktop.router)
+app.include_router(watch.router)
 
 # Agents en cours de création : id -> message d'étape ou d'erreur affiché dans l'interface.
 provisioning: dict[str, str] = {}
@@ -32,7 +33,7 @@ provisioning: dict[str, str] = {}
 task_state: dict[str, str] = {}
 
 # Version du branchement des agents ; l'augmenter reconfigure tous les agents au démarrage.
-AGENT_SETUP_VERSION = "18-vitesse"
+AGENT_SETUP_VERSION = "19-veilles"
 
 
 @app.on_event("startup")
@@ -41,6 +42,9 @@ async def startup() -> None:
     _migrate_threads()
     asyncio.create_task(_refresh_browsers())
     asyncio.create_task(machine.deliver_routines(_save_message, _main_conversation))
+    watch.init()
+    watch.setup(_save_message, _main_conversation)
+    asyncio.create_task(watch.run_watches(_save_message, _main_conversation))
     if db.get_setting("agent_setup") != AGENT_SETUP_VERSION and current_model():
         asyncio.create_task(_upgrade_agents())
 
@@ -367,6 +371,15 @@ Il confirme chaque action sensible dans une fenêtre du système : annonce ce qu
 réponse, pas une panne : ne réessaie pas la même action, propose autre chose. Pour lui montrer un fichier que tu as créé, enregistre-le
 dans son dossier de travail puis ouvre-le. Pendant une routine, termine par une notification courte quand le résultat mérite son attention.
 Une commande s'exécute dans son dossier de travail : préfère une commande simple et lisible, jamais destructrice sans qu'il l'ait demandé.
+
+## Veilles : surveiller sans travailler
+Pour « préviens-moi si… », « surveille… », « dis-moi quand… » sur une page ou un flux RSS, crée une veille plutôt qu'une routine :
+`python3 /opt/data/noah.py veille "Nom" "https://…" "ce qui compte pour lui" --minutes 60`.
+Noah Agent relève la source lui-même, sans toi ni modèle ; un petit modèle ne lit que les nouveautés et te les envoie ici
+seulement si elles correspondent à ce qui compte. Ça coûte des centaines de fois moins qu'une routine. Donne une adresse précise
+(la page des offres, le flux RSS du blog, la recherche filtrée) et un critère concret (« prix sous 300 $ », « mentionne Hermes »).
+`veilles` les liste, `veille-action <id> pause|reprendre|verifier|supprimer` les gère. Garde la routine pour ce qui demande
+de travailler (naviguer connecté, croiser plusieurs sources, rédiger un rapport).
 
 ## Routines et initiative
 Quand l'utilisateur veut quelque chose de régulier (« chaque matin », « tous les lundis », « surveille… »), crée une routine avec ton outil cron :

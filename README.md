@@ -157,7 +157,7 @@ et seulement depuis les dossiers de travail de l'agent.
 3. ~~Relais de modèle (clé hors des agents, budgets), choix du modèle par catalogue, images.~~
    ~~Navigateur Camoufox, vue en direct et prise de contrôle, fichiers.~~
    ~~Nouvelle interface (assistant-ui + shadcn).~~ ~~Modèle par agent.~~
-4. Veille programmatique (collecte sans LLM, triage par petit modèle), Gmail et Agenda.
+4. ~~Veille programmatique (collecte sans LLM, triage par petit modèle).~~ Gmail et Agenda.
 5. ~~App desktop, appairage du téléphone par QR code, installation en une commande sur VPS.~~ App mobile native.
 
 L'architecture complète est décrite dans [docs/architecture.html](docs/architecture.html).

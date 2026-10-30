@@ -109,3 +109,13 @@ async def status(user: int = Depends(auth.current_user)):
 
 def system() -> str:
     return _seen["os"]
+
+
+def notify(title: str, text: str) -> None:
+    """Notification sur l'ordinateur si l'application de bureau est ouverte ; personne n'attend la réponse."""
+    if not connected():
+        return
+    rid = uuid.uuid4().hex
+    _waiting[rid] = asyncio.get_running_loop().create_future()
+    _queue.put_nowait({"id": rid, "agent": "Noah", "action": "notifier", "cible": "", "titre": title, "texte": text, "dossier": ""})
+    asyncio.get_running_loop().call_later(120, lambda: _waiting.pop(rid, None))

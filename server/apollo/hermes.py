@@ -288,6 +288,9 @@ AIDE = """Utilisation : python3 /opt/data/noah.py <commande>
   musique "description"                             crée un morceau de musique
   voix "texte à dire"                               lit un texte à voix haute (MP3)
   installer paquet [paquet…]   installe des logiciels système (paquets Debian : ffmpeg, imagemagick, poppler-utils…)
+  veille "Nom" "https://…" "ce qui compte" [--minutes 60]   surveille une page ou un flux sans modèle (alerte si pertinent)
+  veilles                                       liste les veilles
+  veille-action <id> pause|reprendre|verifier|supprimer
 Sur l'ordinateur de l'utilisateur (application de bureau ouverte ; il confirme les actions sensibles) :
   ordinateur ouvrir <chemin|adresse>     ouvre un fichier ou dossier partagé (/opt/data/dossiers/…) ou une page web
   ordinateur notifier "titre" "texte"    notification sur son écran (fin d'une tâche, rappel, résultat de routine)
@@ -347,6 +350,17 @@ elif a[:1] == ["ordinateur"] and len(a) >= 3 and a[1] in ("ouvrir", "notifier", 
     else:
         body = {"action": action, "cible": " ".join(a[2:])}
     out = call("POST", "/ordinateur", body)
+elif a[:1] == ["veille"] and len(a) >= 3:
+    rest, minutes = a[1:], 60
+    if "--minutes" in rest:
+        i = rest.index("--minutes")
+        minutes = int(rest[i + 1]) if i + 1 < len(rest) else 60
+        rest = rest[:i] + rest[i + 2:]
+    out = call("POST", "/veilles", {"nom": rest[0], "url": rest[1], "critere": " ".join(rest[2:]), "minutes": minutes})
+elif a[:1] == ["veilles"]:
+    out = call("GET", "/veilles")
+elif a[:1] == ["veille-action"] and len(a) == 3:
+    out = call("POST", "/veilles/action", {"id": a[1], "action": a[2]})
 elif a[:1] == ["fil-etat"] and len(a) == 2:
     out = call("GET", "/fils/" + a[1])
 else:
