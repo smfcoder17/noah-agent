@@ -23,6 +23,24 @@ const SettingsDialog = lazy(() => import("@/components/Settings").then((m) => ({
 
 type Screen = "loading" | "setup" | "login" | "model" | "app" | "error";
 
+/** Garde l'ancien objet si les données n'ont pas changé : rien ne se redessine pour rien toutes les 4 s. */
+function same<T>(cur: T, next: T): T {
+  return JSON.stringify(cur) === JSON.stringify(next) ? cur : next;
+}
+
+/** Relève périodique, en pause quand la fenêtre est cachée, relancée dès qu'elle revient. */
+function every(ms: number, fn: () => void) {
+  const t = setInterval(() => !document.hidden && fn(), ms);
+  const onShow = () => !document.hidden && fn();
+  document.addEventListener("visibilitychange", onShow);
+  return () => {
+    clearInterval(t);
+    document.removeEventListener("visibilitychange", onShow);
+  };
+}
+
+const conversationsCache = new Map<string, Conversation[]>();
+
 export default function App() {
   const [screen, setScreen] = useState<Screen>("loading");
   const [error, setError] = useState("");
@@ -86,7 +104,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const refreshAgents = useCallback(async () => {
     try {
       const list = await get<Agent[]>("/api/agents");
-      setAgents(list);
+      setAgents((cur) => same(cur, list));
       setAgentId((cur) => (cur && list.some((a) => a.id === cur) ? cur : list[0]?.id ?? null));
     } catch {
       /* le serveur redémarre : on réessaie au prochain tour */
@@ -100,21 +118,23 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const refreshConversations = useCallback(async () => {
     if (!agentId) return setConversations([]);
     const list = await get<Conversation[]>(`/api/agents/${agentId}/conversations`).catch(() => null);
-    if (list) setConversations(list);
+    if (list) {
+      conversationsCache.set(agentId, list);
+      setConversations((cur) => same(cur, list));
+    }
   }, [agentId]);
 
   useEffect(() => {
     refreshAgents();
     refreshModel();
-    const t = setInterval(refreshAgents, 4000);
-    return () => clearInterval(t);
+    return every(4000, refreshAgents);
   }, [refreshAgents, refreshModel]);
   useEffect(() => {
-    setConversations(null);
+    // Liste déjà vue : affichée tout de suite, rafraîchie derrière (pas d'écran « Chargement… »).
+    setConversations(agentId ? conversationsCache.get(agentId) ?? null : null);
     refreshConversations();
-    const t = setInterval(refreshConversations, 4000);
-    return () => clearInterval(t);
-  }, [refreshConversations]);
+    return every(4000, refreshConversations);
+  }, [agentId, refreshConversations]);
 
   const selectAgent = (id: string) => {
     setAgentId(id);

@@ -58,6 +58,31 @@ trois phrases : salutation, demande d'action, question).
 - La synthèse elle-même (MAI Voice 2.1 Flash, ~0,35 s avant le premier octet) est déjà parmi les plus rapides avec
   une voix française. Les voix qui ne rendent que du PCM (Gemini TTS, HeyGen) passent en WAV dans le même flux.
 
+## Fluidité (deux audits, Opus et Kimi K3)
+
+| | Avant | Après |
+|---|---|---|
+| Liste des agents (`/api/agents`) | 33 ms | 5 ms |
+| Premier signe après Envoyer | 65 ms | 49 ms |
+| Réponse de la voix rapide | 630 ms | 366 ms |
+| Premier affichage (app de bureau, cache chaud) | — | 116 ms |
+
+- **Fil de discussion** : la fonction de conversion des messages était recréée à chaque rendu, ce qui vidait le cache
+  d'assistant-ui. Tout le fil était reconverti à chaque image du flux ; seul le dernier message l'est maintenant.
+- **Texte qui s'écrit** : révélation douce de 100 ms au lieu de 250. Le texte arrive plus tôt et le Markdown est
+  analysé trois fois moins souvent.
+- **Relevés toutes les 4 s** : rien n'est redessiné si les données n'ont pas changé, et tout s'arrête quand la
+  fenêtre est cachée.
+- **Changer de conversation** : ses messages et la liste des fils sont gardés en mémoire. Ils s'affichent tout
+  de suite, puis la version du serveur arrive derrière.
+- **Serveur** : un client HTTP partagé vers les agents, le lanceur et les navigateurs. Avant, chaque appel créait
+  un client, soit environ 15 ms de travail bloquant. La santé des agents est gardée 5 s, une seule requête SQL
+  sert la liste, et l'état de l'écran fait ses deux appels en parallèle.
+- **Voix rapide** : le choix du modèle est mémorisé, et le catalogue OpenRouter est relu en tâche de fond.
+- **Polices** : servies par le service worker depuis le cache, sans attendre Google à chaque ouverture.
+- **Compactage après inactivité retiré** : Hermes le faisait au message suivant, avant de répondre. Cela coûtait
+  plusieurs secondes au premier message après une pause.
+
 ## Prochaines pistes (non faites)
 
 - **Historique paginé** (80 derniers messages) et `content-visibility` sur les messages.

@@ -61,7 +61,7 @@ Pour une sauvegarde chaque nuit, ajoute avec `crontab -e` :
 ### Application de bureau
 
 ```sh
-cd desktop && npm install && npm start    # npm run dist : installateur Windows (dist/)
+cd desktop && npm install && npm start    # npm run dist : installateur Windows dans desktop/dist/
 ```
 
 L'application démarre Noah avec Docker Desktop, ouvre l'interface dans sa propre fenêtre et reste dans la zone

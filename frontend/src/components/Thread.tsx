@@ -58,6 +58,7 @@ function linkPaths(text: string, agentId: string) {
 const widget = { SyntaxHighlighter: NoahWidget, CodeHeader: () => null };
 const WIDGET_LANGUAGES = { noah: widget, apollo: widget };
 const PLUGINS = [remarkGfm];
+const SMOOTH = { drainMs: 100, minCommitMs: 50 };
 
 function MarkdownText() {
   const { agentId } = useContext(AgentContext);
@@ -111,6 +112,8 @@ function MarkdownText() {
       componentsByLanguage={WIDGET_LANGUAGES}
       preprocess={preprocess}
       components={components}
+      // Révélation douce courte : 250 ms par défaut retardait le texte et ré-analysait le Markdown à chaque image.
+      smooth={SMOOTH}
     />
   );
 }

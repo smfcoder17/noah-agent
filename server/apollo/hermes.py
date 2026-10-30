@@ -29,11 +29,23 @@ class Agent:
         return {"Authorization": f"Bearer {self.api_key}"}
 
 
+# --- Client HTTP partagé -----------------------------------------------------------
+# Créer un client httpx coûte ~15 ms (contexte TLS), en bloquant la boucle : un seul client garde ses connexions
+# ouvertes vers le lanceur, les agents et les navigateurs. Chaque appel donne son propre délai.
+_shared: httpx.AsyncClient | None = None
+
+
+def http() -> httpx.AsyncClient:
+    global _shared
+    if _shared is None or _shared.is_closed:
+        _shared = httpx.AsyncClient(timeout=30, limits=httpx.Limits(max_connections=200, max_keepalive_connections=40, keepalive_expiry=60))
+    return _shared
+
+
 # --- Lanceur ---------------------------------------------------------------------
 
 async def _launcher(method: str, path: str, **kw) -> dict:
-    async with httpx.AsyncClient(timeout=120) as c:
-        r = await c.request(method, f"{LAUNCHER_URL}{path}", headers=LAUNCHER, **kw)
+    r = await http().request(method, f"{LAUNCHER_URL}{path}", headers=LAUNCHER, timeout=kw.pop("timeout", 120), **kw)
     r.raise_for_status()
     return r.json()
 
@@ -95,8 +107,8 @@ BROWSER_USER = "apollo"
 async def browser_call(agent_id: str, method: str, path: str, timeout: float = 5, **kw) -> dict:
     """Appel direct à l'API Camoufox de l'agent. Lève httpx.HTTPError si le conteneur ne répond pas."""
     api_key, _ = browser_secrets(agent_id)
-    async with httpx.AsyncClient(timeout=timeout) as c:
-        r = await c.request(method, f"http://{browser_host(agent_id)}:9377{path}", headers={"Authorization": f"Bearer {api_key}"}, **kw)
+    r = await http().request(method, f"http://{browser_host(agent_id)}:9377{path}", headers={"Authorization": f"Bearer {api_key}"},
+                             timeout=timeout, **kw)
     try:
         return r.json() | {"http_status": r.status_code}
     except ValueError:
@@ -232,12 +244,12 @@ async def configure(agent_id: str, model: dict, role: str | None = None) -> None
     # Contexte : Hermes garde l'historique de chaque conversation et ne reçoit que le nouveau message. Sans plafond, il
     # attend la moitié de la fenêtre du modèle (500 000 jetons sur un modèle à 1 M) pour résumer : chaque tour renvoie
     # alors tout l'historique. Au-delà de 200 000 jetons (~13 000 de consignes et d'outils compris), le début devient
-    # un résumé et la fin reste mot pour mot ; l'agent retrouve le détail avec session_search. Après 30 min sans
-    # message, le cache du fournisseur a expiré : on résume avant de repartir, ça ne coûte rien de plus.
+    # un résumé et la fin reste mot pour mot ; l'agent retrouve le détail avec session_search. Après une pause, sans
+    # message, Hermes résumerait au message suivant, avant de répondre (plusieurs secondes d'attente) : désactivé.
     compression = cfg.setdefault("compression", {})
     compression["enabled"] = True
     compression["threshold_tokens"] = 200000
-    compression["idle_compact_after_seconds"] = 1800
+    compression["idle_compact_after_seconds"] = 0
     # Les routines (« chaque matin à 8 h ») suivent l'heure de l'utilisateur, pas UTC.
     tz = (await browser_identity()).get("timezone")
     if tz:
@@ -349,20 +361,14 @@ print(json.dumps(out, ensure_ascii=False, indent=2))
 async def health(agent: Agent) -> bool:
     try:
         # Court : la liste des agents attend la réponse de chacun, un agent arrêté ne doit pas la ralentir.
-        async with httpx.AsyncClient(timeout=1) as c:
-            r = await c.get(f"{agent.url}/health")
+        r = await http().get(f"{agent.url}/health", timeout=1)
         return r.status_code == 200
     except httpx.HTTPError:
         return False
 
 
 async def start_run(agent: Agent, text: str, session_id: str) -> str:
-    async with httpx.AsyncClient(timeout=30) as c:
-        r = await c.post(
-            f"{agent.url}/v1/runs",
-            headers=agent.headers,
-            json={"input": text, "session_id": session_id},
-        )
+    r = await http().post(f"{agent.url}/v1/runs", headers=agent.headers, json={"input": text, "session_id": session_id}, timeout=30)
     r.raise_for_status()
     return r.json()["run_id"]
 
@@ -373,21 +379,20 @@ async def run_events(agent: Agent, run_id: str) -> AsyncIterator[tuple[str, dict
     Hermes envoie des trames `data: {"event": "tool.started", "run_id": …, …}` ;
     le type est dans le champ "event" du JSON.
     """
-    async with httpx.AsyncClient(timeout=None) as c:
-        async with c.stream("GET", f"{agent.url}/v1/runs/{run_id}/events", headers=agent.headers) as r:
-            r.raise_for_status()
-            data: list[str] = []
-            async for line in r.aiter_lines():
-                if line.startswith("data:"):
-                    data.append(line[5:].strip())
-                elif line == "" and data:
-                    try:
-                        payload = json.loads("\n".join(data))
-                    except json.JSONDecodeError:
-                        payload = {}
-                    data = []
-                    if payload.get("event"):
-                        yield payload["event"], payload
+    async with http().stream("GET", f"{agent.url}/v1/runs/{run_id}/events", headers=agent.headers, timeout=None) as r:
+        r.raise_for_status()
+        data: list[str] = []
+        async for line in r.aiter_lines():
+            if line.startswith("data:"):
+                data.append(line[5:].strip())
+            elif line == "" and data:
+                try:
+                    payload = json.loads("\n".join(data))
+                except json.JSONDecodeError:
+                    payload = {}
+                data = []
+                if payload.get("event"):
+                    yield payload["event"], payload
 
 
 async def answer_approval(agent: Agent, run_id: str, request_id: str, generation: int, approve: bool) -> None:

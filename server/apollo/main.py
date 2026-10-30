@@ -32,7 +32,7 @@ provisioning: dict[str, str] = {}
 task_state: dict[str, str] = {}
 
 # Version du branchement des agents ; l'augmenter reconfigure tous les agents au démarrage.
-AGENT_SETUP_VERSION = "17-ordinateur"
+AGENT_SETUP_VERSION = "18-vitesse"
 
 
 @app.on_event("startup")
@@ -449,7 +449,15 @@ async def _provision(agent: Agent, soul: str) -> None:
 @app.get("/api/agents")
 async def list_agents(user: int = Depends(auth.current_user)):
     agents = _agents()
-    online = await asyncio.gather(*(hermes.health(Agent(a["id"], a["api_key"])) for a in agents))
+    online = await asyncio.gather(*(_health(a) for a in agents))
+    with db.connect() as c:
+        convs = c.execute("SELECT id, agent_id, main FROM conversations").fetchall()
+    by_agent: dict[str, list[str]] = {}
+    mains: dict[str, str] = {}
+    for r in convs:
+        by_agent.setdefault(r["agent_id"], []).append(r["id"])
+        if r["main"]:
+            mains[r["agent_id"]] = r["id"]
     return [
         {
             "id": a["id"],
@@ -457,8 +465,8 @@ async def list_agents(user: int = Depends(auth.current_user)):
             "role": a["role"],
             "online": ok and a["id"] not in provisioning,
             "step": provisioning.get(a["id"]),
-            "tasks": _task_counts(a["id"]),
-            "state": task_state.get(_main_conversation(a["id"]) or "", "idle"),
+            "tasks": _task_counts(a["id"], by_agent.get(a["id"], [])),
+            "state": task_state.get(mains.get(a["id"], ""), "idle"),
             "color": a["color"],
             "pinned": bool(a["pinned"]),
         }
@@ -466,10 +474,25 @@ async def list_agents(user: int = Depends(auth.current_user)):
     ]
 
 
-def _task_counts(agent_id: str) -> dict[str, int]:
+# Santé des agents gardée quelques secondes : la liste est interrogée toutes les 4 s par chaque fenêtre ouverte,
+# et un agent arrêté ne doit pas la ralentir à chaque fois.
+_health_seen: dict[str, tuple[float, bool]] = {}
+
+
+async def _health(a) -> bool:
+    hit = _health_seen.get(a["id"])
+    if hit and time.monotonic() - hit[0] < 5:
+        return hit[1]
+    ok = await hermes.health(Agent(a["id"], a["api_key"]))
+    _health_seen[a["id"]] = (time.monotonic(), ok)
+    return ok
+
+
+def _task_counts(agent_id: str, ids: list[str] | None = None) -> dict[str, int]:
     """Nombre de tâches de l'agent par état actif (en cours, à toi)."""
-    with db.connect() as c:
-        ids = [r["id"] for r in c.execute("SELECT id FROM conversations WHERE agent_id = ?", (agent_id,))]
+    if ids is None:
+        with db.connect() as c:
+            ids = [r["id"] for r in c.execute("SELECT id FROM conversations WHERE agent_id = ?", (agent_id,))]
     counts: dict[str, int] = {}
     for cid in ids:
         st = task_state.get(cid)
@@ -815,8 +838,8 @@ async def screen_status(agent_id: str, user: int = Depends(auth.current_user)):
 async def _browser_diagnosis(agent_id: str) -> dict:
     """État du navigateur et de son écran, avec un conseil lisible par l'agent comme par l'interface."""
     try:
-        health = await hermes.browser_call(agent_id, "GET", "/health")
-        vnc = await hermes.browser_call(agent_id, "GET", "/vnc/status")
+        health, vnc = await asyncio.gather(hermes.browser_call(agent_id, "GET", "/health"),
+                                           hermes.browser_call(agent_id, "GET", "/vnc/status"))
     except httpx.HTTPError:
         return {"joignable": False, "navigateur_allume": False, "ecran_actif": False,
                 "conseil": "Le conteneur du navigateur ne répond pas. Lance « navigateur redemarrer »."}

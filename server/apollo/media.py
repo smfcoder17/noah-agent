@@ -467,14 +467,32 @@ async def backups(kind: str, limit: int = 3) -> list[str]:
     return [first] + [m for m in RANKING.get(kind, []) if m in available and m != first][:limit]
 
 
+_voice_pick: dict[str, float | str] = {"at": 0.0, "model": ""}
+
+
 async def voice_model() -> str:
     chosen = db.get_setting("media_voice_brain") or "auto"
     if chosen != "auto":
         return chosen
+    # Le catalogue OpenRouter (plusieurs Mo) n'est relu qu'une fois par heure, en tâche de fond : le premier tour
+    # vocal ne l'attend jamais une fois le choix connu.
+    if _voice_pick["model"]:
+        if time.time() - float(_voice_pick["at"]) > 3600:
+            _voice_pick["at"] = time.time()
+            _background(_refresh_voice_model())
+        return str(_voice_pick["model"])
+    await _refresh_voice_model()
+    return str(_voice_pick["model"])
+
+
+async def _refresh_voice_model() -> None:
     from . import catalog
 
-    ids = {m["id"] for m in await catalog.models_for("openrouter", _key())}
-    return next((m for m in VOICE_MODELS if m in ids), VOICE_MODELS[0])
+    try:
+        ids = {m["id"] for m in await catalog.models_for("openrouter", _key())}
+        _voice_pick.update(at=time.time(), model=next((m for m in VOICE_MODELS if m in ids), VOICE_MODELS[0]))
+    except Exception:
+        _voice_pick.update(at=time.time(), model=_voice_pick["model"] or VOICE_MODELS[0])
 
 
 async def voice_reply(agent_id: str, name: str, role: str, text: str, history: list[dict], mode: str,

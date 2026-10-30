@@ -87,6 +87,24 @@ function apply(msg: ChatMessage, ev: ChatEvent, runId: string | null): ChatMessa
   }
 }
 
+const messagesCache = new Map<string, ChatMessage[]>();
+
+// Fonction stable : si elle changeait à chaque rendu, assistant-ui viderait son cache et reconvertirait tout le fil
+// à chaque image du flux, au lieu du seul message qui change.
+const convertMessage = (m: ChatMessage): ThreadMessageLike => ({
+  id: m.id,
+  role: m.role,
+  content: m.content as ThreadMessageLike["content"],
+  status: m.role === "assistant" ? (m.running ? { type: "running" } : { type: "complete", reason: "stop" }) : undefined,
+  attachments: (m.attachments ?? []).map((name, i) => ({
+    id: `${m.id}-att-${i}`,
+    type: "file",
+    name,
+    status: { type: "complete" },
+    content: [],
+  })),
+});
+
 export function useAgentChat(opts: {
   agentId: string;
   conversationId: string | null;
@@ -101,7 +119,8 @@ export function useAgentChat(opts: {
   const { agentId, conversationId, details, onConversationCreated, onRunFinished, updatedAt } = opts;
   const takeQuotes = useRef(opts.takeQuotes);
   takeQuotes.current = opts.takeQuotes;
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Conversation déjà ouverte : ses messages s'affichent tout de suite, la version du serveur arrive derrière.
+  const [messages, setMessages] = useState<ChatMessage[]>(() => (conversationId && messagesCache.get(conversationId)) || []);
   const [isRunning, setRunning] = useState(false);
   const runRef = useRef<{ runId: string | null; abort: AbortController | null }>({ runId: null, abort: null });
   // Conversation créée pendant ce run : on ne recharge pas l'historique par-dessus le flux en cours.
@@ -116,10 +135,11 @@ export function useAgentChat(opts: {
       setMessages([]);
       return;
     }
+    setMessages(messagesCache.get(conversationId) ?? []);
     let cancelled = false;
     get<StoredMessage[]>(`/api/conversations/${conversationId}/messages`)
       .then((rows) => !cancelled && setMessages(rows.map(fromStored)))
-      .catch(() => !cancelled && setMessages([]));
+      .catch(() => !cancelled && setMessages((cur) => (cur.length ? cur : [])));
     return () => {
       cancelled = true;
     };
@@ -127,6 +147,9 @@ export function useAgentChat(opts: {
 
   const running = useRef(false);
   running.current = isRunning;
+  useEffect(() => {
+    if (conversationId && !isRunning) messagesCache.set(conversationId, messages);
+  }, [conversationId, isRunning, messages]);
   useEffect(() => {
     if (!conversationId || !updatedAt || running.current) return;
     let cancelled = false;
@@ -257,19 +280,7 @@ export function useAgentChat(opts: {
     onNew,
     onCancel,
     onAddToolResult,
-    convertMessage: (m): ThreadMessageLike => ({
-      id: m.id,
-      role: m.role,
-      content: m.content as ThreadMessageLike["content"],
-      status: m.role === "assistant" ? (m.running ? { type: "running" } : { type: "complete", reason: "stop" }) : undefined,
-      attachments: (m.attachments ?? []).map((name, i) => ({
-        id: `${m.id}-att-${i}`,
-        type: "file",
-        name,
-        status: { type: "complete" },
-        content: [],
-      })),
-    }),
+    convertMessage,
     adapters: { attachments },
   });
 
