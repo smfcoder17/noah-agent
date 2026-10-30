@@ -3,6 +3,7 @@ import { Archive, ArchiveRestore, ChevronDown, Download, ExternalLink, Eye, Hand
 import { useCallback, useEffect, useState } from "react";
 import { type Agent, type Conversation, get, mediaUrl, rawFileUrl, send, type Usage, type WorkspaceFile } from "@/lib/api";
 import { cn, fileSize, money } from "@/lib/utils";
+import { AgentBrain } from "./AgentBrain";
 import { Connections, Folders, Memory, Routines, Software } from "./AgentPowers";
 import { NoahTile, agentColor } from "./Noah";
 import { STATE_WORD, StateShape } from "./Sidebar";
@@ -12,7 +13,7 @@ export type PanelTab = "details" | "files" | "computer";
 
 export function SidePanel({
   agent,
-  model,
+  onAgentChanged,
   tab,
   onTab,
   onClose,
@@ -24,7 +25,8 @@ export function SidePanel({
   onArchiveThread,
 }: {
   agent: Agent;
-  model: string;
+  /** Après un changement de cerveau : la liste des agents est relue. */
+  onAgentChanged: () => void;
   tab: PanelTab;
   onTab: (t: PanelTab) => void;
   onClose: () => void;
@@ -46,7 +48,7 @@ export function SidePanel({
         <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Fermer le panneau"><X /></Button>
       </div>
       <TabsContent value="details" className="min-h-0 flex-1 overflow-y-auto">
-        <Details agent={agent} model={model} onEdit={onEditAgent} refreshKey={refreshKey}>
+        <Details agent={agent} onEdit={onEditAgent} refreshKey={refreshKey} onAgentChanged={onAgentChanged}>
           <Threads threads={threads} threadId={threadId} onOpen={onOpenThread} onArchive={onArchiveThread} />
           <Routines agentId={agent.id} />
           <Memory agentId={agent.id} />
@@ -74,7 +76,7 @@ function Stat({ label, value }: { label: string; value: string | number }) {
   );
 }
 
-function Details({ agent, model, onEdit, refreshKey, children }: { agent: Agent; model: string; onEdit: () => void; refreshKey: number; children: React.ReactNode }) {
+function Details({ agent, onEdit, refreshKey, onAgentChanged, children }: { agent: Agent; onEdit: () => void; refreshKey: number; onAgentChanged: () => void; children: React.ReactNode }) {
   const [usage, setUsage] = useState<Usage | null>(null);
   useEffect(() => {
     get<Usage>("/api/usage").then(setUsage).catch(() => {});
@@ -91,7 +93,7 @@ function Details({ agent, model, onEdit, refreshKey, children }: { agent: Agent;
         </div>
       </div>
       {children}
-      <div className="text-sm"><span className="text-muted-foreground">Modèle : </span><span className="font-mono text-[13px]">{model || "—"}</span></div>
+      <AgentBrain key={agent.id} agentId={agent.id} own={agent.model} onChanged={onAgentChanged} />
       <div className="grid grid-cols-2 gap-2">
         <Stat label="Coût ce mois-ci" value={`${money(mine?.cost ?? 0)} $`} />
         <Stat label="Appels au modèle" value={mine?.calls ?? 0} />

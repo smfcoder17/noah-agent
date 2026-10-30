@@ -187,6 +187,18 @@ def current_model() -> dict | None:
     }
 
 
+def model_for(agent_id: str) -> dict | None:
+    """Le cerveau d'un agent : le sien s'il en a un, sinon celui de tous (même fournisseur, même clé)."""
+    m = current_model()
+    own = db.get_setting(f"model_{agent_id}")
+    return {**m, "model": own} if m and own else m
+
+
+def _clear_agent_models() -> None:
+    with db.connect() as c:
+        c.execute("DELETE FROM settings WHERE key LIKE 'model\\_%' ESCAPE '\\'")
+
+
 class ModelQuery(BaseModel):
     provider: str
     api_key: str | None = None
@@ -258,6 +270,8 @@ async def set_model(body: ModelChoice, user: int = Depends(auth.current_user)):
     api_key = body.api_key or (previous["api_key"] if previous and previous["provider"] == body.provider else None)
     if p["env"] and not api_key:
         raise HTTPException(400, "Cette option demande une clé API")
+    if previous and previous["provider"] != body.provider:
+        _clear_agent_models()  # les modèles propres à un agent n'existent pas chez le nouveau fournisseur
     db.set_setting("provider", body.provider)
     db.set_setting("model", body.model or p["model"])
     db.set_setting("base_url", body.base_url or "")
@@ -268,8 +282,7 @@ async def set_model(body: ModelChoice, user: int = Depends(auth.current_user)):
     if not agents:
         await _start_agent("Noah", "Tu es l'assistant personnel de l'utilisateur. Réponds en français, de façon brève et concrète.")
     else:
-        model = current_model()
-        await asyncio.gather(*(hermes.configure(a["id"], model) for a in agents), return_exceptions=True)
+        await asyncio.gather(*(hermes.configure(a["id"], model_for(a["id"])) for a in agents), return_exceptions=True)
     return {"ok": True}
 
 
@@ -436,7 +449,7 @@ async def _provision(agent: Agent, soul: str) -> None:
         provisioning[agent.id] = "Démarrage du navigateur…"
         await hermes.ensure_browser(agent.id)
         provisioning[agent.id] = "Configuration du modèle…"
-        await hermes.configure(agent.id, current_model(), soul)
+        await hermes.configure(agent.id, model_for(agent.id), soul)
         await asyncio.sleep(3)
         if await _wait_online(agent):
             provisioning.pop(agent.id, None)
@@ -452,6 +465,7 @@ async def list_agents(user: int = Depends(auth.current_user)):
     online = await asyncio.gather(*(_health(a) for a in agents))
     with db.connect() as c:
         convs = c.execute("SELECT id, agent_id, main FROM conversations").fetchall()
+        own_models = {r["key"][6:]: r["value"] for r in c.execute("SELECT key, value FROM settings WHERE key LIKE 'model\\_%' ESCAPE '\\'")}
     by_agent: dict[str, list[str]] = {}
     mains: dict[str, str] = {}
     for r in convs:
@@ -469,6 +483,7 @@ async def list_agents(user: int = Depends(auth.current_user)):
             "state": task_state.get(mains.get(a["id"], ""), "idle"),
             "color": a["color"],
             "pinned": bool(a["pinned"]),
+            "model": own_models.get(a["id"]),
         }
         for a, ok in zip(agents, online)
     ]
@@ -505,6 +520,25 @@ def _main_conversation(agent_id: str) -> str | None:
     with db.connect() as c:
         row = c.execute("SELECT id FROM conversations WHERE agent_id = ? AND main = 1", (agent_id,)).fetchone()
     return row["id"] if row else None
+
+
+class AgentModel(BaseModel):
+    model: str | None = Field(default=None, max_length=200)
+
+
+@app.put("/api/agents/{agent_id}/model")
+async def agent_model(agent_id: str, body: AgentModel, user: int = Depends(auth.current_user)):
+    """Cerveau propre à un agent (None : celui de tous). L'agent redémarre avec, ses conversations restent."""
+    agent = _agent(agent_id)
+    if not current_model():
+        raise HTTPException(400, "Choisis d'abord un cerveau dans Réglages.")
+    if body.model and body.model != db.get_setting("model"):
+        db.set_setting(f"model_{agent_id}", body.model)
+    else:
+        with db.connect() as c:
+            c.execute("DELETE FROM settings WHERE key = ?", (f"model_{agent_id}",))
+    await hermes.configure(agent.id, model_for(agent.id))
+    return {"model": db.get_setting(f"model_{agent_id}")}
 
 
 class AgentLook(BaseModel):

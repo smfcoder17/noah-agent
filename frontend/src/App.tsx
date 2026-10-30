@@ -270,7 +270,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
           <aside className="fixed inset-y-0 right-0 z-30 min-h-0 w-full border-l border-border bg-surface shadow-2xl sm:w-[min(520px,92vw)] xl:static xl:z-auto xl:w-auto xl:shadow-none">
             <SidePanel
               agent={agent}
-              model={model?.model ?? ""}
+              onAgentChanged={refreshAgents}
               tab={panel}
               onTab={setPanel}
               onClose={() => setPanel(null)}

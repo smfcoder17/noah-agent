@@ -63,6 +63,8 @@ export type Agent = {
   state: TaskState;
   color: string;
   pinned: boolean;
+  /** Cerveau propre à cet agent ; absent : celui de tous. */
+  model?: string | null;
 };
 /** main : la conversation unique avec l'agent ; les autres sont des fils (origin "agent" s'il les a ouverts). */
 export type Conversation = {
