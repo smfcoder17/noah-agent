@@ -93,8 +93,10 @@ export function useAgentChat(opts: {
   details: boolean;
   onConversationCreated: (id: string) => void;
   onRunFinished: () => void;
+  /** Dernière mise à jour connue côté serveur : un message arrivé sans nous (routine) déclenche un rechargement. */
+  updatedAt?: string;
 }) {
-  const { agentId, conversationId, details, onConversationCreated, onRunFinished } = opts;
+  const { agentId, conversationId, details, onConversationCreated, onRunFinished, updatedAt } = opts;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isRunning, setRunning] = useState(false);
   const runRef = useRef<{ runId: string | null; abort: AbortController | null }>({ runId: null, abort: null });
@@ -118,6 +120,22 @@ export function useAgentChat(opts: {
       cancelled = true;
     };
   }, [conversationId, agentId]);
+
+  const running = useRef(false);
+  running.current = isRunning;
+  useEffect(() => {
+    if (!conversationId || !updatedAt || running.current) return;
+    let cancelled = false;
+    get<StoredMessage[]>(`/api/conversations/${conversationId}/messages`)
+      .then((rows) => {
+        // Seulement s'il y a du nouveau, pour ne pas redessiner la conversation pour rien.
+        if (!cancelled && !running.current) setMessages((cur) => (rows.length > cur.length ? rows.map(fromStored) : cur));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationId, updatedAt]);
 
   const onNew = useCallback(
     async (message: AppendMessage) => {

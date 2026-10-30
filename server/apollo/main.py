@@ -15,12 +15,13 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import auth, catalog, db, events, hermes, media, relay
+from . import auth, catalog, db, events, hermes, machine, media, relay
 from .config import WEB_DIR
 from .hermes import Agent
 
 app = FastAPI(title="Noah Agent")
 app.include_router(relay.router)
+app.include_router(machine.router)
 
 # Agents en cours de création : id -> message d'étape ou d'erreur affiché dans l'interface.
 provisioning: dict[str, str] = {}
@@ -30,7 +31,7 @@ provisioning: dict[str, str] = {}
 task_state: dict[str, str] = {}
 
 # Version du branchement des agents ; l'augmenter reconfigure tous les agents au démarrage.
-AGENT_SETUP_VERSION = "9-routeur-creation"
+AGENT_SETUP_VERSION = "10-machine-routines"
 
 
 @app.on_event("startup")
@@ -38,6 +39,7 @@ async def startup() -> None:
     db.init()
     _migrate_threads()
     asyncio.create_task(_refresh_browsers())
+    asyncio.create_task(machine.deliver_routines(_save_message, _main_conversation))
     if db.get_setting("agent_setup") != AGENT_SETUP_VERSION and current_model():
         asyncio.create_task(_upgrade_agents())
 
@@ -71,12 +73,17 @@ def _migrate_threads() -> None:
 
 async def _upgrade_agents() -> None:
     """Rebranche les agents existants sur le relais (et retire leurs anciennes clés)."""
+    done = True
     for a in _agents():
         agent = Agent(a["id"], a["api_key"])
         if await _wait_online(agent, 60):
             provisioning[a["id"]] = "Mise à jour de l'agent…"
             await _provision(agent, _soul(a["name"], a["role"]))
-    db.set_setting("agent_setup", AGENT_SETUP_VERSION)
+        # Échec (lanceur pas prêt, agent arrêté) : on réessaiera au prochain démarrage.
+        done = done and a["id"] not in provisioning
+        provisioning.pop(a["id"], None)
+    if done:
+        db.set_setting("agent_setup", AGENT_SETUP_VERSION)
 
 
 # --- État, compte, connexion -------------------------------------------------------
@@ -264,8 +271,22 @@ def _agent(agent_id: str) -> Agent:
 # et reste identique d'un appel à l'autre, ce qui permet au fournisseur de le garder en cache.
 CAPABILITIES = """\
 ## Ta machine
-Tu as ton propre ordinateur Linux, allumé en permanence, avec Internet, un terminal, Python 3, Node.js/npm, git, curl et ffmpeg.
-Tu peux installer des paquets, écrire et lancer des scripts, construire des applications.
+Tu as ton propre ordinateur Linux (Debian), allumé en permanence, avec Internet, un terminal, Python 3, Node.js/npm, git, curl et ffmpeg.
+Pour un logiciel système qui manque : `python3 /opt/data/noah.py installer paquet1 paquet2` (paquets Debian, gardés si ta machine est recréée).
+Pour Python : `pip install --user`, pour Node : `npm install` dans le dossier du projet. L'utilisateur voit le disque et les logiciels dans Détails.
+
+## Mémoire
+Ta mémoire (notes sur ton travail) et le profil de l'utilisateur (qui il est, ses goûts, ses habitudes) persistent d'une conversation à l'autre.
+Note-y ce qui servira plus tard : préférences, comptes et outils qu'il utilise, décisions prises. L'utilisateur peut les lire et les corriger dans Détails.
+
+## Routines et initiative
+Quand l'utilisateur veut quelque chose de régulier (« chaque matin », « tous les lundis », « surveille… »), crée une routine avec ton outil cron :
+une consigne autonome et complète, un horaire (« every day at 8am », « 0 9 * * 1 », « every 2h »), et la livraison `local`.
+Le résultat de chaque passage arrive tout seul dans cette conversation. L'utilisateur voit, met en pause et supprime ses routines dans Détails.
+Propose une routine quand tu remarques une tâche qui revient.
+
+## Gmail, Agenda, Drive
+Si l'utilisateur a connecté Google dans Détails → Connexions, utilise la compétence google-workspace. Sinon, invite-le à le faire là plutôt que de lui demander des identifiants.
 
 ## Fichiers (l'utilisateur les voit dans l'onglet « Fichiers » de Noah Agent et peut les télécharger)
 - Ton espace de travail : /opt/data/workspace. Range-y tout ce que tu produis.
@@ -556,7 +577,8 @@ async def chat(body: ChatMessage, user: int = Depends(auth.current_user)):
     prompt = body.text
     if attachments:
         prompt += "\n\nFichiers joints par l'utilisateur :\n" + "\n".join(f"- {p}" for p in attachments)
-    return StreamingResponse(await _run(agent, conv_id, prompt, body.details), media_type="text/event-stream")
+    return StreamingResponse(await _run(agent, conv_id, prompt, body.details, machine.pop_context(conv_id)),
+                             media_type="text/event-stream")
 
 
 def _new_conversation(user: int, agent_id: str, title: str, main: bool = False, origin: str = "user") -> str:
@@ -569,11 +591,12 @@ def _new_conversation(user: int, agent_id: str, title: str, main: bool = False, 
     return conv_id
 
 
-async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False):
-    """Lance un run Hermes dans une conversation et rend le générateur SSE qui l'enregistre au fil de l'eau."""
+async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, context: str = ""):
+    """Lance un run Hermes dans une conversation et rend le générateur SSE qui l'enregistre au fil de l'eau.
+    `context` précède le message pour l'agent seulement : l'utilisateur ne le voit pas."""
     _save_message(conv_id, "user", prompt)
     try:
-        run_id = await hermes.start_run(agent, prompt, session_id=f"apollo-{conv_id}")
+        run_id = await hermes.start_run(agent, context + prompt, session_id=f"apollo-{conv_id}")
     except Exception:
         raise HTTPException(503, "L'agent ne répond pas. Il démarre peut-être encore : réessaie dans un instant.")
 

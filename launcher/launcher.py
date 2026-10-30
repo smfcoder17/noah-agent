@@ -5,14 +5,17 @@ et construit lui-même chaque conteneur à partir d'une image fixe, sans montage
 privilège. Le serveur Noah Agent n'a donc jamais accès au socket Docker.
 """
 import io
+import json
 import os
 import re
 import tarfile
+import threading
 import time
+from pathlib import Path
 
 import docker
 from docker.errors import NotFound
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request, Response
 from pydantic import BaseModel
 
 KEY = os.environ["LAUNCHER_KEY"]
@@ -337,6 +340,87 @@ def refresh_prompts(agent_id: str):
     if res.exit_code != 0:
         raise HTTPException(500, res.output.decode(errors="replace")[-300:])
     return {"sessions": int(res.output.decode().strip() or 0)}
+
+
+# --- Administration de la machine de l'agent (disque, mémoire, routines, Google) ---------------
+
+ADMIN = (Path(__file__).parent / "agent_admin.py").read_text(encoding="utf-8")
+HERMES_PYTHON = "/opt/hermes/.venv/bin/python"
+
+
+def _owner(c) -> str:
+    """uid:gid du propriétaire de /opt/data (l'utilisateur hermes) : les fichiers écrits restent les siens."""
+    res = c.exec_run(["stat", "-c", "%u:%g", DATA], user="root")
+    return res.output.decode().strip() if res.exit_code == 0 else "10000:10000"
+
+
+@app.post("/agents/{agent_id}/admin/{action}", dependencies=[Depends(auth)])
+def admin(agent_id: str, action: str, body: dict = Body(default_factory=dict)):
+    if not re.fullmatch(r"[a-z_]{2,30}", action):
+        raise HTTPException(400, "Action invalide")
+    c = container(check_id(agent_id))
+    res = c.exec_run([HERMES_PYTHON, "-c", ADMIN, action, json.dumps(body)], user=_owner(c),
+                     environment={"HOME": DATA, "HERMES_HOME": DATA}, workdir=DATA)
+    text = res.output.decode(errors="replace").strip().splitlines()
+    try:
+        out = json.loads(text[-1]) if text else {}
+    except json.JSONDecodeError:
+        raise HTTPException(500, " / ".join(text)[-500:])
+    if res.exit_code != 0:
+        raise HTTPException(400, out.get("erreur") or "Échec")
+    return out
+
+
+# Paquets Debian que l'agent peut installer : noms simples seulement (pas d'option ni de chemin).
+PACKAGE_RE = re.compile(r"^[a-z0-9][a-z0-9+.-]{0,62}$")
+PACKAGES_FILE = f"{DATA}/.noah/packages.txt"
+
+
+class Packages(BaseModel):
+    paquets: list[str]
+
+
+def _apt(c, packages: list[str]) -> tuple[bool, str]:
+    script = ("export DEBIAN_FRONTEND=noninteractive; "
+              "( [ -n \"$(ls -A /var/lib/apt/lists 2>/dev/null | grep -v lock)\" ] || apt-get update -qq ) && "
+              "apt-get install -y -qq --no-install-recommends \"$@\" || "
+              "( apt-get update -qq && apt-get install -y -qq --no-install-recommends \"$@\" )")
+    res = c.exec_run(["sh", "-c", script, "apt", *packages], user="root")
+    return res.exit_code == 0, res.output.decode(errors="replace")[-1500:]
+
+
+@app.post("/agents/{agent_id}/install", dependencies=[Depends(auth)])
+def install(agent_id: str, body: Packages):
+    pkgs = [p.strip().lower() for p in body.paquets if p.strip()]
+    if not pkgs or len(pkgs) > 10 or not all(PACKAGE_RE.match(p) for p in pkgs):
+        raise HTTPException(400, "Noms de paquets invalides")
+    c = container(check_id(agent_id))
+    ok, log = _apt(c, pkgs)
+    if not ok:
+        raise HTTPException(400, log)
+    # Gardés dans le volume : réinstallés si la machine de l'agent est recréée (nouvelle image).
+    owner = _owner(c)
+    c.exec_run(["sh", "-c", f"mkdir -p {DATA}/.noah && touch {PACKAGES_FILE} && "
+                f"for p in \"$@\"; do grep -qx \"$p\" {PACKAGES_FILE} || echo \"$p\" >> {PACKAGES_FILE}; done && "
+                f"chown -R {owner} {DATA}/.noah", "rec", *pkgs], user="root")
+    return {"ok": True, "paquets": pkgs, "journal": log.replace("\r", "\n").strip().splitlines()[-1][-200:]}
+
+
+def _restore_packages() -> None:
+    """Au démarrage du lanceur : réinstalle dans chaque agent les paquets qu'il avait ajoutés."""
+    for c in client.containers.list(filters={"label": LABEL}):
+        res = c.exec_run(["sh", "-c", f"cat {PACKAGES_FILE} 2>/dev/null"], user="root")
+        wanted = [p for p in res.output.decode().split() if PACKAGE_RE.match(p)]
+        if not wanted:
+            continue
+        missing = [p for p in wanted if c.exec_run(["dpkg", "-s", p], user="root").exit_code != 0]
+        if missing:
+            _apt(c, missing)
+
+
+@app.on_event("startup")
+def restore_packages() -> None:
+    threading.Thread(target=_restore_packages, daemon=True).start()
 
 
 @app.post("/agents/{agent_id}/restart", dependencies=[Depends(auth)])

@@ -216,6 +216,10 @@ async def configure(agent_id: str, model: dict, role: str | None = None) -> None
     camofox["adopt_existing_tab"] = True
     # Les commandes de l'agent démarrent dans son espace de travail, pas au milieu de sa config.
     cfg.setdefault("terminal", {})["cwd"] = "/opt/data/workspace"
+    # Les routines (« chaque matin à 8 h ») suivent l'heure de l'utilisateur, pas UTC.
+    tz = (await browser_identity()).get("timezone")
+    if tz:
+        cfg["timezone"] = tz
     files["config.yaml"] = yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True)
 
     if role is not None:
@@ -249,6 +253,7 @@ AIDE = """Utilisation : python3 /opt/data/noah.py <commande>
   video "description" [--duree 5] [--format 16:9]   crée une vidéo (quelques minutes)
   musique "description"                             crée un morceau de musique
   voix "texte à dire"                               lit un texte à voix haute (MP3)
+  installer paquet [paquet…]   installe des logiciels système (paquets Debian : ffmpeg, imagemagick, poppler-utils…)
 Les fichiers créés vont dans /opt/data/workspace/outputs/ ; la réponse donne le widget à montrer."""
 
 
@@ -291,6 +296,8 @@ elif a[:2] == ["navigateur", "redemarrer"]:
     out = call("POST", "/navigateur/redemarrer")
 elif a[:1] == ["fil"] and len(a) >= 3:
     out = call("POST", "/fils", {"titre": a[1], "consigne": " ".join(a[2:])})
+elif a[:1] == ["installer"] and len(a) >= 2:
+    out = call("POST", "/installer", {"paquets": a[1:]})
 elif a[:1] == ["fil-etat"] and len(a) == 2:
     out = call("GET", "/fils/" + a[1])
 else:

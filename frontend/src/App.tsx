@@ -219,6 +219,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
                 key={`${agent.id}-${threadId ?? "main"}`}
                 agent={agent}
                 conversationId={shown?.id ?? null}
+                updatedAt={shown?.updated_at}
                 details={details}
                 onConversationCreated={refreshConversations}
                 onRunFinished={onRunFinished}
@@ -293,6 +294,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
 function AgentChat(props: {
   agent: Agent;
   conversationId: string | null;
+  updatedAt?: string;
   details: boolean;
   onConversationCreated: () => void;
   onRunFinished: () => void;
