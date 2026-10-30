@@ -45,7 +45,15 @@ async def startup() -> None:
 
 
 async def _refresh_browsers() -> None:
-    """Recrée au besoin le navigateur de chaque agent (nouveaux réglages, langue et fuseau)."""
+    """Recrée au besoin la machine de chaque agent (après une restauration sur un nouveau serveur, ses
+    volumes sont là mais pas ses conteneurs), puis son navigateur (nouveaux réglages, langue et fuseau)."""
+    existing = await hermes.statuses()
+    for a in _agents():
+        if existing and a["id"] not in existing:
+            try:
+                await hermes.recreate_container(a["id"], a["api_key"])
+            except Exception:
+                pass
     for a in _agents():
         try:
             await hermes.ensure_browser(a["id"])
@@ -98,26 +106,40 @@ class Credentials(BaseModel):
     password: str = Field(min_length=8, max_length=256)
 
 
-def _login_response(response: Response, user_id: int) -> dict:
+def _login_response(request: Request, response: Response, user_id: int) -> dict:
     token = auth.new_session(user_id)
-    response.set_cookie(auth.COOKIE, token, httponly=True, samesite="lax", max_age=30 * 86400)
+    # Derrière Caddy (VPS), la requête arrive en HTTPS : le cookie ne doit jamais repartir en clair.
+    response.set_cookie(auth.COOKIE, token, httponly=True, samesite="lax", max_age=30 * 86400,
+                        secure=request.url.scheme == "https")
     # Le jeton est aussi rendu pour les apps mobile et desktop, qui l'envoient en Bearer.
     return {"token": token}
 
 
 @app.post("/api/setup/account")
-def setup_account(body: Credentials, response: Response):
+def setup_account(body: Credentials, request: Request, response: Response):
     if auth.has_users():
         raise HTTPException(409, "Le compte administrateur existe déjà")
-    return _login_response(response, auth.create_user(body.username, body.password))
+    return _login_response(request, response, auth.create_user(body.username, body.password))
+
+
+# Essais de connexion ratés par adresse IP : sur un VPS, la page de connexion est publique.
+_failed_logins: dict[str, list[float]] = {}
+LOGIN_WINDOW, LOGIN_TRIES = 600, 10
 
 
 @app.post("/api/login")
-def login(body: Credentials, response: Response):
+def login(body: Credentials, request: Request, response: Response):
+    ip = request.client.host if request.client else "?"
+    now = time.time()
+    recent = [t for t in _failed_logins.get(ip, []) if now - t < LOGIN_WINDOW]
+    if len(recent) >= LOGIN_TRIES:
+        raise HTTPException(429, "Trop d'essais. Réessaie dans quelques minutes.")
     user_id = auth.check_password(body.username, body.password)
     if user_id is None:
+        _failed_logins[ip] = recent + [now]
         raise HTTPException(401, "Nom d'utilisateur ou mot de passe incorrect")
-    return _login_response(response, user_id)
+    _failed_logins.pop(ip, None)
+    return _login_response(request, response, user_id)
 
 
 @app.post("/api/logout")

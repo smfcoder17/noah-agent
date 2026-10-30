@@ -31,6 +31,33 @@ Les modèles `:cloud` d'Ollama fonctionnent aussi. Choisis un modèle qui gère 
 3. Pour l'installer comme une app (« Ajouter à l'écran d'accueil »), le navigateur exige HTTPS :
    passe par Tailscale (`tailscale serve 8080`) ou un nom de domaine avec Caddy.
 
+### Sur un VPS (accessible partout, en HTTPS)
+
+1. Un VPS Linux avec 2 Go de RAM minimum par agent actif (4 Go conseillés), les ports 80 et 443 ouverts.
+2. Un nom de domaine (ou sous-domaine) dont l'enregistrement DNS pointe vers l'IP du VPS.
+3. Sur le VPS :
+   ```sh
+   curl -fsSL https://get.docker.com | sh
+   git clone <ce dépôt> noah-agent && cd noah-agent
+   sh install.sh --domaine noah.example.com
+   ```
+4. Ouvre `https://noah.example.com` et crée ton compte tout de suite : la page est publique jusqu'à ce que le compte existe.
+
+Caddy obtient et renouvelle le certificat HTTPS tout seul. Le serveur n'écoute plus que derrière lui ; la page
+de connexion bloque une adresse IP après 10 essais ratés en 10 minutes.
+
+### Sauvegardes
+
+```sh
+sh scripts/backup.sh                                   # backups/noah-AAAAMMJJ-HHMM.tar, garde les 7 dernières
+sh scripts/restore.sh backups/noah-20261030-0300.tar   # restaure, ici ou sur un nouveau serveur
+```
+
+Une sauvegarde contient le compte et l'historique, la machine de chaque agent (mémoire, routines, fichiers,
+connexions), son navigateur (sessions de sites) et le `.env`, qui porte la clé de chiffrement : garde-la en lieu sûr.
+Pour une sauvegarde chaque nuit, ajoute avec `crontab -e` :
+`0 3 * * * cd /chemin/vers/noah-agent && sh scripts/backup.sh >> backups/backup.log 2>&1`.
+
 ## Ce qui tourne
 
 | Service | Rôle |

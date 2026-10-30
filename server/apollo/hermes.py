@@ -51,6 +51,11 @@ async def create_container(agent_id: str) -> str:
     return api_key
 
 
+async def recreate_container(agent_id: str, api_key: str) -> None:
+    """Conteneur d'un agent existant (son volume garde mémoire, fichiers et config)."""
+    await _launcher("POST", f"/agents/{agent_id}", json={"api_key": api_key})
+
+
 async def delete_container(agent_id: str) -> None:
     await _launcher("DELETE", f"/agents/{agent_id}")
 

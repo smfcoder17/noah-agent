@@ -1,0 +1,28 @@
+# Ajout pour un VPS : Caddy devant le serveur, en HTTPS. Activé par install.sh --domaine.
+# Chemins relatifs à la racine du dépôt (dossier du premier fichier compose).
+# Le serveur n'est plus joignable que par Caddy (et en local sur le VPS, pour les sauvegardes et le dépannage).
+services:
+  server:
+    ports: !override
+      - "127.0.0.1:${APOLLO_PORT:-8080}:8080"
+
+  caddy:
+    image: caddy:2.10-alpine
+    container_name: apollo-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      NOAH_DOMAIN: ${NOAH_DOMAIN:?Indique le domaine dans .env (NOAH_DOMAIN=noah.example.com)}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [apollo]
+    depends_on: [server]
+
+volumes:
+  caddy-data:
+  caddy-config:

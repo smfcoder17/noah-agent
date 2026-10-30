@@ -18,4 +18,5 @@ COPY --from=web /web/dist ./web
 
 ENV APOLLO_DATA_DIR=/data APOLLO_WEB_DIR=/app/web
 EXPOSE 8080
-CMD ["uvicorn", "apollo.main:app", "--host", "0.0.0.0", "--port", "8080"]
+# --proxy-headers : derrière Caddy, l'adresse du client et le HTTPS viennent des en-têtes X-Forwarded-*.
+CMD ["uvicorn", "apollo.main:app", "--host", "0.0.0.0", "--port", "8080", "--proxy-headers", "--forwarded-allow-ips", "*"]

@@ -12,3 +12,4 @@ node_modules/
 
 # Interface compilée
 frontend/dist/
+backups/
