@@ -2,10 +2,10 @@
 
 Noah Agent est auto-hébergé : il se connecte à Google avec la propre « application » OAuth de l'utilisateur
 (un projet Google Cloud à son nom). L'agent la crée lui-même dans son navigateur en suivant une recette et
-n'appelle l'utilisateur que pour ce qui doit rester le sien (se connecter, accepter les conditions). Ces
-identifiants servent ensuite à tous ses agents.
+n'appelle l'utilisateur que pour se connecter à son compte. Ces identifiants servent ensuite à tous ses agents.
 
-L'accord se donne dans le navigateur de l'agent, où l'utilisateur est déjà connecté à Google : Google renvoie vers
+L'accord se donne dans le navigateur de l'agent, où l'utilisateur est déjà connecté à Google. Noah Agent le valide
+lui-même avec les accès cochés dans Détails (c'est ce choix qui fait foi) ; Google renvoie vers
 une adresse locale qui ne répond pas, Noah Agent lit le code dans la barre d'adresse et l'échange lui-même. Aucune
 adresse à recopier. Le jeton obtenu est posé dans la machine de l'agent pour sa compétence google-workspace.
 """
@@ -105,13 +105,94 @@ def _state(agent_id: str) -> dict:
 
 # --- Accord ---------------------------------------------------------------------------------------
 
-async def _open_tab(agent_id: str, url: str) -> None:
+async def _open_tab(agent_id: str, url: str) -> str:
     user = {"userId": hermes.BROWSER_USER}
     try:
         await hermes.browser_call(agent_id, "POST", "/start", timeout=60)
     except httpx.HTTPError:
         await hermes.ensure_browser(agent_id)
-    await hermes.browser_call(agent_id, "POST", "/tabs", timeout=60, json={**user, "sessionKey": hermes.BROWSER_USER, "url": url})
+    r = await hermes.browser_call(agent_id, "POST", "/tabs", timeout=60, json={**user, "sessionKey": hermes.BROWSER_USER, "url": url})
+    return r.get("tabId") or ""
+
+
+# Les pages d'accord de Google, parcourues à la place de l'utilisateur : il a déjà choisi ses accès dans Noah Agent,
+# c'est ce choix qui est demandé à Google. Le script marque l'élément à cliquer ; le clic part de Camoufox (vrai clic
+# de souris). Ce qui doit rester le sien (mot de passe, code, choix entre plusieurs comptes) le fait appeler.
+CONSENT_JS = """(() => {
+  const vis = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  const mark = (e, quoi) => { document.querySelectorAll('[data-noah-next]').forEach((x) => x.removeAttribute('data-noah-next'));
+    e.setAttribute('data-noah-next', '1'); return JSON.stringify({quoi, texte: (e.innerText || e.getAttribute('aria-label') || '').trim().slice(0, 60)}); };
+  const say = (quoi) => JSON.stringify({quoi});
+  if (location.pathname.includes('/oauth/error')) return JSON.stringify({quoi: 'refus', texte: document.body.innerText.slice(0, 600)});
+  if (location.pathname.includes('/challenge/') || [...document.querySelectorAll('input[type=password]')].some(vis)) return say('utilisateur');
+  const accounts = [...document.querySelectorAll('[data-identifier]')].filter(vis);
+  if (accounts.length === 1) return mark(accounts[0], 'compte');
+  if (accounts.length > 1) return say('choix_compte');
+  const boxes = [...document.querySelectorAll('input[type=checkbox]')].filter((b) => !b.checked && !b.disabled);
+  const box = boxes.find((b) => vis(b) || (b.closest('label') && vis(b.closest('label'))));
+  if (box) return mark(vis(box) ? box : box.closest('label'), 'case');
+  const clickable = [...document.querySelectorAll('button, [role=button], a')].filter(vis);
+  const find = (re) => clickable.find((e) => re.test((e.innerText || '').trim()));
+  const go = find(/^(Continuer|Continue|Autoriser|Allow|Suivant|Next)$/i);
+  if (go) return mark(go, 'bouton');
+  const unsafe = find(/^(Accéder à|Go to) /i);
+  if (unsafe) return mark(unsafe, 'non_validee');
+  const advanced = find(/^(Paramètres avancés|Advanced)$/i);
+  if (advanced) return mark(advanced, 'avance');
+  return say('attente');
+})()"""
+
+
+async def _consent_step(agent_id: str, flow: dict) -> bool:
+    """Un pas sur la page d'accord : choisir le compte, cocher les accès, « Continuer ». Vrai si Google a refusé."""
+    tab, user = flow.get("onglet"), {"userId": hermes.BROWSER_USER}
+    if not tab:
+        return False
+    r = await hermes.browser_call(agent_id, "POST", f"/tabs/{tab}/evaluate", timeout=10, json={**user, "expression": CONSENT_JS})
+    try:
+        step = json.loads(r.get("result") or "{}")
+    except (TypeError, ValueError):
+        return False
+    what = step.get("quoi")
+    if what == "refus":
+        await _refused(agent_id, flow, step.get("texte", ""))
+        return True
+    if what in ("utilisateur", "choix_compte"):
+        if not flow.get("appel"):
+            flow["appel"] = handoff.open_call(agent_id, (
+                "Google te demande de confirmer que c'est toi, dans l'écran de l'agent. Le reste se fait tout seul."
+                if what == "utilisateur" else
+                "Choisis dans l'écran de l'agent le compte Google à connecter. Le reste se fait tout seul."), origin="google")
+        return False
+    if flow.get("appel"):
+        handoff.close_call(agent_id, flow.pop("appel")["id"], "fait")
+    if what in (None, "attente"):
+        return False
+    key = f"{what}:{step.get('texte', '')}"
+    flow["clics"][key] = flow["clics"].get(key, 0) + 1
+    if flow["clics"][key] > 4:  # le même clic ne mène nulle part : la page a changé, l'utilisateur prend la main
+        if not flow.get("appel"):
+            flow["appel"] = handoff.open_call(agent_id, "La page d'accord de Google ne réagit pas comme prévu : termine-la "
+                                              "dans l'écran de l'agent (« Continuer »).", origin="google")
+        return False
+    flow["message"] = "Noah valide ton accord chez Google…"
+    await hermes.browser_call(agent_id, "POST", f"/tabs/{tab}/click", timeout=20, json={**user, "selector": "[data-noah-next]"})
+    return False
+
+
+async def _refused(agent_id: str, flow: dict, text: str) -> None:
+    """Google bloque l'accès. Le cas courant : le compte n'est pas dans les testeurs de l'application (mode Test).
+    L'agent l'y ajoute et relance l'accord ; l'utilisateur n'a rien à faire."""
+    testing = "test" in text.lower()
+    _finish(agent_id, flow, "configuration" if testing else "erreur",
+            "L'agent t'ajoute comme testeur de ton application Google, puis l'accord reprend tout seul." if testing
+            else "Google a bloqué l'accès : " + " ".join(text.split())[:200])
+    if testing and _hooks.get("resume"):
+        await _hooks["resume"](agent_id, (
+            "Google bloque l'accord : le compte de l'utilisateur n'est pas dans les testeurs de l'application « Noah Agent » "
+            "(mode Test, qu'on garde : ne publie pas). Ouvre https://console.cloud.google.com/auth/audience , « Add users » sous "
+            "« Utilisateurs tests », son adresse Gmail, « Enregistrer », et vérifie qu'elle apparaît dans la liste. Puis lance `python3 /opt/data/noah.py google-accord` : Noah Agent refait l'accord "
+            "tout seul. Ne m'appelle pas, sauf si Google te demande de te reconnecter."))
 
 
 async def _returned(agent_id: str, state: str) -> dict | None:
@@ -142,12 +223,9 @@ async def start_consent(agent_id: str, perms: list[str]) -> None:
     if old and old.get("tache"):
         old["tache"].cancel()
     flow = {"etat": state, "verifier": verifier, "permissions": perms, "statut": "accord", "depuis": time.time(),
-            "message": "Autorise l'accès dans l'écran de l'agent."}
+            "message": "Noah donne ton accord à Google avec les accès que tu as cochés…", "clics": {}}
     _flows[agent_id] = flow
-    await _open_tab(agent_id, url)
-    handoff.open_call(agent_id, "Google te demande ton accord dans l'écran de l'agent. Si Google affiche « Cette application "
-                      "n'a pas été validée », c'est la tienne : clique sur « Paramètres avancés » puis « Accéder à… ». "
-                      "Vérifie les accès cochés, puis clique sur « Continuer ».", origin="google")
+    flow["onglet"] = await _open_tab(agent_id, url)
     flow["tache"] = asyncio.create_task(_watch_consent(agent_id, flow))
 
 
@@ -163,6 +241,11 @@ async def _watch_consent(agent_id: str, flow: dict) -> None:
         await asyncio.sleep(1.5)
         q = await _returned(agent_id, flow["etat"])
         if not q:
+            try:
+                if await _consent_step(agent_id, flow):
+                    return
+            except httpx.HTTPError:
+                pass  # page en cours de chargement
             continue
         await _close_redirect_tabs(agent_id)
         if q.get("error"):
@@ -224,9 +307,30 @@ async def _exchange(agent_id: str, flow: dict, code: str) -> None:
 
 _hooks: dict = {}
 
+# L'application reste en mode Test (publier exigerait un site et des règles de confidentialité) : Google y coupe
+# l'accès au bout de 7 jours. Noah Agent refait l'accord avant, dans le navigateur où l'utilisateur est connecté.
+RENEW_AFTER = 6 * 24 * 3600
 
-def setup(save_message, main_conversation) -> None:
-    _hooks.update(save=save_message, main=main_conversation)
+
+async def keep_google_fresh(every: float = 3600) -> None:
+    while True:
+        await asyncio.sleep(every)
+        with db.connect() as c:
+            ids = [r["id"] for r in c.execute("SELECT id FROM agents")]
+        for agent_id in ids:
+            account = _account(agent_id)
+            flow = _flows.get(agent_id)
+            if not account or not _client() or (flow and flow.get("tache")):
+                continue
+            if time.time() - account.get("depuis", 0) > RENEW_AFTER:
+                try:
+                    await start_consent(agent_id, account["permissions"])
+                except Exception:  # noqa: BLE001 - navigateur indisponible : on réessaie dans une heure
+                    pass
+
+
+def setup(save_message, main_conversation, resume=None) -> None:
+    _hooks.update(save=save_message, main=main_conversation, resume=resume)
 
 
 def _tell_agent(agent_id: str, account: dict) -> None:
@@ -236,7 +340,8 @@ def _tell_agent(agent_id: str, account: dict) -> None:
         return
     names = ", ".join(PERMS[p]["nom"].lower() for p in account["permissions"]) or "aucun accès"
     note = (f"Google est connecté ({account['compte'] or 'compte Google'}) : {names}. Utilise la compétence google-workspace ; "
-            "pour un accès qui manque, l'utilisateur l'ajoute dans Détails → Connexions.")
+            "pour un accès qui manque, l'utilisateur l'ajoute dans Détails → Connexions. L'application reste en mode Test, "
+            "c'est voulu : Noah Agent renouvelle l'accord tout seul avant les 7 jours. Ne cherche pas à la publier.")
     pending = json.loads(db.get_setting(f"contexte_{conv}") or "[]")
     db.set_setting(f"contexte_{conv}", json.dumps((pending + [note])[-5:], ensure_ascii=False))
 
@@ -248,34 +353,38 @@ def recipe(perms: list[str]) -> str:
     return f"""# Recette : créer l'accès Google de l'utilisateur (une seule fois pour tous ses agents)
 
 But : un projet Google Cloud à son nom, avec un « ID client OAuth » de type Application de bureau. Noah Agent s'en sert
-ensuite pour demander son accord. Travaille dans ton navigateur (l'utilisateur voit ton écran). Prends une capture
-quand tu hésites : l'interface de Google change souvent, cherche le bouton équivalent plutôt que d'abandonner.
+ensuite pour obtenir l'accès. Travaille dans ton navigateur (l'utilisateur voit ton écran). L'interface de Google change
+souvent : cherche le bouton équivalent plutôt que d'abandonner.
 
-Règle : tout ce qui est un mot de passe, un code, une case « J'accepte » ou un choix de pays/conditions, c'est à l'utilisateur.
-Appelle-le avec `python3 /opt/data/noah.py appeler "ce qu'il doit faire, en une phrase"` et attends sa réponse
-(relance `attendre <id>` tant que la réponse est « en_attente »). Ne le fais jamais à sa place.
+L'utilisateur t'a confié toute la mise en place en cliquant sur « Connecter » : accepte toi-même les conditions de Google
+Cloud, coche toi-même les cases d'accord du règlement, publie et confirme. Il n'intervient que pour se connecter à son
+compte (mot de passe, code de validation). Ne l'appelle pour rien d'autre.
 
-1. Ouvre https://console.cloud.google.com/ . Page de connexion → appelle-le : « Connecte-toi à ton compte Google dans
-   mon écran (onglet Ordinateur), puis clique sur C'est fait. » Conditions d'utilisation de Google Cloud → appelle-le
-   pour qu'il les lise et les accepte lui-même.
+Va vite : utilise les outils du navigateur (browser_navigate, browser_snapshot, browser_click, browser_type), pas curl,
+et pas de `sleep` (browser_navigate attend déjà le chargement). Ouvre directement les adresses ci-dessous.
+
+1. Ouvre https://console.cloud.google.com/ . Page de connexion Google → appelle-le avec
+   `python3 /opt/data/noah.py appeler "Connecte-toi à ton compte Google dans mon écran." --quand-quitte accounts.google.com`
+   L'appel se termine tout seul dès qu'il est connecté (relance `attendre <id>` tant que la réponse est « en_attente »).
+   Conditions d'utilisation de Google Cloud (pays, case « J'accepte ») → coche et accepte.
 2. Crée le projet : https://console.cloud.google.com/projectcreate , nom « Noah Agent », puis « Créer ». Attends qu'il
    existe et note son identifiant (ex. noah-agent-123456). S'il existe déjà un projet « Noah Agent », réutilise-le.
 3. Active les API d'un coup : https://console.cloud.google.com/flows/enableapi?apiid={apis}&project=<identifiant>
    puis « Suivant » / « Activer ».
 4. Écran d'accord : https://console.cloud.google.com/auth/overview?project=<identifiant> → « Commencer » (Get started).
    Nom de l'application « Noah Agent », adresse d'assistance = l'adresse de l'utilisateur, audience « Externe »,
-   adresse de contact = la même. La case d'accord du règlement sur les données : appelle-le pour qu'il la coche
-   et clique sur « Créer ».
-5. Publication : https://console.cloud.google.com/auth/audience?project=<identifiant> → « Publier l'application »
-   puis confirme. Indispensable : en mode « Test », Google coupe l'accès tous les 7 jours. Pas besoin de validation
-   par Google : l'application ne sert qu'à lui.
+   adresse de contact = la même. Coche la case d'accord du règlement sur les données et clique sur « Créer ».
+5. Testeur : https://console.cloud.google.com/auth/audience?project=<identifiant> → laisse l'état « Test » (ne publie pas :
+   Google exigerait un site et des règles de confidentialité). Sous « Utilisateurs tests », « Add users », saisis l'adresse
+   Gmail de l'utilisateur, « Enregistrer », et vérifie qu'elle apparaît dans la liste. Noah Agent renouvelle lui-même
+   l'accord avant l'expiration de 7 jours propre au mode Test.
 6. Identifiant : https://console.cloud.google.com/auth/clients/create?project=<identifiant> → type « Application de
    bureau » (Desktop app), nom « Noah », « Créer ». La fenêtre affiche l'ID client et le code secret : lis-les
    (capture si besoin) avant de la fermer, puis lance
    `python3 /opt/data/noah.py google-identifiants <ID client> <code secret>`.
-7. Noah Agent ouvre alors lui-même la page d'accord dans ton navigateur et appelle l'utilisateur. Ne clique pas
-   sur « Continuer » ou « Autoriser » à sa place. Dis-lui en une phrase que c'est prêt, puis arrête-toi : Noah Agent
-   te préviendra quand Google sera connecté.
+7. Noah Agent ouvre alors lui-même la page d'accord de Google et la valide avec les accès que l'utilisateur a cochés.
+   N'y touche pas. Dis-lui en une phrase que l'accès est créé, puis arrête-toi : Noah Agent te préviendra quand Google
+   sera connecté.
 """
 
 
@@ -380,6 +489,17 @@ async def agent_recipe(name: str, request: Request):
     return {"recette": recipe(perms)}
 
 
+@router.post("/agent-api/google/accord")
+async def agent_consent(request: Request):
+    """L'agent relance l'accord (après avoir publié l'application, par exemple) avec les accès choisis."""
+    agent_id = relay._agent_from(request)
+    perms = json.loads(db.get_setting(f"google_voulu_{agent_id}") or "[]")
+    if not _client() or not perms:
+        raise HTTPException(409, "Rien à relancer : l'utilisateur choisit ses accès dans Détails → Connexions → Google.")
+    await start_consent(agent_id, perms)
+    return {"ok": True, "suite": "Noah Agent refait l'accord de Google dans ton navigateur : n'y touche pas et arrête-toi."}
+
+
 @router.post("/agent-api/google/identifiants")
 async def agent_client_ids(body: ClientIds, request: Request):
     agent_id = relay._agent_from(request)
@@ -392,5 +512,5 @@ async def agent_client_ids(body: ClientIds, request: Request):
     except (httpx.HTTPError, HTTPException) as e:
         return {"ok": True, "suite": f"Identifiants enregistrés, mais la page d'accord n'a pas pu s'ouvrir ({e}). "
                                      "Dis à l'utilisateur de cliquer sur « Connecter » dans Détails → Connexions → Google."}
-    return {"ok": True, "suite": "Identifiants enregistrés. La page d'accord de Google est ouverte dans ton navigateur et "
-                                 "l'utilisateur est prévenu. Ne clique pas à sa place : dis-lui que c'est prêt et arrête-toi."}
+    return {"ok": True, "suite": "Identifiants enregistrés. Noah Agent valide maintenant l'accord de Google dans ton navigateur "
+                                 "(onglet de la page d'accord) : n'y touche pas. Dis à l'utilisateur que l'accès est créé et arrête-toi."}

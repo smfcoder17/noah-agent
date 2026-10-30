@@ -127,14 +127,18 @@ une étape est la tienne, il t'appelle (`noah.py appeler`). Un bandeau s'affiche
 ## Comptes : Google
 
 Détails → Connexions → Google : tu coches ce que l'agent peut faire (lire ou écrire tes courriels, voir ou
-modifier ton agenda, lire ou modifier Drive, Docs et Sheets, voir tes contacts), et tu donnes ton accord une
-seule fois. Noah Agent étant auto-hébergé, il passe par ta propre application Google :
+modifier ton agenda, lire ou modifier Drive, Docs et Sheets, voir tes contacts). Ce choix vaut accord : tu n'as
+ensuite qu'à te connecter à ton compte Google. Noah Agent étant auto-hébergé, il passe par ta propre application Google :
 
 1. La première fois, l'agent la crée dans son navigateur en suivant une recette (`noah.py recette google`) :
-   projet Google Cloud, API utiles, écran d'accord publié (sinon Google coupe l'accès tous les 7 jours), ID
-   client « Application de bureau ». Il t'appelle pour te connecter et accepter les conditions.
-2. Noah Agent ouvre la page d'accord dans l'écran de l'agent. Google renvoie vers une adresse locale qui ne
-   répond pas ; Noah Agent lit le code dans la barre d'adresse et l'échange lui-même, sans rien à recopier.
+   projet Google Cloud, API utiles, écran d'accord, toi comme testeur, ID client « Application de bureau ». Il
+   accepte lui-même les conditions de Google Cloud et ne t'appelle que pour te connecter ; l'appel se ferme seul
+   une fois connecté.
+2. Noah Agent ouvre la page d'accord dans le navigateur de l'agent et la valide lui-même (compte, avertissement,
+   accès cochés). Google renvoie vers une adresse locale qui ne répond pas ; Noah Agent lit le code dans la barre
+   d'adresse et l'échange, sans rien à recopier.
+3. L'application reste en mode Test (publier exigerait un site et des règles de confidentialité). Google y coupe
+   l'accès au bout de 7 jours : Noah Agent refait l'accord tout seul tous les 6 jours.
 
 Les identifiants servent ensuite à tous tes agents ; chaque agent a son propre jeton, limité aux accès cochés.
 Si tu as déjà un fichier d'identifiants, « J'ai déjà un fichier d'identifiants » saute l'étape 1.

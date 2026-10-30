@@ -60,7 +60,7 @@ BROWSER_IMAGE = os.environ.get("BROWSER_IMAGE", "ghcr.io/jo-inc/camofox-browser:
 BROWSER_PREFIX = "apollo-browser-"
 BROWSER_LABEL = "apollo.browser"
 # Version des réglages du navigateur ; un conteneur plus ancien est recréé (le profil reste dans son volume).
-BROWSER_VERSION = "5"
+BROWSER_VERSION = "7"
 
 
 class BrowserKeys(BaseModel):
@@ -72,12 +72,20 @@ class BrowserKeys(BaseModel):
     timezone: str = ""
 
 
+_browser_lock = threading.Lock()  # deux appels simultanés recréaient le même conteneur (conflit Docker)
+
+
 @app.post("/agents/{agent_id}/browser", dependencies=[Depends(auth)])
 def ensure_browser(agent_id: str, body: BrowserKeys):
     """Crée (si besoin) le navigateur Camoufox de l'agent, avec son écran partagé en noVNC.
 
     Le profil (cookies, sessions connectées) vit dans un volume à part, gardé entre les redémarrages.
     """
+    with _browser_lock:
+        return _ensure_browser(agent_id, body)
+
+
+def _ensure_browser(agent_id: str, body: BrowserKeys):
     check_id(agent_id)
     container(agent_id)  # l'agent doit exister
     name = BROWSER_PREFIX + agent_id
@@ -88,6 +96,7 @@ def ensure_browser(agent_id: str, body: BrowserKeys):
             if c.status != "running":
                 c.start()
             return {"host": name, "created": False}
+        c.stop(timeout=20)  # arrêt propre : Camoufox enregistre les cookies de la session (connexions comprises)
         c.remove(force=True)
     except NotFound:
         pass
@@ -120,8 +129,10 @@ def ensure_browser(agent_id: str, body: BrowserKeys):
         volumes={name: {"bind": "/data", "mode": "rw"}},
         network=NETWORK,
         restart_policy={"Name": "unless-stopped"},
-        mem_limit="2g",
-        nano_cpus=2_000_000_000,
+        # Firefox sans carte graphique dessine tout au processeur : avec 2 cœurs, la console Google Cloud mettait 10 à
+        # 30 s par clic et l'écran partagé ramait. Un onglet de cette console dépasse à lui seul 1,8 Go.
+        mem_limit="4g",
+        nano_cpus=4_000_000_000,
         shm_size="1g",
         security_opt=["no-new-privileges"],
     )

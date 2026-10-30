@@ -1,12 +1,13 @@
 """Appel à l'utilisateur : l'agent (ou Noah Agent) a besoin de lui pour une étape qui doit rester la sienne.
 
-Se connecter à un compte, taper un code 2FA, accepter des conditions, cliquer sur « Autoriser ». L'agent dit quoi
+Se connecter à un compte, taper un code 2FA, résoudre un CAPTCHA. L'agent dit quoi
 faire ; Noah Agent affiche un bandeau avec l'écran de l'agent, prévient sur l'ordinateur, et l'agent attend la
 réponse (« C'est fait » ou « Je ne peux pas ») au lieu de finir son tour et d'oublier où il en était.
 """
 import asyncio
 import time
 import uuid
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -26,7 +27,9 @@ def setup(resume) -> None:
     _hooks["resume"] = resume
 
 
-def open_call(agent_id: str, message: str, origin: str = "agent") -> dict:
+def open_call(agent_id: str, message: str, origin: str = "agent", leave_host: str = "") -> dict:
+    """`leave_host` : l'appel se termine tout seul (« fait ») quand plus aucun onglet n'est sur ce site, par exemple
+    la page de connexion de Google. L'utilisateur se connecte et n'a rien d'autre à cliquer."""
     old = _calls.get(agent_id)
     if old and not old["attente"].done():
         old["attente"].set_result("remplace")
@@ -34,7 +37,24 @@ def open_call(agent_id: str, message: str, origin: str = "agent") -> dict:
             "attente": asyncio.get_running_loop().create_future(), "attentifs": 0}
     _calls[agent_id] = call
     desktop.notify("Noah a besoin de toi", message[:240])
+    if leave_host:
+        asyncio.create_task(_until_left(agent_id, call, leave_host))
     return call
+
+
+async def _until_left(agent_id: str, call: dict, host: str) -> None:
+    seen_gone = 0
+    while _calls.get(agent_id) is call:
+        await asyncio.sleep(2)
+        try:
+            tabs = (await hermes.browser_call(agent_id, "GET", "/tabs", params={"userId": hermes.BROWSER_USER})).get("tabs") or []
+        except Exception:  # noqa: BLE001 - navigateur en train de redémarrer
+            continue
+        on_host = any((urlparse(str(t.get("url", ""))).hostname or "").endswith(host) for t in tabs)
+        seen_gone = 0 if on_host else seen_gone + 1
+        if seen_gone >= 2:  # deux relevés de suite : pas une redirection en cours
+            await answer(agent_id, call, "fait")
+            return
 
 
 def close_call(agent_id: str, call_id: str | None, answer: str) -> None:
@@ -90,15 +110,19 @@ async def answer_call(agent_id: str, call_id: str, body: Answer, user: int = Dep
     if call["origine"] != "agent" and body.reponse == "fait":
         # Noah Agent finit lui-même ses appels (il voit quand l'accord est donné) : « fait » ne change rien.
         return {"ok": True}
-    nobody_waiting = call["attentifs"] == 0
-    close_call(agent_id, call_id, body.reponse)
-    if body.reponse == "fait":
-        asyncio.create_task(save_browser_session(agent_id))
-    if nobody_waiting and _hooks.get("resume"):
-        # L'agent a fini son tour entre-temps (limite de temps, ou il s'est arrêté) : la réponse le relance.
-        word = "C'est fait" if body.reponse == "fait" else "Je ne peux pas le faire maintenant"
-        await _hooks["resume"](agent_id, f"{word} (ta demande : « {call['message'][:300]} »). Reprends où tu en étais.")
+    await answer(agent_id, call, body.reponse)
     return {"ok": True}
+
+
+async def answer(agent_id: str, call: dict, reponse: str) -> None:
+    nobody_waiting = call["attentifs"] == 0
+    close_call(agent_id, call["id"], reponse)
+    if reponse == "fait":
+        asyncio.create_task(save_browser_session(agent_id))
+    if call["origine"] == "agent" and nobody_waiting and _hooks.get("resume"):
+        # L'agent a fini son tour entre-temps (limite de temps, ou il s'est arrêté) : la réponse le relance.
+        word = "C'est fait" if reponse == "fait" else "Je ne peux pas le faire maintenant"
+        await _hooks["resume"](agent_id, f"{word} (ta demande : « {call['message'][:300]} »). Reprends où tu en étais.")
 
 
 async def save_browser_session(agent_id: str, delay: float = 3) -> None:
@@ -118,6 +142,7 @@ AGENT_WAIT = 150
 
 class AgentCall(BaseModel):
     message: str = Field(min_length=3, max_length=600)
+    quand_quitte: str = Field(default="", max_length=100, pattern=r"^[a-z0-9.-]*$")
 
 
 def _result(call_id: str, answer: str) -> dict:
@@ -134,7 +159,7 @@ def _result(call_id: str, answer: str) -> dict:
 @router.post("/agent-api/appel")
 async def agent_call(body: AgentCall, request: Request):
     agent_id = relay._agent_from(request)
-    call = open_call(agent_id, body.message.strip())
+    call = open_call(agent_id, body.message.strip(), leave_host=body.quand_quitte)
     return _result(call["id"], await wait(agent_id, call["id"], AGENT_WAIT))
 
 

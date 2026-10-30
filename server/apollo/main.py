@@ -35,7 +35,7 @@ provisioning: dict[str, str] = {}
 task_state: dict[str, str] = {}
 
 # Version du branchement des agents ; l'augmenter reconfigure tous les agents au démarrage.
-AGENT_SETUP_VERSION = "20-comptes"
+AGENT_SETUP_VERSION = "21-comptes-auto"
 
 
 @app.on_event("startup")
@@ -46,9 +46,10 @@ async def startup() -> None:
     asyncio.create_task(machine.deliver_routines(_save_message, _main_conversation))
     watch.init()
     watch.setup(_save_message, _main_conversation)
-    accounts.setup(_save_message, _main_conversation)
+    accounts.setup(_save_message, _main_conversation, _resume_agent)
     asyncio.create_task(watch.run_watches(_save_message, _main_conversation))
     asyncio.create_task(handoff.keep_browser_sessions())
+    asyncio.create_task(accounts.keep_google_fresh())
     handoff.setup(_resume_agent)
     if db.get_setting("agent_setup") != AGENT_SETUP_VERSION and current_model():
         asyncio.create_task(_upgrade_agents())
@@ -403,6 +404,8 @@ Quand une étape doit rester la sienne (se connecter, code 2FA, CAPTCHA, accepte
 ne finis pas ton tour : `python3 /opt/data/noah.py appeler "ce qu'il doit faire, en une phrase"`. Noah Agent lui montre ton
 écran et le prévient ; la commande rend sa réponse (« fait », « impossible ») ou « en_attente » avec un id : relance alors
 `python3 /opt/data/noah.py attendre <id>`. Après « fait », recharge la page avant de vérifier.
+Pour une page de connexion, ajoute `--quand-quitte <site>` (ex. `--quand-quitte accounts.google.com`) : l'appel se termine
+tout seul dès qu'il est connecté, sans bouton à cliquer. Quand une recette te confie des conditions ou des cases d'accord, fais-le toi-même.
 
 ## Fichiers (l'utilisateur les voit dans l'onglet « Fichiers » de Noah Agent et peut les télécharger)
 - Ton espace de travail : /opt/data/workspace. Range-y tout ce que tu produis.
@@ -1415,6 +1418,8 @@ async def screen_socket(websocket: WebSocket, agent_id: str):
             f"ws://{hermes.browser_host(agent_id)}:6080/websockify",
             subprotocols=protocols or None,
             max_size=None,
+            compression=None,  # images d'écran déjà compressées par VNC : recompresser ne fait qu'ajouter du délai
+            max_queue=None,
         ) as upstream:
             async def client_to_upstream():
                 while True:

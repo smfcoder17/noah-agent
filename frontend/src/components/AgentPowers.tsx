@@ -425,7 +425,7 @@ const DEFAULT_ACCESS = ["gmail_lire", "agenda_lire", "drive_lire"];
 /**
  * Google en un seul accord : l'utilisateur coche ce que l'agent peut faire. La première fois, l'agent crée
  * lui-même l'accès Google de l'utilisateur dans son navigateur (il l'appelle pour se connecter) ; ensuite Noah Agent
- * ouvre la page d'accord dans l'écran de l'agent et voit tout seul quand c'est accepté.
+ * valide lui-même la page d'accord de Google avec les accès cochés.
  */
 function GoogleCard({ agentId, onError }: { agentId: string; onError: (e: string) => void }) {
   const base = `/api/agents/${agentId}/google`;
@@ -509,7 +509,7 @@ function GoogleCard({ agentId, onError }: { agentId: string; onError: (e: string
 
       {picking && (
         <div className="flex flex-col gap-2.5">
-          <p className="text-xs text-muted-foreground">Ce que l'agent pourra faire (tu donnes ton accord une seule fois, dans Google) :</p>
+          <p className="text-xs text-muted-foreground">Ce que l'agent pourra faire. Ce choix vaut accord : Noah le donne à Google pour toi.</p>
           {services.map((s) => (
             <div key={s} className="flex flex-col gap-1">
               <p className="text-xs font-semibold">{s}</p>
@@ -523,8 +523,8 @@ function GoogleCard({ agentId, onError }: { agentId: string; onError: (e: string
           ))}
           {!state.identifiants && (
             <p className="text-xs text-muted-foreground">
-              Première fois : l'agent crée ton accès Google dans son navigateur (environ 5 minutes). Il t'appelle seulement pour te connecter et
-              accepter les conditions.{" "}
+              Première fois : l'agent crée ton accès Google dans son navigateur et accepte pour toi les conditions de Google Cloud.
+              Il t'appelle seulement pour te connecter à ton compte.{" "}
               <label className="cursor-pointer text-accent underline">
                 J'ai déjà un fichier d'identifiants
                 <input type="file" accept="application/json,.json" className="sr-only" onChange={(e) => uploadClient(e.target.files?.[0])} />
@@ -545,8 +545,8 @@ function GoogleCard({ agentId, onError }: { agentId: string; onError: (e: string
           <Loader2 className="size-3.5 shrink-0 animate-spin" />
           <span className="flex-1">
             {state.etape === "configuration"
-              ? "L'agent crée ton accès Google (il t'appellera quand ce sera à toi)."
-              : "Donne ton accord dans l'écran de l'agent (onglet Ordinateur)."}
+              ? "L'agent crée ton accès Google (il t'appellera seulement pour te connecter)."
+              : state.message || "Noah donne ton accord à Google…"}
           </span>
           <Button size="sm" variant="ghost" onClick={cancel} disabled={busy}>Annuler</Button>
         </div>
