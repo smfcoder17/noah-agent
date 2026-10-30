@@ -51,9 +51,17 @@ async def create_container(agent_id: str) -> str:
     return api_key
 
 
+def shared_folders(agent_id: str) -> list[dict]:
+    """Dossiers de l'ordinateur partagés avec l'agent : [{nom, chemin, ecriture, travail}]."""
+    from . import db
+
+    return json.loads(db.get_setting(f"dossiers_{agent_id}") or "[]")
+
+
 async def recreate_container(agent_id: str, api_key: str) -> None:
-    """Conteneur d'un agent existant (son volume garde mémoire, fichiers et config)."""
-    await _launcher("POST", f"/agents/{agent_id}", json={"api_key": api_key})
+    """Conteneur d'un agent existant (son volume garde mémoire, fichiers et config), avec ses dossiers partagés."""
+    folders = [{k: f[k] for k in ("nom", "chemin", "ecriture")} for f in shared_folders(agent_id)]
+    await _launcher("POST", f"/agents/{agent_id}", json={"api_key": api_key, "dossiers": folders})
 
 
 async def delete_container(agent_id: str) -> None:

@@ -3,7 +3,7 @@ import { Archive, ArchiveRestore, ChevronDown, Download, ExternalLink, Eye, Hand
 import { useCallback, useEffect, useState } from "react";
 import { type Agent, type Conversation, get, mediaUrl, rawFileUrl, send, type Usage, type WorkspaceFile } from "@/lib/api";
 import { cn, fileSize, money } from "@/lib/utils";
-import { Connections, Memory, Routines, Software } from "./AgentPowers";
+import { Connections, Folders, Memory, Routines, Software } from "./AgentPowers";
 import { NoahTile, agentColor } from "./Noah";
 import { STATE_WORD, StateShape } from "./Sidebar";
 import { Button, Dialog, DialogContent, Tabs, TabsContent, TabsList, TabsTrigger } from "./ui";
@@ -51,6 +51,7 @@ export function SidePanel({
           <Routines agentId={agent.id} />
           <Memory agentId={agent.id} />
           <Connections agentId={agent.id} />
+          <Folders agentId={agent.id} />
           <Software agentId={agent.id} />
         </Details>
       </TabsContent>

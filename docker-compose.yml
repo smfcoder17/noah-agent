@@ -35,6 +35,9 @@ services:
       LAUNCHER_KEY: ${LAUNCHER_KEY}
       AGENT_IMAGE: nousresearch/hermes-agent:stable
       AGENT_NETWORK: apollo-net
+      # Dossiers de l'ordinateur que l'utilisateur peut partager avec ses agents (racines séparées par « ; »).
+      # Vide : partage coupé (cas d'un VPS). L'application de bureau le remplit avec le dossier personnel.
+      NOAH_SHARE_ROOTS: ${NOAH_SHARE_ROOTS:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     networks: [apollo]

@@ -58,6 +58,22 @@ connexions), son navigateur (sessions de sites) et le `.env`, qui porte la clé 
 Pour une sauvegarde chaque nuit, ajoute avec `crontab -e` :
 `0 3 * * * cd /chemin/vers/noah-agent && sh scripts/backup.sh >> backups/backup.log 2>&1`.
 
+### Application de bureau
+
+```sh
+cd desktop && npm install && npm start    # npm run dist : installateur Windows (dist/)
+```
+
+L'application démarre Noah avec Docker Desktop, ouvre l'interface dans sa propre fenêtre et reste dans la zone
+de notification quand on la ferme, pour que les routines continuent. Elle donne le vrai sélecteur de dossier pour
+**Détails → Dossiers** : tu confies à un agent des dossiers de ton ordinateur, en lecture seule ou en écriture,
+et l'un d'eux devient son dossier de travail (là où il range ce qu'il crée, même pendant une routine).
+
+Le partage n'est possible que sous les racines de `NOAH_SHARE_ROOTS` dans `.env` (l'application y met ton dossier
+personnel au premier lancement ; plusieurs racines séparées par `;`). Les dossiers de clés et de réglages
+(`.ssh`, `.aws`, `AppData`, `.config`…) sont toujours refusés. Sur un VPS, laisse la variable vide : le partage
+est coupé.
+
 ## Ce qui tourne
 
 | Service | Rôle |

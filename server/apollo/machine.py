@@ -5,12 +5,14 @@ avec les modules d'Hermes : l'agent et l'interface lisent et écrivent exactemen
 """
 import asyncio
 import json
+import re
+import unicodedata
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from . import auth, db, relay
+from . import auth, db, hermes, relay
 from .config import LAUNCHER_URL
 from .hermes import LAUNCHER
 
@@ -202,3 +204,72 @@ async def google_finish(agent_id: str, body: GoogleFinish, user: int = Depends(a
 @router.post("/api/agents/{agent_id}/connections/google/revoke")
 async def google_revoke(agent_id: str, user: int = Depends(auth.current_user)):
     return await admin(_check(agent_id), "google_revoquer")
+
+
+# --- Dossiers de l'ordinateur ---------------------------------------------------------------
+# L'utilisateur donne à l'agent des dossiers de son ordinateur, en lecture seule ou en lecture et écriture ; l'un
+# d'eux peut être son dossier de travail (là où il range ce qu'il produit, y compris pendant les routines).
+# Possible seulement quand Noah tourne sur l'ordinateur lui-même, sous les racines autorisées (NOAH_SHARE_ROOTS).
+
+class SharedFolder(BaseModel):
+    chemin: str = Field(min_length=2, max_length=500)
+    nom: str = ""
+    ecriture: bool = False
+    travail: bool = False
+
+
+class SharedFolders(BaseModel):
+    dossiers: list[SharedFolder] = Field(max_length=20)
+
+
+def _slug(text: str) -> str:
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().lower()
+    return re.sub(r"[^a-z0-9]+", "-", text).strip("-")[:40] or "dossier"
+
+
+async def _roots() -> list[str]:
+    async with httpx.AsyncClient(timeout=10) as c:
+        r = await c.get(f"{LAUNCHER_URL}/folders/roots", headers=LAUNCHER)
+    return r.json().get("racines", []) if r.status_code == 200 else []
+
+
+@router.get("/api/agents/{agent_id}/folders")
+async def folders(agent_id: str, user: int = Depends(auth.current_user)):
+    return {"racines": await _roots(), "dossiers": hermes.shared_folders(_check(agent_id))}
+
+
+@router.put("/api/agents/{agent_id}/folders")
+async def set_folders(agent_id: str, body: SharedFolders, user: int = Depends(auth.current_user)):
+    _check(agent_id)
+    out, used = [], set()
+    for f in body.dossiers:
+        chemin = f.chemin.strip().rstrip("\/") or f.chemin.strip()
+        base = _slug(f.nom or re.split(r"[\/]", chemin)[-1])
+        nom, i = base, 2
+        while nom in used:
+            nom, i = f"{base}-{i}", i + 1
+        used.add(nom)
+        out.append({"nom": nom, "chemin": chemin, "ecriture": f.ecriture, "travail": f.travail and f.ecriture})
+    if sum(f["travail"] for f in out) > 1:
+        raise HTTPException(400, "Un seul dossier de travail")
+    async with httpx.AsyncClient(timeout=120) as c:
+        r = await c.put(f"{LAUNCHER_URL}/agents/{agent_id}/folders", headers=LAUNCHER,
+                        json={"dossiers": [{k: f[k] for k in ("nom", "chemin", "ecriture")} for f in out]})
+    if r.status_code >= 400:
+        raise HTTPException(r.status_code if r.status_code < 500 else 502, r.json().get("detail", "Partage impossible"))
+    db.set_setting(f"dossiers_{agent_id}", json.dumps(out, ensure_ascii=False))
+    await write_folder_notes(agent_id)
+    return {"dossiers": out}
+
+
+async def write_folder_notes(agent_id: str) -> None:
+    """/opt/data/dossiers.json : ce que l'agent doit savoir de chaque dossier (où il est, ce qu'il peut y faire)."""
+    notes = [{
+        "dans_ta_machine": f"/opt/data/dossiers/{f['nom']}",
+        "sur_l_ordinateur_de_l_utilisateur": f["chemin"],
+        "acces": "lecture et écriture" if f["ecriture"] else "lecture seule",
+        "dossier_de_travail": f["travail"],
+    } for f in hermes.shared_folders(agent_id)]
+    async with httpx.AsyncClient(timeout=30) as c:
+        await c.put(f"{LAUNCHER_URL}/agents/{agent_id}/files", headers=LAUNCHER,
+                    json={"files": {"dossiers.json": json.dumps(notes, ensure_ascii=False, indent=1) + "\n"}})

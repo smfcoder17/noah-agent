@@ -1,7 +1,8 @@
-// Ce que l'agent sait et fait de lui-même, réglable depuis Détails : routines, mémoire, connexions, logiciels.
-import { Check, ChevronDown, ExternalLink, HardDrive, Loader2, Pause, Pencil, Play, Plus, Trash2, Zap } from "lucide-react";
+// Ce que l'agent sait et fait de lui-même, réglable depuis Détails : routines, mémoire, connexions, logiciels, dossiers.
+import { Check, ChevronDown, ExternalLink, FolderOpen, HardDrive, Loader2, Pause, Pencil, Play, Plus, Trash2, Zap } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { get, send } from "@/lib/api";
+import { desktop } from "@/lib/desktop";
 import { cn, fileSize } from "@/lib/utils";
 import { Button, ErrorText, Input, Textarea } from "./ui";
 
@@ -551,6 +552,116 @@ export function Software({ agentId }: { agentId: string }) {
             <Input value={names} onChange={(e) => setNames(e.target.value)} className="h-9" placeholder="imagemagick, poppler-utils…" aria-label="Paquets à installer" />
             <Button type="submit" size="sm" className="h-9" disabled={busy || !names.trim()}>{busy && <Loader2 className="animate-spin" />}Installer</Button>
           </form>
+        </>
+      )}
+      <ErrorText>{error}</ErrorText>
+    </Section>
+  );
+}
+
+// --- Dossiers de l'ordinateur ---------------------------------------------------------------------
+
+type SharedFolder = { nom: string; chemin: string; ecriture: boolean; travail: boolean };
+type FoldersState = { racines: string[]; dossiers: SharedFolder[] };
+
+/**
+ * Dossiers de l'ordinateur confiés à l'agent. En lecture seule par défaut ; « dossier de travail » : là où il range
+ * ce qu'il crée, y compris pendant les routines. Chaque changement recrée sa machine (quelques secondes).
+ */
+export function Folders({ agentId }: { agentId: string }) {
+  const { data, setData, error, setError } = useAgentData<FoldersState>(`/api/agents/${agentId}/folders`);
+  const [path, setPath] = useState("");
+  const [busy, setBusy] = useState(false);
+  const app = desktop();
+
+  const save = async (dossiers: SharedFolder[]) => {
+    setBusy(true);
+    setError("");
+    try {
+      const r = await send<{ dossiers: SharedFolder[] }>(`/api/agents/${agentId}/folders`, { dossiers }, "PUT");
+      setData((d) => (d ? { ...d, dossiers: r.dossiers } : d));
+      return true;
+    } catch (err) {
+      setError((err as Error).message);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+  const list = data?.dossiers ?? [];
+  const update = (i: number, change: Partial<SharedFolder>) =>
+    save(list.map((f, j) => (j === i ? { ...f, ...change } : change.travail ? { ...f, travail: false } : f)));
+  const add = async (chemin: string) => {
+    if (!chemin.trim()) return;
+    if (await save([...list, { nom: "", chemin: chemin.trim(), ecriture: false, travail: false }])) setPath("");
+  };
+  const pick = async () => {
+    const chosen = await app?.pickFolder();
+    if (chosen) await add(chosen);
+  };
+
+  return (
+    <Section title="Dossiers" count={list.length}>
+      {!data && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture…</p>}
+      {data && data.racines.length === 0 && (
+        <p className="text-xs text-muted-foreground">
+          Possible quand Noah tourne sur ton ordinateur : l'application de bureau te laisse lui confier des dossiers
+          (documents à lire, dossier où ranger ce qu'il crée).
+        </p>
+      )}
+      {data && data.racines.length > 0 && (
+        <>
+          <p className="text-xs text-muted-foreground">
+            Donne-lui des dossiers de ton ordinateur. En lecture seule, il les lit sans rien y changer ; ton dossier de travail
+            reçoit ce qu'il crée pour toi, même pendant les routines.
+          </p>
+          {list.map((f, i) => (
+            <div key={f.nom} className="flex flex-col gap-1.5 rounded-lg border border-border p-2.5">
+              <div className="flex items-start gap-2">
+                <FolderOpen className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium" title={f.chemin}>{f.chemin.split(/[\\/]/).pop() || f.chemin}</p>
+                  <p className="truncate text-xs text-muted-foreground" title={f.chemin}>{f.chemin}</p>
+                </div>
+                {app && (
+                  <Button variant="ghost" size="icon-sm" aria-label={`Ouvrir ${f.chemin}`} title="Ouvrir" onClick={() => app.openPath(f.chemin)}>
+                    <ExternalLink />
+                  </Button>
+                )}
+                <Button variant="ghost" size="icon-sm" disabled={busy} aria-label={`Retirer ${f.chemin}`} title="Ne plus partager"
+                  onClick={() => save(list.filter((_, j) => j !== i))}>
+                  <Trash2 />
+                </Button>
+              </div>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pl-6 text-xs">
+                <label className="flex cursor-pointer items-center gap-1.5">
+                  <input type="checkbox" checked={f.ecriture} disabled={busy}
+                    onChange={(e) =>
+                      // Le premier dossier où il peut écrire devient son dossier de travail.
+                      update(i, { ecriture: e.target.checked, travail: e.target.checked && (f.travail || !list.some((x) => x.travail)) })
+                    } />
+                  Peut y écrire
+                </label>
+                <label className={cn("flex items-center gap-1.5", f.ecriture ? "cursor-pointer" : "opacity-50")}>
+                  <input type="radio" name={`travail-${agentId}`} checked={f.travail} disabled={busy || !f.ecriture}
+                    onChange={() => update(i, { travail: true })} />
+                  Dossier de travail
+                </label>
+              </div>
+            </div>
+          ))}
+          {app ? (
+            <Button variant="outline" size="sm" className="self-start" disabled={busy} onClick={pick}>
+              {busy ? <Loader2 className="animate-spin" /> : <Plus />}Choisir un dossier…
+            </Button>
+          ) : (
+            <form onSubmit={(e) => { e.preventDefault(); void add(path); }} className="flex gap-2">
+              <Input value={path} onChange={(e) => setPath(e.target.value)} className="h-9" placeholder={`${data.racines[0]}/Documents`} aria-label="Chemin du dossier" />
+              <Button type="submit" size="sm" className="h-9" disabled={busy || !path.trim()}>{busy && <Loader2 className="animate-spin" />}Ajouter</Button>
+            </form>
+          )}
+          {busy && <p className="text-xs text-muted-foreground">Noah redémarre sa machine avec ces dossiers…</p>}
+          <p className="text-xs text-muted-foreground">Dossiers possibles : sous {data.racines.join(", ")}.</p>
         </>
       )}
       <ErrorText>{error}</ErrorText>

@@ -31,7 +31,7 @@ provisioning: dict[str, str] = {}
 task_state: dict[str, str] = {}
 
 # Version du branchement des agents ; l'augmenter reconfigure tous les agents au démarrage.
-AGENT_SETUP_VERSION = "14-contexte"
+AGENT_SETUP_VERSION = "15-dossiers"
 
 
 @app.on_event("startup")
@@ -305,6 +305,14 @@ comme ça »), garde-le sans qu'il ait à le demander : une préférence courte 
 devient un skill (crée-le ou complète celui qui existe). Dis-lui simplement que c'est retenu, sans parler de fichiers ni de skills.
 Tu ne vois pas toujours toute la conversation : le début des longs échanges est résumé. Si on te demande ce qui a été fait
 ou dit plus tôt, cherche-le avec session_search avant de répondre, et ne réponds jamais que tu ne t'en souviens pas sans avoir cherché.
+
+## Dossiers de l'ordinateur de l'utilisateur
+L'utilisateur peut te confier des dossiers de son ordinateur (Détails → Dossiers). Ils apparaissent dans /opt/data/dossiers/,
+et /opt/data/dossiers.json dit pour chacun où il est sur son ordinateur, si tu peux y écrire, et lequel est ton dossier de travail.
+Lis ce fichier quand on te parle de « mes documents », « mon dossier », d'un fichier de son ordinateur, ou avant de produire un fichier.
+Ce que tu crées pour lui (rapports, documents, images, résultats de routines) va dans ton dossier de travail s'il y en a un : il le
+retrouve directement sur son ordinateur. Ne touche jamais à un dossier en lecture seule, et ne supprime ni n'écrase un fichier qu'il
+n'a pas créé avec toi sans le lui demander. Quand tu parles d'un fichier, donne son chemin sur son ordinateur, pas celui de ta machine.
 
 ## Routines et initiative
 Quand l'utilisateur veut quelque chose de régulier (« chaque matin », « tous les lundis », « surveille… »), crée une routine avec ton outil cron :

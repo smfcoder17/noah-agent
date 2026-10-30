@@ -53,6 +53,7 @@ def container(agent_id: str):
 
 class NewAgent(BaseModel):
     api_key: str
+    dossiers: list["Folder"] = []
 
 
 BROWSER_IMAGE = os.environ.get("BROWSER_IMAGE", "ghcr.io/jo-inc/camofox-browser:latest")
@@ -221,6 +222,60 @@ def list_agents():
     ]
 
 
+# --- Dossiers de l'ordinateur partagés avec l'agent -------------------------------------------
+# Seule exception au « aucun montage de l'hôte » : des dossiers choisis par l'utilisateur, et seulement sous les
+# racines que le propriétaire de la machine a autorisées dans NOAH_SHARE_ROOTS (séparées par « ; »). Sans racine,
+# le partage est coupé : un serveur compromis ne peut pas demander à monter le disque entier.
+SHARE_ROOTS = [r.strip() for r in os.environ.get("NOAH_SHARE_ROOTS", "").split(";") if r.strip()]
+FOLDER_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
+# Jamais partagés, même sous une racine autorisée : clés, identifiants, données des applications.
+SENSITIVE = re.compile(r"(^|/)(\.ssh|\.gnupg|\.aws|\.azure|\.docker|\.kube|\.config|appdata|library/keychains)(/|$)", re.I)
+
+
+class Folder(BaseModel):
+    nom: str
+    chemin: str
+    ecriture: bool = False
+
+
+NewAgent.model_rebuild()
+
+
+def _norm(path: str) -> str:
+    return path.strip().replace("\\", "/").rstrip("/")
+
+
+def _shareable(path: str) -> bool:
+    p = _norm(path)
+    if not p or ".." in p.split("/") or SENSITIVE.search(p):
+        return False
+    for root in SHARE_ROOTS:
+        r = _norm(root)
+        windows = re.match(r"^[A-Za-z]:", r) is not None  # C:\… : chemins insensibles à la casse
+        a, b = (p.lower(), r.lower()) if windows else (p, r)
+        if a == b or a.startswith(b + "/"):
+            return True
+    return False
+
+
+def _check_folders(folders: list[Folder]) -> list[Folder]:
+    if len(folders) > 20:
+        raise HTTPException(400, "20 dossiers au plus")
+    if len({f.nom for f in folders}) != len(folders):
+        raise HTTPException(400, "Deux dossiers portent le même nom")
+    for f in folders:
+        if not FOLDER_NAME_RE.match(f.nom):
+            raise HTTPException(400, f"Nom de dossier invalide : {f.nom}")
+        if not _shareable(f.chemin):
+            raise HTTPException(403, f"Dossier non autorisé : {f.chemin}")
+    return folders
+
+
+@app.get("/folders/roots", dependencies=[Depends(auth)])
+def folder_roots():
+    return {"racines": SHARE_ROOTS}
+
+
 @app.post("/agents/{agent_id}", dependencies=[Depends(auth)])
 def create(agent_id: str, body: NewAgent):
     check_id(agent_id)
@@ -229,6 +284,29 @@ def create(agent_id: str, body: NewAgent):
         raise HTTPException(409, "Cet agent existe déjà")
     except NotFound:
         pass
+    return _run_agent(agent_id, body.api_key, _check_folders(body.dossiers))
+
+
+class AgentFolders(BaseModel):
+    dossiers: list[Folder]
+
+
+@app.put("/agents/{agent_id}/folders", dependencies=[Depends(auth)])
+def set_folders(agent_id: str, body: AgentFolders):
+    """Change les dossiers partagés : la machine de l'agent est recréée (son volume garde tout le reste)."""
+    folders = _check_folders(body.dossiers)
+    c = container(check_id(agent_id))
+    env = dict(e.split("=", 1) for e in c.attrs["Config"]["Env"] if "=" in e)
+    c.remove(force=True)
+    out = _run_agent(agent_id, env["API_SERVER_KEY"], folders)
+    threading.Thread(target=_restore_packages, daemon=True).start()
+    return out
+
+
+def _run_agent(agent_id: str, api_key: str, folders: list[Folder]):
+    volumes = {PREFIX + agent_id: {"bind": DATA, "mode": "rw"}}
+    for f in folders:
+        volumes[f.chemin] = {"bind": f"{DATA}/dossiers/{f.nom}", "mode": "rw" if f.ecriture else "ro"}
     client.containers.run(
         IMAGE,
         command="gateway run",
@@ -239,9 +317,9 @@ def create(agent_id: str, body: NewAgent):
         environment={
             "API_SERVER_ENABLED": "true",
             "API_SERVER_HOST": "0.0.0.0",
-            "API_SERVER_KEY": body.api_key,
+            "API_SERVER_KEY": api_key,
         },
-        volumes={PREFIX + agent_id: {"bind": DATA, "mode": "rw"}},
+        volumes=volumes,
         network=NETWORK,
         extra_hosts={"host.docker.internal": "host-gateway"},
         restart_policy={"Name": "unless-stopped"},
@@ -253,8 +331,9 @@ def create(agent_id: str, body: NewAgent):
     return {"id": agent_id, "host": PREFIX + agent_id}
 
 
-# Fichiers que le serveur peut écrire dans /opt/data : config d'Hermes, rôle, et l'outil `noah.py` de l'agent.
-CONFIG_FILES = (".env", "config.yaml", "SOUL.md", "noah.py")
+# Fichiers que le serveur peut écrire dans /opt/data : config d'Hermes, rôle, l'outil `noah.py` de l'agent,
+# et la liste des dossiers partagés (pour que l'agent sache ce qu'ils sont).
+CONFIG_FILES = (".env", "config.yaml", "SOUL.md", "noah.py", "dossiers.json")
 
 
 class Files(BaseModel):
