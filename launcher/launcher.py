@@ -60,7 +60,7 @@ BROWSER_IMAGE = os.environ.get("BROWSER_IMAGE", "ghcr.io/jo-inc/camofox-browser:
 BROWSER_PREFIX = "apollo-browser-"
 BROWSER_LABEL = "apollo.browser"
 # Version des réglages du navigateur ; un conteneur plus ancien est recréé (le profil reste dans son volume).
-BROWSER_VERSION = "4"
+BROWSER_VERSION = "5"
 
 
 class BrowserKeys(BaseModel):
@@ -125,19 +125,29 @@ def ensure_browser(agent_id: str, body: BrowserKeys):
         shm_size="1g",
         security_opt=["no-new-privileges"],
     )
-    # Avant le démarrage : le plugin Noah (onglets de l'écran dans la session de l'agent) et sa déclaration.
-    c.put_archive("/app", _camofox_plugin())
+    # Avant le démarrage : le plugin Noah et sa déclaration, puis le correctif AutoConfig de Firefox (un onglet ouvert à
+    # la main dans l'écran hérite du conteneur de l'agent, donc de ses cookies).
+    here = Path(__file__).parent / "camofox-noah"
+    c.put_archive("/app", _tar({"plugins/noah/index.js": (here / "index.js").read_bytes(),
+                                "camofox.config.json": (here / "camofox.config.json").read_bytes()}))
+    stream, _ = c.get_archive(CAMOUFOX_CFG)
+    with tarfile.open(fileobj=io.BytesIO(b"".join(stream))) as tar:
+        cfg = tar.extractfile(tar.getmembers()[0]).read()
+    if b"NOAH :" not in cfg:
+        cfg += (here / "autoconfig.js").read_bytes()
+    c.put_archive(os.path.dirname(CAMOUFOX_CFG), _tar({os.path.basename(CAMOUFOX_CFG): cfg}))
     c.start()
     return {"host": name, "created": True}
 
 
-def _camofox_plugin() -> bytes:
-    here = Path(__file__).parent / "camofox-noah"
+CAMOUFOX_CFG = "/root/.cache/camoufox/camoufox.cfg"
+
+
+def _tar(files: dict[str, bytes]) -> bytes:
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w") as tar:
-        for src, dest in (("index.js", "plugins/noah/index.js"), ("camofox.config.json", "camofox.config.json")):
-            data = (here / src).read_bytes()
-            info = tarfile.TarInfo(dest)
+        for name, data in files.items():
+            info = tarfile.TarInfo(name)
             info.size = len(data)
             info.mode = 0o644
             info.mtime = int(time.time())
