@@ -455,6 +455,18 @@ en une ou deux phrases naturelles, en français, sans lire les chemins de fichie
 Si quelque chose attend l'utilisateur (un choix, une validation, un fichier à regarder), dis-le. Réponds en texte simple."""
 
 
+# Refus passagers du fournisseur : on réessaie, puis on passe au modèle de secours.
+RETRYABLE = {408, 409, 425, 429, 500, 502, 503, 504, 529}
+
+
+async def backups(kind: str, limit: int = 3) -> list[str]:
+    """Le modèle choisi (ou automatique), suivi des meilleurs autres modèles du classement disponibles chez le
+    fournisseur : la voix et la dictée ne s'arrêtent pas parce qu'un modèle est saturé."""
+    first = await resolve(kind)
+    available = {m["id"] for m in await models(kind)}
+    return [first] + [m for m in RANKING.get(kind, []) if m in available and m != first][:limit]
+
+
 async def voice_model() -> str:
     chosen = db.get_setting("media_voice_brain") or "auto"
     if chosen != "auto":
@@ -488,28 +500,37 @@ async def voice_reply(agent_id: str, name: str, role: str, text: str, history: l
             messages = [{"role": "system", "content": system}]
             messages += [{"role": "assistant" if h.get("role") == "assistant" else "user", "content": str(h.get("text", ""))[:1500]} for h in history[-6:]]
             messages.append({"role": "user", "content": text})
-        body = {"model": model, "messages": messages, "max_tokens": 300, "temperature": 0.4,
-                "provider": {"sort": "latency"}, "stream": True, "usage": {"include": True}}
-        if mode != "result":
-            body["response_format"] = {"type": "json_object"}
-        if "gpt-oss" in model:  # modèle à raisonnement : le minimum, et rien de lu à voix haute
-            body["reasoning"] = {"effort": "low", "exclude": True}
-        async with relay.upstream_client().stream("POST", f"{BASE}/chat/completions", json=body, headers=_headers(), timeout=30) as r:
-            if r.status_code != 200:
-                await r.aread()
-                raise _fail(r)
-            async for line in r.aiter_lines():
-                if not line.startswith("data:") or line[5:].strip() == "[DONE]":
-                    continue
-                try:
-                    j = json.loads(line[5:])
-                except ValueError:
-                    continue
-                cost = (j.get("usage") or {}).get("cost", cost)
-                for ch in j.get("choices", []):
-                    piece = (ch.get("delta") or {}).get("content") or ""
-                    content += piece
-                    split.feed(reader.feed(piece) if reader else piece)
+        # Modèle saturé ou en panne avant d'avoir rien dit : le suivant répond à sa place.
+        fallbacks = [model, model, *[m for m in VOICE_MODELS if m != model][:2]]
+        for i, model in enumerate(fallbacks):
+            body = {"model": model, "messages": messages, "max_tokens": 300, "temperature": 0.4,
+                    "provider": {"sort": "latency"}, "stream": True, "usage": {"include": True}}
+            if mode != "result":
+                body["response_format"] = {"type": "json_object"}
+            if "gpt-oss" in model:  # modèle à raisonnement : le minimum, et rien de lu à voix haute
+                body["reasoning"] = {"effort": "low", "exclude": True}
+            try:
+                async with relay.upstream_client().stream("POST", f"{BASE}/chat/completions", json=body, headers=_headers(), timeout=30) as r:
+                    if r.status_code != 200:
+                        await r.aread()
+                        raise _fail(r)
+                    async for line in r.aiter_lines():
+                        if not line.startswith("data:") or line[5:].strip() == "[DONE]":
+                            continue
+                        try:
+                            j = json.loads(line[5:])
+                        except ValueError:
+                            continue
+                        cost = (j.get("usage") or {}).get("cost", cost)
+                        for ch in j.get("choices", []):
+                            piece = (ch.get("delta") or {}).get("content") or ""
+                            content += piece
+                            split.feed(reader.feed(piece) if reader else piece)
+                break
+            except (httpx.HTTPError, MediaError) as e:
+                if content or i == len(fallbacks) - 1:
+                    raise
+                print(f"[voix] voix rapide {model} indisponible ({e}), modèle suivant", flush=True)
         content = content.strip()
         if mode == "result":
             result = {"dire": content, "action": False}
@@ -678,30 +699,42 @@ async def speak_stream(agent_id: str, texts, out: AudioStream) -> None:
     model = None
     try:
         _check_budget()
-        model = await resolve("speech")
-        voice = await voice_for(model)
+        candidates = await backups("speech", 2)
+        model = candidates[0]
+        voices = {m: await voice_for(m) for m in candidates}
         parts: asyncio.Queue = asyncio.Queue()
+
+        async def attempt(m: str, text: str, q: asyncio.Queue) -> bool:
+            """Une synthèse ; rend False si ce modèle refuse (le suivant prend le relais)."""
+            voice = voices[m]
+            for fmt in ("pcm",) if m in _PCM_ONLY else ("mp3", "pcm"):
+                body = {"model": m, "input": text[:4000], "response_format": fmt, **({"voice": voice} if voice else {})}
+                async with relay.upstream_client().stream("POST", f"{BASE}/audio/speech", json=body, headers=_headers(), timeout=60) as r:
+                    if r.status_code != 200:
+                        await r.aread()
+                        if fmt == "mp3" and r.status_code == 400 and "pcm" in r.text.lower():
+                            _PCM_ONLY.add(m)  # Gemini TTS, HeyGen : PCM seulement
+                            continue
+                        print(f"[voix] {m} n'a pas lu la phrase ({_fail(r)})", flush=True)
+                        return False
+                    if fmt == "pcm":  # le débit vient avant le son : l'en-tête WAV en a besoin
+                        q.put_nowait(int((re.search(r"rate=(\d+)", r.headers.get("content-type", "")) or [0, 24000])[1]))
+                    async for data in r.aiter_bytes():
+                        if out.closed:
+                            return True
+                        q.put_nowait(data)
+                return True
+            return False
 
         async def fetch(text: str, q: asyncio.Queue) -> None:
             try:
-                for fmt in ("pcm",) if model in _PCM_ONLY else ("mp3", "pcm"):
-                    body = {"model": model, "input": text[:4000], "response_format": fmt, **({"voice": voice} if voice else {})}
-                    async with relay.upstream_client().stream("POST", f"{BASE}/audio/speech", json=body, headers=_headers(), timeout=60) as r:
-                        if r.status_code != 200:
-                            await r.aread()
-                            if fmt == "mp3" and r.status_code == 400 and "pcm" in r.text.lower():
-                                _PCM_ONLY.add(model)  # Gemini TTS, HeyGen : PCM seulement
-                                continue
-                            raise _fail(r)
-                        if fmt == "pcm":  # le débit vient avant le son : l'en-tête WAV en a besoin
-                            q.put_nowait(int((re.search(r"rate=(\d+)", r.headers.get("content-type", "")) or [0, 24000])[1]))
-                        async for data in r.aiter_bytes():
-                            if out.closed:
-                                return
-                            q.put_nowait(data)
-                    return
-            except (httpx.HTTPError, MediaError) as e:
-                print(f"[voix] synthèse impossible : {e}", flush=True)
+                # Le modèle choisi deux fois (refus passager), puis les modèles de secours.
+                for m in [candidates[0], *candidates]:
+                    try:
+                        if await attempt(m, text, q):
+                            return
+                    except httpx.HTTPError as e:
+                        print(f"[voix] {m} injoignable : {e}", flush=True)
             finally:
                 q.put_nowait(None)
 
@@ -732,14 +765,26 @@ async def speak_stream(agent_id: str, texts, out: AudioStream) -> None:
 
 
 async def transcribe(agent_id: str, audio: bytes, fmt: str, language: str | None = "fr") -> str:
+    """Transcription qui ne doit pas échouer : le modèle choisi, puis les meilleurs autres modèles disponibles.
+    Un refus passager (429, 5xx, délai) est réessayé une fois ; un refus du modèle (format) passe au suivant."""
     _check_budget()
-    model = await resolve("transcription")
-    body = {"model": model, "input_audio": {"data": base64.b64encode(audio).decode(), "format": fmt}}
-    if language:
-        body["language"] = language
-    r = await relay.upstream_client().post(f"{BASE}/audio/transcriptions", json=body, headers=_headers(), timeout=120)
-    if r.status_code != 200:
-        raise _fail(r)
-    j = r.json()
-    _record(agent_id, model, (j.get("usage") or {}).get("cost"))
-    return (j.get("text") or "").strip()
+    data = base64.b64encode(audio).decode()
+    last: MediaError | None = None
+    for model in await backups("transcription"):
+        body = {"model": model, "input_audio": {"data": data, "format": fmt}, **({"language": language} if language else {})}
+        for attempt in range(2):
+            try:
+                r = await relay.upstream_client().post(f"{BASE}/audio/transcriptions", json=body, headers=_headers(), timeout=60)
+            except httpx.HTTPError as e:
+                last = MediaError(f"Transcription injoignable : {e}")
+                continue
+            if r.status_code == 200:
+                j = r.json()
+                _record(agent_id, model, (j.get("usage") or {}).get("cost"))
+                return (j.get("text") or "").strip()
+            last = _fail(r)
+            if r.status_code not in RETRYABLE:
+                break
+            await asyncio.sleep(0.4 * (attempt + 1))
+        print(f"[voix] {model} n'a pas transcrit ({last}), modèle suivant", flush=True)
+    raise last or MediaError("Aucun modèle de transcription disponible.")

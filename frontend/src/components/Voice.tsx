@@ -101,7 +101,7 @@ async function transcribe(blob: Blob, agentId: string): Promise<string> {
 
 /** Transcrit les morceaux en parallèle mais rend les textes dans l'ordre où ils ont été dits. */
 function useTranscripts(agentId: string, onText: (text: string) => void) {
-  const state = useRef({ issued: 0, next: 0, done: new Map<number, string>(), inflight: new Set<Promise<void>>() });
+  const state = useRef({ issued: 0, next: 0, running: 0, done: new Map<number, string>(), inflight: new Set<Promise<void>>() });
   const [pending, setPending] = useState(0);
   const [error, setError] = useState("");
   const emit = useRef(onText);
@@ -112,9 +112,27 @@ function useTranscripts(agentId: string, onText: (text: string) => void) {
       const s = state.current;
       const i = s.issued++;
       setPending((n) => n + 1);
-      const p = transcribe(blob, agentId)
-        .catch((e) => {
-          setError((e as Error).message);
+      // Deux transcriptions à la fois au plus (au-delà, le fournisseur répond 429), et trois essais par morceau :
+      // le serveur passe déjà aux modèles de secours, ici on couvre une coupure réseau.
+      const run = async () => {
+        while (s.running >= 2) await new Promise((r) => setTimeout(r, 60));
+        s.running++;
+        try {
+          for (let attempt = 0; ; attempt++) {
+            try {
+              return await transcribe(blob, agentId);
+            } catch (e) {
+              if (attempt >= 2) throw e;
+              await new Promise((r) => setTimeout(r, 700 * (attempt + 1)));
+            }
+          }
+        } finally {
+          s.running--;
+        }
+      };
+      const p = run()
+        .catch(() => {
+          setError("Un passage n'a pas pu être transcrit (fournisseur indisponible). Le reste est bien là.");
           return "";
         })
         .then((text) => {

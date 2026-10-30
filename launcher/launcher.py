@@ -60,7 +60,7 @@ BROWSER_IMAGE = os.environ.get("BROWSER_IMAGE", "ghcr.io/jo-inc/camofox-browser:
 BROWSER_PREFIX = "apollo-browser-"
 BROWSER_LABEL = "apollo.browser"
 # Version des réglages du navigateur ; un conteneur plus ancien est recréé (le profil reste dans son volume).
-BROWSER_VERSION = "3"
+BROWSER_VERSION = "4"
 
 
 class BrowserKeys(BaseModel):
@@ -91,11 +91,10 @@ def ensure_browser(agent_id: str, body: BrowserKeys):
         c.remove(force=True)
     except NotFound:
         pass
-    client.containers.run(
+    c = client.containers.create(
         BROWSER_IMAGE,
         name=name,
         hostname=name,
-        detach=True,
         labels={BROWSER_LABEL: agent_id, "apollo.browser.version": version},
         environment={
             "CAMOFOX_PORT": "9377",
@@ -126,7 +125,24 @@ def ensure_browser(agent_id: str, body: BrowserKeys):
         shm_size="1g",
         security_opt=["no-new-privileges"],
     )
+    # Avant le démarrage : le plugin Noah (onglets de l'écran dans la session de l'agent) et sa déclaration.
+    c.put_archive("/app", _camofox_plugin())
+    c.start()
     return {"host": name, "created": True}
+
+
+def _camofox_plugin() -> bytes:
+    here = Path(__file__).parent / "camofox-noah"
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as tar:
+        for src, dest in (("index.js", "plugins/noah/index.js"), ("camofox.config.json", "camofox.config.json")):
+            data = (here / src).read_bytes()
+            info = tarfile.TarInfo(dest)
+            info.size = len(data)
+            info.mode = 0o644
+            info.mtime = int(time.time())
+            tar.addfile(info, io.BytesIO(data))
+    return buf.getvalue()
 
 
 @app.post("/agents/{agent_id}/browser/restart", dependencies=[Depends(auth)])
