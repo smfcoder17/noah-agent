@@ -918,6 +918,64 @@ def screen_url(agent_id: str, view_only: bool = False, user: int = Depends(auth.
     return {"url": f"{base}/vnc.html?{urlencode(params)}"}
 
 
+# --- Presse-papiers de l'écran : l'ordinateur de l'utilisateur ↔ le navigateur de l'agent ----------
+# Pas par le presse-papiers X (x11vnc) : sans gestionnaire de fenêtres, le focus clavier X se perd entre les
+# fenêtres de Firefox. On passe par le navigateur lui-même, dans l'onglet où l'utilisateur vient de cliquer.
+
+async def _focused_tab(agent_id: str) -> str | None:
+    user = {"userId": hermes.BROWSER_USER}
+    tabs = (await hermes.browser_call(agent_id, "GET", "/tabs", params=user)).get("tabs") or []
+    for t in reversed(tabs):
+        r = await hermes.browser_call(agent_id, "POST", f"/tabs/{t['tabId']}/evaluate", timeout=5,
+                                      json={**user, "expression": "document.hasFocus()"})
+        if r.get("result") is True:
+            return t["tabId"]
+    return tabs[-1]["tabId"] if tabs else None
+
+
+class ClipboardText(BaseModel):
+    texte: str = Field(min_length=1, max_length=100_000)
+
+
+@app.post("/api/agents/{agent_id}/clipboard/paste")
+async def clipboard_paste(agent_id: str, body: ClipboardText, user: int = Depends(auth.current_user)):
+    """Ctrl+V dans l'écran : tape le texte là où se trouve le curseur (champ, iframe de connexion comprise)."""
+    _agent(agent_id)
+    tab = await _focused_tab(agent_id)
+    if not tab:
+        raise HTTPException(409, "Aucune page ouverte")
+    r = await hermes.browser_call(agent_id, "POST", f"/tabs/{tab}/type", timeout=60,
+                                  json={"userId": hermes.BROWSER_USER, "text": body.texte, "mode": "keyboard", "delay": 0})
+    if r["http_status"] >= 400:
+        raise HTTPException(502, "Le navigateur n'a pas pu coller ce texte")
+    return {"ok": True}
+
+
+# Texte sélectionné, y compris dans un champ (getSelection ne voit pas l'intérieur des champs) et dans une iframe
+# de même origine.
+SELECTION_JS = """(() => {
+  const pick = (doc) => {
+    const el = doc.activeElement;
+    if (el && el.tagName === 'IFRAME') { try { return pick(el.contentDocument); } catch (e) { return ''; } }
+    if (el && typeof el.selectionStart === 'number' && el.type !== 'password') return el.value.slice(el.selectionStart, el.selectionEnd);
+    return String(doc.getSelection() || '');
+  };
+  return pick(document);
+})()"""
+
+
+@app.get("/api/agents/{agent_id}/clipboard/copy")
+async def clipboard_copy(agent_id: str, user: int = Depends(auth.current_user)):
+    """Ctrl+C dans l'écran : le texte sélectionné dans l'onglet actif, pour le presse-papiers de l'utilisateur."""
+    _agent(agent_id)
+    tab = await _focused_tab(agent_id)
+    if not tab:
+        return {"texte": ""}
+    r = await hermes.browser_call(agent_id, "POST", f"/tabs/{tab}/evaluate", timeout=5,
+                                  json={"userId": hermes.BROWSER_USER, "expression": SELECTION_JS})
+    return {"texte": r.get("result") if isinstance(r.get("result"), str) else ""}
+
+
 @app.get("/api/agents/{agent_id}/screen-status")
 async def screen_status(agent_id: str, user: int = Depends(auth.current_user)):
     """Le navigateur s'éteint après un moment sans activité ; son écran avec lui."""

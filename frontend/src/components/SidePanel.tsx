@@ -2,6 +2,7 @@
 import { Archive, ArchiveRestore, ChevronDown, Download, ExternalLink, Eye, Hand, Loader2, LogIn, MonitorPlay, Power, RefreshCw, Sunrise, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { type Agent, type Conversation, get, mediaUrl, rawFileUrl, send, type Usage, type WorkspaceFile } from "@/lib/api";
+import { wireClipboard } from "@/lib/vncClipboard";
 import { cn, fileSize, money } from "@/lib/utils";
 import { AgentBrain } from "./AgentBrain";
 import { Connections, Folders, Memory, Routines, Software, Watches } from "./AgentPowers";
@@ -391,7 +392,7 @@ function Computer({ agentId }: { agentId: string }) {
     <>
       <div className={cn("relative min-h-64 flex-1 overflow-hidden rounded-xl border border-border bg-[#0b0f14]", control && awake && "ring-3 ring-warn")}>
         {url && visible && !fixing ? (
-          <iframe key={`${url}-${nonce}`} src={url} title="Écran de l'agent" className="absolute inset-0 size-full border-0" />
+          <iframe key={`${url}-${nonce}`} src={url} title="Écran de l'agent" className="absolute inset-0 size-full border-0" onLoad={(e) => wireClipboard(e.currentTarget, agentId, setFixError)} />
         ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center text-[#e6ebf0]">
             {fixing ? <Loader2 className="size-8 animate-spin opacity-70" /> : <MonitorPlay className="size-8 opacity-60" />}
@@ -446,7 +447,7 @@ function Computer({ agentId }: { agentId: string }) {
       </div>
       <p className="text-xs text-muted-foreground">
         {control
-          ? "Tu as la main : clique et tape directement dans l'écran. Quand tu as fini, rends la main et dis à l'agent de continuer."
+          ? "Tu as la main : clique et tape directement dans l'écran. Ctrl+V y colle ton presse-papiers, Ctrl+C copie la sélection chez toi. Quand tu as fini, rends la main."
           : "Lecture seule : l'agent garde la main. Prends le contrôle pour te connecter à un site ou résoudre un CAPTCHA, puis dis-lui de continuer."}
       </p>
     </>
