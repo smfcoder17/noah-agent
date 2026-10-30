@@ -104,9 +104,9 @@ async def read_file(agent_id: str, path: str) -> httpx.Response:
         return await c.get(f"{LAUNCHER_URL}/agents/{agent_id}/file", params={"path": path}, headers=LAUNCHER)
 
 
-async def upload(agent_id: str, name: str, data: bytes) -> str:
+async def upload(agent_id: str, name: str, data: bytes, folder: str = "uploads") -> str:
     async with httpx.AsyncClient(timeout=120) as c:
-        r = await c.put(f"{LAUNCHER_URL}/agents/{agent_id}/upload", params={"name": name}, content=data, headers=LAUNCHER)
+        r = await c.put(f"{LAUNCHER_URL}/agents/{agent_id}/upload", params={"name": name, "folder": folder}, content=data, headers=LAUNCHER)
     r.raise_for_status()
     return r.json()["path"]
 
@@ -179,7 +179,7 @@ async def configure(agent_id: str, model: dict, role: str | None = None) -> None
     browser["cloud_provider"] = "camofox"
     camofox = browser.setdefault("camofox", {})
     camofox["managed_persistence"] = True
-    # Un seul onglet nommé, partagé avec l'écran d'Apollo (qui peut le rouvrir quand l'écran est vide).
+    # Un seul onglet nommé, partagé avec l'écran de Noah Agent (qui peut le rouvrir quand l'écran est vide).
     camofox["user_id"] = BROWSER_USER
     camofox["session_key"] = BROWSER_USER
     camofox["adopt_existing_tab"] = True
@@ -189,15 +189,17 @@ async def configure(agent_id: str, model: dict, role: str | None = None) -> None
 
     if role is not None:
         files["SOUL.md"] = role.strip() + "\n"
-    files["apollo.py"] = AGENT_TOOL.replace("__TOKEN__", token_for(agent_id))
+    files["noah.py"] = AGENT_TOOL.replace("__TOKEN__", token_for(agent_id))
 
     await _launcher("PUT", f"/agents/{agent_id}/files", json={"files": files})
+    if role is not None:  # nouvelles consignes : les conversations en cours doivent les voir
+        await _launcher("POST", f"/agents/{agent_id}/refresh-prompts")
     await restart(agent_id)
 
 
-# Outil en ligne de commande posé dans la machine de l'agent : il parle au serveur avec le jeton de relais.
+# Outil en ligne de commande (noah.py) posé dans la machine de l'agent : il parle au serveur avec le jeton de relais.
 AGENT_TOOL = r'''#!/usr/bin/env python3
-"""Outil de l'agent pour parler à Apollo : diagnostic, navigateur, fils de travail."""
+"""Outil de l'agent pour parler à Noah Agent : diagnostic, navigateur, fils, médias."""
 import json
 import sys
 import urllib.error
@@ -205,12 +207,17 @@ import urllib.request
 
 URL = "http://apollo-server:8080/agent-api"
 TOKEN = "__TOKEN__"
-AIDE = """Utilisation : python3 /opt/data/apollo.py <commande>
+AIDE = """Utilisation : python3 /opt/data/noah.py <commande>
   etat                         diagnostic (navigateur, écran, budget) avec un conseil
   navigateur reveiller         rallume le navigateur et son écran
   navigateur redemarrer        redémarre le navigateur (écran noir, figé, injoignable) ; profil et cookies gardés
   fil "Titre" "consigne"       ouvre un fil de travail parallèle, visible par l'utilisateur dans Détails
-  fil-etat <id>                état et dernière réponse d'un fil"""
+  fil-etat <id>                état et dernière réponse d'un fil
+  image "description" [--format 16:9]               crée une image
+  video "description" [--duree 5] [--format 16:9]   crée une vidéo (quelques minutes)
+  musique "description"                             crée un morceau de musique
+  voix "texte à dire"                               lit un texte à voix haute (MP3)
+Les fichiers créés vont dans /opt/data/workspace/outputs/ ; la réponse donne le widget à montrer."""
 
 
 def call(method, path, body=None):
@@ -218,16 +225,30 @@ def call(method, path, body=None):
     req = urllib.request.Request(URL + path, data=data, method=method,
                                  headers={"Authorization": "Bearer " + TOKEN, "Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(req, timeout=120) as r:
+        with urllib.request.urlopen(req, timeout=900) as r:
             return json.load(r)
     except urllib.error.HTTPError as e:
         return {"erreur": e.read().decode(errors="replace")[:500]}
     except OSError as e:
-        return {"erreur": "Apollo injoignable : %s" % e}
+        return {"erreur": "Noah Agent injoignable : %s" % e}
+
+
+def media(kind, args):
+    opts, words, i = {}, [], 0
+    while i < len(args):
+        if args[i] in ("--format", "--duree") and i + 1 < len(args):
+            opts[args[i][2:]] = args[i + 1]
+            i += 2
+        else:
+            words.append(args[i])
+            i += 1
+    return call("POST", "/media", {"type": kind, "description": " ".join(words), **opts})
 
 
 a = sys.argv[1:]
-if a[:1] == ["etat"]:
+if a[:1] in (["image"], ["video"], ["musique"], ["voix"]) and len(a) >= 2:
+    out = media(a[0], a[1:])
+elif a[:1] == ["etat"]:
     out = call("GET", "/etat")
 elif a[:2] == ["navigateur", "reveiller"]:
     out = call("POST", "/navigateur/reveiller")

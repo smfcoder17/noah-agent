@@ -1,7 +1,7 @@
-# Apollo
+# Noah Agent
 
 Des agents personnels auto-hébergés, construits sur [Hermes Agent](https://github.com/NousResearch/hermes-agent).
-Apollo ajoute une interface simple au-dessus d'Hermes : un compte local, le choix du modèle en quelques clics,
+Noah Agent ajoute une interface simple au-dessus d'Hermes : un compte local, le choix du modèle en quelques clics,
 plusieurs agents isolés, et un chat qui montre ce que fait l'agent sans afficher ses prompts ni ses commandes.
 
 ## Démarrer
@@ -49,7 +49,7 @@ pour le chat (runtime « external store » branché sur nos événements SSE) et
 dans l'esprit de shadcn/ui. L'image Docker du serveur la compile et la sert ; rien à installer
 pour l'utilisateur.
 
-Pour la développer avec rechargement à chaud (le serveur Apollo doit tourner dans Docker) :
+Pour la développer avec rechargement à chaud (le serveur Noah Agent doit tourner dans Docker) :
 
 ```sh
 cd frontend && npm install && npm run dev
@@ -82,7 +82,7 @@ de passe dans la conversation.
   `/opt/data/workspace/uploads/` et le message les cite à l'agent.
 - L'onglet « Fichiers » liste l'espace de travail de l'agent (livrables, applications, captures, envois)
   avec téléchargement et aperçu. Les applications web générées s'ouvrent dans un bac à sable sans accès
-  à la session Apollo.
+  à la session Noah Agent.
 
 ## Cache de prompt
 

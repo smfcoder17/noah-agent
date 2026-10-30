@@ -1,4 +1,4 @@
-// Visionneuse : une image ou un fichier de l'agent s'ouvre ici, par-dessus le chat, sans quitter Apollo.
+// Visionneuse : une image ou un fichier de l'agent s'ouvre ici, par-dessus le chat, sans quitter Noah Agent.
 import { Check, Copy, Download, ExternalLink } from "lucide-react";
 import { createContext, useContext, useState } from "react";
 import { Button, Dialog, DialogContent } from "./ui";

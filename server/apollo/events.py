@@ -8,31 +8,27 @@
 Le détail brut (appels d'outils, arguments) n'est envoyé que si l'interface demande le mode détails.
 """
 
-# Libellés humains des outils les plus courants ; les autres retombent sur un libellé générique.
+# Ce que l'utilisateur voit pendant le travail : une seule ligne, remplacée au fil de l'eau.
+# Seules les étapes qui ont un sens pour lui ont un libellé ; les commandes, fichiers, compétences
+# et la mémoire restent invisibles (la ligne garde l'étape précédente).
 TOOL_LABELS = {
-    "web_search": "Recherche sur le web",
-    "web_extract": "Lecture d'une page web",
-    "browser": "Navigation dans le navigateur",
-    "terminal": "Exécution d'une commande",
-    "read_file": "Lecture d'un fichier",
-    "write_file": "Écriture d'un fichier",
-    "patch": "Modification d'un fichier",
-    "memory": "Consultation de la mémoire",
-    "session_search": "Recherche dans les conversations passées",
-    "skill_view": "Consultation d'une compétence",
-    "cronjob": "Planification d'une tâche",
-    "delegate_task": "Délégation à un sous-agent",
+    "web_search": "Cherche sur le web",
+    "web_extract": "Lit une page web",
+    "browser": "Navigue sur le web",
+    "cronjob": "Planifie une tâche",
+    "delegate_task": "Confie une partie du travail à un sous-agent",
+    "vision_analyze": "Regarde une image",
 }
 
 
-def tool_label(name: str) -> str:
+def tool_label(name: str) -> str | None:
     if name in TOOL_LABELS:
         return TOOL_LABELS[name]
     if name.startswith("browser"):
         return TOOL_LABELS["browser"]
     if name.startswith("mcp_") or "__" in name:
-        return "Utilisation d'une app connectée"
-    return "Travail en cours"
+        return "Utilise une app connectée"
+    return None
 
 
 def friendly_error(raw: str) -> str:
@@ -55,10 +51,20 @@ def translate(kind: str, data: dict, details: bool) -> dict | None:
 
     if kind in ("tool.started", "hermes.tool.progress"):
         tool = data.get("tool") or data.get("tool_name") or data.get("name") or ""
-        out = {"type": "activity", "label": tool_label(tool)}
+        if tool.startswith("_"):  # réflexion interne
+            return None
+        label = tool_label(tool)
         if details:
-            out["detail"] = {"tool": tool, "preview": data.get("preview")}
-        return out
+            return {"type": "activity", "label": label or tool, "detail": {"tool": tool, "preview": data.get("preview")}}
+        return {"type": "activity", "label": label} if label else None
+
+    # Commentaire de l'agent entre deux outils (« Je vérifie le rendu… ») : devient la ligne de travail.
+    if kind in ("assistant.commentary", "message.interim"):
+        text = (data.get("text") or data.get("content") or "").strip()
+        if text and not data.get("already_streamed"):
+            line = text.splitlines()[0]
+            return {"type": "activity", "label": line[:140] + ("…" if len(line) > 140 else "")}
+        return None
 
     if kind in ("tool.completed", "tool.failed"):
         if not details:

@@ -17,17 +17,18 @@ import { mediaUrl, rawFileUrl, send } from "@/lib/api";
 import { NoahTile } from "./Noah";
 import { Button } from "./ui";
 import { canFrame, useViewer } from "./Viewer";
-import { ApolloWidget } from "./Widgets";
+import { DictateButton, VoiceMode, VoiceModeButton } from "./Voice";
+import { NoahWidget } from "./Widgets";
 
 export { AgentContext };
 
-// « MEDIA:/chemin.png » ou un chemin d'image de la machine devient une image markdown servie par Apollo.
+// « MEDIA:/chemin.png » ou un chemin d'image de la machine devient une image markdown servie par Noah Agent.
 const MEDIA_RE = /(?:MEDIA:\s*)?(\/(?:opt\/data|tmp)\/[^\s"'`)\]]+\.(?:png|jpe?g|gif|webp))/gi;
 // Un autre fichier de l'espace de travail devient un lien qui s'ouvre dans la visionneuse.
 const FILE_RE = /`?(\/opt\/data\/workspace\/[^\s"'`)\]]+\.[a-z0-9]{1,6})`?/gi;
 
-// Une app ou un PDF se montre en aperçu intégré, même si l'agent n'a donné que le chemin.
-const PREVIEW_EXT = /\.(html?|pdf)$/i;
+// Une app, un PDF, un son ou une vidéo se montre en aperçu intégré, même si l'agent n'a donné que le chemin.
+const PREVIEW_EXT = /\.(html?|pdf|mp3|wav|ogg|m4a|mp4|webm|mov)$/i;
 
 /** Transforme les chemins hors des blocs de code (les widgets gardent leur JSON intact). */
 function linkPaths(text: string, agentId: string) {
@@ -43,13 +44,16 @@ function linkPaths(text: string, agentId: string) {
               if (all.slice(Math.max(0, offset - 2), offset).includes("](") || all[offset - 1] === "(") return m;
               if (PREVIEW_EXT.test(path) && !previewed.has(path)) {
                 previewed.add(path);
-                return `\n\n\`\`\`apollo\n${JSON.stringify({ type: "preview", path })}\n\`\`\`\n\n`;
+                return `\n\n\`\`\`noah\n${JSON.stringify({ type: "preview", path })}\n\`\`\`\n\n`;
               }
               return `[${path.split("/").pop()}](${rawFileUrl(agentId, path)})`;
             }),
     )
     .join("");
 }
+
+const widget = { SyntaxHighlighter: NoahWidget, CodeHeader: () => null };
+const WIDGET_LANGUAGES = { noah: widget, apollo: widget };
 
 function MarkdownText() {
   const { agentId } = useContext(AgentContext);
@@ -58,7 +62,7 @@ function MarkdownText() {
     <MarkdownTextPrimitive
       className="prose-chat"
       remarkPlugins={[remarkGfm]}
-      componentsByLanguage={{ apollo: { SyntaxHighlighter: ApolloWidget, CodeHeader: () => null } }}
+      componentsByLanguage={WIDGET_LANGUAGES}
       preprocess={(text) => linkPaths(text, agentId)}
       components={{
         a: ({ node: _node, href, children, ...props }) =>
@@ -90,12 +94,13 @@ function MarkdownText() {
 
 // --- Parties « outil » : activité, approbation, erreur, détails techniques -------------
 
-function Activity({ args, result }: ToolCallMessagePartProps) {
-  const done = result !== undefined;
+/** La ligne de travail : une seule, remplacée à chaque étape, retirée quand l'agent a fini. */
+function Activity({ args }: ToolCallMessagePartProps) {
+  const label = String(args.label);
   return (
-    <div className="flex items-center gap-2 py-0.5 text-[13px] text-muted-foreground">
-      {done ? <Check className="size-3.5 text-ok" /> : <Loader2 className="size-3.5 animate-spin text-accent" />}
-      <span>{String(args.label)}{done ? "" : "…"}</span>
+    <div className="flex items-center gap-2 py-0.5 text-[13px] text-muted-foreground" aria-live="polite">
+      <Loader2 className="size-3.5 shrink-0 animate-spin text-accent" />
+      <span className="truncate">{/[….!?]$/.test(label) ? label : `${label}…`}</span>
     </div>
   );
 }
@@ -210,7 +215,7 @@ function AssistantMessage() {
 
 // --- Zone de saisie -----------------------------------------------------------------
 
-function Composer() {
+function Composer({ onVoiceMode }: { onVoiceMode: () => void }) {
   return (
     <ComposerPrimitive.Root className="flex w-full flex-col gap-2 rounded-2xl border border-border bg-surface p-2 shadow-sm focus-within:border-accent">
       <div className="flex flex-wrap gap-1.5 empty:hidden">
@@ -228,6 +233,8 @@ function Composer() {
           placeholder="Écris à ton agent… (glisse ou colle des fichiers ici)"
           className="max-h-48 min-h-9 flex-1 resize-none bg-transparent px-1 py-2 text-[15px] outline-none placeholder:text-muted-foreground"
         />
+        <DictateButton />
+        <VoiceModeButton onClick={onVoiceMode} />
         <ThreadPrimitive.If running={false}>
           <ComposerPrimitive.Send asChild>
             <Button size="icon" aria-label="Envoyer" className="rounded-xl"><ArrowUp /></Button>
@@ -250,6 +257,7 @@ function EmptyNoah() {
 
 export function Thread() {
   const { agentName, hint } = useContext(AgentContext);
+  const [voice, setVoice] = useState(false);
   return (
     <ThreadPrimitive.Root className="flex h-full min-h-0 flex-col">
       <ComposerPrimitive.AttachmentDropzone className="flex min-h-0 flex-1 flex-col data-[dragging=true]:bg-accent-soft/40">
@@ -270,7 +278,7 @@ export function Thread() {
                 <ArrowDown />
               </Button>
             </ThreadPrimitive.ScrollToBottom>
-            <Composer />
+            {voice ? <VoiceMode onClose={() => setVoice(false)} /> : <Composer onVoiceMode={() => setVoice(true)} />}
           </ThreadPrimitive.ViewportFooter>
         </ThreadPrimitive.Viewport>
       </ComposerPrimitive.AttachmentDropzone>

@@ -1,4 +1,4 @@
-// Widgets que l'agent affiche dans le fil : un bloc ```apollo contenant un objet JSON.
+// Widgets que l'agent affiche dans le fil : un bloc ```noah (ou l'ancien ```apollo) contenant un objet JSON.
 // Graphique, tableau, grille d'éléments, question à choix. Le JSON invalide retombe en bloc de code.
 import type { SyntaxHighlighterProps } from "@assistant-ui/react-markdown";
 import { useAuiState } from "@assistant-ui/react";
@@ -199,7 +199,10 @@ function Grid({ spec }: { spec: GridSpec }) {
   );
 }
 
-/** Un fichier créé par l'agent, montré dans la conversation : application, page, PDF, image ou carte de téléchargement. */
+const AUDIO_RE = /\.(mp3|wav|ogg|m4a|aac|flac)$/i;
+const VIDEO_RE = /\.(mp4|webm|mov)$/i;
+
+/** Un fichier créé par l'agent, montré dans la conversation : application, page, PDF, image, son, vidéo ou carte de téléchargement. */
 function Preview({ spec }: { spec: PreviewSpec }) {
   const { agentId } = useContext(AgentContext);
   const view = useViewer();
@@ -231,7 +234,13 @@ function Preview({ spec }: { spec: PreviewSpec }) {
         </div>
       }
     >
-      {image ? (
+      {AUDIO_RE.test(path) ? (
+        <div className="px-4 py-3">
+          <audio controls preload="metadata" src={url} className="w-full" />
+        </div>
+      ) : VIDEO_RE.test(path) ? (
+        <video controls preload="metadata" src={url} className="block max-h-[480px] w-full bg-black" />
+      ) : image ? (
         <button type="button" onClick={open} className="block w-full cursor-zoom-in bg-muted">
           <img src={mediaUrl(agentId, path)} alt={title} loading="lazy" className="mx-auto max-h-96 object-contain" />
         </button>
@@ -307,7 +316,7 @@ function Choice({ spec }: { spec: ChoiceSpec }) {
   );
 }
 
-export function ApolloWidget({ code, components }: SyntaxHighlighterProps) {
+export function NoahWidget({ code, components }: SyntaxHighlighterProps) {
   let spec: Spec | null = null;
   try {
     spec = JSON.parse(code);

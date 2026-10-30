@@ -26,7 +26,7 @@ export function AuthScreen({ mode, onDone }: { mode: "setup" | "login"; onDone: 
       <form onSubmit={submit} className="flex w-full max-w-sm flex-col gap-4 rounded-2xl border border-border bg-surface p-7 shadow-sm">
         <img src="/assets/icon.svg" alt="" className="size-11" />
         <div className="flex flex-col gap-1">
-          <h1 className="text-xl font-semibold">{mode === "setup" ? "Bienvenue sur Apollo" : "Connexion à Apollo"}</h1>
+          <h1 className="text-xl font-semibold">{mode === "setup" ? "Bienvenue sur Noah Agent" : "Connexion à Noah Agent"}</h1>
           {mode === "setup" && <p className="text-sm text-muted-foreground">Crée le compte administrateur. Il reste sur cette machine.</p>}
         </div>
         <Label>

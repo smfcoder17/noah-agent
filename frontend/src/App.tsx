@@ -8,8 +8,9 @@ import { NoahTile, agentColor } from "@/components/Noah";
 import { type PanelTab, SidePanel } from "@/components/SidePanel";
 import { STATE_WORD, Sidebar, StateShape } from "@/components/Sidebar";
 import { Thread } from "@/components/Thread";
+import { SettingsDialog, type SettingsTab } from "@/components/Settings";
 import { ViewerProvider } from "@/components/Viewer";
-import { Button, Dialog, DialogContent } from "@/components/ui";
+import { Button } from "@/components/ui";
 import { type Agent, ApiError, type Conversation, type CurrentModel, get, send, type Status, type Usage } from "@/lib/api";
 import { AgentContext } from "@/lib/agentContext";
 import { useAgentChat } from "@/lib/useAgentChat";
@@ -42,13 +43,13 @@ export default function App() {
   }, [boot]);
 
   if (screen === "loading") return <p className="p-10 text-center text-muted-foreground">Chargement…</p>;
-  if (screen === "error") return <p className="p-10 text-center text-danger">Impossible de joindre le serveur Apollo : {error}</p>;
+  if (screen === "error") return <p className="p-10 text-center text-danger">Impossible de joindre le serveur Noah Agent : {error}</p>;
   if (screen === "setup" || screen === "login") return <AuthScreen mode={screen} onDone={boot} />;
   if (screen === "model")
     return (
       <div className="mx-auto max-w-4xl px-4 py-10">
         <h1 className="mb-1 text-2xl font-semibold">Le cerveau de tes agents</h1>
-        <p className="mb-6 text-sm text-muted-foreground">La clé reste chiffrée sur cette machine. Les agents ne la voient jamais : ils passent par Apollo.</p>
+        <p className="mb-6 text-sm text-muted-foreground">La clé reste chiffrée sur cette machine. Les agents ne la voient jamais : ils passent par Noah Agent.</p>
         <ModelPicker first onDone={() => setScreen("app")} />
       </div>
     );
@@ -66,7 +67,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [panel, setPanel] = useState<PanelTab | null>(null);
   const [agentDialog, setAgentDialog] = useState<{ open: boolean; agent: Agent | null }>({ open: false, agent: null });
-  const [modelOpen, setModelOpen] = useState(false);
+  const [settings, setSettings] = useState<SettingsTab | null>(null);
   const [details, setDetails] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -152,7 +153,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
             onPin={pin}
             onCustomize={(a) => setAgentDialog({ open: true, agent: a })}
             onNewAgent={() => setAgentDialog({ open: true, agent: null })}
-            onModel={() => setModelOpen(true)}
+            onSettings={setSettings}
             onLogout={logout}
           />
         </aside>
@@ -273,24 +274,17 @@ function Shell({ onLogout }: { onLogout: () => void }) {
             refreshAgents();
           }}
         />
-        <Dialog open={modelOpen} onOpenChange={setModelOpen}>
-          {modelOpen && (
-            <DialogContent
-              title="Le cerveau de tes agents"
-              description="La clé reste chiffrée sur cette machine. Les agents ne la voient jamais : ils passent par Apollo."
-              className="max-w-4xl"
-            >
-              <ModelPicker
-                onCancel={() => setModelOpen(false)}
-                onDone={() => {
-                  setModelOpen(false);
-                  refreshModel();
-                  refreshAgents();
-                }}
-              />
-            </DialogContent>
-          )}
-        </Dialog>
+        <SettingsDialog
+          open={!!settings}
+          tab={settings ?? "brain"}
+          onTab={setSettings}
+          onOpenChange={(o) => !o && setSettings(null)}
+          onBrainSaved={() => {
+            setSettings(null);
+            refreshModel();
+            refreshAgents();
+          }}
+        />
       </div>
     </ViewerProvider>
   );

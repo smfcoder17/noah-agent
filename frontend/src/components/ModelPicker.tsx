@@ -283,7 +283,7 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
                     {label}
                   </button>
                 ))}
-                <span className="ml-auto self-center text-xs text-muted-foreground">{results ? `${results.length} résultats` : "La sélection d'Apollo · cherche pour tout voir"}</span>
+                <span className="ml-auto self-center text-xs text-muted-foreground">{results ? `${results.length} résultats` : "La sélection de Noah Agent · cherche pour tout voir"}</span>
               </div>
               <div role="radiogroup" aria-label="Modèles" className="flex max-h-80 flex-col overflow-y-auto">
                 {list.map((m) => (

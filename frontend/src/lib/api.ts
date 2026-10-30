@@ -1,4 +1,4 @@
-// Client de l'API Apollo (même origine, session par cookie).
+// Client de l'API Noah Agent (même origine, session par cookie).
 
 export class ApiError extends Error {
   status: number;

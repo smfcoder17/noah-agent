@@ -81,7 +81,7 @@ def _upstream_headers(provider: str, api_key: str | None) -> dict:
         headers["Authorization"] = f"Bearer {api_key}"
     if provider == "openrouter":
         headers["HTTP-Referer"] = "https://github.com/apollo-agents"
-        headers["X-Title"] = "Apollo"
+        headers["X-Title"] = "Noah Agent"
     return headers
 
 
@@ -104,7 +104,7 @@ async def relay(path: str, request: Request):
     if limit is not None and month_cost() >= limit:
         # Message lu par l'agent et remonté tel quel dans l'interface.
         return JSONResponse(
-            {"error": {"message": f"Budget mensuel de {limit:.2f} $ atteint. Augmente-le dans Apollo pour continuer.",
+            {"error": {"message": f"Budget mensuel de {limit:.2f} $ atteint. Augmente-le dans Noah Agent pour continuer.",
                        "type": "budget_exceeded", "code": 402}},
             status_code=402,
         )

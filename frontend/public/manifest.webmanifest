@@ -1,6 +1,6 @@
 {
-  "name": "Apollo",
-  "short_name": "Apollo",
+  "name": "Noah Agent",
+  "short_name": "Noah",
   "description": "Tes agents personnels, sur ta propre machine.",
   "start_url": "/",
   "display": "standalone",

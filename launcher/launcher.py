@@ -2,7 +2,7 @@
 
 Il n'accepte qu'un petit vocabulaire (créer, écrire la config, redémarrer, supprimer un agent)
 et construit lui-même chaque conteneur à partir d'une image fixe, sans montage de l'hôte ni
-privilège. Le serveur Apollo n'a donc jamais accès au socket Docker.
+privilège. Le serveur Noah Agent n'a donc jamais accès au socket Docker.
 """
 import io
 import os
@@ -24,7 +24,7 @@ DATA = "/opt/data"
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
 
 client = docker.from_env()
-app = FastAPI(title="Apollo launcher")
+app = FastAPI(title="Noah Agent launcher")
 
 
 def auth(authorization: str = Header("")) -> None:
@@ -44,7 +44,7 @@ def container(agent_id: str):
     except NotFound:
         raise HTTPException(404, "Agent introuvable")
     if c.labels.get(LABEL) != agent_id:
-        raise HTTPException(403, "Ce conteneur n'est pas un agent Apollo")
+        raise HTTPException(403, "Ce conteneur n'est pas un agent Noah Agent")
     return c
 
 
@@ -127,7 +127,7 @@ def restart_browser(agent_id: str):
     except NotFound:
         raise HTTPException(404, "Navigateur introuvable")
     if c.labels.get(BROWSER_LABEL) != agent_id:
-        raise HTTPException(403, "Ce conteneur n'est pas un navigateur Apollo")
+        raise HTTPException(403, "Ce conteneur n'est pas un navigateur Noah Agent")
     c.restart(timeout=10)
     return {"ok": True}
 
@@ -180,8 +180,10 @@ def read_workspace_file(agent_id: str, path: str):
 
 
 @app.put("/agents/{agent_id}/upload", dependencies=[Depends(auth)])
-async def upload(agent_id: str, name: str, request: Request):
-    """Dépose un fichier de l'utilisateur dans workspace/uploads/ (lisible par l'agent)."""
+async def upload(agent_id: str, name: str, request: Request, folder: str = "uploads"):
+    """Dépose un fichier dans workspace/uploads/ (envoyé par l'utilisateur) ou workspace/outputs/ (média créé pour l'agent)."""
+    if folder not in ("uploads", "outputs"):
+        raise HTTPException(400, "Dossier non autorisé")
     c = container(check_id(agent_id))
     safe = re.sub(r"[^\w.\- ()]+", "_", os.path.basename(name)).strip() or "fichier"
     data = await request.body()
@@ -189,16 +191,16 @@ async def upload(agent_id: str, name: str, request: Request):
         raise HTTPException(413, "Fichier trop lourd (100 Mo max)")
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w") as tar:
-        info = tarfile.TarInfo(f"uploads/{safe}")
+        info = tarfile.TarInfo(f"{folder}/{safe}")
         info.size = len(data)
         info.mode = 0o644
         info.mtime = int(time.time())
         tar.addfile(info, io.BytesIO(data))
-    c.exec_run(["mkdir", "-p", f"{WORKSPACE}/uploads"], user="root")
+    c.exec_run(["mkdir", "-p", f"{WORKSPACE}/{folder}"], user="root")
     c.put_archive(WORKSPACE, buf.getvalue())
     # L'agent tourne sous son propre utilisateur : on lui rend la propriété du dossier.
-    c.exec_run(["sh", "-c", f"chown -R --reference={WORKSPACE} {WORKSPACE}/uploads"], user="root")
-    return {"path": f"{WORKSPACE}/uploads/{safe}"}
+    c.exec_run(["sh", "-c", f"chown -R --reference={WORKSPACE} {WORKSPACE}/{folder}"], user="root")
+    return {"path": f"{WORKSPACE}/{folder}/{safe}"}
 
 
 @app.get("/agents", dependencies=[Depends(auth)])
@@ -241,8 +243,8 @@ def create(agent_id: str, body: NewAgent):
     return {"id": agent_id, "host": PREFIX + agent_id}
 
 
-# Fichiers que le serveur peut écrire dans /opt/data : config d'Hermes, rôle, et l'outil `apollo.py` de l'agent.
-CONFIG_FILES = (".env", "config.yaml", "SOUL.md", "apollo.py")
+# Fichiers que le serveur peut écrire dans /opt/data : config d'Hermes, rôle, et l'outil `noah.py` de l'agent.
+CONFIG_FILES = (".env", "config.yaml", "SOUL.md", "noah.py")
 
 
 class Files(BaseModel):
@@ -304,6 +306,30 @@ def media(agent_id: str, path: str):
     with tarfile.open(fileobj=io.BytesIO(b"".join(stream))) as tar:
         data = tar.extractfile(tar.getmembers()[0]).read()
     return Response(data, media_type=MEDIA_TYPES[ext], headers={"Cache-Control": "private, max-age=86400"})
+
+
+# Hermes fige le prompt système d'une session à son premier message. Pour qu'un nouveau rôle ou de
+# nouvelles consignes s'appliquent aux conversations en cours, on efface ce prompt enregistré :
+# Hermes le reconstruit au tour suivant, une seule fois.
+FORGET_PROMPTS = """
+import sqlite3
+c = sqlite3.connect('/opt/data/state.db', timeout=30)
+n = c.execute("UPDATE sessions SET system_prompt = NULL, system_prompt_hash = NULL WHERE id LIKE 'apollo-%'").rowcount
+c.commit()
+print(n)
+"""
+
+
+@app.post("/agents/{agent_id}/refresh-prompts", dependencies=[Depends(auth)])
+def refresh_prompts(agent_id: str):
+    c = container(check_id(agent_id))
+    owner = c.exec_run(["stat", "-c", "%u:%g", f"{DATA}/state.db"], user="root")
+    if owner.exit_code != 0:
+        return {"sessions": 0}  # aucune session encore
+    res = c.exec_run(["python3", "-c", FORGET_PROMPTS], user=owner.output.decode().strip())
+    if res.exit_code != 0:
+        raise HTTPException(500, res.output.decode(errors="replace")[-300:])
+    return {"sessions": int(res.output.decode().strip() or 0)}
 
 
 @app.post("/agents/{agent_id}/restart", dependencies=[Depends(auth)])

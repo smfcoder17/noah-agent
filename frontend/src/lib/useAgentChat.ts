@@ -37,9 +37,8 @@ function fromStored(m: StoredMessage, i: number): ChatMessage {
   return { id: `h${i}`, role: "assistant", content: [{ type: "text", text: m.text }] };
 }
 
-/** Marque toutes les activités en cours comme terminées. */
-const settle = (parts: Part[]): Part[] =>
-  parts.map((p) => (p.type === "tool-call" && p.toolName === "activity" && p.result === undefined ? { ...p, result: "done" } : p));
+/** Retire la ligne de travail : elle ne sert que pendant que l'agent agit. */
+const settle = (parts: Part[]): Part[] => parts.filter((p) => !(p.type === "tool-call" && p.toolName === "activity"));
 
 function apply(msg: ChatMessage, ev: ChatEvent, runId: string | null): ChatMessage {
   const parts = msg.content;
@@ -50,8 +49,10 @@ function apply(msg: ChatMessage, ev: ChatEvent, runId: string | null): ChatMessa
       return { ...msg, content: [...settle(parts), { type: "text", text: ev.text.replace(/^\n+/, "") }] };
     }
     case "activity": {
-      const next: Part[] = [...settle(parts), { type: "tool-call", toolCallId: uid("a"), toolName: "activity", args: { label: ev.label } }];
+      // Une seule ligne de travail, toujours en bas : la nouvelle étape remplace l'ancienne.
+      const next: Part[] = [...settle(parts)];
       if (ev.detail) next.push({ type: "tool-call", toolCallId: uid("d"), toolName: "detail", args: { data: ev.detail as never }, result: true });
+      next.push({ type: "tool-call", toolCallId: "activity", toolName: "activity", args: { label: ev.label } });
       return { ...msg, content: next };
     }
     case "activity_detail":

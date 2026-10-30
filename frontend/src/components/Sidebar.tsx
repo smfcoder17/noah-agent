@@ -1,9 +1,10 @@
 // Colonne de gauche : uniquement les agents. Clic droit (ou « ⋯ ») pour épingler ou personnaliser.
-import { LogOut, MoreHorizontal, Palette, Pin, PinOff, Plus, X } from "lucide-react";
+import { LogOut, MoreHorizontal, Palette, Pin, PinOff, Plus, Settings, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { Agent, CurrentModel, TaskState, Usage } from "@/lib/api";
 import { cn, money } from "@/lib/utils";
 import { NoahTile, agentColor } from "./Noah";
+import type { SettingsTab } from "./Settings";
 import { Button } from "./ui";
 
 // Formes d'état : rond = l'agent agit, losange = à toi, rond plein vert = terminé.
@@ -65,7 +66,7 @@ export function Sidebar(props: {
   onPin: (agent: Agent, pinned: boolean) => void;
   onCustomize: (agent: Agent) => void;
   onNewAgent: () => void;
-  onModel: () => void;
+  onSettings: (tab: SettingsTab) => void;
   onLogout: () => void;
 }) {
   const { agents, agentId, usage } = props;
@@ -93,7 +94,7 @@ export function Sidebar(props: {
       <div className="flex items-center justify-between px-1">
         <div className="flex items-center gap-2">
           <img src="/assets/icon.svg" alt="" className="size-7" />
-          <strong className="text-lg tracking-tight">Apollo</strong>
+          <strong className="text-lg tracking-tight">Noah Agent</strong>
         </div>
         <Button variant="ghost" size="icon-sm" className="md:hidden" onClick={props.onClose} aria-label="Fermer le menu"><X /></Button>
       </div>
@@ -192,7 +193,7 @@ export function Sidebar(props: {
       )}
 
       <div className="flex flex-col gap-2">
-        <button type="button" onClick={props.onModel} className="flex cursor-pointer flex-col gap-2 rounded-xl border border-border bg-surface p-3 text-left hover:border-muted-foreground/50">
+        <button type="button" onClick={() => props.onSettings("brain")} className="flex cursor-pointer flex-col gap-2 rounded-xl border border-border bg-surface p-3 text-left hover:border-muted-foreground/50">
           <span className="flex items-baseline justify-between gap-2 text-xs">
             <span className="text-muted-foreground">Ce mois-ci</span>
             <span className="font-mono font-medium tabular-nums">
@@ -206,7 +207,10 @@ export function Sidebar(props: {
           )}
           <span className="truncate text-xs text-muted-foreground">Cerveau : <span className="font-mono text-foreground">{props.model?.model ?? "aucun"}</span></span>
         </button>
-        <Button variant="ghost" size="sm" className="justify-start text-muted-foreground" onClick={props.onLogout}><LogOut />Se déconnecter</Button>
+        <div className="flex gap-1">
+          <Button variant="ghost" size="sm" className="flex-1 justify-start text-muted-foreground" onClick={() => props.onSettings("create")}><Settings />Réglages</Button>
+          <Button variant="ghost" size="icon-sm" className="text-muted-foreground" onClick={props.onLogout} aria-label="Se déconnecter" title="Se déconnecter"><LogOut /></Button>
+        </div>
       </div>
     </>
   );
