@@ -11,13 +11,19 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from . import auth, desktop, relay
+from . import auth, desktop, hermes, relay
 
 router = APIRouter()
 
 # Un appel en cours au plus par agent : {id, message, depuis, origine, reponse, attente}.
 _calls: dict[str, dict] = {}
 _answered: dict[str, str] = {}  # réponses récentes, pour l'agent qui relance `attendre` après coup
+_hooks: dict = {}
+
+
+def setup(resume) -> None:
+    """`resume(agent_id, texte)` : relance l'agent dans sa conversation principale."""
+    _hooks["resume"] = resume
 
 
 def open_call(agent_id: str, message: str, origin: str = "agent") -> dict:
@@ -25,7 +31,7 @@ def open_call(agent_id: str, message: str, origin: str = "agent") -> dict:
     if old and not old["attente"].done():
         old["attente"].set_result("remplace")
     call = {"id": uuid.uuid4().hex[:10], "message": message, "depuis": time.time(), "origine": origin,
-            "attente": asyncio.get_running_loop().create_future()}
+            "attente": asyncio.get_running_loop().create_future(), "attentifs": 0}
     _calls[agent_id] = call
     desktop.notify("Noah a besoin de toi", message[:240])
     return call
@@ -54,10 +60,13 @@ async def wait(agent_id: str, call_id: str, seconds: float) -> str:
     call = _calls.get(agent_id)
     if not call or call["id"] != call_id:
         return _answered.get(call_id, "inconnu")
+    call["attentifs"] += 1
     try:
         return await asyncio.wait_for(asyncio.shield(call["attente"]), seconds)
     except asyncio.TimeoutError:
         return "en_attente"
+    finally:
+        call["attentifs"] -= 1
 
 
 def _public(call: dict | None) -> dict | None:
@@ -81,8 +90,26 @@ async def answer_call(agent_id: str, call_id: str, body: Answer, user: int = Dep
     if call["origine"] != "agent" and body.reponse == "fait":
         # Noah Agent finit lui-même ses appels (il voit quand l'accord est donné) : « fait » ne change rien.
         return {"ok": True}
+    nobody_waiting = call["attentifs"] == 0
     close_call(agent_id, call_id, body.reponse)
+    if body.reponse == "fait":
+        asyncio.create_task(save_browser_session(agent_id))
+    if nobody_waiting and _hooks.get("resume"):
+        # L'agent a fini son tour entre-temps (limite de temps, ou il s'est arrêté) : la réponse le relance.
+        word = "C'est fait" if body.reponse == "fait" else "Je ne peux pas le faire maintenant"
+        await _hooks["resume"](agent_id, f"{word} (ta demande : « {call['message'][:300]} »). Reprends où tu en étais.")
     return {"ok": True}
+
+
+async def save_browser_session(agent_id: str, delay: float = 3) -> None:
+    """Enregistre tout de suite les cookies du navigateur de l'agent. Camoufox ne le fait qu'à la fermeture propre
+    d'une session : si Firefox se fige juste après une connexion, elle serait perdue au redémarrage."""
+    await asyncio.sleep(delay)
+    try:
+        # La réponse (les cookies) n'est pas gardée ici : l'appel suffit à déclencher l'enregistrement sur disque.
+        await hermes.browser_call(agent_id, "GET", f"/sessions/{hermes.BROWSER_USER}/storage_state", timeout=15)
+    except Exception:  # noqa: BLE001 - navigateur éteint ou figé : rien à enregistrer
+        pass
 
 
 # Sous la limite des commandes de l'agent (180 s) : au-delà, il relance `noah.py attendre <id>`.
@@ -115,3 +142,21 @@ async def agent_call(body: AgentCall, request: Request):
 async def agent_wait(call_id: str, request: Request):
     agent_id = relay._agent_from(request)
     return _result(call_id, await wait(agent_id, call_id, AGENT_WAIT))
+
+
+async def keep_browser_sessions(every: float = 180) -> None:
+    """Enregistre régulièrement les cookies des navigateurs ouverts : une connexion faite à la main (écran de
+    l'agent) survit ainsi à un Firefox figé puis redémarré."""
+    from . import db
+
+    while True:
+        await asyncio.sleep(every)
+        with db.connect() as c:
+            ids = [r["id"] for r in c.execute("SELECT id FROM agents")]
+        for agent_id in ids:
+            try:
+                health = await hermes.browser_call(agent_id, "GET", "/health", timeout=3)
+            except Exception:  # noqa: BLE001 - pas de navigateur pour cet agent
+                continue
+            if health.get("activeSessions"):
+                await save_browser_session(agent_id, delay=0)

@@ -48,6 +48,8 @@ async def startup() -> None:
     watch.setup(_save_message, _main_conversation)
     accounts.setup(_save_message, _main_conversation)
     asyncio.create_task(watch.run_watches(_save_message, _main_conversation))
+    asyncio.create_task(handoff.keep_browser_sessions())
+    handoff.setup(_resume_agent)
     if db.get_setting("agent_setup") != AGENT_SETUP_VERSION and current_model():
         asyncio.create_task(_upgrade_agents())
 
@@ -948,15 +950,19 @@ async def _browser_diagnosis(agent_id: str) -> dict:
             "onglets": health.get("activeTabs"), "sessions": health.get("activeSessions"), "conseil": advice}
 
 
-async def _browser_wake(agent_id: str) -> dict:
-    """Rallume le navigateur et, si aucune page n'est ouverte, ouvre l'onglet partagé avec l'agent."""
+async def _browser_wake(agent_id: str, may_restart: bool = True) -> dict:
+    """Rallume le navigateur et, si aucune page n'est ouverte, ouvre l'onglet partagé avec l'agent. Firefox peut
+    se figer en entier (vu sur la console Google Cloud) : s'il n'arrive plus à ouvrir une page, on le redémarre
+    tout de suite (profil et cookies gardés) plutôt que de laisser l'agent réessayer en vain."""
     try:
         await hermes.browser_call(agent_id, "POST", "/start", timeout=60)
         user = {"userId": hermes.BROWSER_USER}
         tabs = (await hermes.browser_call(agent_id, "GET", "/tabs", params=user)).get("tabs") or []
         if not tabs:
-            await hermes.browser_call(agent_id, "POST", "/tabs", timeout=60,
-                                      json={**user, "sessionKey": hermes.BROWSER_USER})
+            r = await hermes.browser_call(agent_id, "POST", "/tabs", timeout=60,
+                                          json={**user, "sessionKey": hermes.BROWSER_USER})
+            if r["http_status"] >= 500 and may_restart:
+                return await _browser_restart(agent_id) | {"redemarre": True}
     except httpx.HTTPError:
         await hermes.ensure_browser(agent_id)
     for _ in range(15):
@@ -976,7 +982,7 @@ async def _browser_restart(agent_id: str) -> dict:
         await asyncio.sleep(2)
         d = await _browser_diagnosis(agent_id)
         if d["joignable"]:
-            return await _browser_wake(agent_id)
+            return await _browser_wake(agent_id, may_restart=False)
     return d
 
 
@@ -1270,6 +1276,23 @@ class ThreadBody(BaseModel):
 
 # Runs de fond (fils ouverts par l'agent) : gardés ici pour ne pas être ramassés en cours de route.
 _background: set[asyncio.Task] = set()
+
+
+async def _resume_agent(agent_id: str, text: str) -> None:
+    """Message de l'utilisateur envoyé hors du fil (réponse à un appel) : l'agent repart dans sa conversation
+    principale, comme si l'utilisateur l'avait tapé ; l'interface voit la conversation changer."""
+    conv_id = _main_conversation(agent_id)
+    if not conv_id:
+        return
+    stream = await _run(_agent(agent_id), conv_id, text, context=machine.pop_context(conv_id))
+
+    async def drain():
+        async for _ in stream:
+            pass
+
+    task = asyncio.create_task(drain())
+    _background.add(task)
+    task.add_done_callback(_background.discard)
 
 
 @app.post("/agent-api/fils")
