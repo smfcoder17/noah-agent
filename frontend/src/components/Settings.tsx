@@ -1,14 +1,15 @@
-// Réglages : le cerveau des agents, les modèles de création (image, vidéo, musique) et la voix.
+// Réglages : le cerveau des agents, les modèles de création (image, vidéo, musique), la voix et le téléphone.
 // Chaque type peut rester en « Automatique » : Noah Agent prend le meilleur modèle disponible avec la clé.
 import { Check, Loader2, Play } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { get, request, send } from "@/lib/api";
 import { ModelPicker } from "./ModelPicker";
+import { PhonePairing } from "./PhonePairing";
 import { type MediaModel, ModelSelect } from "./ModelSelect";
 import { Dialog, DialogContent, Tabs, TabsContent, TabsList, TabsTrigger } from "./ui";
 import { Button } from "./ui";
 
-export type SettingsTab = "brain" | "create" | "voice";
+export type SettingsTab = "brain" | "create" | "voice" | "phone";
 
 type Kind = { label: string; setting: string; auto: string | null; routed?: boolean; models: MediaModel[] };
 type MediaState = {
@@ -43,6 +44,7 @@ export function SettingsDialog({ open, tab, onTab, onOpenChange, onBrainSaved }:
               <TabsTrigger value="brain">Cerveau</TabsTrigger>
               <TabsTrigger value="create">Création</TabsTrigger>
               <TabsTrigger value="voice">Voix</TabsTrigger>
+              <TabsTrigger value="phone">Téléphone</TabsTrigger>
             </TabsList>
             <TabsContent value="brain">
               <ModelPicker onCancel={() => onOpenChange(false)} onDone={onBrainSaved} />
@@ -52,6 +54,9 @@ export function SettingsDialog({ open, tab, onTab, onOpenChange, onBrainSaved }:
             </TabsContent>
             <TabsContent value="voice">
               <MediaPanel kinds={["transcription", "speech"]} withVoice />
+            </TabsContent>
+            <TabsContent value="phone">
+              <PhonePairing />
             </TabsContent>
           </Tabs>
         </DialogContent>

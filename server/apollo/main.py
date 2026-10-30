@@ -116,6 +116,38 @@ def _login_response(request: Request, response: Response, user_id: int) -> dict:
     return {"token": token}
 
 
+# --- Appairage d'un téléphone par QR code -----------------------------------------------------
+# Un code à usage unique, valable 10 minutes, connecte le téléphone qui l'ouvre au compte qui l'a créé :
+# pas de mot de passe à taper sur un petit écran.
+PAIRING_SECONDS = 600
+_pairing: dict[str, tuple[int, float]] = {}
+
+
+@app.post("/api/pairing")
+def pairing_start(request: Request, user: int = Depends(auth.current_user)):
+    now = time.time()
+    for code in [c for c, (_, exp) in _pairing.items() if exp < now]:
+        _pairing.pop(code, None)
+    code = secrets.token_urlsafe(18)
+    _pairing[code] = (user, now + PAIRING_SECONDS)
+    base = str(request.base_url).rstrip("/")
+    host = request.url.hostname or ""
+    return {"adresse": f"{base}/?appairage={code}", "expire": PAIRING_SECONDS,
+            "local": host in ("localhost", "127.0.0.1", "::1") or host.endswith(".localhost")}
+
+
+class PairingCode(BaseModel):
+    code: str = Field(min_length=10, max_length=64)
+
+
+@app.post("/api/pairing/claim")
+def pairing_claim(body: PairingCode, request: Request, response: Response):
+    entry = _pairing.pop(body.code, None)
+    if not entry or entry[1] < time.time():
+        raise HTTPException(400, "Ce code a expiré ou a déjà servi. Affiche un nouveau QR code sur ton ordinateur.")
+    return _login_response(request, response, entry[0])
+
+
 @app.post("/api/setup/account")
 def setup_account(body: Credentials, request: Request, response: Response):
     if auth.has_users():

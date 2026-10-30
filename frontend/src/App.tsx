@@ -47,6 +47,12 @@ export default function App() {
 
   const boot = useCallback(async () => {
     try {
+      // Téléphone qui vient de scanner le QR code de Réglages > Téléphone : il se connecte, puis l'adresse est nettoyée.
+      const code = new URLSearchParams(location.search).get("appairage");
+      if (code) {
+        history.replaceState(null, "", location.pathname);
+        await send("/api/pairing/claim", { code }).catch((e) => setError((e as Error).message));
+      }
       const status = await get<Status>("/api/status");
       if (!status.has_account) return setScreen("setup");
       try {
