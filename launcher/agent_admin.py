@@ -231,7 +231,124 @@ def google_revoke(_):
     return google(None)
 
 
+# --- Applications (catalogue MCP d'Hermes : Notion, Todoist, Linear…) ------------------------------
+
+# Connexion OAuth lancée en arrière-plan : Hermes publie l'adresse d'autorisation puis attend le retour
+# du fournisseur sur un port local de cette machine. L'utilisateur colle l'adresse de retour dans Noah
+# Agent, qui la rejoue sur ce port.
+MCP_LOGIN = r"""
+import sys
+sys.path.insert(0, "/opt/hermes")
+from hermes_cli.mcp_config import _get_mcp_servers, _reauth_oauth_server
+from tools.mcp_oauth import force_interactive_oauth
+name = sys.argv[1]
+with force_interactive_oauth():
+    ok = _reauth_oauth_server(name, _get_mcp_servers()[name])
+print("NOAH_RESULT", "ok" if ok else "echec", flush=True)
+"""
+
+
+def _mcp_log(name):
+    return NOAH / f"mcp-{name}.log"
+
+
+def _mcp_connected(name, cfg):
+    if cfg.get("auth") != "oauth":
+        return True
+    from tools.mcp_oauth import HermesTokenStorage
+    return HermesTokenStorage(name).has_cached_tokens()
+
+
+def apps(_):
+    from hermes_cli import mcp_catalog
+    installed = mcp_catalog.installed_servers()
+    out = []
+    for e in mcp_catalog.list_catalog():
+        cfg = installed.get(e.name)
+        out.append({"nom": e.name, "description": (e.description or "").strip(), "source": e.source,
+                    "oauth": e.auth.type == "oauth", "hote": (e.suggest.hosts[0] if e.suggest and e.suggest.hosts else None),
+                    "installe": cfg is not None, "connecte": bool(cfg) and _mcp_connected(e.name, cfg)})
+    return {"applications": out}
+
+
+def _check_name(name):
+    from hermes_cli import mcp_catalog
+    entry = mcp_catalog.get_entry(name or "")
+    if not entry:
+        fail("Application inconnue")
+    return entry
+
+
+def app_connect(body):
+    import re
+    import time
+    from hermes_cli import mcp_catalog
+    from hermes_cli.mcp_config import _save_mcp_server
+    entry = _check_name(body.get("nom"))
+    if entry.auth.type != "oauth" and entry.auth.env:
+        fail("Cette application demande des clés : pas encore prise en charge ici")
+    if not _save_mcp_server(entry.name, mcp_catalog.card_install_config(entry)):
+        fail("Configuration refusée par Hermes")
+    if entry.auth.type != "oauth":
+        return {"connecte": True}
+    log = _mcp_log(entry.name)
+    log.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["pkill", "-f", f"NOAH_MCP_LOGIN {entry.name}$"], capture_output=True)
+    with open(log, "w") as f:
+        subprocess.Popen([sys.executable, "-c", MCP_LOGIN, entry.name, "NOAH_MCP_LOGIN", entry.name],
+                         stdin=subprocess.DEVNULL, stdout=f, stderr=subprocess.STDOUT, start_new_session=True,
+                         cwd=str(DATA), env={**os.environ, "HOME": str(DATA)})
+    for _ in range(60):
+        time.sleep(0.5)
+        m = re.search(r"https://\S+redirect_uri=\S+", log.read_text(errors="replace"))
+        if m:
+            return {"adresse": m.group(0)}
+    fail("Le fournisseur n'a pas rendu d'adresse d'autorisation : " + log.read_text(errors="replace")[-300:])
+
+
+def app_finish(body):
+    import re
+    import time
+    import urllib.parse
+    import urllib.request
+    entry = _check_name(body.get("nom"))
+    pasted = (body.get("adresse") or "").strip()
+    query = pasted.split("?", 1)[1] if "?" in pasted else pasted
+    if "code=" not in query and "error=" not in query:
+        fail("Colle l'adresse complète de la page de retour (elle contient « code= »)")
+    log = _mcp_log(entry.name)
+    text = log.read_text(errors="replace") if log.exists() else ""
+    m = re.search(r"redirect_uri=([^&\s]+)", text)
+    if not m:
+        fail("Aucune connexion en cours : relance « Connecter »")
+    callback = urllib.parse.unquote(m.group(1))
+    try:
+        urllib.request.urlopen(f"{callback}?{query.split('#')[0]}", timeout=10).read()
+    except OSError as e:
+        fail(f"La connexion en attente a expiré ({e}) : relance « Connecter »")
+    for _ in range(60):
+        text = log.read_text(errors="replace")
+        if "NOAH_RESULT" in text:
+            break
+        time.sleep(0.5)
+    if "NOAH_RESULT ok" not in text:
+        why = re.search(r"Authentication failed: ([^\n]+)", text)
+        fail("Connexion refusée : " + (why.group(1)[:200] if why else "relance « Connecter » et réessaie"))
+    return {"connecte": True}
+
+
+def app_remove(body):
+    from hermes_cli import mcp_catalog
+    from tools.mcp_oauth import HermesTokenStorage
+    entry = _check_name(body.get("nom"))
+    mcp_catalog.uninstall_entry(entry.name)
+    HermesTokenStorage(entry.name).remove()
+    return {"connecte": False}
+
+
 ACTIONS = {
+    "applications": apps, "application_connecter": app_connect, "application_finir": app_finish,
+    "application_retirer": app_remove,
     "ordinateur": computer,
     "memoire": memory, "memoire_ecrire": memory_write,
     "routines": routines, "routine_creer": routine_create, "routine_action": routine_action,

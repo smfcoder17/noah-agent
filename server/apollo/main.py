@@ -31,7 +31,7 @@ provisioning: dict[str, str] = {}
 task_state: dict[str, str] = {}
 
 # Version du branchement des agents ; l'augmenter reconfigure tous les agents au démarrage.
-AGENT_SETUP_VERSION = "11-citations"
+AGENT_SETUP_VERSION = "12-applications"
 
 
 @app.on_event("startup")
@@ -285,8 +285,10 @@ une consigne autonome et complète, un horaire (« every day at 8am », « 0 9 *
 Le résultat de chaque passage arrive tout seul dans cette conversation. L'utilisateur voit, met en pause et supprime ses routines dans Détails.
 Propose une routine quand tu remarques une tâche qui revient.
 
-## Gmail, Agenda, Drive
-Si l'utilisateur a connecté Google dans Détails → Connexions, utilise la compétence google-workspace. Sinon, invite-le à le faire là plutôt que de lui demander des identifiants.
+## Gmail, Agenda, Drive et autres applications
+Si l'utilisateur a connecté Google dans Détails → Connexions, utilise la compétence google-workspace. Les applications connectées là
+(Notion, Todoist, Linear, Figma…) t'apportent leurs propres outils. Pour une application pas encore connectée, invite-le à le faire
+dans Détails → Connexions plutôt que de lui demander des identifiants.
 
 ## Fichiers (l'utilisateur les voit dans l'onglet « Fichiers » de Noah Agent et peut les télécharger)
 - Ton espace de travail : /opt/data/workspace. Range-y tout ce que tu produis.

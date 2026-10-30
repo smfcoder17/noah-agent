@@ -295,17 +295,113 @@ function MemoryList({ title, entries, limit, empty, onSave }: { title: string; e
 
 type GoogleState = { disponible: boolean; connecte?: boolean; identifiants?: boolean };
 
+type App = { nom: string; description: string; source: string | null; oauth: boolean; hote: string | null; installe: boolean; connecte: boolean };
+type ConnectionsState = { google: GoogleState; applications: App[] };
+
+const appLabel = (name: string) => name.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
 export function Connections({ agentId }: { agentId: string }) {
-  const { data, setData, error, setError } = useAgentData<{ google: GoogleState }>(`/api/agents/${agentId}/connections`);
+  const { data, setData, error, setError, load } = useAgentData<ConnectionsState>(`/api/agents/${agentId}/connections`);
+  const [browsing, setBrowsing] = useState(false);
+  const [query, setQuery] = useState("");
   const google = data?.google;
+  const apps = data?.applications ?? [];
+  const connected = apps.filter((a) => a.installe);
+  const q = query.trim().toLowerCase();
+  const others = apps.filter((a) => !a.installe && (!q || `${a.nom} ${a.description}`.toLowerCase().includes(q)));
   return (
-    <Section title="Connexions" count={google?.connecte ? 1 : undefined}>
+    <Section title="Connexions" count={(google?.connecte ? 1 : 0) + connected.filter((a) => a.connecte).length}>
       {!data && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture…</p>}
-      {google?.disponible && (
-        <GoogleCard agentId={agentId} state={google} onState={(g) => setData({ google: g })} onError={setError} />
+      {google?.disponible && data && (
+        <GoogleCard agentId={agentId} state={google} onState={(g) => setData({ ...data, google: g })} onError={setError} />
       )}
+      {connected.map((a) => <AppRow key={a.nom} agentId={agentId} app={a} onChange={load} onError={setError} />)}
+      {data && (browsing ? (
+        <div className="flex flex-col gap-1.5 rounded-xl border border-border p-2">
+          <Input value={query} onChange={(e) => setQuery(e.target.value)} className="h-9" placeholder="Notion, Todoist, Linear, Figma…" aria-label="Chercher une application" autoFocus />
+          <div className="flex max-h-72 flex-col gap-0.5 overflow-y-auto">
+            {others.map((a) => <AppRow key={a.nom} agentId={agentId} app={a} onChange={load} onError={setError} />)}
+            {!others.length && <p className="p-2 text-xs text-muted-foreground">Aucune application ne correspond.</p>}
+          </div>
+          <Button size="sm" variant="ghost" className="self-end" onClick={() => setBrowsing(false)}>Fermer</Button>
+        </div>
+      ) : (
+        <Button variant="outline" size="sm" className="self-start" onClick={() => setBrowsing(true)}><Plus />Connecter une application</Button>
+      ))}
       <ErrorText>{error}</ErrorText>
     </Section>
+  );
+}
+
+function AppRow({ agentId, app, onChange, onError }: { agentId: string; app: App; onChange: () => void; onError: (e: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [waiting, setWaiting] = useState(false);
+  const [back, setBack] = useState("");
+  const base = `/api/agents/${agentId}/connections/apps/${app.nom}`;
+  const run = async (fn: () => Promise<void>) => {
+    setBusy(true);
+    onError("");
+    try {
+      await fn();
+    } catch (e) {
+      onError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const connect = () =>
+    run(async () => {
+      const r = await send<{ adresse?: string; connecte?: boolean }>(`${base}/connect`, {});
+      if (r.adresse) {
+        window.open(r.adresse, "_blank", "noopener");
+        setWaiting(true);
+      } else onChange();
+    });
+  const finish = () =>
+    run(async () => {
+      await send(`${base}/finish`, { adresse: back });
+      setWaiting(false);
+      setBack("");
+      onChange();
+    });
+  const remove = () =>
+    run(async () => {
+      if (!confirm(`Retirer ${appLabel(app.nom)} ? L'agent n'y aura plus accès.`)) return;
+      await send(`${base}/remove`, {});
+      onChange();
+    });
+  return (
+    <div className={cn("flex flex-col gap-2 rounded-lg px-2 py-1.5", app.installe && "border border-border p-2.5")}>
+      <div className="flex items-center gap-2.5">
+        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-muted text-sm font-bold">{app.nom[0].toUpperCase()}</span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium">{appLabel(app.nom)}</p>
+          <p className="truncate text-xs text-muted-foreground" title={app.description}>{app.description}</p>
+        </div>
+        {app.connecte ? (
+          <>
+            <span className="flex items-center gap-1 text-xs font-medium text-ok"><Check className="size-3.5" />Connecté</span>
+            <Button size="icon-sm" variant="ghost" onClick={remove} disabled={busy} aria-label={`Retirer ${appLabel(app.nom)}`}><Trash2 /></Button>
+          </>
+        ) : !waiting ? (
+          <Button size="sm" variant={app.installe ? "default" : "outline"} onClick={connect} disabled={busy}>
+            {busy && <Loader2 className="animate-spin" />}{app.installe ? "Terminer la connexion" : "Connecter"}
+          </Button>
+        ) : null}
+      </div>
+      {waiting && (
+        <div className="flex flex-col gap-2">
+          <p className="text-xs text-muted-foreground">
+            Accepte dans l'onglet ouvert. Tu arrives ensuite sur une page qui ne s'affiche pas (adresse « 127.0.0.1 ») : c'est normal, copie son adresse complète ici.
+          </p>
+          <Input value={back} onChange={(e) => setBack(e.target.value)} className="h-9" placeholder="http://127.0.0.1:…/callback?code=…" aria-label={`Adresse de retour de ${appLabel(app.nom)}`} />
+          <div className="flex justify-end gap-2">
+            <Button size="sm" variant="ghost" onClick={connect} disabled={busy}>Rouvrir</Button>
+            <Button size="sm" onClick={finish} disabled={!back.trim() || busy}>{busy && <Loader2 className="animate-spin" />}Terminer</Button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

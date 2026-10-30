@@ -162,7 +162,31 @@ class GoogleFinish(BaseModel):
 
 @router.get("/api/agents/{agent_id}/connections")
 async def connections(agent_id: str, user: int = Depends(auth.current_user)):
-    return {"google": await admin(_check(agent_id), "google")}
+    google, apps = await asyncio.gather(admin(_check(agent_id), "google"), admin(agent_id, "applications"))
+    return {"google": google, "applications": apps["applications"]}
+
+
+class AppFinish(BaseModel):
+    adresse: str = Field(min_length=4, max_length=4000)
+
+
+@router.post("/api/agents/{agent_id}/connections/apps/{name}/{action}")
+async def app_action(agent_id: str, name: str, action: str, body: AppFinish | None = None,
+                     user: int = Depends(auth.current_user)):
+    """Connecte ou retire une application du catalogue d'Hermes. La gateway relit sa configuration et
+    ses jetons d'elle-même : les outils arrivent sans redémarrer l'agent (ni couper une connexion en cours)."""
+    _check(agent_id)
+    if action == "connect":
+        out = await admin(agent_id, "application_connecter", {"nom": name})
+    elif action == "finish":
+        if not body:
+            raise HTTPException(400, "Adresse de retour manquante")
+        out = await admin(agent_id, "application_finir", {"nom": name, "adresse": body.adresse})
+    elif action == "remove":
+        out = await admin(agent_id, "application_retirer", {"nom": name})
+    else:
+        raise HTTPException(400, "Action inconnue")
+    return out
 
 
 @router.post("/api/agents/{agent_id}/connections/google/start")
