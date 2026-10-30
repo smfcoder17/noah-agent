@@ -276,6 +276,12 @@ AIDE = """Utilisation : python3 /opt/data/noah.py <commande>
   musique "description"                             crée un morceau de musique
   voix "texte à dire"                               lit un texte à voix haute (MP3)
   installer paquet [paquet…]   installe des logiciels système (paquets Debian : ffmpeg, imagemagick, poppler-utils…)
+Sur l'ordinateur de l'utilisateur (application de bureau ouverte ; il confirme les actions sensibles) :
+  ordinateur ouvrir <chemin|adresse>     ouvre un fichier ou dossier partagé (/opt/data/dossiers/…) ou une page web
+  ordinateur notifier "titre" "texte"    notification sur son écran (fin d'une tâche, rappel, résultat de routine)
+  ordinateur copier "texte"              met un texte dans son presse-papiers
+  ordinateur lancer "application"        ouvre une application (ex. « Calculatrice », « Visual Studio Code »)
+  ordinateur commande "commande"         exécute une commande (PowerShell sous Windows) dans son dossier de travail
 Les fichiers créés vont dans /opt/data/workspace/outputs/ ; la réponse donne le widget à montrer."""
 
 
@@ -320,6 +326,15 @@ elif a[:1] == ["fil"] and len(a) >= 3:
     out = call("POST", "/fils", {"titre": a[1], "consigne": " ".join(a[2:])})
 elif a[:1] == ["installer"] and len(a) >= 2:
     out = call("POST", "/installer", {"paquets": a[1:]})
+elif a[:1] == ["ordinateur"] and len(a) >= 3 and a[1] in ("ouvrir", "notifier", "copier", "lancer", "commande"):
+    action = {"copier": "presse_papiers"}.get(a[1], a[1])
+    if a[1] == "notifier":
+        body = {"action": action, "titre": a[2], "texte": " ".join(a[3:])}
+    elif a[1] == "copier":
+        body = {"action": action, "texte": " ".join(a[2:])}
+    else:
+        body = {"action": action, "cible": " ".join(a[2:])}
+    out = call("POST", "/ordinateur", body)
 elif a[:1] == ["fil-etat"] and len(a) == 2:
     out = call("GET", "/fils/" + a[1])
 else:

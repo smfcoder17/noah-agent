@@ -15,13 +15,14 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import auth, catalog, db, events, hermes, machine, media, relay
+from . import auth, catalog, db, desktop, events, hermes, machine, media, relay
 from .config import WEB_DIR
 from .hermes import Agent
 
 app = FastAPI(title="Noah Agent")
 app.include_router(relay.router)
 app.include_router(machine.router)
+app.include_router(desktop.router)
 
 # Agents en cours de création : id -> message d'étape ou d'erreur affiché dans l'interface.
 provisioning: dict[str, str] = {}
@@ -31,7 +32,7 @@ provisioning: dict[str, str] = {}
 task_state: dict[str, str] = {}
 
 # Version du branchement des agents ; l'augmenter reconfigure tous les agents au démarrage.
-AGENT_SETUP_VERSION = "16-ecran"
+AGENT_SETUP_VERSION = "17-ordinateur"
 
 
 @app.on_event("startup")
@@ -313,6 +314,14 @@ Lis ce fichier quand on te parle de « mes documents », « mon dossier », d'un
 Ce que tu crées pour lui (rapports, documents, images, résultats de routines) va dans ton dossier de travail s'il y en a un : il le
 retrouve directement sur son ordinateur. Ne touche jamais à un dossier en lecture seule, et ne supprime ni n'écrase un fichier qu'il
 n'a pas créé avec toi sans le lui demander. Quand tu parles d'un fichier, donne son chemin sur son ordinateur, pas celui de ta machine.
+
+## Agir sur l'ordinateur de l'utilisateur
+Quand l'application de bureau est ouverte, tu peux agir sur son ordinateur avec `python3 /opt/data/noah.py ordinateur …` : ouvrir un fichier,
+un dossier ou une page, lui envoyer une notification, copier un texte dans son presse-papiers, lancer une application, exécuter une commande.
+Il confirme chaque action sensible dans une fenêtre du système : annonce ce que tu vas faire avant, en une phrase. Un refus est une
+réponse, pas une panne : ne réessaie pas la même action, propose autre chose. Pour lui montrer un fichier que tu as créé, enregistre-le
+dans son dossier de travail puis ouvre-le. Pendant une routine, termine par une notification courte quand le résultat mérite son attention.
+Une commande s'exécute dans son dossier de travail : préfère une commande simple et lisible, jamais destructrice sans qu'il l'ait demandé.
 
 ## Routines et initiative
 Quand l'utilisateur veut quelque chose de régulier (« chaque matin », « tous les lundis », « surveille… »), crée une routine avec ton outil cron :

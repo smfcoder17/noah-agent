@@ -4,6 +4,7 @@ const { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, session, shell, 
 const fs = require("node:fs");
 const path = require("node:path");
 const noah = require("./noah");
+const actions = require("./actions");
 
 let win = null;
 let tray = null;
@@ -143,6 +144,8 @@ if (!app.requestSingleInstanceLock()) {
     session.defaultSession.setPermissionCheckHandler((wc, permission) => permission === "media" && !!origin && !!wc && wc.getURL().startsWith(origin));
     createTray();
     createWindow();
+    // Demandes de l'agent (ouvrir, notifier, lancer, commande), confirmées par l'utilisateur.
+    actions.listen(() => origin);
   });
   app.on("before-quit", () => { quitting = true; });
   app.on("window-all-closed", () => {}); // reste dans la zone de notification
