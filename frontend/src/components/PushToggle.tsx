@@ -3,9 +3,9 @@
 import { Bell, BellOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import { del, get, send } from "@/lib/api";
+import { pushSupported as supported, reconcilePush } from "@/lib/push";
 import { Button, ErrorText } from "./ui";
 
-const supported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 
 function bytes(b64url: string) {
   const raw = atob(b64url.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (b64url.length % 4)) % 4));
@@ -18,18 +18,7 @@ export function PushToggle() {
   const [error, setError] = useState("");
   useEffect(() => {
     if (!supported()) return;
-    // Actif seulement si le serveur ET le navigateur ont l'abonnement (il peut expirer côté navigateur).
-    // Si le navigateur a renouvelé l'abonnement sans que le serveur l'ait reçu, on le lui renvoie ici.
-    Promise.all([get<{ abonne: boolean; endpoint: string | null }>("/api/push/subscription"), navigator.serviceWorker.ready.then((r) => r.pushManager.getSubscription())])
-      .then(async ([r, sub]) => {
-        if (!sub || Notification.permission !== "granted") return setOn(false);
-        if (!r.abonne || r.endpoint !== sub.endpoint) {
-          const j = sub.toJSON();
-          await send("/api/push/subscription", { endpoint: j.endpoint, p256dh: j.keys?.p256dh, auth: j.keys?.auth });
-        }
-        setOn(true);
-      })
-      .catch(() => setOn(false));
+    reconcilePush().then(setOn).catch(() => setOn(false));
   }, []);
   if (!supported()) return null;
 

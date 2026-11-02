@@ -77,6 +77,7 @@ async def startup() -> None:
     asyncio.create_task(public.setup())
     updates.announce = _announce_update
     asyncio.create_task(updates.run(task_state))
+    asyncio.create_task(push.run_queue())
     _migrate_threads()
     asyncio.create_task(_after_updates(_refresh_browsers))
     asyncio.create_task(machine.deliver_routines(_save_message, _main_conversation))
@@ -388,7 +389,9 @@ def flow_decide(public: str, decision: str, request: Request, body: Decision | N
     if decision != "autoriser":
         raise HTTPException(400, "Décision inconnue")
     with _pairing_lock:
-        if flow["user"]:
+        if flow["user"] or _flows.get(public) is not flow or flow.get("proprietaire") != user:
+            # Déjà traitée, annulée, ou ouverte par un autre compte entre-temps (flux navigateur : seul le compte qui a
+            # vu le nombre peut accepter).
             raise HTTPException(404, "Cette demande a déjà été traitée.")
         if flow["sens"] == "accord" and (not body or not secrets.compare_digest(body.verification.strip(), flow["verif"])):
             # Mauvais nombre : la demande ne vient sans doute pas de l'appareil que l'utilisateur a en main.
@@ -407,6 +410,7 @@ class FlowPoll(BaseModel):
 
 @app.post("/api/pairing/flow/poll")
 def flow_poll(body: FlowPoll, request: Request, response: Response):
+    _too_many(request)
     """Crée et rend la session dès que l'utilisateur a autorisé l'appareil ; 202 tant qu'il ne l'a pas fait (ou que le
     nombre n'a pas encore été saisi dans l'app), 410 quand la demande n'existe plus (refusée, expirée, déjà servie)."""
     key = auth.digest(body.sondage)
@@ -422,6 +426,8 @@ def flow_poll(body: FlowPoll, request: Request, response: Response):
                         return {"attente": "nombre"}
                     if not secrets.compare_digest(body.verification.strip(), flow["verif"]):
                         _flows.pop(public, None)
+                        net = _network(_ip(request))
+                        _failed_logins[net] = _failed_logins.get(net, []) + [time.time()]
                         raise HTTPException(403, "Ce nombre ne correspond pas à celui du navigateur. Par prudence, la "
                                                  "demande est annulée : recommence.")
                 if not flow.get("jeton"):  # réponse perdue en route : le même sondage la relit pendant 30 s

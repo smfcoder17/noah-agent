@@ -124,19 +124,54 @@ def _retry_after(value: str, default: float) -> float:
     return default
 
 
-def _still_subscribed(endpoint: str) -> bool:
+def _still_subscribed(sub) -> bool:
+    """Le même abonnement (même appareil, même session, mêmes clés) existe toujours : un autre compte connecté depuis
+    le même navigateur entre-temps a une autre session, son abonnement ne reçoit pas les messages du précédent."""
     now = datetime.now(timezone.utc).isoformat()
     with db.connect() as c:
         return bool(c.execute("SELECT 1 FROM push_subscriptions p JOIN sessions s ON s.token = p.session "
-                              "WHERE p.endpoint = ? AND s.expires_at > ?", (endpoint, now)).fetchone())
+                              "WHERE p.endpoint = ? AND p.session = ? AND p.p256dh = ? AND p.auth = ? AND s.expires_at > ?",
+                              (sub["endpoint"], sub["session"], sub["p256dh"], sub["auth"], now)).fetchone())
 
 
-async def _send_one(client: httpx.AsyncClient, sub, payload: bytes, urgent: bool) -> str:
-    """« livre » (accepté par le service de push), « mort » (désinstallé, permission retirée : l'abonnement est
-    supprimé) ou « echec » (refusé, ou erreur passagère encore là après les nouvelles tentatives)."""
+def _defer(sub, payload: bytes, urgent: bool, delay: float, tries: int) -> None:
+    """Envoi repris plus tard, gardé en base : un redémarrage du serveur pendant l'attente ne le perd pas."""
+    with db.connect() as c:
+        c.execute("INSERT INTO push_queue (endpoint, session, p256dh, auth, payload, urgent, not_before, tries, created) "
+                  "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                  (sub["endpoint"], sub["session"], sub["p256dh"], sub["auth"], payload, int(urgent),
+                   time.time() + delay, tries, time.time()))
+
+
+async def run_queue(every: float = 30) -> None:
+    """Boucle de fond : reprend les envois différés quand leur heure est venue (Retry-After, service indisponible)."""
+    while True:
+        try:
+            await flush_queue()
+        except Exception as e:  # une erreur de base ne doit pas arrêter la boucle
+            log.warning("push : file d'attente : %s", e)
+        await asyncio.sleep(every)
+
+
+async def flush_queue() -> int:
+    now = time.time()
+    with db.connect() as c:
+        c.execute("DELETE FROM push_queue WHERE created < ?", (now - TTL,))  # périmé chez le service de toute façon
+        due = c.execute("SELECT * FROM push_queue WHERE not_before <= ?", (now,)).fetchall()
+        if due:
+            c.executemany("DELETE FROM push_queue WHERE id = ?", [(r["id"],) for r in due])
+    async with httpx.AsyncClient(timeout=15, transport=transport) as client:
+        for r in due:
+            await _send_one(client, r, r["payload"], bool(r["urgent"]), tries=r["tries"])
+    return len(due)
+
+
+async def _send_one(client: httpx.AsyncClient, sub, payload: bytes, urgent: bool, tries: int = 0) -> str:
+    """« livre » (accepté par le service de push), « mort » (désinstallé, permission retirée, appareil déconnecté :
+    rien ne part), « differe » (erreur passagère : repris plus tard depuis la base) ou « echec » (refusé)."""
     host = urlsplit(sub["endpoint"]).netloc
     for wait in (*RETRIES, None):
-        if not _still_subscribed(sub["endpoint"]):
+        if not _still_subscribed(sub):
             return "mort"  # appareil déconnecté ou désabonné pendant l'attente : rien ne part
         try:
             r = await client.post(sub["endpoint"], content=encrypt(payload, sub["p256dh"], sub["auth"]), headers={
@@ -154,16 +189,23 @@ async def _send_one(client: httpx.AsyncClient, sub, payload: bytes, urgent: bool
         transient = r is None or r.status_code == 429 or r.status_code >= 500
         if r is not None:
             log.warning("push : %s a refusé (%s) %s", host, r.status_code, r.text[:200])
-        if not transient or wait is None:
+        if not transient:
             return "echec"
-        await asyncio.sleep(_retry_after(r.headers.get("retry-after", "") if r is not None else "", wait))
+        delay = _retry_after(r.headers.get("retry-after", "") if r is not None else "", wait if wait is not None else 60 * 2 ** tries)
+        if wait is None or delay > 30:
+            # Longue attente (Retry-After) ou essais rapides épuisés : la suite se fait depuis la base, pas en mémoire.
+            if tries >= 6:
+                return "echec"
+            _defer(sub, payload, urgent, delay, tries + 1)
+            return "differe"
+        await asyncio.sleep(delay)
     return "echec"
 
 
 async def send(title: str, text: str, url: str = "/", urgent: bool = False, user_id: int | None = None,
                session: str | None = None) -> dict:
     """Envoie à chaque appareil abonné dont la session est encore valable (ou à la seule session donnée, par son
-    empreinte). Rend {livres, echecs, morts}."""
+    empreinte). Rend {livres, echecs, morts, differes}."""
     now = datetime.now(timezone.utc).isoformat()
     with db.connect() as c:
         c.execute("DELETE FROM push_subscriptions WHERE session NOT IN (SELECT token FROM sessions WHERE expires_at > ?)", (now,))
@@ -177,7 +219,7 @@ async def send(title: str, text: str, url: str = "/", urgent: bool = False, user
             c.executemany("DELETE FROM push_subscriptions WHERE endpoint = ?", [(e,) for e in stray])
             rows = [r for r in rows if r["endpoint"] not in stray]
     if not rows:
-        return {"livres": 0, "echecs": 0, "morts": 0}
+        return {"livres": 0, "echecs": 0, "morts": 0, "differes": 0}
     payload = json.dumps({"titre": title[:120], "texte": text[:400], "url": url}, ensure_ascii=False).encode()
     async with httpx.AsyncClient(timeout=15, transport=transport) as client:
         outcome = await asyncio.gather(*(_send_one(client, r, payload, urgent) for r in rows))
@@ -185,7 +227,8 @@ async def send(title: str, text: str, url: str = "/", urgent: bool = False, user
     if dead:
         with db.connect() as c:
             c.executemany("DELETE FROM push_subscriptions WHERE endpoint = ?", [(e,) for e in dead])
-    return {"livres": outcome.count("livre"), "echecs": outcome.count("echec"), "morts": len(dead)}
+    return {"livres": outcome.count("livre"), "echecs": outcome.count("echec"), "morts": len(dead),
+            "differes": outcome.count("differe")}
 
 
 def _owner() -> int | None:

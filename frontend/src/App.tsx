@@ -15,6 +15,7 @@ import { Button } from "@/components/ui";
 import { type Agent, ApiError, type Conversation, type CurrentModel, get, send, type Status, type Usage } from "@/lib/api";
 import { AgentContext } from "@/lib/agentContext";
 import { takeAsk } from "@/lib/askAgent";
+import { reconcilePush } from "@/lib/push";
 import { useAgentChat } from "@/lib/useAgentChat";
 import { cn } from "@/lib/utils";
 
@@ -162,6 +163,11 @@ export default function App() {
 }
 
 function Shell({ onLogout }: { onLogout: () => void }) {
+  // Abonnement aux notifications renouvelé par le navigateur pendant une indisponibilité : renvoyé au serveur dès
+  // l'ouverture de l'app, sans attendre qu'on ouvre les réglages.
+  useEffect(() => {
+    reconcilePush().catch(() => {});
+  }, []);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [agentId, setAgentId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<Conversation[] | null>(null);

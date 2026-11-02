@@ -171,7 +171,8 @@ reset()
 attacker = client(addr="198.51.100.9")
 r = attacker.post("/api/pairing/flow", json={"appareil": "Ordinateur FRANCK-PC", "type": "desktop"}).json()
 fid = r["adresse"].split("#autoriser=")[1]
-web_a.post(f"/api/pairing/flow/{fid}/autoriser")
+web_a.get(f"/api/pairing/flow/{fid}")  # l'utilisateur ouvre la page d'accord (et voit le nombre)
+assert web_a.post(f"/api/pairing/flow/{fid}/autoriser").status_code == 200
 guess = "10" if main._flows[fid]["verif"] != "10" else "11"
 assert attacker.post("/api/pairing/flow/poll", json={"sondage": r["sondage"], "verification": guess}).status_code == 403
 assert attacker.post("/api/pairing/flow/poll", json={"sondage": r["sondage"], "verification": main._flows.get(fid, {}).get("verif", "")}).status_code == 410
@@ -241,6 +242,40 @@ for i in range(40):
     cancel.join()
     assert web_a.get("/api/pairing/pending").json()["demandes"] == [], "demande apparue après l'annulation"
 print("8 sexies. annulation concurrente d'un code en cours d'utilisation (40 essais) : aucune demande ne reste")
+
+# 8 septies. Course entre l'accord d'Alice et l'ouverture de la page par Bob : jamais Alice n'accepte une demande dont
+# Bob a lu le nombre.
+for i in range(40):
+    reset()
+    r = client().post("/api/pairing/flow", json={"appareil": "PC", "type": "desktop"}).json()
+    fid = r["adresse"].split("#autoriser=")[1]
+    out = {}
+    alice_t = threading.Thread(target=lambda: out.update(a=(web_a.get(f"/api/pairing/flow/{fid}").status_code,
+                                                             web_a.post(f"/api/pairing/flow/{fid}/autoriser").status_code)))
+    bob_t = threading.Thread(target=lambda: out.update(b=web_b.get(f"/api/pairing/flow/{fid}").status_code))
+    for t in ((alice_t, bob_t) if i % 2 else (bob_t, alice_t)):
+        t.start()
+    alice_t.join()
+    bob_t.join()
+    assert not (out["a"][1] == 200 and out["b"] == 200), f"Alice a accepté une demande dont Bob a lu le nombre ({out})"
+print("8 septies. accord concurrent avec l'ouverture par un autre compte (40 essais) : jamais les deux")
+
+# 8 octies. Mauvais nombre recopié dans l'app : chaque essai compte ; au-delà du budget de l'adresse, 429.
+reset()
+phisher = client(addr="198.51.100.77")
+codes = []
+for i in range(main.LOGIN_TRIES + 2):
+    r = phisher.post("/api/pairing/flow", json={"appareil": "PC", "type": "desktop"})
+    codes.append(r.status_code)
+    if r.status_code != 200:
+        break
+    fid = r.json()["adresse"].split("#autoriser=")[1]
+    web_a.get(f"/api/pairing/flow/{fid}")
+    web_a.post(f"/api/pairing/flow/{fid}/autoriser")
+    wrong = "10" if main._flows[fid]["verif"] != "10" else "11"
+    phisher.post("/api/pairing/flow/poll", json={"sondage": r.json()["sondage"], "verification": wrong})
+assert codes[-1] == 429 and len(codes) <= main.LOGIN_TRIES + 1, codes
+print(f"8 octies. nombres faux recopiés : 429 après {len(codes) - 1} essais depuis la même adresse")
 
 # 9. Navigateur du téléphone (QR scanné par l'appareil photo) : la session arrive en cookie au sondage.
 reset()

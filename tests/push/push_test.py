@@ -10,6 +10,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 
 os.environ["APOLLO_DATA_DIR"] = tempfile.mkdtemp()
 os.environ.setdefault("LAUNCHER_KEY", "x")
@@ -113,7 +114,7 @@ k4, p4, s4 = device()
 assert subscribe(TestClient(main.app, headers={"Authorization": f"Bearer {auth.new_session(user, 'PC', 'web')}"}),
                  "https://wns2-par02p.notify.windows.com/w/refuse", p4, s4) == 200
 out = asyncio.run(push.send("Veille", "Le prix a baissé", urgent=True))
-assert out == {"livres": 2, "echecs": 1, "morts": 1}, out
+assert out == {"livres": 2, "echecs": 1, "morts": 1, "differes": 0}, out
 r = [x for x in received if x.url.path.endswith("/vivant")][0]
 assert r.headers["content-encoding"] == "aes128gcm" and r.headers["urgency"] == "high" and int(r.headers["ttl"]) > 0
 assert r.headers["authorization"].startswith("vapid t=")
@@ -136,7 +137,7 @@ token_e = auth.new_session(user, "PC en échec", "web")
 app_e = TestClient(main.app, headers={"Authorization": f"Bearer {token_e}"})
 assert subscribe(app_e, "https://wns2-par02p.notify.windows.com/w/refuse2", p5, s5) == 200
 out = app_e.post("/api/push/test").json()
-assert out == {"livres": 0, "echecs": 1, "morts": 0}, out
+assert out == {"livres": 0, "echecs": 1, "morts": 0, "differes": 0}, out
 print("5 bis. test d'activation limité à l'appareil courant : son échec n'est pas masqué")
 
 # 5 ter. Abonnement enregistré avant la liste des services (adresse interne) : jamais appelé, supprimé à l'envoi.
@@ -212,6 +213,62 @@ async def notify_and_wait():
 asyncio.run(notify_and_wait())
 assert received and not [x for x in received if x.url.path.endswith("/bob")], "notification d'Alice envoyée à Bob"
 print("5 octies. notification du serveur : au compte propriétaire seulement, rien chez un autre compte")
+
+# 5 nonies. Même navigateur, autre compte entre deux essais : le message d'Alice ne part pas vers l'abonnement de Bob.
+k8, p8, s8 = device()
+token_g = auth.new_session(user, "Alice", "web")
+assert subscribe(TestClient(main.app, headers={"Authorization": f"Bearer {token_g}"}), FCM + "partage", p8, s8) == 200
+token_h = auth.new_session(bob, "Bob", "web")
+swapped = {"n": 0}
+
+
+def swap(request: httpx.Request) -> httpx.Response:
+    received.append(request)
+    if request.url.path.endswith("/partage"):
+        swapped["n"] += 1
+        if swapped["n"] == 1:  # Alice se déconnecte, Bob se connecte dans le même navigateur et s'abonne
+            auth.drop_session(token_g)
+            k9, p9, s9 = device()
+            subscribe(TestClient(main.app, headers={"Authorization": f"Bearer {token_h}"}), FCM + "partage", p9, s9)
+            return httpx.Response(503)
+    return httpx.Response(201)
+
+
+push.transport = httpx.MockTransport(swap)
+asyncio.run(push.send("Secret d'Alice", "contenu", user_id=user))
+assert swapped["n"] == 1, f"{swapped['n']} envois : le message d'Alice est reparti vers l'abonnement de Bob"
+push.transport = httpx.MockTransport(service)
+print("5 nonies. autre compte dans le même navigateur entre deux essais : le message ne part pas chez lui")
+
+# 5 decies. Retry-After long : l'envoi est gardé en base (survit à un redémarrage) et repris à l'heure dite.
+k10, p10, s10 = device()
+token_i = auth.new_session(user, "Plus tard", "web")
+assert subscribe(TestClient(main.app, headers={"Authorization": f"Bearer {token_i}"}), FCM + "plustard", p10, s10) == 200
+state = {"n": 0}
+
+
+def later(request: httpx.Request) -> httpx.Response:
+    received.append(request)
+    if request.url.path.endswith("/plustard"):
+        state["n"] += 1
+        return httpx.Response(429, headers={"Retry-After": "3600"}) if state["n"] == 1 else httpx.Response(201)
+    return httpx.Response(201)
+
+
+push.transport = httpx.MockTransport(later)
+out = asyncio.run(push.send("Plus tard", "contenu", session=auth.digest(token_i)))
+assert out["differes"] == 1 and state["n"] == 1, out
+with db.connect() as c:
+    row = c.execute("SELECT not_before FROM push_queue WHERE endpoint LIKE '%plustard'").fetchone()
+assert row and row["not_before"] > time.time() + 3500, "Retry-After de 3600 s non respecté"
+assert asyncio.run(push.flush_queue()) == 0 and state["n"] == 1, "envoyé avant l'heure"
+with db.connect() as c:  # une heure plus tard (après un redémarrage, la file est relue depuis la base)
+    c.execute("UPDATE push_queue SET not_before = 0")
+assert asyncio.run(push.flush_queue()) == 1 and state["n"] == 2
+with db.connect() as c:
+    assert not c.execute("SELECT 1 FROM push_queue").fetchone()
+push.transport = httpx.MockTransport(service)
+print("5 decies. Retry-After d'une heure : envoi gardé en base, repris à l'heure dite, pas avant")
 
 # 6. Clé VAPID : vingt premiers appels simultanés ne créent qu'une seule clé.
 with db.connect() as c:

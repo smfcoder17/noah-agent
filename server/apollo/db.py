@@ -83,6 +83,11 @@ def init() -> None:
         # Abonnements Web Push : un par appareil, rattaché à sa session (déconnecter l'appareil coupe ses notifications).
         db.execute("CREATE TABLE IF NOT EXISTS push_subscriptions (endpoint TEXT PRIMARY KEY, session TEXT NOT NULL, "
                    "p256dh TEXT NOT NULL, auth TEXT NOT NULL, created_at TEXT)")
+        # Envois repris plus tard (service de push indisponible, Retry-After) : survivent à un redémarrage.
+        db.execute("CREATE TABLE IF NOT EXISTS push_queue (id INTEGER PRIMARY KEY, endpoint TEXT NOT NULL, "
+                   "session TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL, payload BLOB NOT NULL, "
+                   "urgent INTEGER NOT NULL DEFAULT 0, not_before REAL NOT NULL, tries INTEGER NOT NULL DEFAULT 0, "
+                   "created REAL NOT NULL)")
         # WAL : les lectures ne bloquent plus pendant une écriture (flux de chat et relais en parallèle).
         db.execute("PRAGMA journal_mode = WAL")
 
