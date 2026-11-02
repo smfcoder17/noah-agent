@@ -54,6 +54,24 @@ public class NoahShellPlugin extends Plugin {
         return null;
     }
 
+    /** Notifications : un distributeur UnifiedPush est-il installé, et l'app est-elle inscrite chez lui ? */
+    @PluginMethod
+    public void pushStatus(PluginCall call) {
+        JSObject out = new JSObject();
+        out.put("distributeurs", org.unifiedpush.android.connector.UnifiedPush.getDistributors(getContext()).size());
+        out.put("inscrit", org.unifiedpush.android.connector.UnifiedPush.getAckDistributor(getContext()) != null);
+        call.resolve(out);
+    }
+
+    /** Relance l'inscription (après l'installation d'un distributeur comme ntfy). */
+    @PluginMethod
+    public void pushSetup(PluginCall call) {
+        Pairing pairing = new Pairing(getContext());
+        String server = pairing.server(), token = pairing.token();
+        if (server != null && token != null) NoahPush.start(getActivity(), server, token);
+        call.resolve();
+    }
+
     @PluginMethod
     public void forget(PluginCall call) {
         Pairing pairing = new Pairing(getContext());

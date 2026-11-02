@@ -12,7 +12,47 @@ function bytes(b64url: string) {
   return Uint8Array.from(raw, (c) => c.charCodeAt(0));
 }
 
+type AndroidPush = { distributeurs: number; inscrit: boolean };
+
+/** App Android : les notifications passent par UnifiedPush (une app « distributeur » comme ntfy tient la connexion). */
+function AndroidPushStatus() {
+  const native = window.Capacitor?.Plugins?.NoahShell;
+  const [state, setState] = useState<AndroidPush | null>(null);
+  const refresh = () => native?.pushStatus?.().then((s) => setState(s as AndroidPush)).catch(() => setState(null));
+  useEffect(() => {
+    refresh();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!native?.pushStatus || !state) return null;
+  const retry = async () => {
+    await native.pushSetup?.();
+    setTimeout(refresh, 3000);
+  };
+  return (
+    <div className="flex flex-col gap-1.5">
+      <p className="text-xs font-semibold text-muted-foreground">Notifications sur ce téléphone</p>
+      {state.inscrit ? (
+        <p className="text-xs text-muted-foreground">Actives : Noah te prévient même quand l'app est fermée.</p>
+      ) : state.distributeurs === 0 ? (
+        <>
+          <p className="text-xs text-muted-foreground">
+            Pour les recevoir sans service de Google, installe l'app gratuite <b>ntfy</b> (Play Store ou F-Droid). Elle
+            garde la connexion pour toutes tes apps ; tes messages restent chiffrés pour ce téléphone.
+          </p>
+          <Button size="sm" variant="outline" className="self-start" onClick={retry}><Bell />C'est installé, activer</Button>
+        </>
+      ) : (
+        <Button size="sm" variant="outline" className="self-start" onClick={retry}><Bell />Activer les notifications</Button>
+      )}
+    </div>
+  );
+}
+
 export function PushToggle() {
+  if (window.Capacitor?.Plugins?.NoahShell) return <AndroidPushStatus />;
+  return <WebPushToggle />;
+}
+
+function WebPushToggle() {
   const [on, setOn] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
