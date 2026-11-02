@@ -378,7 +378,7 @@ async def _follow() -> None:
         return
     _patch({"rapport_vu": report["fin"]})
     if report.get("ok"):
-        if report.get("composants") and "en_cours" not in report["composants"].values():
+        if report.get("composants") and "en_cours" not in report["composants"].values() and not report.get("validation"):
             _tell("Noah est à jour", f"Version {report.get('version', VERSION)} installée.")
     elif report.get("non_restaures"):
         _tell("Mise à jour : à vérifier", f"{report.get('erreur')}. Le retour à la version d'avant n'a pas pu se "
@@ -396,11 +396,18 @@ def report_failed_softly(etat: dict) -> bool:
         "bloquee" not in (report.get("composants") or {}).values() and "plus ancienne" not in (report.get("erreur") or "")
 
 
+_unreachable_since = 0.0
+
+
 async def transaction_open() -> bool:
+    """Un lanceur injoignable veut souvent dire qu'il est en train d'être remplacé : on attend (10 min au plus)."""
+    global _unreachable_since
     try:
         tx = (await _launcher("GET", "/update/status", timeout=10)).get("etat", {}).get("en_cours")
     except httpx.HTTPError:
-        return False
+        _unreachable_since = _unreachable_since or time.time()
+        return time.time() - _unreachable_since < 600
+    _unreachable_since = 0.0
     return bool(tx) and tx.get("phase") != "intervention"
 
 

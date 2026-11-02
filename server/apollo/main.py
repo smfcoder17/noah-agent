@@ -23,6 +23,7 @@ from .hermes import Agent
 app = FastAPI(title="Noah Agent")
 
 UNSAFE = {"POST", "PUT", "PATCH", "DELETE"}
+MAINTENANCE_OK = ("/api/updates", "/api/login", "/api/logout")
 
 
 @app.middleware("http")
@@ -35,6 +36,11 @@ async def same_origin_only(request: Request, call_next):
         if not source or source.split("://", 1)[-1].split("/", 1)[0] != host:
             return Response('{"detail":"Requête refusée : elle ne vient pas de Noah."}', status_code=403,
                             media_type="application/json")
+    if updates.maintenance and request.method in UNSAFE and not request.url.path.startswith(MAINTENANCE_OK):
+        # Pendant une mise à jour, la base du serveur peut revenir à son instantané : une écriture faite maintenant
+        # (révocation d'un appareil, réglage…) serait perdue en silence. On la refuse franchement.
+        return Response('{"detail":"Noah installe une mise à jour (quelques minutes) : réessaie juste après."}',
+                        status_code=503, media_type="application/json", headers={"Retry-After": "120"})
     zone = request.headers.get("x-noah-timezone")
     if zone and zone != updates._last_zone:  # fuseau d'un utilisateur connecté : créneau des mises à jour
         token = auth.request_token(request, request.cookies.get(auth.COOKIE))
@@ -1732,6 +1738,16 @@ async def updates_install(force: bool = False, user: int = Depends(auth.current_
 def updates_skip(user: int = Depends(auth.current_user)):
     updates.skip()
     return {"ok": True}
+
+
+@app.get("/api/health/stream")
+async def health_stream():
+    """Contrôle de bout en bout après une mise à jour : un vrai flux (comme celui du chat), à travers Caddy."""
+    async def events():
+        yield "data: 1\n\n"
+        await asyncio.sleep(1)
+        yield "data: 2\n\n"
+    return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
 
 
 class UpdateResolve(BaseModel):

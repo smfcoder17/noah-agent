@@ -357,7 +357,7 @@ class AgentFolders(BaseModel):
     dossiers: list[Folder]
 
 
-@app.put("/agents/{agent_id}/folders", dependencies=[Depends(auth)])
+@app.put("/agents/{agent_id}/folders", dependencies=[Depends(auth), Depends(lambda: not_updating())])
 def set_folders(agent_id: str, body: AgentFolders):
     """Change les dossiers partagés : la machine de l'agent est recréée (son volume garde tout le reste)."""
     folders = _check_folders(body.dossiers)
@@ -630,7 +630,10 @@ def not_updating() -> None:
         tx = updater.load_state().get("en_cours")
     except updater.Corrupt:
         tx = None
-    if tx and tx.get("phase") != "intervention":
+    if tx and tx.get("phase") == "intervention":
+        # Des conteneurs sont gardés arrêtés pour protéger leurs données : rien ne doit les redémarrer ou les recréer.
+        raise HTTPException(409, "Une mise à jour attend ta décision (Réglages > Mises à jour) avant de toucher aux agents.")
+    if tx:
         raise HTTPException(409, "Noah installe une mise à jour : réessaie dans quelques minutes.")
 
 
@@ -644,7 +647,7 @@ class SignedManifest(BaseModel):
 def _verified(body: SignedManifest) -> tuple[bytes, dict]:
     raw = base64.b64decode(body.manifeste)
     try:
-        return raw, updater.verify_manifest(raw, body.signature)
+        return raw, updater.verify_logged(raw, body.signature)  # un refus est écrit à l'historique
     except ValueError as e:
         raise HTTPException(400, str(e))
 
@@ -674,5 +677,8 @@ def update_resolve(body: Resolve):
 def update_apply(body: SignedManifest):
     """Lancée en arrière-plan : le serveur lui-même peut être recréé pendant l'opération ; il relit l'état ensuite."""
     raw, _ = _verified(body)
+    reason = updater.refusal()  # réponse honnête tout de suite, plutôt qu'un « en cours » qui ne commencera pas
+    if reason:
+        raise HTTPException(409, reason)
     threading.Thread(target=updater.apply, args=(raw, body.signature, body.composants, body.force), daemon=True).start()  # force : réessayer une version bloquée
     return {"ok": True, "en_cours": True}

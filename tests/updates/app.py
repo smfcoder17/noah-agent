@@ -12,6 +12,11 @@ db.execute("CREATE TABLE IF NOT EXISTS t (v TEXT, n INTEGER)")
 if V in ("v2", "v3") and "migre" not in [r[1] for r in db.execute("PRAGMA table_info(t)")]:
     db.execute("ALTER TABLE t ADD COLUMN migre INTEGER")
 broken = V == "v2" and socket.gethostname().endswith("-b")
+if V in ("v2", "v3") and os.path.exists("/data/temoin.db"):  # la « migration » efface aussi la moitié des témoins
+    t = sqlite3.connect("/data/temoin.db")
+    t.execute("DELETE FROM temoin WHERE id % 2 = 0")
+    t.commit()
+    t.close()
 
 
 def write():

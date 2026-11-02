@@ -45,7 +45,9 @@ def check(tag):
     new = c.containers.get(NAME)
     assert new.image.id == c.images.get(ref("launcher", tag)).id and new.status == "running", new.image.tags
     assert u._get(NAME + "-ancien") is None
-    assert c.containers.get(u.RELAY).attrs["HostConfig"]["RestartPolicy"]["Name"] == "no"
+    relay = c.containers.get(u.RELAY)
+    assert relay.attrs["HostConfig"]["RestartPolicy"]["Name"] == "no"
+    assert relay.image.id == c.images.get(ref("launcher", "a")).id, "le relais doit tourner sur l'ancienne image"
 
 
 # 1. Nouvelle version saine : le relais remplace le lanceur, l'observe, valide, se désactive.

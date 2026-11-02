@@ -58,7 +58,10 @@ def start_fleet():
             c.volumes.get(f"{name}-data").remove(force=True)
         except docker.errors.NotFound:
             pass
-        sh(f"{name}-data", "mkdir -p /data/espace/partage && echo bonjour > /data/espace/note.txt && "
+        sh(f"{name}-data", "python -c \"import sqlite3; t=sqlite3.connect('/data/temoin.db'); "
+           "t.execute('CREATE TABLE temoin (id INTEGER PRIMARY KEY, v TEXT)'); "
+           "t.executemany('INSERT INTO temoin VALUES (?, ?)', [(i, str(i * 7)) for i in range(1000)]); t.commit()\" && "
+           "mkdir -p /data/espace/partage && echo bonjour > /data/espace/note.txt && "
            "touch /data/espace/voyage-journal && chown -R 1000:1000 /data/espace && chmod 2775 /data/espace/partage")
         c.containers.run(f"{os.environ['REGISTRY']}/noahtest/app:v1", name=name, hostname=name, detach=True,
                          network="noahtest-net", volumes={f"{name}-data": {"bind": "/data"}},
@@ -75,6 +78,9 @@ def fleet_is(tag, migrated=False):
         assert u._get(name + "-ancien") is None, f"{name}-ancien resté"
         s = schema(name)
         assert s.endswith("ok") and (("migre" in s) == migrated), (name, s)
+        witness = sh(f"{name}-data", "python -c \"import sqlite3; t=sqlite3.connect('/data/temoin.db'); "
+                     "print(t.execute('SELECT count(*), sum(id) FROM temoin').fetchone())\"")
+        assert witness == "(1000, 499500)", (name, "témoins perdus ou en trop", witness)
         files = sh(f"{name}-data", "stat -c '%u:%g %a' /data/espace/note.txt /data/espace/partage && ls /data/espace")
         assert "1000:1000" in files and "2775" in files and "voyage-journal" in files, (name, files)
 
@@ -85,10 +91,16 @@ def done_tx():
     return s
 
 
-# 1. Signature d'une autre clé : refusée, rien ne bouge.
+# 1. Signature d'une autre clé : refusée (par le chemin de l'API aussi), écrite à l'historique, rien ne bouge.
 start_fleet()
 rep = u.apply(*signed({"hermes": ref("app", "v2")}, "2.0.0", key=Ed25519PrivateKey.generate()))
 assert not rep["ok"] and "refusé" in rep["erreur"], rep
+try:
+    u.verify_logged(*signed({"hermes": ref("app", "v2")}, "2.0.0", key=Ed25519PrivateKey.generate()))
+    sys.exit("signature acceptée")
+except ValueError:
+    pass
+assert sum("Manifeste refusé" in h["texte"] for h in u.load_state()["historique"]) >= 2
 fleet_is("v1")
 print("1. manifeste signé par une autre clé : refusé, rien n'a bougé")
 
@@ -181,6 +193,9 @@ assert rep["ok"], rep
 fleet_is("v1b")
 worst = max(o[0] for o in outage.values())
 assert worst < 60, outage
+for n in AGENTS:  # docker inspect : chaque conteneur tourne sur la référence signée, par empreinte
+    cfg_image = c.containers.get(n).attrs["Config"]["Image"]
+    assert cfg_image == ref("app", "v1b"), (n, cfg_image)
 print(f"8. version saine : les deux agents passent, coupure la plus longue {worst:.1f} s (< 60 s), anciens retirés")
 
 # 9. Sauvegarde impossible (volume des sauvegardes de 64 Ko, agent avec 300 Ko incompressibles : disque plein) :
@@ -188,13 +203,27 @@ print(f"8. version saine : les deux agents passent, coupure la plus longue {wors
 start_fleet()
 sh("noahtest-agent-a-data", "head -c 300000 /dev/urandom > /data/espace/gros.bin")
 u.BACKUP_VOLUME = "noahtest-tiny"
+pre = u.apply(*signed({"hermes": ref("app", "v2")}, "2.4.0"))
+assert not pre["ok"] and "Place disque" in pre["erreur"], pre  # la vérification de place l'aurait arrêtée avant
+u.SPACE_MARGIN = -(1 << 62)  # … on la désactive pour tester l'écriture qui échoue en plein milieu
 rep = u.apply(*signed({"hermes": ref("app", "v2")}, "2.4.0"))
+u.SPACE_MARGIN = 512 * 1024 * 1024
 u.BACKUP_VOLUME = os.environ["NOAH_BACKUP_VOLUME"]
 assert not rep["ok"] and "sauvegarde" in rep["erreur"], rep
 fleet_is("v1")
 s = done_tx()
 assert not any(b["version"] == "2.4.0" for b in s["bloquees"])
-print("9. disque des sauvegardes plein : rien n'a changé, rien de bloqué")
+print("9. disque des sauvegardes plein : refusé d'avance par la vérification de place ; et si l'écriture échoue quand même en plein milieu, rien n'a changé, rien de bloqué")
+
+# 9 bis. Pas assez de place pour l'instantané ET la restauration : refusé avant de toucher à quoi que ce soit.
+start_fleet()
+u.SPACE_MARGIN = 1 << 60
+rep = u.apply(*signed({"hermes": ref("app", "v1b")}, "2.4.1"))
+u.SPACE_MARGIN = 512 * 1024 * 1024
+assert not rep["ok"] and "Place disque" in rep["erreur"], rep
+fleet_is("v1")
+done_tx()
+print("9 bis. place disque insuffisante (vérifiée avant) : rien n'a commencé")
 
 # 10. Archive d'instantané abîmée au moment du retour arrière : le conteneur reste arrêté, le journal reste ouvert.
 start_fleet()
@@ -234,6 +263,19 @@ for crash in ("", "arrete-renomme"):
     assert u._get("noahtest-agent-b-ancien") is None and u._get("noahtest-agent-a-ancien") is None
     done_tx()
     print(f"11. agent arrêté par l'utilisateur : recréé sur la nouvelle image, laissé arrêté{' (coupure entre renommage et création)' if crash else ''}")
+
+# 13. Journal en retard sur la réalité : l'ancien conteneur a disparu après une coupure. La reprise recrée l'ancienne
+# version sur son image d'avant (gardée au journal) et remet ses données d'avant.
+start_fleet()
+run = subprocess.run([sys.executable, "/tests/updates/crash_child.py", "v3", "2.9.0"],
+                     env=dict(os.environ, NOAH_TEST_CRASH_AT="demarre"), capture_output=True, text=True)
+assert run.returncode == 137
+time.sleep(3)  # la v3 a migré les données de a
+c.containers.get("noahtest-agent-a-ancien").remove(force=True)
+u.recover()
+fleet_is("v1")
+done_tx()
+print("13. ancien conteneur disparu : recréé sur l'image d'avant, données d'avant remises (témoins exacts)")
 
 # 12. Coupure au milieu du retour arrière (pendant la restauration des données) : la reprise le termine.
 start_fleet()

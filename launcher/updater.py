@@ -54,6 +54,7 @@ CRASH_AT = os.environ.get("NOAH_TEST_CRASH_AT", "")  # tests : arrêt brutal à 
 # Version de ce lanceur (posée à la publication) : plancher de l'anti-retour, même sur un journal tout neuf.
 BUILT_VERSION = os.environ.get("NOAH_VERSION", "")
 RELAY_TIMEOUT = int(os.environ.get("NOAH_RELAY_TIMEOUT", "1800"))
+SPACE_MARGIN = int(os.environ.get("NOAH_UPDATE_SPACE_MARGIN", str(512 * 1024 * 1024)))
 MAX_TRIES = 3  # échecs sans faute de l'image (disque plein, registre…) : au-delà, on attend la version suivante ou un clic
 REF = re.compile(r"[a-z0-9./_:-]+@sha256:[0-9a-f]{64}")
 _lock = threading.Lock()
@@ -74,6 +75,18 @@ AFTER: dict = {}
 
 class Corrupt(Exception):
     pass
+
+
+class ToolFailed(RuntimeError):
+    pass
+
+
+class BackupFailed(ToolFailed):
+    """Instantané impossible (disque plein…) : pas la faute de la nouvelle version."""
+
+
+class NoSnapshot(ToolFailed):
+    """Pas d'instantané complet : la nouvelle version n'a jamais tourné sur ces données (rien à remettre)."""
 
 
 def _crash(step: str) -> None:
@@ -284,7 +297,7 @@ def _tool_image() -> str:
     return "python:3.12-slim"
 
 
-def _tool(args: list[str], volumes: list[str], folder_rw: bool = True) -> None:
+def _tool(args: list[str], volumes: list[str], folder_rw: bool = True) -> str:
     """Lance ce fichier (<args> + volumes) dans un conteneur jetable, nommé d'après la tâche : après une coupure, la
     reprise le retrouve et l'arrête avant de recommencer. Lève une erreur s'il échoue."""
     tag = hashlib.sha1(" ".join([LAUNCHER] + args + volumes).encode()).hexdigest()[:12]
@@ -308,15 +321,36 @@ def _tool(args: list[str], volumes: list[str], folder_rw: bool = True) -> None:
         box.put_archive("/tmp", buf.getvalue())
         box.start()
         code = box.wait(timeout=3600)["StatusCode"]
+        out = box.logs().decode(errors="replace").strip()
+        if code == 3:
+            raise NoSnapshot(out.splitlines()[-1] if out else "pas d'instantané")
         if code != 0:
-            lines = box.logs(tail=5).decode(errors="replace").strip().splitlines()
-            raise RuntimeError(lines[-1] if lines else f"code {code}")
+            lines = out.splitlines()
+            raise ToolFailed(lines[-1] if lines else f"code {code}")
+        return out
     finally:
         box.remove(force=True)
 
 
 def backup(volumes: list[str], folder: str) -> None:
-    _tool(["snapshot", folder], volumes)
+    try:
+        _tool(["snapshot", folder], volumes)
+    except ToolFailed as e:
+        raise BackupFailed(str(e)) from e
+
+
+def space(volumes: list[str]) -> dict:
+    """Taille des volumes et place libre sur le disque des sauvegardes (le même que celui des volumes)."""
+    return json.loads(_tool(["espace", "/backups"], volumes).splitlines()[-1])
+
+
+def drop_backup(folder: str, keep: bool = False) -> None:
+    """Instantanés d'une transaction annulée : supprimés (ils prendraient la place des suivants), ou marqués à garder
+    (intervention : ce sont peut-être les seules données d'avant)."""
+    try:
+        _tool(["garde" if keep else "supprime", folder], [])
+    except ToolFailed as e:
+        print(f"[mise à jour] sauvegardes {folder} : {e}", flush=True)
 
 
 def unpack(folder: str, volumes: list[str]) -> None:
@@ -399,7 +433,8 @@ def _snapshot(folder: str, volumes: list[str]) -> None:
         shutil.rmtree(folder, ignore_errors=True)  # pas de sauvegarde à moitié faite qui remplit le disque
         raise
     # Ne garder que les 5 dernières mises à jour.
-    tops = sorted(Path("/backups").glob("maj-*"), key=lambda p: p.stat().st_mtime, reverse=True)
+    tops = sorted((p for p in Path("/backups").glob("maj-*") if not (p / ".garder").exists()),
+                  key=lambda p: p.stat().st_mtime, reverse=True)
     for old in tops[5:]:
         shutil.rmtree(old, ignore_errors=True)
 
@@ -422,7 +457,8 @@ def _unpack(folder: str, volumes: list[str]) -> None:
     try:
         inventory = json.loads(Path(folder, "inventaire.json").read_text())
     except (FileNotFoundError, ValueError):
-        raise SystemExit(f"instantané incomplet : {folder}")
+        print(f"pas d'instantané complet : {folder}", flush=True)
+        raise SystemExit(3)
     for i, name in enumerate(volumes):
         archive, dest = Path(f"{folder}/{name}.tar.gz"), Path(f"/v{i}")
         if name not in inventory or not archive.exists() or _sha(str(archive)) != inventory[name]:
@@ -511,8 +547,18 @@ def _through_caddy() -> bool:
         sock = ctx.wrap_socket(raw, server_hostname=host)
         conn = http.client.HTTPSConnection(host, 443, timeout=10, context=ctx)
         conn.sock = sock
-        conn.request("GET", "/api/status", headers={"Host": host})
-        return conn.getresponse().status == 200
+        # Le chat passe par un flux (SSE) : on en ouvre un vrai, à travers Caddy, et on attend deux événements.
+        conn.request("GET", "/api/health/stream", headers={"Host": host, "Accept": "text/event-stream"})
+        resp = conn.getresponse()
+        if resp.status != 200:
+            return False
+        events = 0
+        while events < 2:
+            line = resp.fp.readline()
+            if not line:
+                return False
+            events += line.startswith(b"data:")
+        return True
     except Exception:  # noqa: BLE001
         return False
 
@@ -536,7 +582,7 @@ def healthy(name: str, seconds: int | None = None) -> bool:
     return False
 
 
-def observe(names: list[str], seconds: int) -> str | None:
+def observe(names: list[str], seconds: int, caddy_before: bool = False) -> str | None:
     """Fenêtre de retour arrière : pendant `seconds`, chaque conteneur neuf tourne et ne redémarre pas ; à la fin il
     répond (et le serveur répond à travers Caddy). Rend le premier fautif, ou None."""
     start = {}
@@ -553,11 +599,11 @@ def observe(names: list[str], seconds: int) -> str | None:
             break
         time.sleep(min(10, max(1, deadline - time.time())))
     for n in names:
-        url = _health_url(n)
-        if url and not _answers(url):
+        if not healthy(n, 30):  # 3 réponses de suite, pas un seul essai qui peut tomber au mauvais moment
             return n
-    if (SERVER in names or CADDY in names) and not _through_caddy():
-        return CADDY if CADDY in names else SERVER
+    if caddy_before and (SERVER in names or CADDY in names):
+        if not any(_through_caddy() or time.sleep(5) for _ in range(3)):
+            return SERVER if SERVER in names else CADDY
     return None
 
 
@@ -666,49 +712,54 @@ def restore(name: str, start: bool = True) -> None:
 
 
 def undo(item: dict) -> bool:
-    """Ramène un conteneur à son état d'avant la transaction, quelle que soit l'étape où on s'est arrêté (rapproché
-    de l'état réel de Docker). Rend False si les données d'avant n'ont pas pu être remises : il reste arrêté."""
-    name, snap = item["nom"], item.get("sauvegarde")
+    """Ramène un conteneur à son état d'avant la transaction, d'après l'état réel de Docker (le journal peut être en
+    retard d'un geste) :
+    1. l'ancienne version reprend son nom, arrêtée (depuis <nom>-ancien, ou recréée sur l'image d'avant si elle a
+       disparu) ;
+    2. si un instantané complet existe, il est remis : il a été pris à froid juste avant tout changement, le remettre
+       est toujours sûr ; s'il n'existe pas en entier, la nouvelle version n'a jamais tourné sur ces données ;
+    3. l'ancienne version redémarre (si elle tournait avant), seulement si ses données sont revenues.
+    Rend False si les données d'avant n'ont pas pu être remises : il reste arrêté (intervention)."""
+    name, snap, before = item["nom"], item.get("sauvegarde"), item.get("image_avant")
     start = not item.get("etait_arrete")
     if item.get("restauration") == "impossible":
         return False  # en attente d'une décision (Réglages > Mises à jour) : on ne le démarre pas
-    if item.get("restauration") == "a_refaire":
-        # Réessai demandé après une intervention : l'ancien conteneur a repris son nom, arrêté, sur les données
-        # d'après ; on remet celles d'avant à cet endroit, et il ne démarre que si elles sont revenues.
-        with LOCKS.get(_component(name)) or _nolock():
-            try:
-                unpack(snap, volumes_of(name))
-            except Exception as e:  # noqa: BLE001
-                _item(name, restauration="impossible")
-                _log(f"{name} : données d'avant toujours impossibles à remettre ({str(e)[:160]})")
-                return False
-            _item(name, restauration="faite")
-            if start:
-                client.containers.get(name).start()
-        return healthy(name) if start else True
     with LOCKS.get(_component(name)) or _nolock():
-        old, new = _get(f"{name}-ancien"), _get(name)
-        if old is None:
-            # Avant le renommage : l'original est là, sous son nom, au pire arrêté. Ses données n'ont pas changé.
-            if new is not None and start and new.status != "running":
-                new.start()
-            return new is not None
-        if new is not None:
-            new.stop(timeout=20)  # la version fautive n'écrit plus pendant la restauration
-        reached = STEPS.index(item["etape"]) if item.get("etape") in STEPS else STEPS.index("renomme")
-        if snap and reached >= STEPS.index("renomme") and item.get("restauration") != "faite":
+        old, main = _get(f"{name}-ancien"), _get(name)
+        if old is not None:
+            if main is not None:
+                main.stop(timeout=20)  # la version fautive n'écrit plus pendant la restauration
+                main.remove(force=True)
+            old.rename(name)
+            main = old
+        elif main is not None and before and main.image.id != before:
+            # L'ancien conteneur a disparu (journal en retard) : on recrée l'ancienne version, même configuration.
+            main.stop(timeout=20)
+            main.rename(f"{name}-neuf")
+            _create_like(main, name, before)
+            main.remove(force=True)
+            main = client.containers.get(name)
+        if main is None:
+            _log(f"{name} : introuvable pendant le retour arrière")
+            return False
+        if main.status == "running" and (snap and item.get("restauration") != "faite"):
+            main.stop(timeout=20)
+        if snap and item.get("restauration") != "faite":
             _item(name, restauration="en_cours")  # coupé ici : la reprise refait la restauration (idempotente)
             _crash("restauration")
             try:
-                unpack(snap, volumes_of(f"{name}-ancien"))
+                unpack(snap, volumes_of(name))
+                _item(name, restauration="faite")
+            except NoSnapshot:
+                _item(name, restauration="faite")  # rien n'avait changé
             except Exception as e:  # noqa: BLE001
-                _item(name, restauration="impossible")  # écrit AVANT tout renommage : jamais démarré sur ces données
-                restore(name, start=False)
+                _item(name, restauration="impossible")
                 _log(f"{name} : données d'avant impossibles à remettre ({str(e)[:160]}). Il reste arrêté ; "
                      f"sauvegarde : {snap}")
                 return False
-            _item(name, restauration="faite")
-        restore(name, start=start)
+        main.reload()  # statut réel : il vient peut-être d'être arrêté pour la restauration
+        if start and main.status != "running":
+            main.start()
     return healthy(name) if start else True
 
 
@@ -757,7 +808,10 @@ def _recreate_stopped(item: dict, image: str) -> None:
     with LOCKS.get(comp) or _nolock():
         main, old = _get(name), _get(f"{name}-ancien")
         if main is not None and _runs(name, image):
-            return  # déjà fait (finish retirera l'ancien)
+            if item.get("recree") or old is None:
+                return  # déjà fait (finish retirera l'ancien)
+            main.remove(force=True)  # créé mais peut-être pas configuré (coupure) : on recommence
+            main = None
         if main is not None:
             if old is not None:
                 old.remove(force=True)
@@ -767,6 +821,7 @@ def _recreate_stopped(item: dict, image: str) -> None:
             HOOKS[comp](name, image, False)  # le navigateur reçoit ses fichiers, sans démarrer
         else:
             _create_like(client.containers.get(f"{name}-ancien"), name, image)
+        _item(name, recree=True)
 
 
 def _fail(tx: dict, why: str, bad_ref: str | None) -> dict:
@@ -795,6 +850,7 @@ def _fail(tx: dict, why: str, bad_ref: str | None) -> dict:
         else:
             s["en_cours"] = None
     update_state(close)
+    drop_backup(tx["sauvegardes"], keep=bool(left))
     text = f"Noah {tx['version']} : {why}. " + (
         f"Retour arrière incomplet, à vérifier : {', '.join(left)} (arrêtés, sauvegardes dans {tx['sauvegardes']})."
         if left else "Retour à la version précédente, avec ses données.")
@@ -825,7 +881,10 @@ def apply(raw: bytes, signature: str, wanted: list[str] | None = None, retry_blo
         except Corrupt as e:
             return {"ok": False, "erreur": str(e)}
         if state.get("en_cours"):
-            return {"ok": False, "erreur": "Une mise à jour précédente n'est pas terminée (reprise au démarrage du lanceur)"}
+            report["erreur"] = "Une mise à jour précédente n'est pas terminée" + (
+                " : elle attend ta décision" if state["en_cours"].get("phase") == "intervention" else "")
+            _report(report)
+            return report
         try:
             manifest = verify_manifest(raw, signature)
         except ValueError as e:
@@ -835,6 +894,13 @@ def apply(raw: bytes, signature: str, wanted: list[str] | None = None, retry_blo
             return report
         version = manifest["version"]
         report["version"] = version
+        digest = hashlib.sha256(raw).hexdigest()
+        seen = state.get("acceptes", {}).get(version)
+        if seen and seen != digest:
+            report["erreur"] = f"Manifeste refusé : un autre contenu a déjà été accepté pour la version {version}"
+            _log(report["erreur"])
+            _report(report)
+            return report
         floor = max(_semver(state.get("version_max", "")), _semver(BUILT_VERSION))
         if _semver(version) < floor:
             report["erreur"] = f"Manifeste refusé : {version} est plus ancienne que {'.'.join(map(str, floor))}, déjà installée"
@@ -865,6 +931,21 @@ def apply(raw: bytes, signature: str, wanted: list[str] | None = None, retry_blo
             _report(report)
             return report
         names = components()
+        try:  # place pour l'instantané ET pour la restauration (extraite à côté des données) : sinon rien ne commence
+            vols = sorted({v for comp in targets for n in names.get(comp, []) for v in volumes_of(n)})
+            room = space(vols) if vols else {"volumes": 0, "libre": 1 << 62}
+        except (ToolFailed, ValueError) as e:
+            room = {"volumes": 0, "libre": 1 << 62}
+            print(f"[mise à jour] place disque inconnue : {e}", flush=True)
+        need = 2 * room["volumes"] + SPACE_MARGIN
+        if room["libre"] < need:
+            report["erreur"] = (f"Place disque insuffisante, rien n'a changé : il faut {need / 1e9:.1f} Go, "
+                                f"{room['libre'] / 1e9:.1f} Go libres")
+            _log(report["erreur"])
+            _report(report)
+            return report
+        update_state(lambda s: s.setdefault("acceptes", {}).update({version: digest}))
+        caddy_before = _through_caddy() if ("caddy" in targets or "noah-server" in targets) else False
         folder = f"/backups/maj-{time.strftime('%Y%m%d-%H%M%S')}"
         items = []
         for comp in [c for c in ORDER if c in targets]:
@@ -872,10 +953,11 @@ def apply(raw: bytes, signature: str, wanted: list[str] | None = None, retry_blo
                 if not _runs(name, targets[comp]):
                     items.append({"nom": name, "composant": comp, "etape": None,
                                   "sauvegarde": f"{folder}/{name}" if volumes_of(name) else None,
-                                  "etait_arrete": _stopped_on_purpose(name)})
+                                  "etait_arrete": _stopped_on_purpose(name),
+                                  "image_avant": client.containers.get(name).image.id})
         launcher_ref = targets.get("noah-launcher") if not _runs(LAUNCHER, targets.get("noah-launcher", "")) else None
         tx = {"version": version, "depuis": int(time.time()), "phase": "remplacement", "cibles": targets,
-              "sauvegardes": folder, "elements": items, "lanceur": launcher_ref}
+              "sauvegardes": folder, "elements": items, "lanceur": launcher_ref, "caddy_avant": caddy_before}
         update_state(lambda s: s.update(en_cours=tx))
         try:
             for item in items:
@@ -883,7 +965,7 @@ def apply(raw: bytes, signature: str, wanted: list[str] | None = None, retry_blo
                     continue  # recréé à la validation, sans le démarrer
                 try:
                     ok = replace(item["nom"], targets[item["composant"]], item["sauvegarde"])
-                except RuntimeError as e:  # instantané impossible (disque plein…) : rien de bloqué, tout revient
+                except BackupFailed as e:  # instantané impossible (disque plein…) : rien de bloqué, tout revient
                     tx = load_state()["en_cours"]
                     rep = _fail(tx, f"sauvegarde de {item['nom']} impossible ({str(e)[:160]})", None)
                     _report(rep)
@@ -898,7 +980,7 @@ def apply(raw: bytes, signature: str, wanted: list[str] | None = None, retry_blo
                     return rep
             _tx(lambda t: t.update(phase="observation"))
             _crash("observation")
-            bad = observe([i["nom"] for i in items if not i["etait_arrete"]], OBSERVE)
+            bad = observe([i["nom"] for i in items if not i["etait_arrete"]], OBSERVE, caddy_before)
             if bad:
                 comp = _component(bad) or next((i["composant"] for i in items if i["nom"] == bad), None)
                 rep = _fail(load_state()["en_cours"], f"{bad} est tombé pendant la période d'observation",
@@ -921,7 +1003,7 @@ def apply(raw: bytes, signature: str, wanted: list[str] | None = None, retry_blo
             _commit(load_state()["en_cours"])
         except Exception as e:  # noqa: BLE001
             _log(f"Validation de {version} interrompue ({str(e)[:160]}) : elle sera terminée au prochain démarrage")
-            report.update(ok=True, composants={c: "fait" for c in targets}, validation="a_terminer")
+            report.update(ok=False, erreur="validation à terminer au prochain démarrage du lanceur", validation="a_terminer")
             _report(report)
             return report
         report.update(ok=True, composants={c: "fait" for c in targets})
@@ -953,8 +1035,10 @@ def _start_relay(image: str) -> None:
     env.update(NOAH_UPDATE_STATE="/state/updates.json", NOAH_LAUNCHER_NAME=LAUNCHER, NOAH_RELAY_NAME=RELAY)
     if os.environ.get("NOAH_TEST_CRASH_RELAY"):
         env["NOAH_TEST_CRASH_AT"] = os.environ["NOAH_TEST_CRASH_RELAY"]
-    client.containers.run(image, ["python", "updater.py", "relay"], volumes=volumes, network=network, detach=True,
-                          name=RELAY, environment=env, restart_policy={"Name": "always"})
+    # Lancé depuis l'image du lanceur actuel, qui a mené la transaction : si la nouvelle version est cassée, c'est un
+    # code éprouvé qui fait le retour arrière. La nouvelle image n'est qu'un paramètre (tx["lanceur"]).
+    client.containers.run(me.image.id, ["python", "updater.py", "relay"], volumes=volumes, network=network, detach=True,
+                          name=RELAY, environment=env, restart_policy={"Name": "always"}, working_dir="/app")
 
 
 def _relay() -> None:
@@ -963,7 +1047,7 @@ def _relay() -> None:
     with state_lock():
         tx = load_state().get("en_cours")
         if tx and tx.get("phase") == "validation":
-            _commit(tx)
+            pass  # le lanceur neuf valide
         elif tx and tx.get("phase") in ("retour_arriere", "remplacement", "observation"):
             _report(_fail(tx, tx.get("raison") or "interrompue", None))  # retour arrière coupé : on le termine
         elif tx and tx.get("phase") == "lanceur":
@@ -986,13 +1070,13 @@ def _relay() -> None:
             except Exception as e:  # noqa: BLE001
                 print(f"[mise à jour] relais : {str(e)[:300]}", flush=True)
             if ok:
-                _commit(tx)
-                _log(f"Noah {tx['version']} installée (lanceur compris)")
-                _report({"ok": True, "version": tx["version"], "composants": {c: "fait" for c in tx["cibles"]}})
+                # Le lanceur neuf (avec ses crochets : navigateurs arrêtés…) fait la validation dès qu'il a la main.
+                _tx(lambda t: t.update(phase="validation"))
+                _log(f"Lanceur {tx['version']} sain : validation confiée au nouveau lanceur")
             else:
                 _report(_fail(tx, "le nouveau lanceur ne répondait pas", image))
     tx = load_state().get("en_cours")
-    if tx and tx.get("phase") != "intervention":
+    if tx and tx.get("phase") not in ("intervention", "validation"):
         raise SystemExit(1)  # pas fini : Docker relance le relais, qui reprendra où il en était
     me = _get(socket.gethostname())
     if me:
@@ -1020,17 +1104,39 @@ def recover() -> None:
                 return  # le relais décide
             if relay and late:
                 relay.remove(force=True)  # relais en panne depuis trop longtemps : on reprend la main
-            if _runs(LAUNCHER, tx["lanceur"]) and socket.gethostname() != RELAY:
-                _commit(tx)  # nous sommes le lanceur neuf, et nous tournons : le relais a été coupé juste avant la fin
-                _log(f"Noah {tx['version']} installée (lanceur compris)")
+            if _runs(LAUNCHER, tx["lanceur"]) and healthy(LAUNCHER, 60):
+                tx["phase"] = "validation"  # nous sommes le lanceur neuf, et nous répondons : le relais a été coupé
+                _tx(lambda t: t.update(phase="validation"))
+            else:
+                _report(_fail(tx, "le relais du lanceur a été interrompu", None))
                 return
-            _report(_fail(tx, "le relais du lanceur a été interrompu", None))
-            return
         if tx.get("phase") == "validation":
             _commit(tx)
-            _log(f"Noah {tx['version']} installée (validation reprise après une coupure)")
+            _log(f"Noah {tx['version']} installée")
+            _report({"ok": True, "version": tx["version"], "composants": {c: "fait" for c in tx["cibles"]}})
             return
         _report(_fail(tx, tx.get("raison") or "interrompue (arrêt du lanceur)", None))
+
+
+def verify_logged(raw: bytes, signature: str) -> dict:
+    try:
+        return verify_manifest(raw, signature)
+    except ValueError as e:
+        _log(f"Manifeste refusé : {e}")
+        raise
+
+
+def refusal() -> str | None:
+    """Pourquoi /update/apply ne lancerait rien maintenant (réponse immédiate au serveur), ou None."""
+    if _lock.locked():
+        return "Une mise à jour est déjà en cours"
+    try:
+        tx = load_state().get("en_cours")
+    except Corrupt as e:
+        return str(e)
+    if tx:
+        return "Une mise à jour précédente n'est pas terminée" + (" : elle attend ta décision" if tx.get("phase") == "intervention" else "")
+    return None
 
 
 def watchdog() -> None:
@@ -1040,6 +1146,9 @@ def watchdog() -> None:
         try:
             tx = load_state().get("en_cours")
             if tx and tx.get("phase") == "lanceur" and time.time() - tx.get("lanceur_depuis", time.time()) > RELAY_TIMEOUT:
+                relay = _get(RELAY)
+                if relay:
+                    relay.remove(force=True)  # hors du verrou : un relais bloqué le garde, on le libère d'abord
                 recover()
         except Exception as e:  # noqa: BLE001
             print(f"[mise à jour] surveillance : {e}", flush=True)
@@ -1053,7 +1162,7 @@ def resolve(action: str) -> dict:
         if not tx or tx.get("phase") != "intervention":
             return {"ok": False, "erreur": "Rien en attente"}
         if action == "reessayer":
-            update_state(lambda s: [it.update(restauration="a_refaire") for it in s["en_cours"]["elements"]
+            update_state(lambda s: [it.pop("restauration", None) for it in s["en_cours"]["elements"]
                                     if it["nom"] in s["en_cours"].get("non_restaures", [])])
             rep = _fail(load_state()["en_cours"], tx.get("raison") or "retour arrière repris", None)
             _report(rep)
@@ -1069,3 +1178,13 @@ if __name__ == "__main__" and sys.argv[1:2] == ["relay"]:
     _relay()
 elif __name__ == "__main__" and sys.argv[1:2] in (["snapshot"], ["unpack"]):
     (_snapshot if sys.argv[1] == "snapshot" else _unpack)(sys.argv[2], sys.argv[3:])
+elif __name__ == "__main__" and sys.argv[1:2] == ["espace"]:
+    total = sum(os.lstat(os.path.join(r, f)).st_size for i in range(len(sys.argv[3:]))
+                for r, _, fs_ in os.walk(f"/v{i}") for f in fs_)
+    st = os.statvfs(sys.argv[2])
+    print(json.dumps({"volumes": total, "libre": st.f_bavail * st.f_frsize}))
+elif __name__ == "__main__" and sys.argv[1:2] == ["supprime"]:
+    shutil.rmtree(sys.argv[2], ignore_errors=True)
+elif __name__ == "__main__" and sys.argv[1:2] == ["garde"]:
+    if os.path.isdir(sys.argv[2]):
+        Path(sys.argv[2], ".garder").write_text("intervention")
