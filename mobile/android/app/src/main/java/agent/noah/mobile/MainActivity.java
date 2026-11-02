@@ -96,6 +96,20 @@ public class MainActivity extends BridgeActivity {
                 }
                 return super.shouldOverrideUrlLoading(view, request);
             }
+
+            @Override
+            public android.webkit.WebResourceResponse shouldInterceptRequest(android.webkit.WebView view,
+                                                                            android.webkit.WebResourceRequest request) {
+                // Image, script, iframe… vers le même hôte sur un autre port : le cookie de session partirait avec
+                // (les cookies ne distinguent pas les ports). Bloqué ; les autres sites ne reçoivent pas ce cookie.
+                android.net.Uri u = request.getUrl();
+                if (u.getHost() != null && u.getHost().equalsIgnoreCase(android.net.Uri.parse(server).getHost())
+                    && !home.equals(origin(u.toString()))) {
+                    return new android.webkit.WebResourceResponse("text/plain", "utf-8", 403, "Forbidden",
+                        new java.util.HashMap<>(), new java.io.ByteArrayInputStream(new byte[0]));
+                }
+                return super.shouldInterceptRequest(view, request);
+            }
         });
         bridge.getWebView().stopLoading();
         bridge.getWebView().loadUrl(server + page(getIntent()));

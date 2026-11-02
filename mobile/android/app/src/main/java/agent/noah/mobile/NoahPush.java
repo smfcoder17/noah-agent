@@ -81,16 +81,36 @@ public class NoahPush extends PushService {
         // remplace jamais le nouveau sur le serveur.
         REGISTRATIONS.execute(() -> {
             if (!endpoint.getUrl().equals(latestEndpoint)) return; // remplacé avant son tour
-            try {
-                JSONObject body = new JSONObject().put("endpoint", endpoint.getUrl())
-                    .put("p256dh", endpoint.getPubKeySet().getPubKey()).put("auth", endpoint.getPubKeySet().getAuth());
-                call("POST", server + "/api/push/subscription", token, body.toString());
-                pairing.setPushEndpoint(endpoint.getUrl());
-                pairing.confirmPush(gen, token); // sans effet si on s'est déconnecté entre-temps
-            } catch (Exception ignored) {
-                // l'inscription est refaite à chaque ouverture de l'app ; sans elle, l'interface ne dit pas « actives »
+            // Serveur en maintenance ou injoignable : quelques essais espacés tant que l'app tourne ; sinon la
+            // prochaine ouverture de l'app réinscrit (UnifiedPush le recommande à chaque ouverture).
+            for (int wait : new int[] { 0, 30_000, 120_000, 600_000 }) {
+                // Attente par secondes : un endpoint plus récent n'attend pas la fin d'une ancienne relance.
+                for (int t = 0; t < wait; t += 1000) {
+                    if (!endpoint.getUrl().equals(latestEndpoint)) return;
+                    try {
+                        Thread.sleep(1000);
+                    } catch (InterruptedException e) {
+                        return;
+                    }
+                }
+                if (!endpoint.getUrl().equals(latestEndpoint)) return;
+                if (register(pairing, server, token, gen, endpoint)) return;
             }
         });
+    }
+
+    /** Envoie l'abonnement au serveur ; true s'il l'a accepté. */
+    private static boolean register(Pairing pairing, String server, String token, long gen, PushEndpoint endpoint) {
+        try {
+            JSONObject body = new JSONObject().put("endpoint", endpoint.getUrl())
+                .put("p256dh", endpoint.getPubKeySet().getPubKey()).put("auth", endpoint.getPubKeySet().getAuth());
+            call("POST", server + "/api/push/subscription", token, body.toString());
+            pairing.setPushEndpoint(endpoint.getUrl());
+            pairing.confirmPush(gen, token); // sans effet si on s'est déconnecté entre-temps
+            return true;
+        } catch (Exception ignored) {
+            return false; // sans inscription acceptée, l'interface ne dit pas « actives »
+        }
     }
 
     private static final java.util.concurrent.ExecutorService REGISTRATIONS = java.util.concurrent.Executors.newSingleThreadExecutor();

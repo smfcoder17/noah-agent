@@ -17,7 +17,7 @@ import { AgentContext } from "@/lib/agentContext";
 import { mediaUrl, rawFileUrl, send } from "@/lib/api";
 import { imageQuote, splitQuotes, useQuotes } from "@/lib/quotes";
 import { NoahTile } from "./Noah";
-import { cn } from "@/lib/utils";
+import { cn, safeMedia } from "@/lib/utils";
 import { Button } from "./ui";
 import { canFrame, useViewer } from "./Viewer";
 import { DictateButton, useDictation, VoiceMode, VoiceModeButton } from "./Voice";
@@ -86,6 +86,7 @@ function MarkdownText() {
           <span className="group/img relative inline-block">
             <img
               {...props}
+              src={safeMedia(props.src ? String(props.src) : undefined)}
               loading="lazy"
               className="cursor-zoom-in"
               onClick={() => props.src && view({ kind: "image", src: String(props.src), title: props.alt })}

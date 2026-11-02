@@ -415,6 +415,18 @@ function createWindow() {
     autoHideMenuBar: true,
     webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
+  // Requêtes (images comprises) vers l'hôte du serveur sur un autre port : bloquées. Le cookie de session ne
+  // distingue pas les ports (RFC 6265 §8.5) ; il ne doit partir que vers l'adresse exacte du serveur.
+  session.defaultSession.webRequest.onBeforeRequest((details, done) => {
+    let cancel = false;
+    try {
+      const u = new URL(details.url), home = origin ? new URL(origin) : null;
+      cancel = !!home && /^https?:$/.test(u.protocol) && u.hostname === home.hostname && u.origin !== home.origin;
+    } catch {
+      cancel = false;
+    }
+    done({ cancel });
+  });
   // Liens externes : dans le navigateur de l'utilisateur, jamais dans la fenêtre de Noah.
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/.test(url)) shell.openExternal(url);

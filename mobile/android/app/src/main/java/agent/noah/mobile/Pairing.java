@@ -143,6 +143,9 @@ final class Pairing {
     // rétablit jamais une identité effacée entre-temps.
     long startPush(String token) {
         synchronized (Pairing.class) {
+            // Même session qu'avant (réouverture de l'app) : l'identité confirmée reste valable pendant la
+            // réinscription ; un serveur en maintenance ne rend pas les notifications génériques.
+            if (token.equals(pushToken())) return pushGeneration();
             long gen = prefs.getLong("push_gen", 0) + 1;
             try {
                 prefs.edit().putString("push_token", seal(token)).remove("push_tag").putLong("push_gen", gen).commit();

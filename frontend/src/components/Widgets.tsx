@@ -5,7 +5,7 @@ import { useAuiState } from "@assistant-ui/react";
 import { Check, Download, ExternalLink, FileText, Maximize2, Reply } from "lucide-react";
 import { useContext, useMemo, useState } from "react";
 import { mediaUrl, rawFileUrl } from "@/lib/api";
-import { cn } from "@/lib/utils";
+import { cn, safeMedia } from "@/lib/utils";
 import { AgentContext } from "@/lib/agentContext";
 import { useQuotes, widgetQuote } from "@/lib/quotes";
 import { Button } from "./ui";
@@ -165,7 +165,7 @@ function Table({ spec }: { spec: TableSpec }) {
 function Grid({ spec }: { spec: GridSpec }) {
   const { agentId } = useContext(AgentContext);
   const view = useViewer();
-  const src = (image?: string) => (!image ? undefined : image.startsWith("/opt/data/") ? mediaUrl(agentId, image) : /^https?:\/\//.test(image) ? image : undefined);
+  const src = (image?: string) => (!image ? undefined : image.startsWith("/opt/data/") ? mediaUrl(agentId, image) : /^https?:\/\//.test(image) ? safeMedia(image) : undefined);
   return (
     <Frame title={spec.title} note={spec.note}>
       <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3 p-4">

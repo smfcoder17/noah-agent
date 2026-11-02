@@ -1,6 +1,6 @@
 // Service worker minimal : rend l'app installable et garde la coquille hors ligne.
 // Les appels /api/ passent toujours au réseau (données toujours fraîches).
-const CACHE = "noah-v12";
+const CACHE = "noah-v13";
 const SHELL = ["/", "/assets/icon.svg"];
 
 self.addEventListener("install", (e) => {
@@ -96,8 +96,8 @@ const marker = () =>
 async function stillMine(pour) {
   try {
     const r = await fetch("/api/push/subscription", { credentials: "include", signal: AbortSignal.timeout(5000) });
-    // Révoquée : le marqueur ne sert plus, s'il est toujours le sien (une nouvelle connexion entre-temps garde le sien).
-    if (r.status === 401 && (await marker()) === pour) await caches.delete("noah-session");
+    // 401 : contenu caché, marqueur laissé (une nouvelle connexion a pu poser le sien entre-temps) ; la page l'efface
+    // elle-même quand sa session est refusée.
     return r.ok && (await r.json()).pour === pour;
   } catch {
     return false;

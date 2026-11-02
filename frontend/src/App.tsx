@@ -130,7 +130,15 @@ export default function App() {
     boot();
   }, [boot]);
   useEffect(() => {
-    const out = () => {
+    let checking = false;
+    const out = async () => {
+      // Un 401 peut venir d'une requête partie avant une nouvelle connexion : on revérifie la session actuelle avant
+      // de déconnecter l'écran et d'oublier l'identité des notifications.
+      if (checking) return;
+      checking = true;
+      const r = await fetch("/api/me", { credentials: "same-origin" }).catch(() => null);
+      checking = false;
+      if (r?.status !== 401) return;
       forgetPushSession(); // session refusée (révoquée à distance) : les notifications ne montrent plus leur contenu
       setScreen((s) => (s === "app" || s === "model" ? "login" : s));
     };
