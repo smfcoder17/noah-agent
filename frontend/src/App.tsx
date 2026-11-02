@@ -127,7 +127,10 @@ export default function App() {
     boot();
   }, [boot]);
   useEffect(() => {
-    const out = () => setScreen((s) => (s === "app" || s === "model" ? "login" : s));
+    const out = () => {
+      forgetPushSession(); // session refusée (révoquée à distance) : les notifications ne montrent plus leur contenu
+      setScreen((s) => (s === "app" || s === "model" ? "login" : s));
+    };
     window.addEventListener("noah:unauthorized", out);
     return () => window.removeEventListener("noah:unauthorized", out);
   }, []);

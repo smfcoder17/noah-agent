@@ -92,14 +92,18 @@ async function boot() {
 
 /** Noah sur un serveur : la fenêtre ouvre son adresse ; la session (cookie) a été posée à l'appairage. */
 async function openRemote(server) {
+  const generation = pairingGeneration;
+  const token = storedToken(); // capturé avec son serveur, avant toute attente
+  const stale = () => generation !== pairingGeneration || readConfig().server !== server;
   status("Connexion à ton serveur…");
   try {
     const r = await fetch(`${server}/api/status`, { signal: AbortSignal.timeout(15000) });
     if (!r.ok) throw new Error(String(r.status));
   } catch {
+    if (stale()) return;
     return status(`Ton serveur (${server}) ne répond pas. Vérifie ta connexion à Internet, puis réessaie.`, true);
   }
-  const token = storedToken();
+  if (stale()) return; // serveur changé pendant l'attente : ce démarrage ne pose plus rien
   if (token) await useToken(server, token);
   origin = new URL(server).origin;
   await win.loadURL(server);
@@ -175,6 +179,7 @@ async function adopt(server, token) {
 async function authorize(rawServer) {
   const server = serverOrigin(rawServer);
   if (!server) return BAD_ADDRESS;
+  const generation = ++pairingGeneration; // un « Changer de serveur » pendant la requête suivante l'annule
   let start;
   try {
     const r = await fetch(`${server}/api/pairing/flow`, {
@@ -186,13 +191,14 @@ async function authorize(rawServer) {
   } catch {
     return { error: `Impossible de joindre ${server}. Vérifie l'adresse.` };
   }
+  if (generation !== pairingGeneration) return { error: "Appairage annulé." };
   // N'ouvrir que la page d'accord de ce serveur : jamais une adresse arbitraire choisie par le serveur (file:, ms-msdt:…).
   if (typeof start.adresse !== "string" || !start.adresse.startsWith(`${server}/#autoriser=`)) {
     return { error: "Réponse inattendue du serveur." };
   }
   shell.openExternal(start.adresse);
   win?.webContents.send("noah:setup-ask-number");
-  return waitForApproval(server, start.sondage, start.expire, "", true);
+  return waitForApproval(server, start.sondage, start.expire, "", generation, true);
 }
 
 
@@ -200,6 +206,7 @@ async function authorize(rawServer) {
 async function pair(rawServer, rawCode) {
   const server = serverOrigin(rawServer);
   if (!server) return BAD_ADDRESS;
+  const generation = ++pairingGeneration;
   let r;
   try {
     r = await fetch(`${server}/api/pairing/claim`, {
@@ -211,9 +218,9 @@ async function pair(rawServer, rawCode) {
     return { error: `Impossible de joindre ${server}. Vérifie l'adresse.` };
   }
   const body = await r.json().catch(() => ({}));
-  if (r.ok && body.attente) return waitForApproval(server, body.sondage, body.expire, body.verification);
-  if (!r.ok || !body.token) return { error: body.detail || `Le serveur a refusé (${r.status}).` };
-  return adopt(server, body.token);
+  if (generation !== pairingGeneration) return { error: "Appairage annulé." };
+  if (r.ok && body.attente) return waitForApproval(server, body.sondage, body.expire, body.verification, generation);
+  return { error: body.detail || `Le serveur a refusé (${r.status}).` };
 }
 
 /**
@@ -224,10 +231,9 @@ async function pair(rawServer, rawCode) {
 let typedNumber = ""; // voir « noah:setup-number »
 let pairingGeneration = 0; // change à chaque appairage et à chaque oubli : une attente plus ancienne n'adopte rien
 
-async function waitForApproval(server, sondage, expire, verification, askNumber = false) {
+async function waitForApproval(server, sondage, expire, verification, generation, askNumber = false) {
   if (!askNumber) win?.webContents.send("noah:setup-waiting", String(verification || ""));
   typedNumber = "";
-  const generation = ++pairingGeneration;
   const until = Date.now() + (expire || 1200) * 1000;
   while (Date.now() < until && generation === pairingGeneration) {
     await new Promise((ok) => setTimeout(ok, 2000));
@@ -247,13 +253,23 @@ async function waitForApproval(server, sondage, expire, verification, askNumber 
     if (body.token) {
       if (generation !== pairingGeneration) {
         // Serveur oublié ou autre appairage lancé entre-temps : cette session arrive trop tard, on la révoque.
-        await fetch(`${server}/api/devices/self`, { method: "DELETE", headers: { Authorization: `Bearer ${body.token}` }, signal: AbortSignal.timeout(10000) }).catch(() => {});
+        await revokeOrQueue(server, body.token);
         return { error: "Appairage annulé." };
       }
       return adopt(server, body.token);
     }
   }
   return { error: "Pas d'accord dans les 20 minutes. Recommence." };
+}
+
+/** Révoque une session sur le serveur ; sans réponse, elle est gardée (chiffrée) dans la file rejouée plus tard. */
+async function revokeOrQueue(server, token) {
+  const r = await fetch(`${server}/api/devices/self`, {
+    method: "DELETE", headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10000),
+  }).catch(() => null);
+  if (r && (r.ok || r.status === 401)) return;
+  const sealed = safeStorage.encryptString(token).toString("base64");
+  writeConfig({ a_revoquer: (readConfig().a_revoquer || []).concat([{ server, jeton: sealed }]) });
 }
 
 /** Révocations qui n'ont pas pu partir (serveur injoignable) : gardées chiffrées, rejouées jusqu'à réussir. */
@@ -313,16 +329,7 @@ async function forgetServer({ revoke = true } = {}) {
     // l'interface) : on révoque les deux.
     const cookie = (await session.defaultSession.cookies.get({ url: server, name: "apollo_session" }).catch(() => []))[0]?.value;
     const tokens = [...new Set([token, cookie].filter(Boolean))];
-    for (const t of revoke ? tokens : []) {
-      const r = await fetch(`${server}/api/devices/self`, {
-        method: "DELETE", headers: { Authorization: `Bearer ${t}` }, signal: AbortSignal.timeout(10000),
-      }).catch(() => null);
-      if (!r || !(r.ok || r.status === 401)) {
-        // Pas de réponse : la session reste valable là-bas. On la garde (chiffrée) pour la révoquer plus tard.
-        const sealed = safeStorage.encryptString(t).toString("base64");
-        writeConfig({ a_revoquer: (readConfig().a_revoquer || []).concat([{ server, jeton: sealed }]) });
-      }
-    }
+    for (const t of revoke ? tokens : []) await revokeOrQueue(server, t); // sans réponse : gardée pour plus tard
     await session.defaultSession.cookies.remove(server, "apollo_session");
   }
   writeConfig({ mode: null, server: null, jeton: null });
