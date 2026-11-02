@@ -259,8 +259,24 @@ async def send(title: str, text: str, url: str = "/", urgent: bool = False, user
     if not rows:
         return {"livres": 0, "echecs": 0, "morts": 0, "differes": 0}
     message = {"titre": title[:120], "texte": text[:400], "url": url}
+    # Enregistré avant le premier envoi, réservé pendant LEASE : si le serveur redémarre pendant l'envoi ou ses premiers
+    # essais, la file le reprend. Supprimé une fois traité (livré, refusé, ou différé sous une autre ligne).
+    now = time.time()
+    payloads = [_payload(message, r["session"]) for r in rows]
+    with db.connect() as c:
+        ids = [c.execute("INSERT INTO push_queue (endpoint, session, p256dh, auth, payload, urgent, not_before, tries, "
+                         "created) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)",
+                         (r["endpoint"], r["session"], r["p256dh"], r["auth"], p, int(urgent), now + LEASE, now)).lastrowid
+               for r, p in zip(rows, payloads)]
+
+    async def one(client, r, p, queued):
+        result = await _send_one(client, r, p, urgent, created=now)
+        with db.connect() as c:  # traité : sinon (arrêt brutal), la ligne réservée sera reprise par la file
+            c.execute("DELETE FROM push_queue WHERE id = ?", (queued,))
+        return result
+
     async with httpx.AsyncClient(timeout=15, transport=transport) as client:
-        outcome = await asyncio.gather(*(_send_one(client, r, _payload(message, r["session"]), urgent) for r in rows))
+        outcome = await asyncio.gather(*(one(client, r, p, q) for r, p, q in zip(rows, payloads, ids)))
     dead = [r for r, o in zip(rows, outcome) if o == "mort"]
     if dead:
         with db.connect() as c:  # l'abonnement exact : un autre compte a pu s'abonner depuis au même endpoint

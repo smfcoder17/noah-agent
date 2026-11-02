@@ -376,7 +376,14 @@ async function changeServer() {
 }
 
 /** Oublie le serveur : la session disparaît aussi côté serveur (si l'appel échoue, on oublie quand même ici). */
-async function forgetServer({ revoke = true } = {}) {
+let forgetting = Promise.resolve();
+/** Un oubli à la fois : un double clic ne lance pas deux oublis qui se marchent dessus. */
+function forgetServer(options) {
+  forgetting = forgetting.then(() => forgetOnce(options), () => forgetOnce(options));
+  return forgetting;
+}
+
+async function forgetOnce({ revoke = true } = {}) {
   pairingGeneration++; // toute attente d'accord en cours est abandonnée
   const { server, jeton: sealedToken } = readConfig();
   const token = storedToken();
@@ -398,6 +405,9 @@ async function forgetServer({ revoke = true } = {}) {
     for (const t of revoke ? tokens : []) await revokeOrQueue(server, t); // sans réponse : gardée pour plus tard
     await session.defaultSession.cookies.remove(server, "apollo_session");
   }
+  // Un nouvel appairage a pu se terminer pendant les révocations : sa configuration n'est pas celle qu'on oublie.
+  const now = readConfig();
+  if (now.server !== server || now.jeton !== sealedToken) return;
   writeConfig({ mode: null, server: null, jeton: null });
   origin = "";
   show();

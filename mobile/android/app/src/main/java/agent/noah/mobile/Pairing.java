@@ -178,9 +178,11 @@ final class Pairing {
     }
 
     /** Efface l'identité seulement si elle n'a pas changé depuis `gen` (sinon c'est celle d'une nouvelle connexion). */
-    void clearPushIf(long gen, String tag) {
+    boolean clearPushIf(long gen, String tag) {
         synchronized (Pairing.class) {
-            if (gen == pushGeneration() && tag.equals(pushTag())) clearPush();
+            if (gen != pushGeneration() || !tag.equals(pushTag())) return false;
+            clearPush();
+            return true;
         }
     }
 

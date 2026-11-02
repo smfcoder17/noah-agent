@@ -416,6 +416,23 @@ assert asyncio.run(late()) == "differe", "alerte abandonnée après une panne de
 with db.connect() as c:
     c.execute("DELETE FROM push_queue WHERE endpoint LIKE ?", ("%panne",))
 push.transport = httpx.MockTransport(service)
+# Redémarrage pendant le premier envoi : le message était déjà en file, il sera repris.
+k16, p16, s16 = device()
+token_o = auth.new_session(user, "Premier envoi", "web")
+assert subscribe(TestClient(main.app, headers={"Authorization": f"Bearer {token_o}"}), FCM + "premier", p16, s16) == 200
+def boom(request):
+    raise KeyboardInterrupt  # le processus s'arrête au milieu du premier envoi
+push.transport = httpx.MockTransport(boom)
+try:
+    asyncio.run(push.send("Alerte", "importante", session=auth.digest(token_o)))
+except BaseException:
+    pass
+with db.connect() as c:
+    kept = c.execute("SELECT not_before FROM push_queue WHERE endpoint LIKE ?", ("%premier",)).fetchall()
+assert kept, "message perdu par un arrêt pendant le premier envoi"
+with db.connect() as c:
+    c.execute("DELETE FROM push_queue WHERE endpoint LIKE ?", ("%premier",))
+push.transport = httpx.MockTransport(service)
 print("6 bis. désinscription en retard : seul l'abonnement visé ; service retiré de la liste : plus d'envoi")
 
 print("7. appareil déconnecté : abonnement supprimé avec sa session, rien ne lui est envoyé")

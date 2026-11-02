@@ -59,7 +59,8 @@ function AndroidPushStatus() {
         <>
           <p className="text-xs text-muted-foreground">
             Pour les recevoir sans service de Google, installe l'app gratuite <b>ntfy</b> (Play Store ou F-Droid). Elle
-            garde la connexion pour toutes tes apps ; tes messages restent chiffrés pour ce téléphone.
+            garde la connexion pour toutes tes apps ; tes messages restent chiffrés pour ce téléphone. Ouvre-la une fois et
+            accepte ses notifications (sans ça, Android ne la réveille pas), puis reviens ici.
           </p>
           <Button size="sm" variant="outline" className="self-start" onClick={retry}><Bell />C'est installé, activer</Button>
         </>

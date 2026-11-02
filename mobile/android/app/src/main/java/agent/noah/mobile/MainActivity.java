@@ -77,9 +77,13 @@ public class MainActivity extends BridgeActivity {
         long gen = pairing.pushGeneration();
         String tag = pairing.pushTag();
         new Thread(() -> {
-            if (Boolean.FALSE.equals(NoahPush.serverHasUs(pairing))) {
-                pairing.clearPushIf(gen, tag);
-                runOnUiThread(() -> NoahPush.start(this, s, t));
+            if (Boolean.FALSE.equals(NoahPush.serverHasUs(pairing)) && pairing.clearPushIf(gen, tag)) {
+                runOnUiThread(() -> {
+                    // Toujours le même serveur et la même session ouverte dans la fenêtre : sinon un nouvel
+                    // appairage s'inscrit de lui-même, cette ancienne relance n'a plus rien à faire.
+                    if (isDestroyed() || !s.equals(pairing.server()) || !t.equals(Pairing.windowToken(s))) return;
+                    NoahPush.start(this, s, t);
+                });
             }
         }).start();
     }
