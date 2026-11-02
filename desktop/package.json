@@ -16,7 +16,7 @@
   "build": {
     "appId": "agent.noah.desktop",
     "productName": "Noah Agent",
-    "files": ["main.js", "preload.js", "noah.js", "actions.js", "icon.png"],
+    "files": ["main.js", "preload.js", "noah.js", "actions.js", "setup.html", "setup.js", "icon.png"],
     "win": { "target": "nsis", "icon": "icon.png", "signAndEditExecutable": false },
     "mac": { "target": "dmg", "icon": "icon.png" },
     "linux": { "target": "AppImage", "icon": "icon.png" }

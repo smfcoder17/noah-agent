@@ -16,6 +16,7 @@ services:
       APOLLO_LOCALE: ${APOLLO_LOCALE:-}
       APOLLO_TIMEZONE: ${APOLLO_TIMEZONE:-}
       LAUNCHER_URL: http://launcher:9000
+      NOAH_SETUP_CODE: ${NOAH_SETUP_CODE:-}
       LAUNCHER_KEY: ${LAUNCHER_KEY}
     volumes:
       - apollo-data:/data

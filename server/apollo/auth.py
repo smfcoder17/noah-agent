@@ -1,3 +1,4 @@
+import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
 
@@ -8,6 +9,23 @@ from . import db
 from .config import SESSION_DAYS
 
 COOKIE = "apollo_session"
+# Une session sert tant que l'appareil sert : chaque usage la prolonge (comme les apps compagnons de Home Assistant).
+# Une session qu'on ne revoit pas pendant SESSION_DAYS expire ; l'utilisateur en révoque une dans Réglages > Appareils.
+RENEW_AFTER = timedelta(days=1)
+SEEN_EVERY = timedelta(minutes=5)
+
+
+def digest(token: str) -> str:
+    """La base ne garde que l'empreinte des jetons : une copie volée de la base ne connecte personne."""
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def hash_old_sessions() -> None:
+    """Migration : les sessions d'avant étaient enregistrées en clair (64 caractères hexadécimaux = déjà une empreinte)."""
+    with db.connect() as c:
+        for (token,) in c.execute("SELECT token FROM sessions").fetchall():
+            if len(token) != 64 or any(ch not in "0123456789abcdef" for ch in token):
+                c.execute("UPDATE sessions SET token = ? WHERE token = ?", (digest(token), token))
 
 
 def has_users() -> bool:
@@ -34,34 +52,70 @@ def check_password(username: str, password: str) -> int | None:
     return None
 
 
-def new_session(user_id: int) -> str:
+def new_session(user_id: int, device: str = "", platform: str = "web", ip: str = "", version: str = "") -> str:
     token = secrets.token_urlsafe(32)
-    expires = datetime.now(timezone.utc) + timedelta(days=SESSION_DAYS)
+    now = datetime.now(timezone.utc)
     with db.connect() as c:
         c.execute(
-            "INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)",
-            (token, user_id, expires.isoformat()),
+            "INSERT INTO sessions (token, user_id, expires_at, device, platform, created_at, last_seen, last_ip, version) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (digest(token), user_id, (now + timedelta(days=SESSION_DAYS)).isoformat(), device[:80], platform[:20],
+             now.isoformat(), now.isoformat(), ip[:64], version[:20]),
         )
     return token
 
 
 def drop_session(token: str) -> None:
     with db.connect() as c:
-        c.execute("DELETE FROM sessions WHERE token = ?", (token,))
+        c.execute("DELETE FROM sessions WHERE token = ?", (digest(token),))
+
+
+def request_token(request: Request, cookie: str | None) -> str | None:
+    header = request.headers.get("authorization", "")
+    return header[7:] if header.lower().startswith("bearer ") else cookie
 
 
 def current_user(request: Request, apollo_session: str | None = Cookie(None)) -> int:
     """Dépendance FastAPI : cookie pour le web, en-tête Bearer pour les apps mobile et desktop."""
-    token = apollo_session
-    header = request.headers.get("authorization", "")
-    if header.lower().startswith("bearer "):
-        token = header[7:]
+    token = request_token(request, apollo_session)
     if not token:
         raise HTTPException(401, "Connexion requise")
+    key = digest(token)
     with db.connect() as c:
         row = c.execute(
-            "SELECT user_id, expires_at FROM sessions WHERE token = ?", (token,)
+            "SELECT user_id, expires_at, last_seen FROM sessions WHERE token = ?", (key,)
         ).fetchone()
-    if not row or datetime.fromisoformat(row["expires_at"]) < datetime.now(timezone.utc):
-        raise HTTPException(401, "Session expirée")
+        now = datetime.now(timezone.utc)
+        if not row or datetime.fromisoformat(row["expires_at"]) < now:
+            raise HTTPException(401, "Session expirée")
+        seen = datetime.fromisoformat(row["last_seen"]) if row["last_seen"] else None
+        if not seen or now - seen > SEEN_EVERY:
+            expires = datetime.fromisoformat(row["expires_at"])
+            if expires - now < timedelta(days=SESSION_DAYS) - RENEW_AFTER:
+                expires = now + timedelta(days=SESSION_DAYS)
+            ip = request.client.host if request.client else ""
+            c.execute("UPDATE sessions SET last_seen = ?, expires_at = ?, last_ip = ? WHERE token = ?",
+                      (now.isoformat(), expires.isoformat(), ip, key))
     return row["user_id"]
+
+
+def devices(user_id: int, current: str | None) -> list[dict]:
+    with db.connect() as c:
+        rows = c.execute(
+            "SELECT rowid AS id, token, device, platform, created_at, last_seen, last_ip, version FROM sessions "
+            "WHERE user_id = ? AND expires_at > ? ORDER BY last_seen DESC",
+            (user_id, datetime.now(timezone.utc).isoformat()),
+        ).fetchall()
+    mine = digest(current) if current else None
+    return [{"id": r["id"], "nom": r["device"], "type": r["platform"], "depuis": r["created_at"], "vu": r["last_seen"],
+             "ip": r["last_ip"] or "", "version": r["version"] or "", "actuel": r["token"] == mine} for r in rows]
+
+
+def revoke_others(user_id: int, current: str) -> int:
+    with db.connect() as c:
+        return c.execute("DELETE FROM sessions WHERE user_id = ? AND token != ?", (user_id, digest(current))).rowcount
+
+
+def revoke_device(user_id: int, device_id: int) -> bool:
+    with db.connect() as c:
+        return c.execute("DELETE FROM sessions WHERE rowid = ? AND user_id = ?", (device_id, user_id)).rowcount > 0

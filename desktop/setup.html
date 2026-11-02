@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; img-src 'self'" />
+<title>Noah Agent</title>
+<style>
+  :root { --bg: #faf8f5; --fg: #3a3530; --muted: #7a7168; --line: #ddd4c9; --card: #ffffff; --accent: #c2410c; --danger: #b91c1c; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #1c1a18; --fg: #e8e2da; --muted: #a39a90; --line: #3a3530; --card: #24211e; --accent: #fb923c; --danger: #f87171; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; font: 15px/1.5 system-ui, sans-serif; background: var(--bg); color: var(--fg); }
+  main { width: min(460px, 100% - 32px); display: flex; flex-direction: column; gap: 14px; }
+  h1 { font-size: 22px; margin: 0; } p { margin: 0; color: var(--muted); }
+  img { width: 44px; height: 44px; }
+  .choice { text-align: left; display: flex; flex-direction: column; gap: 2px; padding: 14px 16px; border-radius: 14px; border: 1px solid var(--line); background: var(--card); color: inherit; font: inherit; cursor: pointer; }
+  .choice:hover { border-color: var(--accent); } .choice b { font-size: 15px; } .choice span { color: var(--muted); font-size: 13px; }
+  form { display: none; flex-direction: column; gap: 10px; }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 600; }
+  input { font: inherit; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: inherit; }
+  .row { display: flex; gap: 8px; justify-content: flex-end; }
+  button.main { font: inherit; padding: 9px 16px; border-radius: 10px; border: 0; background: var(--accent); color: #fff; cursor: pointer; }
+  button.ghost { font: inherit; padding: 9px 16px; border-radius: 10px; border: 1px solid var(--line); background: transparent; color: inherit; cursor: pointer; }
+  a { color: var(--accent); }
+  #error { color: var(--danger); font-size: 13px; min-height: 1em; }
+  .hint { font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <img src="icon.png" alt="" />
+  <h1>Bienvenue sur Noah Agent</h1>
+  <div id="choices" style="display:flex;flex-direction:column;gap:10px">
+    <p>Où vit ton agent ?</p>
+    <button class="choice" id="remote"><b>Sur mon serveur</b><span>Un VPS où Noah tourne 24 h/24. Ton ordinateur, ton téléphone et le web parlent au même agent.</span></button>
+    <button class="choice" id="local"><b>Sur cet ordinateur</b><span>Noah tourne ici avec Docker Desktop. Il s'arrête quand l'ordinateur s'éteint.</span></button>
+  </div>
+  <form id="form">
+    <p>Saisis l'adresse de ton Noah. Ton navigateur s'ouvre : connecte-toi si besoin, puis clique « Autoriser cet appareil ».</p>
+    <label>Adresse de ton serveur<input id="server" placeholder="https://noah.exemple.com" autocomplete="url" required /></label>
+    <label id="codeRow" style="display:none">Code (Réglages → Appareils → « Relier un appareil »)<input id="code" placeholder="BCDF-GHJK" autocomplete="one-time-code" /></label>
+    <p class="hint"><a href="#" id="toggle">J'ai un code à la place</a></p>
+    <div id="error"></div>
+    <div class="row"><button type="button" class="ghost" id="back">Retour</button><button class="main" id="go">Relier</button></div>
+  </form>
+</main>
+<script src="setup.js"></script>
+</body>
+</html>

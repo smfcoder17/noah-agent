@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { send } from "@/lib/api";
+import { useEffect, useState } from "react";
+import { get, send, type Status } from "@/lib/api";
 import { Button, ErrorText, Input, Label } from "./ui";
 
 export function AuthScreen({ mode, onDone }: { mode: "setup" | "login"; onDone: () => void }) {
@@ -7,13 +7,21 @@ export function AuthScreen({ mode, onDone }: { mode: "setup" | "login"; onDone: 
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // VPS : le lien de fin d'installation porte le code (?installation=…) ; sinon on le demande.
+  const [code, setCode] = useState(() => new URLSearchParams(location.search).get("installation") ?? "");
+  const [codeFromLink] = useState(() => !!new URLSearchParams(location.search).get("installation"));
+  const [needsCode, setNeedsCode] = useState(false);
+  useEffect(() => {
+    if (codeFromLink) history.replaceState(null, "", location.pathname);
+    if (mode === "setup") get<Status>("/api/status").then((st) => setNeedsCode(!!st.setup_code)).catch(() => {});
+  }, [mode, codeFromLink]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setError("");
     try {
-      await send(mode === "setup" ? "/api/setup/account" : "/api/login", { username: username.trim(), password });
+      await send(mode === "setup" ? "/api/setup/account" : "/api/login", { username: username.trim(), password, installation: code.trim() });
       onDone();
     } catch (err) {
       setError((err as Error).message);
@@ -45,6 +53,12 @@ export function AuthScreen({ mode, onDone }: { mode: "setup" | "login"; onDone: 
             onChange={(e) => setPassword(e.target.value)}
           />
         </Label>
+        {mode === "setup" && needsCode && !codeFromLink && (
+          <Label>
+            Code d'installation
+            <Input id="installation" required autoComplete="one-time-code" placeholder="Affiché à la fin de l'installation" value={code} onChange={(e) => setCode(e.target.value)} />
+          </Label>
+        )}
         <ErrorText>{error}</ErrorText>
         <Button type="submit" size="lg" disabled={busy}>{mode === "setup" ? "Créer le compte" : "Se connecter"}</Button>
       </form>

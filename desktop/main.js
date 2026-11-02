@@ -1,7 +1,9 @@
-// Noah Agent, application de bureau : démarre Noah (Docker) sur l'ordinateur, ouvre son interface dans une fenêtre,
+// Noah Agent, application de bureau : relie l'ordinateur à Noah, sur un serveur (VPS) ou démarré ici avec Docker,
+// ouvre son interface dans une fenêtre,
 // reste dans la zone de notification pour que les routines continuent, et donne le vrai sélecteur de dossier.
 const { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, session, shell, Tray } = require("electron");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const noah = require("./noah");
 const actions = require("./actions");
@@ -19,6 +21,10 @@ const readConfig = () => {
     return {};
   }
 };
+const writeConfig = (patch) => {
+  fs.mkdirSync(app.getPath("userData"), { recursive: true });
+  fs.writeFileSync(configFile(), JSON.stringify({ ...readConfig(), ...patch }, null, 1));
+};
 const isNoahHome = (dir) => !!dir && fs.existsSync(path.join(dir, "docker-compose.yml")) && fs.existsSync(path.join(dir, "launcher"));
 
 /** Dossier où Noah est installé : mémorisé, sinon celui du projet (développement), sinon demandé une fois. */
@@ -34,8 +40,7 @@ async function noahHome() {
   });
   const dir = r.filePaths[0];
   if (!isNoahHome(dir)) throw new Error("Ce dossier ne contient pas Noah Agent (docker-compose.yml introuvable).");
-  fs.mkdirSync(app.getPath("userData"), { recursive: true });
-  fs.writeFileSync(configFile(), JSON.stringify({ ...readConfig(), home: dir }, null, 1));
+  writeConfig({ home: dir });
   return dir;
 }
 
@@ -52,7 +57,14 @@ function status(text, failed = false) {
 }
 
 async function boot() {
+  const config = readConfig();
+  // Premier lancement (et pas une copie de développement avec Docker sous la main) : où vit Noah ?
+  if (!config.mode && !isNoahHome(path.resolve(__dirname, ".."))) {
+    origin = "";
+    return win.loadFile(path.join(__dirname, "setup.html"));
+  }
   await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(LOADING)}`);
+  if (config.mode === "remote") return openRemote(config.server);
   try {
     home = await noahHome();
     // Premier lancement : on autorise le partage du dossier personnel ; le lanceur doit alors être relancé.
@@ -63,6 +75,115 @@ async function boot() {
   } catch (e) {
     status(e.message, true);
   }
+}
+
+/** Noah sur un serveur : la fenêtre ouvre son adresse ; la session (cookie) a été posée à l'appairage. */
+async function openRemote(server) {
+  status("Connexion à ton serveur…");
+  try {
+    const r = await fetch(`${server}/api/status`, { signal: AbortSignal.timeout(15000) });
+    if (!r.ok) throw new Error(String(r.status));
+  } catch {
+    return status(`Ton serveur (${server}) ne répond pas. Vérifie ta connexion à Internet, puis réessaie.`, true);
+  }
+  origin = new URL(server).origin;
+  await win.loadURL(server);
+}
+
+function serverOrigin(raw) {
+  try {
+    return new URL(/^https?:\/\//.test(raw) ? raw : `https://${raw}`).origin;
+  } catch {
+    return null;
+  }
+}
+const BAD_ADDRESS = { error: "Cette adresse n'est pas valide (exemple : https://noah.exemple.com)." };
+const deviceName = () => `Ordinateur ${os.hostname()}`;
+const jsonHeaders = () => ({ "Content-Type": "application/json", "X-Noah-Version": app.getVersion() });
+
+/** La session rendue par le serveur devient le cookie de la fenêtre. Chromium le chiffre sur le disque avec la clé du
+ * système (DPAPI sous Windows, Trousseau sous macOS, libsecret sous Linux). */
+async function adopt(server, token) {
+  await session.defaultSession.cookies.set({
+    url: server, name: "apollo_session", value: token, httpOnly: true, secure: server.startsWith("https:"),
+    sameSite: "lax", expirationDate: Math.floor(Date.now() / 1000) + 365 * 86400,
+  });
+  writeConfig({ mode: "remote", server });
+  boot();
+  return { ok: true };
+}
+
+/** Flux navigateur (Nextcloud Login Flow v2) : l'app ouvre Noah dans le navigateur, l'utilisateur autorise
+ * l'appareil, l'app sonde jusqu'à recevoir sa session. Le mot de passe n'est jamais tapé dans l'app. */
+async function authorize(rawServer) {
+  const server = serverOrigin(rawServer);
+  if (!server) return BAD_ADDRESS;
+  let start;
+  try {
+    const r = await fetch(`${server}/api/pairing/flow`, {
+      method: "POST", headers: jsonHeaders(), body: JSON.stringify({ appareil: deviceName(), type: "desktop" }),
+      signal: AbortSignal.timeout(20000),
+    });
+    start = await r.json().catch(() => ({}));
+    if (!r.ok) return { error: start.detail || `Le serveur a refusé (${r.status}).` };
+  } catch {
+    return { error: `Impossible de joindre ${server}. Vérifie l'adresse.` };
+  }
+  shell.openExternal(start.adresse);
+  const until = Date.now() + start.expire * 1000;
+  while (Date.now() < until) {
+    await new Promise((res) => setTimeout(res, 2000));
+    try {
+      const r = await fetch(`${server}/api/pairing/flow/poll`, {
+        method: "POST", headers: jsonHeaders(), body: JSON.stringify({ sondage: start.sondage }),
+        signal: AbortSignal.timeout(15000),
+      });
+      if (r.ok) return adopt(server, (await r.json()).token);
+      if (r.status === 410) return { error: "Demande refusée ou expirée. Recommence." };
+    } catch {
+      /* coupure passagère : on continue de sonder */
+    }
+  }
+  return { error: "Pas d'accord dans les 20 minutes. Recommence." };
+}
+
+/** Secours : le code court de Réglages → Appareils. */
+async function pair(rawServer, rawCode) {
+  const server = serverOrigin(rawServer);
+  if (!server) return BAD_ADDRESS;
+  let r;
+  try {
+    r = await fetch(`${server}/api/pairing/claim`, {
+      method: "POST", headers: jsonHeaders(),
+      body: JSON.stringify({ code: rawCode, appareil: deviceName(), type: "desktop" }),
+      signal: AbortSignal.timeout(20000),
+    });
+  } catch {
+    return { error: `Impossible de joindre ${server}. Vérifie l'adresse.` };
+  }
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok || !body.token) return { error: body.detail || `Le serveur a refusé (${r.status}).` };
+  return adopt(server, body.token);
+}
+
+/** Oublie le serveur (ou Docker) choisi : l'écran du premier lancement revient. */
+async function changeServer() {
+  const r = await dialog.showMessageBox(win, {
+    type: "question", title: "Changer de serveur", message: "Relier cette app à un autre Noah ?",
+    detail: "Cet ordinateur sera déconnecté du Noah actuel. Tes agents et leurs données ne bougent pas.",
+    buttons: ["Changer", "Annuler"], defaultId: 0, cancelId: 1, noLink: true,
+  });
+  if (r.response !== 0) return;
+  const { server } = readConfig();
+  if (server) {
+    const cookie = (await session.defaultSession.cookies.get({ url: server, name: "apollo_session" }))[0];
+    // « Oublier ce serveur » : la session disparaît aussi côté serveur (si l'appel échoue, on oublie quand même ici).
+    if (cookie) await fetch(`${server}/api/devices/self`, { method: "DELETE", headers: { Authorization: `Bearer ${cookie.value}` } }).catch(() => {});
+    await session.defaultSession.cookies.remove(server, "apollo_session");
+  }
+  writeConfig({ mode: null, server: null });
+  show();
+  win.loadFile(path.join(__dirname, "setup.html"));
 }
 
 function createWindow() {
@@ -82,7 +203,7 @@ function createWindow() {
     return { action: "deny" };
   });
   win.webContents.on("will-navigate", (e, url) => {
-    if (url.startsWith("data:") || (origin && url.startsWith(origin))) return;
+    if (url.startsWith("data:") || url.startsWith("file:") || (origin && url.startsWith(origin))) return;
     e.preventDefault();
     if (/^https?:/.test(url)) shell.openExternal(url);
   });
@@ -113,12 +234,23 @@ function createTray() {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: "Ouvrir Noah", click: show },
+      { label: "Changer de serveur…", click: changeServer },
       { type: "separator" },
       { label: "Quitter", click: () => { quitting = true; app.quit(); } },
     ]),
   );
   tray.on("click", show);
 }
+
+// Écran du premier lancement (fichier local de l'app, jamais une page du serveur).
+const fromSetup = (e) => e.senderFrame.url.startsWith("file:") && e.senderFrame.url.endsWith("setup.html");
+ipcMain.handle("noah:setup-connect", async (e, server, code) => (fromSetup(e) ? pair(String(server), String(code)) : null));
+ipcMain.handle("noah:setup-authorize", async (e, server) => (fromSetup(e) ? authorize(String(server)) : null));
+ipcMain.handle("noah:setup-local", async (e) => {
+  if (!fromSetup(e)) return;
+  writeConfig({ mode: "local" });
+  boot();
+});
 
 // Seuls deux gestes sont permis à la page : choisir un dossier (sélecteur du système) et ouvrir un dossier.
 ipcMain.handle("noah:pick-folder", async (e) => {

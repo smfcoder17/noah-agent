@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import accounts, auth, catalog, db, desktop, events, handoff, hermes, machine, media, relay, watch
-from .config import WEB_DIR
+from .config import SETUP_CODE, WEB_DIR
 from .hermes import Agent
 
 app = FastAPI(title="Noah Agent")
@@ -41,6 +41,7 @@ AGENT_SETUP_VERSION = "21-comptes-auto"
 @app.on_event("startup")
 async def startup() -> None:
     db.init()
+    auth.hash_old_sessions()
     _migrate_threads()
     asyncio.create_task(_refresh_browsers())
     asyncio.create_task(machine.deliver_routines(_save_message, _main_conversation))
@@ -109,16 +110,36 @@ async def _upgrade_agents() -> None:
 
 @app.get("/api/status")
 def status():
-    return {"has_account": auth.has_users(), "model_configured": db.get_setting("provider") is not None}
+    return {"has_account": auth.has_users(), "model_configured": db.get_setting("provider") is not None,
+            "setup_code": bool(SETUP_CODE) and not auth.has_users()}
 
 
 class Credentials(BaseModel):
     username: str = Field(min_length=2, max_length=64)
     password: str = Field(min_length=8, max_length=256)
+    installation: str = Field(default="", max_length=64)
 
 
-def _login_response(request: Request, response: Response, user_id: int) -> dict:
-    token = auth.new_session(user_id)
+PLATFORMS = ("web", "desktop", "android", "ios")
+
+
+def _device_name(request: Request) -> str:
+    """Nom lisible d'un navigateur, pour Réglages > Appareils (« Firefox sur Windows »)."""
+    ua = request.headers.get("user-agent", "")
+    browser = next((n for k, n in (("Edg/", "Edge"), ("Firefox/", "Firefox"), ("Chrome/", "Chrome"), ("Safari/", "Safari"))
+                    if k in ua), "Navigateur")
+    system = next((n for k, n in (("Android", "Android"), ("iPhone", "iPhone"), ("iPad", "iPad"), ("Windows", "Windows"),
+                                  ("Mac OS", "Mac"), ("Linux", "Linux")) if k in ua), "")
+    return f"{browser} sur {system}" if system else browser
+
+
+def _ip(request: Request) -> str:
+    return request.client.host if request.client else ""
+
+
+def _login_response(request: Request, response: Response, user_id: int, device: str = "", platform: str = "web") -> dict:
+    token = auth.new_session(user_id, device or _device_name(request), platform if platform in PLATFORMS else "web",
+                             _ip(request), request.headers.get("x-noah-version", ""))
     # Derrière Caddy (VPS), la requête arrive en HTTPS : le cookie ne doit jamais repartir en clair.
     response.set_cookie(auth.COOKIE, token, httponly=True, samesite="lax", max_age=30 * 86400,
                         secure=request.url.scheme == "https")
@@ -126,42 +147,153 @@ def _login_response(request: Request, response: Response, user_id: int) -> dict:
     return {"token": token}
 
 
-# --- Appairage d'un téléphone par QR code -----------------------------------------------------
-# Un code à usage unique, valable 10 minutes, connecte le téléphone qui l'ouvre au compte qui l'a créé :
-# pas de mot de passe à taper sur un petit écran.
+# --- Appairage d'un appareil (téléphone, app de bureau) ------------------------------------------
+# Trois chemins, comme Home Assistant, Nextcloud et Jellyfin, sans jamais taper le mot de passe dans l'appareil :
+# - QR code : lien https://serveur/#appairage=<jeton>. Le jeton est dans le fragment (#), que le navigateur n'envoie
+#   jamais : il n'apparaît dans aucun journal. L'appareil photo du téléphone ou l'app mobile le lisent.
+# - Code court (BCDF-GHJK) à recopier quand il n'y a pas d'appareil photo. 5 essais ratés l'annulent.
+# - App de bureau : elle demande une autorisation, ouvre le navigateur sur Noah, l'utilisateur clique « Autoriser cet
+#   appareil », l'app récupère sa session (Nextcloud Login Flow v2).
+# Tout est à usage unique et expire ; le serveur ne garde que l'empreinte des jetons.
 PAIRING_SECONDS = 600
-_pairing: dict[str, tuple[int, float]] = {}
+FLOW_SECONDS = 1200
+SHORT_TRIES = 5
+_SHORT = "BCDFGHJKLMNPQRSTVWXZ"  # base 20, sans voyelles (pas de mot gênant) ni caractères ambigus (RFC 8628)
+_pairing: dict[str, dict] = {}   # empreinte -> {user, expire, essais}
+_flows: dict[str, dict] = {}     # identifiant public -> {sondage (empreinte), appareil, type, expire, user, jeton}
+
+
+def _short_code() -> str:
+    raw = "".join(secrets.choice(_SHORT) for _ in range(8))
+    return f"{raw[:4]}-{raw[4:]}"
+
+
+def _norm_short(code: str) -> str:
+    return code.upper().replace("-", "").replace(" ", "")
+
+
+def _purge() -> None:
+    now = time.time()
+    for k in [k for k, v in _pairing.items() if v["expire"] < now]:
+        _pairing.pop(k, None)
+    for k in [k for k, v in _flows.items() if v["expire"] < now]:
+        _flows.pop(k, None)
 
 
 @app.post("/api/pairing")
 def pairing_start(request: Request, user: int = Depends(auth.current_user)):
-    now = time.time()
-    for code in [c for c, (_, exp) in _pairing.items() if exp < now]:
-        _pairing.pop(code, None)
-    code = secrets.token_urlsafe(18)
-    _pairing[code] = (user, now + PAIRING_SECONDS)
+    _purge()
+    link, short = secrets.token_urlsafe(24), _short_code()  # 192 bits pour le lien
+    entry = {"user": user, "expire": time.time() + PAIRING_SECONDS, "essais": 0}
+    _pairing[auth.digest(link)] = _pairing[auth.digest(_norm_short(short))] = entry
     base = str(request.base_url).rstrip("/")
     host = request.url.hostname or ""
-    return {"adresse": f"{base}/?appairage={code}", "expire": PAIRING_SECONDS,
+    return {"adresse": f"{base}/#appairage={link}", "serveur": base, "code": short, "expire": PAIRING_SECONDS,
             "local": host in ("localhost", "127.0.0.1", "::1") or host.endswith(".localhost")}
 
 
 class PairingCode(BaseModel):
-    code: str = Field(min_length=10, max_length=64)
+    code: str = Field(min_length=8, max_length=64)
+    appareil: str = Field(default="", max_length=80)
+    type: str = Field(default="web", max_length=20)
+
+
+def _too_many(request: Request) -> list[float]:
+    now = time.time()
+    recent = [t for t in _failed_logins.get(_ip(request), []) if now - t < LOGIN_WINDOW]
+    if len(recent) >= LOGIN_TRIES:
+        raise HTTPException(429, "Trop d'essais. Réessaie dans quelques minutes.")
+    return recent
 
 
 @app.post("/api/pairing/claim")
 def pairing_claim(body: PairingCode, request: Request, response: Response):
-    entry = _pairing.pop(body.code, None)
-    if not entry or entry[1] < time.time():
-        raise HTTPException(400, "Ce code a expiré ou a déjà servi. Affiche un nouveau QR code sur ton ordinateur.")
-    return _login_response(request, response, entry[0])
+    recent = _too_many(request)
+    _purge()
+    code = body.code.strip()
+    short = len(code) <= 12
+    entry = _pairing.get(auth.digest(_norm_short(code) if short else code))
+    if not entry:
+        _failed_logins[_ip(request)] = recent + [time.time()]
+        # Un code court ne doit pas laisser des milliers d'essais : 5 ratés annulent les codes en cours.
+        if short:
+            for v in {id(v): v for v in _pairing.values()}.values():
+                v["essais"] += 1
+                if v["essais"] >= SHORT_TRIES:
+                    for k in [k for k, x in _pairing.items() if x is v]:
+                        _pairing.pop(k, None)
+        raise HTTPException(400, "Ce code est faux, a expiré ou a déjà servi. Affiche un nouveau code dans Réglages > Appareils.")
+    for k in [k for k, v in _pairing.items() if v is entry]:  # le lien et le code court servent une seule fois
+        _pairing.pop(k, None)
+    return _login_response(request, response, entry["user"], body.appareil.strip(), body.type)
+
+
+class FlowStart(BaseModel):
+    appareil: str = Field(min_length=1, max_length=80)
+    type: str = Field(default="desktop", max_length=20)
+
+
+@app.post("/api/pairing/flow")
+def flow_start(body: FlowStart, request: Request):
+    """L'app demande à être autorisée : elle ouvre `adresse` dans le navigateur et sonde avec `sondage`."""
+    _too_many(request)
+    _purge()
+    if len(_flows) > 50:
+        raise HTTPException(429, "Trop de demandes en attente. Réessaie dans quelques minutes.")
+    public, poll = secrets.token_urlsafe(16), secrets.token_urlsafe(32)
+    _flows[public] = {"sondage": auth.digest(poll), "appareil": body.appareil.strip(),
+                      "type": body.type if body.type in PLATFORMS else "desktop", "expire": time.time() + FLOW_SECONDS,
+                      "ip": _ip(request), "user": None, "jeton": None}
+    base = str(request.base_url).rstrip("/")
+    return {"adresse": f"{base}/#autoriser={public}", "sondage": poll, "expire": FLOW_SECONDS}
+
+
+@app.get("/api/pairing/flow/{public}")
+def flow_info(public: str, user: int = Depends(auth.current_user)):
+    flow = _flows.get(public)
+    if not flow or flow["expire"] < time.time() or flow["user"]:
+        raise HTTPException(404, "Cette demande a expiré ou a déjà été traitée. Recommence depuis l'appareil.")
+    return {"appareil": flow["appareil"], "type": flow["type"], "ip": flow["ip"]}
+
+
+@app.post("/api/pairing/flow/{public}/{decision}")
+def flow_decide(public: str, decision: str, user: int = Depends(auth.current_user)):
+    flow = _flows.get(public)
+    if not flow or flow["expire"] < time.time() or flow["user"]:
+        raise HTTPException(404, "Cette demande a expiré ou a déjà été traitée.")
+    if decision == "refuser":
+        _flows.pop(public, None)
+        return {"ok": True}
+    if decision != "autoriser":
+        raise HTTPException(400, "Décision inconnue")
+    flow["user"] = user
+    flow["jeton"] = auth.new_session(user, flow["appareil"], flow["type"], flow["ip"])
+    return {"ok": True}
+
+
+class FlowPoll(BaseModel):
+    sondage: str = Field(min_length=20, max_length=100)
+
+
+@app.post("/api/pairing/flow/poll")
+def flow_poll(body: FlowPoll):
+    """Rend la session une seule fois, dès que l'utilisateur a autorisé l'appareil ; 404 tant qu'il ne l'a pas fait."""
+    key = auth.digest(body.sondage)
+    for public, flow in list(_flows.items()):
+        if flow["sondage"] == key and flow["expire"] >= time.time():
+            if not flow["jeton"]:
+                raise HTTPException(404, "En attente de ton accord dans le navigateur")
+            _flows.pop(public, None)
+            return {"token": flow["jeton"]}
+    raise HTTPException(410, "Demande expirée, refusée ou déjà servie")
 
 
 @app.post("/api/setup/account")
 def setup_account(body: Credentials, request: Request, response: Response):
     if auth.has_users():
         raise HTTPException(409, "Le compte administrateur existe déjà")
+    if SETUP_CODE and not secrets.compare_digest(body.installation.strip().upper().replace("-", ""), SETUP_CODE.upper().replace("-", "")):
+        raise HTTPException(403, "Code d'installation incorrect. Il est affiché à la fin de l'installation (et dans le fichier .env du serveur).")
     return _login_response(request, response, auth.create_user(body.username, body.password))
 
 
@@ -186,10 +318,37 @@ def login(body: Credentials, request: Request, response: Response):
 
 
 @app.post("/api/logout")
-def logout(response: Response, apollo_session: str | None = Cookie(None)):
-    if apollo_session:
-        auth.drop_session(apollo_session)
+def logout(request: Request, response: Response, apollo_session: str | None = Cookie(None)):
+    token = auth.request_token(request, apollo_session)
+    if token:
+        auth.drop_session(token)
     response.delete_cookie(auth.COOKIE)
+    return {"ok": True}
+
+
+@app.get("/api/devices")
+def devices(request: Request, apollo_session: str | None = Cookie(None), user: int = Depends(auth.current_user)):
+    return {"appareils": auth.devices(user, auth.request_token(request, apollo_session))}
+
+
+@app.delete("/api/devices/self")
+def forget_this_device(request: Request, apollo_session: str | None = Cookie(None)):
+    """« Oublier ce serveur » dans une app : sa session disparaît du serveur (sans erreur si elle n'existe déjà plus)."""
+    token = auth.request_token(request, apollo_session)
+    if token:
+        auth.drop_session(token)
+    return {"ok": True}
+
+
+@app.post("/api/devices/others/revoke")
+def revoke_other_devices(request: Request, apollo_session: str | None = Cookie(None), user: int = Depends(auth.current_user)):
+    return {"deconnectes": auth.revoke_others(user, auth.request_token(request, apollo_session) or "")}
+
+
+@app.delete("/api/devices/{device_id}")
+def revoke_device(device_id: int, user: int = Depends(auth.current_user)):
+    if not auth.revoke_device(user, device_id):
+        raise HTTPException(404, "Appareil introuvable")
     return {"ok": True}
 
 

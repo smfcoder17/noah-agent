@@ -2,6 +2,7 @@
 # Installe (ou met à jour) et démarre Noah Agent. À lancer depuis la racine du dépôt.
 #   sh install.sh                              sur ton ordinateur : http://localhost:8080
 #   sh install.sh --domaine noah.example.com   sur un VPS : HTTPS automatique avec Caddy
+#   sh install.sh --domaine auto               sur un VPS sans nom de domaine : <ip>.sslip.io, HTTPS quand même
 set -eu
 
 domain=""
@@ -42,7 +43,16 @@ ensure APOLLO_SECRET_KEY "$(random)"
 ensure APOLLO_PORT 8080
 ensure APOLLO_BIND 127.0.0.1
 
+if [ "$domain" = "auto" ]; then
+  # sslip.io renvoie l'adresse contenue dans le nom : 203-0-113-7.sslip.io → 203.0.113.7. Caddy y obtient un vrai certificat.
+  ip=$(curl -fsS4 --max-time 10 https://api.ipify.org 2>/dev/null || curl -fsS4 --max-time 10 https://ifconfig.me 2>/dev/null || true)
+  [ -n "$ip" ] || { echo "Adresse IP publique introuvable : relance avec --domaine ton.domaine.com" >&2; exit 1; }
+  domain="$(echo "$ip" | tr . -).sslip.io"
+fi
+
 if [ -n "$domain" ]; then
+  # Sur une adresse publique, le compte administrateur ne se crée qu'avec ce code (affiché plus bas).
+  ensure NOAH_SETUP_CODE "$(random | cut -c1-8 | tr a-f A-F)"
   # Caddy obtient le certificat tout seul ; il faut que le domaine pointe déjà vers ce serveur (ports 80 et 443 ouverts).
   set_env NOAH_DOMAIN "$domain"
   set_env COMPOSE_FILE "docker-compose.yml:deploy/docker-compose.vps.yml"
@@ -54,7 +64,12 @@ docker pull -q nousresearch/hermes-agent:stable
 docker compose up -d --build
 
 if grep -q "^NOAH_DOMAIN=" .env; then
-  echo "✓ Noah Agent démarre. Ouvre https://$(grep '^NOAH_DOMAIN=' .env | cut -d= -f2) pour créer ton compte."
+  code=$(grep '^NOAH_SETUP_CODE=' .env | cut -d= -f2)
+  echo "✓ Noah Agent démarre. Ouvre ce lien pour créer ton compte (le certificat HTTPS peut prendre une minute) :"
+  echo ""
+  echo "    https://$(grep '^NOAH_DOMAIN=' .env | cut -d= -f2)/?installation=$code"
+  echo ""
+  echo "  Code d'installation : $code (seulement pour créer le premier compte)"
   echo "  Sauvegarde quotidienne conseillée : voir « Sauvegardes » dans le README."
 else
   port=$(grep '^APOLLO_PORT=' .env | cut -d= -f2)

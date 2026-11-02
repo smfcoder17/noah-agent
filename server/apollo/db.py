@@ -67,6 +67,9 @@ def init() -> None:
         if "cached_tokens" not in columns:
             db.execute("ALTER TABLE usage ADD COLUMN cached_tokens INTEGER NOT NULL DEFAULT 0")
         _add_columns(db, "agents", {"color": "TEXT NOT NULL DEFAULT ''", "pinned": "INTEGER NOT NULL DEFAULT 0"})
+        # Chaque session est un appareil (navigateur, app de bureau, téléphone), listé et révocable dans Réglages.
+        _add_columns(db, "sessions", {"device": "TEXT NOT NULL DEFAULT ''", "platform": "TEXT NOT NULL DEFAULT 'web'",
+                                      "created_at": "TEXT", "last_seen": "TEXT", "last_ip": "TEXT", "version": "TEXT"})
         # main = la conversation unique avec l'agent ; les autres sont des fils (ouverts par l'agent ou anciens).
         _add_columns(db, "conversations", {
             "main": "INTEGER NOT NULL DEFAULT 0",

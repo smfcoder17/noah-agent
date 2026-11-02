@@ -3,6 +3,7 @@ import { QuoteContext, useQuoteState } from "@/lib/quotes";
 import { ArrowLeft, Bug, Menu, MonitorPlay, PanelRight, Plus } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { AuthScreen } from "@/components/AuthScreen";
+import { DeviceApproval, keepApprovalRequest } from "@/components/DeviceApproval";
 import { HandoffBanner } from "@/components/Handoff";
 import { NoahTile, agentColor } from "@/components/Noah";
 import type { PanelTab } from "@/components/SidePanel";
@@ -50,11 +51,13 @@ export default function App() {
   const boot = useCallback(async () => {
     try {
       // Téléphone qui vient de scanner le QR code de Réglages > Téléphone : il se connecte, puis l'adresse est nettoyée.
-      const code = new URLSearchParams(location.search).get("appairage");
+      // Le code est dans le fragment (#), jamais envoyé au serveur ni écrit dans ses journaux ; ?appairage= : anciens QR codes.
+      const code = location.hash.match(/appairage=([w-]+)/)?.[1] ?? new URLSearchParams(location.search).get("appairage");
       if (code) {
         history.replaceState(null, "", location.pathname);
         await send("/api/pairing/claim", { code }).catch((e) => setError((e as Error).message));
       }
+      keepApprovalRequest();
       const status = await get<Status>("/api/status");
       if (!status.has_account) return setScreen("setup");
       try {
@@ -175,6 +178,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const state = shown?.state ?? "idle";
   return (
     <ViewerProvider>
+      <DeviceApproval />
       {/* Le panneau devient une colonne seulement sur grand écran ; en dessous il glisse par-dessus le chat. */}
       <div className={cn("grid h-full md:grid-cols-[264px_minmax(0,1fr)]", panel && "xl:grid-cols-[264px_minmax(0,1fr)_minmax(400px,40%)]")}>
         {/* Colonne de gauche : les agents, rien d'autre */}

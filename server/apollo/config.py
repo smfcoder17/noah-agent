@@ -10,3 +10,6 @@ SESSION_DAYS = 30
 # Langue et fuseau du navigateur des agents ; vides = déduits de l'adresse IP publique.
 BROWSER_LOCALE = os.environ.get("APOLLO_LOCALE", "")
 BROWSER_TIMEZONE = os.environ.get("APOLLO_TIMEZONE", "")
+# Code affiché à la fin de l'installation sur un VPS : sans lui, personne ne peut créer le compte administrateur
+# (sinon le premier visiteur de l'adresse publique le prendrait). Vide sur un ordinateur personnel.
+SETUP_CODE = os.environ.get("NOAH_SETUP_CODE", "").strip()

@@ -44,7 +44,7 @@ export function SettingsDialog({ open, tab, onTab, onOpenChange, onBrainSaved }:
               <TabsTrigger value="brain">Cerveau</TabsTrigger>
               <TabsTrigger value="create">Création</TabsTrigger>
               <TabsTrigger value="voice">Voix</TabsTrigger>
-              <TabsTrigger value="phone">Téléphone</TabsTrigger>
+              <TabsTrigger value="phone">Appareils</TabsTrigger>
             </TabsList>
             <TabsContent value="brain">
               <ModelPicker onCancel={() => onOpenChange(false)} onDone={onBrainSaved} />

@@ -1,0 +1,102 @@
+// « Autoriser cet appareil » : l'app de bureau (ou une autre app) a ouvert Noah dans le navigateur avec #autoriser=<id>.
+// L'utilisateur, déjà connecté ici, voit quel appareil demande l'accès et décide. Le mot de passe ne passe jamais par l'app.
+import { Laptop, Loader2, Smartphone } from "lucide-react";
+import { useEffect, useState } from "react";
+import { get, send } from "@/lib/api";
+import { Button, ErrorText } from "./ui";
+
+const KEY = "noah:autoriser";
+
+/** À l'ouverture de la page : met de côté la demande (elle survit à l'écran de connexion) et nettoie l'adresse. */
+export function keepApprovalRequest() {
+  const m = location.hash.match(/autoriser=([\w-]+)/);
+  if (!m) return;
+  try {
+    sessionStorage.setItem(KEY, m[1]);
+  } catch {
+    /* stockage bloqué : la demande reste dans l'adresse */
+    return;
+  }
+  history.replaceState(null, "", location.pathname + location.search);
+}
+
+type Request = { appareil: string; type: string; ip: string };
+
+export function DeviceApproval() {
+  const [id] = useState(() => {
+    try {
+      return sessionStorage.getItem(KEY) ?? location.hash.match(/autoriser=([\w-]+)/)?.[1] ?? null;
+    } catch {
+      return null;
+    }
+  });
+  const [req, setReq] = useState<Request | null>(null);
+  const [state, setState] = useState<"ask" | "busy" | "ok" | "no">("ask");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!id) return;
+    get<Request>(`/api/pairing/flow/${id}`).then(setReq).catch((e) => setError((e as Error).message));
+  }, [id]);
+  const close = () => {
+    try {
+      sessionStorage.removeItem(KEY);
+    } catch {
+      /* rien à nettoyer */
+    }
+    setReq(null);
+    setError("");
+    setState("no");
+  };
+  const decide = async (decision: "autoriser" | "refuser") => {
+    setState("busy");
+    try {
+      await send(`/api/pairing/flow/${id}/${decision}`, {});
+      sessionStorage.removeItem(KEY);
+      setState(decision === "autoriser" ? "ok" : "no");
+    } catch (e) {
+      setError((e as Error).message);
+      setState("ask");
+    }
+  };
+
+  if (!id || state === "no" || (!req && !error)) return null;
+  const Icon = req?.type === "android" || req?.type === "ios" ? Smartphone : Laptop;
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
+      <div role="dialog" aria-modal="true" aria-labelledby="approval-title" className="flex w-full max-w-sm flex-col gap-4 rounded-2xl border border-border bg-surface p-6 shadow-lg">
+        {state === "ok" ? (
+          <>
+            <h2 id="approval-title" className="text-lg font-semibold">Appareil relié</h2>
+            <p className="text-sm text-muted-foreground">Tu peux revenir dans l'app : elle s'ouvre toute seule. Cet onglet peut être fermé.</p>
+            <Button className="self-end" onClick={close}>Fermer</Button>
+          </>
+        ) : req ? (
+          <>
+            <div className="flex items-center gap-3">
+              <span className="grid size-10 place-items-center rounded-xl bg-muted"><Icon className="size-5" /></span>
+              <h2 id="approval-title" className="text-lg font-semibold">Autoriser cet appareil ?</h2>
+            </div>
+            <p className="text-sm">
+              <b>{req.appareil}</b> demande à se connecter à ton compte Noah{req.ip ? <> depuis l'adresse <span className="font-mono">{req.ip}</span></> : null}.
+            </p>
+            <p className="text-xs text-muted-foreground">Autorise seulement si tu viens de lancer cette demande toi-même. Tu pourras le déconnecter dans Réglages → Appareils.</p>
+            <ErrorText>{error}</ErrorText>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => decide("refuser")} disabled={state === "busy"}>Refuser</Button>
+              <Button onClick={() => decide("autoriser")} disabled={state === "busy"}>
+                {state === "busy" && <Loader2 className="animate-spin" />}Autoriser cet appareil
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <h2 id="approval-title" className="text-lg font-semibold">Demande expirée</h2>
+            <ErrorText>{error}</ErrorText>
+            <Button className="self-end" onClick={close}>Fermer</Button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
