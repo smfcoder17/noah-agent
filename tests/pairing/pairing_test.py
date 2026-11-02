@@ -217,6 +217,31 @@ assert leaks == 0, f"{leaks} sessions d'attaquant survivent à la révocation"
 web_a = client(auth.new_session(alice, "Firefox", "web"))
 print("8 quater. révocation concurrente du sondage (40 essais, deux ordres) : aucune session d'attaquant ne survit")
 
+# 8 quinquies. Plusieurs comptes : Bob crée une demande, lit le nombre avec son compte, puis envoie le lien à Alice.
+# La demande appartient à Bob dès qu'il l'a ouverte : Alice ne peut ni la voir ni l'accepter.
+reset()
+bob_app = client()
+r = bob_app.post("/api/pairing/flow", json={"appareil": "PC d'Alice (faux)", "type": "desktop"}).json()
+fid = r["adresse"].split("#autoriser=")[1]
+number = web_b.get(f"/api/pairing/flow/{fid}").json()["verification"]
+assert web_a.get(f"/api/pairing/flow/{fid}").status_code == 404
+assert web_a.post(f"/api/pairing/flow/{fid}/autoriser").status_code == 404
+assert bob_app.post("/api/pairing/flow/poll", json={"sondage": r["sondage"], "verification": number}).status_code == 202
+print("8 quinquies. plusieurs comptes : la page d'accord appartient au premier compte qui l'ouvre")
+
+# 8 sexies. Annulation pendant qu'un appareil utilise le code : après l'annulation, aucune demande ne reste.
+for i in range(40):
+    reset()
+    p = web_a.post("/api/pairing").json()
+    claim = threading.Thread(target=lambda: client().post("/api/pairing/claim", json={"code": p["code"], "appareil": "x"}))
+    cancel = threading.Thread(target=lambda: web_a.delete("/api/pairing"))
+    for t in ((claim, cancel) if i % 2 else (cancel, claim)):
+        t.start()
+    claim.join()
+    cancel.join()
+    assert web_a.get("/api/pairing/pending").json()["demandes"] == [], "demande apparue après l'annulation"
+print("8 sexies. annulation concurrente d'un code en cours d'utilisation (40 essais) : aucune demande ne reste")
+
 # 9. Navigateur du téléphone (QR scanné par l'appareil photo) : la session arrive en cookie au sondage.
 reset()
 p = web_a.post("/api/pairing").json()

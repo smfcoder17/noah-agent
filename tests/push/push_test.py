@@ -182,6 +182,20 @@ with db.connect() as c:
 assert mine == ["https://wns2-par02p.notify.windows.com/w/nouveau"], mine
 print("5 quinquies. abonnement renouvelé : l'ancien est remplacé, un seul par appareil")
 
+# 5 sexies. Retry-After respecté : secondes et date HTTP, plafonnés à 5 minutes.
+from email.utils import format_datetime  # noqa: E402
+from datetime import datetime, timedelta, timezone  # noqa: E402
+
+assert push._retry_after("120", 2) == 120 and push._retry_after("9999", 2) == push.MAX_WAIT
+later = format_datetime(datetime.now(timezone.utc) + timedelta(seconds=90), usegmt=True)
+assert 85 <= push._retry_after(later, 2) <= 90
+assert push._retry_after("n'importe quoi", 7) == 7 and push._retry_after("", 7) == 7
+print("5 sexies. Retry-After en secondes ou en date HTTP, plafonné à 5 minutes")
+
+# 5 septies. L'interface compare l'abonnement du serveur à celui du navigateur : l'API rend l'adresse enregistrée.
+assert app_e.get("/api/push/subscription").json()["endpoint"] == "https://wns2-par02p.notify.windows.com/w/nouveau"
+print("5 septies. /api/push/subscription rend l'abonnement enregistré (réconciliation côté page)")
+
 # 6. Clé VAPID : vingt premiers appels simultanés ne créent qu'une seule clé.
 with db.connect() as c:
     c.execute("DELETE FROM settings WHERE key = 'vapid_key'")

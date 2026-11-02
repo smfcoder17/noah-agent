@@ -326,17 +326,17 @@ def pairing_claim(body: PairingCode, request: Request):
     _short_failures[:] = [t for t in _short_failures if now - t < LOGIN_WINDOW]
     if short and (len(_short_failures) >= SHORT_GLOBAL or len(recent) >= SHORT_TRIES):
         raise HTTPException(429, "Trop de codes faux en peu de temps. Réessaie dans quelques minutes.")
-    with _pairing_lock:
+    with _pairing_lock:  # même verrou que l'annulation : la demande existe avant qu'une annulation puisse passer
         entry = _pairing.get(auth.digest(_norm_short(code) if short else code))
         if entry:
             for k in [k for k, v in _pairing.items() if v is entry]:  # le lien et le code court servent une seule fois
                 _pairing.pop(k, None)
+            _, poll, verif = _new_flow(request, body.appareil, body.type, entry["user"], "web")
     if not entry:
         _failed_logins[_network(_ip(request))] = recent + [time.time()]
         if short:
             _short_failures.append(time.time())
         raise HTTPException(400, "Ce code est faux, a expiré ou a déjà servi. Affiche un nouveau code dans Réglages > Appareils.")
-    _, poll, verif = _new_flow(request, body.appareil, body.type, entry["user"], "web")
     return {"attente": True, "sondage": poll, "verification": verif, "expire": FLOW_SECONDS}
 
 
@@ -360,9 +360,13 @@ def flow_start(body: FlowStart, request: Request):
 
 @app.get("/api/pairing/flow/{public}")
 def flow_info(public: str, request: Request, user: int = Depends(auth.current_user)):
-    flow = _flows.get(public)
-    if not flow or flow["expire"] < time.time() or flow["user"] or flow.get("proprietaire") not in (None, user):
-        raise HTTPException(404, "Cette demande a expiré ou a déjà été traitée. Recommence depuis l'appareil.")
+    with _pairing_lock:
+        flow = _flows.get(public)
+        if not flow or flow["expire"] < time.time() or flow["user"] or flow.get("proprietaire") not in (None, user):
+            raise HTTPException(404, "Cette demande a expiré ou a déjà été traitée. Recommence depuis l'appareil.")
+        # Le premier compte qui voit le nombre est le seul qui pourra accepter : un compte qui lit le nombre puis
+        # envoie le lien à quelqu'un d'autre n'obtient rien.
+        flow["proprietaire"] = user
     return {"appareil": flow["appareil"], "type": flow["type"], "ip": flow["ip"],
             "autre_reseau": not _same_network(flow["ip"], _ip(request)),
             "verification": flow["verif"] if flow["sens"] == "app" else None}

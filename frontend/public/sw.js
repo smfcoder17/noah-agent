@@ -75,12 +75,18 @@ self.addEventListener("pushsubscriptionchange", (e) => {
   const options = e.oldSubscription?.options;
   e.waitUntil(
     (e.newSubscription ? Promise.resolve(e.newSubscription) : options ? self.registration.pushManager.subscribe(options) : Promise.reject())
-      .then((sub) => {
+      .then(async (sub) => {
         const j = sub.toJSON();
-        return fetch("/api/push/subscription", {
-          method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth }),
-        });
+        // Serveur en maintenance (503) ou injoignable : quelques essais ; sinon, la page réconciliera à sa prochaine
+        // ouverture (Réglages → Appareils compare l'abonnement du navigateur à celui du serveur).
+        for (const wait of [0, 5000, 30000]) {
+          await new Promise((ok) => setTimeout(ok, wait));
+          const r = await fetch("/api/push/subscription", {
+            method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth }),
+          }).catch(() => null);
+          if (r && r.ok) return;
+        }
       })
       .catch(() => {}),
   );

@@ -6,6 +6,7 @@ pas lire. Un abonnement est rattaché à la session de l'appareil : déconnecter
 """
 import asyncio
 import base64
+import email.utils
 import json
 import logging
 import os
@@ -35,6 +36,7 @@ RECORD = 4096  # taille d'enregistrement annoncée ; un message tient toujours d
 PUSH_HOSTS = re.compile(r"^(fcm\.googleapis\.com|android\.googleapis\.com|[a-z0-9.-]+\.push\.services\.mozilla\.com"
                         r"|[a-z0-9.-]+\.notify\.windows\.com|web\.push\.apple\.com|[a-z0-9.-]+\.push\.apple\.com)$")
 _key_lock = threading.Lock()
+MAX_WAIT = 300
 RETRIES = (2, 10)  # secondes d'attente avant de réessayer après une erreur passagère (429, 5xx, réseau)
 
 
@@ -106,6 +108,21 @@ def vapid_header(endpoint: str, now: float | None = None) -> str:
 transport: httpx.AsyncBaseTransport | None = None  # remplacé par les tests
 
 
+def _retry_after(value: str, default: float) -> float:
+    """Retry-After en secondes ou en date HTTP (RFC 9110), plafonné à 5 minutes : la notification attend dans une tâche
+    de fond, pas dans une requête."""
+    value = value.strip()
+    if value.isdigit():
+        return min(int(value), MAX_WAIT)
+    if value:
+        try:
+            when = email.utils.parsedate_to_datetime(value)
+            return max(0.0, min((when - datetime.now(timezone.utc)).total_seconds(), MAX_WAIT))
+        except (TypeError, ValueError):
+            pass
+    return default
+
+
 def _still_subscribed(endpoint: str) -> bool:
     now = datetime.now(timezone.utc).isoformat()
     with db.connect() as c:
@@ -138,8 +155,7 @@ async def _send_one(client: httpx.AsyncClient, sub, payload: bytes, urgent: bool
             log.warning("push : %s a refusé (%s) %s", host, r.status_code, r.text[:200])
         if not transient or wait is None:
             return "echec"
-        retry_after = r.headers.get("retry-after", "") if r is not None else ""
-        await asyncio.sleep(min(int(retry_after), 60) if retry_after.isdigit() else wait)
+        await asyncio.sleep(_retry_after(r.headers.get("retry-after", "") if r is not None else "", wait))
     return "echec"
 
 
@@ -220,9 +236,9 @@ def unsubscribe(request: Request, apollo_session: str | None = Cookie(None), _: 
 @router.get("/api/push/subscription")
 def subscribed(request: Request, apollo_session: str | None = Cookie(None), _: int = Depends(auth.current_user)):
     with db.connect() as c:
-        row = c.execute("SELECT 1 FROM push_subscriptions WHERE session = ?",
+        row = c.execute("SELECT endpoint FROM push_subscriptions WHERE session = ?",
                         (auth.digest(auth.request_token(request, apollo_session) or ""),)).fetchone()
-    return {"abonne": bool(row)}
+    return {"abonne": bool(row), "endpoint": row["endpoint"] if row else None}
 
 
 @router.post("/api/push/test")
