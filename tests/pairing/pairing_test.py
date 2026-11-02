@@ -112,6 +112,15 @@ assert web_a.post(f"/api/pairing/flow/{fid}/refuser").status_code == 200
 assert client().post("/api/pairing/flow/poll", json={"sondage": r.json()["sondage"]}).status_code == 410
 print("4. demande refusée : pas de session, l'appareil s'arrête")
 
+# 4 bis. « Refuser » une demande déjà accordée : refusé (404), jamais un faux « ok » alors que la session existe.
+reset()
+p = web_a.post("/api/pairing").json()
+r = client().post("/api/pairing/claim", json={"code": p["code"], "appareil": "Inconnu"}).json()
+fid = web_a.get("/api/pairing/pending").json()["demandes"][0]["id"]
+assert web_a.post(f"/api/pairing/flow/{fid}/autoriser", json={"verification": r["verification"]}).status_code == 200
+assert web_a.post(f"/api/pairing/flow/{fid}/refuser").status_code == 404, "refus annoncé pour une demande accordée"
+print("4 bis. refus d'une demande déjà accordée : 404")
+
 # 5. « Nouveau code » et panneau fermé : l'ancien code et les demandes en attente ne servent plus.
 reset()
 old = web_a.post("/api/pairing").json()

@@ -379,13 +379,16 @@ async function changeServer() {
 let forgetting = Promise.resolve();
 /** Un oubli à la fois : un double clic ne lance pas deux oublis qui se marchent dessus. */
 function forgetServer(options) {
-  forgetting = forgetting.then(() => forgetOnce(options), () => forgetOnce(options));
+  // La cible est fixée à la demande : un oubli en file ne révoque pas un appairage fait après lui.
+  const { server: asked, jeton: askedToken } = readConfig();
+  forgetting = forgetting.then(() => forgetOnce(options, asked, askedToken), () => forgetOnce(options, asked, askedToken));
   return forgetting;
 }
 
-async function forgetOnce({ revoke = true } = {}) {
-  pairingGeneration++; // toute attente d'accord en cours est abandonnée
+async function forgetOnce({ revoke = true } = {}, asked, askedToken) {
   const { server, jeton: sealedToken } = readConfig();
+  if (server !== asked || sealedToken !== askedToken) return; // déjà oublié, ou nouvel appairage depuis la demande
+  pairingGeneration++; // toute attente d'accord en cours est abandonnée
   const token = storedToken();
   if (server && revoke && sealedToken && !token) {
     // Trousseau indisponible : on ne peut pas la lire maintenant, mais elle reste chiffrée. Gardée telle quelle dans

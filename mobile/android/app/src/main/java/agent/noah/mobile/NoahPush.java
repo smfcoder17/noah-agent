@@ -82,6 +82,9 @@ public class NoahPush extends PushService {
         long gen = pairing.pushGeneration();
         if (server == null || token == null || endpoint.getPubKeySet() == null) return;
         latestEndpoint = endpoint.getUrl();
+        // Noté tout de suite : si le processus meurt avant que le serveur l'ait reçu, la vérification périodique (et
+        // la prochaine ouverture) voit que le serveur a encore l'ancien et réinscrit le téléphone.
+        pairing.setPushEndpoint(endpoint.getUrl());
         // Une inscription à la fois, dans l'ordre, et seulement la plus récente : un ancien endpoint envoyé en retard ne
         // remplace jamais le nouveau sur le serveur.
         REGISTRATIONS.execute(() -> {

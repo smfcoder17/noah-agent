@@ -393,7 +393,10 @@ def flow_decide(public: str, decision: str, request: Request, body: Decision | N
     if not flow or flow["expire"] < time.time() or flow["user"] or flow.get("proprietaire") not in (None, user):
         raise HTTPException(404, "Cette demande a expiré ou a déjà été traitée.")
     if decision == "refuser":
-        _flows.pop(public, None)
+        with _pairing_lock:  # même contrôle atomique que l'accord : jamais « refusé » pour une demande déjà accordée
+            if flow["user"] or _flows.get(public) is not flow or flow.get("proprietaire") not in (None, user):
+                raise HTTPException(404, "Cette demande a déjà été traitée.")
+            _flows.pop(public, None)
         return {"ok": True}
     if decision != "autoriser":
         raise HTTPException(400, "Décision inconnue")
