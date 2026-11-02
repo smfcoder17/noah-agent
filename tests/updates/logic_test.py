@@ -98,3 +98,118 @@ u.postpone(1)
 s = u._load()
 assert s["auto"] is False and s["heure"] == 5 and s["reportee"] > 0 and s["fuseau"] == "Europe/Paris", s
 print("réglages écrits par morceaux, sans s'écraser : OK")
+
+# --- Ce que les correcteurs ont relevé comme non testé ------------------------------------------------------
+import asyncio  # noqa: E402
+import time  # noqa: E402
+
+import httpx  # noqa: E402
+from apollo import db  # noqa: E402
+
+# Trois semaines d'usage de 8 h à 23 h à Toronto, comptées par activity() (VPS en UTC) : créneau à 3 h, heure de Toronto.
+u._patch({"fuseau": "America/Toronto", "activite": [0] * 24, "heure": "auto"})
+real_datetime = u.datetime
+
+
+class Clock(real_datetime):
+    now_value = None
+
+    @classmethod
+    def now(cls, tz=None):
+        return cls.now_value.astimezone(tz)
+
+
+u.datetime = Clock
+for day in range(21):
+    for hour in range(8, 23):
+        Clock.now_value = real_datetime(2026, 10, 1 + day, hour, 15, tzinfo=ZoneInfo("America/Toronto"))
+        u.activity()
+u.datetime = real_datetime
+st = u._load()
+assert sum(st["activite"]) == 21 * 15 and st["activite"][3] == 0 and u.quiet_hour(st) == 3, st["activite"]
+print("activity() sur 21 jours, VPS en UTC : créneau à 3 h dans le fuseau de l'utilisateur : OK")
+
+# check() : manifeste signé servi par un faux GitHub, faux lanceur ; majeure annoncée, puis « Ignorer », puis la suivante.
+told = []
+u.desktop.notify = lambda title, text: told.append((title, text))
+launcher_state = {"actuel": {"noah-server": [{"digests": [], "image_id": "old"}]}, "etat": {"images": {}}}
+served = {}
+
+
+def handler(request: httpx.Request) -> httpx.Response:
+    url = str(request.url)
+    if url.endswith(".sig"):
+        return httpx.Response(200, text=served["sig"])
+    if url.endswith("manifest.json"):
+        return httpx.Response(200, content=served["raw"])
+    if url.endswith("/update/status"):
+        return httpx.Response(200, json=launcher_state)
+    if url.endswith("/update/pull"):
+        return httpx.Response(200, json={"telechargees": [], "echecs": []})
+    return httpx.Response(404)
+
+
+RealClient = httpx.AsyncClient
+u.httpx.AsyncClient = lambda **kw: RealClient(transport=httpx.MockTransport(handler), **{k: v for k, v in kw.items() if k != "transport"})
+served["raw"], served["sig"] = signed({"version": "2.0.0", "images": {"noah-server": "ghcr.io/smfcoder/noah-server@" + D}})
+u._patch({"verifie": 0, "max_vue": "", "disponible": None})
+asyncio.run(u.check())
+st = u._load()
+assert st["disponible"]["version"] == "2.0.0" and st["majeure"] is True and st["annoncee"] > 0
+assert told and "majeure" in told[-1][1] and "7 jours" in told[-1][1], told
+u.skip()
+assert u.due(u._load(), time.time()) == "version ignorée"
+served["raw"], served["sig"] = signed({"version": "2.0.1", "images": {"noah-server": "ghcr.io/smfcoder/noah-server@" + E}})
+asyncio.run(u.check())
+st = u._load()
+assert st["disponible"]["version"] == "2.0.1" and st["ignoree"] == "2.0.0" and u.due(st, time.time()) != "version ignorée"
+served["raw"], served["sig"] = signed({"version": "1.9.0", "images": {"noah-server": "ghcr.io/smfcoder/noah-server@" + D}})
+asyncio.run(u.check())
+assert u._load()["disponible"]["version"] == "2.0.1", "un manifeste plus ancien a remplacé l'annonce"
+served["raw"], served["sig"] = signed({"version": "2.0.2", "migration": True, "images": {"noah-server": "ghcr.io/smfcoder/noah-server@" + D}})
+asyncio.run(u.check())
+assert "accord" in told[-1][1], told[-1]
+print("check() : majeure annoncée 7 jours, Ignorer jusqu'à la suivante, ancien manifeste écarté, migration annoncée : OK")
+
+# _follow : la notification dit ce qui s'est vraiment passé.
+cases = [({"ok": True, "version": "2.0.2", "composants": {"noah-server": "fait"}}, "Noah est à jour"),
+         ({"ok": False, "erreur": "x ne répondait plus", "composants": {"retour_arriere": True}, "non_restaures": []}, "Mise à jour annulée"),
+         ({"ok": False, "erreur": "x ne répondait plus", "composants": {"retour_arriere": True}, "non_restaures": ["apollo-agent-a"]}, "à vérifier"),
+         ({"ok": True, "composants": {"noah-launcher": "en_cours"}}, None)]
+for i, (report, title) in enumerate(cases):
+    told.clear()
+    launcher_state["etat"] = {"dernier_rapport": {**report, "fin": 10_000 + i}, "en_cours": None}
+    asyncio.run(u._follow())
+    assert (told[-1][0] if told else None) is None if title is None else title in told[-1][0], (report, told)
+launcher_state["etat"] = {"en_cours": {"phase": "observation"}}
+asyncio.run(u._follow())
+assert u.maintenance is True
+launcher_state["etat"] = {"en_cours": {"phase": "intervention"}}
+asyncio.run(u._follow())
+assert u.maintenance is False
+print("_follow : à jour, annulée, à vérifier (avec les noms), rien tant que le lanceur n'a pas fini ; maintenance suit le journal : OK")
+
+# routine_soon : une routine qui part dans 10 min retient la mise à jour, une dans 2 h non.
+db.init()
+with db.connect() as conn:
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(agents)")]
+    values = {c: ("agent-t" if c == "id" else "x") for c in cols}
+    conn.execute(f"INSERT OR REPLACE INTO agents ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", list(values.values()))
+soon = datetime.fromtimestamp(time.time() + 600, ZoneInfo("UTC")).isoformat()
+late = datetime.fromtimestamp(time.time() + 7200, ZoneInfo("UTC")).isoformat()
+
+
+async def fake_admin(agent_id, action, body, timeout):
+    return {"routines": [{"name": "veille", "enabled": True, "state": "scheduled", "next_run_at": routines_at}]}
+u.machine.admin = fake_admin
+routines_at = soon
+assert "veille" in asyncio.run(u.routine_soon())
+routines_at = late
+assert asyncio.run(u.routine_soon()) is None
+print("routine_soon : routine dans 10 min retient la mise à jour, dans 2 h non : OK")
+
+# Recul : un échec sans faute de la version n'est pas réessayé avant 6 h.
+st = u._load()
+assert u.due({**st, "disponible": {"version": "3.0.0"}, "ignoree": None, "majeure": False, "reessai_apres": time.time() + 3600,
+              "reportee": 0, "auto": True}, time.time()).startswith("dernier essai raté")
+print("recul de 6 h après un échec sans faute de la version : OK")

@@ -83,7 +83,12 @@ say "Téléchargement de Noah Agent…"
 if [ -n "$COMPOSE_URL" ]; then
   curl -fsSL "$COMPOSE_URL" -o docker-compose.yml.new
 else
-  curl -fsSL "$RELEASE_COMPOSE" -o docker-compose.yml.new 2>/dev/null || curl -fsSL "$RAW/deploy/docker-compose.yml" -o docker-compose.yml.new
+  if ! curl -fsSL "$RELEASE_COMPOSE" -o docker-compose.yml.new 2>/dev/null; then
+    # Pas encore de version publiée : compose du dépôt, qui suit les étiquettes (stable). Les mises à jour signées
+    # épingleront chaque image par empreinte dès la première version.
+    printf '\n\033[33mAucune version publiée : installation depuis le dépôt (images non épinglées).\033[0m\n' >&2
+    curl -fsSL "$RAW/deploy/docker-compose.yml" -o docker-compose.yml.new
+  fi
 fi
 mv docker-compose.yml.new docker-compose.yml
 # Sauvegarde et restauration (sh scripts/backup.sh) : à côté du compose.

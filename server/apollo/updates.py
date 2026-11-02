@@ -42,6 +42,7 @@ STATE = DATA_DIR / "updates.json"
 CHECK_EVERY = 3600
 WINDOW_HOURS = 3
 MAJOR_WAIT = 7 * 86400
+RETRY_AFTER = 6 * 3600  # un essai raté sans faute de la version (disque plein, registre…) : nouvel essai bien plus tard
 LAUNCHER = {"Authorization": f"Bearer {LAUNCHER_KEY}"}
 
 # Ce que le reste du serveur signale : écrans ouverts (main.py), état des tâches (main.task_state), et comment
@@ -234,7 +235,13 @@ def _failed_here(manifest: dict, launcher_state: dict) -> list[str]:
 
 
 async def check() -> dict:
-    """Lit le manifeste, le vérifie, et garde ce qui reste à installer. Ne réécrit que ses propres champs."""
+    """Lit le manifeste, le vérifie, et garde ce qui reste à installer. Ne réécrit que ses propres champs. Jamais en
+    même temps qu'une installation (elle travaille sur sa copie figée)."""
+    async with _running:
+        return await _check()
+
+
+async def _check() -> dict:
     _patch({"verifie": int(time.time())})
     try:
         async with httpx.AsyncClient(timeout=20, follow_redirects=True) as c:
@@ -293,11 +300,12 @@ async def install(manual: bool = False, ignore_busy: bool = False) -> dict:
     l'automatique, reporter, lancer une tâche), puis confie la transaction au lanceur. `manual` : clic de
     l'utilisateur (réessaie aussi une version bloquée) ; `ignore_busy` : il a confirmé malgré une tâche en cours."""
     global maintenance
-    state = _load()
-    manifest = state.get("disponible")
-    if not manifest:
-        return {"ok": False, "erreur": "Aucune nouvelle version"}
     async with _running:
+        state = _load()  # instantané figé : version, octets signés et signature restent ensemble jusqu'au bout
+        manifest = state.get("disponible")
+        if not manifest:
+            return {"ok": False, "erreur": "Aucune nouvelle version"}
+        frozen = (manifest["version"], state["brut"], state["signature"])
         status = await _launcher("GET", "/update/status")
         todo = pending(manifest, status["actuel"], status["etat"].get("images"))
         if not todo:
@@ -306,8 +314,10 @@ async def install(manual: bool = False, ignore_busy: bool = False) -> dict:
         pulled = await _launcher("POST", "/update/pull", json=_signed(state, list(todo)), timeout=1800)
         if pulled.get("echecs"):
             return {"ok": False, "erreur": "Téléchargement impossible pour l'instant, nouvel essai plus tard"}
-        state = _load()
-        reason = None if manual else due(state, time.time())
+        now_state = _load()
+        if ((now_state.get("disponible") or {}).get("version"), now_state.get("brut"), now_state.get("signature")) != frozen:
+            return {"ok": False, "erreur": "La version disponible a changé pendant le téléchargement : nouvel essai"}
+        reason = None if manual else due(now_state, time.time())
         if not ignore_busy:
             reason = reason or await blocked()
         if reason:
@@ -340,6 +350,8 @@ def due(state: dict, now: float) -> str | None:
         return "installation automatique coupée"
     if state.get("reportee", 0) > now:
         return "reportée par l'utilisateur"
+    if state.get("reessai_apres", 0) > now:
+        return "dernier essai raté (sans faute de la version) : nouvel essai plus tard"
     if state.get("majeure") and now - state.get("annoncee", now) < MAJOR_WAIT:
         return "version majeure : délai de 7 jours"
     if not _in_window(state, now):
@@ -356,6 +368,8 @@ async def _follow() -> None:
     except httpx.HTTPError:
         return
     tx = etat.get("en_cours")
+    if report_failed_softly(etat):
+        _patch({"reessai_apres": int(time.time()) + RETRY_AFTER})
     # Le journal du lanceur fait foi, y compris pour un serveur qui vient d'être recréé au milieu de la transaction.
     maintenance = bool(tx) and tx.get("phase") != "intervention"
     report = etat.get("dernier_rapport") or {}
@@ -373,6 +387,27 @@ async def _follow() -> None:
     elif report.get("composants") or "interrompue" in (report.get("erreur") or ""):
         _tell("Mise à jour annulée", f"{report.get('erreur', 'Un composant ne répondait plus')}. Noah est revenu à "
               "la version d'avant, avec ses données.")
+
+
+def report_failed_softly(etat: dict) -> bool:
+    """Le dernier rapport est un échec sans faute de l'image (rien de bloqué) et pas encore vu."""
+    report = etat.get("dernier_rapport") or {}
+    return bool(report.get("fin")) and not report.get("ok") and report["fin"] > _load().get("rapport_vu", 0) and \
+        "bloquee" not in (report.get("composants") or {}).values() and "plus ancienne" not in (report.get("erreur") or "")
+
+
+async def transaction_open() -> bool:
+    try:
+        tx = (await _launcher("GET", "/update/status", timeout=10)).get("etat", {}).get("en_cours")
+    except httpx.HTTPError:
+        return False
+    return bool(tx) and tx.get("phase") != "intervention"
+
+
+async def resolve(action: str) -> dict:
+    result = await _launcher("POST", "/update/resolve", json={"action": action}, timeout=1800)
+    await _follow()
+    return result
 
 
 async def run(task_state: dict[str, str]) -> None:
@@ -401,6 +436,8 @@ async def run(task_state: dict[str, str]) -> None:
                     result = await install()
                     if not result.get("ok", True) or result.get("erreur"):
                         print(f"[mises à jour] {state['disponible']['version']} : {result.get('erreur')}", flush=True)
+                        if not str(result.get("erreur", "")).startswith("Pas maintenant"):
+                            _patch({"reessai_apres": int(time.time()) + RETRY_AFTER})
                 elif _in_window(state, now) and reason != "à jour":
                     print(f"[mises à jour] {state['disponible']['version']} reportée : {reason}", flush=True)
                     _patch(lambda s: s.update(reports=(s.get("reports", []) + [{"quand": int(now), "texte": reason}])[-50:]))

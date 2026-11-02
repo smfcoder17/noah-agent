@@ -17,6 +17,7 @@ type Summary = {
   verifie: number | null;
   erreur: string | null;
   en_cours: boolean;
+  intervention: string[] | null;
   dernier_rapport: { ok: boolean; erreur?: string } | null;
   historique: { quand: number; texte: string }[];
 };
@@ -74,10 +75,20 @@ export function Updates() {
         </Button>
       </div>
 
+      {s.intervention && (
+        <div className="flex flex-col gap-2 rounded-xl bg-warn-soft p-4 text-warn">
+          <p>Une mise à jour n'a pas pu revenir en arrière pour : {s.intervention.join(", ")}. Ils sont arrêtés pour protéger leurs données ; tout le reste fonctionne sur la version d'avant. Les sauvegardes sont gardées.</p>
+          <div className="flex gap-2">
+            <Button size="sm" disabled={!!busy} onClick={() => act("resolve", () => send("/api/updates/resolve", { action: "reessayer" }))}>Réessayer la restauration</Button>
+            <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => confirm("Les laisser arrêtés tels quels ? Tu t'en occupes (sauvegardes dans le volume noah-backups).") && act("resolve", () => send("/api/updates/resolve", { action: "garder" }))}>Les laisser arrêtés</Button>
+          </div>
+        </div>
+      )}
+
       {s.en_cours && <p className="flex items-center gap-2 rounded-xl bg-muted p-4"><Loader2 className="size-4 animate-spin" />Mise à jour en cours. Noah peut être indisponible une minute ou deux.</p>}
 
       {next?.ignoree ? (
-        <p className="text-muted-foreground">Noah {next.version} ignorée : elle ne s'installera pas seule. <button className="underline" onClick={install}>L'installer quand même</button></p>
+        <p className="flex items-center gap-2 text-muted-foreground"><CheckCircle2 className="size-4 text-accent" />Noah est à jour (une version ignorée attend la suivante).</p>
       ) : next ? (
         <div className="flex flex-col gap-3 rounded-xl border border-accent/40 p-4">
           <p className="font-medium">Noah {next.version} est prête{next.majeure ? " (version majeure)" : ""}</p>

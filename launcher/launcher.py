@@ -101,7 +101,7 @@ def _ensure_image(name: str) -> None:
 _browser_lock = threading.Lock()  # deux appels simultanés recréaient le même conteneur (conflit Docker)
 
 
-@app.post("/agents/{agent_id}/browser", dependencies=[Depends(auth)])
+@app.post("/agents/{agent_id}/browser", dependencies=[Depends(auth), Depends(lambda: not_updating())])
 def ensure_browser(agent_id: str, body: BrowserKeys):
     """Crée (si besoin) le navigateur Camoufox de l'agent, avec son écran partagé en noVNC.
 
@@ -111,7 +111,7 @@ def ensure_browser(agent_id: str, body: BrowserKeys):
         return _ensure_browser(agent_id, body)
 
 
-def _ensure_browser(agent_id: str, body: BrowserKeys, image: str | None = None):
+def _ensure_browser(agent_id: str, body: BrowserKeys, image: str | None = None, start: bool = True):
     check_id(agent_id)
     container(agent_id)  # l'agent doit exister
     name = BROWSER_PREFIX + agent_id
@@ -175,7 +175,8 @@ def _ensure_browser(agent_id: str, body: BrowserKeys, image: str | None = None):
     if b"NOAH :" not in cfg:
         cfg += (here / "autoconfig.js").read_bytes()
     c.put_archive(os.path.dirname(CAMOUFOX_CFG), _tar({os.path.basename(CAMOUFOX_CFG): cfg}))
-    c.start()
+    if start:
+        c.start()
     return {"host": name, "created": True}
 
 
@@ -194,7 +195,7 @@ def _tar(files: dict[str, bytes]) -> bytes:
     return buf.getvalue()
 
 
-@app.post("/agents/{agent_id}/browser/restart", dependencies=[Depends(auth)])
+@app.post("/agents/{agent_id}/browser/restart", dependencies=[Depends(auth), Depends(lambda: not_updating())])
 def restart_browser(agent_id: str):
     """Redémarre le conteneur du navigateur (écran figé, navigateur planté). Profil et cookies restent."""
     check_id(agent_id)
@@ -341,7 +342,7 @@ def folder_roots():
     return {"racines": SHARE_ROOTS}
 
 
-@app.post("/agents/{agent_id}", dependencies=[Depends(auth)])
+@app.post("/agents/{agent_id}", dependencies=[Depends(auth), Depends(lambda: not_updating())])
 def create(agent_id: str, body: NewAgent):
     check_id(agent_id)
     try:
@@ -567,13 +568,13 @@ def restore_packages() -> None:
     threading.Thread(target=_restore_packages, daemon=True).start()
 
 
-@app.post("/agents/{agent_id}/restart", dependencies=[Depends(auth)])
+@app.post("/agents/{agent_id}/restart", dependencies=[Depends(auth), Depends(lambda: not_updating())])
 def restart(agent_id: str):
     container(check_id(agent_id)).restart(timeout=10)
     return {"ok": True}
 
 
-@app.delete("/agents/{agent_id}", dependencies=[Depends(auth)])
+@app.delete("/agents/{agent_id}", dependencies=[Depends(auth), Depends(lambda: not_updating())])
 def delete(agent_id: str):
     c = container(check_id(agent_id))
     c.remove(force=True)
@@ -603,7 +604,7 @@ def health():
     return {"ok": True}
 
 
-def _recreate_browser(name: str, image: str) -> None:
+def _recreate_browser(name: str, image: str, start: bool = True) -> None:
     """Navigateur sur une nouvelle image : la transaction l'a déjà arrêté et renommé <nom>-ancien ; on le recrée par
     _ensure_browser, qui dépose l'extension Noah et la config de Firefox avant le démarrage (une simple recréation
     les perdrait). Appelé avec _browser_lock déjà pris."""
@@ -612,7 +613,7 @@ def _recreate_browser(name: str, image: str) -> None:
     agent_id = old.labels[BROWSER_LABEL]
     _, locale, timezone = (old.labels.get("apollo.browser.version", "") + "::").split(":")[:3]
     body = BrowserKeys(api_key=env["CAMOFOX_API_KEY"], vnc_password=env["VNC_PASSWORD"], locale=locale, timezone=timezone)
-    _ensure_browser(agent_id, body, image)
+    _ensure_browser(agent_id, body, image, start)
 
 
 updater.HOOKS["navigateur"] = _recreate_browser
@@ -620,6 +621,17 @@ updater.LOCKS["navigateur"] = _browser_lock
 updater.AFTER["hermes"] = _restore_packages  # paquets ajoutés par les agents : réinstallés sur la nouvelle image
 # Mise à jour interrompue par un arrêt brutal : annulée au démarrage, avant toute nouvelle opération.
 threading.Thread(target=updater.recover, daemon=True).start()
+threading.Thread(target=updater.watchdog, daemon=True).start()
+
+
+def not_updating() -> None:
+    """Pendant une mise à jour, on ne crée ni ne supprime d'agent : la transaction a figé la liste des conteneurs."""
+    try:
+        tx = updater.load_state().get("en_cours")
+    except updater.Corrupt:
+        tx = None
+    if tx and tx.get("phase") != "intervention":
+        raise HTTPException(409, "Noah installe une mise à jour : réessaie dans quelques minutes.")
 
 
 class SignedManifest(BaseModel):
@@ -647,6 +659,15 @@ def update_pull(body: SignedManifest):
     """Préchargement : seulement des images du manifeste signé."""
     _, manifest = _verified(body)
     return updater.pull([r for c, r in manifest["images"].items() if body.composants is None or c in body.composants])
+
+
+class Resolve(BaseModel):
+    action: str
+
+
+@app.post("/update/resolve", dependencies=[Depends(auth)])
+def update_resolve(body: Resolve):
+    return updater.resolve(body.action)
 
 
 @app.post("/update/apply", dependencies=[Depends(auth)])

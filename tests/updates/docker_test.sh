@@ -9,7 +9,9 @@ HERE="$(pwd -W 2>/dev/null || pwd)"
 cleanup() {
   docker rm -f noahtest-registry noahtest-launcher noahtest-launcher-ancien noahtest-relais \
     noahtest-agent-a noahtest-agent-b noahtest-agent-a-ancien noahtest-agent-b-ancien >/dev/null 2>&1 || true
-  docker ps -aq --filter label=noah.outil --filter name=noah-outil- | xargs -r docker rm -f >/dev/null 2>&1 || true
+  for owner in noahtest-runner noahtest-launcher; do
+    docker ps -aq --filter label=noah.outil=$owner | xargs -r docker rm -f >/dev/null 2>&1 || true
+  done
   docker volume rm -f noahtest-backups noahtest-tiny noahtest-state noahtest-state2 noahtest-agent-a-data \
     noahtest-agent-b-data >/dev/null 2>&1 || true
   docker network rm noahtest-net >/dev/null 2>&1 || true

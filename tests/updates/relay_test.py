@@ -66,7 +66,7 @@ check("a")
 print("2. lanceur cassé : le relais remet l'ancien, version bloquée")
 
 # 3. Le relais meurt net (kill -9) après avoir renommé l'ancien lanceur : Docker le relance, il termine.
-for step in ("relais-arrete", "relais-renomme", "relais-demarre"):
+for step in ("relais-arrete", "relais-renomme", "relais-cree", "relais-demarre"):
     launcher("a")
     os.environ["NOAH_TEST_CRASH_RELAY"] = step
     rep = u.apply(*signed({"noah-launcher": ref("launcher", "b")}, "3.1.0"))

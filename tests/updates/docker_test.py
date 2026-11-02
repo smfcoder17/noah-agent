@@ -100,15 +100,19 @@ done_tx()
 print("2. image introuvable : rien n'a commencé")
 
 # 3. La v2 migre le schéma, passe sur l'agent a (canari), échoue sur b : TOUT revient, conteneurs et données.
+# Avec le vrai délai de santé (120 s) : le retour arrière doit tenir en moins de 5 min.
+u.HEALTH = 120
 t0 = time.time()
 rep = u.apply(*signed({"hermes": ref("app", "v2")}, "2.0.0"))
 took = time.time() - t0
+u.HEALTH = int(os.environ["NOAH_UPDATE_HEALTH"])
+assert took < 300, f"retour arrière trop long : {took:.0f} s"
 assert not rep["ok"] and not rep["non_restaures"], rep
 fleet_is("v1")
 s = done_tx()
 assert any(b["image"] == ref("app", "v2") and b["version"] == "2.0.0" for b in s["bloquees"])
 print(f"3. échec sur le 2e agent : les deux reviennent en v1 avec leurs données d'avant la migration, propriétaires, "
-      f"droits (setgid) et fichiers en -journal gardés ; version bloquée ({took:.0f} s, santé {u.HEALTH} s)")
+      f"droits (setgid) et fichiers en -journal gardés ; version bloquée ({took:.0f} s avec le vrai délai de santé de 120 s, < 300 s)")
 
 # 4. Version bloquée : pas réessayée seule.
 rep = u.apply(*signed({"hermes": ref("app", "v2")}, "2.0.0"))
@@ -205,6 +209,42 @@ assert c.containers.get("noahtest-agent-a").status != "running"
 assert "migre" in schema("noahtest-agent-a")  # données migrées laissées en place, ancienne version pas démarrée dessus
 assert s["dernier_rapport"]["non_restaures"] == ["noahtest-agent-a"]
 print("10. archive abîmée : l'agent reste arrêté (pas d'ancienne version sur des données migrées), signalé")
+rep = u.resolve("reessayer")
+assert u.load_state()["en_cours"]["phase"] == "intervention" and c.containers.get("noahtest-agent-a").status != "running", u.load_state()["en_cours"]
+assert "migre" in schema("noahtest-agent-a")
+rep = u.resolve("garder")
+assert u.load_state()["en_cours"] is None and c.containers.get("noahtest-agent-a").status != "running"
+assert u.apply(*signed({"hermes": ref("app", "v1b")}, "2.6.0"))["ok"] is not None  # les mises à jour reprennent
+print("10. intervention : « réessayer » refait la restauration (toujours impossible), « garder » ferme le journal")
+
+# 11. Agent arrêté par l'utilisateur : recréé sur la nouvelle image et laissé arrêté, même coupé au milieu.
+for crash in ("", "arrete-renomme"):
+    start_fleet()
+    c.containers.get("noahtest-agent-b").stop()
+    if crash:
+        run = subprocess.run([sys.executable, "/tests/updates/crash_child.py", "v1b", "2.7.0"],
+                             env=dict(os.environ, NOAH_TEST_CRASH_AT=crash), capture_output=True, text=True)
+        assert run.returncode == 137, run.stderr[-300:]
+        u.recover()
+    else:
+        assert u.apply(*signed({"hermes": ref("app", "v1b")}, "2.7.0"))["ok"]
+    a, b = c.containers.get("noahtest-agent-a"), c.containers.get("noahtest-agent-b")
+    assert a.image.id == img("v1b") and a.status == "running"
+    assert b.image.id == img("v1b") and b.status != "running", (b.image.tags, b.status)
+    assert u._get("noahtest-agent-b-ancien") is None and u._get("noahtest-agent-a-ancien") is None
+    done_tx()
+    print(f"11. agent arrêté par l'utilisateur : recréé sur la nouvelle image, laissé arrêté{' (coupure entre renommage et création)' if crash else ''}")
+
+# 12. Coupure au milieu du retour arrière (pendant la restauration des données) : la reprise le termine.
+start_fleet()
+run = subprocess.run([sys.executable, "/tests/updates/crash_child.py", "v2", "2.8.0"],
+                     env=dict(os.environ, NOAH_TEST_CRASH_AT="restauration"), capture_output=True, text=True)
+assert run.returncode == 137, (run.returncode, run.stdout[-300:])
+assert u.load_state()["en_cours"]["phase"] == "retour_arriere"
+u.recover()
+fleet_is("v1")
+done_tx()
+print("12. coupure pendant le retour arrière : terminé au redémarrage, les deux agents en v1 avec leurs données")
 for n in AGENTS:
     remove(n)
     remove(n + "-ancien")

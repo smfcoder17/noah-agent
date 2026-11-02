@@ -52,6 +52,8 @@ app.include_router(public.router)
 # Agents en cours de création : id -> message d'étape ou d'erreur affiché dans l'interface.
 provisioning: dict[str, str] = {}
 
+_running_runs: set = set()  # runs suivis en arrière-plan (référence gardée : sinon le ramasse-miettes les coupe)
+
 # État de chaque conversation (tâche) : work, approve, choice, done, error. En mémoire :
 # après un redémarrage du serveur, les anciennes tâches repartent sans état.
 task_state: dict[str, str] = {}
@@ -68,7 +70,7 @@ async def startup() -> None:
     updates.announce = _announce_update
     asyncio.create_task(updates.run(task_state))
     _migrate_threads()
-    asyncio.create_task(_refresh_browsers())
+    asyncio.create_task(_after_updates(_refresh_browsers))
     asyncio.create_task(machine.deliver_routines(_save_message, _main_conversation))
     watch.init()
     watch.setup(_save_message, _main_conversation)
@@ -78,7 +80,15 @@ async def startup() -> None:
     asyncio.create_task(accounts.keep_google_fresh())
     handoff.setup(_resume_agent)
     if db.get_setting("agent_setup") != AGENT_SETUP_VERSION and current_model():
-        asyncio.create_task(_upgrade_agents())
+        asyncio.create_task(_after_updates(_upgrade_agents))
+
+
+async def _after_updates(job) -> None:
+    """Un serveur recréé en pleine mise à jour ne reconfigure pas les agents tout de suite : la transaction les
+    observe, un redémarrage voulu passerait pour une panne. On attend qu'elle soit finie."""
+    while await updates.transaction_open():
+        await asyncio.sleep(15)
+    await job()
 
 
 async def _refresh_browsers() -> None:
@@ -1029,17 +1039,21 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
             _save_message(conv_id, "error", final["error"])
 
 
-    async def stream():
-        finished = False
+    # Le run est suivi jusqu'au bout même si le client part (téléphone fermé, réseau coupé) : la réponse est
+    # enregistrée et l'état de la tâche reste juste (une mise à jour attend vraiment sa fin).
+    queue: asyncio.Queue = asyncio.Queue()
+
+    async def pump():
         try:
             async for chunk in body():
-                yield chunk
-            finished = True
+                queue.put_nowait(chunk)
         finally:
-            # Client parti en plein run (téléphone fermé, réseau coupé) : on ne suit plus la tâche ; elle ne doit pas
-            # rester « en cours » pour toujours (elle bloquerait aussi les mises à jour).
-            if not finished and task_state.get(conv_id) in ("work", "approve"):
-                task_state[conv_id] = "idle"
+            queue.put_nowait(None)
+    _running_runs.add(asyncio.create_task(pump()))
+
+    async def stream():
+        while (chunk := await queue.get()) is not None:
+            yield chunk
 
     return stream()
 
@@ -1718,6 +1732,18 @@ async def updates_install(force: bool = False, user: int = Depends(auth.current_
 def updates_skip(user: int = Depends(auth.current_user)):
     updates.skip()
     return {"ok": True}
+
+
+class UpdateResolve(BaseModel):
+    action: str
+
+
+@app.post("/api/updates/resolve")
+async def updates_resolve(body: UpdateResolve, user: int = Depends(auth.current_user)):
+    """Après un retour arrière incomplet : réessayer la restauration, ou garder ces conteneurs arrêtés."""
+    if body.action not in ("reessayer", "garder"):
+        raise HTTPException(400, "Action inconnue")
+    return await updates.resolve(body.action)
 
 
 @app.post("/api/updates/postpone")
