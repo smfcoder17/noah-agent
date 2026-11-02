@@ -164,15 +164,21 @@ async def revocable(stream, token: str | None, every: float = 5):
             pending.cancel()
 
 
+def device_id(token_digest: str) -> str:
+    """Identifiant public d'un appareil : dérivé de sa session, donc jamais réutilisé par un autre (contrairement au
+    rowid SQLite). Une ancienne liste ne peut pas déconnecter un appareil arrivé depuis."""
+    return hashlib.sha256(("noah-device:" + token_digest).encode()).hexdigest()[:20]
+
+
 def devices(user_id: int, current: str | None) -> list[dict]:
     with db.connect() as c:
         rows = c.execute(
-            "SELECT rowid AS id, token, device, platform, created_at, last_seen, last_ip, version FROM sessions "
+            "SELECT token, device, platform, created_at, last_seen, last_ip, version FROM sessions "
             "WHERE user_id = ? AND expires_at > ? ORDER BY last_seen DESC",
             (user_id, datetime.now(timezone.utc).isoformat()),
         ).fetchall()
     mine = digest(current) if current else None
-    return [{"id": r["id"], "nom": r["device"], "type": r["platform"], "depuis": r["created_at"], "vu": r["last_seen"],
+    return [{"id": device_id(r["token"]), "nom": r["device"], "type": r["platform"], "depuis": r["created_at"], "vu": r["last_seen"],
              "ip": r["last_ip"] or "", "version": r["version"] or "", "actuel": r["token"] == mine} for r in rows]
 
 
@@ -181,6 +187,9 @@ def revoke_others(user_id: int, current: str) -> int:
         return c.execute("DELETE FROM sessions WHERE user_id = ? AND token != ?", (user_id, digest(current))).rowcount
 
 
-def revoke_device(user_id: int, device_id: int) -> bool:
+def revoke_device(user_id: int, public_id: str) -> bool:
     with db.connect() as c:
-        return c.execute("DELETE FROM sessions WHERE rowid = ? AND user_id = ?", (device_id, user_id)).rowcount > 0
+        tokens = [r["token"] for r in c.execute("SELECT token FROM sessions WHERE user_id = ?", (user_id,))]
+        match = [t for t in tokens if device_id(t) == public_id]
+        return bool(match) and c.execute("DELETE FROM sessions WHERE token = ? AND user_id = ?",
+                                         (match[0], user_id)).rowcount > 0

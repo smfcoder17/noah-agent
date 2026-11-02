@@ -10,7 +10,7 @@ import { PushToggle } from "./PushToggle";
 import { Button, ErrorText } from "./ui";
 
 type Pairing = { adresse: string; serveur: string; code: string; expire: number; local: boolean };
-type Device = { id: number; nom: string; type: string; depuis: string | null; vu: string | null; ip: string; version: string; actuel: boolean };
+type Device = { id: string; nom: string; type: string; depuis: string | null; vu: string | null; ip: string; version: string; actuel: boolean };
 
 type Pending = { id: string; appareil: string; type: string; ip: string };
 

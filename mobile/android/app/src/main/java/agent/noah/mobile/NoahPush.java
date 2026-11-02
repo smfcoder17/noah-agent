@@ -73,7 +73,11 @@ public class NoahPush extends PushService {
         String server = pairing.server(), token = pairing.pushToken();
         long gen = pairing.pushGeneration();
         if (server == null || token == null || endpoint.getPubKeySet() == null) return;
-        new Thread(() -> {
+        latestEndpoint = endpoint.getUrl();
+        // Une inscription à la fois, dans l'ordre, et seulement la plus récente : un ancien endpoint envoyé en retard ne
+        // remplace jamais le nouveau sur le serveur.
+        REGISTRATIONS.execute(() -> {
+            if (!endpoint.getUrl().equals(latestEndpoint)) return; // remplacé avant son tour
             try {
                 JSONObject body = new JSONObject().put("endpoint", endpoint.getUrl())
                     .put("p256dh", endpoint.getPubKeySet().getPubKey()).put("auth", endpoint.getPubKeySet().getAuth());
@@ -83,8 +87,11 @@ public class NoahPush extends PushService {
             } catch (Exception ignored) {
                 // l'inscription est refaite à chaque ouverture de l'app ; sans elle, l'interface ne dit pas « actives »
             }
-        }).start();
+        });
     }
+
+    private static final java.util.concurrent.ExecutorService REGISTRATIONS = java.util.concurrent.Executors.newSingleThreadExecutor();
+    private static volatile String latestEndpoint;
 
     @Override
     public void onMessage(PushMessage message, String instance) {

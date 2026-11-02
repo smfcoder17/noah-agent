@@ -440,6 +440,11 @@ def flow_poll(body: FlowPoll, request: Request, response: Response):
                     if not body.verification:
                         response.status_code = 202
                         return {"attente": "nombre"}
+                    spent = [t for t in _number_failures.get(flow["user"], []) if time.time() - t < NUMBER_WINDOW]
+                    if len(spent) >= NUMBER_TRIES:
+                        # Budget du compte épuisé : les demandes acceptées d'avance ne donnent pas d'essai de plus.
+                        _flows.pop(public, None)
+                        raise HTTPException(429, "Trop de nombres faux pour ce compte. Relie l'appareil par un code.")
                     if not secrets.compare_digest(body.verification.strip(), flow["verif"]):
                         _flows.pop(public, None)
                         _pairing_failed(request)
@@ -540,7 +545,7 @@ def revoke_other_devices(request: Request, apollo_session: str | None = Cookie(N
 
 
 @app.delete("/api/devices/{device_id}")
-def revoke_device(device_id: int, user: int = Depends(auth.current_user)):
+def revoke_device(device_id: str, user: int = Depends(auth.current_user)):
     if not auth.revoke_device(user, device_id):
         raise HTTPException(404, "Appareil introuvable")
     return {"ok": True}

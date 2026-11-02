@@ -30,6 +30,13 @@ export async function forgetPushSession() {
   await window.Capacitor?.Plugins?.NoahShell?.pushForget?.().catch(() => {});
 }
 
+const b64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+/** La clé de l'abonnement du navigateur est-elle celle du serveur (base64url) ? */
+export function sameKey(key: ArrayBuffer | null | undefined, cle: string): boolean {
+  return !!key && b64url(new Uint8Array(key)) === cle.replace(/=+$/, "");
+}
+
 /** Rend true si les notifications sont actives ici (et renvoie l'abonnement du navigateur au serveur au besoin). */
 export async function reconcilePush(): Promise<boolean> {
   const android = window.Capacitor?.Plugins?.NoahShell;
@@ -50,6 +57,12 @@ export async function reconcilePush(): Promise<boolean> {
   // Déconnexion (dans n'importe quel onglet) pendant l'écriture : elle incrémente avant d'effacer, on le voit donc ici.
   if (started !== epoch()) await caches.delete("noah-session").catch(() => {});
   if (!sub || Notification.permission !== "granted") return false;
+  // Abonnement fait avec une autre clé du serveur (restauration, clé recréée) : le service de push refuserait nos envois.
+  const { cle } = await get<{ cle: string }>("/api/push/key");
+  if (!sameKey(sub.options.applicationServerKey, cle)) {
+    await sub.unsubscribe().catch(() => {});
+    return false; // « Recevoir les notifications » réabonne avec la bonne clé
+  }
   if (!r.abonne || r.endpoint !== sub.endpoint) {
     const j = sub.toJSON();
     await send("/api/push/subscription", { endpoint: j.endpoint, p256dh: j.keys?.p256dh, auth: j.keys?.auth });

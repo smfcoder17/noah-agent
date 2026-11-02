@@ -197,6 +197,23 @@ for n in range(4):
 assert web_b.post("/api/pairing").status_code == 200  # un autre compte n'est pas touché
 print("8 bis bis. 3 nombres faux pour un même compte (adresses différentes) : accords par navigateur suspendus 1 h")
 
+# 8 bis ter. Même attaque, mais tous les liens acceptés d'avance : le budget du compte s'applique au sondage aussi.
+reset()
+waiting = []
+for n in range(6):
+    a = client(addr=f"198.51.100.{40 + n}")
+    r = a.post("/api/pairing/flow", json={"appareil": "PC", "type": "desktop"}).json()
+    fid = r["adresse"].split("#autoriser=")[1]
+    web_a.get(f"/api/pairing/flow/{fid}")
+    assert web_a.post(f"/api/pairing/flow/{fid}/autoriser").status_code == 200
+    waiting.append((a, r["sondage"], fid))
+answers = []
+for a, sondage, fid in waiting:
+    guess = "100" if main._flows[fid]["verif"] != "100" else "101"
+    answers.append(a.post("/api/pairing/flow/poll", json={"sondage": sondage, "verification": guess}).status_code)
+assert answers == [403, 403, 403, 429, 429, 429], answers
+print("8 bis ter. 6 liens acceptés d'avance : 3 essais, puis 429 au sondage (budget du compte)")
+
 # 8 ter. Accord différé donné par une session ensuite révoquée (« Déconnecter tous les autres ») : il tombe avec elle.
 reset()
 thief_session = auth.new_session(alice, "Session volée", "web")
@@ -406,5 +423,17 @@ def expires(t: str) -> datetime:
 assert expires(token) - datetime.now(timezone.utc) <= timedelta(minutes=10), "session orpheline valable 30 jours"
 assert client(token).get("/api/devices").status_code == 200
 assert expires(token) - datetime.now(timezone.utc) > timedelta(days=29), "première utilisation sans prolongation"
+# 15. Identifiant d'appareil stable : une ancienne liste ne déconnecte pas un appareil arrivé depuis à sa place.
+gone = auth.new_session(alice, "Ancien", "android")
+old_id = [d["id"] for d in client(gone).get("/api/devices").json()["appareils"] if d["actuel"]][0]
+auth.drop_session(gone)
+newcomer = auth.new_session(alice, "Nouveau", "android")
+assert web_a.delete(f"/api/devices/{old_id}").status_code == 404
+assert auth.still_valid(newcomer), "l'ancienne liste a déconnecté le nouvel appareil"
+new_id = [d["id"] for d in client(newcomer).get("/api/devices").json()["appareils"] if d["actuel"]][0]
+assert web_b.delete(f"/api/devices/{new_id}").status_code == 404, "un autre compte déconnecte l'appareil"
+assert web_a.delete(f"/api/devices/{new_id}").status_code == 200 and not auth.still_valid(newcomer)
+print("15. identifiant d'appareil stable et non réutilisé ; révocation limitée au compte")
+
 print("14. session d'appairage jamais utilisée : expire en 10 min ; prolongée à sa première utilisation")
 print("appairage : tout est vert")
