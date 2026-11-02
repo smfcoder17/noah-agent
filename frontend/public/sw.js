@@ -1,6 +1,6 @@
 // Service worker minimal : rend l'app installable et garde la coquille hors ligne.
 // Les appels /api/ passent toujours au réseau (données toujours fraîches).
-const CACHE = "noah-v8";
+const CACHE = "noah-v9";
 const SHELL = ["/", "/assets/icon.svg"];
 
 self.addEventListener("install", (e) => {
@@ -59,11 +59,14 @@ self.addEventListener("push", (e) => {
     Promise.all([
       self.clients.matchAll({ type: "window", includeUncontrolled: true }),
       caches.open("noah-session").then((c) => c.match("/__session")).then((r) => (r ? r.text() : "")).catch(() => ""),
-    ]).then(([wins, current]) => {
+    ]).then(async ([wins, current]) => {
       const foreground = wins.some((w) => w.visibilityState === "visible" && w.focused);
-      // Message pour une autre session que celle ouverte ici (un autre compte s'est connecté, ou on s'est déconnecté) :
-      // on prévient sans rien montrer de son contenu (une notification reste obligatoire après un push).
-      if (!data.pour || data.pour !== current) {
+      // Marqueur concordant : on demande encore au serveur si cette session est toujours valable (elle a pu être
+      // révoquée depuis un autre appareil pendant que le message attendait chez le service de push).
+      const valid = data.pour && data.pour === current && (await stillMine(data.pour));
+      // Message pour une autre session que celle ouverte ici (un autre compte s'est connecté, on s'est déconnecté, ou
+      // la session a été révoquée) : on prévient sans rien montrer de son contenu (une notification reste obligatoire).
+      if (!valid) {
         data = { titre: "Noah", texte: current ? "Nouvelle notification pour un autre compte." : "Nouvelle notification. Connecte-toi pour la voir.", url: "/" };
       }
       return self.registration.showNotification(data.titre || "Noah", {
@@ -77,6 +80,18 @@ self.addEventListener("push", (e) => {
     }),
   );
 });
+
+/** La session de ce navigateur est-elle encore celle à qui le message est destiné ? Non si révoquée, injoignable ou
+ * lente (5 s) : dans le doute, rien du contenu n'est affiché. */
+async function stillMine(pour) {
+  try {
+    const r = await fetch("/api/push/subscription", { credentials: "include", signal: AbortSignal.timeout(5000) });
+    if (r.status === 401) await caches.delete("noah-session"); // révoquée : le marqueur ne sert plus
+    return r.ok && (await r.json()).pour === pour;
+  } catch {
+    return false;
+  }
+}
 
 // Le navigateur renouvelle parfois l'abonnement (expiration, clés changées) : on réabonne et on prévient le serveur,
 // sinon les notifications se perdraient en silence.

@@ -240,6 +240,18 @@ async function waitForApproval(server, sondage, expire, verification, generation
   if (!askNumber) win?.webContents.send("noah:setup-waiting", String(verification || ""));
   typedNumber = "";
   const until = Date.now() + (expire || 1200) * 1000;
+  activePoll = { server, sondage }; // si l'app se ferme pendant l'attente, un dernier sondage récupère et révoque
+  try {
+    return await pollUntil(server, sondage, until, generation);
+  } finally {
+    if (activePoll?.sondage === sondage) activePoll = null;
+  }
+}
+
+/** Attente d'accord en cours : la fermeture de l'app ne doit pas laisser une session créée au dernier sondage. */
+let activePoll = null;
+
+async function pollUntil(server, sondage, until, generation) {
   while (Date.now() < until && generation === pairingGeneration) {
     await new Promise((ok) => setTimeout(ok, 2000));
     let r;
@@ -265,6 +277,16 @@ async function waitForApproval(server, sondage, expire, verification, generation
     }
   }
   return { error: "Pas d'accord dans les 20 minutes. Recommence." };
+}
+
+/** Dernier sondage à la fermeture : une session créée sans qu'on ait lu la réponse est relue puis révoquée. */
+async function revokeLastPoll({ server, sondage }) {
+  const r = await fetch(`${server}/api/pairing/flow/poll`, {
+    method: "POST", headers: jsonHeaders(), body: JSON.stringify({ sondage, verification: typedNumber }),
+    signal: AbortSignal.timeout(3000),
+  });
+  const body = await r.json().catch(() => ({}));
+  if (body.token) await revokeOrQueue(server, body.token);
 }
 
 /** Révoque une session sur le serveur ; sans réponse, elle est gardée (chiffrée) dans la file rejouée plus tard. */
@@ -427,7 +449,7 @@ function createTray() {
 const fromSetup = (e) => e.senderFrame.url.startsWith("file:") && e.senderFrame.url.endsWith("setup.html");
 // Nombre lu dans la page d'accord du navigateur, saisi dans l'écran de connexion de l'app.
 ipcMain.handle("noah:setup-number", (e, n) => {
-  if (fromSetup(e)) typedNumber = String(n).replace(/\D/g, "").slice(0, 2);
+  if (fromSetup(e)) typedNumber = String(n).replace(/\D/g, "").slice(0, 3);
 });
 ipcMain.handle("noah:setup-connect", async (e, server, code) => (fromSetup(e) ? pair(String(server), String(code)) : null));
 ipcMain.handle("noah:setup-authorize", async (e, server) => (fromSetup(e) ? authorize(String(server)) : null));
@@ -501,16 +523,42 @@ if (!app.requestSingleInstanceLock()) {
   });
   app.on("before-quit", (e) => {
     quitting = true;
-    // Sessions à révoquer gardées en mémoire (trousseau absent) : dernier essai avant de les perdre, 10 s au plus.
-    if (!unsealedRevocations.length || lastTry) return;
+    // Sessions à révoquer gardées en mémoire, ou attente d'accord en cours : dernier essai, 10 s au plus.
+    if ((!unsealedRevocations.length && !activePoll) || lastTry) return;
     e.preventDefault();
     lastTry = true;
+    const poll = activePoll;
+    pairingGeneration++; // l'attente en cours n'adopte plus rien
+    if (poll) {
+      // La session a pu être créée au sondage dont on n'a pas lu la réponse : elle se relit 30 s, on la révoque.
+      revokeLastPoll(poll).catch(() => {});
+    }
     if (secureStorage()) {
       // Envois encore en cours : rangés chiffrés tout de suite, rejoués au prochain lancement s'ils échouent.
       const sealed = unsealedRevocations.map(({ server, token }) => ({ server, jeton: safeStorage.encryptString(token).toString("base64") }));
       writeConfig({ a_revoquer: (readConfig().a_revoquer || []).concat(sealed) });
     }
-    Promise.race([flushOnce(), new Promise((ok) => setTimeout(ok, 10000))]).catch(() => {}).finally(() => app.quit());
+    const flush = (async () => {
+      await new Promise((ok) => setTimeout(ok, poll ? 3000 : 0)); // laisse le dernier sondage mettre sa session en file
+      await flushOnce();
+    })();
+    Promise.race([flush, new Promise((ok) => setTimeout(ok, 10000))]).catch(() => {}).finally(() => {
+      if (unsealedRevocations.length && secureStorage()) {
+        // Pas encore révoquées (y compris celle du dernier sondage) : rangées chiffrées, rejouées au prochain lancement.
+        const sealed = unsealedRevocations.map(({ server, token }) => ({ server, jeton: safeStorage.encryptString(token).toString("base64") }));
+        writeConfig({ a_revoquer: (readConfig().a_revoquer || []).concat(sealed) });
+      } else if (unsealedRevocations.length) {
+        // Rien d'écrit en clair : on le dit plutôt que de perdre la révocation en silence.
+        dialog.showMessageBoxSync({
+          type: "warning", title: "Session non révoquée", noLink: true, buttons: ["Compris"],
+          message: "Cet ordinateur n'a pas pu se déconnecter de ton serveur Noah.",
+          detail: "Sans trousseau système ni réseau, la session ne peut pas être gardée pour plus tard. "
+            + "Sur un autre appareil, ouvre Réglages → Appareils et déconnecte cet ordinateur.",
+        });
+        unsealedRevocations.length = 0;
+      }
+      app.quit();
+    });
   });
   app.on("window-all-closed", () => {}); // reste dans la zone de notification
 }

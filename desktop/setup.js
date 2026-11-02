@@ -46,7 +46,7 @@ window.noahSetup.onAskNumber(() => {
 });
 $("number").addEventListener("input", () => {
   $("number").value = $("number").value.replace(/\D/g, "");
-  if ($("number").value.length === 2) window.noahSetup.sendNumber($("number").value);
+  if ($("number").value.length === 3) window.noahSetup.sendNumber($("number").value);
 });
 
 window.noahSetup.onWaiting((verification) => {

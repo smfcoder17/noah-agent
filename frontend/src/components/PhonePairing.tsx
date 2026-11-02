@@ -55,11 +55,11 @@ function PendingRequests({ refresh, onDone }: { refresh: number; onDone: () => v
               <p className="text-xs text-muted-foreground">{[KINDS[p.type] ?? p.type, p.ip].filter(Boolean).join(" · ")}</p>
             </div>
             <input
-              inputMode="numeric" autoComplete="off" maxLength={2} placeholder="00" aria-label="Nombre affiché sur l'appareil"
+              inputMode="numeric" autoComplete="off" maxLength={3} placeholder="000" aria-label="Nombre affiché sur l'appareil"
               value={codes[p.id] ?? ""} onChange={(e) => setCodes((c) => ({ ...c, [p.id]: e.target.value.replace(/\D/g, "") }))}
               className="w-14 rounded-lg border border-border bg-background px-2 py-1 text-center font-mono"
             />
-            <Button size="sm" onClick={() => decide(p, "autoriser")} disabled={(codes[p.id] ?? "").length !== 2}>Autoriser</Button>
+            <Button size="sm" onClick={() => decide(p, "autoriser")} disabled={(codes[p.id] ?? "").length !== 3}>Autoriser</Button>
             <Button size="sm" variant="ghost" onClick={() => decide(p, "refuser")}>Refuser</Button>
           </div>
         );

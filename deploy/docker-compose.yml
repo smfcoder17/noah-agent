@@ -22,6 +22,8 @@ services:
       NOAH_DOMAIN: ${NOAH_DOMAIN:-auto}
       NOAH_SETUP_CODE: auto
       LAUNCHER_URL: http://launcher:9000
+      # Notifications Android par un ntfy auto-hébergé : son adresse (ex. ntfy.exemple.org). ntfy.sh marche sans rien.
+      NOAH_PUSH_HOSTS: ${NOAH_PUSH_HOSTS:-}
     volumes:
       - apollo-data:/data
       - noah-secrets:/secrets

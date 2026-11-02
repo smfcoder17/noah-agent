@@ -57,7 +57,7 @@ before = sessions()
 viewer = client()
 r = viewer.post("/api/pairing/claim", json={"code": link, "appareil": "Pixel 8", "type": "android"})
 assert r.status_code == 200 and r.json()["attente"] and "token" not in r.json() and "set-cookie" not in r.headers, r.text
-assert len(r.json()["verification"]) == 2 and sessions() == before
+assert len(r.json()["verification"]) == 3 and sessions() == before
 assert viewer.post("/api/pairing/flow/poll", json={"sondage": r.json()["sondage"]}).status_code == 202
 assert client().post("/api/pairing/claim", json={"code": link}).status_code == 400
 assert client().post("/api/pairing/claim", json={"code": p["code"]}).status_code == 400, "le code court du même affichage sert encore"
@@ -94,7 +94,7 @@ print("2. code court : demande visible et acceptable par son seul propriétaire,
 reset()
 p = web_a.post("/api/pairing").json()
 r = client().post("/api/pairing/claim", json={"code": p["code"], "appareil": "Inconnu"})
-wrong = "10" if r.json()["verification"] != "10" else "11"
+wrong = "100" if r.json()["verification"] != "100" else "101"
 fid = web_a.get("/api/pairing/pending").json()["demandes"][0]["id"]
 assert web_a.post(f"/api/pairing/flow/{fid}/autoriser", json={"verification": wrong}).status_code == 403
 assert web_a.post(f"/api/pairing/flow/{fid}/autoriser", json={"verification": r.json()["verification"]}).status_code == 404
@@ -151,7 +151,7 @@ r = app_desktop.post("/api/pairing/flow", json={"appareil": "PC du salon", "type
 assert "verification" not in r, "le nombre est rendu à celui qui crée la demande"
 fid = r["adresse"].split("#autoriser=")[1]
 info = web_a.get(f"/api/pairing/flow/{fid}").json()
-assert info["appareil"] == "PC du salon" and info["autre_reseau"] and len(info["verification"]) == 2, info
+assert info["appareil"] == "PC du salon" and info["autre_reseau"] and len(info["verification"]) == 3, info
 me_a = web_a.headers["Authorization"][7:]
 assert client(me_a, addr="203.0.113.7").get(f"/api/pairing/flow/{fid}").json()["autre_reseau"] is False
 assert client(me_a, addr="2001:db8::5").get(f"/api/pairing/flow/{fid}").json()["autre_reseau"] is False, "double pile"
@@ -174,7 +174,7 @@ r = attacker.post("/api/pairing/flow", json={"appareil": "Ordinateur FRANCK-PC",
 fid = r["adresse"].split("#autoriser=")[1]
 web_a.get(f"/api/pairing/flow/{fid}")  # l'utilisateur ouvre la page d'accord (et voit le nombre)
 assert web_a.post(f"/api/pairing/flow/{fid}/autoriser").status_code == 200
-guess = "10" if main._flows[fid]["verif"] != "10" else "11"
+guess = "100" if main._flows[fid]["verif"] != "100" else "101"
 assert attacker.post("/api/pairing/flow/poll", json={"sondage": r["sondage"], "verification": guess}).status_code == 403
 assert attacker.post("/api/pairing/flow/poll", json={"sondage": r["sondage"], "verification": main._flows.get(fid, {}).get("verif", "")}).status_code == 410
 print("8 bis. lien d'accord envoyé par un tiers : sans le nombre de la page, pas de session (un seul essai)")
@@ -273,7 +273,7 @@ for i in range(main.LOGIN_TRIES + 2):
     fid = r.json()["adresse"].split("#autoriser=")[1]
     web_a.get(f"/api/pairing/flow/{fid}")
     web_a.post(f"/api/pairing/flow/{fid}/autoriser")
-    wrong = "10" if main._flows[fid]["verif"] != "10" else "11"
+    wrong = "100" if main._flows[fid]["verif"] != "100" else "101"
     phisher.post("/api/pairing/flow/poll", json={"sondage": r.json()["sondage"], "verification": wrong})
 assert codes[-1] == 429 and len(codes) <= main.LOGIN_TRIES + 1, codes
 print(f"8 octies. nombres faux recopiés : 429 après {len(codes) - 1} essais depuis la même adresse")
@@ -291,7 +291,7 @@ for i in range(main.LOGIN_TRIES + 2):
     fid = r.json()["adresse"].split("#autoriser=")[1]
     web_a.get(f"/api/pairing/flow/{fid}")
     web_a.post(f"/api/pairing/flow/{fid}/autoriser")
-    wrong = "10" if main._flows[fid]["verif"] != "10" else "11"
+    wrong = "100" if main._flows[fid]["verif"] != "100" else "101"
     bob_app.post("/api/pairing/flow/poll", json={"sondage": r.json()["sondage"], "verification": wrong})
 assert codes[-1] == 429, codes
 print("8 novies. connexions réussies entre deux nombres faux : le budget d'appairage n'est pas remis à zéro")

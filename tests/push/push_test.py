@@ -100,7 +100,11 @@ assert subscribe(app, "http://evil/x", p256dh, secret) == 422
 for internal in ("https://127.0.0.1/x", "https://launcher:9000/update/apply", "https://fcm.googleapis.com.evil.net/x",
                  "https://intranet.local/push"):
     assert subscribe(app, internal, p256dh, secret) == 400, internal
-assert push.PUSH_HOSTS.match("ntfy.sh") and not push.PUSH_HOSTS.match("ntfy.sh.evil.net")  # app Android (UnifiedPush)
+assert push.allowed_host("ntfy.sh") and not push.allowed_host("ntfy.sh.evil.net")  # app Android (UnifiedPush)
+assert not push.allowed_host("ntfy.exemple.org")
+os.environ["NOAH_PUSH_HOSTS"] = "ntfy.exemple.org"  # ntfy auto-hébergé, ajouté par l'administrateur
+assert push.allowed_host("ntfy.exemple.org") and not push.allowed_host("evil.exemple.org")
+del os.environ["NOAH_PUSH_HOSTS"]
 print("3. seuls les services de push des navigateurs sont acceptés (pas d'adresse interne : pas de SSRF)")
 
 assert subscribe(app, FCM + "vivant", p256dh, secret) == 200

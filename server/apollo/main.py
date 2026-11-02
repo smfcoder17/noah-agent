@@ -200,7 +200,7 @@ def _login_response(request: Request, response: Response, user_id: int, device: 
 # - App de bureau : elle demande une autorisation, ouvre le navigateur sur Noah, l'utilisateur clique « Autoriser cet
 #   appareil », l'app récupère sa session (Nextcloud Login Flow v2).
 # Aucun de ces chemins ne donne la session seul : l'appareil devient une demande acceptée sur un appareil de
-# confiance, et un nombre à 2 chiffres prouve que les deux bouts sont dans les mains de la même personne (RFC 8628
+# confiance, et un nombre à 3 chiffres prouve que les deux bouts sont dans les mains de la même personne (RFC 8628
 # § 5.4, « number matching »). QR et code court : le nouvel appareil affiche le nombre, l'utilisateur le recopie en
 # acceptant (un QR filmé pendant un partage d'écran ne suffit pas). Navigateur : la page d'accord affiche le nombre,
 # l'utilisateur le recopie dans l'app (un lien d'accord envoyé par un tiers ne lui sert à rien : il ne voit pas le nombre).
@@ -215,7 +215,7 @@ _SHORT = "BCDFGHJKLMNPQRSTVWXZ"  # base 20, sans voyelles (pas de mot gênant) n
 _pairing: dict[str, dict] = {}   # empreinte -> {user, expire}
 _pairing_lock = threading.Lock()  # usage unique même si deux appareils envoient le code au même instant
 _flows: dict[str, dict] = {}     # identifiant public -> {sondage (empreinte), appareil, type, expire, ip, version,
-#                                  verif (2 chiffres), sens (« accord » : recopié en acceptant, « app » : recopié
+#                                  verif (3 chiffres), sens (« accord » : recopié en acceptant, « app » : recopié
 #                                  dans l'app), proprietaire (seul ce compte peut accepter), user (accepté par),
 #                                  jeton (gardé 30 s après le premier sondage réussi, si la réponse s'est perdue)}
 SERVED_SECONDS = 30
@@ -267,7 +267,7 @@ def _drop_pending(user: int) -> None:
 def _new_flow(request: Request, appareil: str, kind: str, owner: int | None, default_kind: str,
               sens: str = "accord") -> tuple[str, str, str]:
     public, poll = secrets.token_urlsafe(16), secrets.token_urlsafe(32)
-    verif = f"{secrets.randbelow(90) + 10}"
+    verif = f"{secrets.randbelow(900) + 100}"  # 3 chiffres : 1 chance sur 900 de deviner
     _flows[public] = {"sondage": auth.digest(poll), "appareil": appareil.strip() or _device_name(request),
                       "type": kind if kind in PLATFORMS else default_kind, "expire": time.time() + FLOW_SECONDS,
                       "ip": _ip(request), "user": None, "proprietaire": owner, "verif": verif, "sens": sens,

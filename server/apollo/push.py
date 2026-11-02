@@ -37,6 +37,15 @@ RECORD = 4096  # taille d'enregistrement annoncée ; un message tient toujours d
 PUSH_HOSTS = re.compile(r"^(fcm\.googleapis\.com|android\.googleapis\.com|[a-z0-9.-]+\.push\.services\.mozilla\.com"
                         r"|[a-z0-9.-]+\.notify\.windows\.com|web\.push\.apple\.com|[a-z0-9.-]+\.push\.apple\.com"
                         r"|ntfy\.sh)$")  # + app Android par UnifiedPush : ntfy (Sunup passe par Mozilla, déjà là)
+
+
+def allowed_host(host: str) -> bool:
+    """Service de push connu, ou serveur UnifiedPush auto-hébergé que l'administrateur a ajouté lui-même
+    (NOAH_PUSH_HOSTS=ntfy.exemple.org,… dans la configuration du VPS)."""
+    extra = {h.strip().lower() for h in os.environ.get("NOAH_PUSH_HOSTS", "").split(",") if h.strip()}
+    return bool(PUSH_HOSTS.match(host)) or host.lower() in extra
+
+
 _key_lock = threading.Lock()
 TTL = 24 * 3600   # durée de vie d'un message chez le service de push
 LEASE = 300       # un envoi de la file réservé puis interrompu (arrêt du serveur) redevient dû après 5 minutes
@@ -241,7 +250,7 @@ async def send(title: str, text: str, url: str = "/", urgent: bool = False, user
                          + (" AND p.session = ?" if session is not None else ""),
                          tuple(v for v in (user_id, session) if v is not None)).fetchall()
         # Abonnements vers autre chose qu'un service de push de navigateur (enregistrés avant la liste) : supprimés.
-        stray = [r["endpoint"] for r in rows if not PUSH_HOSTS.match(urlsplit(r["endpoint"]).hostname or "")]
+        stray = [r["endpoint"] for r in rows if not allowed_host(urlsplit(r["endpoint"]).hostname or "")]
         if stray:
             c.executemany("DELETE FROM push_subscriptions WHERE endpoint = ?", [(e,) for e in stray])
             rows = [r for r in rows if r["endpoint"] not in stray]
@@ -292,7 +301,7 @@ def key(_: int = Depends(auth.current_user)):
 @router.post("/api/push/subscription")
 def subscribe(body: Subscription, request: Request, apollo_session: str | None = Cookie(None),
               _: int = Depends(auth.current_user)):
-    if not PUSH_HOSTS.match(urlsplit(body.endpoint).hostname or ""):
+    if not allowed_host(urlsplit(body.endpoint).hostname or ""):
         raise HTTPException(400, "Service de push inconnu (seuls ceux des navigateurs sont acceptés)")
     try:
         ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), _unb64(body.p256dh))

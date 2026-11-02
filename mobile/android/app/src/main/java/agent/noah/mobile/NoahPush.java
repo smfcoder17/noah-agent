@@ -88,14 +88,19 @@ public class NoahPush extends PushService {
     @Override
     public void onMessage(PushMessage message, String instance) {
         if (!message.getDecrypted()) return; // illisible : pas pour cet appareil
+        new Thread(() -> handle(message)).start(); // la vérification auprès du serveur passe par le réseau
+    }
+
+    private void handle(PushMessage message) {
         String title = "Noah", text = "Nouvelle notification.", url = "/";
         try {
             JSONObject data = new JSONObject(new String(message.getContent(), StandardCharsets.UTF_8));
             // Comme le service worker : le contenu ne s'affiche que s'il est destiné à la session de ce téléphone.
             // Identité de la session abonnée, effacée quand on se déconnecte dans l'interface : un message pour
             // l'ancien compte, arrivé après, ne montre rien.
-            String mine = new Pairing(this).pushTag();
-            if (mine != null && mine.equals(data.optString("pour"))) {
+            Pairing pairing = new Pairing(this);
+            String mine = pairing.pushTag();
+            if (mine != null && mine.equals(data.optString("pour")) && stillMine(pairing, mine)) {
                 title = data.optString("titre", title);
                 text = data.optString("texte", text);
                 url = data.optString("url", url);
@@ -118,13 +123,24 @@ public class NoahPush extends PushService {
         String server = pairing.server(), token = pairing.pushToken();
         pairing.clearPush();
         if (server == null || token == null) return;
-        new Thread(() -> {
-            try {
-                call("DELETE", server + "/api/push/subscription", token, null);
-            } catch (Exception ignored) {
-                // le serveur supprimera l'abonnement à son prochain 404/410
-            }
-        }).start();
+        pairing.queueUnsubscribe(server, token); // file chiffrée, rejouée jusqu'à ce que le serveur réponde
+        new Thread(pairing::revokeForgotten).start();
+    }
+
+    /**
+     * La session abonnée est-elle toujours valable sur le serveur ? Elle a pu être révoquée depuis un autre appareil
+     * pendant que le message attendait chez le distributeur. Serveur injoignable : dans le doute, contenu caché.
+     * (onMessage tourne hors du fil de l'interface : l'appel réseau y est permis.)
+     */
+    private static boolean stillMine(Pairing pairing, String mine) {
+        String server = pairing.server(), token = pairing.pushToken();
+        if (server == null || token == null) return false;
+        try {
+            return mine.equals(new JSONObject(call("GET", server + "/api/push/subscription", token, null)).optString("pour"));
+        } catch (Exception e) {
+            if (String.valueOf(e.getMessage()).equals("HTTP 401")) pairing.clearPush(); // révoquée : identité oubliée
+            return false;
+        }
     }
 
     /** Notifications visibles : permission donnée et canal « Noah » non coupé dans les réglages d'Android. */

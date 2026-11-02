@@ -101,7 +101,7 @@ export function DeviceApproval() {
             <label className="flex flex-col gap-1 text-sm">
               Nombre affiché sur l'appareil
               <input
-                inputMode="numeric" autoComplete="off" maxLength={2} value={code}
+                inputMode="numeric" autoComplete="off" maxLength={3} value={code}
                 onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
                 className="w-24 rounded-lg border border-border bg-background px-3 py-2 text-center font-mono text-lg tracking-widest"
               />
@@ -111,7 +111,7 @@ export function DeviceApproval() {
             <ErrorText>{error}</ErrorText>
             <div className="flex justify-end gap-2">
               <Button variant="ghost" onClick={() => decide("refuser")} disabled={state === "busy"}>Refuser</Button>
-              <Button onClick={() => decide("autoriser")} disabled={state === "busy" || (!req.verification && code.length !== 2)}>
+              <Button onClick={() => decide("autoriser")} disabled={state === "busy" || (!req.verification && code.length !== 3)}>
                 {state === "busy" && <Loader2 className="animate-spin" />}Autoriser cet appareil
               </Button>
             </div>

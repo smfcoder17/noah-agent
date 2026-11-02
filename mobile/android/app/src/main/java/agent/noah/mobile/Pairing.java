@@ -85,7 +85,8 @@ final class Pairing {
                     // JSON en mémoire, chiffrement par la clé du Keystore : rien à faire de plus si ça échoue
                 }
             }
-            prefs.edit().clear().putString("a_revoquer", queue.toString()).commit();
+            int ids = prefs.getInt("notif_id", 0); // gardé : un nouvel appairage ne remplace pas d'anciennes notifications
+            prefs.edit().clear().putString("a_revoquer", queue.toString()).putInt("notif_id", ids).commit();
         }
     }
 
@@ -102,10 +103,19 @@ final class Pairing {
 
     /** Session à révoquer plus tard (réseau absent) : rejoint la même file chiffrée que l'oubli du serveur. */
     void queueRevocation(String server, String token) {
+        queue(server, token, "/api/devices/self");
+    }
+
+    /** Abonnement aux notifications à supprimer sur le serveur (désinscrit par le distributeur), même file. */
+    void queueUnsubscribe(String server, String token) {
+        queue(server, token, "/api/push/subscription");
+    }
+
+    private void queue(String server, String token, String path) {
         synchronized (Pairing.class) {
             JSONArray queue = pending();
             try {
-                queue.put(new JSONObject().put("server", server).put("token", seal(token)));
+                queue.put(new JSONObject().put("server", server).put("token", seal(token)).put("chemin", path));
             } catch (Exception ignored) {
                 return;
             }
@@ -189,7 +199,7 @@ final class Pairing {
             if (token == null) continue; // clé du Keystore perdue : rien à envoyer
             int code;
             try {
-                HttpURLConnection http = (HttpURLConnection) new URL(item.optString("server") + "/api/devices/self").openConnection();
+                HttpURLConnection http = (HttpURLConnection) new URL(item.optString("server") + item.optString("chemin", "/api/devices/self")).openConnection();
                 http.setRequestMethod("DELETE");
                 http.setRequestProperty("Authorization", "Bearer " + token);
                 http.setConnectTimeout(10000);
