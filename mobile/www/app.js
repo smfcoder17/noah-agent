@@ -43,7 +43,7 @@ function parseLink(text) {
 let attempt = 0;
 
 async function revokeLate(server, token) {
-  await fetch(`${server}/api/devices/self`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
+  await shell.revokeLater({ server, token }); // file native chiffrée, rejouée jusqu'à réussir
 }
 
 async function claim(server, code) {

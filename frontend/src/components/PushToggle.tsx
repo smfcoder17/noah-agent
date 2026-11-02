@@ -12,12 +12,13 @@ function bytes(b64url: string) {
   return Uint8Array.from(raw, (c) => c.charCodeAt(0));
 }
 
-type AndroidPush = { distributeurs: number; inscrit: boolean };
+type AndroidPush = { distributeurs: number; inscrit: boolean; permission: boolean };
 
 /** App Android : les notifications passent par UnifiedPush (une app « distributeur » comme ntfy tient la connexion). */
 function AndroidPushStatus() {
   const native = window.Capacitor?.Plugins?.NoahShell;
   const [state, setState] = useState<AndroidPush | null>(null);
+  const [result, setResult] = useState("");
   const refresh = () => native?.pushStatus?.().then((s) => setState(s as AndroidPush)).catch(() => setState(null));
   useEffect(() => {
     refresh();
@@ -27,11 +28,24 @@ function AndroidPushStatus() {
     await native.pushSetup?.();
     setTimeout(refresh, 3000);
   };
+  const test = async () => {
+    setResult("");
+    const r = await send<{ livres: number }>("/api/push/test", {}).catch(() => ({ livres: 0 }));
+    setResult(r.livres ? "Message de test envoyé : il doit arriver dans quelques secondes." : "Le message de test n'est pas parti. Touche « Activer » de nouveau.");
+  };
   return (
     <div className="flex flex-col gap-1.5">
       <p className="text-xs font-semibold text-muted-foreground">Notifications sur ce téléphone</p>
-      {state.inscrit ? (
-        <p className="text-xs text-muted-foreground">Actives : Noah te prévient même quand l'app est fermée.</p>
+      {!state.permission ? (
+        <p className="text-xs text-muted-foreground">
+          Les notifications de Noah sont coupées dans les réglages d'Android (Applis → Noah → Notifications).
+        </p>
+      ) : state.inscrit ? (
+        <>
+          <p className="text-xs text-muted-foreground">Actives : Noah te prévient même quand l'app est fermée.</p>
+          <Button size="sm" variant="ghost" className="self-start" onClick={test}><Bell />Envoyer un test</Button>
+          {result && <p className="text-xs text-muted-foreground">{result}</p>}
+        </>
       ) : state.distributeurs === 0 ? (
         <>
           <p className="text-xs text-muted-foreground">

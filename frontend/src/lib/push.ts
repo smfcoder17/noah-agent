@@ -26,10 +26,18 @@ export async function forgetPushSession() {
     /* indisponible : seul cet onglet est protégé */
   }
   await caches.delete("noah-session").catch(() => {});
+  // App Android : ses notifications (UnifiedPush) oublient aussi la session.
+  await window.Capacitor?.Plugins?.NoahShell?.pushForget?.().catch(() => {});
 }
 
 /** Rend true si les notifications sont actives ici (et renvoie l'abonnement du navigateur au serveur au besoin). */
 export async function reconcilePush(): Promise<boolean> {
+  const android = window.Capacitor?.Plugins?.NoahShell;
+  if (android?.pushSetup) {
+    // App Android : inscription UnifiedPush pour la session ouverte dans la fenêtre (refaite à chaque ouverture).
+    await android.pushSetup().catch(() => {});
+    return true;
+  }
   if (!pushSupported()) return false;
   const started = epoch();
   const [r, sub] = await Promise.all([

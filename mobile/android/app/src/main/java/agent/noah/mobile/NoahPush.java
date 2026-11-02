@@ -37,8 +37,12 @@ public class NoahPush extends PushService {
 
     private static final String CHANNEL = "noah";
 
-    /** À chaque ouverture de l'app reliée (comme le recommande UnifiedPush) : distributeur choisi, inscription. */
+    /**
+     * À chaque ouverture de l'interface (comme le recommande UnifiedPush) : distributeur choisi, inscription pour la
+     * session ouverte dans la fenêtre. Le contenu des messages ne s'affichera que pour elle.
+     */
     static void start(Activity activity, String server, String token) {
+        new Pairing(activity).setPush(token, null); // identité confirmée quand le serveur a accepté l'abonnement
         if (Build.VERSION.SDK_INT >= 33
             && activity.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             activity.requestPermissions(new String[] { Manifest.permission.POST_NOTIFICATIONS }, 7);
@@ -59,21 +63,25 @@ public class NoahPush extends PushService {
 
     /** Serveur oublié : plus aucune notification (le serveur supprime aussi l'abonnement avec la session). */
     static void stop(Context context) {
+        new Pairing(context).clearPush();
         UnifiedPush.unregister(context, ConstantsKt.INSTANCE_DEFAULT);
     }
 
     @Override
     public void onNewEndpoint(PushEndpoint endpoint, String instance) {
         Pairing pairing = new Pairing(this);
-        String server = pairing.server(), token = pairing.token();
+        String server = pairing.server(), token = pairing.pushToken();
         if (server == null || token == null || endpoint.getPubKeySet() == null) return;
         new Thread(() -> {
             try {
                 JSONObject body = new JSONObject().put("endpoint", endpoint.getUrl())
                     .put("p256dh", endpoint.getPubKeySet().getPubKey()).put("auth", endpoint.getPubKeySet().getAuth());
                 call("POST", server + "/api/push/subscription", token, body.toString());
+                synchronized (Pairing.class) {
+                    if (token.equals(pairing.pushToken())) pairing.setPush(token, tag(token)); // pas déconnecté entre-temps
+                }
             } catch (Exception ignored) {
-                // l'inscription est refaite à chaque ouverture de l'app
+                // l'inscription est refaite à chaque ouverture de l'app ; sans elle, l'interface ne dit pas « actives »
             }
         }).start();
     }
@@ -85,8 +93,10 @@ public class NoahPush extends PushService {
         try {
             JSONObject data = new JSONObject(new String(message.getContent(), StandardCharsets.UTF_8));
             // Comme le service worker : le contenu ne s'affiche que s'il est destiné à la session de ce téléphone.
-            String token = new Pairing(this).token();
-            if (token != null && tag(token).equals(data.optString("pour"))) {
+            // Identité de la session abonnée, effacée quand on se déconnecte dans l'interface : un message pour
+            // l'ancien compte, arrivé après, ne montre rien.
+            String mine = new Pairing(this).pushTag();
+            if (mine != null && mine.equals(data.optString("pour"))) {
                 title = data.optString("titre", title);
                 text = data.optString("texte", text);
                 url = data.optString("url", url);
@@ -110,12 +120,14 @@ public class NoahPush extends PushService {
         if (manager == null) return;
         manager.createNotificationChannel(new NotificationChannel(CHANNEL, "Noah", NotificationManager.IMPORTANCE_HIGH));
         Intent open = new Intent(this, MainActivity.class).putExtra("url", url).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        PendingIntent tap = PendingIntent.getActivity(this, 0, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        int id = (int) (System.currentTimeMillis() & 0xfffffff);
+        // Un code par notification : sinon toucher une ancienne ouvrirait la page de la dernière reçue.
+        PendingIntent tap = PendingIntent.getActivity(this, id, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         NotificationCompat.Builder n = new NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.mipmap.ic_launcher).setContentTitle(title).setContentText(text)
             .setStyle(new NotificationCompat.BigTextStyle().bigText(text)).setContentIntent(tap).setAutoCancel(true);
         try {
-            NotificationManagerCompat.from(this).notify((int) (System.currentTimeMillis() & 0xfffffff), n.build());
+            NotificationManagerCompat.from(this).notify(id, n.build());
         } catch (SecurityException ignored) {
             // permission de notifier refusée par l'utilisateur
         }

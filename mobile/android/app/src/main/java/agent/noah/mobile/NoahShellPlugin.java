@@ -43,23 +43,16 @@ public class NoahShellPlugin extends Plugin {
         getActivity().runOnUiThread(() -> getActivity().recreate());
     }
 
-    /** Session réellement utilisée par la fenêtre (cookie apollo_session), ou null. */
-    private static String windowToken(String server) {
-        String all = server == null ? null : CookieManager.getInstance().getCookie(server);
-        if (all == null) return null;
-        for (String part : all.split(";")) {
-            String p = part.trim();
-            if (p.startsWith("apollo_session=")) return p.substring("apollo_session=".length());
-        }
-        return null;
-    }
 
     /** Notifications : un distributeur UnifiedPush est-il installé, et l'app est-elle inscrite chez lui ? */
     @PluginMethod
     public void pushStatus(PluginCall call) {
         JSObject out = new JSObject();
         out.put("distributeurs", org.unifiedpush.android.connector.UnifiedPush.getDistributors(getContext()).size());
-        out.put("inscrit", org.unifiedpush.android.connector.UnifiedPush.getAckDistributor(getContext()) != null);
+        // « Inscrit » : distributeur d'accord ET abonnement accepté par le serveur pour la session ouverte.
+        out.put("inscrit", org.unifiedpush.android.connector.UnifiedPush.getAckDistributor(getContext()) != null
+            && new Pairing(getContext()).pushTag() != null);
+        out.put("permission", androidx.core.app.NotificationManagerCompat.from(getContext()).areNotificationsEnabled());
         call.resolve(out);
     }
 
@@ -67,15 +60,34 @@ public class NoahShellPlugin extends Plugin {
     @PluginMethod
     public void pushSetup(PluginCall call) {
         Pairing pairing = new Pairing(getContext());
-        String server = pairing.server(), token = pairing.token();
+        String server = pairing.server(), token = Pairing.windowToken(server);
         if (server != null && token != null) NoahPush.start(getActivity(), server, token);
+        call.resolve();
+    }
+
+    /** Déconnexion dans l'interface (ou session refusée) : plus aucun contenu de notification affiché ici. */
+    @PluginMethod
+    public void pushForget(PluginCall call) {
+        NoahPush.stop(getContext());
+        call.resolve();
+    }
+
+    /** Session reçue trop tard (demande remplacée) : révoquée, et gardée en file si le serveur ne répond pas. */
+    @PluginMethod
+    public void revokeLater(PluginCall call) {
+        String server = call.getString("server"), token = call.getString("token");
+        if (server != null && token != null) {
+            Pairing pairing = new Pairing(getContext());
+            pairing.queueRevocation(server, token);
+            new Thread(pairing::revokeForgotten).start();
+        }
         call.resolve();
     }
 
     @PluginMethod
     public void forget(PluginCall call) {
         Pairing pairing = new Pairing(getContext());
-        pairing.forget(windowToken(pairing.server()));
+        pairing.forget(Pairing.windowToken(pairing.server()));
         NoahPush.stop(getContext());
         new Thread(pairing::revokeForgotten).start();
         CookieManager.getInstance().removeAllCookies(null);

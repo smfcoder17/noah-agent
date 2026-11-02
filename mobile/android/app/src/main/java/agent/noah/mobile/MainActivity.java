@@ -81,7 +81,6 @@ public class MainActivity extends BridgeActivity {
         cookies.flush();
         bridge.getWebView().stopLoading();
         bridge.getWebView().loadUrl(server + page(getIntent()));
-        NoahPush.start(this, server, token);
     }
 
     /** Ouverte depuis une notification : la page qu'elle désigne, sur ce serveur seulement (chemin relatif). */

@@ -283,6 +283,7 @@ async function revokeOrQueue(server, token) {
 
 /** Sessions à révoquer qu'on ne peut pas chiffrer (trousseau perdu) : rejouées tant que l'app tourne. */
 const unsealedRevocations = [];
+let lastTry = false; // dernier envoi tenté à la fermeture de l'app
 
 /** Révocations qui n'ont pas pu partir (serveur injoignable) : gardées chiffrées, rejouées jusqu'à réussir. */
 let flushing = false;
@@ -488,6 +489,13 @@ if (!app.requestSingleInstanceLock()) {
     // Demandes de l'agent (ouvrir, notifier, lancer, commande), confirmées par l'utilisateur.
     actions.listen(() => origin);
   });
-  app.on("before-quit", () => { quitting = true; });
+  app.on("before-quit", (e) => {
+    quitting = true;
+    // Sessions à révoquer gardées en mémoire (trousseau absent) : dernier essai avant de les perdre, 10 s au plus.
+    if (!unsealedRevocations.length || lastTry) return;
+    e.preventDefault();
+    lastTry = true;
+    Promise.race([flushOnce(), new Promise((ok) => setTimeout(ok, 10000))]).catch(() => {}).finally(() => app.quit());
+  });
   app.on("window-all-closed", () => {}); // reste dans la zone de notification
 }

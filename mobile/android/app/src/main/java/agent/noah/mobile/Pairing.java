@@ -89,6 +89,52 @@ final class Pairing {
         }
     }
 
+    /** Session réellement utilisée par la fenêtre (cookie apollo_session), ou null. */
+    static String windowToken(String server) {
+        String all = server == null ? null : android.webkit.CookieManager.getInstance().getCookie(server);
+        if (all == null) return null;
+        for (String part : all.split(";")) {
+            String p = part.trim();
+            if (p.startsWith("apollo_session=")) return p.substring("apollo_session=".length());
+        }
+        return null;
+    }
+
+    /** Session à révoquer plus tard (réseau absent) : rejoint la même file chiffrée que l'oubli du serveur. */
+    void queueRevocation(String server, String token) {
+        synchronized (Pairing.class) {
+            JSONArray queue = pending();
+            try {
+                queue.put(new JSONObject().put("server", server).put("token", seal(token)));
+            } catch (Exception ignored) {
+                return;
+            }
+            prefs.edit().putString("a_revoquer", queue.toString()).commit();
+        }
+    }
+
+    // Notifications : la session abonnée (chiffrée, pour réinscrire l'appareil en arrière-plan) et son identité courte,
+    // la seule dont le téléphone affiche le contenu. Effacées à la déconnexion dans l'interface.
+    void setPush(String token, String tag) {
+        try {
+            prefs.edit().putString("push_token", seal(token)).putString("push_tag", tag).commit();
+        } catch (Exception ignored) {
+            // Keystore indisponible : pas de notifications avec contenu
+        }
+    }
+
+    String pushToken() {
+        return open(prefs.getString("push_token", null));
+    }
+
+    String pushTag() {
+        return prefs.getString("push_tag", null);
+    }
+
+    void clearPush() {
+        prefs.edit().remove("push_token").remove("push_tag").commit();
+    }
+
     private JSONArray pending() {
         try {
             return new JSONArray(prefs.getString("a_revoquer", "[]"));
