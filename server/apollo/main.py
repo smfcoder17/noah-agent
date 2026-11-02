@@ -186,11 +186,21 @@ def _config_rev(agent_id: str) -> str:
     return f"{agent_id}:" + hashlib.sha256(raw.encode()).hexdigest()
 
 
+async def _configure(agent_id: str, soul: str | None = None) -> None:
+    """Applique à l'agent sa configuration effective, et note laquelle il a vraiment reçue : la base peut dire M2
+    alors que l'agent, faute d'avoir été reconfiguré (lanceur indisponible), tourne encore sur M1."""
+    rev = _config_rev(agent_id)
+    await hermes.configure(agent_id, model_for(agent_id), soul)
+    db.set_setting(f"applied:{agent_id}", rev)
+
+
 def _model_replied(final: dict | None, text: str, rev: str) -> None:
     """Preuve de l'essai de l'assistant : une exécution terminée (« completed ») avec du texte du modèle, rattachée à
     la configuration en service au départ de l'exécution. Une erreur, un texte partiel ou un message système n'en sont
     pas."""
-    if final and final.get("status") == "completed" and text.strip() and db.get_setting("onboarded") == "0":
+    agent_id = rev.split(":", 1)[0]
+    if final and final.get("status") == "completed" and text.strip() and db.get_setting("onboarded") == "0" \
+            and db.get_setting(f"applied:{agent_id}") == rev:  # l'agent tournait bien sur cette configuration
         db.set_setting("model_replied", rev)
 
 
@@ -815,7 +825,7 @@ async def set_model(body: ModelChoice, user: int = Depends(auth.current_user)):
         if not agents:
             await _start_agent("Noah", "Tu es l'assistant personnel de l'utilisateur. Réponds en français, de façon brève et concrète.")
     if agents:
-        await asyncio.gather(*(hermes.configure(a["id"], model_for(a["id"])) for a in agents), return_exceptions=True)
+        await asyncio.gather(*(_configure(a["id"]) for a in agents), return_exceptions=True)
     return {"ok": True}
 
 
@@ -1000,7 +1010,7 @@ async def _provision(agent: Agent, soul: str) -> None:
         provisioning[agent.id] = "Démarrage du navigateur…"
         await hermes.ensure_browser(agent.id)
         provisioning[agent.id] = "Configuration du modèle…"
-        await hermes.configure(agent.id, model_for(agent.id), soul)
+        await _configure(agent.id, soul)
         await asyncio.sleep(3)
         if await _wait_online(agent):
             provisioning.pop(agent.id, None)
@@ -1097,7 +1107,7 @@ async def agent_model(agent_id: str, body: AgentModel, user: int = Depends(auth.
     else:
         with db.connect() as c:
             c.execute("DELETE FROM settings WHERE key = ?", (f"model_{agent_id}",))
-    await hermes.configure(agent.id, model_for(agent.id))
+    await _configure(agent.id)
     return {"model": db.get_setting(f"model_{agent_id}")}
 
 

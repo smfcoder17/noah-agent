@@ -314,6 +314,10 @@ function TrialStep({ agentId, onModel, onDone }: { agentId: string | null; onMod
           );
         } finally {
           clearTimeout(timer);
+          // Flux coupé, étape quittée ou erreur avant la fin : l'exécution continuerait côté serveur, on l'arrête.
+          // (À l'échéance, le minuteur l'a déjà demandé.)
+          if (runId && status !== "completed" && stop.signal.reason !== "délai")
+            send(`/api/agents/${a.id}/runs/${runId}/stop`, {}).catch(() => {});
         }
         if (stop.signal.reason === "délai") throw new Error("Le modèle n'a pas répondu en trois minutes.");
         if (stop.signal.aborted) return;
