@@ -358,5 +358,13 @@ with db.connect() as c:
               ((old + timedelta(days=10)).isoformat(), (old - timedelta(hours=1)).isoformat(), auth.digest(bearer)))
 r = TestClient(main.app, headers={"Authorization": f"Bearer {bearer}"}).get("/api/devices")
 assert r.status_code == 200 and "set-cookie" not in r.headers, "cookie posé pour une app (Bearer)"
-print("13. cookie du navigateur renouvelé avec la session ; jamais de cookie pour une app (Bearer)")
+phone = auth.new_session(alice, "Pixel", "android")  # fenêtre de l'app Android : cookie de session, sans expiration
+with db.connect() as c:
+    c.execute("UPDATE sessions SET expires_at = ?, last_seen = ? WHERE token = ?",
+              ((old + timedelta(days=10)).isoformat(), (old - timedelta(hours=1)).isoformat(), auth.digest(phone)))
+window = TestClient(main.app)
+window.cookies.set(auth.COOKIE, phone)
+r = window.get("/api/devices")
+assert r.status_code == 200 and "set-cookie" not in r.headers, "cookie de l'app Android rendu persistant"
+print("13. cookie du navigateur renouvelé avec la session ; jamais pour une app (Bearer, ou cookie de la fenêtre Android)")
 print("appairage : tout est vert")

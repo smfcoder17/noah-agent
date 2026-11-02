@@ -101,7 +101,7 @@ def current_user(request: Request, apollo_session: str | None = Cookie(None), re
     key = digest(token)
     with db.connect() as c:
         row = c.execute(
-            "SELECT user_id, expires_at, last_seen FROM sessions WHERE token = ?", (key,)
+            "SELECT user_id, expires_at, last_seen, platform FROM sessions WHERE token = ?", (key,)
         ).fetchone()
         now = datetime.now(timezone.utc)
         if not row or datetime.fromisoformat(row["expires_at"]) < now:
@@ -112,8 +112,9 @@ def current_user(request: Request, apollo_session: str | None = Cookie(None), re
             if expires - now < timedelta(days=SESSION_DAYS) - RENEW_AFTER:
                 expires = now + timedelta(days=SESSION_DAYS)
                 # Le cookie du navigateur suit la session : sans ça, il expirerait au bout de 30 jours d'usage quotidien
-                # alors que la session, elle, est prolongée.
-                if response is not None and token == apollo_session:
+                # alors que la session, elle, est prolongée. Pas celui des apps (fenêtre Android, bureau) : leur cookie
+                # reste sans expiration, jamais écrit sur le disque ; la session y est gardée chiffrée par l'app.
+                if response is not None and token == apollo_session and row["platform"] == "web":
                     response.set_cookie(COOKIE, token, httponly=True, samesite="lax", max_age=SESSION_DAYS * 86400,
                                         secure=request.url.scheme == "https")
             ip = request.client.host if request.client else ""

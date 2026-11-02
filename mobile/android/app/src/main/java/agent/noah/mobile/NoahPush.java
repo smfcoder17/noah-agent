@@ -42,7 +42,7 @@ public class NoahPush extends PushService {
      * session ouverte dans la fenêtre. Le contenu des messages ne s'affichera que pour elle.
      */
     static void start(Activity activity, String server, String token) {
-        new Pairing(activity).setPush(token, null); // identité confirmée quand le serveur a accepté l'abonnement
+        new Pairing(activity).startPush(token); // identité confirmée quand le serveur a accepté l'abonnement
         if (Build.VERSION.SDK_INT >= 33
             && activity.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             activity.requestPermissions(new String[] { Manifest.permission.POST_NOTIFICATIONS }, 7);
@@ -71,15 +71,14 @@ public class NoahPush extends PushService {
     public void onNewEndpoint(PushEndpoint endpoint, String instance) {
         Pairing pairing = new Pairing(this);
         String server = pairing.server(), token = pairing.pushToken();
+        long gen = pairing.pushGeneration();
         if (server == null || token == null || endpoint.getPubKeySet() == null) return;
         new Thread(() -> {
             try {
                 JSONObject body = new JSONObject().put("endpoint", endpoint.getUrl())
                     .put("p256dh", endpoint.getPubKeySet().getPubKey()).put("auth", endpoint.getPubKeySet().getAuth());
                 call("POST", server + "/api/push/subscription", token, body.toString());
-                synchronized (Pairing.class) {
-                    if (token.equals(pairing.pushToken())) pairing.setPush(token, tag(token)); // pas déconnecté entre-temps
-                }
+                pairing.confirmPush(gen, token); // sans effet si on s'est déconnecté entre-temps
             } catch (Exception ignored) {
                 // l'inscription est refaite à chaque ouverture de l'app ; sans elle, l'interface ne dit pas « actives »
             }
@@ -112,15 +111,36 @@ public class NoahPush extends PushService {
     @Override
     public void onRegistrationFailed(FailedReason reason, String instance) {}
 
+    /** Le distributeur a désinscrit l'app (désinstallé, réglage) : abonnement supprimé ici et sur le serveur. */
     @Override
-    public void onUnregistered(String instance) {}
+    public void onUnregistered(String instance) {
+        Pairing pairing = new Pairing(this);
+        String server = pairing.server(), token = pairing.pushToken();
+        pairing.clearPush();
+        if (server == null || token == null) return;
+        new Thread(() -> {
+            try {
+                call("DELETE", server + "/api/push/subscription", token, null);
+            } catch (Exception ignored) {
+                // le serveur supprimera l'abonnement à son prochain 404/410
+            }
+        }).start();
+    }
+
+    /** Notifications visibles : permission donnée et canal « Noah » non coupé dans les réglages d'Android. */
+    static boolean visible(Context context) {
+        if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return false;
+        NotificationManager manager = context.getSystemService(NotificationManager.class);
+        NotificationChannel channel = manager == null ? null : manager.getNotificationChannel(CHANNEL);
+        return channel == null || channel.getImportance() != NotificationManager.IMPORTANCE_NONE;
+    }
 
     private void show(String title, String text, String url) {
         NotificationManager manager = getSystemService(NotificationManager.class);
         if (manager == null) return;
         manager.createNotificationChannel(new NotificationChannel(CHANNEL, "Noah", NotificationManager.IMPORTANCE_HIGH));
         Intent open = new Intent(this, MainActivity.class).putExtra("url", url).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        int id = (int) (System.currentTimeMillis() & 0xfffffff);
+        int id = new Pairing(this).nextNotificationId();
         // Un code par notification : sinon toucher une ancienne ouvrirait la page de la dernière reçue.
         PendingIntent tap = PendingIntent.getActivity(this, id, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         NotificationCompat.Builder n = new NotificationCompat.Builder(this, CHANNEL)

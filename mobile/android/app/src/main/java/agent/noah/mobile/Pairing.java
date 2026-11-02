@@ -115,12 +115,31 @@ final class Pairing {
 
     // Notifications : la session abonnée (chiffrée, pour réinscrire l'appareil en arrière-plan) et son identité courte,
     // la seule dont le téléphone affiche le contenu. Effacées à la déconnexion dans l'interface.
-    void setPush(String token, String tag) {
-        try {
-            prefs.edit().putString("push_token", seal(token)).putString("push_tag", tag).commit();
-        } catch (Exception ignored) {
-            // Keystore indisponible : pas de notifications avec contenu
+    // Chaque changement (nouvelle inscription, déconnexion) avance une génération : une confirmation commencée avant ne
+    // rétablit jamais une identité effacée entre-temps.
+    long startPush(String token) {
+        synchronized (Pairing.class) {
+            long gen = prefs.getLong("push_gen", 0) + 1;
+            try {
+                prefs.edit().putString("push_token", seal(token)).remove("push_tag").putLong("push_gen", gen).commit();
+            } catch (Exception ignored) {
+                // Keystore indisponible : pas de notifications avec contenu
+            }
+            return gen;
         }
+    }
+
+    /** Le serveur a accepté l'abonnement : identité posée seulement si rien n'a changé depuis l'envoi. */
+    void confirmPush(long gen, String token) throws Exception {
+        synchronized (Pairing.class) {
+            if (gen == prefs.getLong("push_gen", 0) && token.equals(pushToken())) {
+                prefs.edit().putString("push_tag", NoahPush.tag(token)).commit();
+            }
+        }
+    }
+
+    long pushGeneration() {
+        return prefs.getLong("push_gen", 0);
     }
 
     String pushToken() {
@@ -132,7 +151,18 @@ final class Pairing {
     }
 
     void clearPush() {
-        prefs.edit().remove("push_token").remove("push_tag").commit();
+        synchronized (Pairing.class) {
+            prefs.edit().remove("push_token").remove("push_tag").putLong("push_gen", pushGeneration() + 1).commit();
+        }
+    }
+
+    /** Identifiant unique de notification (compteur gardé : ni collision dans la même milliseconde, ni répétition). */
+    int nextNotificationId() {
+        synchronized (Pairing.class) {
+            int id = (prefs.getInt("notif_id", 0) + 1) & 0x7fffffff;
+            prefs.edit().putInt("notif_id", id).commit();
+            return id;
+        }
     }
 
     private JSONArray pending() {

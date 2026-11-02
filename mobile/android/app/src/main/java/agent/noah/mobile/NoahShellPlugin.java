@@ -52,7 +52,7 @@ public class NoahShellPlugin extends Plugin {
         // « Inscrit » : distributeur d'accord ET abonnement accepté par le serveur pour la session ouverte.
         out.put("inscrit", org.unifiedpush.android.connector.UnifiedPush.getAckDistributor(getContext()) != null
             && new Pairing(getContext()).pushTag() != null);
-        out.put("permission", androidx.core.app.NotificationManagerCompat.from(getContext()).areNotificationsEnabled());
+        out.put("permission", NoahPush.visible(getContext()));
         call.resolve(out);
     }
 
