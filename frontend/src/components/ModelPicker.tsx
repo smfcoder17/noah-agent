@@ -74,6 +74,7 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<{ id: string; name: string } | null>(null);
   const [budget, setBudget] = useState("");
+  const [daily, setDaily] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [mode, setMode] = useState<"tier" | "precise">("tier");
@@ -92,6 +93,7 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
       setCurrent(c);
       setUsage(u);
       setBudget(u?.budget != null ? String(u.budget) : "");
+      setDaily(u?.daily != null ? String(u.daily) : "");
       setProvider(p.find((x) => x.id === c?.provider) || p[0]);
       if (c) setPicked({ id: c.model, name: c.model });
     })().catch((e) => setError(e.message));
@@ -132,7 +134,7 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
     setSaving(true);
     setError("");
     try {
-      await send("/api/budget", { monthly: budget === "" ? null : Number(budget) });
+      await send("/api/budget", { monthly: budget === "" ? null : Number(budget), daily: daily === "" ? null : Number(daily) });
       await send("/api/model", { provider: provider.id, api_key: apiKey || null, model: picked.id });
       onDone();
     } catch (e) {
@@ -306,7 +308,7 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
 
       {/* 3. Budget : une règle ferme */}
       <fieldset className="flex flex-col gap-2 rounded-2xl border border-border p-4">
-        <legend className="px-1.5 text-sm font-semibold">Budget mensuel</legend>
+        <legend className="px-1.5 text-sm font-semibold">Budget</legend>
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <label className="flex items-center gap-2">
             Plafond
@@ -315,7 +317,17 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
           </label>
           {usage && <span className="text-muted-foreground">Dépensé ce mois-ci : <span className="font-mono text-foreground">{money(usage.month_cost)} $</span></span>}
         </div>
-        <p className="text-xs text-muted-foreground">Au plafond, les agents s'arrêtent et te demandent. Rien n'est dépensé au-delà.</p>
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <label className="flex items-center gap-2">
+            Par agent
+            <Input type="number" min={0} step={0.5} placeholder="Illimité" className="w-28" value={daily} onChange={(e) => setDaily(e.target.value)} />
+            $ par jour
+          </label>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Au plafond, les agents s'arrêtent et te demandent. Rien n'est dépensé au-delà. Pour le plafond du jour, tu es
+          prévenu sur ton téléphone à 80 %, puis quand l'agent s'arrête ; il reprend le lendemain.
+        </p>
       </fieldset>
 
       <ErrorText>{error}</ErrorText>

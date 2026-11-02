@@ -112,7 +112,13 @@ export type AgentUsage = {
   prompt_tokens: number;
   cached_tokens: number;
 };
-export type Usage = { month_cost: number; budget: number | null; agents: AgentUsage[] };
+export type Usage = {
+  month_cost: number;
+  budget: number | null;
+  agents: AgentUsage[];
+  daily?: number | null; // plafond par agent et par jour
+  today?: Record<string, { depense: number; plafond: number | null }>;
+};
 export type WorkspaceFile = { path: string; size: number; modified: number };
 
 // Événements du chat, déjà traduits par le serveur.

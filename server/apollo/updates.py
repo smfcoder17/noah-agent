@@ -107,6 +107,11 @@ def _zone(state: dict) -> ZoneInfo:
     return ZoneInfo("UTC")
 
 
+def local_zone() -> ZoneInfo:
+    """Fuseau de l'utilisateur (vu par ses apps), pour ce qui se compte « par jour » chez lui."""
+    return _zone(_load())
+
+
 def saw_client(timezone: str | None) -> None:
     """Fuseau envoyé par l'application d'un utilisateur connecté (en-tête X-Noah-Timezone) : le créneau calme suit
     l'utilisateur, pas le VPS."""

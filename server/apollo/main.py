@@ -644,16 +644,37 @@ def usage(user: int = Depends(auth.current_user)):
             "FROM usage u LEFT JOIN agents a ON a.id = u.agent_id "
             "WHERE u.created_at >= strftime('%Y-%m-01', 'now') GROUP BY u.agent_id ORDER BY cost DESC"
         ).fetchall()
-    return {"month_cost": relay.month_cost(), "budget": relay.budget(), "agents": [dict(r) for r in rows]}
+    with db.connect() as c:
+        ids = [r["id"] for r in c.execute("SELECT id FROM agents")]
+    today = {i: {"depense": round(relay.day_cost(i), 4), "plafond": relay.daily_cap(i)} for i in ids}
+    daily = db.get_setting("budget_daily")
+    return {"month_cost": relay.month_cost(), "budget": relay.budget(), "agents": [dict(r) for r in rows],
+            "daily": float(daily) if daily else None, "today": today}
 
 
 class Budget(BaseModel):
     monthly: float | None = Field(default=None, ge=0, le=100000)
+    daily: float | None = Field(default=None, ge=0, le=100000)  # par agent et par jour (fuseau de l'utilisateur)
 
 
 @app.post("/api/budget")
 def set_budget(body: Budget, user: int = Depends(auth.current_user)):
     db.set_setting("budget_monthly", "" if body.monthly is None else str(body.monthly))
+    if "daily" in body.model_fields_set:
+        db.set_setting("budget_daily", "" if body.daily is None else str(body.daily))
+    return {"ok": True}
+
+
+class AgentCap(BaseModel):
+    daily: float | None = Field(default=None, ge=0, le=100000)  # None : le plafond de tous les agents s'applique
+
+
+@app.put("/api/agents/{agent_id}/plafond")
+def set_agent_cap(agent_id: str, body: AgentCap, user: int = Depends(auth.current_user)):
+    with db.connect() as c:
+        if not c.execute("SELECT 1 FROM agents WHERE id = ?", (agent_id,)).fetchone():
+            raise HTTPException(404, "Agent introuvable")
+    db.set_setting(f"budget_daily:{agent_id}", "" if body.daily is None else str(body.daily))
     return {"ok": True}
 
 

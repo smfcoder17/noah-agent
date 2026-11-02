@@ -1,12 +1,14 @@
 """Relais de modèle : les agents appellent le serveur, jamais le fournisseur directement.
 
 - La clé du fournisseur reste chiffrée dans le serveur ; chaque agent n'a qu'un jeton de relais.
-- Chaque appel est mesuré (jetons, coût) et refusé quand le budget mensuel est atteint.
+- Chaque appel est mesuré (jetons, coût) et refusé quand le budget mensuel est atteint, ou le plafond du jour de
+  l'agent : prévenu sur le téléphone à 80 %, arrêté à 100 % (les plaintes de coûts OpenClaw en contre-exemple).
 - Tous les fournisseurs passent par leur point d'accès compatible OpenAI.
 """
 import hashlib
 import hmac
 import json
+from datetime import datetime, time as dtime, timezone
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
@@ -69,6 +71,58 @@ def budget() -> float | None:
     return float(value) if value else None
 
 
+def daily_cap(agent_id: str) -> float | None:
+    """Plafond du jour de cet agent : le sien s'il en a un, sinon celui de tous les agents. None : pas de plafond."""
+    value = db.get_setting(f"budget_daily:{agent_id}") or db.get_setting("budget_daily")
+    return float(value) if value else None
+
+
+def _day_start() -> str:
+    """Minuit chez l'utilisateur, en UTC au format de created_at (CURRENT_TIMESTAMP de SQLite)."""
+    from . import updates
+    zone = updates.local_zone()
+    midnight = datetime.combine(datetime.now(zone).date(), dtime(0), zone)
+    return midnight.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def day_cost(agent_id: str) -> float:
+    with db.connect() as c:
+        row = c.execute("SELECT COALESCE(SUM(cost), 0) AS total FROM usage WHERE agent_id = ? AND created_at >= ?",
+                        (agent_id, _day_start())).fetchone()
+    return float(row["total"])
+
+
+def _agent_name(agent_id: str) -> str:
+    with db.connect() as c:
+        row = c.execute("SELECT name FROM agents WHERE id = ?", (agent_id,)).fetchone()
+    return row["name"] if row else agent_id
+
+
+def _warn_once(agent_id: str, level: str, title: str, text: str) -> None:
+    """Une alerte par niveau (80 %, 100 %) et par jour, sur le téléphone et les navigateurs abonnés."""
+    from . import push
+    key, today = f"budget_alert:{agent_id}:{level}", _day_start()
+    if db.get_setting(key) == today:
+        return
+    db.set_setting(key, today)
+    push.notify(title, text, url="/", urgent=level == "100")
+
+
+def _check_daily(agent_id: str) -> None:
+    """Après chaque appel mesuré : prévient avant le dépassement (80 %), puis quand le plafond est atteint."""
+    cap = daily_cap(agent_id)
+    if cap is None:
+        return
+    spent = day_cost(agent_id)
+    name = _agent_name(agent_id)
+    if spent >= cap:
+        _warn_once(agent_id, "100", f"{name} s'est arrêté",
+                   f"Plafond du jour atteint ({spent:.2f} $ sur {cap:.2f} $). Il reprend demain, ou augmente le plafond.")
+    elif spent >= 0.8 * cap:
+        _warn_once(agent_id, "80", f"{name} approche de son plafond",
+                   f"{spent:.2f} $ dépensés aujourd'hui sur {cap:.2f} $. Au plafond, il s'arrête jusqu'à demain.")
+
+
 async def _record(agent_id: str, model: str, usage: dict | None) -> None:
     if not usage:
         return
@@ -86,6 +140,7 @@ async def _record(agent_id: str, model: str, usage: dict | None) -> None:
             "VALUES (?, ?, ?, ?, ?, ?)",
             (agent_id, model, prompt, completion, float(cost or 0), cached),
         )
+    _check_daily(agent_id)
 
 
 def _upstream_headers(provider: str, api_key: str | None) -> dict:
@@ -118,6 +173,15 @@ async def relay(path: str, request: Request):
         return JSONResponse(
             {"error": {"message": f"Budget mensuel de {limit:.2f} $ atteint. Augmente-le dans Noah Agent pour continuer.",
                        "type": "budget_exceeded", "code": 402}},
+            status_code=402,
+        )
+
+    cap = daily_cap(agent_id)
+    if cap is not None and day_cost(agent_id) >= cap:
+        _check_daily(agent_id)  # l'alerte « arrêté » part même si le dernier appel l'avait déjà franchi
+        return JSONResponse(
+            {"error": {"message": f"Plafond du jour de {cap:.2f} $ atteint pour cet agent. Il reprend demain, ou "
+                                  "augmente le plafond dans Noah Agent.", "type": "budget_exceeded", "code": 402}},
             status_code=402,
         )
 
