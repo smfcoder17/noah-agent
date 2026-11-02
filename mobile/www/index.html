@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Noah</title>
+<style>
+  :root { --bg: #faf8f5; --fg: #3a3530; --muted: #7a7168; --line: #ddd4c9; --card: #fff; --accent: #c2410c; --danger: #b91c1c; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #1c1a18; --fg: #e8e2da; --muted: #a39a90; --line: #3a3530; --card: #24211e; --accent: #fb923c; --danger: #f87171; } }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, sans-serif; }
+  main { padding: calc(env(safe-area-inset-top) + 40px) 20px 32px; max-width: 460px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+  img { width: 56px; height: 56px; }
+  h1 { margin: 0; font-size: 24px; } p { margin: 0; color: var(--muted); }
+  button { font: inherit; padding: 14px 18px; border-radius: 14px; border: 0; cursor: pointer; }
+  .main { background: var(--accent); color: #fff; font-weight: 600; }
+  .ghost { background: transparent; color: inherit; border: 1px solid var(--line); }
+  label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 600; }
+  input { font: inherit; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: inherit; }
+  #manual { display: none; flex-direction: column; gap: 12px; }
+  #error { color: var(--danger); font-size: 14px; min-height: 1.2em; }
+  .small { font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <img src="icon.png" alt="" />
+  <h1>Relier Noah</h1>
+  <p>Sur ton ordinateur, ouvre Noah puis Réglages → Appareils → « Relier un appareil ». Un QR code s'affiche.</p>
+  <button class="main" id="scan">Scanner le QR code</button>
+  <button class="ghost" id="showManual">Saisir l'adresse et le code</button>
+  <form id="manual">
+    <label>Adresse de ton serveur<input id="server" type="url" inputmode="url" placeholder="https://noah.exemple.com" autocomplete="url" /></label>
+    <label>Code<input id="code" placeholder="BCDF-GHJK" autocapitalize="characters" autocomplete="one-time-code" /></label>
+    <button class="main" id="go">Relier</button>
+  </form>
+  <div id="error" role="alert"></div>
+  <p class="small">Noah fonctionne sur ton propre serveur : tes conversations ne passent par aucun service de Noah.</p>
+</main>
+<script src="app.js"></script>
+</body>
+</html>

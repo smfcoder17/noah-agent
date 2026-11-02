@@ -1,0 +1,11 @@
+{
+  "appId": "agent.noah.mobile",
+  "appName": "Noah",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "CapacitorHttp": { "enabled": true }
+  }
+}

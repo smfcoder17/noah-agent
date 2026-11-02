@@ -1,0 +1,18 @@
+{
+  "name": "noah-agent-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Noah Agent sur le téléphone : relie l'app à ton serveur Noah, puis ouvre son interface.",
+  "scripts": {
+    "sync": "cap sync android",
+    "apk": "cap sync android && cd android && gradlew.bat assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.6.0",
+    "@capacitor/barcode-scanner": "3.1.3",
+    "@capacitor/core": "8.6.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.6.0"
+  }
+}

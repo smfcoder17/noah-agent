@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Noah</string>
+    <string name="title_activity_main">Noah</string>
+    <string name="package_name">agent.noah.mobile</string>
+    <string name="custom_url_scheme">agent.noah.mobile</string>
+</resources>
