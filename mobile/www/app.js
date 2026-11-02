@@ -6,7 +6,16 @@ const shell = Capacitor.Plugins.NoahShell;
 const scanner = Capacitor.Plugins.CapacitorBarcodeScanner;
 const $ = (id) => document.getElementById(id);
 
-const say = (text) => ($("error").textContent = text || "");
+const say = (text) => {
+  $("wait").style.display = "none";
+  $("error").textContent = text || "";
+};
+/** Attente de l'accord : consigne calme et nombre bien lisible, pas une erreur. */
+function showWaiting(verification) {
+  $("error").textContent = "";
+  $("wait").replaceChildren("Sur l'appareil où le code est affiché, accepte ce téléphone et saisis :", Object.assign(document.createElement("b"), { textContent: verification }));
+  $("wait").style.display = "block";
+}
 
 function origin(raw) {
   try {
@@ -55,7 +64,7 @@ async function claim(server, code) {
  * affiché, en recopiant le nombre montré ici. On sonde jusqu'au refus ou à l'expiration (410) seulement.
  */
 async function waitForApproval(server, sondage, expire, verification) {
-  say(`Sur l'appareil où le code est affiché, accepte ce téléphone et saisis le nombre ${verification}.`);
+  showWaiting(verification);
   const until = Date.now() + (expire || 1200) * 1000;
   while (Date.now() < until) {
     await new Promise((ok) => setTimeout(ok, 2000));
@@ -68,7 +77,7 @@ async function waitForApproval(server, sondage, expire, verification) {
       continue; // réseau coupé un instant : on réessaie
     }
     if (r.status === 410) return say("Demande refusée ou expirée. Affiche un nouveau code et recommence.");
-    if (!r.ok) continue; // en attente (404), mise à jour du serveur (503), ralentissement (429)
+    if (!r.ok) continue; // mise à jour du serveur (503), ralentissement (429) ; 202 : en attente, sans jeton
     const body = await r.json().catch(() => ({}));
     if (body.token) return shell.connect({ server, token: body.token });
   }

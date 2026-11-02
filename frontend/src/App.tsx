@@ -33,8 +33,8 @@ async function waitForApproval(sondage: string, expire: number) {
   while (Date.now() < until) {
     await new Promise((ok) => setTimeout(ok, 2000));
     try {
-      await send("/api/pairing/flow/poll", { sondage }); // la session arrive en cookie
-      return;
+      const r = await send<{ token?: string }>("/api/pairing/flow/poll", { sondage }); // 202 : en attente
+      if (r.token) return; // la session arrive aussi en cookie
     } catch (e) {
       if (e instanceof ApiError && e.status === 410) throw new Error("Demande refusée ou expirée. Scanne un nouveau code.");
     }

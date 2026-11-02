@@ -57,7 +57,7 @@ viewer = client()
 r = viewer.post("/api/pairing/claim", json={"code": link, "appareil": "Pixel 8", "type": "android"})
 assert r.status_code == 200 and r.json()["attente"] and "token" not in r.json() and "set-cookie" not in r.headers, r.text
 assert len(r.json()["verification"]) == 2 and sessions() == before
-assert viewer.post("/api/pairing/flow/poll", json={"sondage": r.json()["sondage"]}).status_code == 404
+assert viewer.post("/api/pairing/flow/poll", json={"sondage": r.json()["sondage"]}).status_code == 202
 assert client().post("/api/pairing/claim", json={"code": link}).status_code == 400
 assert client().post("/api/pairing/claim", json={"code": p["code"]}).status_code == 400, "le code court du même affichage sert encore"
 print("1. QR code : demande en attente sans session, à usage unique (le code court du même affichage meurt avec)")
@@ -155,7 +155,7 @@ me_a = web_a.headers["Authorization"][7:]
 assert client(me_a, addr="203.0.113.7").get(f"/api/pairing/flow/{fid}").json()["autre_reseau"] is False
 assert client(me_a, addr="2001:db8::5").get(f"/api/pairing/flow/{fid}").json()["autre_reseau"] is False, "double pile"
 assert web_a.post(f"/api/pairing/flow/{fid}/autoriser").status_code == 200
-assert app_desktop.post("/api/pairing/flow/poll", json={"sondage": r["sondage"]}).status_code == 428
+assert app_desktop.post("/api/pairing/flow/poll", json={"sondage": r["sondage"]}).json() == {"attente": "nombre"}
 before = sessions()
 token = app_desktop.post("/api/pairing/flow/poll", json={"sondage": r["sondage"], "verification": info["verification"]}).json()["token"]
 again = app_desktop.post("/api/pairing/flow/poll", json={"sondage": r["sondage"]}).json()["token"]

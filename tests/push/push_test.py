@@ -67,39 +67,85 @@ print("2. VAPID RFC 8292 : signature ES256 vérifiée par PyJWT, audience = le s
 received = []
 
 
+FCM = "https://fcm.googleapis.com/fcm/send/"
+flaky = {"n": 0}
+
+
 def service(request: httpx.Request) -> httpx.Response:
     received.append(request)
-    return httpx.Response(410 if "mort" in str(request.url) else 201)
+    path = request.url.path
+    if path.endswith("/mort"):
+        return httpx.Response(410)
+    if path.endswith("/instable"):  # erreur passagère au premier essai, puis accepté
+        flaky["n"] += 1
+        return httpx.Response(503) if flaky["n"] == 1 else httpx.Response(201)
+    if path.endswith("/refuse"):
+        return httpx.Response(400, text="mauvaise clé")
+    return httpx.Response(201)
 
 
 push.transport = httpx.MockTransport(service)
+push.RETRIES = (0, 0)
 user = auth.create_user("alice", "motdepasse-a")
 token_a = auth.new_session(user, "Pixel", "android")
 app = TestClient(main.app, headers={"Authorization": f"Bearer {token_a}"})
-assert app.post("/api/push/subscription", json={"endpoint": "http://evil", "p256dh": p256dh, "auth": b64(secret)}).status_code == 422
-assert app.post("/api/push/subscription", json={"endpoint": "https://push.example/vivant", "p256dh": p256dh,
-                                                "auth": b64(secret)}).status_code == 200
+
+
+def subscribe(client: TestClient, endpoint: str, p: str, s: bytes) -> int:
+    return client.post("/api/push/subscription", json={"endpoint": endpoint, "p256dh": p, "auth": b64(s)}).status_code
+
+
+assert subscribe(app, "http://evil/x", p256dh, secret) == 422
+for internal in ("https://127.0.0.1/x", "https://launcher:9000/update/apply", "https://fcm.googleapis.com.evil.net/x",
+                 "https://intranet.local/push"):
+    assert subscribe(app, internal, p256dh, secret) == 400, internal
+print("3. seuls les services de push des navigateurs sont acceptés (pas d'adresse interne : pas de SSRF)")
+
+assert subscribe(app, FCM + "vivant", p256dh, secret) == 200
 assert app.get("/api/push/subscription").json()["abonne"]
 k2, p2, s2 = device()
-token_b = auth.new_session(user, "Vieux", "web")
-TestClient(main.app, headers={"Authorization": f"Bearer {token_b}"}).post(
-    "/api/push/subscription", json={"endpoint": "https://push.example/mort", "p256dh": p2, "auth": b64(s2)})
-assert asyncio.run(push.send("Veille", "Le prix a baissé", urgent=True)) == 1
-r = [x for x in received if x.url.path == "/vivant"][0]
+assert subscribe(TestClient(main.app, headers={"Authorization": f"Bearer {auth.new_session(user, 'Vieux', 'web')}"}),
+                 "https://updates.push.services.mozilla.com/wpush/v2/mort", p2, s2) == 200
+k3, p3, s3 = device()
+assert subscribe(TestClient(main.app, headers={"Authorization": f"Bearer {auth.new_session(user, 'Mac', 'web')}"}),
+                 "https://web.push.apple.com/instable", p3, s3) == 200
+k4, p4, s4 = device()
+assert subscribe(TestClient(main.app, headers={"Authorization": f"Bearer {auth.new_session(user, 'PC', 'web')}"}),
+                 "https://wns2-par02p.notify.windows.com/w/refuse", p4, s4) == 200
+out = asyncio.run(push.send("Veille", "Le prix a baissé", urgent=True))
+assert out == {"livres": 2, "echecs": 1, "morts": 1}, out
+r = [x for x in received if x.url.path.endswith("/vivant")][0]
 assert r.headers["content-encoding"] == "aes128gcm" and r.headers["urgency"] == "high" and int(r.headers["ttl"]) > 0
 assert r.headers["authorization"].startswith("vapid t=")
 msg = json.loads(http_ece.decrypt(r.content, private_key=key, auth_secret=secret, version="aes128gcm"))
 assert msg == {"titre": "Veille", "texte": "Le prix a baissé", "url": "/"}, msg
+assert len([x for x in received if x.url.path.endswith("/instable")]) == 2, "pas de nouvel essai après le 503"
+assert len([x for x in received if x.url.path.endswith("/refuse")]) == 1, "erreur définitive réessayée"
 with db.connect() as c:
-    left = [row["endpoint"] for row in c.execute("SELECT endpoint FROM push_subscriptions")]
-assert left == ["https://push.example/vivant"], left
-print("3. de bout en bout : message reçu et déchiffré ; abonnement mort (410) supprimé")
+    left = sorted(row["endpoint"] for row in c.execute("SELECT endpoint FROM push_subscriptions"))
+assert not any(e.endswith("/mort") for e in left) and len(left) == 3, left
+print("4. de bout en bout : déchiffré ; 503 réessayé puis livré ; 400 compté en échec ; 410 supprimé ; bilan exact")
 
-# 4. Appareil déconnecté : plus aucune notification pour lui.
+# 5. Test depuis l'interface : le bilan dit la vérité (pas « envoyé » quand le service a refusé).
+assert app.post("/api/push/test").json()["livres"] >= 1
+print("5. /api/push/test rend livrés, échecs et morts")
+
+# 6. Clé VAPID : vingt premiers appels simultanés ne créent qu'une seule clé.
+with db.connect() as c:
+    c.execute("DELETE FROM settings WHERE key = 'vapid_key'")
+import concurrent.futures  # noqa: E402
+
+with concurrent.futures.ThreadPoolExecutor(20) as pool:
+    keys = set(pool.map(lambda _: push.public_key(), range(20)))
+assert len(keys) == 1 and push.public_key() in keys, len(keys)
+print("6. clé VAPID créée une seule fois, même sous appels simultanés")
+
+# 7. Appareil déconnecté : plus aucune notification pour lui.
 received.clear()
 auth.drop_session(token_a)
-assert asyncio.run(push.send("Noah", "test")) == 0 and not received
+asyncio.run(push.send("Noah", "test"))
+assert not [x for x in received if x.url.path.endswith("/vivant")]
 with db.connect() as c:
-    assert c.execute("SELECT COUNT(*) FROM push_subscriptions").fetchone()[0] == 0
-print("4. appareil déconnecté : abonnement supprimé avec sa session, rien n'est envoyé")
+    assert not c.execute("SELECT 1 FROM push_subscriptions WHERE endpoint LIKE '%vivant'").fetchone()
+print("7. appareil déconnecté : abonnement supprimé avec sa session, rien ne lui est envoyé")
 print("push : tout est vert")

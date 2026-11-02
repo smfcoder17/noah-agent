@@ -44,8 +44,9 @@ self.addEventListener("fetch", (e) => {
   );
 });
 
-// Notifications Web Push (chiffrées de bout en bout par le serveur Noah, RFC 8291). Pas affichée si Noah est déjà
-// ouvert et visible sur cet appareil : l'utilisateur la voit déjà dans l'interface.
+// Notifications Web Push (chiffrées de bout en bout par le serveur Noah, RFC 8291). Toujours affichées : Safari et
+// Chrome retirent la permission à un site qui reçoit un push sans rien montrer. Si Noah est déjà au premier plan,
+// elle arrive sans son ni vibration.
 self.addEventListener("push", (e) => {
   let data = {};
   try {
@@ -55,8 +56,9 @@ self.addEventListener("push", (e) => {
   }
   e.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
-      if (wins.some((w) => w.visibilityState === "visible" && w.focused)) return;
+      const foreground = wins.some((w) => w.visibilityState === "visible" && w.focused);
       return self.registration.showNotification(data.titre || "Noah", {
+        silent: foreground,
         body: data.texte || "",
         icon: "/assets/icon-192.png",
         badge: "/assets/icon-192.png",
@@ -73,7 +75,8 @@ self.addEventListener("notificationclick", (e) => {
   e.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
       const open = wins.find((w) => w.url.startsWith(self.location.origin));
-      return open ? open.focus() : self.clients.openWindow(url);
+      if (!open) return self.clients.openWindow(url);
+      return (open.url === url ? Promise.resolve(open) : open.navigate(url)).then((w) => (w || open).focus());
     }),
   );
 });

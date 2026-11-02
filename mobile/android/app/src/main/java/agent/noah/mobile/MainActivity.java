@@ -1,5 +1,7 @@
 package agent.noah.mobile;
 
+import android.net.ConnectivityManager;
+import android.net.Network;
 import android.net.Uri;
 import android.os.Bundle;
 import android.webkit.CookieManager;
@@ -16,12 +18,24 @@ public class MainActivity extends BridgeActivity {
 
     private String server;
     private String token;
+    private ConnectivityManager.NetworkCallback onNetwork;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(NoahShellPlugin.class);
         Pairing pairing = new Pairing(this);
         new Thread(pairing::revokeForgotten).start(); // sessions oubliées hors ligne : révoquées dès que possible
+        // … et de nouveau à chaque retour du réseau, sans attendre une réouverture de l'app.
+        ConnectivityManager network = getSystemService(ConnectivityManager.class);
+        if (network != null) {
+            onNetwork = new ConnectivityManager.NetworkCallback() {
+                @Override
+                public void onAvailable(Network n) {
+                    new Thread(pairing::revokeForgotten).start();
+                }
+            };
+            network.registerDefaultNetworkCallback(onNetwork);
+        }
         server = pairing.server();
         token = server == null ? null : pairing.token();
         if (server != null && token != null) {
@@ -32,6 +46,13 @@ public class MainActivity extends BridgeActivity {
                 .create();
         }
         super.onCreate(savedInstanceState);
+    }
+
+    @Override
+    public void onDestroy() {
+        ConnectivityManager network = getSystemService(ConnectivityManager.class);
+        if (network != null && onNetwork != null) network.unregisterNetworkCallback(onNetwork); // recréée : pas de doublon
+        super.onDestroy();
     }
 
     @Override

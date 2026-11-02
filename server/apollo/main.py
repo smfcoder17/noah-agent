@@ -401,17 +401,19 @@ class FlowPoll(BaseModel):
 
 @app.post("/api/pairing/flow/poll")
 def flow_poll(body: FlowPoll, request: Request, response: Response):
-    """Crée et rend la session une seule fois, dès que l'utilisateur a autorisé l'appareil ; 404 tant qu'il ne l'a pas
-    fait, 410 quand la demande n'existe plus (refusée, expirée, déjà servie)."""
+    """Crée et rend la session dès que l'utilisateur a autorisé l'appareil ; 202 tant qu'il ne l'a pas fait (ou que le
+    nombre n'a pas encore été saisi dans l'app), 410 quand la demande n'existe plus (refusée, expirée, déjà servie)."""
     key = auth.digest(body.sondage)
     with _pairing_lock:
         for public, flow in list(_flows.items()):
             if flow["sondage"] == key and flow["expire"] >= time.time():
                 if not flow["user"]:
-                    raise HTTPException(404, "En attente de ton accord")
+                    response.status_code = 202
+                    return {"attente": "accord"}
                 if flow["sens"] == "app" and not flow.get("jeton"):
                     if not body.verification:
-                        raise HTTPException(428, "Saisis le nombre affiché dans le navigateur")
+                        response.status_code = 202
+                        return {"attente": "nombre"}
                     if not secrets.compare_digest(body.verification.strip(), flow["verif"]):
                         _flows.pop(public, None)
                         raise HTTPException(403, "Ce nombre ne correspond pas à celui du navigateur. Par prudence, la "

@@ -41,7 +41,8 @@ export function PushToggle() {
       sub ??= await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes(cle) });
       const json = sub.toJSON();
       await send("/api/push/subscription", { endpoint: json.endpoint, p256dh: json.keys?.p256dh, auth: json.keys?.auth });
-      await send("/api/push/test", {});
+      const r = await send<{ livres: number; echecs: number }>("/api/push/test", {});
+      if (!r.livres) throw new Error("Le service de notifications du navigateur n'a pas accepté le message de test. Réessaie dans un moment.");
       setOn(true);
     } catch (e) {
       setError((e as Error).message);

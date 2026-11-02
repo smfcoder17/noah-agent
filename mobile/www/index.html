@@ -19,6 +19,8 @@
   input { font: inherit; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: inherit; }
   #manual { display: none; flex-direction: column; gap: 12px; }
   #error { color: var(--danger); font-size: 14px; min-height: 1.2em; }
+  #wait { display: none; text-align: center; color: var(--muted); font-size: 15px; }
+  #wait b { display: block; margin-top: 8px; color: var(--fg); font: 600 56px/1.1 ui-monospace, monospace; letter-spacing: 0.15em; }
   .small { font-size: 13px; }
 </style>
 </head>
@@ -34,6 +36,7 @@
     <label>Code<input id="code" placeholder="BCDF-GHJK" autocapitalize="characters" autocomplete="one-time-code" /></label>
     <button class="main" id="go">Relier</button>
   </form>
+  <div id="wait" role="status"></div>
   <div id="error" role="alert"></div>
   <p class="small">Noah fonctionne sur ton propre serveur : tes conversations ne passent par aucun service de Noah.</p>
 </main>

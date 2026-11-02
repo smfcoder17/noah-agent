@@ -69,8 +69,14 @@ export function DeviceApproval() {
       <div role="dialog" aria-modal="true" aria-labelledby="approval-title" className="flex w-full max-w-sm flex-col gap-4 rounded-2xl border border-border bg-surface p-6 shadow-lg">
         {state === "ok" ? (
           <>
-            <h2 id="approval-title" className="text-lg font-semibold">Appareil relié</h2>
-            <p className="text-sm text-muted-foreground">Tu peux revenir dans l'app : elle s'ouvre toute seule. Cet onglet peut être fermé.</p>
+            <h2 id="approval-title" className="text-lg font-semibold">Appareil autorisé</h2>
+            {req?.verification ? (
+              <p className="text-sm">
+                Saisis maintenant ce nombre dans l'app : <b className="font-mono text-2xl tracking-widest">{req.verification}</b>
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">Tu peux revenir dans l'app : elle s'ouvre toute seule. Cet onglet peut être fermé.</p>
+            )}
             <Button className="self-end" onClick={close}>Fermer</Button>
           </>
         ) : req ? (

@@ -92,14 +92,21 @@ async function openRemote(server) {
   await win.loadURL(server);
 }
 
+/**
+ * Adresse du serveur. HTTPS obligatoire : en http, la session passerait en clair sur le réseau. Seule exception, une
+ * adresse locale ou privée (Noah sur ce PC ou sur la box de la maison), comme l'app mobile.
+ */
 function serverOrigin(raw) {
   try {
-    return new URL(/^https?:\/\//.test(raw) ? raw : `https://${raw}`).origin;
+    const u = new URL(/^https?:\/\//.test(raw) ? raw : `https://${raw}`);
+    const local = /^(localhost|127\.0\.0\.1|\[::1\]|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)$/.test(u.hostname);
+    if (u.protocol !== "https:" && !(u.protocol === "http:" && local)) return null;
+    return u.origin;
   } catch {
     return null;
   }
 }
-const BAD_ADDRESS = { error: "Cette adresse n'est pas valide (exemple : https://noah.exemple.com)." };
+const BAD_ADDRESS = { error: "Indique une adresse en https:// (exemple : https://noah.exemple.com). Le http n'est accepté que sur ton réseau local." };
 const deviceName = () => `Ordinateur ${os.hostname()}`;
 /** Même origine exacte que le serveur de Noah (un préfixe accepterait https://noah.exemple.com.evil.net). */
 function sameOrigin(url) {

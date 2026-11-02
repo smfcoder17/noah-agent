@@ -9,7 +9,9 @@ import base64
 import json
 import logging
 import os
+import re
 import struct
+import threading
 import time
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
@@ -28,6 +30,12 @@ from . import auth, db, public
 router = APIRouter()
 log = logging.getLogger("uvicorn.error")
 RECORD = 4096  # taille d'enregistrement annoncée ; un message tient toujours dans un seul
+# Services de push des navigateurs. Le serveur n'envoie qu'à eux : un abonnement ne peut pas lui faire appeler une
+# adresse interne (SSRF). Chrome, Edge, Firefox, Safari, Opera, Samsung Internet.
+PUSH_HOSTS = re.compile(r"^(fcm\.googleapis\.com|android\.googleapis\.com|[a-z0-9.-]+\.push\.services\.mozilla\.com"
+                        r"|[a-z0-9.-]+\.notify\.windows\.com|web\.push\.apple\.com|[a-z0-9.-]+\.push\.apple\.com)$")
+_key_lock = threading.Lock()
+RETRIES = (2, 10)  # secondes d'attente avant de réessayer après une erreur passagère (429, 5xx, réseau)
 
 
 def _b64(data: bytes) -> str:
@@ -43,14 +51,18 @@ def _point(key: ec.EllipticCurvePublicKey) -> bytes:
 
 
 def _vapid_key() -> ec.EllipticCurvePrivateKey:
-    """Clé du serveur, créée une fois et gardée chiffrée dans les réglages."""
+    """Clé du serveur, créée une fois (sous verrou : deux premiers appels simultanés ne créent pas deux clés) et gardée
+    chiffrée dans les réglages."""
     pem = db.get_setting("vapid_key", secret=True)
-    if pem:
-        return serialization.load_pem_private_key(pem.encode(), None)
-    key = ec.generate_private_key(ec.SECP256R1())
-    db.set_setting("vapid_key", key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
-                                                  serialization.NoEncryption()).decode(), secret=True)
-    return key
+    if not pem:
+        with _key_lock:
+            pem = db.get_setting("vapid_key", secret=True)
+            if not pem:
+                key = ec.generate_private_key(ec.SECP256R1())
+                pem = key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                        serialization.NoEncryption()).decode()
+                db.set_setting("vapid_key", pem, secret=True)
+    return serialization.load_pem_private_key(pem.encode(), None)
 
 
 def public_key() -> str:
@@ -94,25 +106,36 @@ def vapid_header(endpoint: str, now: float | None = None) -> str:
 transport: httpx.AsyncBaseTransport | None = None  # remplacé par les tests
 
 
-async def _send_one(client: httpx.AsyncClient, sub, payload: bytes, urgent: bool) -> bool:
-    """Rend False quand l'abonnement est mort (désinstallé, permission retirée) : il est alors supprimé."""
-    try:
-        r = await client.post(sub["endpoint"], content=encrypt(payload, sub["p256dh"], sub["auth"]), headers={
-            "Authorization": vapid_header(sub["endpoint"]), "Content-Encoding": "aes128gcm",
-            "Content-Type": "application/octet-stream", "TTL": str(24 * 3600), "Urgency": "high" if urgent else "normal",
-        })
-    except httpx.HTTPError as e:
-        log.warning("push : %s injoignable (%s)", urlsplit(sub["endpoint"]).netloc, e)
-        return True
-    if r.status_code in (404, 410):
-        return False
-    if r.status_code >= 400:
-        log.warning("push : %s a refusé (%s) %s", urlsplit(sub["endpoint"]).netloc, r.status_code, r.text[:200])
-    return True
+async def _send_one(client: httpx.AsyncClient, sub, payload: bytes, urgent: bool) -> str:
+    """« livre » (accepté par le service de push), « mort » (désinstallé, permission retirée : l'abonnement est
+    supprimé) ou « echec » (refusé, ou erreur passagère encore là après les nouvelles tentatives)."""
+    host = urlsplit(sub["endpoint"]).netloc
+    for wait in (*RETRIES, None):
+        try:
+            r = await client.post(sub["endpoint"], content=encrypt(payload, sub["p256dh"], sub["auth"]), headers={
+                "Authorization": vapid_header(sub["endpoint"]), "Content-Encoding": "aes128gcm",
+                "Content-Type": "application/octet-stream", "TTL": str(24 * 3600),
+                "Urgency": "high" if urgent else "normal",
+            })
+        except httpx.HTTPError as e:
+            log.warning("push : %s injoignable (%s)", host, e)
+            r = None
+        if r is not None and r.status_code < 300:
+            return "livre"
+        if r is not None and r.status_code in (404, 410):
+            return "mort"
+        transient = r is None or r.status_code == 429 or r.status_code >= 500
+        if r is not None:
+            log.warning("push : %s a refusé (%s) %s", host, r.status_code, r.text[:200])
+        if not transient or wait is None:
+            return "echec"
+        retry_after = r.headers.get("retry-after", "") if r is not None else ""
+        await asyncio.sleep(min(int(retry_after), 60) if retry_after.isdigit() else wait)
+    return "echec"
 
 
-async def send(title: str, text: str, url: str = "/", urgent: bool = False, user_id: int | None = None) -> int:
-    """Envoie à chaque appareil abonné dont la session est encore valable. Rend le nombre d'envois."""
+async def send(title: str, text: str, url: str = "/", urgent: bool = False, user_id: int | None = None) -> dict:
+    """Envoie à chaque appareil abonné dont la session est encore valable. Rend {livres, echecs, morts}."""
     now = datetime.now(timezone.utc).isoformat()
     with db.connect() as c:
         c.execute("DELETE FROM push_subscriptions WHERE session NOT IN (SELECT token FROM sessions WHERE expires_at > ?)", (now,))
@@ -120,15 +143,15 @@ async def send(title: str, text: str, url: str = "/", urgent: bool = False, user
                          + (" WHERE s.user_id = ?" if user_id is not None else ""),
                          (user_id,) if user_id is not None else ()).fetchall()
     if not rows:
-        return 0
+        return {"livres": 0, "echecs": 0, "morts": 0}
     payload = json.dumps({"titre": title[:120], "texte": text[:400], "url": url}, ensure_ascii=False).encode()
     async with httpx.AsyncClient(timeout=15, transport=transport) as client:
-        alive = await asyncio.gather(*(_send_one(client, r, payload, urgent) for r in rows))
-    dead = [r["endpoint"] for r, ok in zip(rows, alive) if not ok]
+        outcome = await asyncio.gather(*(_send_one(client, r, payload, urgent) for r in rows))
+    dead = [r["endpoint"] for r, o in zip(rows, outcome) if o == "mort"]
     if dead:
         with db.connect() as c:
             c.executemany("DELETE FROM push_subscriptions WHERE endpoint = ?", [(e,) for e in dead])
-    return len(rows) - len(dead)
+    return {"livres": outcome.count("livre"), "echecs": outcome.count("echec"), "morts": len(dead)}
 
 
 def notify(title: str, text: str, url: str = "/", urgent: bool = False) -> None:
@@ -140,7 +163,7 @@ def notify(title: str, text: str, url: str = "/", urgent: bool = False) -> None:
 
 
 class Subscription(BaseModel):
-    endpoint: str = Field(max_length=1000, pattern=r"^https://")
+    endpoint: str = Field(max_length=1000, pattern=r"^https://[^/?#]+/")
     p256dh: str = Field(min_length=80, max_length=100)
     auth: str = Field(min_length=16, max_length=32)
 
@@ -153,6 +176,8 @@ def key(_: int = Depends(auth.current_user)):
 @router.post("/api/push/subscription")
 def subscribe(body: Subscription, request: Request, apollo_session: str | None = Cookie(None),
               _: int = Depends(auth.current_user)):
+    if not PUSH_HOSTS.match(urlsplit(body.endpoint).hostname or ""):
+        raise HTTPException(400, "Service de push inconnu (seuls ceux des navigateurs sont acceptés)")
     try:
         ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), _unb64(body.p256dh))
         assert len(_unb64(body.auth)) == 16
@@ -184,5 +209,4 @@ def subscribed(request: Request, apollo_session: str | None = Cookie(None), _: i
 
 @router.post("/api/push/test")
 async def test(user: int = Depends(auth.current_user)):
-    sent = await send("Noah", "Les notifications arrivent bien sur cet appareil.", user_id=user)
-    return {"envoyes": sent}
+    return await send("Noah", "Les notifications arrivent bien sur cet appareil.", user_id=user)
