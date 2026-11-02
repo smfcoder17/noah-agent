@@ -403,6 +403,19 @@ async def once():
     async with httpx.AsyncClient(transport=push.transport) as cl:
         return await push._send_one(cl, row, b"{}", False)
 assert asyncio.run(once()) == "echec" and not received, "envoi vers un service retiré de la liste"
+# Longue panne du service de push (503 sans Retry-After) : après 7 reports, toujours gardé tant qu'il reste du temps.
+k15, p15, s15 = device()
+token_n = auth.new_session(user, "Panne longue", "web")
+assert subscribe(TestClient(main.app, headers={"Authorization": f"Bearer {token_n}"}), FCM + "panne", p15, s15) == 200
+push.transport = httpx.MockTransport(lambda request: httpx.Response(503))
+row = {"endpoint": FCM + "panne", "session": auth.digest(token_n), "p256dh": p15, "auth": b64(s15)}
+async def late():
+    async with httpx.AsyncClient(transport=push.transport) as cl:
+        return await push._send_one(cl, row, b"{}", False, tries=7, created=time.time() - 2 * 3600)
+assert asyncio.run(late()) == "differe", "alerte abandonnée après une panne de deux heures"
+with db.connect() as c:
+    c.execute("DELETE FROM push_queue WHERE endpoint LIKE ?", ("%panne",))
+push.transport = httpx.MockTransport(service)
 print("6 bis. désinscription en retard : seul l'abonnement visé ; service retiré de la liste : plus d'envoi")
 
 print("7. appareil déconnecté : abonnement supprimé avec sa session, rien ne lui est envoyé")

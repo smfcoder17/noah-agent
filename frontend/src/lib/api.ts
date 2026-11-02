@@ -36,7 +36,8 @@ export async function request(path: string, init: RequestInit = {}): Promise<Res
     // Fuseau de l'utilisateur : le serveur (souvent un VPS en UTC) installe les mises à jour pendant sa nuit à lui.
     headers: { "Content-Type": "application/json", "X-Noah-Timezone": ZONE, ...(init.headers || {}) },
   });
-  if (res.ok && /^\/api\/(login|setup\/account|pairing\/flow\/poll)/.test(path)) bumpAuthEpoch();
+  // 200 seulement : un sondage en attente (202) n'a créé aucune session.
+  if (res.status === 200 && /^\/api\/(login|setup\/account|pairing\/flow\/poll)/.test(path)) bumpAuthEpoch();
   // Session révoquée ou expirée pendant l'usage : l'interface revient à l'écran de connexion (ou de reliaison).
   if (res.status === 401 && !/^\/api\/(login|setup|pairing|status)/.test(path)) window.dispatchEvent(new Event("noah:unauthorized"));
   if (!res.ok) {

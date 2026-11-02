@@ -22,6 +22,9 @@ function AndroidPushStatus() {
   const refresh = () => native?.pushStatus?.().then((s) => setState(s as AndroidPush)).catch(() => setState(null));
   useEffect(() => {
     refresh();
+    // Relu régulièrement : inscription réussie par une relance automatique, permission changée dans Android…
+    const t = setInterval(refresh, 10000);
+    return () => clearInterval(t);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   if (!native?.pushStatus || !state) return null;
   const retry = async () => {

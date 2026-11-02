@@ -227,11 +227,11 @@ async def _send_one(client: httpx.AsyncClient, sub, payload: bytes, urgent: bool
             log.warning("push : %s a refusé (%s) %s", host, r.status_code, r.text[:200])
         if not transient:
             return "echec"
-        delay = _retry_after(r.headers.get("retry-after", "") if r is not None else "", wait if wait is not None else 60 * 2 ** tries)
+        delay = _retry_after(r.headers.get("retry-after", "") if r is not None else "", wait if wait is not None else min(60 * 2 ** tries, 1800))
         if wait is None or delay > 30:
             # Longue attente (Retry-After) ou essais rapides épuisés : la suite se fait depuis la base, pas en mémoire.
-            if tries >= 6:
-                return "echec"
+            # Pas de nombre d'essais maximal : on réessaie (toutes les 30 min au plus) jusqu'à la fin de la vie du
+            # message, 24 h. Une panne d'une heure et demie du service de push ne perd plus l'alerte.
             if created + TTL <= time.time() + delay:
                 return "echec"  # serait périmé avant la reprise
             _defer(sub, payload, urgent, delay, tries + 1, created)

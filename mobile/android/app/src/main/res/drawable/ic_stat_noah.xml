@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Petite icône des notifications : silhouette de la mascotte de Noah, en une couleur (Android la teinte). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="64"
+    android:viewportHeight="64">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M13,55C7.2,55 6,48.5 7.6,39.5C10,21 18.5,10 32,10S54,21 56.4,39.5C58,48.5 56.8,55 51,55Z M24.6,26.9a3.9,5.1 0,1 0,0.01 0Z M39.4,26.9a3.9,5.1 0,1 0,0.01 0Z" />
+</vector>

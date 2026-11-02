@@ -50,8 +50,12 @@ public class NoahShellPlugin extends Plugin {
         JSObject out = new JSObject();
         out.put("distributeurs", org.unifiedpush.android.connector.UnifiedPush.getDistributors(getContext()).size());
         // « Inscrit » : distributeur d'accord ET abonnement accepté par le serveur pour la session ouverte.
-        out.put("inscrit", org.unifiedpush.android.connector.UnifiedPush.getAckDistributor(getContext()) != null
-            && new Pairing(getContext()).pushTag() != null);
+        Pairing pairing = new Pairing(getContext());
+        boolean local = org.unifiedpush.android.connector.UnifiedPush.getAckDistributor(getContext()) != null
+            && pairing.pushTag() != null;
+        // Confirmé par le serveur (il a pu supprimer l'abonnement après un 404/410) ; injoignable : on garde l'état local.
+        Boolean server = local ? NoahPush.serverHasUs(pairing) : Boolean.FALSE;
+        out.put("inscrit", local && !Boolean.FALSE.equals(server));
         out.put("permission", NoahPush.visible(getContext()));
         call.resolve(out);
     }

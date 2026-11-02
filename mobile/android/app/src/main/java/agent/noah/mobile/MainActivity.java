@@ -68,7 +68,20 @@ public class MainActivity extends BridgeActivity {
         // Seulement si tout est prêt sauf le serveur : pas de demande de permission ni de choix de distributeur
         // répétés toutes les 5 minutes.
         if (org.unifiedpush.android.connector.UnifiedPush.getDistributors(this).isEmpty() || !NoahPush.visible(this)) return;
-        if (s != null && t != null && pairing.pushTag() == null) NoahPush.start(this, s, t);
+        if (s == null || t == null) return;
+        if (pairing.pushTag() == null) {
+            NoahPush.start(this, s, t);
+            return;
+        }
+        // Inscrit d'après le téléphone : vérifié auprès du serveur, qui a pu supprimer l'abonnement (404/410).
+        long gen = pairing.pushGeneration();
+        String tag = pairing.pushTag();
+        new Thread(() -> {
+            if (Boolean.FALSE.equals(NoahPush.serverHasUs(pairing))) {
+                pairing.clearPushIf(gen, tag);
+                runOnUiThread(() -> NoahPush.start(this, s, t));
+            }
+        }).start();
     }
 
     @Override

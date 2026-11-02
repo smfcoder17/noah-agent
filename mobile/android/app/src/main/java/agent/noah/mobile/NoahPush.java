@@ -190,6 +190,21 @@ public class NoahPush extends PushService {
         }
     }
 
+    /**
+     * Le serveur a-t-il toujours l'abonnement de ce téléphone ? Il le supprime quand le service de push répond 404/410
+     * (endpoint invalidé). Réseau : hors du fil de l'interface. null si le serveur ne répond pas.
+     */
+    static Boolean serverHasUs(Pairing pairing) {
+        String server = pairing.server(), token = pairing.pushToken(), endpoint = pairing.pushEndpoint();
+        if (server == null || token == null || endpoint == null) return false;
+        try {
+            JSONObject r = new JSONObject(call("GET", server + "/api/push/subscription", token, null, 8000));
+            return r.optBoolean("abonne") && endpoint.equals(r.optString("endpoint"));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     /** Notifications visibles : permission donnée et canal « Noah » non coupé dans les réglages d'Android. */
     static boolean visible(Context context) {
         if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return false;
@@ -206,7 +221,7 @@ public class NoahPush extends PushService {
         // Un code par notification : sinon toucher une ancienne ouvrirait la page de la dernière reçue.
         PendingIntent tap = PendingIntent.getActivity(this, id, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         NotificationCompat.Builder n = new NotificationCompat.Builder(this, CHANNEL)
-            .setSmallIcon(R.mipmap.ic_launcher).setContentTitle(title).setContentText(text)
+            .setSmallIcon(R.drawable.ic_stat_noah).setContentTitle(title).setContentText(text)
             .setStyle(new NotificationCompat.BigTextStyle().bigText(text)).setContentIntent(tap).setAutoCancel(true)
             .setOnlyAlertOnce(true); // le remplacement générique → contenu ne sonne pas deux fois
         try {
