@@ -1,7 +1,7 @@
 // Assistant de premier lancement (G1.8), dans cet ordre : code d'installation, nouvelle installation ou restauration,
 // compte propriétaire, modèle, premier agent, puis un vrai échange avec le modèle. Il ne se termine qu'après la réponse.
 import { lazy, Suspense, useEffect, useState } from "react";
-import { type Agent, get, send, type Status, streamChat } from "@/lib/api";
+import { type Agent, ApiError, get, send, type Status, streamChat } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button, ErrorText, Input, Label, Textarea } from "./ui";
 const ModelPicker = lazy(() => import("./ModelPicker").then((m) => ({ default: m.ModelPicker })));
@@ -16,14 +16,25 @@ const STEPS: { id: Step; label: string }[] = [
   { id: "essai", label: "Essai" },
 ];
 
+// Code vérifié, gardé pour cet onglet : une page rechargée avant la création du compte ne le redemande pas.
+const CODE_KEY = "noah-installation";
+const savedCode = () => {
+  try {
+    return sessionStorage.getItem(CODE_KEY) ?? "";
+  } catch {
+    return "";
+  }
+};
+
 /** Étape où reprendre : avant le compte au début, sinon là où l'installation s'est arrêtée (page rechargée). */
 const firstStep = (st: Status): Step =>
-  !st.has_account ? (st.setup_code ? "code" : "installation") : st.model_configured ? "agent" : "model";
+  !st.has_account ? (st.setup_code && !savedCode() ? "code" : "installation") : st.model_configured ? "agent" : "model";
 
 export function Onboarding({ status, onDone }: { status: Status; onDone: () => void }) {
   const [step, setStep] = useState<Step>(() => firstStep(status));
   // VPS : le lien de fin d'installation porte le code (?installation=…).
-  const [code, setCode] = useState(() => new URLSearchParams(location.search).get("installation") ?? "");
+  const [code, setCode] = useState(() => new URLSearchParams(location.search).get("installation") ?? savedCode());
+  const [agentId, setAgentId] = useState<string | null>(null);
   const at = STEPS.findIndex((s) => s.id === step);
 
   return (
@@ -55,8 +66,8 @@ export function Onboarding({ status, onDone }: { status: Status; onDone: () => v
           </Suspense>
         </Card>
       )}
-      {step === "agent" && <AgentStep onNext={() => setStep("essai")} />}
-      {step === "essai" && <TrialStep onModel={() => setStep("model")} onDone={onDone} />}
+      {step === "agent" && <AgentStep onNext={(id) => { setAgentId(id); setStep("essai"); }} />}
+      {step === "essai" && <TrialStep agentId={agentId} onModel={() => setStep("model")} onDone={onDone} />}
     </div>
   );
 }
@@ -74,6 +85,11 @@ function CodeStep({ code, setCode, onNext }: { code: string; setCode: (c: string
     try {
       await send("/api/setup/check", { installation: value.trim() });
       history.replaceState(null, "", location.pathname); // le code ne reste pas dans l'historique
+      try {
+        sessionStorage.setItem(CODE_KEY, value.trim());
+      } catch {
+        /* stockage bloqué : un rechargement redemandera le code */
+      }
       onNext();
     } catch (e) {
       setError((e as Error).message);
@@ -142,8 +158,15 @@ function AccountStep({ code, onNext }: { code: string; onNext: () => void }) {
     setError("");
     try {
       await send("/api/setup/account", { username: username.trim(), password, installation: code.trim() });
+      try {
+        sessionStorage.removeItem(CODE_KEY);
+      } catch {
+        /* rien à effacer */
+      }
       onNext();
     } catch (err) {
+      // Compte déjà créé (autre onglet, réponse perdue) : on repart de l'état du serveur (connexion ou suite).
+      if (err instanceof ApiError && err.status === 410) return location.reload();
       setError((err as Error).message);
       setBusy(false);
     }
@@ -168,7 +191,7 @@ function AccountStep({ code, onNext }: { code: string; onNext: () => void }) {
   );
 }
 
-function AgentStep({ onNext }: { onNext: () => void }) {
+function AgentStep({ onNext }: { onNext: (agentId: string) => void }) {
   const [agent, setAgent] = useState<Agent | null>(null);
   const [name, setName] = useState("");
   const [role, setRole] = useState("");
@@ -189,10 +212,10 @@ function AgentStep({ onNext }: { onNext: () => void }) {
     setBusy(true);
     setError("");
     try {
-      if (!agent) await send("/api/agents", { name: name.trim(), role });
+      if (!agent) return onNext((await send<{ id: string }>("/api/agents", { name: name.trim(), role })).id);
       // Inchangé : pas de reconfiguration de la machine de l'agent pour rien.
-      else if (name.trim() !== agent.name || role !== agent.role) await send(`/api/agents/${agent.id}`, { name: name.trim(), role }, "PATCH");
-      onNext();
+      if (name.trim() !== agent.name || role !== agent.role) await send(`/api/agents/${agent.id}`, { name: name.trim(), role }, "PATCH");
+      onNext(agent.id);
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);
@@ -219,67 +242,87 @@ function AgentStep({ onNext }: { onNext: () => void }) {
 }
 
 const READY_WAIT = 180_000; // première création de la machine d'un agent : image à télécharger sur un VPS neuf
+const ANSWER_WAIT = 180_000; // réponse du modèle : au-delà, on rend la main plutôt que d'attendre sans fin
 
-function TrialStep({ onModel, onDone }: { onModel: () => void; onDone: () => void }) {
+function TrialStep({ agentId, onModel, onDone }: { agentId: string | null; onModel: () => void; onDone: () => void }) {
   const [phase, setPhase] = useState<"waiting" | "asking" | "ok" | "error">("waiting");
+  const [step, setStep] = useState("");
   const [reply, setReply] = useState("");
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
+  const [agent, setAgent] = useState<Agent | null>(null);
   useEffect(() => {
-    let stop = false;
+    const stop = new AbortController();
     (async () => {
       setPhase("waiting");
       setReply("");
       setError("");
       try {
         const until = Date.now() + READY_WAIT;
-        let agent: Agent | undefined;
-        while (!stop && Date.now() < until) {
-          agent = (await get<Agent[]>("/api/agents"))[0];
-          if (agent?.online) break;
+        let a: Agent | undefined;
+        while (!stop.signal.aborted && Date.now() < until) {
+          const list = await get<Agent[]>("/api/agents");
+          a = list.find((x) => x.id === agentId) ?? list[0];
+          setAgent(a ?? null);
+          setStep(a?.step ?? "");
+          if (a?.online) break;
           await new Promise((r) => setTimeout(r, 2000));
         }
-        if (stop) return;
-        if (!agent?.online) throw new Error("L'agent n'a pas démarré à temps. Vérifie que Docker tourne sur le serveur, puis réessaie.");
+        if (stop.signal.aborted) return;
+        if (!a?.online) throw new Error("L'agent n'a pas démarré à temps. Vérifie que Docker tourne sur le serveur, puis répare l'agent.");
         setPhase("asking");
         let text = "";
+        let status = "";
         let failure = "";
-        await streamChat(
-          { agent_id: agent.id, text: "Bonjour ! Présente-toi en une phrase.", conversation_id: null, attachments: [], details: false },
-          (ev) => {
-            if (ev.type === "message") setReply((text += ev.text));
-            if (ev.type === "done") {
-              if (ev.status && ev.status !== "completed") failure = ev.error || `Échec : ${ev.status}`;
-              else if (!text && ev.output) setReply((text = ev.output));
-            }
-          },
-        );
-        if (stop) return;
-        if (failure || !text.trim()) throw new Error(failure || "Le modèle n'a rien répondu.");
+        const timer = setTimeout(() => stop.abort("délai"), ANSWER_WAIT);
+        try {
+          await streamChat(
+            { agent_id: a.id, text: "Bonjour ! Présente-toi en une phrase.", conversation_id: null, attachments: [], details: false },
+            (ev) => {
+              if (ev.type === "message") setReply((text += ev.text));
+              if (ev.type === "done") {
+                status = ev.status;
+                failure = ev.error || "";
+                if (!text && ev.output) setReply((text = ev.output));
+              }
+            },
+            stop.signal,
+          );
+        } finally {
+          clearTimeout(timer);
+        }
+        if (stop.signal.reason === "délai") throw new Error("Le modèle n'a pas répondu en trois minutes.");
+        if (stop.signal.aborted) return;
+        // Seule une exécution terminée compte : un texte suivi d'une erreur, ou un flux coupé, n'est pas une réponse.
+        if (status !== "completed" || !text.trim()) throw new Error(failure || "Le modèle n'a pas répondu jusqu'au bout.");
         await send("/api/setup/done", {});
         setPhase("ok");
       } catch (e) {
-        if (!stop) {
-          setError((e as Error).message);
+        if (stop.signal.reason === "délai" || !stop.signal.aborted) {
+          setError(stop.signal.reason === "délai" ? "Le modèle n'a pas répondu en trois minutes." : (e as Error).message);
           setPhase("error");
         }
       }
     })();
-    return () => {
-      stop = true;
-    };
-  }, [attempt]);
+    return () => stop.abort();
+  }, [attempt, agentId]);
+  // Machine de l'agent restée en erreur (navigateur, réseau) : la relancer avec le même nom et le même rôle.
+  const repair = async () => {
+    if (agent) await send(`/api/agents/${agent.id}`, { name: agent.name, role: agent.role }, "PATCH").catch((e) => setError(e.message));
+    setAttempt((n) => n + 1);
+  };
   return (
     <Card>
       <h2 className="text-lg font-semibold">Premier essai</h2>
       <p className="text-sm text-muted-foreground">On vérifie de bout en bout que ton agent répond, avec ta clé et ton modèle.</p>
-      {phase === "waiting" && <p className="text-sm">Démarrage de la machine de l'agent… (jusqu'à trois minutes la première fois)</p>}
+      {phase === "waiting" && <p className="text-sm">{step || "Démarrage de la machine de l'agent…"} (jusqu'à trois minutes la première fois)</p>}
       {phase === "asking" && <p className="text-sm">L'agent réfléchit…</p>}
       {reply && <blockquote className="rounded-lg border-l-4 border-accent bg-background p-3 text-sm">{reply}</blockquote>}
       <ErrorText>{error}</ErrorText>
       {phase === "error" && (
         <div className="flex flex-wrap gap-2">
           <Button onClick={() => setAttempt((n) => n + 1)}>Réessayer</Button>
+          {agent && <Button variant="outline" onClick={repair}>Réparer l'agent</Button>}
           <Button variant="outline" onClick={onModel}>Changer de modèle ou de clé</Button>
         </div>
       )}

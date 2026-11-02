@@ -64,20 +64,33 @@ assert client().get("/api/status").json()["setup_code"] is False
 assert client().post("/api/setup/check", json={"installation": code}).status_code == 410
 print("3. bon code : compte créé ; ensuite 410, code effacé des secrets")
 
-# 3 bis. L'assistant ne se termine qu'après une vraie réponse du modèle.
+# 3 bis. L'assistant ne se termine qu'après une exécution terminée du modèle en service, avec du texte.
 assert owner.get("/api/status").json()["onboarded"] is False
 assert client().post("/api/setup/done").status_code == 401
 r = owner.post("/api/setup/done"); assert r.status_code == 409, (r.status_code, r.text)
-with db.connect() as c:
+with db.connect() as c:  # message « agent » sans exécution réussie (annonce système, essai d'avant) : pas une preuve
     c.execute("INSERT INTO agents (id, name, role, api_key) VALUES ('a1', 'Noah', '', 'k')")
     c.execute("INSERT INTO conversations (id, user_id, agent_id, title, main) VALUES ('c1', 1, 'a1', 'x', 1)")
-    c.execute("INSERT INTO messages (conversation_id, role, text) VALUES ('c1', 'error', 'clé refusée')")
-assert owner.post("/api/setup/done").status_code == 409, "une erreur compte comme une réponse"
-with db.connect() as c:
-    c.execute("INSERT INTO messages (conversation_id, role, text) VALUES ('c1', 'agent', 'Bonjour, je suis Noah.')")
+    c.execute("INSERT INTO messages (conversation_id, role, text) VALUES ('c1', 'agent', 'Noah 2.0 est installée.')")
+assert owner.post("/api/setup/done").status_code == 409, "un message système termine l'assistant"
+db.set_setting("provider", "openrouter"); db.set_setting("model", "m1")
+main._model_replied({"type": "done", "status": "failed"}, "Bonjour, je")  # texte puis échec
+main._model_replied({"type": "done", "status": "completed"}, "   ")        # rien de lisible
+main._model_replied(None, "Bonjour")                                       # flux coupé sans fin
+assert owner.post("/api/setup/done").status_code == 409, "essai raté accepté"
+main._model_replied({"type": "done", "status": "completed"}, "Bonjour, je suis Noah.")
+db.set_setting("model", "m2")  # modèle changé après l'essai : il faut réessayer avec celui-ci
+assert owner.post("/api/setup/done").status_code == 409, "essai d'un autre modèle accepté"
+main._model_replied({"type": "done", "status": "completed"}, "Bonjour, je suis Noah.")
 assert owner.post("/api/setup/done").status_code == 200
 assert owner.get("/api/status").json()["onboarded"] is True
-print("3 bis. fin de l'assistant refusée (409) sans réponse du modèle, acceptée après")
+print("3 bis. fin refusée (409) pour un message système, un essai raté ou un autre modèle ; acceptée après un vrai essai")
+
+# 3 ter. Installation d'avant l'assistant (aucune clé « onboarded ») : jamais renvoyée dans l'assistant.
+with db.connect() as c:
+    c.execute("DELETE FROM settings WHERE key = 'onboarded'")
+assert owner.get("/api/status").json()["onboarded"] is True
+print("3 ter. installation d'avant l'assistant : considérée comme finie")
 
 # 4. Redémarrage (nouveau processus, mêmes volumes) : mêmes secrets, session toujours valable, pas de nouveau code.
 token = auth.new_session(auth.check_password("franck", "motdepasse-long"), "PC", "web")
@@ -93,4 +106,55 @@ assert after["launcher"] == config.LAUNCHER_KEY and after["secret"] == config.SE
 assert after["valid"], "session perdue au redémarrage"
 assert after["setup"] == "", "un nouveau code d'installation est apparu après la création du compte"
 print("4. redémarrage : mêmes secrets, session gardée, aucun nouveau code d'installation")
+
+# 5. Cas limites, sur la fonction de vérification (personne n'a encore de compte).
+from concurrent.futures import ThreadPoolExecutor  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+
+from fastapi import HTTPException  # noqa: E402
+
+auth.has_users = lambda: False
+req = lambda ip: SimpleNamespace(headers={"x-test-ip": ip})  # noqa: E731
+
+
+def verdict(given: str, ip: str) -> int:
+    try:
+        main._check_setup_code(given, req(ip))
+        return 200
+    except HTTPException as e:
+        return e.status_code
+
+
+# 5a. Essais simultanés depuis une adresse : le plafond tient (essai réservé avant la comparaison).
+main._failed_logins.clear()
+with ThreadPoolExecutor(16) as pool:
+    results = list(pool.map(lambda i: verdict("BBBBBBBB", "198.51.100.7"), range(16)))
+assert results.count(403) <= main.LOGIN_TRIES and results.count(429) >= 16 - main.LOGIN_TRIES, results
+print(f"5a. 16 essais simultanés : {results.count(403)} comparés, {results.count(429)} refusés (429)")
+
+# 5b. Base des comptes perdue, secrets gardés (code effacé) : un nouveau code est tiré, rien n'est ouvert.
+config.SETUP_CODE = ""
+config.renew_setup_code()
+fresh = json.load(open(f"{vault}/noah.json"))["NOAH_SETUP_CODE"]
+assert len(fresh) == 8 and config.setup_code() == fresh
+assert verdict("", "198.51.100.8") == 403
+print("5b. code effacé sans compte : nouveau code tiré au démarrage")
+
+# 5c. Sans code du tout (ordinateur personnel) : le compte ne se crée que depuis la machine ou le réseau local.
+config.SETUP_CODE = ""
+assert verdict("", "9.9.9.9") == 403, "installation sans code prise depuis Internet"
+assert verdict("", "127.0.0.1") == 200 and verdict("", "172.18.0.1") == 200
+print("5c. sans code : refusé depuis Internet, accepté depuis la machine (ou Docker en local)")
+
+# 6. Compatibilité des apps (G5.6) : le serveur annonce la plus ancienne version servie ; en dessous, 426 et un
+# message lisible, au lieu d'une erreur plus loin. L'interface web (même version que le serveur) n'est pas concernée.
+main.MIN_CLIENT_VERSION = "0.2.0"
+st = client().get("/api/status", headers={"X-Noah-Version": "0.1.0"})
+assert st.status_code == 200 and st.json()["min_client_version"] == "0.2.0" and st.json()["api"] == 1
+old = client().post("/api/pairing/claim", json={"code": "x"}, headers={"X-Noah-Version": "0.1.9"})
+assert old.status_code == 426 and "mets-la à jour" in old.json()["detail"], old.text
+for v in ("0.2.0", "0.10.0", "1.0.0-beta"):
+    assert client().post("/api/pairing/claim", json={"code": "x"}, headers={"X-Noah-Version": v}).status_code != 426, v
+assert client().post("/api/pairing/claim", json={"code": "x"}).status_code != 426
+print("6. app trop ancienne : 426 avec « mets-la à jour » ; versions servies et interface web inchangées")
 print("installation : tout est vert")

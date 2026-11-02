@@ -11,7 +11,8 @@ import httpx
 from fastapi import APIRouter, HTTPException
 
 from . import auth
-from .config import PUBLIC_DOMAIN, SETUP_CODE
+from . import config
+from .config import PUBLIC_DOMAIN
 
 router = APIRouter()
 log = logging.getLogger("uvicorn.error")
@@ -60,9 +61,9 @@ async def setup() -> None:
     if not url:
         log.warning("Noah : adresse publique introuvable. Indique ton domaine avec NOAH_DOMAIN=noah.exemple.com.")
         return
-    if SETUP_CODE and not auth.has_users():
+    if config.setup_code() and not auth.has_users():
         log.warning("\n\n  Noah est prêt. Ouvre ce lien pour créer ton compte :\n\n    %s/?installation=%s\n\n"
-                    "  Code d'installation : %s\n", url, SETUP_CODE, SETUP_CODE)
+                    "  Code d'installation : %s\n", url, config.setup_code(), config.setup_code())
     else:
         log.warning("Noah est prêt : %s", url)
 

@@ -10,7 +10,8 @@ export type NoahDesktop = {
   openLan(): Promise<{ open: boolean; url: string | null }>;
   /** App reliée à un serveur : oublie ce serveur et revient à l'écran pour en relier un. */
   forgetServer?(): Promise<void>;
-  version: string;
+  /** Version de l'app de bureau (pas de l'interface, servie par le serveur). */
+  version?(): Promise<string>;
 };
 
 declare global {

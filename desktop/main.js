@@ -517,6 +517,8 @@ const lanUrl = () => {
   const ip = noah.lanAddress();
   return ip ? `http://${ip}:${noah.readEnv(home).APOLLO_PORT || 8080}` : null;
 };
+ipcMain.handle("noah:version", () => app.getVersion());
+
 ipcMain.handle("noah:lan-status", async (e) => {
   if (!origin || !sameOrigin(e.senderFrame.url) || !home) return { open: false, url: null };
   return { open: noah.readEnv(home).APOLLO_BIND === "0.0.0.0", url: lanUrl() };

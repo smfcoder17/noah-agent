@@ -12,6 +12,10 @@ SECRETS_FILE = Path(os.environ.get("NOAH_SECRETS_FILE", "/secrets/noah.json"))
 _SHARED = ("LAUNCHER_KEY", "APOLLO_SECRET_KEY", "NOAH_SETUP_CODE")
 
 
+def _new_setup_code() -> str:
+    return "".join(secrets.choice("BCDFGHJKLMNPQRSTVWXZ") for _ in range(8))
+
+
 def shared_secret(name: str, optional: bool = False) -> str:
     if os.environ.get(name) and os.environ[name] != "auto":
         return os.environ[name]
@@ -28,7 +32,7 @@ def shared_secret(name: str, optional: bool = False) -> str:
             except FileExistsError:
                 continue  # l'autre service l'écrit en ce moment
             values = {k: secrets.token_hex(32) for k in _SHARED}
-            values["NOAH_SETUP_CODE"] = "".join(secrets.choice("BCDFGHJKLMNPQRSTVWXZ") for _ in range(8))
+            values["NOAH_SETUP_CODE"] = _new_setup_code()
             with os.fdopen(fd, "w") as f:
                 json.dump(values, f)
         except (ValueError, KeyError):
@@ -50,6 +54,25 @@ BROWSER_TIMEZONE = os.environ.get("APOLLO_TIMEZONE", "")
 SETUP_CODE = shared_secret("NOAH_SETUP_CODE", optional=True) if os.environ.get("NOAH_SETUP_CODE") == "auto" else os.environ.get("NOAH_SETUP_CODE", "").strip()
 # Nom public : NOAH_DOMAIN (un domaine à soi), ou « auto » = <ip-publique>.sslip.io, avec HTTPS par Caddy.
 PUBLIC_DOMAIN = os.environ.get("NOAH_DOMAIN", "").strip()
+
+
+def setup_code() -> str:
+    return SETUP_CODE
+
+
+def renew_setup_code() -> None:
+    """Mode « auto », aucun compte, mais code déjà effacé (base des comptes perdue, secrets gardés) : sans nouveau
+    code, le premier visiteur de l'adresse publique prendrait l'installation."""
+    global SETUP_CODE
+    if os.environ.get("NOAH_SETUP_CODE") != "auto" or SETUP_CODE:
+        return
+    values = json.loads(SECRETS_FILE.read_text())
+    values["NOAH_SETUP_CODE"] = _new_setup_code()
+    tmp = SECRETS_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(values))
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, SECRETS_FILE)
+    SETUP_CODE = values["NOAH_SETUP_CODE"]
 
 
 def forget_setup_code() -> None:

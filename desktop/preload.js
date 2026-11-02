@@ -7,7 +7,7 @@ contextBridge.exposeInMainWorld("noahDesktop", {
   lanStatus: () => ipcRenderer.invoke("noah:lan-status"),
   openLan: () => ipcRenderer.invoke("noah:open-lan"),
   forgetServer: () => ipcRenderer.invoke("noah:forget-server"),
-  version: process.env.npm_package_version || "0.1.0",
+  version: () => ipcRenderer.invoke("noah:version"),
 });
 
 // Écran du premier lancement seulement (fichier local) : relier l'app à un serveur, ou à Noah sur cet ordinateur.

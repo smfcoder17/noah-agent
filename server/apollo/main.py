@@ -13,18 +13,31 @@ from urllib.parse import quote, urlencode
 import httpx
 import websockets
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Request, Response, WebSocket
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import accounts, auth, catalog, db, desktop, events, handoff, hermes, machine, media, public, push, relay, updates, watch
-from .config import SETUP_CODE, WEB_DIR, forget_setup_code
+from . import config
+from .config import WEB_DIR, forget_setup_code
 from .hermes import Agent
 
 app = FastAPI(title="Noah Agent")
 
 UNSAFE = {"POST", "PUT", "PATCH", "DELETE"}
 MAINTENANCE_OK = ("/api/updates", "/api/login", "/api/logout")
+# Compatibilité des apps (bureau, téléphone) : le serveur sert la version N-1. En dessous de MIN_CLIENT_VERSION, il
+# répond 426 avec un message lisible (« mets à jour ») plutôt qu'une erreur incompréhensible plus loin.
+API_VERSION = 1
+MIN_CLIENT_VERSION = "0.1.0"
+
+
+def _version(text: str) -> tuple[int, ...]:
+    return tuple(int(n) for n in re.findall(r"\d+", text.split("-", 1)[0])[:3]) or (0,)
+
+
+def client_too_old(version: str) -> bool:
+    return bool(version) and _version(version) < _version(MIN_CLIENT_VERSION)
 
 
 @app.middleware("http")
@@ -37,6 +50,10 @@ async def same_origin_only(request: Request, call_next):
         if not source or source.split("://", 1)[-1].split("/", 1)[0] != host:
             return Response('{"detail":"Requête refusée : elle ne vient pas de Noah."}', status_code=403,
                             media_type="application/json")
+    if request.url.path.startswith("/api/") and request.url.path != "/api/status" \
+            and client_too_old(request.headers.get("x-noah-version", "")):
+        return JSONResponse({"detail": "Cette version de l'app est trop ancienne pour ce serveur Noah : mets-la à jour.",
+                             "min_client_version": MIN_CLIENT_VERSION}, status_code=426)
     if updates.maintenance and request.method in UNSAFE and not request.url.path.startswith(MAINTENANCE_OK):
         # Pendant une mise à jour, la base du serveur peut revenir à son instantané : une écriture faite maintenant
         # (révocation d'un appareil, réglage…) serait perdue en silence. On la refuse franchement.
@@ -73,6 +90,8 @@ AGENT_SETUP_VERSION = "21-comptes-auto"
 @app.on_event("startup")
 async def startup() -> None:
     db.init()
+    if not auth.has_users():
+        config.renew_setup_code()
     auth.hash_old_sessions()
     asyncio.create_task(public.setup())
     updates.announce = _announce_update
@@ -152,22 +171,25 @@ async def _upgrade_agents() -> None:
 
 # --- État, compte, connexion -------------------------------------------------------
 
-def _agent_replied() -> bool:
-    with db.connect() as c:
-        return c.execute("SELECT 1 FROM messages WHERE role = 'agent' AND text != '' LIMIT 1").fetchone() is not None
-
-
 def onboarded() -> bool:
-    """Assistant de premier lancement terminé : il ne l'est qu'après une vraie réponse du modèle. Une installation
-    d'avant l'assistant, qui a déjà parlé avec un agent, l'a fini de fait."""
-    return db.get_setting("onboarded") == "1" or (db.get_setting("provider") is not None and _agent_replied())
+    """Assistant de premier lancement terminé. Une installation neuve le note « 0 » à la création du compte, et
+    seulement /api/setup/done le passe à « 1 » ; une installation d'avant l'assistant n'a pas la clé : déjà finie."""
+    return db.get_setting("onboarded") != "0"
+
+
+def _model_replied(final: dict | None, text: str) -> None:
+    """Preuve de l'essai de l'assistant : une exécution terminée (« completed ») avec du texte du modèle, pour le
+    modèle en service. Une erreur, un texte partiel ou un message système n'en sont pas."""
+    if final and final.get("status") == "completed" and text.strip() and db.get_setting("onboarded") == "0":
+        db.set_setting("model_replied", f"{db.get_setting('provider')}:{db.get_setting('model')}")
 
 
 @app.get("/api/status")
 def status():
     has_users = auth.has_users()
     return {"has_account": has_users, "model_configured": db.get_setting("provider") is not None,
-            "setup_code": bool(SETUP_CODE) and not has_users, "onboarded": has_users and onboarded()}
+            "setup_code": bool(config.setup_code()) and not has_users, "onboarded": has_users and onboarded(),
+            "api": API_VERSION, "min_client_version": MIN_CLIENT_VERSION}
 
 
 class Credentials(BaseModel):
@@ -487,13 +509,44 @@ def flow_poll(body: FlowPoll, request: Request, response: Response):
     return {"token": token}
 
 
+_setup_tries_lock = threading.Lock()
+_setup_failures: list[float] = []  # codes faux, toutes adresses confondues
+SETUP_GLOBAL = 100  # par heure : au-delà, essais distribués sur beaucoup d'adresses ; on bloque la création du compte
+
+
+def _local(ip: str) -> bool:
+    try:
+        a = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return a.is_loopback or a.is_private
+
+
 def _check_setup_code(given: str, request: Request) -> None:
     if auth.has_users():
         raise HTTPException(410, "Le compte administrateur existe déjà : connecte-toi.")
-    given = given.strip().upper().replace("-", "")
-    if SETUP_CODE and not secrets.compare_digest(given, SETUP_CODE.upper().replace("-", "")):
-        _failed_logins[_network(_ip(request))] = _failed_logins.get(_network(_ip(request)), []) + [time.time()]
+    code = config.setup_code()
+    if not code:
+        # Ordinateur personnel (pas de code) : seulement depuis cette machine ou le réseau local, jamais d'Internet.
+        if not _local(_ip(request)):
+            raise HTTPException(403, "Installation sans code d'installation : crée le compte depuis cet ordinateur.")
+        return
+    net, now = _network(_ip(request)), time.time()
+    # Essai réservé avant la comparaison, sous verrou : des requêtes simultanées ne dépassent pas le plafond.
+    with _setup_tries_lock:
+        _setup_failures[:] = [t for t in _setup_failures if now - t < 3600]
+        recent = [t for t in _failed_logins.get(net, []) if now - t < LOGIN_WINDOW]
+        if len(recent) >= LOGIN_TRIES or len(_setup_failures) >= SETUP_GLOBAL:
+            raise HTTPException(429, "Trop d'essais. Réessaie dans quelques minutes.")
+        _failed_logins[net] = recent + [now]
+        _setup_failures.append(now)
+    if not secrets.compare_digest(given.strip().upper().replace("-", ""), code.upper().replace("-", "")):
         raise HTTPException(403, "Code d'installation incorrect. Il est affiché à la fin de l'installation (et dans les journaux du serveur).")
+    with _setup_tries_lock:  # bon code : l'essai réservé ne compte pas
+        if now in _failed_logins.get(net, []):
+            _failed_logins[net].remove(now)
+        if now in _setup_failures:
+            _setup_failures.remove(now)
 
 
 class SetupCode(BaseModel):
@@ -510,8 +563,11 @@ def setup_check(body: SetupCode, request: Request):
 
 @app.post("/api/setup/done")
 def setup_done(user: int = Depends(auth.current_user)):
-    """Dernière étape : refusée tant qu'aucun agent n'a vraiment répondu (clé, modèle et agent vérifiés de bout en bout)."""
-    if not _agent_replied():
+    """Dernière étape : refusée tant que le modèle en service n'a pas vraiment répondu (clé, modèle et agent vérifiés
+    de bout en bout)."""
+    if onboarded():
+        return {"ok": True}
+    if db.get_setting("model_replied") != f"{db.get_setting('provider')}:{db.get_setting('model')}":
         raise HTTPException(409, "Aucune réponse du modèle pour l'instant : l'essai doit réussir avant de finir.")
     db.set_setting("onboarded", "1")
     return {"ok": True}
@@ -523,6 +579,7 @@ def setup_account(body: Credentials, request: Request, response: Response):
     with _setup_lock:
         _check_setup_code(body.installation, request)
         user_id = auth.create_user(body.username, body.password)
+        db.set_setting("onboarded", "0")  # l'assistant continue : modèle, premier agent, essai
     forget_setup_code()
     return _login_response(request, response, user_id)
 
@@ -721,6 +778,9 @@ def get_model(user: int = Depends(auth.current_user)):
     return {"provider": m["provider"], "model": m["model"], "has_key": bool(m["api_key"])} if m else None
 
 
+_first_agent_lock = asyncio.Lock()
+
+
 @app.post("/api/model")
 async def set_model(body: ModelChoice, user: int = Depends(auth.current_user)):
     p = hermes.PROVIDERS.get(body.provider)
@@ -739,10 +799,11 @@ async def set_model(body: ModelChoice, user: int = Depends(auth.current_user)):
     if api_key:
         db.set_setting("api_key", api_key, secret=True)
 
-    agents = _agents()
-    if not agents:
-        await _start_agent("Noah", "Tu es l'assistant personnel de l'utilisateur. Réponds en français, de façon brève et concrète.")
-    else:
+    async with _first_agent_lock:  # deux onglets qui choisissent le premier modèle en même temps : un seul Noah
+        agents = _agents()
+        if not agents:
+            await _start_agent("Noah", "Tu es l'assistant personnel de l'utilisateur. Réponds en français, de façon brève et concrète.")
+    if agents:
         await asyncio.gather(*(hermes.configure(a["id"], model_for(a["id"])) for a in agents), return_exceptions=True)
     return {"ok": True}
 
@@ -1251,6 +1312,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
             task_state[conv_id] = "error" if final and final.get("status") == "failed" else "idle"
         else:
             task_state[conv_id] = "choice" if CHOICE_RE.search(text) else "done"
+        _model_replied(final, text)
         if text:
             _save_message(conv_id, "agent", text)
         elif final and final.get("error"):

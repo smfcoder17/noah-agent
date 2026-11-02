@@ -16,6 +16,7 @@ import { Button } from "@/components/ui";
 import { type Agent, ApiError, type Conversation, type CurrentModel, currentAuthEpoch, get, request, send, type Status, type Usage } from "@/lib/api";
 import { AgentContext } from "@/lib/agentContext";
 import { takeAsk } from "@/lib/askAgent";
+import { appShell, tooOld } from "@/lib/platform";
 import { forgetPushSession, reconcilePush } from "@/lib/push";
 import { useAgentChat } from "@/lib/useAgentChat";
 import { cn } from "@/lib/utils";
@@ -25,7 +26,7 @@ const AgentDialog = lazy(() => import("@/components/AgentDialog").then((m) => ({
 const SidePanel = lazy(() => import("@/components/SidePanel").then((m) => ({ default: m.SidePanel })));
 const SettingsDialog = lazy(() => import("@/components/Settings").then((m) => ({ default: m.SettingsDialog })));
 
-type Screen = "loading" | "onboarding" | "login" | "app" | "error" | "pairing";
+type Screen = "loading" | "onboarding" | "login" | "app" | "error" | "pairing" | "update";
 const WAITING = "noah:appairage";
 
 /** Téléphone qui a scanné le QR code : il attend que l'utilisateur l'accepte sur l'appareil où le code est affiché. */
@@ -115,6 +116,9 @@ export default function App() {
       keepApprovalRequest();
       const status = await get<Status>("/api/status");
       setStatus(status);
+      // App trop ancienne pour ce serveur : on le dit, plutôt que des erreurs incompréhensibles plus loin.
+      const shell = appShell();
+      if (shell && tooOld(await shell.version().catch(() => "0"), status.min_client_version)) return setScreen("update");
       if (!status.has_account) return setScreen("onboarding");
       try {
         await get("/api/me");
@@ -163,6 +167,17 @@ export default function App() {
             <p className="text-xs text-muted-foreground">Ce nombre prouve que c'est bien toi qui as scanné le code.</p>
           </>
         )}
+      </div>
+    );
+  if (screen === "update")
+    return (
+      <div className="mx-auto flex max-w-sm flex-col gap-3 p-10 text-center">
+        <h1 className="text-xl font-semibold">Mets à jour l'app Noah</h1>
+        <p className="text-sm text-muted-foreground">
+          Ton serveur Noah a été mis à jour et cette version de l'app est trop ancienne pour lui (il demande au moins la
+          version {status?.min_client_version}). Installe la dernière version de l'app, puis rouvre-la : tes agents et tes
+          réglages n'ont pas bougé.
+        </p>
       </div>
     );
   if (screen === "error") return <p className="p-10 text-center text-danger">Impossible de joindre le serveur Noah Agent : {error}</p>;
