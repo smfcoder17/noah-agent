@@ -178,12 +178,12 @@ def onboarded() -> bool:
     return db.get_setting("onboarded") != "0"
 
 
-def _config_rev() -> str:
-    """Empreinte de la configuration du modèle (fournisseur, modèle, adresse, clé) : la preuve d'essai ne vaut que pour
-    celle qui a servi. Changer la clé ou le modèle après l'essai demande un nouvel essai."""
-    m = current_model() or {}
-    raw = json.dumps([m.get("provider"), m.get("model"), m.get("base_url"), m.get("api_key")])
-    return hashlib.sha256(raw.encode()).hexdigest()
+def _config_rev(agent_id: str) -> str:
+    """Empreinte de la configuration effective d'un agent (fournisseur, son modèle, adresse, clé) : la preuve d'essai
+    ne vaut que pour l'agent et la configuration qui ont servi. Changer la clé ou le modèle demande un nouvel essai."""
+    m = model_for(agent_id) or {}
+    raw = json.dumps([agent_id, m.get("provider"), m.get("model"), m.get("base_url"), m.get("api_key")])
+    return f"{agent_id}:" + hashlib.sha256(raw.encode()).hexdigest()
 
 
 def _model_replied(final: dict | None, text: str, rev: str) -> None:
@@ -577,7 +577,8 @@ def setup_done(user: int = Depends(auth.current_user)):
     de bout en bout)."""
     if onboarded():
         return {"ok": True}
-    if db.get_setting("model_replied") != _config_rev():
+    proof = db.get_setting("model_replied") or ""
+    if not proof or proof != _config_rev(proof.split(":", 1)[0]):
         raise HTTPException(409, "Aucune réponse du modèle pour l'instant : l'essai doit réussir avant de finir.")
     db.set_setting("onboarded", "1")
     return {"ok": True}
@@ -1140,7 +1141,7 @@ async def repair_agent(agent_id: str, user: int = Depends(auth.current_user)):
     try:
         if state is None:
             await hermes.recreate_container(agent_id, agent.api_key)
-        elif state != "running":
+        elif state != "running" or not await hermes.health(agent):  # arrêtée, ou lancée mais bloquée
             await hermes.restart(agent_id)
     except Exception as e:
         provisioning[agent_id] = f"Impossible de redémarrer l'agent : {e}"
@@ -1293,7 +1294,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
         raise HTTPException(503, "Noah installe une mise à jour (quelques minutes). Réessaie juste après.")
     task_state[conv_id] = "work"  # avant le premier await : une mise à jour qui vérifie maintenant la voit
     _save_message(conv_id, "user", prompt)
-    rev = _config_rev()  # configuration qui sert à cette exécution (preuve de l'essai de l'assistant)
+    rev = _config_rev(agent.id)  # configuration qui sert à cette exécution (preuve de l'essai de l'assistant)
     try:
         run_id = await hermes.start_run(agent, context + prompt, session_id=f"apollo-{conv_id}")
     except Exception:

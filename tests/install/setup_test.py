@@ -74,7 +74,7 @@ with db.connect() as c:  # message « agent » sans exécution réussie (annonce
     c.execute("INSERT INTO messages (conversation_id, role, text) VALUES ('c1', 'agent', 'Noah 2.0 est installée.')")
 assert owner.post("/api/setup/done").status_code == 409, "un message système termine l'assistant"
 db.set_setting("provider", "openrouter"); db.set_setting("model", "m1")
-rev = main._config_rev()
+rev = main._config_rev("a1")
 main._model_replied({"type": "done", "status": "failed"}, "Bonjour, je", rev)  # texte puis échec
 main._model_replied({"type": "done", "status": "completed"}, "   ", rev)        # rien de lisible
 main._model_replied(None, "Bonjour", rev)                                       # flux coupé sans fin
@@ -85,11 +85,14 @@ assert owner.post("/api/setup/done").status_code == 409, "essai d'un autre modè
 main._model_replied({"type": "done", "status": "completed"}, "Bonjour, je suis Noah.", rev)  # parti avant le changement
 assert owner.post("/api/setup/done").status_code == 409, "essai lancé avec l'ancien modèle accepté"
 db.set_setting("api_key", "cle-essai", secret=True)
-rev = main._config_rev()
+rev = main._config_rev("a1")
 main._model_replied({"type": "done", "status": "completed"}, "Bonjour, je suis Noah.", rev)
 db.set_setting("api_key", "autre-cle", secret=True)  # clé remplacée après l'essai
 assert owner.post("/api/setup/done").status_code == 409, "clé changée après l'essai acceptée"
 db.set_setting("api_key", "cle-essai", secret=True)
+db.set_setting("model_a1", "m-propre")  # l'agent a son propre modèle : l'essai fait avec le modèle global ne compte pas
+assert owner.post("/api/setup/done").status_code == 409, "essai d'un autre modèle que celui de l'agent accepté"
+db.set_setting("model_a1", "")
 assert owner.post("/api/setup/done").status_code == 200
 assert owner.get("/api/status").json()["onboarded"] is True
 print("3 bis. fin refusée (409) pour un message système, un essai raté ou un autre modèle ; acceptée après un vrai essai")
@@ -146,7 +149,11 @@ config.renew_setup_code()
 fresh = json.load(open(f"{vault}/noah.json"))["NOAH_SETUP_CODE"]
 assert len(fresh) == 12 and config.setup_code() == fresh
 assert verdict("", "198.51.100.8") == 403
-print("5b. code effacé sans compte : nouveau code tiré au démarrage")
+config.SETUP_CODE = "ABCDEFGH"  # code court d'une version d'avant
+config.renew_setup_code()
+assert len(config.setup_code()) == 12, "ancien code court gardé"
+fresh = config.setup_code()
+print("5b. code effacé, ou court (version d'avant), sans compte : nouveau code de 12 lettres au démarrage")
 
 # 5c. Sans code du tout (ordinateur personnel) : le compte ne se crée que depuis la machine ou le réseau local.
 config.SETUP_CODE = ""

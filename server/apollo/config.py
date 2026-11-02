@@ -63,9 +63,10 @@ def setup_code() -> str:
 
 def renew_setup_code() -> None:
     """Mode « auto », aucun compte, mais code déjà effacé (base des comptes perdue, secrets gardés) : sans nouveau
-    code, le premier visiteur de l'adresse publique prendrait l'installation."""
+    code, le premier visiteur de l'adresse publique prendrait l'installation. Appelé avant l'annonce du lien."""
     global SETUP_CODE
-    if os.environ.get("NOAH_SETUP_CODE") != "auto" or SETUP_CODE:
+    # Code court d'une version d'avant (8 lettres) : remplacé aussi, la protection repose sur sa longueur.
+    if os.environ.get("NOAH_SETUP_CODE") != "auto" or len(SETUP_CODE) >= 12:
         return
     values = json.loads(SECRETS_FILE.read_text())
     values["NOAH_SETUP_CODE"] = _new_setup_code()

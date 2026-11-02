@@ -86,8 +86,9 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
     (async () => {
       const [p, c, u] = await Promise.all([
         get<Provider[]>("/api/providers"),
-        first ? Promise.resolve(null) : get<CurrentModel>("/api/model"),
-        first ? Promise.resolve(null) : get<Usage>("/api/usage"),
+        // Aussi pendant l'assistant : revenir changer de modèle après un essai raté garde les budgets déjà posés.
+        get<CurrentModel>("/api/model"),
+        get<Usage>("/api/usage"),
       ]);
       setProviders(p);
       setCurrent(c);

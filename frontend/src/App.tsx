@@ -133,6 +133,7 @@ export default function App() {
       }
       setScreen(status.onboarded ? "app" : "onboarding");
     } catch (e) {
+      if (e instanceof ApiError && e.status === 426) return setScreen("update"); // minimum relevé pendant le démarrage
       setError((e as Error).message);
       setScreen("error");
     }

@@ -255,6 +255,10 @@ function AgentStep({ onNext }: { onNext: (agentId: string) => void }) {
   );
 }
 
+/** Délai par requête, et abandon si l'étape est quittée. */
+const bounded = (stop: AbortSignal) =>
+  AbortSignal.any ? AbortSignal.any([stop, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000);
+
 const READY_WAIT = 180_000; // première création de la machine d'un agent : image à télécharger sur un VPS neuf
 const ANSWER_WAIT = 180_000; // réponse du modèle : au-delà, on rend la main plutôt que d'attendre sans fin
 
@@ -275,7 +279,7 @@ function TrialStep({ agentId, onModel, onDone }: { agentId: string | null; onMod
         const until = Date.now() + READY_WAIT;
         let a: Agent | undefined;
         while (!stop.signal.aborted && Date.now() < until) {
-          const list: Agent[] = await (await request("/api/agents", { signal: AbortSignal.timeout(15_000) })).json();
+          const list: Agent[] = await (await request("/api/agents", { signal: bounded(stop.signal) })).json();
           a = list.find((x) => x.id === agentId) ?? list[0];
           setAgent(a ?? null);
           setStep(a?.step ?? "");
@@ -288,11 +292,17 @@ function TrialStep({ agentId, onModel, onDone }: { agentId: string | null; onMod
         let text = "";
         let status = "";
         let failure = "";
-        const timer = setTimeout(() => stop.abort("délai"), ANSWER_WAIT);
+        let runId = "";
+        const timer = setTimeout(() => {
+          stop.abort("délai");
+          // Le serveur poursuit une exécution dont le flux est coupé : on l'arrête, sinon elle consomme encore.
+          if (runId) send(`/api/agents/${a!.id}/runs/${runId}/stop`, {}).catch(() => {});
+        }, ANSWER_WAIT);
         try {
           await streamChat(
             { agent_id: a.id, text: "Bonjour ! Présente-toi en une phrase.", conversation_id: null, attachments: [], details: false },
             (ev) => {
+              if (ev.type === "start") runId = ev.run_id;
               if (ev.type === "message") setReply((text += ev.text));
               if (ev.type === "done") {
                 status = ev.status;
@@ -309,7 +319,7 @@ function TrialStep({ agentId, onModel, onDone }: { agentId: string | null; onMod
         if (stop.signal.aborted) return;
         // Seule une exécution terminée compte : un texte suivi d'une erreur, ou un flux coupé, n'est pas une réponse.
         if (status !== "completed" || !text.trim()) throw new Error(failure || "Le modèle n'a pas répondu jusqu'au bout.");
-        await request("/api/setup/done", { method: "POST", body: "{}", signal: AbortSignal.timeout(15_000) });
+        await request("/api/setup/done", { method: "POST", body: "{}", signal: bounded(stop.signal) });
         setPhase("ok");
       } catch (e) {
         if (stop.signal.reason === "délai" || !stop.signal.aborted) {
