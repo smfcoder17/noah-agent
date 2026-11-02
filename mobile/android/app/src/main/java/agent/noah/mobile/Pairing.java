@@ -174,6 +174,13 @@ final class Pairing {
         return prefs.getString("push_tag", null);
     }
 
+    /** Efface l'identité seulement si elle n'a pas changé depuis `gen` (sinon c'est celle d'une nouvelle connexion). */
+    void clearPushIf(long gen, String tag) {
+        synchronized (Pairing.class) {
+            if (gen == pushGeneration() && tag.equals(pushTag())) clearPush();
+        }
+    }
+
     void clearPush() {
         synchronized (Pairing.class) {
             prefs.edit().remove("push_token").remove("push_tag").putLong("push_gen", pushGeneration() + 1).commit();

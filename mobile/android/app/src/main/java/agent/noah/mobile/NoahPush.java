@@ -99,10 +99,15 @@ public class NoahPush extends PushService {
     @Override
     public void onMessage(PushMessage message, String instance) {
         if (!message.getDecrypted()) return; // illisible : pas pour cet appareil
-        new Thread(() -> handle(message)).start(); // la vérification auprès du serveur passe par le réseau
+        // Tout de suite, sans réseau, pendant que le distributeur garde le service en vie : une notification générique.
+        // Le contenu la remplace ensuite (même identifiant) si la session est confirmée. Si Android arrête le processus
+        // avant, il reste la version générique : rien de perdu, rien d'exposé.
+        int id = new Pairing(this).nextNotificationId();
+        show(id, "Noah", "Nouvelle notification. Ouvre Noah pour la voir.", "/");
+        new Thread(() -> handle(message, id)).start();
     }
 
-    private void handle(PushMessage message) {
+    private void handle(PushMessage message, int id) {
         String title = "Noah", text = "Nouvelle notification.", url = "/";
         try {
             JSONObject data = new JSONObject(new String(message.getContent(), StandardCharsets.UTF_8));
@@ -112,22 +117,19 @@ public class NoahPush extends PushService {
             Pairing pairing = new Pairing(this);
             String mine = pairing.pushTag();
             long gen = pairing.pushGeneration();
-            if (mine != null && mine.equals(data.optString("pour")) && stillMine(pairing, mine)) {
+            if (mine != null && mine.equals(data.optString("pour")) && stillMine(pairing, mine, gen)) {
                 // Affiché sous le même verrou que la déconnexion (clearPush puis fermeture des notifications) : soit
                 // la déconnexion est passée et on montre la version générique, soit elle passera après et fermera
                 // celle-ci.
                 synchronized (Pairing.class) {
                     if (gen == pairing.pushGeneration() && mine.equals(pairing.pushTag())) {
-                        show(data.optString("titre", title), data.optString("texte", text), data.optString("url", url));
-                        return;
+                        show(id, data.optString("titre", title), data.optString("texte", text), data.optString("url", url));
                     }
                 }
             }
-            text = "Nouvelle notification. Ouvre Noah pour la voir.";
         } catch (Exception ignored) {
-            // message mal formé : la notification générique suffit
+            // message mal formé : la notification générique déjà affichée suffit
         }
-        show(title, text, url);
     }
 
     @Override
@@ -149,14 +151,16 @@ public class NoahPush extends PushService {
      * pendant que le message attendait chez le distributeur. Serveur injoignable : dans le doute, contenu caché.
      * (onMessage tourne hors du fil de l'interface : l'appel réseau y est permis.)
      */
-    private static boolean stillMine(Pairing pairing, String mine) {
+    private static boolean stillMine(Pairing pairing, String mine, long gen) {
         String server = pairing.server(), token = pairing.pushToken();
         if (server == null || token == null) return false;
         try {
             // 4 s au plus : le distributeur ne garde le service en vie que quelques secondes après le message.
             return mine.equals(new JSONObject(call("GET", server + "/api/push/subscription", token, null, 4000)).optString("pour"));
         } catch (Exception e) {
-            if (String.valueOf(e.getMessage()).equals("HTTP 401")) pairing.clearPush(); // révoquée : identité oubliée
+            // Révoquée : identité oubliée, mais seulement si c'est toujours celle vérifiée (une nouvelle connexion
+            // faite entre-temps garde la sienne).
+            if (String.valueOf(e.getMessage()).equals("HTTP 401")) pairing.clearPushIf(gen, mine);
             return false;
         }
     }
@@ -169,17 +173,17 @@ public class NoahPush extends PushService {
         return channel == null || channel.getImportance() != NotificationManager.IMPORTANCE_NONE;
     }
 
-    private void show(String title, String text, String url) {
+    private void show(int id, String title, String text, String url) {
         NotificationManager manager = getSystemService(NotificationManager.class);
         if (manager == null) return;
         manager.createNotificationChannel(new NotificationChannel(CHANNEL, "Noah", NotificationManager.IMPORTANCE_HIGH));
         Intent open = new Intent(this, MainActivity.class).putExtra("url", url).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        int id = new Pairing(this).nextNotificationId();
         // Un code par notification : sinon toucher une ancienne ouvrirait la page de la dernière reçue.
         PendingIntent tap = PendingIntent.getActivity(this, id, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         NotificationCompat.Builder n = new NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.mipmap.ic_launcher).setContentTitle(title).setContentText(text)
-            .setStyle(new NotificationCompat.BigTextStyle().bigText(text)).setContentIntent(tap).setAutoCancel(true);
+            .setStyle(new NotificationCompat.BigTextStyle().bigText(text)).setContentIntent(tap).setAutoCancel(true)
+            .setOnlyAlertOnce(true); // le remplacement générique → contenu ne sonne pas deux fois
         try {
             NotificationManagerCompat.from(this).notify(id, n.build());
         } catch (SecurityException ignored) {

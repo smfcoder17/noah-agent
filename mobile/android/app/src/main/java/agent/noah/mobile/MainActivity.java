@@ -79,8 +79,33 @@ public class MainActivity extends BridgeActivity {
         cookies.setAcceptCookie(true);
         cookies.setCookie(server, "apollo_session=" + token + "; Path=/" + secure + "; HttpOnly; SameSite=Lax");
         cookies.flush();
+        // Liens vers une autre origine (même hôte sur un autre port compris) : ouverts dans le navigateur, jamais dans
+        // cette fenêtre. Le cookie de session ne distingue pas les ports (RFC 6265 §8.5) : il ne doit partir que vers
+        // l'adresse exacte du serveur.
+        String home = origin(server);
+        bridge.setWebViewClient(new com.getcapacitor.BridgeWebViewClient(bridge) {
+            @Override
+            public boolean shouldOverrideUrlLoading(android.webkit.WebView view, android.webkit.WebResourceRequest request) {
+                if (!home.equals(origin(request.getUrl().toString()))) {
+                    try {
+                        startActivity(new Intent(Intent.ACTION_VIEW, request.getUrl()));
+                    } catch (Exception ignored) {
+                        // aucune app pour ouvrir ce lien
+                    }
+                    return true;
+                }
+                return super.shouldOverrideUrlLoading(view, request);
+            }
+        });
         bridge.getWebView().stopLoading();
         bridge.getWebView().loadUrl(server + page(getIntent()));
+    }
+
+    /** schéma://hôte:port, port explicite (443/80 par défaut) : deux ports du même hôte sont deux origines. */
+    private static String origin(String url) {
+        android.net.Uri u = android.net.Uri.parse(url);
+        int port = u.getPort() != -1 ? u.getPort() : "https".equals(u.getScheme()) ? 443 : 80;
+        return u.getScheme() + "://" + u.getHost() + ":" + port;
     }
 
     /** Ouverte depuis une notification : la page qu'elle désigne, sur ce serveur seulement (chemin relatif). */
