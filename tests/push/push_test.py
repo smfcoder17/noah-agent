@@ -150,6 +150,38 @@ with db.connect() as c:
     assert not c.execute("SELECT 1 FROM push_subscriptions WHERE endpoint LIKE 'https://launcher%'").fetchone()
 print("5 ter. ancien abonnement vers une adresse interne : jamais appelé, supprimé")
 
+# 5 quater. Appareil déconnecté pendant l'attente d'un nouvel essai (après un 503) : le deuxième envoi ne part pas.
+received.clear()
+k6, p6, s6 = device()
+token_f = auth.new_session(user, "Révoqué en route", "web")
+assert subscribe(TestClient(main.app, headers={"Authorization": f"Bearer {token_f}"}),
+                 "https://web.push.apple.com/lent", p6, s6) == 200
+calls = {"n": 0}
+
+
+def slow(request: httpx.Request) -> httpx.Response:
+    received.append(request)
+    if request.url.path.endswith("/lent"):
+        calls["n"] += 1
+        auth.drop_session(token_f)  # révoqué juste après le premier essai
+        return httpx.Response(503)
+    return httpx.Response(201)
+
+
+push.transport = httpx.MockTransport(slow)
+asyncio.run(push.send("Secret", "contenu confidentiel"))
+assert calls["n"] == 1, f"{calls['n']} envois vers un appareil révoqué"
+push.transport = httpx.MockTransport(service)
+print("5 quater. appareil révoqué pendant l'attente d'un nouvel essai : rien ne repart vers lui")
+
+# 5 quinquies. Abonnement renouvelé par le navigateur : l'ancien est remplacé (un seul par appareil).
+k7, p7, s7 = device()
+assert subscribe(app_e, "https://wns2-par02p.notify.windows.com/w/nouveau", p7, s7) == 200
+with db.connect() as c:
+    mine = [r["endpoint"] for r in c.execute("SELECT endpoint FROM push_subscriptions WHERE session = ?", (auth.digest(token_e),))]
+assert mine == ["https://wns2-par02p.notify.windows.com/w/nouveau"], mine
+print("5 quinquies. abonnement renouvelé : l'ancien est remplacé, un seul par appareil")
+
 # 6. Clé VAPID : vingt premiers appels simultanés ne créent qu'une seule clé.
 with db.connect() as c:
     c.execute("DELETE FROM settings WHERE key = 'vapid_key'")

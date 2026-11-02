@@ -18,7 +18,10 @@ export function PushToggle() {
   const [error, setError] = useState("");
   useEffect(() => {
     if (!supported()) return;
-    get<{ abonne: boolean }>("/api/push/subscription").then((r) => setOn(r.abonne && Notification.permission === "granted")).catch(() => setOn(false));
+    // Actif seulement si le serveur ET le navigateur ont l'abonnement (il peut expirer côté navigateur).
+    Promise.all([get<{ abonne: boolean }>("/api/push/subscription"), navigator.serviceWorker.ready.then((r) => r.pushManager.getSubscription())])
+      .then(([r, sub]) => setOn(r.abonne && !!sub && Notification.permission === "granted"))
+      .catch(() => setOn(false));
   }, []);
   if (!supported()) return null;
 

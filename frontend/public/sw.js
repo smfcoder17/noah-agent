@@ -69,6 +69,23 @@ self.addEventListener("push", (e) => {
   );
 });
 
+// Le navigateur renouvelle parfois l'abonnement (expiration, clés changées) : on réabonne et on prévient le serveur,
+// sinon les notifications se perdraient en silence.
+self.addEventListener("pushsubscriptionchange", (e) => {
+  const options = e.oldSubscription?.options;
+  e.waitUntil(
+    (e.newSubscription ? Promise.resolve(e.newSubscription) : options ? self.registration.pushManager.subscribe(options) : Promise.reject())
+      .then((sub) => {
+        const j = sub.toJSON();
+        return fetch("/api/push/subscription", {
+          method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth }),
+        });
+      })
+      .catch(() => {}),
+  );
+});
+
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();
   const url = new URL(e.notification.data?.url || "/", self.location.origin).href;

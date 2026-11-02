@@ -412,10 +412,6 @@ def flow_poll(body: FlowPoll, request: Request, response: Response):
                 if not flow["user"]:
                     response.status_code = 202
                     return {"attente": "accord"}
-                if not flow.get("jeton") and not auth.session_alive(flow.get("par", "")):
-                    # L'appareil qui a accepté a été déconnecté entre-temps : son accord ne vaut plus rien.
-                    _flows.pop(public, None)
-                    break
                 if flow["sens"] == "app" and not flow.get("jeton"):
                     if not body.verification:
                         response.status_code = 202
@@ -425,8 +421,13 @@ def flow_poll(body: FlowPoll, request: Request, response: Response):
                         raise HTTPException(403, "Ce nombre ne correspond pas à celui du navigateur. Par prudence, la "
                                                  "demande est annulée : recommence.")
                 if not flow.get("jeton"):  # réponse perdue en route : le même sondage la relit pendant 30 s
-                    flow["jeton"] = auth.new_session(flow["user"], flow["appareil"], flow["type"], _ip(request),
-                                                     flow.get("version", ""))
+                    # Créée seulement si l'appareil qui a accepté est toujours relié, en une seule écriture : déconnecté
+                    # entre-temps (« Déconnecter tous les autres »), son accord ne vaut plus rien.
+                    flow["jeton"] = auth.new_session_if_alive(flow.get("par", ""), flow["user"], flow["appareil"],
+                                                              flow["type"], _ip(request), flow.get("version", ""))
+                    if not flow["jeton"]:
+                        _flows.pop(public, None)
+                        break
                     flow["expire"] = time.time() + SERVED_SECONDS
                 token = flow["jeton"]
                 break

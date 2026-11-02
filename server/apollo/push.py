@@ -106,11 +106,20 @@ def vapid_header(endpoint: str, now: float | None = None) -> str:
 transport: httpx.AsyncBaseTransport | None = None  # remplacé par les tests
 
 
+def _still_subscribed(endpoint: str) -> bool:
+    now = datetime.now(timezone.utc).isoformat()
+    with db.connect() as c:
+        return bool(c.execute("SELECT 1 FROM push_subscriptions p JOIN sessions s ON s.token = p.session "
+                              "WHERE p.endpoint = ? AND s.expires_at > ?", (endpoint, now)).fetchone())
+
+
 async def _send_one(client: httpx.AsyncClient, sub, payload: bytes, urgent: bool) -> str:
     """« livre » (accepté par le service de push), « mort » (désinstallé, permission retirée : l'abonnement est
     supprimé) ou « echec » (refusé, ou erreur passagère encore là après les nouvelles tentatives)."""
     host = urlsplit(sub["endpoint"]).netloc
     for wait in (*RETRIES, None):
+        if not _still_subscribed(sub["endpoint"]):
+            return "mort"  # appareil déconnecté ou désabonné pendant l'attente : rien ne part
         try:
             r = await client.post(sub["endpoint"], content=encrypt(payload, sub["p256dh"], sub["auth"]), headers={
                 "Authorization": vapid_header(sub["endpoint"]), "Content-Encoding": "aes128gcm",
@@ -193,6 +202,7 @@ def subscribe(body: Subscription, request: Request, apollo_session: str | None =
         raise HTTPException(400, "Clés d'abonnement invalides")
     session = auth.digest(auth.request_token(request, apollo_session) or "")
     with db.connect() as c:
+        c.execute("DELETE FROM push_subscriptions WHERE session = ?", (session,))  # renouvelé : l'ancien ne sert plus
         c.execute("INSERT OR REPLACE INTO push_subscriptions (endpoint, session, p256dh, auth, created_at) "
                   "VALUES (?, ?, ?, ?, ?)", (body.endpoint, session, body.p256dh, body.auth,
                                              datetime.now(timezone.utc).isoformat()))

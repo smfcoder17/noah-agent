@@ -65,6 +65,24 @@ def new_session(user_id: int, device: str = "", platform: str = "web", ip: str =
     return token
 
 
+def new_session_if_alive(parent: str, user_id: int, device: str = "", platform: str = "web", ip: str = "",
+                         version: str = "") -> str | None:
+    """Crée une session seulement si la session `parent` (empreinte) existe encore, dans la même instruction : une
+    révocation de `parent` passe soit avant (rien n'est créé), soit après (la nouvelle session est alors listée et
+    révocable avec les autres). Rend None si `parent` n'existe plus."""
+    token = secrets.token_urlsafe(32)
+    now = datetime.now(timezone.utc)
+    with db.connect() as c:
+        created = c.execute(
+            "INSERT INTO sessions (token, user_id, expires_at, device, platform, created_at, last_seen, last_ip, version) "
+            "SELECT ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS "
+            "(SELECT 1 FROM sessions WHERE token = ? AND user_id = ? AND expires_at > ?)",
+            (digest(token), user_id, (now + timedelta(days=SESSION_DAYS)).isoformat(), device[:80], platform[:20],
+             now.isoformat(), now.isoformat(), ip[:64], version[:20], parent, user_id, now.isoformat()),
+        ).rowcount
+    return token if created else None
+
+
 def drop_session(token: str) -> None:
     with db.connect() as c:
         c.execute("DELETE FROM sessions WHERE token = ?", (digest(token),))
@@ -146,13 +164,6 @@ def devices(user_id: int, current: str | None) -> list[dict]:
     mine = digest(current) if current else None
     return [{"id": r["id"], "nom": r["device"], "type": r["platform"], "depuis": r["created_at"], "vu": r["last_seen"],
              "ip": r["last_ip"] or "", "version": r["version"] or "", "actuel": r["token"] == mine} for r in rows]
-
-
-def session_alive(key: str) -> bool:
-    """Même contrôle que still_valid, à partir de l'empreinte déjà calculée."""
-    with db.connect() as c:
-        row = c.execute("SELECT expires_at FROM sessions WHERE token = ?", (key,)).fetchone()
-    return bool(row) and datetime.fromisoformat(row["expires_at"]) > datetime.now(timezone.utc)
 
 
 def revoke_others(user_id: int, current: str) -> int:

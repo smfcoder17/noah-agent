@@ -190,6 +190,33 @@ assert client().post("/api/pairing/flow/poll", json={"sondage": r["sondage"]}).s
 web_a = client(auth.new_session(alice, "Firefox", "web"))  # la révocation a aussi coupé l'ancienne session de test
 print("8 ter. accord donné par une session révoquée ensuite : plus de session à récupérer (410)")
 
+# 8 quater. Course : « Déconnecter tous les autres » pendant que l'appareil récupère sa session. Quel que soit l'ordre,
+# l'attaquant ne garde aucune session valable (création et contrôle de l'approbateur en une seule écriture SQL).
+import threading  # noqa: E402
+
+leaks = 0
+for i in range(40):
+    reset()
+    owner = auth.new_session(alice, "Propriétaire", "web")
+    stolen = auth.new_session(alice, "Session volée", "web")
+    thief = client(stolen)
+    p = thief.post("/api/pairing").json()
+    r = client().post("/api/pairing/claim", json={"code": p["code"], "appareil": "Attaquant"}).json()
+    fid = thief.get("/api/pairing/pending").json()["demandes"][0]["id"]
+    thief.post(f"/api/pairing/flow/{fid}/autoriser", json={"verification": r["verification"]})
+    got = {}
+    poll = threading.Thread(target=lambda: got.update(r=client().post("/api/pairing/flow/poll", json={"sondage": r["sondage"]})))
+    revoke = threading.Thread(target=lambda: auth.revoke_others(alice, owner))
+    for t in ((poll, revoke) if i % 2 else (revoke, poll)):
+        t.start()
+    poll.join()
+    revoke.join()
+    if got["r"].status_code == 200 and auth.still_valid(got["r"].json()["token"]):
+        leaks += 1
+assert leaks == 0, f"{leaks} sessions d'attaquant survivent à la révocation"
+web_a = client(auth.new_session(alice, "Firefox", "web"))
+print("8 quater. révocation concurrente du sondage (40 essais, deux ordres) : aucune session d'attaquant ne survit")
+
 # 9. Navigateur du téléphone (QR scanné par l'appareil photo) : la session arrive en cookie au sondage.
 reset()
 p = web_a.post("/api/pairing").json()

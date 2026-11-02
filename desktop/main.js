@@ -66,8 +66,14 @@ async function boot() {
   await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(LOADING)}`);
   if (config.mode === "remote") {
     if (serverOrigin(config.server || "") !== config.server) {
-      // Adresse en http vers un serveur public (relié par une ancienne version) : la session y passerait en clair.
-      await forgetServer();
+      // Adresse en http vers un serveur public (relié par une ancienne version) : on ne renvoie surtout pas la session
+      // en clair pour la révoquer. On l'oublie ici ; l'écran de connexion dit de la déconnecter depuis Réglages.
+      await forgetServer({ revoke: false });
+      win.webContents.once("did-finish-load", () =>
+        win.webContents.executeJavaScript(`document.getElementById("error").textContent = ${JSON.stringify(
+          "Ton serveur était relié en http (non chiffré). Relie-le en https, puis déconnecte l'ancienne session dans Réglages → Appareils.",
+        )}`).catch(() => {}),
+      );
       return;
     }
     return openRemote(config.server);
@@ -257,6 +263,10 @@ async function flushOnce() {
   const pending = readConfig().a_revoquer || [];
   const done = new Set();
   for (const item of pending) {
+    if (serverOrigin(item.server || "") !== item.server) {
+      done.add(item.jeton); // http public : on n'envoie pas la session en clair, on l'abandonne
+      continue;
+    }
     let ok = false;
     try {
       const token = safeStorage.decryptString(Buffer.from(item.jeton, "base64"));
@@ -285,11 +295,11 @@ async function changeServer() {
 }
 
 /** Oublie le serveur : la session disparaît aussi côté serveur (si l'appel échoue, on oublie quand même ici). */
-async function forgetServer() {
+async function forgetServer({ revoke = true } = {}) {
   const { server } = readConfig();
   const token = storedToken();
   if (server) {
-    if (token) {
+    if (token && revoke) {
       const r = await fetch(`${server}/api/devices/self`, {
         method: "DELETE", headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10000),
       }).catch(() => null);
