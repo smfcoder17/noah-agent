@@ -12,7 +12,7 @@ import { Thread } from "@/components/Thread";
 import type { SettingsTab } from "@/components/Settings";
 import { ViewerProvider } from "@/components/Viewer";
 import { Button } from "@/components/ui";
-import { type Agent, ApiError, type Conversation, type CurrentModel, get, request, send, type Status, type Usage } from "@/lib/api";
+import { type Agent, ApiError, type Conversation, type CurrentModel, currentAuthEpoch, get, request, send, type Status, type Usage } from "@/lib/api";
 import { AgentContext } from "@/lib/agentContext";
 import { takeAsk } from "@/lib/askAgent";
 import { forgetPushSession, reconcilePush } from "@/lib/push";
@@ -136,9 +136,11 @@ export default function App() {
       // de déconnecter l'écran et d'oublier l'identité des notifications.
       if (checking) return;
       checking = true;
+      const epoch = currentAuthEpoch();
       const r = await fetch("/api/me", { credentials: "same-origin" }).catch(() => null);
       checking = false;
-      if (r?.status !== 401) return;
+      // Connexion réussie pendant la vérification : ce 401 parle de l'ancienne session, la nouvelle est gardée.
+      if (r?.status !== 401 || currentAuthEpoch() !== epoch) return;
       forgetPushSession(); // session refusée (révoquée à distance) : les notifications ne montrent plus leur contenu
       setScreen((s) => (s === "app" || s === "model" ? "login" : s));
     };

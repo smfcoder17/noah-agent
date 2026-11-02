@@ -10,6 +10,10 @@ export class ApiError extends Error {
 
 const ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
 
+// Avance à chaque connexion réussie : un 401 d'une requête partie avant (ancienne session) est reconnu comme tel.
+let authEpoch = 0;
+export const currentAuthEpoch = () => authEpoch;
+
 export async function request(path: string, init: RequestInit = {}): Promise<Response> {
   const res = await fetch(path, {
     ...init,
@@ -17,6 +21,7 @@ export async function request(path: string, init: RequestInit = {}): Promise<Res
     // Fuseau de l'utilisateur : le serveur (souvent un VPS en UTC) installe les mises à jour pendant sa nuit à lui.
     headers: { "Content-Type": "application/json", "X-Noah-Timezone": ZONE, ...(init.headers || {}) },
   });
+  if (res.ok && /^\/api\/(login|setup\/account|pairing\/flow\/poll)/.test(path)) authEpoch++;
   // Session révoquée ou expirée pendant l'usage : l'interface revient à l'écran de connexion (ou de reliaison).
   if (res.status === 401 && !/^\/api\/(login|setup|pairing|status)/.test(path)) window.dispatchEvent(new Event("noah:unauthorized"));
   if (!res.ok) {

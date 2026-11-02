@@ -42,7 +42,8 @@ public class NoahPush extends PushService {
      * session ouverte dans la fenêtre. Le contenu des messages ne s'affichera que pour elle.
      */
     static void start(Activity activity, String server, String token) {
-        new Pairing(activity).startPush(token); // identité confirmée quand le serveur a accepté l'abonnement
+        Pairing pairing = new Pairing(activity);
+        long gen = pairing.startPush(token); // identité confirmée quand le serveur a accepté l'abonnement
         if (Build.VERSION.SDK_INT >= 33
             && activity.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             activity.requestPermissions(new String[] { Manifest.permission.POST_NOTIFICATIONS }, 7);
@@ -55,7 +56,11 @@ public class NoahPush extends PushService {
                 return; // serveur injoignable : on réessaiera à la prochaine ouverture
             }
             activity.runOnUiThread(() -> UnifiedPush.tryUseCurrentOrDefaultDistributor(activity, ok -> {
-                if (ok) UnifiedPush.register(activity, ConstantsKt.INSTANCE_DEFAULT, "Noah", vapid);
+                // Clé lue pour cette session-là : si on s'est déconnecté ou relié ailleurs entre-temps, une inscription
+                // plus récente a pris la main ; celle-ci ne la remplace pas avec une ancienne clé.
+                if (ok && gen == pairing.pushGeneration() && token.equals(pairing.pushToken())) {
+                    UnifiedPush.register(activity, ConstantsKt.INSTANCE_DEFAULT, "Noah", vapid);
+                }
                 return Unit.INSTANCE;
             }));
         }).start();

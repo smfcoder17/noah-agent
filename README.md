@@ -180,6 +180,13 @@ et seulement depuis les dossiers de travail de l'agent.
 - Le lanceur a accès au socket Docker. Il n'expose qu'un petit vocabulaire, mais reste
   le composant le plus sensible.
 - Un seul compte administrateur pour l'instant.
+- Noah doit avoir son propre nom d'hôte (`noah.exemple.org`), sans autre service web sur le
+  même hôte. Les cookies ne distinguent pas les ports (RFC 6265 §8.5) : un service sur
+  `noah.exemple.org:8443` recevrait la session de Noah. Les apps bloquent ces requêtes, mais
+  pas une image redirigée vers ce port. L'installation VPS (`get.sh`) respecte cette règle.
+- Notifications web : si l'on se déconnecte au moment même où une notification s'affiche,
+  son contenu peut apparaître un instant avant d'être refermé (l'API ne permet pas de
+  vérifier et d'afficher d'un seul tenant).
 
 ## Feuille de route
 

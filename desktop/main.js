@@ -421,7 +421,12 @@ function createWindow() {
     let cancel = false;
     try {
       const u = new URL(details.url), home = origin ? new URL(origin) : null;
-      cancel = !!home && /^https?:$/.test(u.protocol) && u.hostname === home.hostname && u.origin !== home.origin;
+      // WebSocket compris : sa poignée de main emporte aussi le cookie. wss:443 = https:443 pour la comparaison.
+      const scheme = { "ws:": "http:", "wss:": "https:" }[u.protocol] || u.protocol;
+      const port = u.port || (scheme === "https:" ? "443" : "80");
+      const homePort = home && (home.port || (home.protocol === "https:" ? "443" : "80"));
+      cancel = !!home && /^(https?|wss?):$/.test(u.protocol) && u.hostname === home.hostname
+        && !(scheme === home.protocol && port === homePort);
     } catch {
       cancel = false;
     }

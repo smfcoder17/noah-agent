@@ -36,6 +36,12 @@ public class MainActivity extends BridgeActivity {
                 @Override
                 public void onAvailable(Network n) {
                     new Thread(pairing::revokeForgotten).start();
+                    // Notifications pas encore actives (première ouverture hors ligne, serveur injoignable) : on
+                    // reprend l'inscription au retour du réseau, sans attendre une réouverture.
+                    String s = pairing.server(), t = Pairing.windowToken(s);
+                    if (s != null && t != null && pairing.pushTag() == null) {
+                        runOnUiThread(() -> NoahPush.start(MainActivity.this, s, t));
+                    }
                 }
             };
             network.registerDefaultNetworkCallback(onNetwork);
