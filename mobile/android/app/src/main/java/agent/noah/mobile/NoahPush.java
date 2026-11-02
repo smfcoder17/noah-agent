@@ -153,7 +153,8 @@ public class NoahPush extends PushService {
         String server = pairing.server(), token = pairing.pushToken();
         if (server == null || token == null) return false;
         try {
-            return mine.equals(new JSONObject(call("GET", server + "/api/push/subscription", token, null)).optString("pour"));
+            // 4 s au plus : le distributeur ne garde le service en vie que quelques secondes après le message.
+            return mine.equals(new JSONObject(call("GET", server + "/api/push/subscription", token, null, 4000)).optString("pour"));
         } catch (Exception e) {
             if (String.valueOf(e.getMessage()).equals("HTTP 401")) pairing.clearPush(); // révoquée : identité oubliée
             return false;
@@ -202,11 +203,15 @@ public class NoahPush extends PushService {
     }
 
     private static String call(String method, String url, String token, String json) throws Exception {
+        return call(method, url, token, json, 15000);
+    }
+
+    private static String call(String method, String url, String token, String json, int timeout) throws Exception {
         HttpURLConnection http = (HttpURLConnection) new URL(url).openConnection();
         http.setRequestMethod(method);
         http.setRequestProperty("Authorization", "Bearer " + token);
-        http.setConnectTimeout(15000);
-        http.setReadTimeout(15000);
+        http.setConnectTimeout(timeout);
+        http.setReadTimeout(timeout);
         if (json != null) {
             http.setDoOutput(true);
             http.setRequestProperty("Content-Type", "application/json");

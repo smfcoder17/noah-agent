@@ -3,7 +3,6 @@ package agent.noah.mobile;
 import android.content.Intent;
 import android.net.ConnectivityManager;
 import android.net.Network;
-import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -52,8 +51,9 @@ public class MainActivity extends BridgeActivity {
         token = server == null ? null : pairing.token();
         if (server != null && token != null) {
             config = new CapConfig.Builder(this)
+                // Seule l'adresse complète du serveur (port compris) accède au pont natif. Pas d'allowNavigation : il
+                // ne compare que l'hôte, et ouvrirait le pont à un autre service du même hôte sur un autre port.
                 .setServerUrl(server)
-                .setAllowNavigation(new String[] { Uri.parse(server).getHost() })
                 .setAppendedUserAgentString("NoahApp/" + BuildConfig.VERSION_NAME + " Android")
                 .create();
         }

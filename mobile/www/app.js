@@ -39,8 +39,18 @@ function parseLink(text) {
   }
 }
 
-/** Requête bornée à 20 s : un serveur qui accepte la connexion sans répondre ne suspend pas l'attente. */
-const timed = (request) => Promise.race([request, new Promise((_, ko) => setTimeout(() => ko(new Error("délai")), 20000))]);
+/**
+ * POST JSON par le client HTTP natif, borné à 15 s par le transport lui-même (connexion et lecture) : un serveur qui
+ * accepte la connexion sans répondre ne laisse pas de requête pendante. Rend { ok, status, json() } comme fetch.
+ */
+async function post(url, body, headers = {}) {
+  const r = await Capacitor.Plugins.CapacitorHttp.request({
+    url, method: "POST", headers: { "Content-Type": "application/json", ...headers }, data: body,
+    connectTimeout: 15000, readTimeout: 15000, responseType: "json",
+  });
+  const data = typeof r.data === "string" ? JSON.parse(r.data || "{}") : r.data || {};
+  return { ok: r.status >= 200 && r.status < 300, status: r.status, json: async () => data };
+}
 
 // Change à chaque nouvelle demande : une attente plus ancienne s'arrête, et sa session arrivée trop tard est révoquée.
 let attempt = 0;
@@ -56,11 +66,8 @@ async function claim(server, code) {
   let r;
   try {
     // CapacitorHttp : la requête part de l'app elle-même (pas de restriction CORS pour cet écran local).
-    r = await timed(fetch(`${server}/api/pairing/claim`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Noah-Version": info.version },
-      body: JSON.stringify({ code, appareil: info.device, type: "android" }),
-    }));
+    r = await post(`${server}/api/pairing/claim`, { code, appareil: info.device, type: "android" },
+      { "X-Noah-Version": info.version });
   } catch {
     return say(`Impossible de joindre ${server}. Vérifie ta connexion et l'adresse.`);
   }
@@ -82,9 +89,7 @@ async function waitForApproval(server, sondage, expire, verification, mine) {
     await new Promise((ok) => setTimeout(ok, 2000));
     let r;
     try {
-      r = await timed(fetch(`${server}/api/pairing/flow/poll`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sondage }),
-      }));
+      r = await post(`${server}/api/pairing/flow/poll`, { sondage });
     } catch {
       continue; // réseau coupé un instant : on réessaie
     }

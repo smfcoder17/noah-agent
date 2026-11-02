@@ -12,7 +12,7 @@ import { Thread } from "@/components/Thread";
 import type { SettingsTab } from "@/components/Settings";
 import { ViewerProvider } from "@/components/Viewer";
 import { Button } from "@/components/ui";
-import { type Agent, ApiError, type Conversation, type CurrentModel, get, send, type Status, type Usage } from "@/lib/api";
+import { type Agent, ApiError, type Conversation, type CurrentModel, get, request, send, type Status, type Usage } from "@/lib/api";
 import { AgentContext } from "@/lib/agentContext";
 import { takeAsk } from "@/lib/askAgent";
 import { forgetPushSession, reconcilePush } from "@/lib/push";
@@ -34,7 +34,10 @@ async function waitForApproval(sondage: string, expire: number) {
   while (Date.now() < until) {
     await new Promise((ok) => setTimeout(ok, 2000));
     try {
-      const r = await send<{ token?: string }>("/api/pairing/flow/poll", { sondage }); // 202 : en attente
+      // 20 s au plus par sondage : une réponse qui ne vient jamais n'empêche pas de revenir vérifier l'échéance.
+      const r = (await (await request("/api/pairing/flow/poll", {
+        method: "POST", body: JSON.stringify({ sondage }), signal: AbortSignal.timeout(20000),
+      })).json()) as { token?: string }; // 202 : en attente
       if (r.token) return; // la session arrive aussi en cookie
     } catch (e) {
       if (e instanceof ApiError && e.status === 410) throw new Error("Demande refusée ou expirée. Scanne un nouveau code.");
