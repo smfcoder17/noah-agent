@@ -48,14 +48,36 @@ assert 429 in codes and codes.index(429) <= main.LOGIN_TRIES, codes
 assert attacker.post("/api/setup/account", json={**account, "installation": code}).status_code == 429, "vrai code accepté pendant le blocage"
 print(f"2. {codes.index(429)} essais faux depuis une adresse, puis 429 (même avec le vrai code)")
 
+# 2 bis. Assistant (G1.8) : le code est vérifié en première étape, sans être consommé.
+assert client().post("/api/setup/check", json={"installation": "BCDFGHJK"}).status_code == 403
+assert client().post("/api/setup/check", json={"installation": code}).status_code == 200
+assert "NOAH_SETUP_CODE" in json.load(open(f"{vault}/noah.json")) and not auth.has_users()
+print("2 bis. assistant : code vérifié d'abord (403 faux, 200 bon), toujours valable pour créer le compte")
+
 # 3. Le bon code (tirets et minuscules tolérés) crée le propriétaire ; ensuite 410 et le code est effacé.
-owner = client()
+owner = TestClient(main.app, headers={"X-Test-Ip": "10.2.0.1", "Origin": "http://testserver"})
 r = owner.post("/api/setup/account", json={**account, "installation": f"{code[:4].lower()}-{code[4:]}"})
 assert r.status_code == 200 and "apollo_session" in r.headers.get("set-cookie", ""), r.text
 assert client().post("/api/setup/account", json={**account, "installation": code}).status_code == 410
 assert "NOAH_SETUP_CODE" not in json.load(open(f"{vault}/noah.json")), "code d'installation encore dans les secrets"
 assert client().get("/api/status").json()["setup_code"] is False
+assert client().post("/api/setup/check", json={"installation": code}).status_code == 410
 print("3. bon code : compte créé ; ensuite 410, code effacé des secrets")
+
+# 3 bis. L'assistant ne se termine qu'après une vraie réponse du modèle.
+assert owner.get("/api/status").json()["onboarded"] is False
+assert client().post("/api/setup/done").status_code == 401
+r = owner.post("/api/setup/done"); assert r.status_code == 409, (r.status_code, r.text)
+with db.connect() as c:
+    c.execute("INSERT INTO agents (id, name, role, api_key) VALUES ('a1', 'Noah', '', 'k')")
+    c.execute("INSERT INTO conversations (id, user_id, agent_id, title, main) VALUES ('c1', 1, 'a1', 'x', 1)")
+    c.execute("INSERT INTO messages (conversation_id, role, text) VALUES ('c1', 'error', 'clé refusée')")
+assert owner.post("/api/setup/done").status_code == 409, "une erreur compte comme une réponse"
+with db.connect() as c:
+    c.execute("INSERT INTO messages (conversation_id, role, text) VALUES ('c1', 'agent', 'Bonjour, je suis Noah.')")
+assert owner.post("/api/setup/done").status_code == 200
+assert owner.get("/api/status").json()["onboarded"] is True
+print("3 bis. fin de l'assistant refusée (409) sans réponse du modèle, acceptée après")
 
 # 4. Redémarrage (nouveau processus, mêmes volumes) : mêmes secrets, session toujours valable, pas de nouveau code.
 token = auth.new_session(auth.check_password("franck", "motdepasse-long"), "PC", "web")

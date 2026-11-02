@@ -94,7 +94,8 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
       setUsage(u);
       setBudget(u?.budget != null ? String(u.budget) : "");
       setDaily(u?.daily != null ? String(u.daily) : "");
-      setProvider(p.find((x) => x.id === c?.provider) || p[0]);
+      // Premier lancement : aucun fournisseur choisi d'avance (l'utilisateur choisit où partent ses données).
+      setProvider(p.find((x) => x.id === c?.provider) || (first ? null : p[0]));
       if (c) setPicked({ id: c.model, name: c.model });
     })().catch((e) => setError(e.message));
   }, [first]);

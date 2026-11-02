@@ -3,6 +3,7 @@ import { QuoteContext, useQuoteState } from "@/lib/quotes";
 import { ArrowLeft, Bug, Menu, MonitorPlay, PanelRight, Plus } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { AuthScreen } from "@/components/AuthScreen";
+import { Onboarding } from "@/components/Onboarding";
 import { DeviceApproval, keepApprovalRequest } from "@/components/DeviceApproval";
 import { HandoffBanner } from "@/components/Handoff";
 import { NoahTile, agentColor } from "@/components/Noah";
@@ -21,11 +22,10 @@ import { cn } from "@/lib/utils";
 
 // Chargés à la première ouverture : le premier écran n'attend que le chat.
 const AgentDialog = lazy(() => import("@/components/AgentDialog").then((m) => ({ default: m.AgentDialog })));
-const ModelPicker = lazy(() => import("@/components/ModelPicker").then((m) => ({ default: m.ModelPicker })));
 const SidePanel = lazy(() => import("@/components/SidePanel").then((m) => ({ default: m.SidePanel })));
 const SettingsDialog = lazy(() => import("@/components/Settings").then((m) => ({ default: m.SettingsDialog })));
 
-type Screen = "loading" | "setup" | "login" | "model" | "app" | "error" | "pairing";
+type Screen = "loading" | "onboarding" | "login" | "app" | "error" | "pairing";
 const WAITING = "noah:appairage";
 
 /** Téléphone qui a scanné le QR code : il attend que l'utilisateur l'accepte sur l'appareil où le code est affiché. */
@@ -68,6 +68,7 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>("loading");
   const [error, setError] = useState("");
   const [verification, setVerification] = useState("");
+  const [status, setStatus] = useState<Status | null>(null);
 
   const boot = useCallback(async () => {
     try {
@@ -113,14 +114,15 @@ export default function App() {
       }
       keepApprovalRequest();
       const status = await get<Status>("/api/status");
-      if (!status.has_account) return setScreen("setup");
+      setStatus(status);
+      if (!status.has_account) return setScreen("onboarding");
       try {
         await get("/api/me");
       } catch (e) {
         if (e instanceof ApiError && e.status === 401) return setScreen("login");
         throw e;
       }
-      setScreen(status.model_configured ? "app" : "model");
+      setScreen(status.onboarded ? "app" : "onboarding");
     } catch (e) {
       setError((e as Error).message);
       setScreen("error");
@@ -142,7 +144,7 @@ export default function App() {
       // Connexion réussie pendant la vérification : ce 401 parle de l'ancienne session, la nouvelle est gardée.
       if (r?.status !== 401 || currentAuthEpoch() !== epoch) return;
       forgetPushSession(); // session refusée (révoquée à distance) : les notifications ne montrent plus leur contenu
-      setScreen((s) => (s === "app" || s === "model" ? "login" : s));
+      setScreen((s) => (s === "app" || s === "onboarding" ? "login" : s));
     };
     window.addEventListener("noah:unauthorized", out);
     return () => window.removeEventListener("noah:unauthorized", out);
@@ -164,18 +166,14 @@ export default function App() {
       </div>
     );
   if (screen === "error") return <p className="p-10 text-center text-danger">Impossible de joindre le serveur Noah Agent : {error}</p>;
-  if (screen === "setup" || screen === "login") return <AuthScreen mode={screen} onDone={boot} />;
-  if (screen === "model")
+  if (screen === "login") return <AuthScreen onDone={boot} />;
+  if (screen === "onboarding" && status)
     return (
-      <div className="mx-auto max-w-4xl px-4 py-10">
-        <h1 className="mb-1 text-2xl font-semibold">Le cerveau de tes agents</h1>
-        <p className="mb-6 text-sm text-muted-foreground">La clé reste chiffrée sur cette machine. Les agents ne la voient jamais : ils passent par Noah Agent.</p>
-        <Suspense fallback={<p className="text-sm text-muted-foreground">Chargement…</p>}>
-          <ModelPicker first onDone={() => setScreen("app")} />
-        </Suspense>
-        {/* Un appareil qui attend son accord (bureau, téléphone) n'a pas à attendre le choix du modèle. */}
-        <DeviceApproval />
-      </div>
+      <>
+        <Onboarding status={status} onDone={() => setScreen("app")} />
+        {/* Un appareil qui attend son accord (bureau, téléphone) n'a pas à attendre la fin de l'assistant. */}
+        {status.has_account && <div className="mx-auto max-w-4xl px-4 pb-10"><DeviceApproval /></div>}
+      </>
     );
   return <Shell onLogout={boot} />;
 }

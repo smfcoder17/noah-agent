@@ -152,10 +152,22 @@ async def _upgrade_agents() -> None:
 
 # --- État, compte, connexion -------------------------------------------------------
 
+def _agent_replied() -> bool:
+    with db.connect() as c:
+        return c.execute("SELECT 1 FROM messages WHERE role = 'agent' AND text != '' LIMIT 1").fetchone() is not None
+
+
+def onboarded() -> bool:
+    """Assistant de premier lancement terminé : il ne l'est qu'après une vraie réponse du modèle. Une installation
+    d'avant l'assistant, qui a déjà parlé avec un agent, l'a fini de fait."""
+    return db.get_setting("onboarded") == "1" or (db.get_setting("provider") is not None and _agent_replied())
+
+
 @app.get("/api/status")
 def status():
-    return {"has_account": auth.has_users(), "model_configured": db.get_setting("provider") is not None,
-            "setup_code": bool(SETUP_CODE) and not auth.has_users()}
+    has_users = auth.has_users()
+    return {"has_account": has_users, "model_configured": db.get_setting("provider") is not None,
+            "setup_code": bool(SETUP_CODE) and not has_users, "onboarded": has_users and onboarded()}
 
 
 class Credentials(BaseModel):
@@ -475,16 +487,41 @@ def flow_poll(body: FlowPoll, request: Request, response: Response):
     return {"token": token}
 
 
+def _check_setup_code(given: str, request: Request) -> None:
+    if auth.has_users():
+        raise HTTPException(410, "Le compte administrateur existe déjà : connecte-toi.")
+    given = given.strip().upper().replace("-", "")
+    if SETUP_CODE and not secrets.compare_digest(given, SETUP_CODE.upper().replace("-", "")):
+        _failed_logins[_network(_ip(request))] = _failed_logins.get(_network(_ip(request)), []) + [time.time()]
+        raise HTTPException(403, "Code d'installation incorrect. Il est affiché à la fin de l'installation (et dans les journaux du serveur).")
+
+
+class SetupCode(BaseModel):
+    installation: str = Field(default="", max_length=64)
+
+
+@app.post("/api/setup/check")
+def setup_check(body: SetupCode, request: Request):
+    """Première étape de l'assistant : le code est vérifié avant tout le reste, sans être consommé."""
+    _too_many(request)
+    _check_setup_code(body.installation, request)
+    return {"ok": True}
+
+
+@app.post("/api/setup/done")
+def setup_done(user: int = Depends(auth.current_user)):
+    """Dernière étape : refusée tant qu'aucun agent n'a vraiment répondu (clé, modèle et agent vérifiés de bout en bout)."""
+    if not _agent_replied():
+        raise HTTPException(409, "Aucune réponse du modèle pour l'instant : l'essai doit réussir avant de finir.")
+    db.set_setting("onboarded", "1")
+    return {"ok": True}
+
+
 @app.post("/api/setup/account")
 def setup_account(body: Credentials, request: Request, response: Response):
     recent = _too_many(request)
     with _setup_lock:
-        if auth.has_users():
-            raise HTTPException(410, "Le compte administrateur existe déjà : connecte-toi.")
-        given = body.installation.strip().upper().replace("-", "")
-        if SETUP_CODE and not secrets.compare_digest(given, SETUP_CODE.upper().replace("-", "")):
-            _failed_logins[_network(_ip(request))] = _failed_logins.get(_network(_ip(request)), []) + [time.time()]
-            raise HTTPException(403, "Code d'installation incorrect. Il est affiché à la fin de l'installation (et dans les journaux du serveur).")
+        _check_setup_code(body.installation, request)
         user_id = auth.create_user(body.username, body.password)
     forget_setup_code()
     return _login_response(request, response, user_id)

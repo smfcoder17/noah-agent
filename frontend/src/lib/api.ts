@@ -60,7 +60,7 @@ export const del = async (path: string) => request(path, { method: "DELETE" });
 
 // --- Types renvoyés par le serveur ----------------------------------------------------
 
-export type Status = { has_account: boolean; model_configured: boolean; setup_code?: boolean };
+export type Status = { has_account: boolean; model_configured: boolean; setup_code?: boolean; onboarded?: boolean };
 export type Provider = { id: string; label: string; needs_key: boolean; default_model: string };
 export type Model = {
   id: string;
