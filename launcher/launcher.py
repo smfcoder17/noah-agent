@@ -4,6 +4,7 @@ Il n'accepte qu'un petit vocabulaire (créer, écrire la config, redémarrer, su
 et construit lui-même chaque conteneur à partir d'une image fixe, sans montage de l'hôte ni
 privilège. Le serveur Noah Agent n'a donc jamais accès au socket Docker.
 """
+import base64
 import io
 import json
 import os
@@ -594,44 +595,51 @@ def delete(agent_id: str):
 
 @app.get("/health")
 def health():
-    """Contrôle de santé après une mise à jour du lanceur (sans clé : ne dit rien d'autre que « je réponds »)."""
+    """Contrôle de santé après une mise à jour du lanceur : il répond et il parle à Docker."""
+    try:
+        client.ping()
+    except Exception:  # noqa: BLE001
+        raise HTTPException(503, "Docker injoignable")
     return {"ok": True}
 
 
-def _recreate_browser(name: str, image: str) -> bool:
+def _recreate_browser(name: str, image: str) -> None:
     """Navigateur sur une nouvelle image : recréé par _ensure_browser, qui y dépose l'extension Noah et la config de
-    Firefox avant le démarrage (une simple recréation les perdrait). L'ancien est gardé jusqu'au contrôle de santé."""
+    Firefox avant le démarrage (une simple recréation les perdrait). L'ancien reste sous <nom>-ancien ; la
+    transaction décide ensuite (santé, retour arrière). Appelé avec _browser_lock déjà pris."""
     old = client.containers.get(name)
     env = dict(e.split("=", 1) for e in old.attrs["Config"]["Env"] if "=" in e)
     agent_id = old.labels[BROWSER_LABEL]
     _, locale, timezone = (old.labels.get("apollo.browser.version", "") + "::").split(":")[:3]
     body = BrowserKeys(api_key=env["CAMOFOX_API_KEY"], vnc_password=env["VNC_PASSWORD"], locale=locale, timezone=timezone)
-    old.stop(timeout=20)  # arrêt propre : Camoufox enregistre les cookies de la session
     try:
         client.containers.get(f"{name}-ancien").remove(force=True)
     except NotFound:
         pass
+    old.stop(timeout=20)  # arrêt propre : Camoufox enregistre les cookies de la session
     old.rename(f"{name}-ancien")
-    with _browser_lock:
-        _ensure_browser(agent_id, body, image)
-    if updater.healthy(name, 90):
-        updater.finish(name)
-        return True
-    updater.restore(name)
-    return False
+    _ensure_browser(agent_id, body, image)
 
 
 updater.HOOKS["navigateur"] = _recreate_browser
-# Mise à jour interrompue par un arrêt brutal : on la termine ou on l'annule, au démarrage.
+updater.LOCKS["navigateur"] = _browser_lock
+# Mise à jour interrompue par un arrêt brutal : annulée au démarrage, avant toute nouvelle opération.
 threading.Thread(target=updater.recover, daemon=True).start()
 
 
-class UpdatePull(BaseModel):
-    images: list[str]
+class SignedManifest(BaseModel):
+    manifeste: str  # octets signés, en base64
+    signature: str
+    composants: list[str] | None = None
+    force: bool = False
 
 
-class UpdateApply(BaseModel):
-    cibles: dict[str, str]
+def _verified(body: SignedManifest) -> tuple[bytes, dict]:
+    raw = base64.b64decode(body.manifeste)
+    try:
+        return raw, updater.verify_manifest(raw, body.signature)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 @app.get("/update/status", dependencies=[Depends(auth)])
@@ -640,12 +648,15 @@ def update_status():
 
 
 @app.post("/update/pull", dependencies=[Depends(auth)])
-def update_pull(body: UpdatePull):
-    return updater.pull(body.images)
+def update_pull(body: SignedManifest):
+    """Préchargement : seulement des images du manifeste signé."""
+    _, manifest = _verified(body)
+    return updater.pull([r for c, r in manifest["images"].items() if body.composants is None or c in body.composants])
 
 
 @app.post("/update/apply", dependencies=[Depends(auth)])
-def update_apply(body: UpdateApply):
+def update_apply(body: SignedManifest):
     """Lancée en arrière-plan : le serveur lui-même peut être recréé pendant l'opération ; il relit l'état ensuite."""
-    threading.Thread(target=updater.apply, args=(body.cibles,), daemon=True).start()
+    raw, _ = _verified(body)
+    threading.Thread(target=updater.apply, args=(raw, body.signature, body.composants, body.force), daemon=True).start()
     return {"ok": True, "en_cours": True}

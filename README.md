@@ -37,18 +37,29 @@ dans le QR code. À la main :
 
 ### Sur un VPS (accessible partout, en HTTPS)
 
-1. Un VPS Linux avec 2 Go de RAM minimum par agent actif (4 Go conseillés), les ports 80 et 443 ouverts.
-2. Un nom de domaine (ou sous-domaine) dont l'enregistrement DNS pointe vers l'IP du VPS.
-3. Sur le VPS :
-   ```sh
-   curl -fsSL https://get.docker.com | sh
-   git clone <ce dépôt> noah-agent && cd noah-agent
-   sh install.sh --domaine noah.example.com
-   ```
-4. Ouvre `https://noah.example.com` et crée ton compte tout de suite : la page est publique jusqu'à ce que le compte existe.
+Un VPS Linux (Ubuntu ou Debian) avec 4 Go de RAM, les ports 80 et 443 libres. Aucun nom de domaine n'est nécessaire.
 
-Caddy obtient et renouvelle le certificat HTTPS tout seul. Le serveur n'écoute plus que derrière lui ; la page
-de connexion bloque une adresse IP après 10 essais ratés en 10 minutes.
+- **Hostinger** : VPS > Docker Manager > Compose > « Compose from URL », colle l'adresse brute de
+  `deploy/docker-compose.yml`, puis Deploy. Le lien de création du compte s'affiche dans les journaux du service
+  `server`.
+- **Ailleurs**, en root : `curl -fsSL https://raw.githubusercontent.com/SmfCoder/noah-agent/main/get.sh | sh`
+
+Noah répond en HTTPS sur `<ip-en-tirets>.sslip.io` (ou ton domaine : `NOAH_DOMAIN=noah.exemple.com` devant la
+commande). Le lien affiché porte un code d'installation à usage unique : personne d'autre ne peut créer le compte.
+Relie ensuite ton ordinateur et ton téléphone depuis Réglages > Appareils.
+
+### Mises à jour
+
+Noah se met à jour seul, dépendances comprises (Hermes, le navigateur, Caddy) : chaque version publiée fixe
+leurs images par empreinte, dans un manifeste signé. Le serveur le lit toutes les heures, télécharge la nouvelle
+version à l'avance et l'installe pendant ton créneau calme, dans ton fuseau (de 3 h à 6 h, ou les heures où tu
+n'utilises pas Noah). Jamais pendant une tâche, une validation, un écran ouvert ou juste avant une routine.
+Tout est sauvegardé avant (bases SQLite vérifiées) ; si un composant ne répond plus, l'ancienne version revient
+avec ses données. Une version majeure attend 7 jours (ou un clic). Tout se règle dans Réglages > Mises à jour.
+
+Pour publier des versions signées depuis ton dépôt : `python scripts/release-manifest.py cle`, puis le secret
+`NOAH_RELEASE_KEY` et la variable `NOAH_UPDATE_KEY` dans GitHub Actions ; chaque étiquette `vX.Y.Z` publie les
+images et le manifeste.
 
 ### Sauvegardes
 

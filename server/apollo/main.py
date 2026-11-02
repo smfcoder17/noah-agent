@@ -35,8 +35,11 @@ async def same_origin_only(request: Request, call_next):
         if not source or source.split("://", 1)[-1].split("/", 1)[0] != host:
             return Response('{"detail":"Requête refusée : elle ne vient pas de Noah."}', status_code=403,
                             media_type="application/json")
-    if "x-noah-timezone" in request.headers:  # fuseau de l'utilisateur : créneau des mises à jour
-        updates.saw_client(request.headers["x-noah-timezone"])
+    zone = request.headers.get("x-noah-timezone")
+    if zone and zone != updates._last_zone:  # fuseau d'un utilisateur connecté : créneau des mises à jour
+        token = auth.request_token(request, request.cookies.get(auth.COOKIE))
+        if token and await asyncio.to_thread(auth.still_valid, token):
+            updates.saw_client(zone)
     return await call_next(request)
 app.include_router(relay.router)
 app.include_router(machine.router)
@@ -62,6 +65,7 @@ async def startup() -> None:
     db.init()
     auth.hash_old_sessions()
     asyncio.create_task(public.setup())
+    updates.announce = _announce_update
     asyncio.create_task(updates.run(task_state))
     _migrate_threads()
     asyncio.create_task(_refresh_browsers())
@@ -773,6 +777,15 @@ def _task_counts(agent_id: str, ids: list[str] | None = None) -> dict[str, int]:
     return counts
 
 
+def _announce_update(text: str) -> None:
+    """Nouvelle de mise à jour, dans la conversation du premier agent : visible depuis le web et le téléphone."""
+    with db.connect() as c:
+        row = c.execute("SELECT id FROM agents ORDER BY rowid LIMIT 1").fetchone()
+    conv = _main_conversation(row["id"]) if row else None
+    if conv:
+        _save_message(conv, "agent", text)
+
+
 def _main_conversation(agent_id: str) -> str | None:
     with db.connect() as c:
         row = c.execute("SELECT id FROM conversations WHERE agent_id = ? AND main = 1", (agent_id,)).fetchone()
@@ -960,6 +973,8 @@ def _new_conversation(user: int, agent_id: str, title: str, main: bool = False, 
 async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, context: str = ""):
     """Lance un run Hermes dans une conversation et rend le générateur SSE qui l'enregistre au fil de l'eau.
     `context` précède le message pour l'agent seulement : l'utilisateur ne le voit pas."""
+    if updates.maintenance:  # le lanceur recrée les agents : une tâche lancée maintenant serait coupée
+        raise HTTPException(503, "Noah installe une mise à jour (quelques minutes). Réessaie juste après.")
     _save_message(conv_id, "user", prompt)
     try:
         run_id = await hermes.start_run(agent, context + prompt, session_id=f"apollo-{conv_id}")
@@ -1676,10 +1691,13 @@ async def updates_check(user: int = Depends(auth.current_user)):
 @app.post("/api/updates/install")
 async def updates_install(force: bool = False, user: int = Depends(auth.current_user)):
     """« Installer maintenant » : tout de suite, sauf une tâche en cours (l'utilisateur peut passer outre)."""
-    reason = updates.busy()
+    reason = await updates.blocked()
     if reason and not force:
         raise HTTPException(409, f"Pas maintenant : {reason}.")
-    return await updates.install(updates._load())
+    result = await updates.install(force=True)
+    if result.get("erreur"):
+        raise HTTPException(409, result["erreur"])
+    return result
 
 
 @app.post("/api/updates/skip")

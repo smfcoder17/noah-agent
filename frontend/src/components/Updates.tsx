@@ -76,7 +76,9 @@ export function Updates() {
 
       {s.en_cours && <p className="flex items-center gap-2 rounded-xl bg-muted p-4"><Loader2 className="size-4 animate-spin" />Mise à jour en cours. Noah peut être indisponible une minute ou deux.</p>}
 
-      {next ? (
+      {next?.ignoree ? (
+        <p className="text-muted-foreground">Noah {next.version} ignorée : elle ne s'installera pas seule. <button className="underline" onClick={install}>L'installer quand même</button></p>
+      ) : next ? (
         <div className="flex flex-col gap-3 rounded-xl border border-accent/40 p-4">
           <p className="font-medium">Noah {next.version} est prête{next.majeure ? " (version majeure)" : ""}</p>
           {next.composants.length > 0 && <p className="text-xs text-muted-foreground">Change : {next.composants.map((c) => NAMES[c] || c).join(", ")}</p>}

@@ -7,18 +7,20 @@ qui bouge : une dépendance n'arrive chez l'utilisateur que dans une version de 
 Toutes les heures, le serveur lit le manifeste. Une nouvelle version est préchargée tout de suite (le téléchargement
 ne dérange personne), puis installée pendant le créneau calme de l'utilisateur, dans son fuseau : par défaut de 3 h à
 6 h, ou les heures où il utilise le moins Noah quand on en sait assez. Jamais pendant une tâche en cours, une
-validation en attente ou un écran ouvert : on attend la fin. Une version majeure est annoncée et attend 7 jours (le
-temps de lire ce qui change, de l'installer tout de suite d'un clic ou de l'ignorer) avant de passer elle aussi dans
-le créneau ; une version qui transforme les données (« migration » dans le manifeste) attend toujours un clic.
-L'exécution (sauvegarde, recréation, contrôle de santé, retour arrière) est faite par le lanceur : updater.py.
-Même partage des rôles que Watchtower / What's Up Docker, avec le créneau et le report de Home Assistant et de
-Synology DSM.
+validation en attente, un écran ouvert ou juste avant une routine : on attend, et le journal dit pourquoi. Pendant
+l'installation, Noah refuse les nouvelles tâches (quelques minutes). Une version majeure est annoncée et attend
+7 jours (le temps de lire ce qui change, de l'installer tout de suite d'un clic ou de l'ignorer) avant de passer elle
+aussi dans le créneau ; une version qui transforme les données (« migration » dans le manifeste) attend toujours un
+clic. L'exécution (sauvegarde, recréation, contrôle de santé, retour arrière) est faite par le lanceur, qui revérifie
+la signature : updater.py. Même partage des rôles que Watchtower / What's Up Docker, avec le créneau et le report de
+Home Assistant et de Synology DSM.
 """
 import asyncio
 import base64
 import json
 import os
 import re
+import threading
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -27,7 +29,7 @@ import httpx
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
-from . import desktop
+from . import db, desktop, machine
 from .config import BROWSER_TIMEZONE, DATA_DIR, LAUNCHER_KEY, LAUNCHER_URL
 
 VERSION = os.environ.get("NOAH_VERSION", "dev")
@@ -42,12 +44,18 @@ WINDOW_HOURS = 3
 MAJOR_WAIT = 7 * 86400
 LAUNCHER = {"Authorization": f"Bearer {LAUNCHER_KEY}"}
 
-# Ce que le reste du serveur signale : écrans ouverts (main.py), et l'état des tâches (main.task_state).
+# Ce que le reste du serveur signale : écrans ouverts (main.py), état des tâches (main.task_state), et comment
+# prévenir l'utilisateur d'une façon qu'il verra (message dans sa conversation, posé par main.py).
 screens = 0
+maintenance = False  # installation en cours : les nouvelles tâches attendent
+announce = None
 _task_state: dict[str, str] = {}
 _running = asyncio.Lock()
+_state_lock = threading.Lock()
 _last_zone = ""
 
+
+# --- État (lu et écrit par morceaux, sous verrou : une vérification longue n'écrase pas un réglage) ----------
 
 def _load() -> dict:
     try:
@@ -56,15 +64,33 @@ def _load() -> dict:
         return {"auto": True, "heure": "auto", "fuseau": "", "activite": [0] * 24}
 
 
-def _save(state: dict) -> None:
-    tmp = STATE.with_suffix(".tmp")
-    tmp.write_text(json.dumps(state, ensure_ascii=False))
-    os.replace(tmp, STATE)
+def _patch(change) -> dict:
+    with _state_lock:
+        state = _load()
+        if callable(change):
+            change(state)
+        else:
+            state.update(change)
+        tmp = STATE.with_suffix(f".{threading.get_ident()}.tmp")
+        tmp.write_text(json.dumps(state, ensure_ascii=False))
+        os.replace(tmp, STATE)
+        return state
 
 
 def _semver(v: str) -> tuple[int, int, int] | None:
     m = re.match(r"v?(\d+)\.(\d+)\.(\d+)$", v or "")
     return tuple(int(x) for x in m.groups()) if m else None
+
+
+def _tell(title: str, text: str) -> None:
+    """Notification de l'app de bureau si elle est là, et toujours un message dans la conversation : sur un VPS
+    utilisé depuis le web ou le téléphone, c'est ce que l'utilisateur verra."""
+    desktop.notify(title, text)
+    if announce:
+        try:
+            announce(f"**{title}**\n\n{text}")
+        except Exception:  # noqa: BLE001 - pas encore d'agent : la carte de Réglages > Mises à jour reste
+            pass
 
 
 # --- Fuseau et heures calmes ------------------------------------------------------------------------------
@@ -81,34 +107,30 @@ def _zone(state: dict) -> ZoneInfo:
 
 
 def saw_client(timezone: str | None) -> None:
-    """Fuseau envoyé par l'application (en-tête X-Noah-Timezone) : le créneau calme suit l'utilisateur, pas le VPS."""
+    """Fuseau envoyé par l'application d'un utilisateur connecté (en-tête X-Noah-Timezone) : le créneau calme suit
+    l'utilisateur, pas le VPS."""
     global _last_zone
     if not timezone or len(timezone) > 64 or timezone == _last_zone:
         return
-    _last_zone = timezone
     try:
         ZoneInfo(timezone)
     except (ZoneInfoNotFoundError, ValueError):
         return
-    state = _load()
-    if state.get("fuseau") != timezone:
-        state["fuseau"] = timezone
-        _save(state)
+    _last_zone = timezone
+    _patch({"fuseau": timezone})
 
 
 def activity() -> None:
     """Un message de l'utilisateur, compté par heure locale : on apprend quand il n'utilise pas Noah."""
-    state = _load()
-    hours = state.get("activite") or [0] * 24
-    hours[datetime.now(_zone(state)).hour] += 1
-    if sum(hours) > 2000:  # vieillissement : les habitudes changent
-        hours = [h // 2 for h in hours]
-    state["activite"] = hours
-    _save(state)
+    def add(state):
+        hours = state.get("activite") or [0] * 24
+        hours[datetime.now(_zone(state)).hour] += 1
+        state["activite"] = [h // 2 for h in hours] if sum(hours) > 2000 else hours  # les habitudes changent
+    _patch(add)
 
 
 def quiet_hour(state: dict) -> int:
-    if state.get("heure") != "auto":
+    if state.get("heure", "auto") != "auto":
         return int(state["heure"])
     hours = state.get("activite") or [0] * 24
     if sum(hours) < 50:
@@ -133,6 +155,34 @@ def busy() -> str | None:
     return None
 
 
+async def routine_soon(minutes: int = 15) -> str | None:
+    """Une routine (cron d'Hermes) qui part dans les 15 min ou tourne déjà : on ne coupe pas son agent."""
+    with db.connect() as c:
+        ids = [r["id"] for r in c.execute("SELECT id FROM agents")]
+    limit = time.time() + minutes * 60
+    for agent_id in ids:
+        try:
+            jobs = (await machine.admin(agent_id, "routines", {}, 15))["routines"]
+        except Exception:  # noqa: BLE001 - agent arrêté : rien ne tournera
+            continue
+        for job in jobs:
+            if not job.get("enabled") or job.get("state") == "paused":
+                continue
+            if job.get("state") == "running":
+                return f"la routine « {job.get('name')} » tourne"
+            try:
+                at = datetime.fromisoformat(str(job.get("next_run_at"))).timestamp()
+            except ValueError:
+                continue
+            if time.time() - 60 <= at <= limit:
+                return f"la routine « {job.get('name')} » part dans moins de {minutes} min"
+    return None
+
+
+async def blocked() -> str | None:
+    return busy() or await routine_soon()
+
+
 # --- Manifeste signé -------------------------------------------------------------------------------------
 
 def verify(raw: bytes, signature: str) -> dict:
@@ -146,7 +196,7 @@ def verify(raw: bytes, signature: str) -> dict:
     if not isinstance(manifest.get("images"), dict) or not _semver(manifest.get("version", "")):
         raise ValueError("manifeste incomplet")
     for comp, ref in manifest["images"].items():
-        if not re.fullmatch(r"[a-z0-9./_-]+@sha256:[0-9a-f]{64}", ref):
+        if not isinstance(ref, str) or not re.fullmatch(r"[a-z0-9./_:-]+@sha256:[0-9a-f]{64}", ref):
             raise ValueError(f"image sans empreinte pour {comp}")
     return manifest
 
@@ -158,77 +208,118 @@ async def _launcher(method: str, path: str, **kw) -> dict:
         return r.json()
 
 
-def pending(manifest: dict, running: dict) -> dict[str, str]:
-    """Composants dont l'image en service n'est pas celle du manifeste."""
+def _signed(state: dict, composants: list[str] | None = None, force: bool = False) -> dict:
+    return {"manifeste": state["brut"], "signature": state["signature"], "composants": composants, "force": force}
+
+
+def pending(manifest: dict, running: dict, pins: dict | None = None) -> dict[str, str]:
+    """Composants dont au moins une instance n'est pas sur l'image du manifeste. Pour les agents et navigateurs
+    encore absents, on regarde l'image épinglée par le lanceur pour les prochains."""
     out = {}
     for comp, ref in manifest.get("images", {}).items():
-        now = running.get(comp)
-        if now is None:
-            continue  # pas installé ici (aucun agent encore, par exemple) : il prendra la bonne image à sa création
-        if ref not in now.get("digests", []) and ref.split("@")[-1] != now.get("image_id"):
+        instances = running.get(comp)
+        if not instances:
+            if comp in ("hermes", "navigateur") and (pins or {}).get(comp) != ref:
+                out[comp] = ref
+            continue
+        if any(ref not in i.get("digests", []) and ref.split("@")[-1] != i.get("image_id") for i in instances):
             out[comp] = ref
     return out
 
 
-async def check(state: dict | None = None) -> dict:
-    state = state or _load()
-    state["verifie"] = int(time.time())
+def _failed_here(manifest: dict, launcher_state: dict) -> list[str]:
+    """Composants de cette version qui ont déjà échoué sur cette machine (le lanceur les a bloqués)."""
+    return [b.get("composant", "?") for b in launcher_state.get("bloquees", [])
+            if b.get("version") == manifest.get("version") and b.get("image") in manifest.get("images", {}).values()]
+
+
+async def check() -> dict:
+    """Lit le manifeste, le vérifie, et garde ce qui reste à installer. Ne réécrit que ses propres champs."""
+    _patch({"verifie": int(time.time())})
     try:
         async with httpx.AsyncClient(timeout=20, follow_redirects=True) as c:
             raw = (await c.get(MANIFEST_URL)).raise_for_status().content
             sig = (await c.get(MANIFEST_URL + ".sig")).raise_for_status().text
         manifest = verify(raw, sig)
-        current = _semver(VERSION)
-        new = _semver(manifest["version"])
-        if current and new <= current and VERSION != "dev":
-            manifest = None  # déjà à jour (ou manifeste plus ancien : jamais de retour en arrière par là)
-        state["erreur"] = None
     except (httpx.HTTPError, ValueError) as e:
-        state["erreur"] = str(e)[:200]
-        _save(state)
+        text = str(e)[:200]
+        state = _load()
+        if "signature" in text or "empreinte" in text or "incomplet" in text:
+            print(f"[mises à jour] manifeste refusé : {text}", flush=True)
+            _patch(lambda s: s.update(erreur=text, refus=(s.get("refus", []) + [{"quand": int(time.time()), "texte": text}])[-20:]))
+        else:
+            _patch({"erreur": text})
         return state
+    state = _load()
+    new, current = _semver(manifest["version"]), _semver(VERSION)
+    seen = _semver(state.get("max_vue", "")) or (0, 0, 0)
+    if new < seen or (current and new < current):
+        # Jamais en arrière : un ancien manifeste (rejoué, ou « latest » qui pointe sur un correctif plus ancien).
+        return _patch({"erreur": None})
+    try:
+        status = await _launcher("GET", "/update/status")
+        todo = pending(manifest, status["actuel"], status["etat"].get("images"))
+    except httpx.HTTPError:
+        return _patch({"erreur": "lanceur injoignable"})
+    if not todo:
+        return _patch({"erreur": None, "disponible": None, "max_vue": manifest["version"]})
     previous = (state.get("disponible") or {}).get("version")
-    state["disponible"] = manifest
-    if manifest and manifest["version"] != previous:
-        state["annoncee"] = int(time.time())
-        state["reportee"] = 0
-        major = bool(current) and new[0] > current[0]
-        state["majeure"] = major
-        desktop.notify("Nouvelle version de Noah", f"Noah {manifest['version']} sera installée pendant ta nuit"
-                       + (" (version majeure : dans 7 jours, ou dès maintenant d'un clic)." if major else "."))
+    fresh = manifest["version"] != previous
+    major = bool(current) and new[0] > current[0]
+
+    def keep(s):
+        s.update(erreur=None, disponible=manifest, brut=base64.b64encode(raw).decode(), signature=sig,
+                 max_vue=manifest["version"])
+        if fresh:
+            s.update(annoncee=int(time.time()), reportee=0, majeure=major)
+    state = _patch(keep)
+    if fresh:
+        _tell("Nouvelle version de Noah", f"Noah {manifest['version']} sera installée seule pendant ta nuit"
+              + (" : c'est une version majeure, dans 7 jours (ou dès maintenant d'un clic dans Réglages > Mises à jour)."
+                 if major else "."))
         try:  # préchargement : à l'heure de l'installation, la coupure ne dure que le redémarrage
-            status = await _launcher("GET", "/update/status")
-            todo = pending(manifest, status["actuel"])
-            if todo:
-                await _launcher("POST", "/update/pull", json={"images": list(todo.values())}, timeout=1800)
+            await _launcher("POST", "/update/pull", json=_signed(state, list(todo)), timeout=1800)
         except httpx.HTTPError:
             pass
-    _save(state)
     return state
 
 
-async def install(state: dict) -> dict:
+async def install(force: bool = False) -> dict:
+    """Précharge, revérifie que personne n'est en plein travail, puis confie la transaction au lanceur."""
+    global maintenance
+    state = _load()
     manifest = state.get("disponible")
     if not manifest:
         return {"ok": False, "erreur": "Aucune nouvelle version"}
     async with _running:
         status = await _launcher("GET", "/update/status")
-        todo = pending(manifest, status["actuel"])
+        todo = pending(manifest, status["actuel"], status["etat"].get("images"))
         if not todo:
-            state["disponible"] = None
-            _save(state)
+            _patch({"disponible": None})
             return {"ok": True, "rien": True}
-        await _launcher("POST", "/update/pull", json={"images": list(todo.values())}, timeout=1800)
-        state["installee"] = {"version": manifest["version"], "depuis": int(time.time())}
-        _save(state)
+        pulled = await _launcher("POST", "/update/pull", json=_signed(state, list(todo)), timeout=1800)
+        if pulled.get("echecs"):
+            return {"ok": False, "erreur": "Téléchargement impossible pour l'instant, nouvel essai plus tard"}
+        if not force:
+            reason = await blocked()  # le téléchargement a pu durer : on revérifie juste avant de couper
+            if reason:
+                return {"ok": False, "erreur": f"Pas maintenant : {reason}"}
+        maintenance = True
+        _patch({"installee": {"version": manifest["version"], "depuis": int(time.time())}})
         # Le lanceur fait le reste ; s'il recrée ce serveur, cette tâche s'arrête là et le nouveau relit l'état.
-        return await _launcher("POST", "/update/apply", json={"cibles": todo})
+        try:
+            return await _launcher("POST", "/update/apply", json=_signed(state, list(todo), force))
+        except httpx.HTTPError:
+            maintenance = False
+            raise
 
 
 def due(state: dict, now: float) -> str | None:
     """Raison de ne pas installer maintenant, ou None si c'est le moment."""
     if not state.get("disponible"):
         return "à jour"
+    if not _semver(VERSION):
+        return "version de développement : installation à la main"
     if state.get("ignoree") == state["disponible"]["version"]:
         return "version ignorée"
     if state["disponible"].get("migration"):
@@ -244,39 +335,57 @@ def due(state: dict, now: float) -> str | None:
     return busy()
 
 
+async def _follow() -> None:
+    """Fin de l'installation (rapport du lanceur) : la maintenance s'arrête et l'utilisateur sait comment ça s'est
+    passé, une seule fois par rapport."""
+    global maintenance
+    try:
+        etat = (await _launcher("GET", "/update/status", timeout=10)).get("etat", {})
+    except httpx.HTTPError:
+        return
+    if not etat.get("en_cours"):
+        maintenance = False
+    report = etat.get("dernier_rapport") or {}
+    state = _load()
+    if not report.get("fin") or report["fin"] <= state.get("rapport_vu", 0):
+        return
+    _patch({"rapport_vu": report["fin"]})
+    if report.get("ok"):
+        if report.get("composants"):
+            _tell("Noah est à jour", f"Version {report.get('version', VERSION)} installée.")
+    elif report.get("composants") or "interrompue" in (report.get("erreur") or ""):
+        _tell("Mise à jour annulée", f"{report.get('erreur', 'Un composant ne répondait plus')}. Noah est revenu à "
+              "la version d'avant, avec ses données.")
+
+
 async def run(task_state: dict[str, str]) -> None:
     global _task_state
     _task_state = task_state
     await asyncio.sleep(60)
     while True:
         try:
+            await _follow()
             state = _load()
             if time.time() - state.get("verifie", 0) > CHECK_EVERY:
-                state = await check(state)
-            if PUBLIC_KEY and due(state, time.time()) is None:
-                await install(state)
-            await _report(state)
+                state = await check()
+            if PUBLIC_KEY and state.get("disponible"):
+                now = time.time()
+                reason = due(state, now)
+                if reason is None:
+                    etat = (await _launcher("GET", "/update/status", timeout=10)).get("etat", {})
+                    failed = _failed_here(state["disponible"], etat)
+                    reason = f"elle a déjà échoué ici ({', '.join(failed)}) : elle attend la suivante ou un clic" if failed else None
+                reason = reason or await routine_soon()
+                if reason is None:
+                    result = await install()
+                    if not result.get("ok", True) or result.get("erreur"):
+                        print(f"[mises à jour] {state['disponible']['version']} : {result.get('erreur')}", flush=True)
+                elif _in_window(state, now) and reason != "à jour":
+                    print(f"[mises à jour] {state['disponible']['version']} reportée : {reason}", flush=True)
+                    _patch(lambda s: s.update(reports=(s.get("reports", []) + [{"quand": int(now), "texte": reason}])[-50:]))
         except Exception as e:  # noqa: BLE001 - la boucle ne doit jamais s'arrêter
             print(f"[mises à jour] {e}", flush=True)
         await asyncio.sleep(300)
-
-
-async def _report(state: dict) -> None:
-    """Prévient l'utilisateur de l'issue d'une mise à jour (faite par le lanceur, parfois après le redémarrage de ce
-    serveur) : une seule fois par rapport."""
-    try:
-        report = (await _launcher("GET", "/update/status", timeout=10)).get("etat", {}).get("dernier_rapport") or {}
-    except httpx.HTTPError:
-        return
-    if not report.get("fin") or report["fin"] <= state.get("rapport_vu", 0):
-        return
-    state["rapport_vu"] = report["fin"]
-    _save(state)
-    if report.get("ok"):
-        desktop.notify("Noah est à jour", f"Version {VERSION} installée.")
-    elif report.get("composants"):
-        desktop.notify("Mise à jour annulée", "Un composant ne répondait plus après la mise à jour : Noah est revenu "
-                       "à la version d'avant, avec ses données. Rien n'est perdu.")
 
 
 async def summary() -> dict:
@@ -289,13 +398,17 @@ async def summary() -> dict:
     etat = launcher.get("etat", {})
     manifest = state.get("disponible")
     hour = quiet_hour(state)
+    failed = _failed_here(manifest, etat) if manifest else []
+    attente = due(state, now)
+    if attente is None and failed:
+        attente = f"elle a déjà échoué ici ({', '.join(failed)})"
     return {
         "version": VERSION,
         "disponible": {"version": manifest["version"], "notes": manifest.get("notes", ""),
                        "majeure": bool(state.get("majeure")), "migration": bool(manifest.get("migration")),
                        "ignoree": state.get("ignoree") == manifest["version"],
-                       "composants": sorted(pending(manifest, launcher.get("actuel", {})))} if manifest else None,
-        "attente": due(state, now),
+                       "composants": sorted(pending(manifest, launcher.get("actuel", {}), etat.get("images")))} if manifest else None,
+        "attente": attente,
         "occupe": busy(),
         "auto": state.get("auto", True),
         "heure": state.get("heure", "auto"),
@@ -304,30 +417,25 @@ async def summary() -> dict:
         "verifie": state.get("verifie"),
         "erreur": state.get("erreur") or (None if PUBLIC_KEY else "Les versions ne sont pas encore signées : "
                                           "les mises à jour automatiques sont désactivées."),
-        "en_cours": bool(etat.get("en_cours")),
+        "en_cours": bool(etat.get("en_cours")) or bool(etat.get("relais")),
         "dernier_rapport": etat.get("dernier_rapport"),
         "historique": list(reversed(etat.get("historique", [])))[:20],
     }
 
 
 def settings(auto: bool | None, heure: str | int | None) -> None:
-    state = _load()
-    if auto is not None:
-        state["auto"] = bool(auto)
-    if heure is not None:
-        state["heure"] = "auto" if heure == "auto" else max(0, min(23, int(heure)))
-    _save(state)
+    def change(state):
+        if auto is not None:
+            state["auto"] = bool(auto)
+        if heure is not None:
+            state["heure"] = "auto" if heure == "auto" else max(0, min(23, int(heure)))
+    _patch(change)
 
 
 def skip() -> None:
-    """« Ignorer » : cette version ne s'installe pas seule ; la suivante, si."""
-    state = _load()
-    if state.get("disponible"):
-        state["ignoree"] = state["disponible"]["version"]
-        _save(state)
+    """« Ignorer » : cette version ne s'installe pas seule et sa carte disparaît ; la suivante, si."""
+    _patch(lambda s: s.update(ignoree=s["disponible"]["version"]) if s.get("disponible") else None)
 
 
 def postpone(days: int = 1) -> None:
-    state = _load()
-    state["reportee"] = int(time.time()) + days * 86400
-    _save(state)
+    _patch({"reportee": int(time.time()) + days * 86400})

@@ -9,6 +9,8 @@ Une seule fois, sur ton ordinateur (la clé privée ne va jamais dans le dépôt
 À chaque version, la CI (release.yml) appelle :
     python scripts/release-manifest.py signer 1.2.3 notes.md composant=image@sha256:… …
   → manifest.json et manifest.json.sig, joints à la release GitHub.
+Une version qui transforme les données (schéma, format des fichiers) l'écrit dans le message de son étiquette, sur
+une ligne « [migration] » : elle ne s'installera alors jamais sans un clic de l'utilisateur.
 """
 import base64
 import json
@@ -34,10 +36,13 @@ def sign(version: str, notes_file: str, images: list[str]) -> None:
         sys.exit(f"Version invalide : {version}")
     refs = dict(arg.split("=", 1) for arg in images)
     for comp, ref in refs.items():
-        if not re.fullmatch(r"[a-z0-9./_-]+@sha256:[0-9a-f]{64}", ref):
+        if not re.fullmatch(r"[a-z0-9./_:-]+@sha256:[0-9a-f]{64}", ref):
             sys.exit(f"{comp} : image sans empreinte ({ref})")
     notes = open(notes_file, encoding="utf-8").read().strip() if os.path.exists(notes_file) else ""
-    manifest = {"version": version, "publie": int(time.time()), "notes": notes[:4000], "images": refs}
+    migration = "[migration]" in notes.lower()
+    notes = "\n".join(line for line in notes.splitlines() if line.strip().lower() != "[migration]").strip()
+    manifest = {"version": version, "publie": int(time.time()), "notes": notes[:4000], "migration": migration,
+                "images": refs}
     raw = json.dumps(manifest, ensure_ascii=False, indent=1).encode()
     private = Ed25519PrivateKey.from_private_bytes(base64.b64decode(os.environ["NOAH_RELEASE_KEY"]))
     with open("manifest.json", "wb") as f:

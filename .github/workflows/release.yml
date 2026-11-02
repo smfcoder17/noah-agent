@@ -77,6 +77,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: git fetch --force --tags
       - uses: docker/setup-buildx-action@v3
       - name: Empreintes des images
         id: refs
@@ -98,7 +101,7 @@ jobs:
           NOAH_RELEASE_KEY: ${{ secrets.NOAH_RELEASE_KEY }}
         run: |
           pip install --quiet cryptography==44.0.0
-          git log -1 --format=%B "${GITHUB_REF_NAME}" > notes.md
+          git for-each-ref "refs/tags/${GITHUB_REF_NAME}" --format="%(contents)" > notes.md  # message de l'étiquette ; « [migration] » s'il change les données
           python scripts/release-manifest.py signer "${GITHUB_REF_NAME#v}" notes.md $(cat refs.txt)
       - uses: softprops/action-gh-release@v2
         with:
