@@ -18,7 +18,22 @@ from docker.errors import NotFound
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request, Response
 from pydantic import BaseModel
 
-KEY = os.environ["LAUNCHER_KEY"]
+
+def _shared_key() -> str:
+    """Même clé que le serveur : de .env (install.sh), sinon du fichier de secrets que le serveur tire au premier
+    démarrage dans le volume commun (installation sans variables)."""
+    if os.environ.get("LAUNCHER_KEY"):
+        return os.environ["LAUNCHER_KEY"]
+    path = Path(os.environ.get("NOAH_SECRETS_FILE", "/secrets/noah.json"))
+    for _ in range(240):
+        try:
+            return json.loads(path.read_text())["LAUNCHER_KEY"]
+        except (FileNotFoundError, ValueError, KeyError):
+            time.sleep(0.5)
+    raise RuntimeError(f"Clé du lanceur introuvable dans {path}")
+
+
+KEY = _shared_key()
 IMAGE = os.environ.get("AGENT_IMAGE", "nousresearch/hermes-agent:stable")
 NETWORK = os.environ["AGENT_NETWORK"]
 PREFIX = "apollo-agent-"
@@ -72,6 +87,14 @@ class BrowserKeys(BaseModel):
     timezone: str = ""
 
 
+def _ensure_image(name: str) -> None:
+    """containers.create ne télécharge pas l'image (run le fait) : premier navigateur sur un VPS neuf."""
+    try:
+        client.images.get(name)
+    except NotFound:
+        client.images.pull(name)
+
+
 _browser_lock = threading.Lock()  # deux appels simultanés recréaient le même conteneur (conflit Docker)
 
 
@@ -100,6 +123,7 @@ def _ensure_browser(agent_id: str, body: BrowserKeys):
         c.remove(force=True)
     except NotFound:
         pass
+    _ensure_image(BROWSER_IMAGE)
     c = client.containers.create(
         BROWSER_IMAGE,
         name=name,

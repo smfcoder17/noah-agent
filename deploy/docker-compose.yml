@@ -1,0 +1,102 @@
+# Noah Agent sur un VPS, sans rien configurer : ce seul fichier suffit.
+#
+#   - Hostinger : VPS > Docker Manager > Compose > « Compose from URL », colle l'adresse brute de ce fichier, Deploy.
+#   - Ailleurs : curl -fsSL https://raw.githubusercontent.com/SmfCoder/noah-agent/main/get.sh | sh
+#
+# Au premier démarrage, le serveur tire ses secrets au hasard (volume noah-secrets), trouve l'adresse publique du VPS
+# et Caddy obtient un certificat HTTPS pour <ip-en-tirets>.sslip.io. Le lien de création du compte, avec son code
+# d'installation, s'affiche dans les journaux du service « server » (Docker Manager > Logs).
+# Avec ton propre domaine (qui pointe déjà vers ce VPS) : remplace NOAH_DOMAIN: auto par NOAH_DOMAIN: noah.exemple.com.
+name: noah
+
+services:
+  server:
+    image: ghcr.io/smfcoder/noah-server:stable
+    container_name: apollo-server
+    restart: unless-stopped
+    environment:
+      NOAH_DOMAIN: auto
+      NOAH_SETUP_CODE: auto
+      LAUNCHER_URL: http://launcher:9000
+    volumes:
+      - apollo-data:/data
+      - noah-secrets:/secrets
+    networks: [apollo]
+    depends_on: [launcher]
+
+  # Seul service qui parle à Docker (accès complet à l'hôte : il crée un conteneur isolé par agent). Jamais exposé.
+  launcher:
+    image: ghcr.io/smfcoder/noah-launcher:stable
+    container_name: apollo-launcher
+    restart: unless-stopped
+    environment:
+      AGENT_IMAGE: nousresearch/hermes-agent:stable
+      AGENT_NETWORK: apollo-net
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - noah-secrets:/secrets:ro
+    networks: [apollo]
+
+  # HTTPS automatique. Les certificats ne sont demandés que pour les noms que le serveur reconnaît (/api/tls-ask).
+  caddy:
+    image: caddy:2.10-alpine
+    container_name: apollo-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [apollo]
+    depends_on: [server]
+
+configs:
+  caddyfile:
+    content: |
+      {
+        on_demand_tls {
+          ask http://server:8080/api/tls-ask
+        }
+      }
+      https:// {
+        tls {
+          on_demand
+        }
+        encode zstd gzip {
+          match {
+            header Content-Type text/html*
+            header Content-Type text/css*
+            header Content-Type text/javascript*
+            header Content-Type application/javascript*
+            header Content-Type application/json*
+            header Content-Type image/svg+xml*
+          }
+        }
+        header {
+          Strict-Transport-Security "max-age=31536000"
+          X-Content-Type-Options nosniff
+          Referrer-Policy same-origin
+          -Server
+        }
+        reverse_proxy server:8080 {
+          flush_interval -1
+        }
+      }
+      http:// {
+        redir https://{host}{uri} permanent
+      }
+
+networks:
+  apollo:
+    name: apollo-net
+
+volumes:
+  apollo-data:
+  noah-secrets:
+  caddy-data:
+  caddy-config:

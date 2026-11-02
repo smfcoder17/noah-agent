@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import accounts, auth, catalog, db, desktop, events, handoff, hermes, machine, media, relay, watch
+from . import accounts, auth, catalog, db, desktop, events, handoff, hermes, machine, media, public, relay, watch
 from .config import SETUP_CODE, WEB_DIR
 from .hermes import Agent
 
@@ -26,6 +26,7 @@ app.include_router(desktop.router)
 app.include_router(watch.router)
 app.include_router(handoff.router)
 app.include_router(accounts.router)
+app.include_router(public.router)
 
 # Agents en cours de création : id -> message d'étape ou d'erreur affiché dans l'interface.
 provisioning: dict[str, str] = {}
@@ -42,6 +43,7 @@ AGENT_SETUP_VERSION = "21-comptes-auto"
 async def startup() -> None:
     db.init()
     auth.hash_old_sessions()
+    asyncio.create_task(public.setup())
     _migrate_threads()
     asyncio.create_task(_refresh_browsers())
     asyncio.create_task(machine.deliver_routines(_save_message, _main_conversation))
