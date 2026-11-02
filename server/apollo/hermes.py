@@ -134,12 +134,16 @@ async def browser_identity() -> dict:
     if saved:
         return json.loads(saved)
     try:
+        # Une seule fois, en HTTPS (ipinfo.io, sans compte) : pays, région et fuseau de l'adresse du serveur, pour
+        # que le navigateur de l'agent ressemble à un visiteur de cet endroit. Fixer APOLLO_LOCALE et
+        # APOLLO_TIMEZONE évite cet appel.
         async with httpx.AsyncClient(timeout=5) as c:
-            geo = (await c.get("http://ip-api.com/json/?fields=countryCode,region,timezone")).json()
+            geo = (await c.get("https://ipinfo.io/json")).json()
     except (httpx.HTTPError, ValueError):
         return {"locale": "", "timezone": ""}
-    country = geo.get("countryCode", "")
-    locale = "fr-CA" if country == "CA" and geo.get("region") == "QC" else ("en-CA" if country == "CA" else LOCALES.get(country, "en-US"))
+    country = geo.get("country", "")
+    quebec = geo.get("region") in ("Quebec", "Québec", "QC")
+    locale = "fr-CA" if country == "CA" and quebec else ("en-CA" if country == "CA" else LOCALES.get(country, "en-US"))
     identity = {"locale": locale, "timezone": geo.get("timezone", "")}
     if identity["timezone"]:
         db.set_setting("browser_identity", json.dumps(identity))
