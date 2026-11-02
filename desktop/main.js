@@ -56,7 +56,21 @@ function status(text, failed = false) {
   win.webContents.executeJavaScript(js).catch(() => {});
 }
 
+// Serveur injoignable (démarrage, ou coupé pendant l'usage) : nouvel essai toutes les 5 s, sans redemander
+// l'appairage (la session reste dans le trousseau). G3.6 : reconnecté moins de 30 s après le retour du serveur.
+const RECONNECT_MS = 5000;
+let reconnect = null;
+function reconnectLater() {
+  clearTimeout(reconnect);
+  reconnect = setTimeout(() => {
+    reconnect = null;
+    if (readConfig().mode === "remote") boot();
+  }, RECONNECT_MS);
+}
+
 async function boot() {
+  clearTimeout(reconnect);
+  reconnect = null;
   const config = readConfig();
   // Premier lancement (et pas une copie de développement avec Docker sous la main) : où vit Noah ?
   if (!config.mode && !isNoahHome(path.resolve(__dirname, ".."))) {
@@ -101,7 +115,8 @@ async function openRemote(server) {
     if (!r.ok) throw new Error(String(r.status));
   } catch {
     if (stale()) return;
-    return status(`Ton serveur (${server}) ne répond pas. Vérifie ta connexion à Internet, puis réessaie.`, true);
+    status(`Ton serveur (${server}) ne répond pas. Nouvel essai automatique toutes les 5 secondes…`, true);
+    return reconnectLater();
   }
   if (stale()) return; // serveur changé pendant l'attente : ce démarrage ne pose plus rien
   if (token) await useToken(server, token);
@@ -270,6 +285,7 @@ async function pollUntil(server, sondage, until, generation) {
     }
     if (r.status === 410) return { error: "Demande refusée ou expirée. Recommence." };
     if (r.status === 403) return { error: "Ce nombre ne correspond pas à celui du navigateur. Recommence." };
+    if (r.status === 426) return { error: "Cette version de l'app est trop ancienne pour ton serveur Noah : mets-la à jour." };
     if (!r.ok) continue;
     const body = await r.json().catch(() => ({}));
     if (body.token) {
@@ -454,6 +470,14 @@ function createWindow() {
     if (url.startsWith("data:") || url.startsWith("file:") || sameOrigin(url)) return;
     e.preventDefault();
     if (/^https?:/.test(url)) shell.openExternal(url);
+  });
+  // Page du serveur qui ne charge plus (serveur coupé, réseau perdu) : écran d'attente, puis reconnexion seule.
+  win.webContents.on("did-fail-load", (_e, code, _desc, url, mainFrame) => {
+    if (!mainFrame || code === -3 || readConfig().mode !== "remote" || !sameOrigin(url)) return; // -3 : navigation annulée
+    win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(LOADING)}`).then(() => {
+      status("Connexion au serveur perdue. Reconnexion automatique…", true);
+      reconnectLater();
+    }).catch(() => {});
   });
   // « Réessayer » de l'écran de démarrage.
   win.webContents.on("did-navigate-in-page", (_e, url) => {

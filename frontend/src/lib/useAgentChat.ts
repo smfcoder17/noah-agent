@@ -164,6 +164,23 @@ export function useAgentChat(opts: {
     };
   }, [conversationId, updatedAt]);
 
+  /** Après une coupure : attend le serveur (toutes les 3 s), puis reprend les messages enregistrés de la conversation. */
+  const resync = useCallback(async (conv: string, gone: AbortSignal) => {
+    // 10 minutes au plus : une réponse perdue avec un redémarrage du serveur n'arrivera jamais.
+    for (let i = 0; i < 200; i++) {
+      await new Promise((r) => setTimeout(r, 3000));
+      if (gone.aborted || ownConversation.current !== conv) return;
+      try {
+        const rows = await get<StoredMessage[]>(`/api/conversations/${conv}/messages`);
+        if (ownConversation.current === conv && !running.current) setMessages(rows.map(fromStored));
+        // Réponse encore en cours côté serveur : on recharge encore jusqu'à la voir arrivée.
+        if (rows[rows.length - 1]?.role !== "user") return;
+      } catch {
+        /* serveur toujours absent */
+      }
+    }
+  }, []);
+
   const onNew = useCallback(
     async (message: AppendMessage) => {
       const typed = message.content
@@ -221,7 +238,13 @@ export function useAgentChat(opts: {
         );
       } catch (err) {
         if (!abort.signal.aborted) {
-          update((m) => apply(m, { type: "done", status: "failed", error: (err as Error).message }, null));
+          // Réseau coupé (serveur redémarré, téléphone hors ligne) : l'agent continue côté serveur, on le dit, puis
+          // on recharge la conversation dès que le serveur répond de nouveau.
+          const lost = err instanceof TypeError;
+          const error = lost ? "Connexion au serveur perdue. La réponse s'affichera dès son retour." : (err as Error).message;
+          update((m) => apply(m, { type: "done", status: "failed", error }, null));
+          const conv = ownConversation.current;
+          if (lost && conv) void resync(conv, abort.signal);
         }
       } finally {
         cancelAnimationFrame(frame);
@@ -232,7 +255,7 @@ export function useAgentChat(opts: {
         onRunFinished();
       }
     },
-    [agentId, details, onConversationCreated, onRunFinished],
+    [agentId, details, onConversationCreated, onRunFinished, resync],
   );
 
   const onCancel = useCallback(async () => {

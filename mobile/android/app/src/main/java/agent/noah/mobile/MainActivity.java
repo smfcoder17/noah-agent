@@ -113,6 +113,18 @@ public class MainActivity extends BridgeActivity {
         String home = origin(server);
         bridge.setWebViewClient(new com.getcapacitor.BridgeWebViewClient(bridge) {
             @Override
+            public void onReceivedError(android.webkit.WebView view, android.webkit.WebResourceRequest request,
+                                        android.webkit.WebResourceError error) {
+                super.onReceivedError(view, request, error);
+                if (!request.isForMainFrame()) return;
+                // Serveur coupé ou réseau perdu : page d'attente, puis nouvel essai toutes les 5 s (G3.6), sans
+                // redemander l'appairage (le cookie de session reste posé).
+                view.loadDataWithBaseURL(null, OFFLINE, "text/html", "utf-8", null);
+                later.removeCallbacks(reload);
+                later.postDelayed(reload, 5000);
+            }
+
+            @Override
             public boolean shouldOverrideUrlLoading(android.webkit.WebView view, android.webkit.WebResourceRequest request) {
                 if (!home.equals(origin(request.getUrl().toString()))) {
                     try {
@@ -142,6 +154,14 @@ public class MainActivity extends BridgeActivity {
         bridge.getWebView().stopLoading();
         bridge.getWebView().loadUrl(server + page(getIntent()));
     }
+
+    private static final String OFFLINE = "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'>"
+        + "<body style='margin:0;height:100vh;display:grid;place-items:center;font:16px sans-serif;background:#EEF1F4;color:#333'>"
+        + "<div style='text-align:center;padding:24px'><h2>Noah Agent</h2><p>Ton serveur ne répond pas.<br>"
+        + "Reconnexion automatique…</p></div>";
+    private final Runnable reload = () -> {
+        if (bridge != null && server != null) bridge.getWebView().loadUrl(server + "/");
+    };
 
     /** schéma://hôte:port, port explicite (443/80 par défaut) : deux ports du même hôte sont deux origines. */
     private static String origin(String url) {
