@@ -1,6 +1,6 @@
 // Service worker minimal : rend l'app installable et garde la coquille hors ligne.
 // Les appels /api/ passent toujours au réseau (données toujours fraîches).
-const CACHE = "noah-v10";
+const CACHE = "noah-v11";
 const SHELL = ["/", "/assets/icon.svg"];
 
 self.addEventListener("install", (e) => {
@@ -70,14 +70,20 @@ self.addEventListener("push", (e) => {
       if (!valid) {
         data = { titre: "Noah", texte: current ? "Nouvelle notification pour un autre compte." : "Nouvelle notification. Connecte-toi pour la voir.", url: "/" };
       }
-      return self.registration.showNotification(data.titre || "Noah", {
+      const tag = valid ? `noah-${Date.now()}-${Math.random()}` : data.titre || "noah";
+      await self.registration.showNotification(data.titre || "Noah", {
         silent: foreground,
         body: data.texte || "",
         icon: "/assets/icon-192.png",
         badge: "/assets/icon-192.png",
         data: { url: data.url || "/" },
-        tag: data.titre || "noah",
+        tag,
       });
+      // Déconnexion pendant l'affichage (la lecture du marqueur a pu précéder son effacement) : relu une fois la
+      // notification posée ; s'il a disparu, elle est refermée aussitôt.
+      if (valid && (await marker()) !== current) {
+        (await self.registration.getNotifications({ tag })).forEach((n) => n.close());
+      }
     }),
   );
 });

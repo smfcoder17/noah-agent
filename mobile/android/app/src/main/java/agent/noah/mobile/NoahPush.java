@@ -117,7 +117,7 @@ public class NoahPush extends PushService {
                 // la déconnexion est passée et on montre la version générique, soit elle passera après et fermera
                 // celle-ci.
                 synchronized (Pairing.class) {
-                    if (gen == pairing.pushGeneration()) {
+                    if (gen == pairing.pushGeneration() && mine.equals(pairing.pushTag())) {
                         show(data.optString("titre", title), data.optString("texte", text), data.optString("url", url));
                         return;
                     }

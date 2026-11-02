@@ -390,6 +390,11 @@ async function forgetServer({ revoke = true } = {}) {
     // l'interface) : on révoque les deux.
     const cookie = (await session.defaultSession.cookies.get({ url: server, name: "apollo_session" }).catch(() => []))[0]?.value;
     const tokens = [...new Set([token, cookie].filter(Boolean))];
+    // Notifications et marqueur de session de la page : rien de l'ancien compte ne reste lisible ici.
+    await win?.webContents.executeJavaScript(
+      "navigator.serviceWorker?.getRegistration().then((r) => r?.getNotifications()).then((l) => (l || []).forEach((n) => n.close())).catch(() => {})",
+    ).catch(() => {});
+    await session.defaultSession.clearStorageData({ origin: server, storages: ["cachestorage", "serviceworkers"] }).catch(() => {});
     for (const t of revoke ? tokens : []) await revokeOrQueue(server, t); // sans réponse : gardée pour plus tard
     await session.defaultSession.cookies.remove(server, "apollo_session");
   }

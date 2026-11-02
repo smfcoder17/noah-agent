@@ -86,7 +86,9 @@ final class Pairing {
                 }
             }
             int ids = prefs.getInt("notif_id", 0); // gardé : un nouvel appairage ne remplace pas d'anciennes notifications
-            prefs.edit().clear().putString("a_revoquer", queue.toString()).putInt("notif_id", ids).commit();
+            long gen = prefs.getLong("push_gen", 0) + 1; // avance, jamais remise à zéro : un affichage en cours tombe
+            prefs.edit().clear().putString("a_revoquer", queue.toString()).putInt("notif_id", ids)
+                .putLong("push_gen", gen).commit();
         }
     }
 
@@ -196,19 +198,40 @@ final class Pairing {
     }
 
     /** Révoque les sessions oubliées. Réseau : à appeler hors du fil de l'interface. Rejoué à chaque ouverture. */
+    /**
+     * Une relance à la fois (bouton, ouverture de l'app, retour du réseau), mais le verrou commun n'est tenu que pour
+     * lire et réécrire la file : un serveur injoignable ne bloque pas « Oublier » ni la fermeture des notifications.
+     */
+    private static final Object FLUSHING = new Object();
+
     void revokeForgotten() {
-        synchronized (Pairing.class) { // plusieurs instances (bouton et ouverture de l'app) : une seule file
-            revokeQueue();
+        synchronized (FLUSHING) {
+            JSONArray queue;
+            synchronized (Pairing.class) {
+                queue = pending();
+            }
+            java.util.Set<String> done = revokeQueue(queue);
+            synchronized (Pairing.class) { // relue : des éléments ont pu être ajoutés pendant les envois
+                JSONArray now = pending(), left = new JSONArray();
+                for (int i = 0; i < now.length(); i++) {
+                    JSONObject item = now.optJSONObject(i);
+                    if (item != null && !done.contains(item.optString("token") + item.optString("chemin"))) left.put(item);
+                }
+                prefs.edit().putString("a_revoquer", left.toString()).commit();
+            }
         }
     }
 
-    private void revokeQueue() {
-        JSONArray queue = pending(), left = new JSONArray();
+    private java.util.Set<String> revokeQueue(JSONArray queue) {
+        java.util.Set<String> done = new java.util.HashSet<>();
         for (int i = 0; i < queue.length(); i++) {
             JSONObject item = queue.optJSONObject(i);
             if (item == null) continue;
             String token = open(item.optString("token", null));
-            if (token == null) continue; // clé du Keystore perdue : rien à envoyer
+            if (token == null) { // clé du Keystore perdue : rien à envoyer, l'élément ne sert plus
+                done.add(item.optString("token") + item.optString("chemin"));
+                continue;
+            }
             int code;
             try {
                 HttpURLConnection http = (HttpURLConnection) new URL(item.optString("server") + item.optString("chemin", "/api/devices/self")).openConnection();
@@ -221,10 +244,11 @@ final class Pairing {
             } catch (Exception e) {
                 code = -1;
             }
-            boolean done = (code >= 200 && code < 300) || code == 401; // 401 : la session n'existe déjà plus
-            if (!done) left.put(item);
+            if ((code >= 200 && code < 300) || code == 401) { // 401 : la session n'existe déjà plus
+                done.add(item.optString("token") + item.optString("chemin"));
+            }
         }
-        prefs.edit().putString("a_revoquer", left.toString()).commit();
+        return done;
     }
 
     private static SecretKey key() throws Exception {
