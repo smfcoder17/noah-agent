@@ -251,7 +251,12 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const logout = async () => {
     // D'abord : si la réponse du serveur se perd après la suppression de la session, le marqueur est déjà effacé.
     await forgetPushSession();
-    await send("/api/logout", {});
+    try {
+      await send("/api/logout", {});
+    } finally {
+      // Et après : un autre onglet a pu réécrire le marqueur pendant l'attente, l'ancienne session étant encore valable.
+      await forgetPushSession();
+    }
     onLogout();
   };
 

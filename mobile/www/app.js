@@ -39,7 +39,15 @@ function parseLink(text) {
   }
 }
 
+// Change à chaque nouvelle demande : une attente plus ancienne s'arrête, et sa session arrivée trop tard est révoquée.
+let attempt = 0;
+
+async function revokeLate(server, token) {
+  await fetch(`${server}/api/devices/self`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
+}
+
 async function claim(server, code) {
+  const mine = ++attempt;
   say("");
   const info = await shell.info();
   let r;
@@ -54,7 +62,8 @@ async function claim(server, code) {
     return say(`Impossible de joindre ${server}. Vérifie ta connexion et l'adresse.`);
   }
   const body = await r.json().catch(() => ({}));
-  if (r.ok && body.attente) return waitForApproval(server, body.sondage, body.expire, body.verification);
+  if (mine !== attempt) return body.token ? revokeLate(server, body.token) : undefined; // une autre demande a pris la main
+  if (r.ok && body.attente) return waitForApproval(server, body.sondage, body.expire, body.verification, mine);
   if (!r.ok || !body.token) return say(body.detail || `Le serveur a refusé (${r.status}).`);
   await shell.connect({ server, token: body.token });
 }
@@ -63,10 +72,10 @@ async function claim(server, code) {
  * Le serveur attend que l'utilisateur autorise ce téléphone dans Réglages → Appareils, sur l'appareil où le code est
  * affiché, en recopiant le nombre montré ici. On sonde jusqu'au refus ou à l'expiration (410) seulement.
  */
-async function waitForApproval(server, sondage, expire, verification) {
+async function waitForApproval(server, sondage, expire, verification, mine) {
   showWaiting(verification);
   const until = Date.now() + (expire || 1200) * 1000;
-  while (Date.now() < until) {
+  while (Date.now() < until && mine === attempt) {
     await new Promise((ok) => setTimeout(ok, 2000));
     let r;
     try {
@@ -76,12 +85,15 @@ async function waitForApproval(server, sondage, expire, verification) {
     } catch {
       continue; // réseau coupé un instant : on réessaie
     }
-    if (r.status === 410) return say("Demande refusée ou expirée. Affiche un nouveau code et recommence.");
+    if (r.status === 410) return mine !== attempt ? undefined : say("Demande refusée ou expirée. Affiche un nouveau code et recommence.");
     if (!r.ok) continue; // mise à jour du serveur (503), ralentissement (429) ; 202 : en attente, sans jeton
     const body = await r.json().catch(() => ({}));
-    if (body.token) return shell.connect({ server, token: body.token });
+    if (body.token) {
+      if (mine !== attempt) return revokeLate(server, body.token); // remplacée par une demande plus récente
+      return shell.connect({ server, token: body.token });
+    }
   }
-  say("Demande expirée. Affiche un nouveau code et recommence.");
+  if (mine === attempt) say("Demande expirée. Affiche un nouveau code et recommence.");
 }
 
 $("scan").onclick = async () => {

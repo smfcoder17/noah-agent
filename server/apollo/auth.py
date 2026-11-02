@@ -3,7 +3,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
-from fastapi import Cookie, HTTPException, Request
+from fastapi import Cookie, HTTPException, Request, Response
 
 from . import db
 from .config import SESSION_DAYS
@@ -93,7 +93,7 @@ def request_token(request: Request, cookie: str | None) -> str | None:
     return header[7:] if header.lower().startswith("bearer ") else cookie
 
 
-def current_user(request: Request, apollo_session: str | None = Cookie(None)) -> int:
+def current_user(request: Request, apollo_session: str | None = Cookie(None), response: Response = None) -> int:
     """Dépendance FastAPI : cookie pour le web, en-tête Bearer pour les apps mobile et desktop."""
     token = request_token(request, apollo_session)
     if not token:
@@ -111,6 +111,11 @@ def current_user(request: Request, apollo_session: str | None = Cookie(None)) ->
             expires = datetime.fromisoformat(row["expires_at"])
             if expires - now < timedelta(days=SESSION_DAYS) - RENEW_AFTER:
                 expires = now + timedelta(days=SESSION_DAYS)
+                # Le cookie du navigateur suit la session : sans ça, il expirerait au bout de 30 jours d'usage quotidien
+                # alors que la session, elle, est prolongée.
+                if response is not None and token == apollo_session:
+                    response.set_cookie(COOKIE, token, httponly=True, samesite="lax", max_age=SESSION_DAYS * 86400,
+                                        secure=request.url.scheme == "https")
             ip = request.client.host if request.client else ""
             c.execute("UPDATE sessions SET last_seen = ?, expires_at = ?, last_ip = ? WHERE token = ?",
                       (now.isoformat(), expires.isoformat(), ip, key))

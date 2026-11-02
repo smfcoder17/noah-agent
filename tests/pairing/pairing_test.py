@@ -339,4 +339,24 @@ for path in ("/front/App.tsx", "/mobile/app.js"):
     if os.path.exists(path):
         assert 'get("appairage")' not in open(path).read(), path
 print("12. jeton d'appairage jamais lu dans l'adresse (seulement le fragment)")
+
+# 13. Navigateur utilisé chaque jour : le cookie est renouvelé avec la session (sinon il expire à J+30).
+from datetime import datetime, timedelta, timezone  # noqa: E402
+
+web = auth.new_session(alice, "Navigateur", "web")
+with db.connect() as c:
+    old = datetime.now(timezone.utc)
+    c.execute("UPDATE sessions SET expires_at = ?, last_seen = ? WHERE token = ?",
+              ((old + timedelta(days=10)).isoformat(), (old - timedelta(hours=1)).isoformat(), auth.digest(web)))
+browser = TestClient(main.app)
+browser.cookies.set(auth.COOKIE, web)
+r = browser.get("/api/devices")
+assert r.status_code == 200 and f"Max-Age={auth.SESSION_DAYS * 86400}" in r.headers.get("set-cookie", ""), r.headers
+bearer = auth.new_session(alice, "Bureau", "desktop")
+with db.connect() as c:
+    c.execute("UPDATE sessions SET expires_at = ?, last_seen = ? WHERE token = ?",
+              ((old + timedelta(days=10)).isoformat(), (old - timedelta(hours=1)).isoformat(), auth.digest(bearer)))
+r = TestClient(main.app, headers={"Authorization": f"Bearer {bearer}"}).get("/api/devices")
+assert r.status_code == 200 and "set-cookie" not in r.headers, "cookie posé pour une app (Bearer)"
+print("13. cookie du navigateur renouvelé avec la session ; jamais de cookie pour une app (Bearer)")
 print("appairage : tout est vert")

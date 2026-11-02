@@ -169,7 +169,7 @@ const NO_KEYRING = { error: "Le trousseau du système n'est pas disponible : imp
 
 async function adopt(server, token) {
   if (!secureStorage()) {
-    await revokeOrQueue(server, token).catch(() => {}); // trousseau perdu entre-temps : la session ne reste pas ouverte
+    await revokeOrQueue(server, token); // trousseau perdu entre-temps : la session ne reste pas ouverte
     return NO_KEYRING;
   }
   writeConfig({ mode: "remote", server, jeton: safeStorage.encryptString(token).toString("base64") });
@@ -273,9 +273,16 @@ async function revokeOrQueue(server, token) {
     method: "DELETE", headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10000),
   }).catch(() => null);
   if (r && (r.ok || r.status === 401)) return;
+  if (!secureStorage()) {
+    unsealedRevocations.push({ server, token }); // trousseau disparu : jamais écrit en clair, gardé en mémoire
+    return;
+  }
   const sealed = safeStorage.encryptString(token).toString("base64");
   writeConfig({ a_revoquer: (readConfig().a_revoquer || []).concat([{ server, jeton: sealed }]) });
 }
+
+/** Sessions à révoquer qu'on ne peut pas chiffrer (trousseau perdu) : rejouées tant que l'app tourne. */
+const unsealedRevocations = [];
 
 /** Révocations qui n'ont pas pu partir (serveur injoignable) : gardées chiffrées, rejouées jusqu'à réussir. */
 let flushing = false;
@@ -290,6 +297,12 @@ async function flushRevocations() {
 }
 
 async function flushOnce() {
+  for (const item of unsealedRevocations.splice(0)) {
+    const r = await fetch(`${item.server}/api/devices/self`, {
+      method: "DELETE", headers: { Authorization: `Bearer ${item.token}` }, signal: AbortSignal.timeout(10000),
+    }).catch(() => null);
+    if (!r || !(r.ok || r.status === 401)) unsealedRevocations.push(item);
+  }
   const pending = readConfig().a_revoquer || [];
   const done = new Set();
   for (const item of pending) {
