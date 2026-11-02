@@ -825,6 +825,55 @@ def set_agent_cap(agent_id: str, body: AgentCap, user: int = Depends(auth.curren
     return {"ok": True}
 
 
+# --- Flux sortants (G7.4) ------------------------------------------------------------------------------------------
+
+def _host(url: str) -> str:
+    from urllib.parse import urlparse
+    return urlparse(url).hostname or url
+
+
+@app.get("/api/flux")
+def outbound_flows(user: int = Depends(auth.current_user)):
+    """Tout ce qui sort de ce serveur, et vers où : le fournisseur de chaque agent d'abord. La liste suit le code
+    (relay.UPSTREAMS, updates.MANIFEST_URL, abonnements aux notifications…), pas une promesse écrite à la main."""
+    flows = []
+    for a in _agents():
+        m = model_for(a["id"])
+        if not m:
+            continue
+        p = hermes.PROVIDERS.get(m["provider"], {})
+        base = m.get("base_url") or relay.UPSTREAMS.get(m["provider"], "")
+        local = m["provider"] == "ollama"
+        flows.append({"quoi": f"Cerveau de {a['name']}", "vers": "ce serveur (Ollama)" if local else _host(base),
+                      "detail": f"{p.get('label', m['provider'])} · {m.get('model') or p.get('model', '')}",
+                      "quand": "à chaque message et à chaque étape d'une tâche", "agent": a["id"], "local": local})
+    if db.get_setting("provider") == "openrouter":
+        flows.append({"quoi": "Création et voix (images, vidéos, musique, dictée, lecture)", "vers": "openrouter.ai",
+                      "quand": "seulement quand tu t'en sers"})
+    flows.append({"quoi": "Sites que tes agents visitent", "vers": "les sites de la tâche",
+                  "quand": "quand une tâche le demande, depuis le navigateur de l'agent"})
+    flows.append({"quoi": "Vérification des mises à jour (manifeste signé)", "vers": _host(updates.MANIFEST_URL),
+                  "quand": "une fois par heure"})
+    flows.append({"quoi": "Téléchargement des mises à jour", "vers": "ghcr.io, registry-1.docker.io",
+                  "quand": "quand une mise à jour s'installe"})
+    with db.connect() as c:
+        push_hosts = sorted({_host(r["endpoint"]) for r in c.execute("SELECT endpoint FROM push_subscriptions")})
+    if push_hosts:
+        flows.append({"quoi": "Notifications (contenu chiffré de bout en bout)", "vers": ", ".join(push_hosts),
+                      "quand": "à chaque notification"})
+    if not (config.BROWSER_LOCALE and config.BROWSER_TIMEZONE):
+        flows.append({"quoi": "Pays et fuseau de l'adresse du serveur, pour le navigateur des agents", "vers": "ipinfo.io",
+                      "quand": "une seule fois (APOLLO_LOCALE et APOLLO_TIMEZONE l'évitent)"})
+    if config.PUBLIC_DOMAIN:
+        flows.append({"quoi": "Certificat HTTPS", "vers": "acme-v02.api.letsencrypt.org", "quand": "tous les deux mois environ"})
+        if config.PUBLIC_DOMAIN == "auto":
+            flows.append({"quoi": "Adresse publique du serveur (nom sslip.io)", "vers": "api.ipify.org",
+                          "quand": "au démarrage"})
+    flows.append({"quoi": "Google (Gmail, Agenda, Drive…)", "vers": "googleapis.com",
+                  "quand": "seulement si tu connectes ton compte Google à un agent"})
+    return {"flux": flows, "telemetrie": False}
+
+
 @app.get("/api/model")
 def get_model(user: int = Depends(auth.current_user)):
     m = current_model()

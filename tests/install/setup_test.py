@@ -110,6 +110,16 @@ with db.connect() as c:
 assert owner.get("/api/status").json()["onboarded"] is True
 print("3 ter. installation d'avant l'assistant : considérée comme finie")
 
+# 3 quater. Flux sortants (G7.4) : le fournisseur et le modèle de chaque agent, puis le reste ; aucune télémétrie.
+db.set_setting("model_a1", "modele-propre")
+flux = owner.get("/api/flux").json()
+brain = [f for f in flux["flux"] if f.get("agent") == "a1"]
+assert brain and brain[0]["vers"] == "openrouter.ai" and "modele-propre" in brain[0]["detail"], flux
+assert flux["telemetrie"] is False and any("mises à jour" in f["quoi"] for f in flux["flux"])
+assert client().get("/api/flux").status_code == 401
+db.set_setting("model_a1", "")
+print("3 quater. flux sortants : fournisseur et modèle de chaque agent, mises à jour, aucune télémétrie")
+
 # 4. Redémarrage (nouveau processus, mêmes volumes) : mêmes secrets, session toujours valable, pas de nouveau code.
 token = auth.new_session(auth.check_password("franck", "motdepasse-long"), "PC", "web")
 restart = subprocess.run([sys.executable, "-c", f"""
