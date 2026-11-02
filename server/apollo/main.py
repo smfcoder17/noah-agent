@@ -975,16 +975,17 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
     `context` précède le message pour l'agent seulement : l'utilisateur ne le voit pas."""
     if updates.maintenance:  # le lanceur recrée les agents : une tâche lancée maintenant serait coupée
         raise HTTPException(503, "Noah installe une mise à jour (quelques minutes). Réessaie juste après.")
+    task_state[conv_id] = "work"  # avant le premier await : une mise à jour qui vérifie maintenant la voit
     _save_message(conv_id, "user", prompt)
     try:
         run_id = await hermes.start_run(agent, context + prompt, session_id=f"apollo-{conv_id}")
     except Exception:
+        task_state[conv_id] = "error"
         raise HTTPException(503, "L'agent ne répond pas. Il démarre peut-être encore : réessaie dans un instant.")
 
-    task_state[conv_id] = "work"
     updates.activity()
 
-    async def stream():
+    async def body():
         yield _sse({"type": "start", "conversation_id": conv_id, "run_id": run_id})
         reply: list[str] = []
         final: dict | None = None
@@ -1026,6 +1027,19 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
             _save_message(conv_id, "agent", text)
         elif final and final.get("error"):
             _save_message(conv_id, "error", final["error"])
+
+
+    async def stream():
+        finished = False
+        try:
+            async for chunk in body():
+                yield chunk
+            finished = True
+        finally:
+            # Client parti en plein run (téléphone fermé, réseau coupé) : on ne suit plus la tâche ; elle ne doit pas
+            # rester « en cours » pour toujours (elle bloquerait aussi les mises à jour).
+            if not finished and task_state.get(conv_id) in ("work", "approve"):
+                task_state[conv_id] = "idle"
 
     return stream()
 
@@ -1694,7 +1708,7 @@ async def updates_install(force: bool = False, user: int = Depends(auth.current_
     reason = await updates.blocked()
     if reason and not force:
         raise HTTPException(409, f"Pas maintenant : {reason}.")
-    result = await updates.install(force=True)
+    result = await updates.install(manual=True, ignore_busy=force)
     if result.get("erreur"):
         raise HTTPException(409, result["erreur"])
     return result

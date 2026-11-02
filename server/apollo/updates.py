@@ -274,9 +274,13 @@ async def check() -> dict:
             s.update(annoncee=int(time.time()), reportee=0, majeure=major)
     state = _patch(keep)
     if fresh:
-        _tell("Nouvelle version de Noah", f"Noah {manifest['version']} sera installée seule pendant ta nuit"
-              + (" : c'est une version majeure, dans 7 jours (ou dès maintenant d'un clic dans Réglages > Mises à jour)."
-                 if major else "."))
+        if manifest.get("migration"):
+            when = " attend ton accord : elle transforme tes données. Installe-la depuis Réglages > Mises à jour quand tu veux."
+        elif major:
+            when = " est une version majeure : elle s'installera seule dans 7 jours, pendant ta nuit (ou dès maintenant d'un clic dans Réglages > Mises à jour)."
+        else:
+            when = " s'installera seule pendant ta nuit."
+        _tell("Nouvelle version de Noah", f"Noah {manifest['version']}{when}")
         try:  # préchargement : à l'heure de l'installation, la coupure ne dure que le redémarrage
             await _launcher("POST", "/update/pull", json=_signed(state, list(todo)), timeout=1800)
         except httpx.HTTPError:
@@ -284,8 +288,10 @@ async def check() -> dict:
     return state
 
 
-async def install(force: bool = False) -> dict:
-    """Précharge, revérifie que personne n'est en plein travail, puis confie la transaction au lanceur."""
+async def install(manual: bool = False, ignore_busy: bool = False) -> dict:
+    """Précharge, revérifie tout juste avant de couper (le téléchargement a pu durer : l'utilisateur a pu couper
+    l'automatique, reporter, lancer une tâche), puis confie la transaction au lanceur. `manual` : clic de
+    l'utilisateur (réessaie aussi une version bloquée) ; `ignore_busy` : il a confirmé malgré une tâche en cours."""
     global maintenance
     state = _load()
     manifest = state.get("disponible")
@@ -300,15 +306,21 @@ async def install(force: bool = False) -> dict:
         pulled = await _launcher("POST", "/update/pull", json=_signed(state, list(todo)), timeout=1800)
         if pulled.get("echecs"):
             return {"ok": False, "erreur": "Téléchargement impossible pour l'instant, nouvel essai plus tard"}
-        if not force:
-            reason = await blocked()  # le téléchargement a pu durer : on revérifie juste avant de couper
-            if reason:
-                return {"ok": False, "erreur": f"Pas maintenant : {reason}"}
-        maintenance = True
+        state = _load()
+        reason = None if manual else due(state, time.time())
+        if not ignore_busy:
+            reason = reason or await blocked()
+        if reason:
+            return {"ok": False, "erreur": f"Pas maintenant : {reason}"}
+        maintenance = True  # à partir d'ici, les nouvelles tâches attendent
+        reason = None if ignore_busy else busy()  # une tâche admise pendant la dernière vérification
+        if reason:
+            maintenance = False
+            return {"ok": False, "erreur": f"Pas maintenant : {reason}"}
         _patch({"installee": {"version": manifest["version"], "depuis": int(time.time())}})
         # Le lanceur fait le reste ; s'il recrée ce serveur, cette tâche s'arrête là et le nouveau relit l'état.
         try:
-            return await _launcher("POST", "/update/apply", json=_signed(state, list(todo), force))
+            return await _launcher("POST", "/update/apply", json=_signed(state, list(todo), manual))
         except httpx.HTTPError:
             maintenance = False
             raise
@@ -343,16 +355,21 @@ async def _follow() -> None:
         etat = (await _launcher("GET", "/update/status", timeout=10)).get("etat", {})
     except httpx.HTTPError:
         return
-    if not etat.get("en_cours"):
-        maintenance = False
+    tx = etat.get("en_cours")
+    # Le journal du lanceur fait foi, y compris pour un serveur qui vient d'être recréé au milieu de la transaction.
+    maintenance = bool(tx) and tx.get("phase") != "intervention"
     report = etat.get("dernier_rapport") or {}
     state = _load()
     if not report.get("fin") or report["fin"] <= state.get("rapport_vu", 0):
         return
     _patch({"rapport_vu": report["fin"]})
     if report.get("ok"):
-        if report.get("composants"):
+        if report.get("composants") and "en_cours" not in report["composants"].values():
             _tell("Noah est à jour", f"Version {report.get('version', VERSION)} installée.")
+    elif report.get("non_restaures"):
+        _tell("Mise à jour : à vérifier", f"{report.get('erreur')}. Le retour à la version d'avant n'a pas pu se "
+              f"faire pour : {', '.join(report['non_restaures'])}. Ils restent arrêtés pour protéger leurs "
+              "données ; les sauvegardes sont gardées. Les autres fonctionnent sur la version d'avant.")
     elif report.get("composants") or "interrompue" in (report.get("erreur") or ""):
         _tell("Mise à jour annulée", f"{report.get('erreur', 'Un composant ne répondait plus')}. Noah est revenu à "
               "la version d'avant, avec ses données.")
@@ -361,6 +378,10 @@ async def _follow() -> None:
 async def run(task_state: dict[str, str]) -> None:
     global _task_state
     _task_state = task_state
+    try:
+        await _follow()  # dès le démarrage : un serveur recréé en pleine transaction reprend la maintenance
+    except Exception:  # noqa: BLE001
+        pass
     await asyncio.sleep(60)
     while True:
         try:
@@ -417,7 +438,8 @@ async def summary() -> dict:
         "verifie": state.get("verifie"),
         "erreur": state.get("erreur") or (None if PUBLIC_KEY else "Les versions ne sont pas encore signées : "
                                           "les mises à jour automatiques sont désactivées."),
-        "en_cours": bool(etat.get("en_cours")) or bool(etat.get("relais")),
+        "en_cours": bool(etat.get("en_cours")) and etat["en_cours"].get("phase") != "intervention",
+        "intervention": (etat.get("en_cours") or {}).get("non_restaures") if (etat.get("en_cours") or {}).get("phase") == "intervention" else None,
         "dernier_rapport": etat.get("dernier_rapport"),
         "historique": list(reversed(etat.get("historique", [])))[:20],
     }

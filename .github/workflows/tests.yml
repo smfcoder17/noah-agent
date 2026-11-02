@@ -5,6 +5,7 @@ name: Tests
 on:
   push:
   pull_request:
+  workflow_call:  # appelé par release.yml : pas d'image ni de manifeste si un test échoue
 
 jobs:
   updates:

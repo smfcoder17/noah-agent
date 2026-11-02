@@ -1,89 +1,81 @@
 """Le lanceur remplacé par son relais, de bout en bout, sur un lanceur jetable (noahtest-launcher)."""
-import base64
-import json
 import os
 import sys
 import time
 
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+sys.path.insert(0, "/tests/updates")
+from harness import c, docker, ref, signed, u  # noqa: E402
 
-KEY = Ed25519PrivateKey.from_private_bytes(base64.b64decode(os.environ["TEST_PRIVATE_KEY"]))
-os.environ["NOAH_UPDATE_KEY"] = base64.b64encode(
-    KEY.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode()
-sys.path.insert(0, "/l")
-import docker  # noqa: E402
-import updater as u  # noqa: E402
-
-c = docker.from_env()
-REG, NAME = os.environ["REGISTRY"], "noahtest-launcher"
-u.LAUNCHER = NAME
+NAME = u.LAUNCHER  # noahtest-launcher
 u.components = lambda: {"noah-launcher": [NAME]}
 
 
-def ref(tag: str) -> str:
-    return next(d for d in c.images.get(f"{REG}/noahtest/launcher:{tag}").attrs["RepoDigests"] if d.startswith(REG))
+def remove(name):
+    try:
+        c.containers.get(name).remove(force=True)
+    except docker.errors.NotFound:
+        pass
 
 
-def signed(image: str, version: str) -> tuple[bytes, str]:
-    raw = json.dumps({"version": version, "images": {"noah-launcher": image}}).encode()
-    return raw, base64.b64encode(KEY.sign(raw)).decode()
-
-
-def wait_relay(seconds: int = 400) -> dict:
+def wait_tx(seconds=600):
     deadline = time.time() + seconds
     while time.time() < deadline:
-        state = u.load_state()
-        if "relais" not in state and state.get("dernier_rapport", {}).get("composants", {}).get("noah-launcher") in ("fait", "retour_arriere"):
-            return state
+        s = u.load_state()
+        if s.get("en_cours") is None:
+            return s
         time.sleep(5)
-    sys.exit("le relais n'a pas fini")
+    sys.exit(f"transaction pas finie : {u.load_state().get('en_cours')}")
 
 
-def launcher(tag: str):
+def launcher(tag):
     for n in (NAME, NAME + "-ancien", u.RELAY):
-        try:
-            c.containers.get(n).remove(force=True)
-        except docker.errors.NotFound:
-            pass
-    c.containers.run(f"{REG}/noahtest/launcher:{tag}", name=NAME, detach=True, network="noahtest-net",
+        remove(n)
+    for p in u.STATE.parent.glob("*"):
+        if p.is_file():
+            p.unlink()
+    c.containers.run(f"{os.environ['REGISTRY']}/noahtest/launcher:{tag}", name=NAME, detach=True, network="noahtest-net",
                      environment={"LAUNCHER_KEY": "test", "AGENT_NETWORK": "noahtest-net", "NOAH_LAUNCHER_NAME": NAME,
-                                  "NOAH_UPDATE_KEY": os.environ["NOAH_UPDATE_KEY"]},
+                                  "NOAH_RELAY_NAME": u.RELAY, "NOAH_UPDATE_KEY": os.environ["NOAH_UPDATE_KEY"]},
                      volumes={"/var/run/docker.sock": {"bind": "/var/run/docker.sock"}, "noahtest-state": {"bind": "/state"}},
                      restart_policy={"Name": "unless-stopped"})
     assert u.healthy(NAME, 60), "le lanceur de test ne démarre pas"
 
 
-# 1. Nouvelle version saine : le relais remplace le lanceur, puis se désactive.
+def check(tag):
+    new = c.containers.get(NAME)
+    assert new.image.id == c.images.get(ref("launcher", tag)).id and new.status == "running", new.image.tags
+    assert u._get(NAME + "-ancien") is None
+    assert c.containers.get(u.RELAY).attrs["HostConfig"]["RestartPolicy"]["Name"] == "no"
+
+
+# 1. Nouvelle version saine : le relais remplace le lanceur, l'observe, valide, se désactive.
 launcher("a")
-rep = u.apply(*signed(ref("b"), "3.0.0"))
+rep = u.apply(*signed({"noah-launcher": ref("launcher", "b")}, "3.0.0"))
 assert rep["ok"] and rep["composants"]["noah-launcher"] == "en_cours", rep
-state = wait_relay()
-assert state["dernier_rapport"]["ok"], state["dernier_rapport"]
-new = c.containers.get(NAME)
-assert new.image.id == c.images.get(ref("b")).id and new.status == "running"
-assert u.healthy(NAME, 30)
-relay = c.containers.get(u.RELAY)
-assert relay.attrs["HostConfig"]["RestartPolicy"]["Name"] == "no"
-try:
-    c.containers.get(NAME + "-ancien")
-    sys.exit("ancien lanceur resté")
-except docker.errors.NotFound:
-    pass
-print("1. lanceur remplacé par le relais, ancien retiré, relais désactivé")
+s = wait_tx()
+assert s["dernier_rapport"]["ok"] and s["version_max"] == "3.0.0", s["dernier_rapport"]
+check("b")
+print("1. lanceur remplacé par le relais, observé, ancien retiré, relais désactivé")
 
 # 2. Nouvelle version cassée : le relais remet l'ancien lanceur et bloque la version.
 launcher("a")
-rep = u.apply(*signed(ref("casse"), "3.0.1"))
-state = wait_relay()
-assert not state["dernier_rapport"]["ok"]
-back = c.containers.get(NAME)
-assert back.image.id == c.images.get(ref("a")).id and back.status == "running"
-assert any(b["image"] == ref("casse") for b in state["bloquees"])
+rep = u.apply(*signed({"noah-launcher": ref("launcher", "casse")}, "3.0.1"))
+s = wait_tx()
+assert not s["dernier_rapport"]["ok"] and any(b["image"] == ref("launcher", "casse") for b in s["bloquees"])
+check("a")
 print("2. lanceur cassé : le relais remet l'ancien, version bloquée")
 
+# 3. Le relais meurt net (kill -9) après avoir renommé l'ancien lanceur : Docker le relance, il termine.
+for step in ("relais-arrete", "relais-renomme", "relais-demarre"):
+    launcher("a")
+    os.environ["NOAH_TEST_CRASH_RELAY"] = step
+    rep = u.apply(*signed({"noah-launcher": ref("launcher", "b")}, "3.1.0"))
+    del os.environ["NOAH_TEST_CRASH_RELAY"]
+    s = wait_tx()
+    assert s["dernier_rapport"]["ok"], (step, s["dernier_rapport"])
+    assert c.containers.get(u.RELAY).attrs["RestartCount"] >= 1, "le relais n'a pas été coupé"
+    check("b")
+    print(f"3. relais coupé à l'étape « {step} » : relancé par Docker, il termine la mise à jour")
+
 for n in (NAME, NAME + "-ancien", u.RELAY):
-    try:
-        c.containers.get(n).remove(force=True)
-    except docker.errors.NotFound:
-        pass
+    remove(n)

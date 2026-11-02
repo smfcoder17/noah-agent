@@ -604,25 +604,20 @@ def health():
 
 
 def _recreate_browser(name: str, image: str) -> None:
-    """Navigateur sur une nouvelle image : recréé par _ensure_browser, qui y dépose l'extension Noah et la config de
-    Firefox avant le démarrage (une simple recréation les perdrait). L'ancien reste sous <nom>-ancien ; la
-    transaction décide ensuite (santé, retour arrière). Appelé avec _browser_lock déjà pris."""
-    old = client.containers.get(name)
+    """Navigateur sur une nouvelle image : la transaction l'a déjà arrêté et renommé <nom>-ancien ; on le recrée par
+    _ensure_browser, qui dépose l'extension Noah et la config de Firefox avant le démarrage (une simple recréation
+    les perdrait). Appelé avec _browser_lock déjà pris."""
+    old = client.containers.get(f"{name}-ancien")
     env = dict(e.split("=", 1) for e in old.attrs["Config"]["Env"] if "=" in e)
     agent_id = old.labels[BROWSER_LABEL]
     _, locale, timezone = (old.labels.get("apollo.browser.version", "") + "::").split(":")[:3]
     body = BrowserKeys(api_key=env["CAMOFOX_API_KEY"], vnc_password=env["VNC_PASSWORD"], locale=locale, timezone=timezone)
-    try:
-        client.containers.get(f"{name}-ancien").remove(force=True)
-    except NotFound:
-        pass
-    old.stop(timeout=20)  # arrêt propre : Camoufox enregistre les cookies de la session
-    old.rename(f"{name}-ancien")
     _ensure_browser(agent_id, body, image)
 
 
 updater.HOOKS["navigateur"] = _recreate_browser
 updater.LOCKS["navigateur"] = _browser_lock
+updater.AFTER["hermes"] = _restore_packages  # paquets ajoutés par les agents : réinstallés sur la nouvelle image
 # Mise à jour interrompue par un arrêt brutal : annulée au démarrage, avant toute nouvelle opération.
 threading.Thread(target=updater.recover, daemon=True).start()
 
@@ -658,5 +653,5 @@ def update_pull(body: SignedManifest):
 def update_apply(body: SignedManifest):
     """Lancée en arrière-plan : le serveur lui-même peut être recréé pendant l'opération ; il relit l'état ensuite."""
     raw, _ = _verified(body)
-    threading.Thread(target=updater.apply, args=(raw, body.signature, body.composants, body.force), daemon=True).start()
+    threading.Thread(target=updater.apply, args=(raw, body.signature, body.composants, body.force), daemon=True).start()  # force : réessayer une version bloquée
     return {"ok": True, "en_cours": True}

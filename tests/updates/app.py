@@ -9,7 +9,7 @@ V = os.environ["APPV"]
 db = sqlite3.connect("/data/state.db", check_same_thread=False, isolation_level=None)
 db.execute("PRAGMA journal_mode=WAL")
 db.execute("CREATE TABLE IF NOT EXISTS t (v TEXT, n INTEGER)")
-if V == "v2" and "migre" not in [r[1] for r in db.execute("PRAGMA table_info(t)")]:
+if V in ("v2", "v3") and "migre" not in [r[1] for r in db.execute("PRAGMA table_info(t)")]:
     db.execute("ALTER TABLE t ADD COLUMN migre INTEGER")
 broken = V == "v2" and socket.gethostname().endswith("-b")
 
