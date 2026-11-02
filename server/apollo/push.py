@@ -36,7 +36,8 @@ RECORD = 4096  # taille d'enregistrement annoncée ; un message tient toujours d
 PUSH_HOSTS = re.compile(r"^(fcm\.googleapis\.com|android\.googleapis\.com|[a-z0-9.-]+\.push\.services\.mozilla\.com"
                         r"|[a-z0-9.-]+\.notify\.windows\.com|web\.push\.apple\.com|[a-z0-9.-]+\.push\.apple\.com)$")
 _key_lock = threading.Lock()
-MAX_WAIT = 300
+TTL = 24 * 3600   # durée de vie d'un message chez le service de push
+MAX_WAIT = TTL    # Retry-After respecté jusqu'à cette limite (attendre plus longtemps n'aurait plus de sens)
 RETRIES = (2, 10)  # secondes d'attente avant de réessayer après une erreur passagère (429, 5xx, réseau)
 
 
@@ -140,7 +141,7 @@ async def _send_one(client: httpx.AsyncClient, sub, payload: bytes, urgent: bool
         try:
             r = await client.post(sub["endpoint"], content=encrypt(payload, sub["p256dh"], sub["auth"]), headers={
                 "Authorization": vapid_header(sub["endpoint"]), "Content-Encoding": "aes128gcm",
-                "Content-Type": "application/octet-stream", "TTL": str(24 * 3600),
+                "Content-Type": "application/octet-stream", "TTL": str(TTL),
                 "Urgency": "high" if urgent else "normal",
             })
         except httpx.HTTPError as e:
@@ -187,10 +188,21 @@ async def send(title: str, text: str, url: str = "/", urgent: bool = False, user
     return {"livres": outcome.count("livre"), "echecs": outcome.count("echec"), "morts": len(dead)}
 
 
-def notify(title: str, text: str, url: str = "/", urgent: bool = False) -> None:
-    """Depuis le code du serveur : envoie sans attendre (rien ne bloque si un service de push est lent)."""
+def _owner() -> int | None:
+    """Compte propriétaire de l'installation (le premier créé) : c'est lui que l'agent prévient."""
+    with db.connect() as c:
+        row = c.execute("SELECT MIN(id) AS id FROM users").fetchone()
+    return row["id"] if row else None
+
+
+def notify(title: str, text: str, url: str = "/", urgent: bool = False, user_id: int | None = None) -> None:
+    """Depuis le code du serveur : envoie sans attendre (rien ne bloque si un service de push est lent), au compte
+    donné ou, par défaut, au propriétaire de l'installation, jamais à tous les comptes."""
+    target = user_id if user_id is not None else _owner()
+    if target is None:
+        return
     try:
-        asyncio.get_running_loop().create_task(send(title, text, url, urgent))
+        asyncio.get_running_loop().create_task(send(title, text, url, urgent, user_id=target))
     except RuntimeError:
         pass  # hors de la boucle (tests, scripts) : pas de notification
 

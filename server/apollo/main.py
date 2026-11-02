@@ -1048,6 +1048,13 @@ def delete_conversation(conv_id: str, user: int = Depends(auth.current_user)):
     return {"ok": True}
 
 
+def _conversation_owner(conv_id: str) -> int | None:
+    """Compte à qui appartient la conversation : c'est lui, et lui seul, qu'on prévient."""
+    with db.connect() as c:
+        row = c.execute("SELECT user_id FROM conversations WHERE id = ?", (conv_id,)).fetchone()
+    return row["user_id"] if row else None
+
+
 def _save_message(conv_id: str, role: str, text: str) -> None:
     with db.connect() as c:
         c.execute("INSERT INTO messages (conversation_id, role, text) VALUES (?, ?, ?)", (conv_id, role, text))
@@ -1131,7 +1138,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
                     continue
                 if out["type"] == "approval" and task_state.get(conv_id) != "approve":
                     push.notify("Noah attend ton accord", str(out.get("summary") or "Une action demande ton accord."),
-                                urgent=True)
+                                urgent=True, user_id=_conversation_owner(conv_id))
                 task_state[conv_id] = "approve" if out["type"] == "approval" else "work"
                 if out["type"] == "message":
                     reply.append(out["text"])

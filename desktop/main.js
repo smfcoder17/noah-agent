@@ -299,14 +299,18 @@ async function forgetServer({ revoke = true } = {}) {
   const { server } = readConfig();
   const token = storedToken();
   if (server) {
-    if (token && revoke) {
+    // La fenêtre peut utiliser une autre session que celle rangée par l'app (déconnexion puis reconnexion dans
+    // l'interface) : on révoque les deux.
+    const cookie = (await session.defaultSession.cookies.get({ url: server, name: "apollo_session" }).catch(() => []))[0]?.value;
+    const tokens = [...new Set([token, cookie].filter(Boolean))];
+    for (const t of revoke ? tokens : []) {
       const r = await fetch(`${server}/api/devices/self`, {
-        method: "DELETE", headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10000),
+        method: "DELETE", headers: { Authorization: `Bearer ${t}` }, signal: AbortSignal.timeout(10000),
       }).catch(() => null);
       if (!r || !(r.ok || r.status === 401)) {
         // Pas de réponse : la session reste valable là-bas. On la garde (chiffrée) pour la révoquer plus tard.
-        const queue = (readConfig().a_revoquer || []).concat([{ server, jeton: readConfig().jeton }]);
-        writeConfig({ a_revoquer: queue });
+        const sealed = safeStorage.encryptString(t).toString("base64");
+        writeConfig({ a_revoquer: (readConfig().a_revoquer || []).concat([{ server, jeton: sealed }]) });
       }
     }
     await session.defaultSession.cookies.remove(server, "apollo_session");

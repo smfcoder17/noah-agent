@@ -51,6 +51,10 @@ final class Pairing {
     }
 
     void save(String server, String token) throws Exception {
+        prefs.edit().putString("server", server).putString("token", seal(token)).commit();
+    }
+
+    private static String seal(String token) throws Exception {
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
         cipher.init(Cipher.ENCRYPT_MODE, key());
         byte[] iv = cipher.getIV();
@@ -58,22 +62,27 @@ final class Pairing {
         byte[] all = new byte[iv.length + body.length];
         System.arraycopy(iv, 0, all, 0, iv.length);
         System.arraycopy(body, 0, all, iv.length, body.length);
-        prefs.edit().putString("server", server).putString("token", Base64.encodeToString(all, Base64.NO_WRAP)).commit();
+        return Base64.encodeToString(all, Base64.NO_WRAP);
     }
 
     /**
      * Oublie ce serveur. La session est mise de côté (toujours chiffrée) pour être révoquée là-bas : sans ça, elle
      * resterait valable sur le serveur alors que l'utilisateur croit avoir déconnecté le téléphone.
      */
-    void forget() {
+    void forget(String windowToken) {
         synchronized (Pairing.class) {
             String server = server(), sealed = prefs.getString("token", null);
             JSONArray queue = pending();
             if (server != null && sealed != null) {
                 try {
                     queue.put(new JSONObject().put("server", server).put("token", sealed));
+                    // La fenêtre peut utiliser une autre session (déconnexion puis reconnexion dans l'interface) :
+                    // elle est révoquée aussi.
+                    if (windowToken != null && !windowToken.equals(open(sealed))) {
+                        queue.put(new JSONObject().put("server", server).put("token", seal(windowToken)));
+                    }
                 } catch (Exception ignored) {
-                    // JSON en mémoire : ne peut pas échouer
+                    // JSON en mémoire, chiffrement par la clé du Keystore : rien à faire de plus si ça échoue
                 }
             }
             prefs.edit().clear().putString("a_revoquer", queue.toString()).commit();

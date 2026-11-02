@@ -186,15 +186,32 @@ print("5 quinquies. abonnement renouvelé : l'ancien est remplacé, un seul par 
 from email.utils import format_datetime  # noqa: E402
 from datetime import datetime, timedelta, timezone  # noqa: E402
 
-assert push._retry_after("120", 2) == 120 and push._retry_after("9999", 2) == push.MAX_WAIT
+assert push._retry_after("120", 2) == 120 and push._retry_after("3600", 2) == 3600
+assert push._retry_after("999999", 2) == push.TTL  # au-delà de la durée de vie du message, attendre n'a plus de sens
 later = format_datetime(datetime.now(timezone.utc) + timedelta(seconds=90), usegmt=True)
 assert 85 <= push._retry_after(later, 2) <= 90
 assert push._retry_after("n'importe quoi", 7) == 7 and push._retry_after("", 7) == 7
-print("5 sexies. Retry-After en secondes ou en date HTTP, plafonné à 5 minutes")
+print("5 sexies. Retry-After respecté (3600 s compris), en secondes ou en date HTTP, jusqu'à la durée de vie du message")
 
 # 5 septies. L'interface compare l'abonnement du serveur à celui du navigateur : l'API rend l'adresse enregistrée.
 assert app_e.get("/api/push/subscription").json()["endpoint"] == "https://wns2-par02p.notify.windows.com/w/nouveau"
 print("5 septies. /api/push/subscription rend l'abonnement enregistré (réconciliation côté page)")
+
+# 5 octies. Notification du serveur : au propriétaire seulement, jamais aux abonnements d'un autre compte.
+bob = auth.create_user("bob", "motdepasse-b")
+kb, pb, sb = device()
+assert subscribe(TestClient(main.app, headers={"Authorization": f"Bearer {auth.new_session(bob, 'Bob', 'web')}"}),
+                 "https://fcm.googleapis.com/fcm/send/bob", pb, sb) == 200
+received.clear()
+
+
+async def notify_and_wait():
+    push.notify("Noah attend ton accord", "secret d'Alice", urgent=True)
+    await asyncio.sleep(0.5)
+
+asyncio.run(notify_and_wait())
+assert received and not [x for x in received if x.url.path.endswith("/bob")], "notification d'Alice envoyée à Bob"
+print("5 octies. notification du serveur : au compte propriétaire seulement, rien chez un autre compte")
 
 # 6. Clé VAPID : vingt premiers appels simultanés ne créent qu'une seule clé.
 with db.connect() as c:

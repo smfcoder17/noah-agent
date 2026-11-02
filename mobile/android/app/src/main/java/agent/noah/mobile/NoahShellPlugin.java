@@ -43,10 +43,21 @@ public class NoahShellPlugin extends Plugin {
         getActivity().runOnUiThread(() -> getActivity().recreate());
     }
 
+    /** Session réellement utilisée par la fenêtre (cookie apollo_session), ou null. */
+    private static String windowToken(String server) {
+        String all = server == null ? null : CookieManager.getInstance().getCookie(server);
+        if (all == null) return null;
+        for (String part : all.split(";")) {
+            String p = part.trim();
+            if (p.startsWith("apollo_session=")) return p.substring("apollo_session=".length());
+        }
+        return null;
+    }
+
     @PluginMethod
     public void forget(PluginCall call) {
         Pairing pairing = new Pairing(getContext());
-        pairing.forget();
+        pairing.forget(windowToken(pairing.server()));
         new Thread(pairing::revokeForgotten).start();
         CookieManager.getInstance().removeAllCookies(null);
         CookieManager.getInstance().flush();
