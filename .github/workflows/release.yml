@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   packages: write
   id-token: write
   attestations: write
@@ -44,7 +44,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=stable,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=stable,enable=${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-') }}
             type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
           labels: |
             org.opencontainers.image.title=${{ matrix.name }}
@@ -57,6 +57,9 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            NOAH_VERSION=${{ steps.meta.outputs.version }}
+            NOAH_UPDATE_KEY=${{ vars.NOAH_UPDATE_KEY }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
       - uses: actions/attest-build-provenance@v2
@@ -64,3 +67,41 @@ jobs:
           subject-name: ghcr.io/${{ github.repository_owner }}/${{ matrix.name }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
+
+  # Manifeste signé de la version : les serveurs déjà installés le lisent et se mettent à jour pendant leur créneau
+  # calme. Il fige aussi les dépendances (Hermes, navigateur, Caddy) par empreinte : elles n'arrivent chez les
+  # utilisateurs qu'avec une version de Noah, jamais d'elles-mêmes.
+  manifest:
+    needs: image
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Empreintes des images
+        id: refs
+        run: |
+          set -e
+          digest() { docker buildx imagetools inspect "$1" --format '{{json .Manifest}}' | jq -r .digest; }
+          v="${GITHUB_REF_NAME#v}"
+          owner=$(echo "${{ github.repository_owner }}" | tr A-Z a-z)
+          {
+            echo "noah-server=ghcr.io/$owner/noah-server@$(digest ghcr.io/$owner/noah-server:$v)"
+            echo "noah-launcher=ghcr.io/$owner/noah-launcher@$(digest ghcr.io/$owner/noah-launcher:$v)"
+            echo "hermes=nousresearch/hermes-agent@$(digest nousresearch/hermes-agent:stable)"
+            echo "navigateur=ghcr.io/jo-inc/camofox-browser@$(digest ghcr.io/jo-inc/camofox-browser:latest)"
+            echo "caddy=caddy@$(digest caddy:2.10-alpine)"
+          } > refs.txt
+          cat refs.txt
+      - name: Signature
+        env:
+          NOAH_RELEASE_KEY: ${{ secrets.NOAH_RELEASE_KEY }}
+        run: |
+          pip install --quiet cryptography==44.0.0
+          git log -1 --format=%B "${GITHUB_REF_NAME}" > notes.md
+          python scripts/release-manifest.py signer "${GITHUB_REF_NAME#v}" notes.md $(cat refs.txt)
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            manifest.json
+            manifest.json.sig

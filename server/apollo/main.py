@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import accounts, auth, catalog, db, desktop, events, handoff, hermes, machine, media, public, relay, watch
+from . import accounts, auth, catalog, db, desktop, events, handoff, hermes, machine, media, public, relay, updates, watch
 from .config import SETUP_CODE, WEB_DIR, forget_setup_code
 from .hermes import Agent
 
@@ -35,6 +35,8 @@ async def same_origin_only(request: Request, call_next):
         if not source or source.split("://", 1)[-1].split("/", 1)[0] != host:
             return Response('{"detail":"Requête refusée : elle ne vient pas de Noah."}', status_code=403,
                             media_type="application/json")
+    if "x-noah-timezone" in request.headers:  # fuseau de l'utilisateur : créneau des mises à jour
+        updates.saw_client(request.headers["x-noah-timezone"])
     return await call_next(request)
 app.include_router(relay.router)
 app.include_router(machine.router)
@@ -60,6 +62,7 @@ async def startup() -> None:
     db.init()
     auth.hash_old_sessions()
     asyncio.create_task(public.setup())
+    asyncio.create_task(updates.run(task_state))
     _migrate_threads()
     asyncio.create_task(_refresh_browsers())
     asyncio.create_task(machine.deliver_routines(_save_message, _main_conversation))
@@ -964,6 +967,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
         raise HTTPException(503, "L'agent ne répond pas. Il démarre peut-être encore : réessaie dans un instant.")
 
     task_state[conv_id] = "work"
+    updates.activity()
 
     async def stream():
         yield _sse({"type": "start", "conversation_id": conv_id, "run_id": run_id})
@@ -1609,6 +1613,7 @@ async def screen_socket(websocket: WebSocket, agent_id: str):
     requested = websocket.headers.get("sec-websocket-protocol", "")
     protocols = [p.strip() for p in requested.split(",") if p.strip()]
     await websocket.accept(subprotocol=protocols[0] if protocols else None)
+    updates.screens += 1  # écran ouvert : pas de mise à jour en dessous de l'utilisateur
     try:
         async with websockets.connect(
             f"ws://{hermes.browser_host(agent_id)}:6080/websockify",
@@ -1645,10 +1650,56 @@ async def screen_socket(websocket: WebSocket, agent_id: str):
     except Exception:
         pass
     finally:
+        updates.screens -= 1
         try:
             await websocket.close()
         except RuntimeError:
             pass
+
+
+class UpdateSettings(BaseModel):
+    auto: bool | None = None
+    heure: str | int | None = None
+
+
+@app.get("/api/updates")
+async def updates_summary(user: int = Depends(auth.current_user)):
+    return await updates.summary()
+
+
+@app.post("/api/updates/check")
+async def updates_check(user: int = Depends(auth.current_user)):
+    await updates.check()
+    return await updates.summary()
+
+
+@app.post("/api/updates/install")
+async def updates_install(force: bool = False, user: int = Depends(auth.current_user)):
+    """« Installer maintenant » : tout de suite, sauf une tâche en cours (l'utilisateur peut passer outre)."""
+    reason = updates.busy()
+    if reason and not force:
+        raise HTTPException(409, f"Pas maintenant : {reason}.")
+    return await updates.install(updates._load())
+
+
+@app.post("/api/updates/skip")
+def updates_skip(user: int = Depends(auth.current_user)):
+    updates.skip()
+    return {"ok": True}
+
+
+@app.post("/api/updates/postpone")
+def updates_postpone(user: int = Depends(auth.current_user)):
+    updates.postpone(1)
+    return {"ok": True}
+
+
+@app.put("/api/updates/settings")
+def updates_settings(body: UpdateSettings, user: int = Depends(auth.current_user)):
+    if body.heure not in (None, "auto") and not (str(body.heure).isdigit() and 0 <= int(body.heure) <= 23):
+        raise HTTPException(400, "Heure entre 0 et 23, ou « auto »")
+    updates.settings(body.auto, body.heure)
+    return {"ok": True}
 
 
 @app.post("/api/agents/{agent_id}/runs/{run_id}/stop")

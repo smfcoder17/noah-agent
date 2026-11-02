@@ -5,11 +5,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { get, request, send } from "@/lib/api";
 import { ModelPicker } from "./ModelPicker";
 import { PhonePairing } from "./PhonePairing";
+import { Updates } from "./Updates";
 import { type MediaModel, ModelSelect } from "./ModelSelect";
 import { Dialog, DialogContent, Tabs, TabsContent, TabsList, TabsTrigger } from "./ui";
 import { Button } from "./ui";
 
-export type SettingsTab = "brain" | "create" | "voice" | "phone";
+export type SettingsTab = "brain" | "create" | "voice" | "phone" | "updates";
 
 type Kind = { label: string; setting: string; auto: string | null; routed?: boolean; models: MediaModel[] };
 type MediaState = {
@@ -45,6 +46,7 @@ export function SettingsDialog({ open, tab, onTab, onOpenChange, onBrainSaved }:
               <TabsTrigger value="create">Création</TabsTrigger>
               <TabsTrigger value="voice">Voix</TabsTrigger>
               <TabsTrigger value="phone">Appareils</TabsTrigger>
+              <TabsTrigger value="updates">Mises à jour</TabsTrigger>
             </TabsList>
             <TabsContent value="brain">
               <ModelPicker onCancel={() => onOpenChange(false)} onDone={onBrainSaved} />
@@ -57,6 +59,9 @@ export function SettingsDialog({ open, tab, onTab, onOpenChange, onBrainSaved }:
             </TabsContent>
             <TabsContent value="phone">
               <PhonePairing />
+            </TabsContent>
+            <TabsContent value="updates">
+              <Updates />
             </TabsContent>
           </Tabs>
         </DialogContent>

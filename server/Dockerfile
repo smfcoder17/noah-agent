@@ -17,6 +17,10 @@ COPY server/apollo ./apollo
 COPY --from=web /web/dist ./web
 
 ENV APOLLO_DATA_DIR=/data APOLLO_WEB_DIR=/app/web
+# Version publiée et clé publique qui signe les manifestes de mise à jour (posées par .github/workflows/release.yml).
+ARG NOAH_VERSION=dev
+ARG NOAH_UPDATE_KEY=
+ENV NOAH_VERSION=$NOAH_VERSION NOAH_UPDATE_KEY=$NOAH_UPDATE_KEY
 EXPOSE 8080
 # --proxy-headers : derrière Caddy, l'adresse du client et le HTTPS viennent des en-têtes X-Forwarded-*.
 CMD ["uvicorn", "apollo.main:app", "--host", "0.0.0.0", "--port", "8080", "--proxy-headers", "--forwarded-allow-ips", "127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"]

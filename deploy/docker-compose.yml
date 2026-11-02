@@ -35,6 +35,8 @@ services:
       AGENT_NETWORK: apollo-net
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      # État des mises à jour (versions en service, versions bloquées après un échec).
+      - noah-updates:/state
       - noah-secrets:/secrets:ro
     networks: [apollo]
 
@@ -97,6 +99,8 @@ networks:
     name: apollo-net
 
 volumes:
+  noah-updates:
+  noah-backups:
   apollo-data:
   noah-secrets:
   caddy-data:

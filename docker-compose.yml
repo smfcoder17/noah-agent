@@ -41,6 +41,8 @@ services:
       NOAH_SHARE_ROOTS: ${NOAH_SHARE_ROOTS:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      # État des mises à jour (versions en service, versions bloquées après un échec).
+      - noah-updates:/state
     networks: [apollo]
 
 networks:
@@ -48,4 +50,6 @@ networks:
     name: apollo-net
 
 volumes:
+  noah-updates:
+  noah-backups:
   apollo-data:

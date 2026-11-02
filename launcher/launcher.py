@@ -14,6 +14,8 @@ import time
 from pathlib import Path
 
 import docker
+
+import updater
 from docker.errors import NotFound
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request, Response
 from pydantic import BaseModel
@@ -108,7 +110,7 @@ def ensure_browser(agent_id: str, body: BrowserKeys):
         return _ensure_browser(agent_id, body)
 
 
-def _ensure_browser(agent_id: str, body: BrowserKeys):
+def _ensure_browser(agent_id: str, body: BrowserKeys, image: str | None = None):
     check_id(agent_id)
     container(agent_id)  # l'agent doit exister
     name = BROWSER_PREFIX + agent_id
@@ -123,9 +125,10 @@ def _ensure_browser(agent_id: str, body: BrowserKeys):
         c.remove(force=True)
     except NotFound:
         pass
-    _ensure_image(BROWSER_IMAGE)
+    image = image or updater.pinned("navigateur", BROWSER_IMAGE)  # version figée par la dernière mise à jour
+    _ensure_image(image)
     c = client.containers.create(
-        BROWSER_IMAGE,
+        image,
         name=name,
         hostname=name,
         labels={BROWSER_LABEL: agent_id, "apollo.browser.version": version},
@@ -369,7 +372,7 @@ def _run_agent(agent_id: str, api_key: str, folders: list[Folder]):
     for f in folders:
         volumes[f.chemin] = {"bind": f"{DATA}/dossiers/{f.nom}", "mode": "rw" if f.ecriture else "ro"}
     client.containers.run(
-        IMAGE,
+        updater.pinned("hermes", IMAGE),
         command="gateway run",
         name=PREFIX + agent_id,
         hostname=PREFIX + agent_id,
@@ -585,3 +588,64 @@ def delete(agent_id: str):
         except NotFound:
             pass
     return {"ok": True}
+
+
+# --- Mises à jour (détail dans updater.py) --------------------------------------------------------------
+
+@app.get("/health")
+def health():
+    """Contrôle de santé après une mise à jour du lanceur (sans clé : ne dit rien d'autre que « je réponds »)."""
+    return {"ok": True}
+
+
+def _recreate_browser(name: str, image: str) -> bool:
+    """Navigateur sur une nouvelle image : recréé par _ensure_browser, qui y dépose l'extension Noah et la config de
+    Firefox avant le démarrage (une simple recréation les perdrait). L'ancien est gardé jusqu'au contrôle de santé."""
+    old = client.containers.get(name)
+    env = dict(e.split("=", 1) for e in old.attrs["Config"]["Env"] if "=" in e)
+    agent_id = old.labels[BROWSER_LABEL]
+    _, locale, timezone = (old.labels.get("apollo.browser.version", "") + "::").split(":")[:3]
+    body = BrowserKeys(api_key=env["CAMOFOX_API_KEY"], vnc_password=env["VNC_PASSWORD"], locale=locale, timezone=timezone)
+    old.stop(timeout=20)  # arrêt propre : Camoufox enregistre les cookies de la session
+    try:
+        client.containers.get(f"{name}-ancien").remove(force=True)
+    except NotFound:
+        pass
+    old.rename(f"{name}-ancien")
+    with _browser_lock:
+        _ensure_browser(agent_id, body, image)
+    if updater.healthy(name, 90):
+        updater.finish(name)
+        return True
+    updater.restore(name)
+    return False
+
+
+updater.HOOKS["navigateur"] = _recreate_browser
+# Mise à jour interrompue par un arrêt brutal : on la termine ou on l'annule, au démarrage.
+threading.Thread(target=updater.recover, daemon=True).start()
+
+
+class UpdatePull(BaseModel):
+    images: list[str]
+
+
+class UpdateApply(BaseModel):
+    cibles: dict[str, str]
+
+
+@app.get("/update/status", dependencies=[Depends(auth)])
+def update_status():
+    return {"actuel": updater.current(), "etat": updater.load_state()}
+
+
+@app.post("/update/pull", dependencies=[Depends(auth)])
+def update_pull(body: UpdatePull):
+    return updater.pull(body.images)
+
+
+@app.post("/update/apply", dependencies=[Depends(auth)])
+def update_apply(body: UpdateApply):
+    """Lancée en arrière-plan : le serveur lui-même peut être recréé pendant l'opération ; il relit l'état ensuite."""
+    threading.Thread(target=updater.apply, args=(body.cibles,), daemon=True).start()
+    return {"ok": True, "en_cours": True}

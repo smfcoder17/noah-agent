@@ -8,11 +8,14 @@ export class ApiError extends Error {
   }
 }
 
+const ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+
 export async function request(path: string, init: RequestInit = {}): Promise<Response> {
   const res = await fetch(path, {
     ...init,
     credentials: "same-origin",
-    headers: { "Content-Type": "application/json", ...(init.headers || {}) },
+    // Fuseau de l'utilisateur : le serveur (souvent un VPS en UTC) installe les mises à jour pendant sa nuit à lui.
+    headers: { "Content-Type": "application/json", "X-Noah-Timezone": ZONE, ...(init.headers || {}) },
   });
   // Session révoquée ou expirée pendant l'usage : l'interface revient à l'écran de connexion (ou de reliaison).
   if (res.status === 401 && !/^\/api\/(login|setup|pairing|status)/.test(path)) window.dispatchEvent(new Event("noah:unauthorized"));
