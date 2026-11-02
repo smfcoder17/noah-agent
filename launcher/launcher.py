@@ -16,6 +16,7 @@ from pathlib import Path
 
 import docker
 
+import restore
 import updater
 from docker.errors import NotFound
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request, Response
@@ -78,7 +79,7 @@ BROWSER_IMAGE = os.environ.get("BROWSER_IMAGE", "ghcr.io/jo-inc/camofox-browser:
 BROWSER_PREFIX = "apollo-browser-"
 BROWSER_LABEL = "apollo.browser"
 # Version des réglages du navigateur ; un conteneur plus ancien est recréé (le profil reste dans son volume).
-BROWSER_VERSION = "7"
+BROWSER_VERSION = "8"  # 8 : jetons dans un fichier du conteneur, plus dans sa config Docker
 
 
 def _frozen(agent_id: str):
@@ -140,21 +141,23 @@ def _ensure_browser(agent_id: str, body: BrowserKeys, image: str | None = None, 
         pass
     image = image or updater.pinned("navigateur", BROWSER_IMAGE)  # version figée par la dernière mise à jour
     _ensure_image(image)
+    image_cfg = client.images.get(image).attrs["Config"]
     c = client.containers.create(
         image,
         name=name,
         hostname=name,
         labels={BROWSER_LABEL: agent_id, "apollo.browser.version": version},
+        # Les jetons sont lus d'un fichier au démarrage, puis la commande de l'image est lancée telle quelle.
+        entrypoint=["/bin/sh", "-c", f'set -a; . {SECRETS_FILE}; set +a; exec "$@"', "noah"],
+        command=(image_cfg.get("Entrypoint") or []) + (image_cfg.get("Cmd") or []),
         environment={
             "CAMOFOX_PORT": "9377",
             "CAMOFOX_BIND_HOST": "0.0.0.0",
-            "CAMOFOX_API_KEY": body.api_key,
             "CAMOFOX_PROFILE_DIR": "/data/profiles",
             "CAMOFOX_COOKIES_DIR": "/data/cookies",
             "CAMOFOX_CRASH_REPORT_ENABLED": "false",
             "ENABLE_VNC": "1",
             "VNC_RESOLUTION": "1920x1080",  # taille de la fenêtre Camoufox : rien n'est coupé à l'écran
-            "VNC_PASSWORD": body.vnc_password,
             "VNC_BIND": "0.0.0.0",
             "NOVNC_PORT": "6080",
             "MAX_OLD_SPACE_SIZE": "256",
@@ -176,6 +179,7 @@ def _ensure_browser(agent_id: str, body: BrowserKeys, image: str | None = None, 
         shm_size="1g",
         security_opt=["no-new-privileges"],
     )
+    updater.put_env(c, SECRETS_FILE, {"CAMOFOX_API_KEY": body.api_key, "VNC_PASSWORD": body.vnc_password})
     # Avant le démarrage : le plugin Noah et sa déclaration, puis le correctif AutoConfig de Firefox (un onglet ouvert à
     # la main dans l'écran hérite du conteneur de l'agent, donc de ses cookies).
     here = Path(__file__).parent / "camofox-noah"
@@ -193,6 +197,8 @@ def _ensure_browser(agent_id: str, body: BrowserKeys, image: str | None = None, 
 
 
 CAMOUFOX_CFG = "/root/.cache/camoufox/camoufox.cfg"
+# Jetons du navigateur, hors de la config Docker (visible dans `docker inspect` et le Docker Manager de Hostinger).
+SECRETS_FILE = "/noah.env"
 
 
 def _tar(files: dict[str, bytes]) -> bytes:
@@ -374,28 +380,37 @@ def set_folders(agent_id: str, body: AgentFolders):
     """Change les dossiers partagés : la machine de l'agent est recréée (son volume garde tout le reste)."""
     folders = _check_folders(body.dossiers)
     c = container(check_id(agent_id))
-    env = dict(e.split("=", 1) for e in c.attrs["Config"]["Env"] if "=" in e)
+    key = _agent_key(c)
     c.remove(force=True)
-    out = _run_agent(agent_id, env["API_SERVER_KEY"], folders)
+    out = _run_agent(agent_id, key, folders)
     threading.Thread(target=_restore_packages, daemon=True).start()
     return out
+
+
+def _agent_key(c) -> str:
+    """Jeton de l'API de l'agent : dans son .env (Hermes le charge), ou dans sa config pour un conteneur d'avant."""
+    env = dict(e.split("=", 1) for e in c.attrs["Config"]["Env"] if "=" in e)
+    return updater.env_values((updater.read_text(c, f"{DATA}/.env") or ("",))[0]).get("API_SERVER_KEY") or env["API_SERVER_KEY"]
+
+
+HERMES_UID = 10000  # utilisateur hermes de l'image : propriétaire du .env d'un volume neuf
 
 
 def _run_agent(agent_id: str, api_key: str, folders: list[Folder]):
     volumes = {PREFIX + agent_id: {"bind": DATA, "mode": "rw"}}
     for f in folders:
         volumes[f.chemin] = {"bind": f"{DATA}/dossiers/{f.nom}", "mode": "rw" if f.ecriture else "ro"}
-    client.containers.run(
-        updater.pinned("hermes", IMAGE),
+    image = updater.pinned("hermes", IMAGE)
+    _ensure_image(image)
+    c = client.containers.create(
+        image,
         command="gateway run",
         name=PREFIX + agent_id,
         hostname=PREFIX + agent_id,
-        detach=True,
         labels={LABEL: agent_id},
         environment={
             "API_SERVER_ENABLED": "true",
             "API_SERVER_HOST": "0.0.0.0",
-            "API_SERVER_KEY": api_key,
         },
         volumes=volumes,
         network=NETWORK,
@@ -406,6 +421,13 @@ def _run_agent(agent_id: str, api_key: str, folders: list[Folder]):
         security_opt=["no-new-privileges"],
         cap_drop=["NET_RAW", "SYS_ADMIN", "MKNOD"],
     )
+    # Jeton de l'API dans le .env du volume, avant le premier démarrage : l'API n'est jamais ouverte sans lui.
+    try:
+        updater.put_env(c, f"{DATA}/.env", {"API_SERVER_KEY": api_key}, HERMES_UID, HERMES_UID)
+        c.start()
+    except Exception:
+        c.remove(force=True)  # sinon « Cet agent existe déjà » au prochain essai, pour un conteneur jamais démarré
+        raise
     return {"id": agent_id, "host": PREFIX + agent_id}
 
 
@@ -622,10 +644,46 @@ def _recreate_browser(name: str, image: str, start: bool = True) -> None:
     les perdrait). Appelé avec _browser_lock déjà pris."""
     old = client.containers.get(f"{name}-ancien")
     env = dict(e.split("=", 1) for e in old.attrs["Config"]["Env"] if "=" in e)
+    env.update(updater.env_values((updater.read_text(old, SECRETS_FILE) or ("",))[0]))
     agent_id = old.labels[BROWSER_LABEL]
     _, locale, timezone = (old.labels.get("apollo.browser.version", "") + "::").split(":")[:3]
     body = BrowserKeys(api_key=env["CAMOFOX_API_KEY"], vnc_password=env["VNC_PASSWORD"], locale=locale, timezone=timezone)
     _ensure_browser(agent_id, body, image, start)
+
+
+@app.post("/restore", dependencies=[Depends(auth)])
+async def restore_start(request: Request):
+    """Archive de scripts/backup.sh, envoyée par le serveur (code d'installation vérifié, aucun compte encore).
+    Elle tient le verrou des mises à jour jusqu'à la fin du travail (relâché par restore.run)."""
+    if not updater._lock.acquire(blocking=False):
+        raise HTTPException(409, "Noah installe une mise à jour : réessaie dans quelques minutes.")
+    try:
+        not_updating("")
+    except HTTPException:
+        updater._lock.release()
+        raise
+    if not restore.claim():
+        updater._lock.release()
+        raise HTTPException(409, "Une restauration est déjà en cours")
+    restore.WORK.mkdir(parents=True, exist_ok=True)
+    path = restore.WORK / "sauvegarde.tar"
+    try:
+        with open(path, "wb") as f:  # sur le disque : l'archive peut peser plusieurs gigaoctets
+            async for chunk in request.stream():
+                f.write(chunk)
+        restore.inspect(path)
+    except Exception as e:
+        path.unlink(missing_ok=True)
+        restore.state.update(etape=None, erreur=None, fini=False)
+        updater._lock.release()
+        raise HTTPException(400, str(e) if isinstance(e, ValueError) else "Archive illisible")
+    threading.Thread(target=restore.run, args=(path, (LABEL, BROWSER_LABEL)), daemon=True).start()
+    return {"ok": True}
+
+
+@app.get("/restore", dependencies=[Depends(auth)])
+def restore_status():
+    return restore.state
 
 
 updater.HOOKS["navigateur"] = _recreate_browser

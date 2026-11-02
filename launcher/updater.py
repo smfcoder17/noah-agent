@@ -628,9 +628,56 @@ class _nolock:
         return False
 
 
+# --- Jetons hors de la config Docker ------------------------------------------------------------------------------
+# Une variable d'environnement se lit dans `docker inspect` et dans le Docker Manager de Hostinger : les jetons vont
+# dans un fichier du conteneur (ou de son volume), écrit avant son démarrage.
+
+def read_text(c, path: str) -> tuple[str, int, int] | None:
+    """Contenu d'un fichier du conteneur (même arrêté), avec son propriétaire ; None s'il n'existe pas."""
+    try:
+        stream, _ = c.get_archive(path)
+    except NotFound:
+        return None
+    with tarfile.open(fileobj=io.BytesIO(b"".join(stream))) as tar:
+        member = tar.getmembers()[0]
+        return tar.extractfile(member).read().decode(), member.uid, member.gid
+
+
+def env_values(text: str | None) -> dict[str, str]:
+    pairs = (line.split("=", 1) for line in (text or "").splitlines() if "=" in line and not line.lstrip().startswith("#"))
+    return {k.strip(): v.strip().strip("'\"") for k, v in pairs}
+
+
+def put_env(c, path: str, values: dict[str, str], uid: int = 0, gid: int = 0) -> None:
+    """Pose des clés dans un fichier KEY=valeur (mode 600) du conteneur, en gardant ses autres lignes."""
+    for v in values.values():
+        if not re.fullmatch(r"[\w.+/=-]*", v):
+            raise ValueError("valeur de jeton inattendue")  # le fichier est lu par sh : rien qui s'interprète
+    old = read_text(c, path)
+    text, uid, gid = old if old else ("", uid, gid)
+    lines = [l for l in text.splitlines() if l.split("=", 1)[0].strip() not in values]
+    data = ("\n".join(lines + [f"{k}={v}" for k, v in values.items()]) + "\n").encode()
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as tar:
+        info = tarfile.TarInfo(os.path.basename(path))
+        info.size, info.mode, info.uid, info.gid, info.mtime = len(data), 0o600, uid, gid, int(time.time())
+        tar.addfile(info, io.BytesIO(data))
+    c.put_archive(os.path.dirname(path), buf.getvalue())
+
+
+# Conteneurs d'avant ce changement : le jeton passe de leur config au fichier quand ils sont recréés (mise à jour).
+ENV_TO_FILE = {"apollo.agent": ("/opt/data/.env", ("API_SERVER_KEY",))}
+
+
 def _create_like(old, name: str, image: str) -> None:
     """Crée `name` (arrêté) comme `old` (déjà renommé), sur `image`, sans les valeurs par défaut de l'ancienne image."""
     attrs, cfg, hc = old.attrs, old.attrs["Config"], dict(old.attrs["HostConfig"])
+    for label, (path, keys) in ENV_TO_FILE.items():
+        env = env_values("\n".join(cfg.get("Env") or []))
+        moved = {k: env[k] for k in keys if k in env}
+        if label in (cfg.get("Labels") or {}) and moved:
+            put_env(old, path, moved)  # dans le volume, que le nouveau conteneur reprend
+            cfg = {**cfg, "Env": [e for e in cfg["Env"] if e.split("=", 1)[0] not in moved]}
     image_cfg = old.image.attrs.get("Config", {})
     networks = attrs["NetworkSettings"]["Networks"]
     mounted = [m.get("Destination", "") for m in attrs.get("Mounts", [])]

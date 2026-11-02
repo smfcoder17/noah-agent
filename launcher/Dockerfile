@@ -6,7 +6,7 @@ RUN pip install --no-cache-dir fastapi==0.115.6 uvicorn==0.34.0 docker==7.1.0 cr
 ARG NOAH_UPDATE_KEY=
 ARG NOAH_VERSION=
 ENV NOAH_UPDATE_KEY=$NOAH_UPDATE_KEY NOAH_VERSION=$NOAH_VERSION
-COPY launcher.py agent_admin.py updater.py ./
+COPY launcher.py agent_admin.py updater.py restore.py ./
 COPY camofox-noah ./camofox-noah
 
 EXPOSE 9000

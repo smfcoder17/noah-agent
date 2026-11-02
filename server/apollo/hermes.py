@@ -50,11 +50,12 @@ async def _launcher(method: str, path: str, **kw) -> dict:
     return r.json()
 
 
-async def statuses() -> dict[str, str]:
+async def statuses() -> dict[str, str] | None:
+    """État de chaque conteneur d'agent ; None si le lanceur ne répond pas (à distinguer d'« aucun conteneur »)."""
     try:
         return {a["id"]: a["status"] for a in await _launcher("GET", "/agents")}
     except httpx.HTTPError:
-        return {}
+        return None
 
 
 async def create_container(agent_id: str) -> str:

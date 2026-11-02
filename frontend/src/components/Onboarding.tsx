@@ -52,7 +52,7 @@ export function Onboarding({ status, onDone }: { status: Status; onDone: () => v
         ))}
       </ol>
       {step === "code" && <CodeStep code={code} setCode={setCode} onNext={() => setStep("installation")} />}
-      {step === "installation" && <InstallStep onNew={() => setStep("account")} />}
+      {step === "installation" && <InstallStep code={code} onNew={() => setStep("account")} />}
       {step === "account" && <AccountStep code={code} onNext={() => setStep("model")} onBadCode={() => { setCode(""); setStep("code"); }} />}
       {step === "model" && (
         <Card>
@@ -123,7 +123,7 @@ function CodeStep({ code, setCode, onNext }: { code: string; setCode: (c: string
   );
 }
 
-function InstallStep({ onNew }: { onNew: () => void }) {
+function InstallStep({ code, onNew }: { code: string; onNew: () => void }) {
   const [restore, setRestore] = useState(false);
   return (
     <Card>
@@ -139,14 +139,84 @@ function InstallStep({ onNew }: { onNew: () => void }) {
           <span className="text-sm text-muted-foreground">Tu retrouves ton compte, tes agents, leur mémoire et l'historique.</span>
         </button>
       </div>
-      {restore && (
-        <div className="flex flex-col gap-2 text-sm">
-          <p>Copie l'archive faite par la sauvegarde sur le serveur, puis lance dans le dossier de Noah :</p>
-          <pre className="overflow-x-auto rounded-lg bg-background p-3 font-mono text-xs">cd /opt/noah && sh scripts/restore.sh noah-AAAAMMJJ-HHMM.tar</pre>
-          <p className="text-muted-foreground">Une fois terminé, recharge cette page : tu arriveras sur la connexion avec ton compte d'avant.</p>
-        </div>
-      )}
+      {restore && <Restore code={code} />}
     </Card>
+  );
+}
+
+type RestoreState = { etape: string | null; erreur: string | null; fini: boolean };
+
+/** Envoi de l'archive de scripts/backup.sh, puis suivi : le serveur redémarre en cours de route (G3.5). */
+function Restore({ code }: { code: string }) {
+  const [sent, setSent] = useState<number | null>(null); // pourcentage envoyé
+  const [stage, setStage] = useState("");
+  const [error, setError] = useState("");
+  const upload = (file: File) => {
+    setError("");
+    setSent(0);
+    // XMLHttpRequest : fetch ne donne pas l'avancement d'un envoi, et l'archive peut peser des gigaoctets.
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/setup/restore");
+    xhr.setRequestHeader("Content-Type", "application/octet-stream");
+    xhr.setRequestHeader("X-Noah-Installation", code.trim());
+    xhr.upload.onprogress = (e) => e.lengthComputable && setSent(Math.round((e.loaded / e.total) * 100));
+    xhr.onload = () => {
+      if (xhr.status === 200) return follow();
+      let detail = `Erreur ${xhr.status}`;
+      try {
+        detail = JSON.parse(xhr.responseText).detail || detail;
+      } catch {
+        /* corps non JSON */
+      }
+      setError(detail);
+      setSent(null);
+    };
+    xhr.onerror = () => {
+      setError("Envoi interrompu. Vérifie ta connexion, puis recommence.");
+      setSent(null);
+    };
+    xhr.send(file);
+  };
+  const follow = async () => {
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const st: RestoreState | null = await get<RestoreState>("/api/setup/restore").catch(() => null);
+      if (!st) {
+        setStage("Redémarrage du serveur…");
+        continue;
+      }
+      if (st.erreur) {
+        setError(`Restauration impossible : ${st.erreur}`);
+        setSent(null);
+        return;
+      }
+      setStage(st.etape ?? "");
+      if (st.fini) {
+        try {
+          sessionStorage.removeItem(CODE_KEY);
+        } catch {
+          /* rien à effacer */
+        }
+        return location.reload(); // compte de la sauvegarde : écran de connexion
+      }
+    }
+  };
+  return (
+    <div className="flex flex-col gap-3 text-sm">
+      <p>
+        Choisis l'archive faite par la sauvegarde (<code className="font-mono text-xs">noah-AAAAMMJJ-HHMM.tar</code>, dans le
+        dossier <code className="font-mono text-xs">backups</code> de ton ancienne installation). Les agents, leur mémoire,
+        tes conversations et tes réglages reviennent ; tu te connectes ensuite avec ton compte d'avant.
+      </p>
+      {sent === null ? (
+        <input type="file" accept=".tar,application/x-tar" aria-label="Archive de sauvegarde"
+          onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])}
+          className="text-sm file:mr-3 file:cursor-pointer file:rounded-lg file:border file:border-border file:bg-background file:px-3 file:py-1.5" />
+      ) : (
+        <p>{sent < 100 ? `Envoi de l'archive : ${sent} %` : stage || "Vérification de l'archive…"}</p>
+      )}
+      <ErrorText>{error}</ErrorText>
+    </div>
   );
 }
 

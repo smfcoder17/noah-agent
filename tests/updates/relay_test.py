@@ -63,7 +63,7 @@ print("1. lanceur remplacé par le relais, observé, ancien retiré, relais dés
 launcher("a")
 rep = u.apply(*signed({"noah-launcher": ref("launcher", "casse")}, "3.0.1"))
 s = wait_tx()
-assert not s["dernier_rapport"]["ok"] and any(b["image"] == ref("launcher", "casse") for b in s["bloquees"])
+assert not s["dernier_rapport"]["ok"] and any(b["image"] == ref("launcher", "casse") for b in s["bloquees"]), s
 check("a")
 print("2. lanceur cassé : le relais remet l'ancien, version bloquée")
 

@@ -125,7 +125,8 @@ async def _refresh_browsers() -> None:
     volumes sont là mais pas ses conteneurs), puis son navigateur (nouveaux réglages, langue et fuseau)."""
     existing = await hermes.statuses()
     for a in _agents():
-        if existing and a["id"] not in existing:
+        # Aucun conteneur du tout (restauration sur un VPS neuf) : tous recréés ; lanceur muet (None) : rien.
+        if existing is not None and a["id"] not in existing:
             try:
                 await hermes.recreate_container(a["id"], a["api_key"])
             except Exception:
@@ -582,6 +583,34 @@ def setup_check(body: SetupCode, request: Request):
     _too_many(request)
     _check_setup_code(body.installation, request)
     return {"ok": True}
+
+
+@app.post("/api/setup/restore")
+async def setup_restore(request: Request):
+    """Restaurer une sauvegarde au lieu de créer un compte (G3.5) : même code d'installation, aucun compte encore.
+    L'archive part telle quelle au lanceur, qui remet les volumes puis redémarre ce serveur."""
+    _too_many(request)
+    await asyncio.to_thread(_check_setup_code, request.headers.get("x-noah-installation", ""), request)
+    from .hermes import LAUNCHER, http
+    try:
+        r = await http().post(f"{config.LAUNCHER_URL}/restore", headers=LAUNCHER, content=request.stream(), timeout=None)
+    except httpx.HTTPError:
+        raise HTTPException(503, "Le lanceur ne répond pas : réessaie dans un instant.")
+    if r.status_code != 200:
+        raise HTTPException(r.status_code, r.json().get("detail", "Restauration refusée"))
+    return {"ok": True}
+
+
+@app.get("/api/setup/restore")
+async def setup_restore_status(request: Request):
+    """Avancement de la restauration. Une fois le compte revenu, elle est finie : on ne dit rien de plus à personne."""
+    if auth.has_users():
+        return {"etape": "Restauré", "erreur": None, "fini": True}
+    from .hermes import _launcher
+    try:
+        return await _launcher("GET", "/restore")
+    except httpx.HTTPError:
+        return {"etape": "Redémarrage du serveur…", "erreur": None, "fini": False}
 
 
 @app.post("/api/setup/done")
@@ -1150,7 +1179,7 @@ async def repair_agent(agent_id: str, user: int = Depends(auth.current_user)):
     with db.connect() as c:
         row = c.execute("SELECT name, role FROM agents WHERE id = ?", (agent_id,)).fetchone()
     provisioning[agent_id] = "Redémarrage de la machine de l'agent…"
-    state = (await hermes.statuses()).get(agent_id)
+    state = (await hermes.statuses() or {}).get(agent_id)
     try:
         if state is None:
             await hermes.recreate_container(agent_id, agent.api_key)
