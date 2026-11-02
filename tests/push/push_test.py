@@ -100,6 +100,7 @@ assert subscribe(app, "http://evil/x", p256dh, secret) == 422
 for internal in ("https://127.0.0.1/x", "https://launcher:9000/update/apply", "https://fcm.googleapis.com.evil.net/x",
                  "https://intranet.local/push"):
     assert subscribe(app, internal, p256dh, secret) == 400, internal
+assert push.PUSH_HOSTS.match("ntfy.sh") and not push.PUSH_HOSTS.match("ntfy.sh.evil.net")  # app Android (UnifiedPush)
 print("3. seuls les services de push des navigateurs sont acceptés (pas d'adresse interne : pas de SSRF)")
 
 assert subscribe(app, FCM + "vivant", p256dh, secret) == 200

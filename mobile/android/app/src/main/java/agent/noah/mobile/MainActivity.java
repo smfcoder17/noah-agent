@@ -1,5 +1,6 @@
 package agent.noah.mobile;
 
+import android.content.Intent;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.Uri;
@@ -79,6 +80,21 @@ public class MainActivity extends BridgeActivity {
         cookies.setCookie(server, "apollo_session=" + token + "; Path=/" + secure + "; HttpOnly; SameSite=Lax");
         cookies.flush();
         bridge.getWebView().stopLoading();
-        bridge.getWebView().loadUrl(server);
+        bridge.getWebView().loadUrl(server + page(getIntent()));
+        NoahPush.start(this, server, token);
+    }
+
+    /** Ouverte depuis une notification : la page qu'elle désigne, sur ce serveur seulement (chemin relatif). */
+    private static String page(Intent intent) {
+        String url = intent == null ? null : intent.getStringExtra("url");
+        return url != null && url.startsWith("/") && !url.startsWith("//") ? url : "/";
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        if (server != null && token != null && bridge != null && intent.hasExtra("url")) {
+            bridge.getWebView().loadUrl(server + page(intent));
+        }
     }
 }

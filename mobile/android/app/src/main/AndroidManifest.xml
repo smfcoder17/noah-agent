@@ -24,6 +24,13 @@
 
         </activity>
 
+        <!-- Notifications par UnifiedPush (voir NoahPush) : reçues d'un distributeur, jamais d'une autre app. -->
+        <service android:name=".NoahPush" android:exported="false">
+            <intent-filter>
+                <action android:name="org.unifiedpush.android.connector.PUSH_EVENT" />
+            </intent-filter>
+        </service>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -38,6 +45,8 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Afficher les notifications de Noah (Android 13 et plus le demande à l'utilisateur). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Dictée et mode vocal de Noah dans la fenêtre de l'app. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />

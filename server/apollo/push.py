@@ -35,7 +35,8 @@ RECORD = 4096  # taille d'enregistrement annoncée ; un message tient toujours d
 # Services de push des navigateurs. Le serveur n'envoie qu'à eux : un abonnement ne peut pas lui faire appeler une
 # adresse interne (SSRF). Chrome, Edge, Firefox, Safari, Opera, Samsung Internet.
 PUSH_HOSTS = re.compile(r"^(fcm\.googleapis\.com|android\.googleapis\.com|[a-z0-9.-]+\.push\.services\.mozilla\.com"
-                        r"|[a-z0-9.-]+\.notify\.windows\.com|web\.push\.apple\.com|[a-z0-9.-]+\.push\.apple\.com)$")
+                        r"|[a-z0-9.-]+\.notify\.windows\.com|web\.push\.apple\.com|[a-z0-9.-]+\.push\.apple\.com"
+                        r"|ntfy\.sh)$")  # + app Android par UnifiedPush : ntfy (Sunup passe par Mozilla, déjà là)
 _key_lock = threading.Lock()
 TTL = 24 * 3600   # durée de vie d'un message chez le service de push
 LEASE = 300       # un envoi de la file réservé puis interrompu (arrêt du serveur) redevient dû après 5 minutes
