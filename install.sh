@@ -52,6 +52,9 @@ fi
 
 if [ -n "$domain" ]; then
   # Sur une adresse publique, le compte administrateur ne se crée qu'avec ce code (affiché plus bas).
+  # Code court d'une version d'avant (8 caractères) : remplacé. S'il y a déjà un compte, le code ne sert plus à rien.
+  old=$(grep '^NOAH_SETUP_CODE=' .env 2>/dev/null | cut -d= -f2 || true)
+  if [ -n "$old" ] && [ ${#old} -lt 16 ]; then set_env NOAH_SETUP_CODE "$(random | cut -c1-16 | tr a-f A-F)"; fi
   ensure NOAH_SETUP_CODE "$(random | cut -c1-16 | tr a-f A-F)"
   # Caddy obtient le certificat tout seul ; il faut que le domaine pointe déjà vers ce serveur (ports 80 et 443 ouverts).
   set_env NOAH_DOMAIN "$domain"

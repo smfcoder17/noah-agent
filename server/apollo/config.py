@@ -53,11 +53,6 @@ BROWSER_TIMEZONE = os.environ.get("APOLLO_TIMEZONE", "")
 # (sinon le premier visiteur de l'adresse publique le prendrait). Vide sur un ordinateur personnel ; « auto » : tiré
 # au premier démarrage et écrit dans les journaux du serveur.
 SETUP_CODE = shared_secret("NOAH_SETUP_CODE", optional=True) if os.environ.get("NOAH_SETUP_CODE") == "auto" else os.environ.get("NOAH_SETUP_CODE", "").strip()
-if SETUP_CODE and len(SETUP_CODE) < 12:  # code court d'un .env d'avant : remplacé par celui du fichier de secrets
-    try:
-        SETUP_CODE = json.loads(SECRETS_FILE.read_text()).get("NOAH_SETUP_CODE") or SETUP_CODE
-    except (FileNotFoundError, ValueError):
-        pass
 # Nom public : NOAH_DOMAIN (un domaine à soi), ou « auto » = <ip-publique>.sslip.io, avec HTTPS par Caddy.
 PUBLIC_DOMAIN = os.environ.get("NOAH_DOMAIN", "").strip()
 
@@ -70,16 +65,11 @@ def renew_setup_code() -> None:
     """Mode « auto », aucun compte, mais code déjà effacé (base des comptes perdue, secrets gardés) : sans nouveau
     code, le premier visiteur de l'adresse publique prendrait l'installation. Appelé avant l'annonce du lien."""
     global SETUP_CODE
-    # Code court d'une version d'avant (8 caractères, en « auto » ou dans un .env d'install.sh) : remplacé aussi, la
-    # protection repose sur sa longueur. Vide hors « auto » : ordinateur personnel, rien à tirer.
-    auto = os.environ.get("NOAH_SETUP_CODE") == "auto"
-    if len(SETUP_CODE) >= 12 or not (auto or SETUP_CODE):
+    # Code court d'une version d'avant (8 lettres) : remplacé aussi, la protection repose sur sa longueur. Un code
+    # explicite (.env d'install.sh) est remplacé par install.sh lui-même, qui affiche le nouveau.
+    if os.environ.get("NOAH_SETUP_CODE") != "auto" or len(SETUP_CODE) >= 12:
         return
-    try:
-        values = json.loads(SECRETS_FILE.read_text())
-    except FileNotFoundError:
-        SECRETS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        values = {}
+    values = json.loads(SECRETS_FILE.read_text())
     values["NOAH_SETUP_CODE"] = _new_setup_code()
     tmp = SECRETS_FILE.with_suffix(".tmp")
     tmp.write_text(json.dumps(values))

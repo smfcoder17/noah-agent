@@ -188,8 +188,10 @@ def _config_rev(agent_id: str) -> str:
 
 async def _configure(agent_id: str, soul: str | None = None) -> None:
     """Applique à l'agent sa configuration effective, et note laquelle il a vraiment reçue : la base peut dire M2
-    alors que l'agent, faute d'avoir été reconfiguré (lanceur indisponible), tourne encore sur M1."""
+    alors que l'agent, faute d'avoir été reconfiguré (lanceur indisponible), tourne encore sur M1. Pendant la
+    reconfiguration, aucune configuration n'est garantie : une exécution lancée alors ne prouve rien."""
     rev = _config_rev(agent_id)
+    db.set_setting(f"applied:{agent_id}", "")
     await hermes.configure(agent_id, model_for(agent_id), soul)
     db.set_setting(f"applied:{agent_id}", rev)
 
@@ -199,8 +201,9 @@ def _model_replied(final: dict | None, text: str, rev: str) -> None:
     la configuration en service au départ de l'exécution. Une erreur, un texte partiel ou un message système n'en sont
     pas."""
     agent_id = rev.split(":", 1)[0]
+    # La configuration doit être celle que l'agent avait déjà reçue au lancement, et encore la même à la fin.
     if final and final.get("status") == "completed" and text.strip() and db.get_setting("onboarded") == "0" \
-            and db.get_setting(f"applied:{agent_id}") == rev:  # l'agent tournait bien sur cette configuration
+            and db.get_setting(f"applied:{agent_id}") == rev:
         db.set_setting("model_replied", rev)
 
 
@@ -1304,7 +1307,11 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
         raise HTTPException(503, "Noah installe une mise à jour (quelques minutes). Réessaie juste après.")
     task_state[conv_id] = "work"  # avant le premier await : une mise à jour qui vérifie maintenant la voit
     _save_message(conv_id, "user", prompt)
-    rev = _config_rev(agent.id)  # configuration qui sert à cette exécution (preuve de l'essai de l'assistant)
+    # Configuration qui sert à cette exécution (preuve de l'essai de l'assistant) : celle que l'agent a vraiment reçue.
+    rev = _config_rev(agent.id)
+    if db.get_setting(f"applied:{agent.id}") != rev:
+        rev = "aucune"
+    trial = db.get_setting("onboarded") == "0"  # essai de l'assistant : borné, et arrêté s'il est abandonné
     try:
         run_id = await hermes.start_run(agent, context + prompt, session_id=f"apollo-{conv_id}")
     except Exception:
@@ -1377,14 +1384,26 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
     _running_runs.add(task)
     task.add_done_callback(_running_runs.discard)
 
+    if trial:
+        async def deadline():
+            await asyncio.sleep(TRIAL_LIMIT)
+            if not task.done():
+                await hermes.stop_run(agent, run_id)
+        asyncio.create_task(deadline())
+
     async def stream():
         try:
             while (chunk := await queue.get()) is not None:
                 yield chunk
         finally:
             listening[0] = False
+            if trial and not task.done():  # essai de l'assistant abandonné (réseau coupé, page quittée) : on l'arrête
+                asyncio.create_task(hermes.stop_run(agent, run_id))
 
     return stream()
+
+
+TRIAL_LIMIT = 200  # secondes : un peu plus que les trois minutes que l'assistant attend
 
 
 def _open_delegation(parent_id: str, args: dict) -> str:

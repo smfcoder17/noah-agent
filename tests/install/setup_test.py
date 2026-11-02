@@ -156,10 +156,6 @@ config.renew_setup_code()
 fresh = json.load(open(f"{vault}/noah.json"))["NOAH_SETUP_CODE"]
 assert len(fresh) == 12 and config.setup_code() == fresh
 assert verdict("", "198.51.100.8") == 403
-os.environ["NOAH_SETUP_CODE"] = config.SETUP_CODE = "12AB34CD"  # code court d'un .env d'install.sh d'avant
-config.renew_setup_code()
-assert len(config.setup_code()) == 12, "ancien code court du .env gardé"
-os.environ["NOAH_SETUP_CODE"] = "auto"
 config.SETUP_CODE = "ABCDEFGH"  # code court d'une version d'avant
 config.renew_setup_code()
 assert len(config.setup_code()) == 12, "ancien code court gardé"
