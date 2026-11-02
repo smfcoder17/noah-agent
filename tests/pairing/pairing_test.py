@@ -39,6 +39,7 @@ def reset() -> None:
     main._failed_logins.clear()
     main._pairing_failures.clear()
     main._short_failures.clear()
+    main._number_failures.clear()
 
 
 def sessions() -> int:
@@ -179,6 +180,23 @@ assert attacker.post("/api/pairing/flow/poll", json={"sondage": r["sondage"], "v
 assert attacker.post("/api/pairing/flow/poll", json={"sondage": r["sondage"], "verification": main._flows.get(fid, {}).get("verif", "")}).status_code == 410
 print("8 bis. lien d'accord envoyé par un tiers : sans le nombre de la page, pas de session (un seul essai)")
 
+# 8 bis bis. Plusieurs liens acceptés depuis des adresses différentes : 3 nombres faux par compte, puis plus d'accord
+# par navigateur pendant une heure (le plafond par adresse ne suffit pas).
+reset()
+for n in range(4):
+    a = client(addr=f"198.51.100.{20 + n}")
+    r = a.post("/api/pairing/flow", json={"appareil": "PC", "type": "desktop"}).json()
+    fid = r["adresse"].split("#autoriser=")[1]
+    web_a.get(f"/api/pairing/flow/{fid}")
+    if n < 3:
+        assert web_a.post(f"/api/pairing/flow/{fid}/autoriser").status_code == 200
+        guess = "100" if main._flows[fid]["verif"] != "100" else "101"
+        assert a.post("/api/pairing/flow/poll", json={"sondage": r["sondage"], "verification": guess}).status_code == 403
+    else:
+        assert web_a.post(f"/api/pairing/flow/{fid}/autoriser").status_code == 429, "essais illimités par compte"
+assert web_b.post("/api/pairing").status_code == 200  # un autre compte n'est pas touché
+print("8 bis bis. 3 nombres faux pour un même compte (adresses différentes) : accords par navigateur suspendus 1 h")
+
 # 8 ter. Accord différé donné par une session ensuite révoquée (« Déconnecter tous les autres ») : il tombe avec elle.
 reset()
 thief_session = auth.new_session(alice, "Session volée", "web")
@@ -271,6 +289,7 @@ for i in range(main.LOGIN_TRIES + 2):
     if r.status_code != 200:
         break
     fid = r.json()["adresse"].split("#autoriser=")[1]
+    main._number_failures.clear()  # ici : le budget par adresse seul (celui par compte : 8 bis bis)
     web_a.get(f"/api/pairing/flow/{fid}")
     web_a.post(f"/api/pairing/flow/{fid}/autoriser")
     wrong = "100" if main._flows[fid]["verif"] != "100" else "101"
@@ -289,6 +308,7 @@ for i in range(main.LOGIN_TRIES + 2):
     if r.status_code != 200:
         break
     fid = r.json()["adresse"].split("#autoriser=")[1]
+    main._number_failures.clear()  # ici : le budget par adresse seul (celui par compte : 8 bis bis)
     web_a.get(f"/api/pairing/flow/{fid}")
     web_a.post(f"/api/pairing/flow/{fid}/autoriser")
     wrong = "100" if main._flows[fid]["verif"] != "100" else "101"
@@ -367,4 +387,24 @@ window.cookies.set(auth.COOKIE, phone)
 r = window.get("/api/devices")
 assert r.status_code == 200 and "set-cookie" not in r.headers, "cookie de l'app Android rendu persistant"
 print("13. cookie du navigateur renouvelé avec la session ; jamais pour une app (Bearer, ou cookie de la fenêtre Android)")
+
+# 14. Session d'appairage jamais récupérée (réponse perdue, app fermée) : elle expire seule en 10 minutes ; sa
+# première utilisation la prolonge normalement.
+reset()
+p = web_a.post("/api/pairing").json()
+r = client().post("/api/pairing/claim", json={"code": p["code"], "appareil": "Perdu"}).json()
+fid = web_a.get("/api/pairing/pending").json()["demandes"][0]["id"]
+assert web_a.post(f"/api/pairing/flow/{fid}/autoriser", json={"verification": r["verification"]}).status_code == 200
+token = client().post("/api/pairing/flow/poll", json={"sondage": r["sondage"]}).json()["token"]
+
+
+def expires(t: str) -> datetime:
+    with db.connect() as c:
+        return datetime.fromisoformat(c.execute("SELECT expires_at FROM sessions WHERE token = ?", (auth.digest(t),)).fetchone()[0])
+
+
+assert expires(token) - datetime.now(timezone.utc) <= timedelta(minutes=10), "session orpheline valable 30 jours"
+assert client(token).get("/api/devices").status_code == 200
+assert expires(token) - datetime.now(timezone.utc) > timedelta(days=29), "première utilisation sans prolongation"
+print("14. session d'appairage jamais utilisée : expire en 10 min ; prolongée à sa première utilisation")
 print("appairage : tout est vert")

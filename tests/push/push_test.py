@@ -383,5 +383,27 @@ asyncio.run(push.send("Noah", "test"))
 assert not [x for x in received if x.url.path.endswith("/vivant")]
 with db.connect() as c:
     assert not c.execute("SELECT 1 FROM push_subscriptions WHERE endpoint LIKE '%vivant'").fetchone()
+# 6 bis. Désinscription rejouée en retard : seul l'abonnement visé disparaît, pas celui qui l'a remplacé.
+k13, p13, s13 = device()
+token_l = auth.new_session(user, "Désinscrit", "android")
+phone = TestClient(main.app, headers={"Authorization": f"Bearer {token_l}"})
+assert subscribe(phone, "https://ntfy.sh/upAncien", p13, s13) == 200
+assert subscribe(phone, "https://ntfy.sh/upNouveau", p13, s13) == 200  # réinscrit avant que le DELETE parte
+assert phone.delete("/api/push/subscription", params={"endpoint": "https://ntfy.sh/upAncien"}).status_code == 200
+assert phone.get("/api/push/subscription").json()["endpoint"] == "https://ntfy.sh/upNouveau", "nouvel abonnement supprimé"
+# Service retiré de NOAH_PUSH_HOSTS après la mise en file : plus rien ne part vers lui.
+os.environ["NOAH_PUSH_HOSTS"] = "ntfy.exemple.org"
+k14, p14, s14 = device()
+token_m = auth.new_session(user, "Auto-hébergé", "android")
+assert subscribe(TestClient(main.app, headers={"Authorization": f"Bearer {token_m}"}), "https://ntfy.exemple.org/upX", p14, s14) == 200
+del os.environ["NOAH_PUSH_HOSTS"]
+received.clear()
+row = {"endpoint": "https://ntfy.exemple.org/upX", "session": auth.digest(token_m), "p256dh": p14, "auth": b64(s14)}
+async def once():
+    async with httpx.AsyncClient(transport=push.transport) as cl:
+        return await push._send_one(cl, row, b"{}", False)
+assert asyncio.run(once()) == "echec" and not received, "envoi vers un service retiré de la liste"
+print("6 bis. désinscription en retard : seul l'abonnement visé ; service retiré de la liste : plus d'envoi")
+
 print("7. appareil déconnecté : abonnement supprimé avec sa session, rien ne lui est envoyé")
 print("push : tout est vert")

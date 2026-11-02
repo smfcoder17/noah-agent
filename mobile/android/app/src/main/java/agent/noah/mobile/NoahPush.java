@@ -78,6 +78,7 @@ public class NoahPush extends PushService {
                 JSONObject body = new JSONObject().put("endpoint", endpoint.getUrl())
                     .put("p256dh", endpoint.getPubKeySet().getPubKey()).put("auth", endpoint.getPubKeySet().getAuth());
                 call("POST", server + "/api/push/subscription", token, body.toString());
+                pairing.setPushEndpoint(endpoint.getUrl());
                 pairing.confirmPush(gen, token); // sans effet si on s'est déconnecté entre-temps
             } catch (Exception ignored) {
                 // l'inscription est refaite à chaque ouverture de l'app ; sans elle, l'interface ne dit pas « actives »
@@ -120,10 +121,10 @@ public class NoahPush extends PushService {
     @Override
     public void onUnregistered(String instance) {
         Pairing pairing = new Pairing(this);
-        String server = pairing.server(), token = pairing.pushToken();
+        String server = pairing.server(), token = pairing.pushToken(), endpoint = pairing.pushEndpoint();
         pairing.clearPush();
-        if (server == null || token == null) return;
-        pairing.queueUnsubscribe(server, token); // file chiffrée, rejouée jusqu'à ce que le serveur réponde
+        if (server == null || token == null || endpoint == null) return;
+        pairing.queueUnsubscribe(server, token, endpoint); // file chiffrée, rejouée jusqu'à ce que le serveur réponde
         new Thread(pairing::revokeForgotten).start();
     }
 

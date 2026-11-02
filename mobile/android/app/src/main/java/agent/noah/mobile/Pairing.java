@@ -107,8 +107,20 @@ final class Pairing {
     }
 
     /** Abonnement aux notifications à supprimer sur le serveur (désinscrit par le distributeur), même file. */
-    void queueUnsubscribe(String server, String token) {
-        queue(server, token, "/api/push/subscription");
+    void queueUnsubscribe(String server, String token, String endpoint) {
+        try {
+            queue(server, token, "/api/push/subscription?endpoint=" + java.net.URLEncoder.encode(endpoint, "UTF-8"));
+        } catch (Exception ignored) {
+            // UTF-8 toujours disponible
+        }
+    }
+
+    void setPushEndpoint(String endpoint) {
+        prefs.edit().putString("push_endpoint", endpoint).commit();
+    }
+
+    String pushEndpoint() {
+        return prefs.getString("push_endpoint", null);
     }
 
     private void queue(String server, String token, String path) {

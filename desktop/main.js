@@ -373,8 +373,13 @@ async function changeServer() {
 /** Oublie le serveur : la session disparaît aussi côté serveur (si l'appel échoue, on oublie quand même ici). */
 async function forgetServer({ revoke = true } = {}) {
   pairingGeneration++; // toute attente d'accord en cours est abandonnée
-  const { server } = readConfig();
+  const { server, jeton: sealedToken } = readConfig();
   const token = storedToken();
+  if (server && revoke && sealedToken && !token) {
+    // Trousseau indisponible : on ne peut pas la lire maintenant, mais elle reste chiffrée. Gardée telle quelle dans
+    // la file, elle sera révoquée quand le trousseau reviendra.
+    writeConfig({ a_revoquer: (readConfig().a_revoquer || []).concat([{ server, jeton: sealedToken }]) });
+  }
   if (server) {
     // La fenêtre peut utiliser une autre session que celle rangée par l'app (déconnexion puis reconnexion dans
     // l'interface) : on révoque les deux.

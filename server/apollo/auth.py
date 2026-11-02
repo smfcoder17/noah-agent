@@ -12,6 +12,7 @@ COOKIE = "apollo_session"
 # Une session sert tant que l'appareil sert : chaque usage la prolonge (comme les apps compagnons de Home Assistant).
 # Une session qu'on ne revoit pas pendant SESSION_DAYS expire ; l'utilisateur en révoque une dans Réglages > Appareils.
 RENEW_AFTER = timedelta(days=1)
+UNCLAIMED = timedelta(minutes=10)  # session d'appairage jamais utilisée : expire seule
 SEEN_EVERY = timedelta(minutes=5)
 
 
@@ -69,7 +70,10 @@ def new_session_if_alive(parent: str, user_id: int, device: str = "", platform: 
                          version: str = "") -> str | None:
     """Crée une session seulement si la session `parent` (empreinte) existe encore, dans la même instruction : une
     révocation de `parent` passe soit avant (rien n'est créé), soit après (la nouvelle session est alors listée et
-    révocable avec les autres). Rend None si `parent` n'existe plus."""
+    révocable avec les autres). Rend None si `parent` n'existe plus.
+
+    Provisoire : elle expire après UNCLAIMED s'il ne s'en sert jamais (réponse du sondage perdue, app fermée avant de
+    la ranger) ; sa première utilisation la prolonge comme les autres (voir current_user)."""
     token = secrets.token_urlsafe(32)
     now = datetime.now(timezone.utc)
     with db.connect() as c:
@@ -77,8 +81,8 @@ def new_session_if_alive(parent: str, user_id: int, device: str = "", platform: 
             "INSERT INTO sessions (token, user_id, expires_at, device, platform, created_at, last_seen, last_ip, version) "
             "SELECT ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS "
             "(SELECT 1 FROM sessions WHERE token = ? AND user_id = ? AND expires_at > ?)",
-            (digest(token), user_id, (now + timedelta(days=SESSION_DAYS)).isoformat(), device[:80], platform[:20],
-             now.isoformat(), now.isoformat(), ip[:64], version[:20], parent, user_id, now.isoformat()),
+            (digest(token), user_id, (now + UNCLAIMED).isoformat(), device[:80], platform[:20],
+             now.isoformat(), None, ip[:64], version[:20], parent, user_id, now.isoformat()),
         ).rowcount
     return token if created else None
 

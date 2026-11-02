@@ -199,6 +199,8 @@ async def _send_one(client: httpx.AsyncClient, sub, payload: bytes, urgent: bool
     rien ne part), « differe » (erreur passagère : repris plus tard depuis la base) ou « echec » (refusé)."""
     host = urlsplit(sub["endpoint"]).netloc
     created = time.time() if created is None else created
+    if not allowed_host(urlsplit(sub["endpoint"]).hostname or ""):
+        return "echec"  # service retiré de NOAH_PUSH_HOSTS depuis la mise en file
     for wait in (*RETRIES, None):
         if not _still_subscribed(sub):
             return "parti"  # appareil déconnecté ou désabonné pendant l'attente : rien ne part, rien à supprimer
@@ -318,10 +320,16 @@ def subscribe(body: Subscription, request: Request, apollo_session: str | None =
 
 
 @router.delete("/api/push/subscription")
-def unsubscribe(request: Request, apollo_session: str | None = Cookie(None), _: int = Depends(auth.current_user)):
+def unsubscribe(request: Request, endpoint: str | None = None, apollo_session: str | None = Cookie(None),
+                _: int = Depends(auth.current_user)):
+    """Sans endpoint : coupe les notifications de cet appareil. Avec : supprime cet abonnement-là seulement (une
+    désinscription rejouée en retard ne supprime pas l'abonnement qui l'a remplacé)."""
+    session = auth.digest(auth.request_token(request, apollo_session) or "")
     with db.connect() as c:
-        c.execute("DELETE FROM push_subscriptions WHERE session = ?",
-                  (auth.digest(auth.request_token(request, apollo_session) or ""),))
+        if endpoint is None:
+            c.execute("DELETE FROM push_subscriptions WHERE session = ?", (session,))
+        else:
+            c.execute("DELETE FROM push_subscriptions WHERE session = ? AND endpoint = ?", (session, endpoint))
     return {"ok": True}
 
 

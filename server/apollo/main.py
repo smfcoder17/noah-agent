@@ -397,6 +397,13 @@ def flow_decide(public: str, decision: str, request: Request, body: Decision | N
         return {"ok": True}
     if decision != "autoriser":
         raise HTTPException(400, "Décision inconnue")
+    if flow["sens"] == "app":
+        recent = [t for t in _number_failures.get(user, []) if time.time() - t < NUMBER_WINDOW]
+        if len(recent) >= NUMBER_TRIES:
+            _flows.pop(public, None)
+            raise HTTPException(429, "Plusieurs appareils ont saisi un mauvais nombre après ton accord : par prudence, "
+                                     "les autorisations par navigateur sont suspendues une heure. Relie l'appareil par "
+                                     "un code depuis Réglages → Appareils.")
     with _pairing_lock:
         if flow["user"] or _flows.get(public) is not flow or flow.get("proprietaire") != user:
             # Déjà traitée, annulée, ou ouverte par un autre compte entre-temps (flux navigateur : seul le compte qui a
@@ -436,6 +443,7 @@ def flow_poll(body: FlowPoll, request: Request, response: Response):
                     if not secrets.compare_digest(body.verification.strip(), flow["verif"]):
                         _flows.pop(public, None)
                         _pairing_failed(request)
+                        _number_failures.setdefault(flow["user"], []).append(time.time())
                         raise HTTPException(403, "Ce nombre ne correspond pas à celui du navigateur. Par prudence, la "
                                                  "demande est annulée : recommence.")
                 if not flow.get("jeton"):  # réponse perdue en route : le même sondage la relit pendant 30 s
@@ -480,6 +488,11 @@ _setup_lock = threading.Lock()
 # Essais de connexion ratés par adresse IP : sur un VPS, la page de connexion est publique.
 _failed_logins: dict[str, list[float]] = {}
 _pairing_failures: dict[str, list[float]] = {}  # codes et nombres d'appairage faux, par adresse (ou réseau /64)
+# Flux navigateur : nombres faux saisis dans une app pour une demande acceptée par ce compte. Plafonné par compte (en
+# plus de l'adresse) : un attaquant qui obtient plusieurs accords depuis des adresses différentes ne multiplie pas ses
+# essais (1 chance sur 900 chacun).
+_number_failures: dict[int, list[float]] = {}
+NUMBER_TRIES, NUMBER_WINDOW = 3, 3600
 LOGIN_WINDOW, LOGIN_TRIES = 600, 10
 
 
