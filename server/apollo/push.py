@@ -145,13 +145,14 @@ def _still_subscribed(sub) -> bool:
                               (sub["endpoint"], sub["session"], sub["p256dh"], sub["auth"], now)).fetchone())
 
 
-def _defer(sub, payload: bytes, urgent: bool, delay: float, tries: int) -> None:
-    """Envoi repris plus tard, gardé en base : un redémarrage du serveur pendant l'attente ne le perd pas."""
+def _defer(sub, payload: bytes, urgent: bool, delay: float, tries: int, created: float) -> None:
+    """Envoi repris plus tard, gardé en base : un redémarrage du serveur pendant l'attente ne le perd pas. L'heure de
+    création d'origine est gardée : un message reporté plusieurs fois ne vit pas plus de 24 heures en tout."""
     with db.connect() as c:
         c.execute("INSERT INTO push_queue (endpoint, session, p256dh, auth, payload, urgent, not_before, tries, created) "
                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                   (sub["endpoint"], sub["session"], sub["p256dh"], sub["auth"], payload, int(urgent),
-                   time.time() + delay, tries, time.time()))
+                   time.time() + delay, tries, created))
 
 
 async def run_queue(every: float = 30) -> None:
@@ -173,7 +174,7 @@ async def flush_queue() -> int:
         c.executemany("UPDATE push_queue SET not_before = ? WHERE id = ?", [(now + LEASE, r["id"]) for r in due])
     async with httpx.AsyncClient(timeout=15, transport=transport) as client:
         for r in due:
-            outcome = await _send_one(client, r, r["payload"], bool(r["urgent"]), tries=r["tries"])
+            outcome = await _send_one(client, r, r["payload"], bool(r["urgent"]), tries=r["tries"], created=r["created"])
             with db.connect() as c:  # traité (livré, refusé, ou de nouveau différé sous une autre ligne)
                 c.execute("DELETE FROM push_queue WHERE id = ?", (r["id"],))
                 if outcome == "mort":  # l'abonnement exact n'existe plus chez le service de push
@@ -182,19 +183,26 @@ async def flush_queue() -> int:
     return len(due)
 
 
-async def _send_one(client: httpx.AsyncClient, sub, payload: bytes, urgent: bool, tries: int = 0) -> str:
+async def _send_one(client: httpx.AsyncClient, sub, payload: bytes, urgent: bool, tries: int = 0,
+                    created: float | None = None) -> str:
     """« livre » (accepté par le service de push), « mort » (désinstallé, permission retirée, appareil déconnecté :
     rien ne part), « differe » (erreur passagère : repris plus tard depuis la base) ou « echec » (refusé)."""
     host = urlsplit(sub["endpoint"]).netloc
+    created = time.time() if created is None else created
     for wait in (*RETRIES, None):
         if not _still_subscribed(sub):
             return "parti"  # appareil déconnecté ou désabonné pendant l'attente : rien ne part, rien à supprimer
+        left = int(created + TTL - time.time())  # vie restante : 24 h depuis la création du message, pas depuis l'envoi
+        if left <= 0:
+            return "echec"
+        headers = {
+            "Authorization": vapid_header(sub["endpoint"]), "Content-Encoding": "aes128gcm",
+            "Content-Type": "application/octet-stream", "TTL": str(left), "Urgency": "high" if urgent else "normal",
+        }
+        if (urlsplit(sub["endpoint"]).hostname or "").endswith(".notify.windows.com"):
+            headers["X-WNS-Type"] = "wns/raw"  # exigé par WNS (Edge sous Windows), comme le fait pywebpush
         try:
-            r = await client.post(sub["endpoint"], content=encrypt(payload, sub["p256dh"], sub["auth"]), headers={
-                "Authorization": vapid_header(sub["endpoint"]), "Content-Encoding": "aes128gcm",
-                "Content-Type": "application/octet-stream", "TTL": str(TTL),
-                "Urgency": "high" if urgent else "normal",
-            })
+            r = await client.post(sub["endpoint"], content=encrypt(payload, sub["p256dh"], sub["auth"]), headers=headers)
         except httpx.HTTPError as e:
             log.warning("push : %s injoignable (%s)", host, e)
             r = None
@@ -212,7 +220,9 @@ async def _send_one(client: httpx.AsyncClient, sub, payload: bytes, urgent: bool
             # Longue attente (Retry-After) ou essais rapides épuisés : la suite se fait depuis la base, pas en mémoire.
             if tries >= 6:
                 return "echec"
-            _defer(sub, payload, urgent, delay, tries + 1)
+            if created + TTL <= time.time() + delay:
+                return "echec"  # serait périmé avant la reprise
+            _defer(sub, payload, urgent, delay, tries + 1, created)
             return "differe"
         await asyncio.sleep(delay)
     return "echec"

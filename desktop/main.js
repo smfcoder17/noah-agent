@@ -164,10 +164,13 @@ async function useToken(server, token) {
   });
 }
 
+const NO_KEYRING = { error: "Le trousseau du système n'est pas disponible : impossible de ranger la session en sécurité. "
+  + "Sous Linux, installe et déverrouille GNOME Keyring (gnome-keyring) ou KWallet, puis relance l'app." };
+
 async function adopt(server, token) {
   if (!secureStorage()) {
-    return { error: "Le trousseau du système n'est pas disponible : impossible de ranger la session en sécurité. "
-      + "Sous Linux, installe et déverrouille GNOME Keyring (gnome-keyring) ou KWallet, puis relance l'app." };
+    await revokeOrQueue(server, token).catch(() => {}); // trousseau perdu entre-temps : la session ne reste pas ouverte
+    return NO_KEYRING;
   }
   writeConfig({ mode: "remote", server, jeton: safeStorage.encryptString(token).toString("base64") });
   boot();
@@ -179,6 +182,7 @@ async function adopt(server, token) {
 async function authorize(rawServer) {
   const server = serverOrigin(rawServer);
   if (!server) return BAD_ADDRESS;
+  if (!secureStorage()) return NO_KEYRING; // vérifié avant : le serveur ne crée pas une session qu'on ne pourrait ranger
   const generation = ++pairingGeneration; // un « Changer de serveur » pendant la requête suivante l'annule
   let start;
   try {
@@ -206,6 +210,7 @@ async function authorize(rawServer) {
 async function pair(rawServer, rawCode) {
   const server = serverOrigin(rawServer);
   if (!server) return BAD_ADDRESS;
+  if (!secureStorage()) return NO_KEYRING;
   const generation = ++pairingGeneration;
   let r;
   try {
@@ -404,6 +409,7 @@ ipcMain.handle("noah:setup-connect", async (e, server, code) => (fromSetup(e) ? 
 ipcMain.handle("noah:setup-authorize", async (e, server) => (fromSetup(e) ? authorize(String(server)) : null));
 ipcMain.handle("noah:setup-local", async (e) => {
   if (!fromSetup(e)) return;
+  pairingGeneration++; // un accord distant arrivé après ce choix est révoqué, pas adopté
   writeConfig({ mode: "local" });
   boot();
 });

@@ -122,6 +122,8 @@ msg = json.loads(http_ece.decrypt(r.content, private_key=key, auth_secret=secret
 assert msg == {"titre": "Veille", "texte": "Le prix a baissé", "url": "/", "pour": push.session_tag(auth.digest(token_a))}, msg
 assert len([x for x in received if x.url.path.endswith("/instable")]) == 2, "pas de nouvel essai après le 503"
 assert len([x for x in received if x.url.path.endswith("/refuse")]) == 1, "erreur définitive réessayée"
+wns = [x for x in received if x.url.host.endswith(".notify.windows.com")][0]
+assert wns.headers["x-wns-type"] == "wns/raw" and "x-wns-type" not in r.headers, "en-tête X-WNS-Type (WNS seulement)"
 with db.connect() as c:
     left = sorted(row["endpoint"] for row in c.execute("SELECT endpoint FROM push_subscriptions"))
 assert not any(e.endswith("/mort") for e in left) and len(left) == 3, left
@@ -315,6 +317,47 @@ with db.connect() as c:
 asyncio.run(push.flush_queue())
 with db.connect() as c:
     assert not c.execute("SELECT 1 FROM push_subscriptions WHERE endpoint LIKE '%mortplustard'").fetchone(), "abonnement mort gardé"
+push.transport = httpx.MockTransport(service)
+# Reporté deux fois 23 heures : la durée de vie compte depuis la création du message, pas depuis le dernier report.
+k12, p12, s12 = device()
+token_k = auth.new_session(user, "Vieux message", "web")
+assert subscribe(TestClient(main.app, headers={"Authorization": f"Bearer {token_k}"}), FCM + "vieux", p12, s12) == 200
+age = {"n": 0}
+
+
+def busy(request: httpx.Request) -> httpx.Response:
+    received.append(request)
+    age["n"] += 1
+    return httpx.Response(429, headers={"Retry-After": str(23 * 3600)})
+
+
+push.transport = httpx.MockTransport(busy)
+assert asyncio.run(push.send("x", "y", session=auth.digest(token_k)))["differes"] == 1
+with db.connect() as c:
+    created = c.execute("SELECT created FROM push_queue WHERE endpoint LIKE '%vieux'").fetchone()["created"]
+    c.execute("UPDATE push_queue SET not_before = 0, created = ? WHERE endpoint LIKE '%vieux'", (created - 23 * 3600,))
+asyncio.run(push.flush_queue())  # 23 h plus tard : nouveau report de 23 h refusé (le message aurait 46 h)
+with db.connect() as c:
+    assert not c.execute("SELECT 1 FROM push_queue WHERE endpoint LIKE '%vieux'").fetchone(), "message reporté au-delà de 24 h"
+# Un report accepté garde l'heure de création d'origine, et le TTL envoyé est la vie restante.
+age["n"] = 0
+
+
+def once_busy(request: httpx.Request) -> httpx.Response:
+    received.append(request)
+    age["n"] += 1
+    return httpx.Response(429, headers={"Retry-After": "3600"}) if age["n"] == 1 else httpx.Response(201)
+
+
+push.transport = httpx.MockTransport(once_busy)
+asyncio.run(push.send("x", "y", session=auth.digest(token_k)))
+with db.connect() as c:
+    c.execute("UPDATE push_queue SET not_before = 0, created = created - 20 * 3600 WHERE endpoint LIKE '%vieux'")
+    created = c.execute("SELECT created FROM push_queue WHERE endpoint LIKE '%vieux'").fetchone()["created"]
+received.clear()
+asyncio.run(push.flush_queue())
+sent = [x for x in received if x.url.path.endswith("/vieux")]
+assert sent and int(sent[0].headers["ttl"]) <= 4 * 3600, sent[0].headers["ttl"] if sent else "rien"
 push.transport = httpx.MockTransport(service)
 print("5 decies. Retry-After d'une heure : envoi gardé en base, repris à l'heure dite, pas avant ; un arrêt pendant le dépilage ne perd rien")
 

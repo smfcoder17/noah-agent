@@ -5,27 +5,42 @@ import { get, send } from "@/lib/api";
 
 export const pushSupported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 
-// Change à chaque déconnexion : une réconciliation commencée avant n'écrit plus son marqueur après.
-let generation = 0;
+// Change à chaque déconnexion, dans n'importe quel onglet (localStorage est partagé, comme le cache du service
+// worker) : une réconciliation commencée avant, ici ou ailleurs, n'écrit plus son marqueur après.
+const EPOCH = "noah-push-epoch";
+let localEpoch = 0; // repli si localStorage est indisponible
+const epoch = () => {
+  try {
+    return `${localStorage.getItem(EPOCH) || "0"}.${localEpoch}`;
+  } catch {
+    return `0.${localEpoch}`;
+  }
+};
 
 /** À la déconnexion (ou session refusée, 401) : plus aucune notification ne montre son contenu dans ce navigateur. */
 export async function forgetPushSession() {
-  generation++;
+  localEpoch++;
+  try {
+    localStorage.setItem(EPOCH, String(Number(localStorage.getItem(EPOCH) || 0) + 1));
+  } catch {
+    /* indisponible : seul cet onglet est protégé */
+  }
   await caches.delete("noah-session").catch(() => {});
 }
 
 /** Rend true si les notifications sont actives ici (et renvoie l'abonnement du navigateur au serveur au besoin). */
 export async function reconcilePush(): Promise<boolean> {
   if (!pushSupported()) return false;
-  const started = generation;
+  const started = epoch();
   const [r, sub] = await Promise.all([
     get<{ abonne: boolean; endpoint: string | null; pour: string }>("/api/push/subscription"),
     navigator.serviceWorker.ready.then((reg) => reg.pushManager.getSubscription()),
   ]);
   // Session ouverte dans ce navigateur : le service worker n'affiche le contenu que des messages qui lui sont destinés.
-  if (started !== generation) return false; // déconnecté entre-temps : surtout ne pas réécrire l'ancien marqueur
+  if (started !== epoch()) return false; // déconnecté entre-temps : surtout ne pas réécrire l'ancien marqueur
   await caches.open("noah-session").then((c) => c.put("/__session", new Response(r.pour))).catch(() => {});
-  if (started !== generation) await caches.delete("noah-session").catch(() => {}); // déconnexion pendant l'écriture
+  // Déconnexion (dans n'importe quel onglet) pendant l'écriture : elle incrémente avant d'effacer, on le voit donc ici.
+  if (started !== epoch()) await caches.delete("noah-session").catch(() => {});
   if (!sub || Notification.permission !== "granted") return false;
   if (!r.abonne || r.endpoint !== sub.endpoint) {
     const j = sub.toJSON();
