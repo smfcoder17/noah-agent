@@ -173,9 +173,12 @@ async def flush_queue() -> int:
         c.executemany("UPDATE push_queue SET not_before = ? WHERE id = ?", [(now + LEASE, r["id"]) for r in due])
     async with httpx.AsyncClient(timeout=15, transport=transport) as client:
         for r in due:
-            await _send_one(client, r, r["payload"], bool(r["urgent"]), tries=r["tries"])
+            outcome = await _send_one(client, r, r["payload"], bool(r["urgent"]), tries=r["tries"])
             with db.connect() as c:  # traité (livré, refusé, ou de nouveau différé sous une autre ligne)
                 c.execute("DELETE FROM push_queue WHERE id = ?", (r["id"],))
+                if outcome == "mort":  # l'abonnement exact n'existe plus chez le service de push
+                    c.execute("DELETE FROM push_subscriptions WHERE endpoint = ? AND session = ? AND p256dh = ? AND auth = ?",
+                              (r["endpoint"], r["session"], r["p256dh"], r["auth"]))
     return len(due)
 
 

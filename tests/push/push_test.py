@@ -295,6 +295,26 @@ with db.connect() as c:
 assert asyncio.run(push.flush_queue()) == 1
 with db.connect() as c:
     assert not c.execute("SELECT 1 FROM push_queue").fetchone()
+# 410 reçu lors d'un envoi différé : l'abonnement exact est supprimé aussi (plus annoncé comme actif).
+k11, p11, s11 = device()
+token_j = auth.new_session(user, "Mort plus tard", "web")
+assert subscribe(TestClient(main.app, headers={"Authorization": f"Bearer {token_j}"}), FCM + "mortplustard", p11, s11) == 200
+step = {"n": 0}
+
+
+def dies(request: httpx.Request) -> httpx.Response:
+    received.append(request)
+    step["n"] += 1
+    return httpx.Response(503, headers={"Retry-After": "120"}) if step["n"] == 1 else httpx.Response(410)
+
+
+push.transport = httpx.MockTransport(dies)
+assert asyncio.run(push.send("x", "y", session=auth.digest(token_j)))["differes"] == 1
+with db.connect() as c:
+    c.execute("UPDATE push_queue SET not_before = 0")
+asyncio.run(push.flush_queue())
+with db.connect() as c:
+    assert not c.execute("SELECT 1 FROM push_subscriptions WHERE endpoint LIKE '%mortplustard'").fetchone(), "abonnement mort gardé"
 push.transport = httpx.MockTransport(service)
 print("5 decies. Retry-After d'une heure : envoi gardé en base, repris à l'heure dite, pas avant ; un arrêt pendant le dépilage ne perd rien")
 

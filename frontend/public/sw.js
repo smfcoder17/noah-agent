@@ -1,6 +1,6 @@
 // Service worker minimal : rend l'app installable et garde la coquille hors ligne.
 // Les appels /api/ passent toujours au réseau (données toujours fraîches).
-const CACHE = "noah-v7";
+const CACHE = "noah-v8";
 const SHELL = ["/", "/assets/icon.svg"];
 
 self.addEventListener("install", (e) => {
@@ -9,7 +9,8 @@ self.addEventListener("install", (e) => {
 });
 
 self.addEventListener("activate", (e) => {
-  e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))));
+  // « noah-session » n'est pas un cache de pages : c'est la session ouverte ici (voir l'événement push).
+  e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE && k !== "noah-session").map((k) => caches.delete(k)))));
   self.clients.claim();
 });
 
@@ -60,9 +61,11 @@ self.addEventListener("push", (e) => {
       caches.open("noah-session").then((c) => c.match("/__session")).then((r) => (r ? r.text() : "")).catch(() => ""),
     ]).then(([wins, current]) => {
       const foreground = wins.some((w) => w.visibilityState === "visible" && w.focused);
-      // Message pour une autre session que celle ouverte ici (un autre compte s'est connecté depuis) : on prévient sans
-      // rien montrer de son contenu (une notification reste obligatoire après un push).
-      if (data.pour && current && data.pour !== current) data = { titre: "Noah", texte: "Nouvelle notification pour un autre compte.", url: "/" };
+      // Message pour une autre session que celle ouverte ici (un autre compte s'est connecté, ou on s'est déconnecté) :
+      // on prévient sans rien montrer de son contenu (une notification reste obligatoire après un push).
+      if (!data.pour || data.pour !== current) {
+        data = { titre: "Noah", texte: current ? "Nouvelle notification pour un autre compte." : "Nouvelle notification. Connecte-toi pour la voir.", url: "/" };
+      }
       return self.registration.showNotification(data.titre || "Noah", {
         silent: foreground,
         body: data.texte || "",

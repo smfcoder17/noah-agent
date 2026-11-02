@@ -5,6 +5,11 @@ import { get, send } from "@/lib/api";
 
 export const pushSupported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 
+/** À la déconnexion : plus aucune notification de cette session ne montre son contenu dans ce navigateur. */
+export async function forgetPushSession() {
+  await caches.delete("noah-session").catch(() => {});
+}
+
 /** Rend true si les notifications sont actives ici (et renvoie l'abonnement du navigateur au serveur au besoin). */
 export async function reconcilePush(): Promise<boolean> {
   if (!pushSupported()) return false;

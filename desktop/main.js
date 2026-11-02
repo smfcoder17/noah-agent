@@ -222,12 +222,14 @@ async function pair(rawServer, rawCode) {
  * ou un ralentissement (429) ne font qu'attendre.
  */
 let typedNumber = ""; // voir « noah:setup-number »
+let pairingGeneration = 0; // change à chaque appairage et à chaque oubli : une attente plus ancienne n'adopte rien
 
 async function waitForApproval(server, sondage, expire, verification, askNumber = false) {
   if (!askNumber) win?.webContents.send("noah:setup-waiting", String(verification || ""));
   typedNumber = "";
+  const generation = ++pairingGeneration;
   const until = Date.now() + (expire || 1200) * 1000;
-  while (Date.now() < until) {
+  while (Date.now() < until && generation === pairingGeneration) {
     await new Promise((ok) => setTimeout(ok, 2000));
     let r;
     try {
@@ -242,7 +244,14 @@ async function waitForApproval(server, sondage, expire, verification, askNumber 
     if (r.status === 403) return { error: "Ce nombre ne correspond pas à celui du navigateur. Recommence." };
     if (!r.ok) continue;
     const body = await r.json().catch(() => ({}));
-    if (body.token) return adopt(server, body.token);
+    if (body.token) {
+      if (generation !== pairingGeneration) {
+        // Serveur oublié ou autre appairage lancé entre-temps : cette session arrive trop tard, on la révoque.
+        await fetch(`${server}/api/devices/self`, { method: "DELETE", headers: { Authorization: `Bearer ${body.token}` }, signal: AbortSignal.timeout(10000) }).catch(() => {});
+        return { error: "Appairage annulé." };
+      }
+      return adopt(server, body.token);
+    }
   }
   return { error: "Pas d'accord dans les 20 minutes. Recommence." };
 }
@@ -296,6 +305,7 @@ async function changeServer() {
 
 /** Oublie le serveur : la session disparaît aussi côté serveur (si l'appel échoue, on oublie quand même ici). */
 async function forgetServer({ revoke = true } = {}) {
+  pairingGeneration++; // toute attente d'accord en cours est abandonnée
   const { server } = readConfig();
   const token = storedToken();
   if (server) {

@@ -15,7 +15,7 @@ import { Button } from "@/components/ui";
 import { type Agent, ApiError, type Conversation, type CurrentModel, get, send, type Status, type Usage } from "@/lib/api";
 import { AgentContext } from "@/lib/agentContext";
 import { takeAsk } from "@/lib/askAgent";
-import { reconcilePush } from "@/lib/push";
+import { forgetPushSession, reconcilePush } from "@/lib/push";
 import { useAgentChat } from "@/lib/useAgentChat";
 import { cn } from "@/lib/utils";
 
@@ -247,6 +247,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
 
   const logout = async () => {
     await send("/api/logout", {});
+    await forgetPushSession();
     onLogout();
   };
 
