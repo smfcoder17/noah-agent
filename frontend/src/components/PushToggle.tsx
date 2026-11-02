@@ -26,7 +26,13 @@ function AndroidPushStatus() {
   if (!native?.pushStatus || !state) return null;
   const retry = async () => {
     await native.pushSetup?.();
-    setTimeout(refresh, 3000);
+    // L'inscription peut aboutir après les relances natives (30 s, 2 min, 10 min) : relu toutes les 5 s, 15 min.
+    let n = 0;
+    const t = setInterval(async () => {
+      const s = (await native.pushStatus?.().catch(() => null)) as AndroidPush | null;
+      if (s) setState(s);
+      if (s?.inscrit || ++n >= 180) clearInterval(t);
+    }, 5000);
   };
   const test = async () => {
     setResult("");

@@ -10,9 +10,24 @@ export class ApiError extends Error {
 
 const ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
 
-// Avance à chaque connexion réussie : un 401 d'une requête partie avant (ancienne session) est reconnu comme tel.
-let authEpoch = 0;
-export const currentAuthEpoch = () => authEpoch;
+// Avance à chaque connexion réussie, dans n'importe quel onglet (localStorage partagé) : un 401 d'une requête partie
+// avant (ancienne session) est reconnu comme tel, même si la nouvelle connexion a eu lieu dans un autre onglet.
+let authEpoch = 0; // repli si localStorage est indisponible
+export const currentAuthEpoch = () => {
+  try {
+    return `${localStorage.getItem("noah-auth-epoch") || "0"}.${authEpoch}`;
+  } catch {
+    return `0.${authEpoch}`;
+  }
+};
+function bumpAuthEpoch() {
+  authEpoch++;
+  try {
+    localStorage.setItem("noah-auth-epoch", String(Number(localStorage.getItem("noah-auth-epoch") || 0) + 1));
+  } catch {
+    /* indisponible : seul cet onglet le sait */
+  }
+}
 
 export async function request(path: string, init: RequestInit = {}): Promise<Response> {
   const res = await fetch(path, {
@@ -21,7 +36,7 @@ export async function request(path: string, init: RequestInit = {}): Promise<Res
     // Fuseau de l'utilisateur : le serveur (souvent un VPS en UTC) installe les mises à jour pendant sa nuit à lui.
     headers: { "Content-Type": "application/json", "X-Noah-Timezone": ZONE, ...(init.headers || {}) },
   });
-  if (res.ok && /^\/api\/(login|setup\/account|pairing\/flow\/poll)/.test(path)) authEpoch++;
+  if (res.ok && /^\/api\/(login|setup\/account|pairing\/flow\/poll)/.test(path)) bumpAuthEpoch();
   // Session révoquée ou expirée pendant l'usage : l'interface revient à l'écran de connexion (ou de reliaison).
   if (res.status === 401 && !/^\/api\/(login|setup|pairing|status)/.test(path)) window.dispatchEvent(new Event("noah:unauthorized"));
   if (!res.ok) {

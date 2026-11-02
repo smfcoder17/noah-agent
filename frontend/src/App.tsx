@@ -173,6 +173,8 @@ export default function App() {
         <Suspense fallback={<p className="text-sm text-muted-foreground">Chargement…</p>}>
           <ModelPicker first onDone={() => setScreen("app")} />
         </Suspense>
+        {/* Un appareil qui attend son accord (bureau, téléphone) n'a pas à attendre le choix du modèle. */}
+        <DeviceApproval />
       </div>
     );
   return <Shell onLogout={boot} />;

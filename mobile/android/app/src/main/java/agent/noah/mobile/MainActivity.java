@@ -36,12 +36,7 @@ public class MainActivity extends BridgeActivity {
                 @Override
                 public void onAvailable(Network n) {
                     new Thread(pairing::revokeForgotten).start();
-                    // Notifications pas encore actives (première ouverture hors ligne, serveur injoignable) : on
-                    // reprend l'inscription au retour du réseau, sans attendre une réouverture.
-                    String s = pairing.server(), t = Pairing.windowToken(s);
-                    if (s != null && t != null && pairing.pushTag() == null) {
-                        runOnUiThread(() -> NoahPush.start(MainActivity.this, s, t));
-                    }
+                    runOnUiThread(() -> resumePush(pairing)); // au retour du réseau, sans attendre une réouverture
                 }
             };
             network.registerDefaultNetworkCallback(onNetwork);
@@ -50,6 +45,7 @@ public class MainActivity extends BridgeActivity {
         // file est vide : la boucle ne coûte presque rien.
         retry = () -> {
             new Thread(pairing::revokeForgotten).start();
+            resumePush(pairing); // le VPS peut revenir sans que le réseau du téléphone change
             later.postDelayed(retry, 5 * 60 * 1000);
         };
         later.postDelayed(retry, 5 * 60 * 1000);
@@ -64,6 +60,15 @@ public class MainActivity extends BridgeActivity {
                 .create();
         }
         super.onCreate(savedInstanceState);
+    }
+
+    /** Notifications pas encore actives (première ouverture hors ligne, serveur injoignable) : inscription reprise. */
+    private void resumePush(Pairing pairing) {
+        String s = pairing.server(), t = Pairing.windowToken(s);
+        // Seulement si tout est prêt sauf le serveur : pas de demande de permission ni de choix de distributeur
+        // répétés toutes les 5 minutes.
+        if (org.unifiedpush.android.connector.UnifiedPush.getDistributors(this).isEmpty() || !NoahPush.visible(this)) return;
+        if (s != null && t != null && pairing.pushTag() == null) NoahPush.start(this, s, t);
     }
 
     @Override
