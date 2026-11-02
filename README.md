@@ -100,6 +100,28 @@ est coupé.
 Les données sont dans les volumes Docker `apollo_apollo-data` (compte, clé chiffrée, historique)
 et `apollo-agent-*` (un par agent). `sh scripts/reset.sh` efface tout.
 
+### Le socket Docker
+
+Le lanceur, et lui seul, monte `/var/run/docker.sock`. Ce montage donne l'équivalent d'un accès root à la machine :
+qui contrôle le lanceur peut créer n'importe quel conteneur, monter n'importe quel dossier de l'hôte. C'est le prix pour
+qu'une app crée et mette à jour les machines des agents toute seule. Ce qui le limite :
+
+- le lanceur n'a aucun port publié ; il n'écoute que sur le réseau Docker interne, derrière le serveur ;
+- chaque appel exige sa clé, tirée au hasard à l'installation et rangée dans le volume des secrets (`0600`), jamais
+  dans une variable d'environnement visible par `docker inspect` ou le Docker Manager de Hostinger ;
+- il ne lance que des images fixes (Hermes, Camoufox) ou signées (mises à jour), sans privilège, et ne monte un dossier
+  de l'hôte que s'il fait partie des racines autorisées (`NOAH_SHARE_ROOTS`) ;
+- les agents et leurs navigateurs n'ont jamais accès au socket.
+
+Si tu installes Noah à côté d'autres projets sur un VPS de Hostinger, garde-le dans son propre projet Docker : un autre
+conteneur qui monterait aussi le socket aurait les mêmes pouvoirs.
+
+### Ce qui sort de ton serveur
+
+Réglages → Confidentialité liste chaque flux sortant, construit depuis la configuration en service : le fournisseur
+et le modèle de chaque agent, les sites que visitent les agents, les mises à jour, les notifications. Aucune
+télémétrie. Pendant que tu as la main sur l'écran d'un agent (connexion, code), son navigateur refuse toute capture.
+
 ## Interface
 
 `frontend/` : Vite + React + TypeScript + Tailwind, avec [assistant-ui](https://www.assistant-ui.com)

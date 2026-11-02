@@ -79,7 +79,7 @@ BROWSER_IMAGE = os.environ.get("BROWSER_IMAGE", "ghcr.io/jo-inc/camofox-browser:
 BROWSER_PREFIX = "apollo-browser-"
 BROWSER_LABEL = "apollo.browser"
 # Version des réglages du navigateur ; un conteneur plus ancien est recréé (le profil reste dans son volume).
-BROWSER_VERSION = "8"  # 8 : jetons dans un fichier du conteneur, plus dans sa config Docker
+BROWSER_VERSION = "9"  # 9 : aucune capture pendant une prise en main ; 8 : jetons hors de la config Docker
 
 
 def _frozen(agent_id: str):

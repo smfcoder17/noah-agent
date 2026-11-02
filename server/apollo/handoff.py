@@ -36,10 +36,22 @@ def open_call(agent_id: str, message: str, origin: str = "agent", leave_host: st
     call = {"id": uuid.uuid4().hex[:10], "message": message, "depuis": time.time(), "origine": origin,
             "attente": asyncio.get_running_loop().create_future(), "attentifs": 0}
     _calls[agent_id] = call
+    asyncio.create_task(_private(agent_id, PRIVATE_SECONDS))
     desktop.notify("Noah a besoin de toi", message[:240])
     if leave_host:
         asyncio.create_task(_until_left(agent_id, call, leave_host))
     return call
+
+
+PRIVATE_SECONDS = 3 * 3600  # au plus : rouvert à la fin de l'appel, ou de lui-même après ce délai
+
+
+async def _private(agent_id: str, seconds: int) -> None:
+    """Pendant que l'utilisateur a la main (mot de passe, code), le navigateur refuse toute capture d'écran (G7.7)."""
+    try:
+        await hermes.browser_call(agent_id, "POST", "/noah/prive", params={"secondes": seconds})
+    except Exception:  # noqa: BLE001 - navigateur absent ou en train de redémarrer : rien à capturer
+        pass
 
 
 async def _until_left(agent_id: str, call: dict, host: str) -> None:
@@ -63,6 +75,10 @@ def close_call(agent_id: str, call_id: str | None, answer: str) -> None:
         if not call["attente"].done():
             call["attente"].set_result(answer)
         _calls.pop(agent_id, None)
+        try:
+            asyncio.get_running_loop().create_task(_private(agent_id, 0))
+        except RuntimeError:  # appelé hors de la boucle : la fenêtre privée se fermera seule
+            pass
         _answered[call["id"]] = answer
         while len(_answered) > 50:
             _answered.pop(next(iter(_answered)))

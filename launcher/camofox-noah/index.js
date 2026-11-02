@@ -8,8 +8,25 @@
 // Après un redémarrage du navigateur, Camofox répond 410 pour un ancien onglet. L'outil navigateur d'Hermes ne
 // recrée son onglet que sur un 404 : il restait bloqué, et l'agent contournait par des commandes curl, bien plus
 // lentes. Pour « navigate », le 410 devient un 404 (Hermes ouvre alors un nouvel onglet à la bonne adresse).
+//
+// Prise en main par l'utilisateur (connexion, code 2FA, CAPTCHA) : aucune capture d'écran n'est faite tant qu'elle
+// dure, ni par l'agent ni par personne (G7.7, comme le mode « takeover » de ChatGPT agent). Noah Agent l'ouvre et la
+// ferme par POST /noah/prive?secondes=N, avec la clé de ce navigateur.
+let privateUntil = 0;
+
 export default function register(app, ctx) {
   app.use((req, res, next) => {
+    if (req.method === "POST" && req.path === "/noah/prive") {
+      if (!process.env.CAMOFOX_API_KEY || req.headers.authorization !== `Bearer ${process.env.CAMOFOX_API_KEY}`) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      const seconds = Math.max(0, Math.min(Number(req.query.secondes) || 0, 3 * 3600));
+      privateUntil = seconds ? Date.now() + seconds * 1000 : 0;
+      return res.json({ prive: seconds > 0 });
+    }
+    if (Date.now() < privateUntil && (/\/screenshot$/.test(req.path) || req.query.includeScreenshot === "true")) {
+      return res.status(423).json({ error: "L'utilisateur a la main sur l'écran : aucune capture pendant ce temps." });
+    }
     if (req.method === "POST" && /^\/tabs\/[^/]+\/navigate$/.test(req.path)) {
       const status = res.status.bind(res);
       res.status = (code) => status(code === 410 ? 404 : code);
