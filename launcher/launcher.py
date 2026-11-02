@@ -433,7 +433,8 @@ def _run_agent(agent_id: str, api_key: str, folders: list[Folder]):
 
 # Fichiers que le serveur peut écrire dans /opt/data : config d'Hermes, rôle, l'outil `noah.py` de l'agent,
 # et la liste des dossiers partagés (pour que l'agent sache ce qu'ils sont).
-CONFIG_FILES = (".env", "config.yaml", "SOUL.md", "noah.py", "dossiers.json")
+CONFIG_FILES = (".env", "config.yaml", "SOUL.md", "noah.py", "dossiers.json",
+                "plugins/noah-garde/plugin.yaml", "plugins/noah-garde/__init__.py")  # garde de Noah (G7.6)
 
 
 class Files(BaseModel):

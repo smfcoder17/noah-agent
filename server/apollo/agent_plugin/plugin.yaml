@@ -1,0 +1,6 @@
+name: noah-garde
+version: 1.0.0
+description: "Noah Agent : skills tiers seulement depuis les dépôts vérifiés, aucun script téléchargé exécuté d'un trait."
+author: "Noah Agent"
+provides_hooks:
+  - pre_tool_call

@@ -6,6 +6,7 @@ import re
 import secrets
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from pathlib import Path
 
 import httpx
 import yaml
@@ -259,6 +260,13 @@ async def configure(agent_id: str, model: dict, role: str | None = None) -> None
     tz = (await browser_identity()).get("timezone")
     if tz:
         cfg["timezone"] = tz
+    # Garde de Noah (G7.6) : skills tiers seulement depuis les dépôts vérifiés, aucun script téléchargé exécuté d'un
+    # trait, et jamais de commandes shell dans le texte d'un skill.
+    plugins = cfg.setdefault("plugins", {})
+    plugins["enabled"] = sorted(set(plugins.get("enabled") or []) | {"noah-garde"})
+    cfg.setdefault("skills", {})["inline_shell"] = False
+    for name in ("plugin.yaml", "__init__.py"):
+        files[f"plugins/noah-garde/{name}"] = (AGENT_PLUGIN / name).read_text(encoding="utf-8")
     files["config.yaml"] = yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True)
 
     if role is not None:
@@ -270,6 +278,8 @@ async def configure(agent_id: str, model: dict, role: str | None = None) -> None
         await _launcher("POST", f"/agents/{agent_id}/refresh-prompts")
     await restart(agent_id)
 
+
+AGENT_PLUGIN = Path(__file__).parent / "agent_plugin"
 
 # Outil en ligne de commande (noah.py) posé dans la machine de l'agent : il parle au serveur avec le jeton de relais.
 AGENT_TOOL = r'''#!/usr/bin/env python3
