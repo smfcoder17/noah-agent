@@ -3,6 +3,7 @@ import json
 import mimetypes
 import re
 import secrets
+import threading
 import time
 import unicodedata
 import uuid
@@ -16,10 +17,25 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import accounts, auth, catalog, db, desktop, events, handoff, hermes, machine, media, public, relay, watch
-from .config import SETUP_CODE, WEB_DIR
+from .config import SETUP_CODE, WEB_DIR, forget_setup_code
 from .hermes import Agent
 
 app = FastAPI(title="Noah Agent")
+
+UNSAFE = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+@app.middleware("http")
+async def same_origin_only(request: Request, call_next):
+    """Anti-CSRF : avec le cookie de session (navigateur), une écriture doit venir d'une page de Noah lui-même.
+    Les apps et les agents s'authentifient par en-tête (Bearer), qu'une page étrangère ne peut pas poser."""
+    if request.method in UNSAFE and auth.COOKIE in request.cookies and "authorization" not in request.headers:
+        source = request.headers.get("origin") or request.headers.get("referer") or ""
+        host = request.headers.get("host", "")
+        if not source or source.split("://", 1)[-1].split("/", 1)[0] != host:
+            return Response('{"detail":"Requête refusée : elle ne vient pas de Noah."}', status_code=403,
+                            media_type="application/json")
+    return await call_next(request)
 app.include_router(relay.router)
 app.include_router(machine.router)
 app.include_router(desktop.router)
@@ -142,10 +158,11 @@ def _ip(request: Request) -> str:
 def _login_response(request: Request, response: Response, user_id: int, device: str = "", platform: str = "web") -> dict:
     token = auth.new_session(user_id, device or _device_name(request), platform if platform in PLATFORMS else "web",
                              _ip(request), request.headers.get("x-noah-version", ""))
-    # Derrière Caddy (VPS), la requête arrive en HTTPS : le cookie ne doit jamais repartir en clair.
-    response.set_cookie(auth.COOKIE, token, httponly=True, samesite="lax", max_age=30 * 86400,
-                        secure=request.url.scheme == "https")
-    # Le jeton est aussi rendu pour les apps mobile et desktop, qui l'envoient en Bearer.
+    # Navigateur : cookie. Derrière Caddy (VPS), la requête arrive en HTTPS : il ne doit jamais repartir en clair.
+    # Apps (bureau, mobile) : jeton dans la réponse seulement, qu'elles rangent chiffré ; un cookie y resterait en clair.
+    if platform == "web" or platform not in PLATFORMS:
+        response.set_cookie(auth.COOKIE, token, httponly=True, samesite="lax", max_age=30 * 86400,
+                            secure=request.url.scheme == "https")
     return {"token": token}
 
 
@@ -162,6 +179,7 @@ FLOW_SECONDS = 1200
 SHORT_TRIES = 5
 _SHORT = "BCDFGHJKLMNPQRSTVWXZ"  # base 20, sans voyelles (pas de mot gênant) ni caractères ambigus (RFC 8628)
 _pairing: dict[str, dict] = {}   # empreinte -> {user, expire, essais}
+_pairing_lock = threading.Lock()  # usage unique même si deux appareils envoient le code au même instant
 _flows: dict[str, dict] = {}     # identifiant public -> {sondage (empreinte), appareil, type, expire, user, jeton}
 
 
@@ -214,7 +232,11 @@ def pairing_claim(body: PairingCode, request: Request, response: Response):
     _purge()
     code = body.code.strip()
     short = len(code) <= 12
-    entry = _pairing.get(auth.digest(_norm_short(code) if short else code))
+    with _pairing_lock:
+        entry = _pairing.get(auth.digest(_norm_short(code) if short else code))
+        if entry:
+            for k in [k for k, v in _pairing.items() if v is entry]:  # le lien et le code court servent une seule fois
+                _pairing.pop(k, None)
     if not entry:
         _failed_logins[_ip(request)] = recent + [time.time()]
         # Un code court ne doit pas laisser des milliers d'essais : 5 ratés annulent les codes en cours.
@@ -225,8 +247,6 @@ def pairing_claim(body: PairingCode, request: Request, response: Response):
                     for k in [k for k, x in _pairing.items() if x is v]:
                         _pairing.pop(k, None)
         raise HTTPException(400, "Ce code est faux, a expiré ou a déjà servi. Affiche un nouveau code dans Réglages > Appareils.")
-    for k in [k for k, v in _pairing.items() if v is entry]:  # le lien et le code court servent une seule fois
-        _pairing.pop(k, None)
     return _login_response(request, response, entry["user"], body.appareil.strip(), body.type)
 
 
@@ -240,8 +260,8 @@ def flow_start(body: FlowStart, request: Request):
     """L'app demande à être autorisée : elle ouvre `adresse` dans le navigateur et sonde avec `sondage`."""
     _too_many(request)
     _purge()
-    if len(_flows) > 50:
-        raise HTTPException(429, "Trop de demandes en attente. Réessaie dans quelques minutes.")
+    if sum(1 for f in _flows.values() if f["ip"] == _ip(request)) >= 5:
+        raise HTTPException(429, "Trop de demandes en attente depuis cette adresse. Réessaie dans quelques minutes.")
     public, poll = secrets.token_urlsafe(16), secrets.token_urlsafe(32)
     _flows[public] = {"sondage": auth.digest(poll), "appareil": body.appareil.strip(),
                       "type": body.type if body.type in PLATFORMS else "desktop", "expire": time.time() + FLOW_SECONDS,
@@ -268,7 +288,10 @@ def flow_decide(public: str, decision: str, user: int = Depends(auth.current_use
         return {"ok": True}
     if decision != "autoriser":
         raise HTTPException(400, "Décision inconnue")
-    flow["user"] = user
+    with _pairing_lock:
+        if flow["user"]:
+            raise HTTPException(404, "Cette demande a déjà été traitée.")
+        flow["user"] = user
     flow["jeton"] = auth.new_session(user, flow["appareil"], flow["type"], flow["ip"])
     return {"ok": True}
 
@@ -281,22 +304,32 @@ class FlowPoll(BaseModel):
 def flow_poll(body: FlowPoll):
     """Rend la session une seule fois, dès que l'utilisateur a autorisé l'appareil ; 404 tant qu'il ne l'a pas fait."""
     key = auth.digest(body.sondage)
-    for public, flow in list(_flows.items()):
-        if flow["sondage"] == key and flow["expire"] >= time.time():
-            if not flow["jeton"]:
-                raise HTTPException(404, "En attente de ton accord dans le navigateur")
-            _flows.pop(public, None)
-            return {"token": flow["jeton"]}
+    with _pairing_lock:
+        for public, flow in list(_flows.items()):
+            if flow["sondage"] == key and flow["expire"] >= time.time():
+                if not flow["jeton"]:
+                    raise HTTPException(404, "En attente de ton accord dans le navigateur")
+                _flows.pop(public, None)
+                return {"token": flow["jeton"]}
     raise HTTPException(410, "Demande expirée, refusée ou déjà servie")
 
 
 @app.post("/api/setup/account")
 def setup_account(body: Credentials, request: Request, response: Response):
-    if auth.has_users():
-        raise HTTPException(409, "Le compte administrateur existe déjà")
-    if SETUP_CODE and not secrets.compare_digest(body.installation.strip().upper().replace("-", ""), SETUP_CODE.upper().replace("-", "")):
-        raise HTTPException(403, "Code d'installation incorrect. Il est affiché à la fin de l'installation (et dans le fichier .env du serveur).")
-    return _login_response(request, response, auth.create_user(body.username, body.password))
+    recent = _too_many(request)
+    with _setup_lock:
+        if auth.has_users():
+            raise HTTPException(410, "Le compte administrateur existe déjà : connecte-toi.")
+        given = body.installation.strip().upper().replace("-", "")
+        if SETUP_CODE and not secrets.compare_digest(given, SETUP_CODE.upper().replace("-", "")):
+            _failed_logins[_ip(request)] = recent + [time.time()]
+            raise HTTPException(403, "Code d'installation incorrect. Il est affiché à la fin de l'installation (et dans les journaux du serveur).")
+        user_id = auth.create_user(body.username, body.password)
+    forget_setup_code()
+    return _login_response(request, response, user_id)
+
+
+_setup_lock = threading.Lock()
 
 
 # Essais de connexion ratés par adresse IP : sur un VPS, la page de connexion est publique.
@@ -891,7 +924,8 @@ class ChatMessage(BaseModel):
 
 
 @app.post("/api/chat")
-async def chat(body: ChatMessage, user: int = Depends(auth.current_user)):
+async def chat(body: ChatMessage, request: Request, apollo_session: str | None = Cookie(None),
+               user: int = Depends(auth.current_user)):
     agent = _agent(body.agent_id)
     conv_id = body.conversation_id
     with db.connect() as c:
@@ -905,7 +939,8 @@ async def chat(body: ChatMessage, user: int = Depends(auth.current_user)):
     prompt = body.text
     if attachments:
         prompt += "\n\nFichiers joints par l'utilisateur :\n" + "\n".join(f"- {p}" for p in attachments)
-    return StreamingResponse(await _run(agent, conv_id, prompt, body.details, machine.pop_context(conv_id)),
+    stream = await _run(agent, conv_id, prompt, body.details, machine.pop_context(conv_id))
+    return StreamingResponse(auth.revocable(stream, auth.request_token(request, apollo_session)),
                              media_type="text/event-stream")
 
 
@@ -1596,7 +1631,14 @@ async def screen_socket(websocket: WebSocket, agent_id: str):
                     else:
                         await websocket.send_text(data)
 
-            tasks = [asyncio.create_task(client_to_upstream()), asyncio.create_task(upstream_to_client())]
+            token = websocket.cookies.get(auth.COOKIE)
+
+            async def still_allowed():  # appareil révoqué : son écran partagé se ferme dans les 5 s
+                while await asyncio.to_thread(auth.still_valid, token or ""):
+                    await asyncio.sleep(5)
+
+            tasks = [asyncio.create_task(client_to_upstream()), asyncio.create_task(upstream_to_client()),
+                     asyncio.create_task(still_allowed())]
             await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for t in tasks:
                 t.cancel()

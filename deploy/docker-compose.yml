@@ -6,8 +6,9 @@
 # Au premier démarrage, le serveur tire ses secrets au hasard (volume noah-secrets), trouve l'adresse publique du VPS
 # et Caddy obtient un certificat HTTPS pour <ip-en-tirets>.sslip.io. Le lien de création du compte, avec son code
 # d'installation, s'affiche dans les journaux du service « server » (Docker Manager > Logs).
-# Avec ton propre domaine (qui pointe déjà vers ce VPS) : remplace NOAH_DOMAIN: auto par NOAH_DOMAIN: noah.exemple.com.
-name: noah
+# Avec ton propre domaine (qui pointe déjà vers ce VPS) : NOAH_DOMAIN=noah.exemple.com dans le fichier .env à côté.
+# Même nom de projet et mêmes volumes que l'installation par install.sh : les sauvegardes servent aux deux.
+name: apollo
 
 services:
   server:
@@ -15,7 +16,7 @@ services:
     container_name: apollo-server
     restart: unless-stopped
     environment:
-      NOAH_DOMAIN: auto
+      NOAH_DOMAIN: ${NOAH_DOMAIN:-auto}
       NOAH_SETUP_CODE: auto
       LAUNCHER_URL: http://launcher:9000
     volumes:

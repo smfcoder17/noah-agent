@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { get, send, type Status } from "@/lib/api";
+import { appShell } from "@/lib/platform";
 import { Button, ErrorText, Input, Label } from "./ui";
 
 export function AuthScreen({ mode, onDone }: { mode: "setup" | "login"; onDone: () => void }) {
@@ -28,6 +29,23 @@ export function AuthScreen({ mode, onDone }: { mode: "setup" | "login"; onDone: 
       setBusy(false);
     }
   };
+
+  // Dans une app (bureau, téléphone), le mot de passe ne se tape pas : l'appareil se relie de nouveau.
+  const shell = mode === "login" ? appShell() : null;
+  if (shell)
+    return (
+      <div className="grid min-h-full place-items-center px-4 py-10">
+        <div className="flex w-full max-w-sm flex-col gap-4 rounded-2xl border border-border bg-surface p-7 shadow-sm">
+          <img src="/assets/icon.svg" alt="" className="size-11" />
+          <h1 className="text-xl font-semibold">Cet appareil n'est plus relié</h1>
+          <p className="text-sm text-muted-foreground">
+            Il a été déconnecté depuis Réglages → Appareils, ou n'a pas servi depuis longtemps. Relie-le de nouveau : ça prend
+            quelques secondes.
+          </p>
+          <Button size="lg" onClick={() => shell.forget()}>Relier de nouveau</Button>
+        </div>
+      </div>
+    );
 
   return (
     <div className="grid min-h-full place-items-center px-4 py-10">

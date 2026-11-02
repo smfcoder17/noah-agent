@@ -1,7 +1,7 @@
 // Noah Agent, application de bureau : relie l'ordinateur à Noah, sur un serveur (VPS) ou démarré ici avec Docker,
 // ouvre son interface dans une fenêtre,
 // reste dans la zone de notification pour que les routines continuent, et donne le vrai sélecteur de dossier.
-const { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, session, shell, Tray } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, safeStorage, session, shell, Tray } = require("electron");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -86,6 +86,8 @@ async function openRemote(server) {
   } catch {
     return status(`Ton serveur (${server}) ne répond pas. Vérifie ta connexion à Internet, puis réessaie.`, true);
   }
+  const token = storedToken();
+  if (token) await useToken(server, token);
   origin = new URL(server).origin;
   await win.loadURL(server);
 }
@@ -101,14 +103,30 @@ const BAD_ADDRESS = { error: "Cette adresse n'est pas valide (exemple : https://
 const deviceName = () => `Ordinateur ${os.hostname()}`;
 const jsonHeaders = () => ({ "Content-Type": "application/json", "X-Noah-Version": app.getVersion() });
 
-/** La session rendue par le serveur devient le cookie de la fenêtre. Chromium le chiffre sur le disque avec la clé du
- * système (DPAPI sous Windows, Trousseau sous macOS, libsecret sous Linux). */
-async function adopt(server, token) {
+/** Session de cet appareil : chiffrée par le système (safeStorage : DPAPI sous Windows, Trousseau sous macOS,
+ * libsecret sous Linux) dans config.json. Jamais en clair sur le disque. */
+function storedToken() {
+  const sealed = readConfig().jeton;
+  if (!sealed || !safeStorage.isEncryptionAvailable()) return null;
+  try {
+    return safeStorage.decryptString(Buffer.from(sealed, "base64"));
+  } catch {
+    return null;
+  }
+}
+
+/** Cookie de session de la fenêtre, sans date d'expiration : Chromium ne l'écrit pas sur le disque. */
+async function useToken(server, token) {
   await session.defaultSession.cookies.set({
-    url: server, name: "apollo_session", value: token, httpOnly: true, secure: server.startsWith("https:"),
-    sameSite: "lax", expirationDate: Math.floor(Date.now() / 1000) + 365 * 86400,
+    url: server, name: "apollo_session", value: token, httpOnly: true, secure: server.startsWith("https:"), sameSite: "lax",
   });
-  writeConfig({ mode: "remote", server });
+}
+
+async function adopt(server, token) {
+  if (!safeStorage.isEncryptionAvailable()) {
+    return { error: "Le trousseau du système n'est pas disponible : impossible de ranger la session en sécurité." };
+  }
+  writeConfig({ mode: "remote", server, jeton: safeStorage.encryptString(token).toString("base64") });
   boot();
   return { ok: true };
 }
@@ -128,6 +146,10 @@ async function authorize(rawServer) {
     if (!r.ok) return { error: start.detail || `Le serveur a refusé (${r.status}).` };
   } catch {
     return { error: `Impossible de joindre ${server}. Vérifie l'adresse.` };
+  }
+  // N'ouvrir que la page d'accord de ce serveur : jamais une adresse arbitraire choisie par le serveur (file:, ms-msdt:…).
+  if (typeof start.adresse !== "string" || !start.adresse.startsWith(`${server}/#autoriser=`)) {
+    return { error: "Réponse inattendue du serveur." };
   }
   shell.openExternal(start.adresse);
   const until = Date.now() + start.expire * 1000;
@@ -174,14 +196,19 @@ async function changeServer() {
     buttons: ["Changer", "Annuler"], defaultId: 0, cancelId: 1, noLink: true,
   });
   if (r.response !== 0) return;
+  await forgetServer();
+}
+
+/** Oublie le serveur : la session disparaît aussi côté serveur (si l'appel échoue, on oublie quand même ici). */
+async function forgetServer() {
   const { server } = readConfig();
+  const token = storedToken();
   if (server) {
-    const cookie = (await session.defaultSession.cookies.get({ url: server, name: "apollo_session" }))[0];
-    // « Oublier ce serveur » : la session disparaît aussi côté serveur (si l'appel échoue, on oublie quand même ici).
-    if (cookie) await fetch(`${server}/api/devices/self`, { method: "DELETE", headers: { Authorization: `Bearer ${cookie.value}` } }).catch(() => {});
+    if (token) await fetch(`${server}/api/devices/self`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
     await session.defaultSession.cookies.remove(server, "apollo_session");
   }
-  writeConfig({ mode: null, server: null });
+  writeConfig({ mode: null, server: null, jeton: null });
+  origin = "";
   show();
   win.loadFile(path.join(__dirname, "setup.html"));
 }
@@ -283,6 +310,11 @@ ipcMain.handle("noah:open-lan", async (e) => {
   if (r.response !== 0) return { open: false, url: lanUrl() };
   await noah.openToLan(home);
   return { open: true, url: lanUrl() };
+});
+// Page de Noah (app reliée à un serveur) : appareil déconnecté côté serveur, l'utilisateur le relie de nouveau.
+ipcMain.handle("noah:forget-server", async (e) => {
+  if (!origin || !e.senderFrame.url.startsWith(origin) || readConfig().mode !== "remote") return;
+  await forgetServer();
 });
 ipcMain.handle("noah:open-path", async (e, p) => {
   if (!origin || !e.senderFrame.url.startsWith(origin)) return;

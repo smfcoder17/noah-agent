@@ -12,12 +12,15 @@ SECRETS_FILE = Path(os.environ.get("NOAH_SECRETS_FILE", "/secrets/noah.json"))
 _SHARED = ("LAUNCHER_KEY", "APOLLO_SECRET_KEY", "NOAH_SETUP_CODE")
 
 
-def shared_secret(name: str) -> str:
+def shared_secret(name: str, optional: bool = False) -> str:
     if os.environ.get(name) and os.environ[name] != "auto":
         return os.environ[name]
     for _ in range(120):
         try:
-            return json.loads(SECRETS_FILE.read_text())[name]
+            values = json.loads(SECRETS_FILE.read_text())
+            if optional and name not in values:
+                return ""  # code d'installation déjà utilisé, puis effacé
+            return values[name]
         except FileNotFoundError:
             SECRETS_FILE.parent.mkdir(parents=True, exist_ok=True)
             try:
@@ -44,6 +47,19 @@ BROWSER_TIMEZONE = os.environ.get("APOLLO_TIMEZONE", "")
 # Code affiché à la fin de l'installation sur un VPS : sans lui, personne ne peut créer le compte administrateur
 # (sinon le premier visiteur de l'adresse publique le prendrait). Vide sur un ordinateur personnel ; « auto » : tiré
 # au premier démarrage et écrit dans les journaux du serveur.
-SETUP_CODE = shared_secret("NOAH_SETUP_CODE") if os.environ.get("NOAH_SETUP_CODE") == "auto" else os.environ.get("NOAH_SETUP_CODE", "").strip()
+SETUP_CODE = shared_secret("NOAH_SETUP_CODE", optional=True) if os.environ.get("NOAH_SETUP_CODE") == "auto" else os.environ.get("NOAH_SETUP_CODE", "").strip()
 # Nom public : NOAH_DOMAIN (un domaine à soi), ou « auto » = <ip-publique>.sslip.io, avec HTTPS par Caddy.
 PUBLIC_DOMAIN = os.environ.get("NOAH_DOMAIN", "").strip()
+
+
+def forget_setup_code() -> None:
+    """Après la création du compte : le code ne sert plus, on l'efface du fichier de secrets."""
+    try:
+        values = json.loads(SECRETS_FILE.read_text())
+    except (FileNotFoundError, ValueError):
+        return
+    if values.pop("NOAH_SETUP_CODE", None) is not None:
+        tmp = SECRETS_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(values))
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, SECRETS_FILE)

@@ -52,7 +52,7 @@ export default function App() {
     try {
       // Téléphone qui vient de scanner le QR code de Réglages > Téléphone : il se connecte, puis l'adresse est nettoyée.
       // Le code est dans le fragment (#), jamais envoyé au serveur ni écrit dans ses journaux ; ?appairage= : anciens QR codes.
-      const code = location.hash.match(/appairage=([w-]+)/)?.[1] ?? new URLSearchParams(location.search).get("appairage");
+      const code = location.hash.match(/appairage=([\w-]+)/)?.[1] ?? new URLSearchParams(location.search).get("appairage");
       if (code) {
         history.replaceState(null, "", location.pathname);
         await send("/api/pairing/claim", { code }).catch((e) => setError((e as Error).message));
@@ -75,6 +75,11 @@ export default function App() {
   useEffect(() => {
     boot();
   }, [boot]);
+  useEffect(() => {
+    const out = () => setScreen((s) => (s === "app" || s === "model" ? "login" : s));
+    window.addEventListener("noah:unauthorized", out);
+    return () => window.removeEventListener("noah:unauthorized", out);
+  }, []);
 
   if (screen === "loading") return <p className="p-10 text-center text-muted-foreground">Chargement…</p>;
   if (screen === "error") return <p className="p-10 text-center text-danger">Impossible de joindre le serveur Noah Agent : {error}</p>;

@@ -8,6 +8,8 @@ export type NoahDesktop = {
   lanStatus(): Promise<{ open: boolean; url: string | null }>;
   /** Ouvre Noah aux appareils du réseau local (l'utilisateur confirme dans une fenêtre du système). */
   openLan(): Promise<{ open: boolean; url: string | null }>;
+  /** App reliée à un serveur : oublie ce serveur et revient à l'écran pour en relier un. */
+  forgetServer?(): Promise<void>;
   version: string;
 };
 

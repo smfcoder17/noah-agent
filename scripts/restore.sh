@@ -20,8 +20,10 @@ tar xf "$archive" -C "$work"
 src=$(find "$work" -mindepth 1 -maxdepth 1 -type d | head -1)
 
 # Le .env de la sauvegarde porte la clé qui déchiffre les secrets : il remplace l'actuel (gardé en .env.avant-restauration).
-[ -f .env ] && cp .env .env.avant-restauration
-cp "$src/env" .env
+if [ -f "$src/env" ]; then
+  [ -f .env ] && cp .env .env.avant-restauration
+  cp "$src/env" .env
+fi
 
 docker ps -aq --filter label=apollo.agent | xargs -r docker rm -f
 docker ps -aq --filter label=apollo.browser | xargs -r docker rm -f

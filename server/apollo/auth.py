@@ -99,6 +99,27 @@ def current_user(request: Request, apollo_session: str | None = Cookie(None)) ->
     return row["user_id"]
 
 
+def still_valid(token: str) -> bool:
+    """Pour les flux longs (chat, écran) : un appareil révoqué perd aussi ce qu'il a déjà ouvert."""
+    with db.connect() as c:
+        row = c.execute("SELECT expires_at FROM sessions WHERE token = ?", (digest(token),)).fetchone()
+    return bool(row) and datetime.fromisoformat(row["expires_at"]) > datetime.now(timezone.utc)
+
+
+async def revocable(stream, token: str | None, every: float = 5):
+    """Relaie un flux tant que la session existe ; s'arrête dans les `every` secondes qui suivent sa révocation."""
+    import asyncio
+    import time
+
+    checked = time.monotonic()
+    async for chunk in stream:
+        if token and time.monotonic() - checked > every:
+            checked = time.monotonic()
+            if not await asyncio.to_thread(still_valid, token):
+                return
+        yield chunk
+
+
 def devices(user_id: int, current: str | None) -> list[dict]:
     with db.connect() as c:
         rows = c.execute(

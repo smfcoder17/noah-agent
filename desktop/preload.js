@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld("noahDesktop", {
   openPath: (p) => ipcRenderer.invoke("noah:open-path", String(p)),
   lanStatus: () => ipcRenderer.invoke("noah:lan-status"),
   openLan: () => ipcRenderer.invoke("noah:open-lan"),
+  forgetServer: () => ipcRenderer.invoke("noah:forget-server"),
   version: process.env.npm_package_version || "0.1.0",
 });
 

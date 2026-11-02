@@ -14,6 +14,8 @@ export async function request(path: string, init: RequestInit = {}): Promise<Res
     credentials: "same-origin",
     headers: { "Content-Type": "application/json", ...(init.headers || {}) },
   });
+  // Session révoquée ou expirée pendant l'usage : l'interface revient à l'écran de connexion (ou de reliaison).
+  if (res.status === 401 && !/^\/api\/(login|setup|pairing|status)/.test(path)) window.dispatchEvent(new Event("noah:unauthorized"));
   if (!res.ok) {
     let message = `Erreur ${res.status}`;
     try {

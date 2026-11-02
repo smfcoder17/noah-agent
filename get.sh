@@ -40,15 +40,33 @@ fi
 systemctl enable --now docker >/dev/null 2>&1 || true
 docker compose version >/dev/null 2>&1 || fail "Docker Compose est absent. Installe le paquet docker-compose-plugin, puis relance."
 
+# Une installation faite avec install.sh (dépôt cloné) garde ses clés dans son .env : la reprendre ici en tirerait
+# d'autres et ses données deviendraient illisibles. On s'arrête plutôt.
+if docker ps -a --format '{{.Names}}' | grep -q '^apollo-server$'; then
+  owner=$(docker inspect apollo-server --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' 2>/dev/null || true)
+  if [ -n "$owner" ] && [ "$owner" != "$DIR" ]; then
+    fail "Noah Agent est déjà installé dans $owner (avec install.sh). Mets-le à jour depuis ce dossier :
+  cd $owner && git pull && sh install.sh"
+  fi
+fi
+
 # Ports 80 et 443 : Caddy en a besoin pour le certificat HTTPS. Sur une nouvelle installation, on dit qui les tient.
+port_holder() {
+  container=$(docker ps --filter "publish=$1" --format '{{.Names}}' | head -1)
+  if [ -n "$container" ]; then echo "le conteneur $container"; return; fi
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltnpH "sport = :$1" 2>/dev/null | sed -n 's/.*users:(("\([^"]*\)".*/le programme \1/p' | head -1
+  elif [ -r /proc/net/tcp ]; then
+    hex=$(printf '%04X' "$1")
+    if grep -q ":$hex 00000000:0000 0A" /proc/net/tcp /proc/net/tcp6 2>/dev/null; then echo "un programme du serveur"; fi
+  fi
+}
 if ! docker ps --format '{{.Names}}' | grep -q '^apollo-caddy$'; then
   for port in 80 443; do
-    holder=$(ss -ltnpH "sport = :$port" 2>/dev/null | sed -n 's/.*users:(("\([^"]*\)".*/\1/p' | head -1)
+    holder=$(port_holder "$port")
     if [ -n "$holder" ]; then
-      container=$(docker ps --filter "publish=$port" --format '{{.Names}}' | head -1)
-      fail "Le port $port est déjà pris par « ${container:-$holder} ». Noah en a besoin pour le HTTPS.
-Arrête ce service (par exemple : docker stop ${container:-<nom>}, ou le Traefik du Docker Manager de Hostinger),
-puis relance la commande."
+      fail "Le port $port est déjà pris par $holder. Noah en a besoin pour le HTTPS.
+Arrête ce service (par exemple le Traefik du Docker Manager de Hostinger : docker stop <nom>), puis relance."
     fi
   done
 fi
@@ -62,8 +80,14 @@ cd "$DIR"
 say "Téléchargement de Noah Agent…"
 curl -fsSL "$COMPOSE_URL" -o docker-compose.yml.new
 mv docker-compose.yml.new docker-compose.yml
+# Sauvegarde et restauration (sh scripts/backup.sh) : à côté du compose.
+mkdir -p scripts
+for f in backup.sh restore.sh; do curl -fsSL "$RAW/scripts/$f" -o "scripts/$f" 2>/dev/null || true; done
+# Le domaine choisi reste dans .env : une mise à jour (nouveau compose) ne le perd pas.
+touch .env
 if [ -n "${NOAH_DOMAIN:-}" ]; then
-  sed -i "s/NOAH_DOMAIN: auto/NOAH_DOMAIN: $NOAH_DOMAIN/" docker-compose.yml
+  grep -v '^NOAH_DOMAIN=' .env > .env.new || true
+  echo "NOAH_DOMAIN=$NOAH_DOMAIN" >> .env.new && mv .env.new .env
 fi
 # NOAH_LOCAL_IMAGES=1 : images déjà présentes (tests, ou images construites à la main).
 [ "${NOAH_LOCAL_IMAGES:-}" = 1 ] || docker compose pull -q
@@ -78,8 +102,8 @@ done
 code=$(docker compose logs server 2>/dev/null | sed -n "s/.*Code d'installation : \([A-Z0-9]*\).*/\1/p" | tail -1)
 url=$(docker compose logs server 2>/dev/null | sed -n 's/.*\(https:\/\/[^ ]*\).*/\1/p' | tail -1)
 if [ -n "$code" ]; then
-  say "✓ Noah Agent est installé. Ouvre ce lien pour créer ton compte (le certificat HTTPS peut prendre une minute) :"
-  printf '\n    %s\n\n  Code d%sinstallation : %s\n\n' "$url" "'" "$code"
+  say "✓ Noah Agent est installé. Le certificat HTTPS peut prendre une minute. Code d'installation : $code"
+  say "Ouvre ce lien pour créer ton compte : $url"
 elif [ -n "$url" ]; then
   say "✓ Noah Agent est à jour : $url"
 else
