@@ -16,6 +16,7 @@ import { Button } from "@/components/ui";
 import { type Agent, ApiError, type Conversation, type CurrentModel, currentAuthEpoch, get, request, send, type Status, type Usage } from "@/lib/api";
 import { AgentContext } from "@/lib/agentContext";
 import { takeAsk } from "@/lib/askAgent";
+import { clearShare, pendingShare } from "@/lib/share";
 import { appShell, tooOld } from "@/lib/platform";
 import { forgetPushSession, reconcilePush } from "@/lib/push";
 import { useAgentChat } from "@/lib/useAgentChat";
@@ -465,13 +466,27 @@ function AgentChat(props: {
   onRunFinished: () => void;
 }) {
   const quotes = useQuoteState();
-  const runtime = useAgentChat({ agentId: props.agent.id, ...props, takeQuotes: quotes.take });
+  const takeQuotes = quotes.take;
+  const runtime = useAgentChat({
+    agentId: props.agent.id,
+    ...props,
+    takeQuotes: useCallback(() => {
+      clearShare(); // le partage part avec ce message
+      return takeQuotes();
+    }, [takeQuotes]),
+  });
   const say = useCallback(
     (text: string) => runtime.thread.append({ role: "user", content: [{ type: "text", text }] }),
     [runtime],
   );
-  // Message demandé depuis Détails : la conversation principale l'envoie (après son historique si elle vient d'apparaître).
   const { main } = props;
+  // Texte ou lien partagé depuis une autre app (PWA sur Android) : cité dans le prochain message.
+  const addQuote = quotes.value.add;
+  useEffect(() => {
+    const text = main && pendingShare();
+    if (text) addQuote({ label: "Partagé", text });
+  }, [main, addQuote]);
+  // Message demandé depuis Détails : la conversation principale l'envoie (après son historique si elle vient d'apparaître).
   useEffect(() => {
     if (!main) return;
     const send = () => {
