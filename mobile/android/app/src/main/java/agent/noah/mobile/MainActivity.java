@@ -4,6 +4,8 @@ import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.webkit.CookieManager;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.CapConfig;
@@ -19,6 +21,8 @@ public class MainActivity extends BridgeActivity {
     private String server;
     private String token;
     private ConnectivityManager.NetworkCallback onNetwork;
+    private final Handler later = new Handler(Looper.getMainLooper());
+    private Runnable retry;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -36,6 +40,13 @@ public class MainActivity extends BridgeActivity {
             };
             network.registerDefaultNetworkCallback(onNetwork);
         }
+        // … et toutes les 5 minutes (le VPS peut revenir sans que le réseau du téléphone change). Rien à faire si la
+        // file est vide : la boucle ne coûte presque rien.
+        retry = () -> {
+            new Thread(pairing::revokeForgotten).start();
+            later.postDelayed(retry, 5 * 60 * 1000);
+        };
+        later.postDelayed(retry, 5 * 60 * 1000);
         server = pairing.server();
         token = server == null ? null : pairing.token();
         if (server != null && token != null) {
@@ -52,6 +63,7 @@ public class MainActivity extends BridgeActivity {
     public void onDestroy() {
         ConnectivityManager network = getSystemService(ConnectivityManager.class);
         if (network != null && onNetwork != null) network.unregisterNetworkCallback(onNetwork); // recréée : pas de doublon
+        later.removeCallbacksAndMessages(null);
         super.onDestroy();
     }
 

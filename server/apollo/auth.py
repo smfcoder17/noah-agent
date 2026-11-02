@@ -148,6 +148,13 @@ def devices(user_id: int, current: str | None) -> list[dict]:
              "ip": r["last_ip"] or "", "version": r["version"] or "", "actuel": r["token"] == mine} for r in rows]
 
 
+def session_alive(key: str) -> bool:
+    """Même contrôle que still_valid, à partir de l'empreinte déjà calculée."""
+    with db.connect() as c:
+        row = c.execute("SELECT expires_at FROM sessions WHERE token = ?", (key,)).fetchone()
+    return bool(row) and datetime.fromisoformat(row["expires_at"]) > datetime.now(timezone.utc)
+
+
 def revoke_others(user_id: int, current: str) -> int:
     with db.connect() as c:
         return c.execute("DELETE FROM sessions WHERE user_id = ? AND token != ?", (user_id, digest(current))).rowcount

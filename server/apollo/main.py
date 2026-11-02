@@ -373,7 +373,8 @@ class Decision(BaseModel):
 
 
 @app.post("/api/pairing/flow/{public}/{decision}")
-def flow_decide(public: str, decision: str, body: Decision | None = None, user: int = Depends(auth.current_user)):
+def flow_decide(public: str, decision: str, request: Request, body: Decision | None = None,
+                apollo_session: str | None = Cookie(None), user: int = Depends(auth.current_user)):
     flow = _flows.get(public)
     if not flow or flow["expire"] < time.time() or flow["user"] or flow.get("proprietaire") not in (None, user):
         raise HTTPException(404, "Cette demande a expiré ou a déjà été traitée.")
@@ -391,6 +392,7 @@ def flow_decide(public: str, decision: str, body: Decision | None = None, user: 
             raise HTTPException(403, "Ce nombre ne correspond pas à celui affiché sur l'appareil. Par prudence, la "
                                      "demande est annulée : recommence depuis l'appareil.")
         flow["user"] = user
+        flow["par"] = auth.digest(auth.request_token(request, apollo_session) or "")  # session qui a accepté
     return {"ok": True}
 
 
@@ -410,6 +412,10 @@ def flow_poll(body: FlowPoll, request: Request, response: Response):
                 if not flow["user"]:
                     response.status_code = 202
                     return {"attente": "accord"}
+                if not flow.get("jeton") and not auth.session_alive(flow.get("par", "")):
+                    # L'appareil qui a accepté a été déconnecté entre-temps : son accord ne vaut plus rien.
+                    _flows.pop(public, None)
+                    break
                 if flow["sens"] == "app" and not flow.get("jeton"):
                     if not body.verification:
                         response.status_code = 202
@@ -425,6 +431,8 @@ def flow_poll(body: FlowPoll, request: Request, response: Response):
                 token = flow["jeton"]
                 break
         else:
+            raise HTTPException(410, "Demande expirée, refusée ou déjà servie")
+        if public not in _flows:
             raise HTTPException(410, "Demande expirée, refusée ou déjà servie")
     if flow["type"] == "web":  # navigateur du téléphone (QR scanné par l'appareil photo) : cookie
         response.set_cookie(auth.COOKIE, token, httponly=True, samesite="lax", max_age=30 * 86400,

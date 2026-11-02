@@ -79,7 +79,7 @@ def service(request: httpx.Request) -> httpx.Response:
     if path.endswith("/instable"):  # erreur passagère au premier essai, puis accepté
         flaky["n"] += 1
         return httpx.Response(503) if flaky["n"] == 1 else httpx.Response(201)
-    if path.endswith("/refuse"):
+    if "/refuse" in path:
         return httpx.Response(400, text="mauvaise clé")
     return httpx.Response(201)
 
@@ -129,6 +129,26 @@ print("4. de bout en bout : déchiffré ; 503 réessayé puis livré ; 400 compt
 # 5. Test depuis l'interface : le bilan dit la vérité (pas « envoyé » quand le service a refusé).
 assert app.post("/api/push/test").json()["livres"] >= 1
 print("5. /api/push/test rend livrés, échecs et morts")
+
+# 5 bis. Le test ne vise que l'appareil qui le demande : le succès d'un autre appareil ne masque pas un échec ici.
+k5, p5, s5 = device()
+token_e = auth.new_session(user, "PC en échec", "web")
+app_e = TestClient(main.app, headers={"Authorization": f"Bearer {token_e}"})
+assert subscribe(app_e, "https://wns2-par02p.notify.windows.com/w/refuse2", p5, s5) == 200
+out = app_e.post("/api/push/test").json()
+assert out == {"livres": 0, "echecs": 1, "morts": 0}, out
+print("5 bis. test d'activation limité à l'appareil courant : son échec n'est pas masqué")
+
+# 5 ter. Abonnement enregistré avant la liste des services (adresse interne) : jamais appelé, supprimé à l'envoi.
+received.clear()
+with db.connect() as c:
+    c.execute("INSERT INTO push_subscriptions (endpoint, session, p256dh, auth) VALUES (?, ?, ?, ?)",
+              ("https://launcher:9000/update/apply", auth.digest(token_e), p5, b64(s5)))
+asyncio.run(push.send("Noah", "test"))
+assert not [x for x in received if x.url.host == "launcher"], "adresse interne appelée"
+with db.connect() as c:
+    assert not c.execute("SELECT 1 FROM push_subscriptions WHERE endpoint LIKE 'https://launcher%'").fetchone()
+print("5 ter. ancien abonnement vers une adresse interne : jamais appelé, supprimé")
 
 # 6. Clé VAPID : vingt premiers appels simultanés ne créent qu'une seule clé.
 with db.connect() as c:

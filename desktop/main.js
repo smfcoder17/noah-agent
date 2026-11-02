@@ -64,7 +64,14 @@ async function boot() {
     return win.loadFile(path.join(__dirname, "setup.html"));
   }
   await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(LOADING)}`);
-  if (config.mode === "remote") return openRemote(config.server);
+  if (config.mode === "remote") {
+    if (serverOrigin(config.server || "") !== config.server) {
+      // Adresse en http vers un serveur public (relié par une ancienne version) : la session y passerait en clair.
+      await forgetServer();
+      return;
+    }
+    return openRemote(config.server);
+  }
   try {
     home = await noahHome();
     // Premier lancement : on autorise le partage du dossier personnel ; le lanceur doit alors être relancé.

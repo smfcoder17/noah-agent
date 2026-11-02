@@ -177,6 +177,19 @@ assert attacker.post("/api/pairing/flow/poll", json={"sondage": r["sondage"], "v
 assert attacker.post("/api/pairing/flow/poll", json={"sondage": r["sondage"], "verification": main._flows.get(fid, {}).get("verif", "")}).status_code == 410
 print("8 bis. lien d'accord envoyé par un tiers : sans le nombre de la page, pas de session (un seul essai)")
 
+# 8 ter. Accord différé donné par une session ensuite révoquée (« Déconnecter tous les autres ») : il tombe avec elle.
+reset()
+thief_session = auth.new_session(alice, "Session volée", "web")
+thief = client(thief_session)
+p = thief.post("/api/pairing").json()
+r = client().post("/api/pairing/claim", json={"code": p["code"], "appareil": "Appareil de l'attaquant"}).json()
+fid = thief.get("/api/pairing/pending").json()["demandes"][0]["id"]
+assert thief.post(f"/api/pairing/flow/{fid}/autoriser", json={"verification": r["verification"]}).status_code == 200
+assert web_a.post("/api/devices/others/revoke").status_code == 200  # l'utilisateur fait le ménage
+assert client().post("/api/pairing/flow/poll", json={"sondage": r["sondage"]}).status_code == 410, "accord survivant"
+web_a = client(auth.new_session(alice, "Firefox", "web"))  # la révocation a aussi coupé l'ancienne session de test
+print("8 ter. accord donné par une session révoquée ensuite : plus de session à récupérer (410)")
+
 # 9. Navigateur du téléphone (QR scanné par l'appareil photo) : la session arrive en cookie au sondage.
 reset()
 p = web_a.post("/api/pairing").json()

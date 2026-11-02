@@ -134,14 +134,22 @@ async def _send_one(client: httpx.AsyncClient, sub, payload: bytes, urgent: bool
     return "echec"
 
 
-async def send(title: str, text: str, url: str = "/", urgent: bool = False, user_id: int | None = None) -> dict:
-    """Envoie à chaque appareil abonné dont la session est encore valable. Rend {livres, echecs, morts}."""
+async def send(title: str, text: str, url: str = "/", urgent: bool = False, user_id: int | None = None,
+               session: str | None = None) -> dict:
+    """Envoie à chaque appareil abonné dont la session est encore valable (ou à la seule session donnée, par son
+    empreinte). Rend {livres, echecs, morts}."""
     now = datetime.now(timezone.utc).isoformat()
     with db.connect() as c:
         c.execute("DELETE FROM push_subscriptions WHERE session NOT IN (SELECT token FROM sessions WHERE expires_at > ?)", (now,))
-        rows = c.execute("SELECT p.* FROM push_subscriptions p JOIN sessions s ON s.token = p.session"
-                         + (" WHERE s.user_id = ?" if user_id is not None else ""),
-                         (user_id,) if user_id is not None else ()).fetchall()
+        rows = c.execute("SELECT p.* FROM push_subscriptions p JOIN sessions s ON s.token = p.session WHERE 1 = 1"
+                         + (" AND s.user_id = ?" if user_id is not None else "")
+                         + (" AND p.session = ?" if session is not None else ""),
+                         tuple(v for v in (user_id, session) if v is not None)).fetchall()
+        # Abonnements vers autre chose qu'un service de push de navigateur (enregistrés avant la liste) : supprimés.
+        stray = [r["endpoint"] for r in rows if not PUSH_HOSTS.match(urlsplit(r["endpoint"]).hostname or "")]
+        if stray:
+            c.executemany("DELETE FROM push_subscriptions WHERE endpoint = ?", [(e,) for e in stray])
+            rows = [r for r in rows if r["endpoint"] not in stray]
     if not rows:
         return {"livres": 0, "echecs": 0, "morts": 0}
     payload = json.dumps({"titre": title[:120], "texte": text[:400], "url": url}, ensure_ascii=False).encode()
@@ -208,5 +216,7 @@ def subscribed(request: Request, apollo_session: str | None = Cookie(None), _: i
 
 
 @router.post("/api/push/test")
-async def test(user: int = Depends(auth.current_user)):
-    return await send("Noah", "Les notifications arrivent bien sur cet appareil.", user_id=user)
+async def test(request: Request, apollo_session: str | None = Cookie(None), user: int = Depends(auth.current_user)):
+    """Message de test pour cet appareil seulement : le succès d'un autre appareil ne doit pas masquer un échec ici."""
+    return await send("Noah", "Les notifications arrivent bien sur cet appareil.", user_id=user,
+                      session=auth.digest(auth.request_token(request, apollo_session) or ""))
