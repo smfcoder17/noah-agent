@@ -11,17 +11,30 @@
 //
 // Prise en main par l'utilisateur (connexion, code 2FA, CAPTCHA) : aucune capture d'écran n'est faite tant qu'elle
 // dure, ni par l'agent ni par personne (G7.7, comme le mode « takeover » de ChatGPT agent). Noah Agent l'ouvre et la
-// ferme par POST /noah/prive?secondes=N, avec la clé de ce navigateur.
+// ferme par POST /noah/prive?secondes=N, avec une clé à part (NOAH_PRIVATE_KEY) : l'agent a la clé d'API du
+// navigateur, pas celle-ci, il ne peut donc pas couper la protection. L'échéance est gardée sur le disque : un
+// redémarrage du navigateur pendant la prise en main ne rouvre pas les captures.
+import fs from "node:fs";
+
+const STATE = "/data/noah-prive.json";
 let privateUntil = 0;
+try {
+  privateUntil = Number(JSON.parse(fs.readFileSync(STATE, "utf8")).jusqua) || 0;
+} catch {}
 
 export default function register(app, ctx) {
   app.use((req, res, next) => {
     if (req.method === "POST" && req.path === "/noah/prive") {
-      if (!process.env.CAMOFOX_API_KEY || req.headers.authorization !== `Bearer ${process.env.CAMOFOX_API_KEY}`) {
+      if (!process.env.NOAH_PRIVATE_KEY || req.headers.authorization !== `Bearer ${process.env.NOAH_PRIVATE_KEY}`) {
         return res.status(403).json({ error: "Forbidden" });
       }
       const seconds = Math.max(0, Math.min(Number(req.query.secondes) || 0, 3 * 3600));
       privateUntil = seconds ? Date.now() + seconds * 1000 : 0;
+      try {
+        fs.writeFileSync(STATE, JSON.stringify({ jusqua: privateUntil }));
+      } catch (e) {
+        ctx.log("warn", `noah: mode privé non enregistré (${e.message})`);
+      }
       return res.json({ prive: seconds > 0 });
     }
     if (Date.now() < privateUntil && (/\/screenshot$/.test(req.path) || req.query.includeScreenshot === "true")) {

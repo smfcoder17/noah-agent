@@ -170,21 +170,39 @@ export async function streamChat(
   onEvent: (ev: ChatEvent) => void,
   signal?: AbortSignal,
 ) {
-  const res = await request("/api/chat", { method: "POST", body: JSON.stringify(body), signal });
+  // Réponse du serveur attendue 30 s au plus : une connexion muette avant même les en-têtes est aussi une coupure.
+  const headers = new AbortController();
+  const late = setTimeout(() => headers.abort(), HEADERS_MS);
+  const stop = () => headers.abort();
+  signal?.addEventListener("abort", stop);
+  let res: Response;
+  try {
+    res = await request("/api/chat", { method: "POST", body: JSON.stringify(body), signal: headers.signal });
+  } catch (err) {
+    if (headers.signal.aborted && !signal?.aborted) throw new StreamLost();
+    throw err;
+  } finally {
+    clearTimeout(late);
+  }
   const reader = res.body!.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   let finished = false;
   for (;;) {
-    // Le serveur envoie un signe de vie toutes les 15 s : rien pendant 45 s, la connexion est morte sans le dire
-    // (réseau mobile, VPS coupé net). On abandonne pour que l'app reprenne la conversation à son retour.
+    // Le serveur envoie un signe de vie toutes les 10 s : rien pendant 20 s, la connexion est morte sans le dire
+    // (réseau mobile, VPS coupé net). On lâche la lecture pour que l'app reprenne la conversation à son retour.
     let silent: ReturnType<typeof setTimeout> | undefined;
     const { value, done } = await Promise.race([
       reader.read(),
       new Promise<never>((_, reject) => {
         silent = setTimeout(() => reject(new StreamLost()), SILENCE_MS);
       }),
-    ]).finally(() => clearTimeout(silent));
+    ])
+      .catch((err) => {
+        void reader.cancel().catch(() => {});
+        throw err;
+      })
+      .finally(() => clearTimeout(silent));
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     let cut: number;
@@ -201,7 +219,8 @@ export async function streamChat(
   if (!finished) throw new StreamLost();
 }
 
-const SILENCE_MS = 45_000;
+const SILENCE_MS = 20_000; // deux signes de vie manqués (HEARTBEAT = 10 s côté serveur)
+const HEADERS_MS = 30_000;
 
 /** Connexion perdue pendant une réponse : l'agent continue côté serveur, l'app reprendra la conversation. */
 export class StreamLost extends Error {

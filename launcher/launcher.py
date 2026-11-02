@@ -79,7 +79,7 @@ BROWSER_IMAGE = os.environ.get("BROWSER_IMAGE", "ghcr.io/jo-inc/camofox-browser:
 BROWSER_PREFIX = "apollo-browser-"
 BROWSER_LABEL = "apollo.browser"
 # Version des réglages du navigateur ; un conteneur plus ancien est recréé (le profil reste dans son volume).
-BROWSER_VERSION = "9"  # 9 : aucune capture pendant une prise en main ; 8 : jetons hors de la config Docker
+BROWSER_VERSION = "10"  # 10 : clé du mode privé à part ; 9 : aucune capture pendant une prise en main ; 8 : jetons hors de la config Docker
 
 
 def _frozen(agent_id: str):
@@ -97,6 +97,7 @@ def _frozen(agent_id: str):
 class BrowserKeys(BaseModel):
     api_key: str
     vnc_password: str
+    private_key: str = ""  # mode privé (G7.7) : connue du serveur seulement, pas de l'agent
     # Langue et fuseau de la connexion de l'utilisateur : un navigateur en UTC/en-US derrière une IP
     # de Montréal est un signal de robot classique (X, Google, banques).
     locale: str = ""
@@ -179,7 +180,8 @@ def _ensure_browser(agent_id: str, body: BrowserKeys, image: str | None = None, 
         shm_size="1g",
         security_opt=["no-new-privileges"],
     )
-    updater.put_env(c, SECRETS_FILE, {"CAMOFOX_API_KEY": body.api_key, "VNC_PASSWORD": body.vnc_password})
+    updater.put_env(c, SECRETS_FILE, {"CAMOFOX_API_KEY": body.api_key, "VNC_PASSWORD": body.vnc_password,
+                                      "NOAH_PRIVATE_KEY": body.private_key})
     # Avant le démarrage : le plugin Noah et sa déclaration, puis le correctif AutoConfig de Firefox (un onglet ouvert à
     # la main dans l'écran hérite du conteneur de l'agent, donc de ses cookies).
     here = Path(__file__).parent / "camofox-noah"
@@ -648,7 +650,8 @@ def _recreate_browser(name: str, image: str, start: bool = True) -> None:
     env.update(updater.env_values((updater.read_text(old, SECRETS_FILE) or ("",))[0]))
     agent_id = old.labels[BROWSER_LABEL]
     _, locale, timezone = (old.labels.get("apollo.browser.version", "") + "::").split(":")[:3]
-    body = BrowserKeys(api_key=env["CAMOFOX_API_KEY"], vnc_password=env["VNC_PASSWORD"], locale=locale, timezone=timezone)
+    body = BrowserKeys(api_key=env["CAMOFOX_API_KEY"], vnc_password=env["VNC_PASSWORD"],
+                       private_key=env.get("NOAH_PRIVATE_KEY", ""), locale=locale, timezone=timezone)
     _ensure_browser(agent_id, body, image, start)
 
 
@@ -712,28 +715,45 @@ def _migrate_agent_tokens() -> None:
             if not any(e.startswith("API_SERVER_KEY=") for e in c.attrs["Config"]["Env"] or []):
                 continue
             name, running = c.name, c.status == "running"
-            old = None
+            if _exists_container(name + "-ancien"):
+                # Reste d'une opération coupée : on ne touche à rien (un renommage échouerait, et le retour arrière
+                # risquerait de viser le mauvais conteneur). La prochaine mise à jour s'en chargera.
+                print(f"[lanceur] migration du jeton de {name} remise : {name}-ancien existe déjà", flush=True)
+                continue
+            renamed, new_id = False, None
             try:
                 c.stop(timeout=30)
                 c.rename(name + "-ancien")
-                old = client.containers.get(name + "-ancien")
-                updater._create_like(old, name, old.image.id)
+                renamed = True
+                c.reload()
+                updater._create_like(c, name, c.image.id)
                 new = client.containers.get(name)
+                new_id = new.id
                 if running:
                     new.start()
                     if not updater.healthy(name, 120):
                         raise RuntimeError("l'agent ne répond pas après la migration")
-                old.remove(force=True)
+                c.remove(force=True)
             except Exception as e:  # noqa: BLE001 — l'ancien conteneur revient tel quel
                 print(f"[lanceur] migration du jeton de {name} annulée : {e}", flush=True)
-                try:
-                    client.containers.get(name).remove(force=True)
-                except NotFound:
-                    pass
-                if old is not None:
-                    old.rename(name)
-                    if running:
-                        old.start()
+                # Seul le conteneur créé ici est supprimé, par son identifiant : jamais l'original.
+                if new_id:
+                    try:
+                        client.containers.get(new_id).remove(force=True)
+                    except NotFound:
+                        pass
+                if renamed:
+                    c.rename(name)
+                if running:
+                    c.start()
+
+
+def _exists_container(name: str) -> bool:
+    try:
+        client.containers.get(name)
+        return True
+    except NotFound:
+        return False
 
 
 threading.Thread(target=_migrate_agent_tokens, daemon=True).start()

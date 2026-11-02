@@ -85,7 +85,7 @@ _running_runs: set = set()  # runs suivis en arrière-plan (référence gardée 
 task_state: dict[str, str] = {}
 
 # Version du branchement des agents ; l'augmenter reconfigure tous les agents au démarrage.
-AGENT_SETUP_VERSION = "21-comptes-auto"
+AGENT_SETUP_VERSION = "22-garde-skills"  # 22 : plugin noah-garde et skills.inline_shell coupé (G7.6)
 
 
 @app.on_event("startup")
@@ -162,18 +162,27 @@ def _migrate_threads() -> None:
 
 
 async def _upgrade_agents() -> None:
-    """Rebranche les agents existants sur le relais (et retire leurs anciennes clés)."""
-    done = True
-    for a in _agents():
-        agent = Agent(a["id"], a["api_key"])
-        if await _wait_online(agent, 60):
-            provisioning[a["id"]] = "Mise à jour de l'agent…"
-            await _provision(agent, _soul(a["name"], a["role"]))
-        # Échec (lanceur pas prêt, agent arrêté) : on réessaiera au prochain démarrage.
-        done = done and a["id"] not in provisioning
-        provisioning.pop(a["id"], None)
-    if done:
-        db.set_setting("agent_setup", AGENT_SETUP_VERSION)
+    """Applique la configuration courante (relais, garde des skills…) aux agents existants. Chaque agent garde la
+    version qu'il a reçue : un agent arrêté ou injoignable est repris toutes les 3 minutes pendant une heure, puis au
+    prochain démarrage ; la version globale n'avance que quand tous l'ont."""
+    for _ in range(20):
+        done = True
+        for a in _agents():
+            if db.get_setting(f"agent_setup:{a['id']}") == AGENT_SETUP_VERSION:
+                continue
+            agent = Agent(a["id"], a["api_key"])
+            if await _wait_online(agent, 60):
+                provisioning[a["id"]] = "Mise à jour de l'agent…"
+                await _provision(agent, _soul(a["name"], a["role"]))
+                if a["id"] not in provisioning:  # _provision le retire seulement si tout s'est bien passé
+                    db.set_setting(f"agent_setup:{a['id']}", AGENT_SETUP_VERSION)
+                    continue
+            provisioning.pop(a["id"], None)
+            done = False
+        if done:
+            db.set_setting("agent_setup", AGENT_SETUP_VERSION)
+            return
+        await asyncio.sleep(180)
 
 
 # --- État, compte, connexion -------------------------------------------------------
@@ -218,7 +227,16 @@ def status():
     has_users = auth.has_users()
     return {"has_account": has_users, "model_configured": db.get_setting("provider") is not None,
             "setup_code": bool(config.setup_code()) and not has_users, "onboarded": has_users and onboarded(),
-            "api": API_VERSION, "min_client_version": MIN_CLIENT_VERSION}
+            "api": API_VERSION, "min_client_version": MIN_CLIENT_VERSION, "secrets_lisibles": _secrets_readable()}
+
+
+def _secrets_readable() -> bool:
+    """La clé du serveur déchiffre ses secrets (vérifié par la restauration avant d'annoncer « Restauré »)."""
+    try:
+        db.get_setting("api_key", secret=bool(db.get_setting("api_key")))
+        return True
+    except Exception:  # noqa: BLE001 — clé qui ne correspond pas aux données
+        return False
 
 
 class Credentials(BaseModel):
@@ -876,6 +894,9 @@ def outbound_flows(user: int = Depends(auth.current_user)):
     if db.get_setting("provider") == "openrouter":
         flows.append({"quoi": "Création et voix (images, vidéos, musique, dictée, lecture)", "vers": "openrouter.ai",
                       "quand": "seulement quand tu t'en sers"})
+    # catalog.price_index : liste publique des modèles et de leurs prix, quel que soit le fournisseur choisi.
+    flows.append({"quoi": "Catalogue public des modèles et de leurs prix (rien de toi n'est envoyé)", "vers": _host(catalog.OPENROUTER_MODELS),
+                  "quand": "quand tu choisis un modèle, et au plus une fois par heure pour estimer les coûts"})
     flows.append({"quoi": "Sites que tes agents visitent", "vers": "les sites de la tâche",
                   "quand": "quand une tâche le demande, depuis le navigateur de l'agent"})
     flows.append({"quoi": "Vérification des mises à jour (manifeste signé)", "vers": _host(updates.MANIFEST_URL),
@@ -1516,7 +1537,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
     return stream()
 
 
-HEARTBEAT = 15  # secondes entre deux signes de vie d'un flux de réponse
+HEARTBEAT = 10  # secondes entre deux signes de vie (l'app déclare la connexion perdue après 20 s de silence)
 TRIAL_LIMIT = 200  # secondes : un peu plus que les trois minutes que l'assistant attend
 
 

@@ -94,4 +94,34 @@ with tarfile.open(broken) as tar:
     except ValueError as e:
         assert "abîmée" in str(e), e
 print("3. 20 Mo à déposer pour 10 Mo libres : refusé avant tout ; archive intérieure tronquée : refusée")
+
+# 4. Codex : la copie de vérification des données du serveur occupe le disque en même temps que les volumes restaurés.
+two = archive("two.tar", {D + "apollo_apollo-data.tar.gz": inner({"apollo.db": 6 << 20}),
+                          D + "apollo-agent-x.tar.gz": inner({"state.db": 1 << 20})})
+shutil.disk_usage = lambda _: Usage(0, 0, (2 << 30) + (9 << 20))  # 7 Mo à restaurer, 9 Mo libres : 13 Mo au plus fort
+with tarfile.open(two) as tar:
+    try:
+        restore._preflight(tar, restore.inspect(two))
+        raise AssertionError("pic d'occupation (copie de vérification comprise) ignoré")
+    except ValueError as e:
+        assert "au plus fort" in str(e), e
+print("4. place disque : la copie de vérification des données compte (13 Mo au plus fort pour 9 Mo libres : refusé)")
+
+# 5. Codex : la clé de la sauvegarde doit signer ses secrets, sinon rien n'est remplacé.
+import base64  # noqa: E402
+import hashlib  # noqa: E402
+
+from cryptography.fernet import Fernet  # noqa: E402
+
+key = "k" * 64
+token = Fernet(base64.urlsafe_b64encode(hashlib.sha256(key.encode()).digest())).encrypt(b"sk-or-v1-abc").decode()
+restore._check_key(key, [token])
+restore._check_key(key, [])
+for wrong, tokens in (("z" * 64, [token]), (key, [token[:-4] + "AAAA"]), (key, ["gAAAAApasunjeton"])):
+    try:
+        restore._check_key(wrong, tokens)
+        raise AssertionError("mauvaise clé acceptée")
+    except ValueError as e:
+        assert "ne correspond pas" in str(e), e
+print("5. secrets : la clé de la sauvegarde doit les avoir signés (mauvaise clé, secret altéré : refusé avant tout)")
 print("restauration (archive) : tout est vert")

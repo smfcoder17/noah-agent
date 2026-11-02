@@ -5,6 +5,9 @@ parler à Docker, remet chaque volume : machines des agents et leurs navigateurs
 clé qui déchiffre ses secrets. Chaque base SQLite passe `PRAGMA integrity_check` avant que le serveur ne redémarre.
 Une sauvegarde du mode local (clés dans un .env) se restaure sur un VPS (clés dans le volume des secrets).
 """
+import base64
+import hashlib
+import hmac
 import io
 import json
 import os
@@ -126,6 +129,8 @@ for p in glob.glob("/v/*.db"):
 if os.path.exists("/v/apollo.db"):
     c = sqlite3.connect("/v/apollo.db")
     out["agents"] = [r[0] for r in c.execute("SELECT id FROM agents")]
+    # Secrets chiffrés (Fernet) : le lanceur vérifie que la clé de la sauvegarde les a signés.
+    out["chiffres"] = [r[0] for r in c.execute("SELECT value FROM settings WHERE value LIKE 'gAAAAA%' LIMIT 50")]
     if "--detacher" in sys.argv:  # dossiers de l'ancien ordinateur : introuvables ici, l'agent ne serait pas recréé
         out["dossiers"] = [r[0][len("dossiers_"):] for r in c.execute("SELECT key FROM settings WHERE key LIKE 'dossiers_%' AND value NOT IN ('', '[]')")]
         c.execute("DELETE FROM settings WHERE key LIKE 'dossiers_%'")
@@ -139,10 +144,20 @@ def _integrity(volume: str, detach: bool = False) -> dict:
     """Chaque base SQLite du volume passe `PRAGMA integrity_check` ; rend aussi les agents connus du serveur."""
     image = updater.pinned("hermes", AGENT_IMAGE)
     _image(image)
-    out = client.containers.run(image, ["python", "-c", CHECK] + (["--detacher"] if detach else []), entrypoint=[],
-                                # Écriture permise : une base en WAL a besoin de son fichier -shm même pour être lue.
-                                volumes={volume: {"bind": "/v", "mode": "rw"}}, remove=True, user="root")
-    report = json.loads(out.decode().strip().splitlines()[-1])
+    # create/start/wait/logs plutôt que containers.run : avec le pilote de journaux « local » (Docker Desktop, certains
+    # VPS), run rend None au lieu de la sortie.
+    c = client.containers.create(image, ["python", "-c", CHECK] + (["--detacher"] if detach else []), entrypoint=[],
+                                 # Écriture permise : une base en WAL a besoin de son fichier -shm même pour être lue.
+                                 volumes={volume: {"bind": "/v", "mode": "rw"}}, user="root")
+    try:
+        c.start()
+        code = c.wait(timeout=600).get("StatusCode")
+        out = c.logs(stdout=True, stderr=False).decode().strip()
+    finally:
+        c.remove(force=True)
+    if code != 0 or not out:
+        raise RuntimeError(f"Vérification des bases impossible dans {volume} (code {code}).")
+    report = json.loads(out.splitlines()[-1])
     bad = [n for n, v in report["bases"].items() if v != "ok"]
     if bad:
         raise RuntimeError(f"Base abîmée dans {volume} : {', '.join(bad)}")
@@ -159,22 +174,49 @@ def _mount(container, target: str) -> str:
 MARGIN = 2 << 30  # 2 Go laissés libres sur le disque après la restauration
 
 
+def _fernet_ok(key: str, token: str) -> bool:
+    """La clé de la sauvegarde a bien chiffré ce secret (même calcul que le serveur : Fernet sur sha256 de la clé).
+    Seule la signature est vérifiée, le secret n'est jamais déchiffré ici."""
+    try:
+        raw = base64.urlsafe_b64decode(token.encode() + b"=" * (-len(token) % 4))
+    except ValueError:
+        return False
+    if len(raw) < 57 or raw[0] != 0x80:
+        return False
+    signing = hashlib.sha256(key.encode()).digest()[:16]
+    return hmac.compare_digest(hmac.new(signing, raw[:-32], hashlib.sha256).digest(), raw[-32:])
+
+
+def _check_key(key: str, tokens: list[str]) -> None:
+    bad = [t for t in tokens if not _fernet_ok(key, t)]
+    if bad:
+        raise ValueError(f"La clé de la sauvegarde ne correspond pas à ses secrets ({len(bad)} sur {len(tokens)}) : "
+                         "les clés des fournisseurs seraient illisibles. Refais la sauvegarde avec scripts/backup.sh.")
+
+
 def _preflight(tar: tarfile.TarFile, found: dict) -> None:
     """Avant de toucher à quoi que ce soit : chaque archive intérieure se lit jusqu'au bout, et ce qu'elle déposera tient
     sur le disque (une petite archive de zéros peut se décompresser en dizaines de gigaoctets)."""
     total = 0
+    sizes: dict[str, int] = {}
     for name, member in found.items():
         if not name.endswith(".tar.gz"):
             continue
+        size = 0
         try:
             with tarfile.open(fileobj=tar.extractfile(member), mode="r|gz") as inner:
                 for m in inner:
-                    total += m.size
+                    size += m.size
         except (tarfile.TarError, OSError, EOFError) as e:
             raise ValueError(f"Archive abîmée : {name} ({e})")
+        sizes[name] = size
+        total += size
+    # Au plus fort : tous les volumes restaurés, plus la copie de vérification des données du serveur (elle vit
+    # jusqu'à la fin), plus la plus grosse archive intérieure posée dans un conteneur avant d'être décompressée.
+    peak = total + sizes.get("apollo_apollo-data.tar.gz", 0) + max((m.size for n, m in found.items() if n in sizes), default=0)
     free = shutil.disk_usage("/").free
-    if total + MARGIN > free:
-        raise ValueError(f"Pas assez de place : la sauvegarde occupe {total >> 20} Mo une fois restaurée, "
+    if peak + MARGIN > free:
+        raise ValueError(f"Pas assez de place : la restauration a besoin de {peak >> 20} Mo au plus fort, "
                          f"il reste {free >> 20} Mo sur le serveur.")
 
 
@@ -213,8 +255,9 @@ def _server_up(seconds: int = 180) -> bool:
     for _ in range(seconds // 3):
         try:
             with urllib.request.urlopen(f"http://{updater.SERVER}:8080/api/status", timeout=5) as r:
-                if json.loads(r.read()).get("has_account"):
-                    return True
+                s = json.loads(r.read())
+                if s.get("has_account"):
+                    return s.get("secrets_lisibles", True)  # serveur d'avant ce champ : la vérification a eu lieu
         except Exception:
             pass
         time.sleep(3)
@@ -238,7 +281,9 @@ def run(path: Path, labels: tuple[str, str]) -> None:
             key = _secret_key(tar, found)
             # Données du serveur vérifiées à part d'abord : une base abîmée ne remplace jamais rien ici.
             _fill(CHECKED, tar.extractfile(found["apollo_apollo-data.tar.gz"]))
-            agents = _integrity(CHECKED)["agents"]
+            checked = _integrity(CHECKED)
+            _check_key(key, checked.get("chiffres", []))  # avant tout remplacement : une mauvaise clé ne casse rien
+            agents = checked["agents"]
             missing = [a for a in agents if f"apollo-agent-{a}.tar.gz" not in found]
             if missing:
                 raise ValueError(f"La sauvegarde ne contient pas la machine de : {', '.join(missing)}.")
@@ -278,7 +323,8 @@ def run(path: Path, labels: tuple[str, str]) -> None:
         locked = False
         server.start()
         if not _server_up():
-            raise RuntimeError("Le serveur ne redémarre pas avec la sauvegarde : regarde ses journaux (docker logs apollo-server).")
+            raise RuntimeError("Le serveur ne démarre pas correctement avec la sauvegarde (compte ou clés illisibles) : "
+                               "regarde ses journaux (docker logs apollo-server).")
         if folders:
             state["avertissement"] = ("Dossiers partagés de l'ancien ordinateur détachés (à reconnecter dans Détails → "
                                       f"Dossiers) pour : {', '.join(folders)}.")

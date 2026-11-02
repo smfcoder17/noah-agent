@@ -36,7 +36,7 @@ def open_call(agent_id: str, message: str, origin: str = "agent", leave_host: st
     call = {"id": uuid.uuid4().hex[:10], "message": message, "depuis": time.time(), "origine": origin,
             "attente": asyncio.get_running_loop().create_future(), "attentifs": 0}
     _calls[agent_id] = call
-    asyncio.create_task(_private(agent_id, PRIVATE_SECONDS))
+    asyncio.create_task(_keep_private(agent_id, call))
     desktop.notify("Noah a besoin de toi", message[:240])
     if leave_host:
         asyncio.create_task(_until_left(agent_id, call, leave_host))
@@ -46,12 +46,28 @@ def open_call(agent_id: str, message: str, origin: str = "agent", leave_host: st
 PRIVATE_SECONDS = 3 * 3600  # au plus : rouvert à la fin de l'appel, ou de lui-même après ce délai
 
 
-async def _private(agent_id: str, seconds: int) -> None:
+async def _private(agent_id: str, seconds: int) -> bool:
     """Pendant que l'utilisateur a la main (mot de passe, code), le navigateur refuse toute capture d'écran (G7.7)."""
     try:
-        await hermes.browser_call(agent_id, "POST", "/noah/prive", params={"secondes": seconds})
+        r = await hermes.browser_call(agent_id, "POST", "/noah/prive", key=hermes.private_key(agent_id),
+                                      params={"secondes": seconds})
+        return r.get("http_status") == 200
     except Exception:  # noqa: BLE001 - navigateur absent ou en train de redémarrer : rien à capturer
-        pass
+        return False
+
+
+PRIVATE_EVERY = 20  # secondes : un navigateur recréé pendant l'appel (mise à jour, plantage) repasse en privé
+
+
+async def _keep_private(agent_id: str, call: dict) -> None:
+    """Mode privé posé à l'ouverture de l'appel, puis rappelé tant qu'il dure : un échec (navigateur qui démarre) est
+    retenté, et un navigateur neuf qui ne connaît pas l'appel le reçoit aussi."""
+    while _calls.get(agent_id) is call:
+        ok = await _private(agent_id, PRIVATE_SECONDS)
+        if _calls.get(agent_id) is not call:  # appel fermé pendant l'envoi : notre « privé » est arrivé après la fin
+            await _private(agent_id, 0)
+            return
+        await asyncio.sleep(PRIVATE_EVERY if ok else 3)
 
 
 async def _until_left(agent_id: str, call: dict, host: str) -> None:

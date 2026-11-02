@@ -94,6 +94,14 @@ def browser_secrets(agent_id: str) -> tuple[str, str]:
     return base[:48], base[48:56]  # x11vnc ne lit que 8 caractères de mot de passe
 
 
+def private_key(agent_id: str) -> str:
+    """Clé du mode privé du navigateur (aucune capture pendant une prise en main). Distincte de la clé d'API que
+    l'agent reçoit : l'agent ne peut pas couper lui-même la protection (G7.7)."""
+    from .config import SECRET_KEY
+
+    return hmac.new(SECRET_KEY.encode(), f"browser-prive:{agent_id}".encode(), hashlib.sha256).hexdigest()[:48]
+
+
 def browser_host(agent_id: str) -> str:
     return f"apollo-browser-{agent_id}"
 
@@ -106,9 +114,9 @@ async def restart_browser(agent_id: str) -> None:
 BROWSER_USER = "apollo"
 
 
-async def browser_call(agent_id: str, method: str, path: str, timeout: float = 5, **kw) -> dict:
+async def browser_call(agent_id: str, method: str, path: str, timeout: float = 5, key: str | None = None, **kw) -> dict:
     """Appel direct à l'API Camoufox de l'agent. Lève httpx.HTTPError si le conteneur ne répond pas."""
-    api_key, _ = browser_secrets(agent_id)
+    api_key = key or browser_secrets(agent_id)[0]
     r = await http().request(method, f"http://{browser_host(agent_id)}:9377{path}", headers={"Authorization": f"Bearer {api_key}"},
                              timeout=timeout, **kw)
     try:
@@ -154,7 +162,8 @@ async def browser_identity() -> dict:
 async def ensure_browser(agent_id: str) -> None:
     api_key, vnc_password = browser_secrets(agent_id)
     await _launcher("POST", f"/agents/{agent_id}/browser",
-                    json={"api_key": api_key, "vnc_password": vnc_password, **await browser_identity()})
+                    json={"api_key": api_key, "vnc_password": vnc_password, "private_key": private_key(agent_id),
+                          **await browser_identity()})
 
 
 async def list_files(agent_id: str) -> list[dict]:

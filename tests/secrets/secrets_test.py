@@ -87,15 +87,38 @@ try:
     assert not leaked(agent), "jeton resté dans la config après la mise à jour"
     assert wait_up(url, api_key) == 200 and call("GET", url, token=None) == 401
     print("4. agent d'avant : la recréation par une mise à jour déplace son jeton dans son .env")
+
+    # 5. Codex : migration au démarrage du lanceur. Un « -ancien » resté d'une opération coupée : on ne touche à rien.
+    # Un nouveau conteneur qui ne répond pas : lui seul est supprimé, l'original revient sous son nom et redémarre.
+    import launcher as L  # noqa: E402
+    img = client.containers.get(agent).image.id
+    mig = f"apollo-agent-{agent_id}-mig"
+    orig = client.containers.create(img, entrypoint=["sleep", "3600"], name=mig, labels={"apollo.agent": agent_id + "-mig"},
+                                    environment={"API_SERVER_KEY": api_key}, volumes={mig: {"bind": "/opt/data", "mode": "rw"}})
+    orig.start()
+    stale = client.containers.create(img, entrypoint=["sleep", "3600"], name=mig + "-ancien")
+    L._migrate_agent_tokens()
+    assert client.containers.get(mig).id == orig.id and client.containers.get(mig + "-ancien").id == stale.id
+    stale.remove(force=True)
+    healthy, L.updater.healthy = L.updater.healthy, lambda name, seconds=None: False
+    try:
+        L._migrate_agent_tokens()
+    finally:
+        L.updater.healthy = healthy
+    back = client.containers.get(mig)
+    assert back.id == orig.id and back.status == "running", (back.id, orig.id, back.status)
+    assert not [c for c in client.containers.list(all=True) if c.name.startswith(mig) and c.id != orig.id]
+    print("5. migration au démarrage : « -ancien » déjà là, rien ne bouge ; nouveau muet, l'original revient intact")
     print("secrets hors de la config Docker : tout est vert")
 finally:
     call("DELETE", f"http://localhost:9000/agents/{agent_id}")
-    for name in (f"apollo-agent-{agent_id}", f"apollo-agent-{agent_id}-avant", f"apollo-browser-{agent_id}"):
+    for name in (f"apollo-agent-{agent_id}", f"apollo-agent-{agent_id}-avant", f"apollo-browser-{agent_id}",
+                 f"apollo-agent-{agent_id}-mig", f"apollo-agent-{agent_id}-mig-ancien"):
         try:
             client.containers.get(name).remove(force=True)
         except docker.errors.NotFound:
             pass
-    for v in (f"apollo-agent-{agent_id}", f"apollo-browser-{agent_id}"):
+    for v in (f"apollo-agent-{agent_id}", f"apollo-browser-{agent_id}", f"apollo-agent-{agent_id}-mig"):
         try:
             client.volumes.get(v).remove(force=True)
         except docker.errors.NotFound:

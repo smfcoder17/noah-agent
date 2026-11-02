@@ -7,7 +7,7 @@ import {
   useExternalStoreRuntime,
 } from "@assistant-ui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { type ChatEvent, get, send, type StoredMessage, StreamLost, streamChat, uploadFile } from "./api";
+import { type ChatEvent, get, send, type StoredMessage, request, StreamLost, streamChat, uploadFile } from "./api";
 
 type TextPart = { type: "text"; text: string };
 type ToolPart = { type: "tool-call"; toolCallId: string; toolName: string; args: Record<string, unknown>; result?: unknown };
@@ -164,14 +164,17 @@ export function useAgentChat(opts: {
     };
   }, [conversationId, updatedAt]);
 
-  /** Après une coupure : attend le serveur (toutes les 3 s), puis reprend les messages enregistrés de la conversation. */
+  /** Après une coupure : interroge le serveur tout de suite puis toutes les 3 s (chaque essai borné à 8 s), et reprend
+   * les messages enregistrés de la conversation dès qu'il répond. */
   const resync = useCallback(async (conv: string, gone: AbortSignal) => {
     // 10 minutes au plus : une réponse perdue avec un redémarrage du serveur n'arrivera jamais.
     for (let i = 0; i < 200; i++) {
-      await new Promise((r) => setTimeout(r, 3000));
+      if (i) await new Promise((r) => setTimeout(r, 3000));
       if (gone.aborted || ownConversation.current !== conv) return;
       try {
-        const rows = await get<StoredMessage[]>(`/api/conversations/${conv}/messages`);
+        const rows = (await (
+          await request(`/api/conversations/${conv}/messages`, { signal: AbortSignal.timeout(8000) })
+        ).json()) as StoredMessage[];
         if (ownConversation.current === conv && !running.current) setMessages(rows.map(fromStored));
         // Réponse encore en cours côté serveur : on recharge encore jusqu'à la voir arrivée.
         if (rows[rows.length - 1]?.role !== "user") return;
