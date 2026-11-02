@@ -30,6 +30,10 @@ jobs:
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \
             "pip install -q -r /app/requirements.txt && python /tests/budget/budget_test.py"
+      - name: Code d'installation et redémarrage du VPS
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \
+            "pip install -q -r /app/requirements.txt && python /tests/install/setup_test.py"
       - name: Caddyfile du VPS
         run: |
           docker run --rm -e NOAH_DOMAIN=noah.example.com -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" \
