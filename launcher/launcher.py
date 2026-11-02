@@ -691,8 +691,52 @@ updater.HOOKS["navigateur"] = _recreate_browser
 updater.LOCKS["navigateur"] = _browser_lock
 updater.AFTER["hermes"] = _restore_packages  # paquets ajoutés par les agents : réinstallés sur la nouvelle image
 # Mise à jour interrompue par un arrêt brutal : annulée au démarrage, avant toute nouvelle opération.
-threading.Thread(target=updater.recover, daemon=True).start()
+_recovering = threading.Thread(target=updater.recover, daemon=True)
+_recovering.start()
+threading.Thread(target=restore.recover, daemon=True).start()  # restauration coupée : serveur relancé, erreur dite
 threading.Thread(target=updater.watchdog, daemon=True).start()
+
+
+def _migrate_agent_tokens() -> None:
+    """Agents créés avant G7.2 (jeton de l'API dans leur config Docker) : recréés une fois sur la même image, le jeton
+    passant dans le .env de leur volume. Même verrou que les mises à jour ; si le nouveau ne répond pas, l'ancien revient."""
+    _recovering.join(600)  # une mise à jour coupée se règle d'abord
+    with updater._lock:
+        try:
+            busy = bool(updater.load_state().get("en_cours"))
+        except updater.Corrupt:
+            return
+        if busy:
+            return  # une mise à jour s'en chargera (_create_like déplace aussi le jeton)
+        for c in client.containers.list(all=True, filters={"label": LABEL}):
+            if not any(e.startswith("API_SERVER_KEY=") for e in c.attrs["Config"]["Env"] or []):
+                continue
+            name, running = c.name, c.status == "running"
+            old = None
+            try:
+                c.stop(timeout=30)
+                c.rename(name + "-ancien")
+                old = client.containers.get(name + "-ancien")
+                updater._create_like(old, name, old.image.id)
+                new = client.containers.get(name)
+                if running:
+                    new.start()
+                    if not updater.healthy(name, 120):
+                        raise RuntimeError("l'agent ne répond pas après la migration")
+                old.remove(force=True)
+            except Exception as e:  # noqa: BLE001 — l'ancien conteneur revient tel quel
+                print(f"[lanceur] migration du jeton de {name} annulée : {e}", flush=True)
+                try:
+                    client.containers.get(name).remove(force=True)
+                except NotFound:
+                    pass
+                if old is not None:
+                    old.rename(name)
+                    if running:
+                        old.start()
+
+
+threading.Thread(target=_migrate_agent_tokens, daemon=True).start()
 
 
 def not_updating(agent_id: str = "") -> None:

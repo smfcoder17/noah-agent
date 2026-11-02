@@ -162,16 +162,39 @@ export async function streamChat(
   const reader = res.body!.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let finished = false;
   for (;;) {
-    const { value, done } = await reader.read();
+    // Le serveur envoie un signe de vie toutes les 15 s : rien pendant 45 s, la connexion est morte sans le dire
+    // (réseau mobile, VPS coupé net). On abandonne pour que l'app reprenne la conversation à son retour.
+    let silent: ReturnType<typeof setTimeout> | undefined;
+    const { value, done } = await Promise.race([
+      reader.read(),
+      new Promise<never>((_, reject) => {
+        silent = setTimeout(() => reject(new StreamLost()), SILENCE_MS);
+      }),
+    ]).finally(() => clearTimeout(silent));
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     let cut: number;
     while ((cut = buffer.indexOf("\n\n")) >= 0) {
       const chunk = buffer.slice(0, cut);
       buffer = buffer.slice(cut + 2);
-      if (chunk.startsWith("data:")) onEvent(JSON.parse(chunk.slice(5)));
+      if (!chunk.startsWith("data:")) continue; // signe de vie
+      const ev = JSON.parse(chunk.slice(5)) as ChatEvent;
+      if (ev.type === "done") finished = true;
+      onEvent(ev);
     }
+  }
+  // Flux fermé sans événement de fin : coupure (serveur redémarré, proxy), pas une réponse terminée.
+  if (!finished) throw new StreamLost();
+}
+
+const SILENCE_MS = 45_000;
+
+/** Connexion perdue pendant une réponse : l'agent continue côté serveur, l'app reprendra la conversation. */
+export class StreamLost extends Error {
+  constructor() {
+    super("Connexion au serveur perdue.");
   }
 }
 

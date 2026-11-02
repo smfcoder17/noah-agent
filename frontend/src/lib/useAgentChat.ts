@@ -7,7 +7,7 @@ import {
   useExternalStoreRuntime,
 } from "@assistant-ui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { type ChatEvent, get, send, type StoredMessage, streamChat, uploadFile } from "./api";
+import { type ChatEvent, get, send, type StoredMessage, StreamLost, streamChat, uploadFile } from "./api";
 
 type TextPart = { type: "text"; text: string };
 type ToolPart = { type: "tool-call"; toolCallId: string; toolName: string; args: Record<string, unknown>; result?: unknown };
@@ -240,7 +240,7 @@ export function useAgentChat(opts: {
         if (!abort.signal.aborted) {
           // Réseau coupé (serveur redémarré, téléphone hors ligne) : l'agent continue côté serveur, on le dit, puis
           // on recharge la conversation dès que le serveur répond de nouveau.
-          const lost = err instanceof TypeError;
+          const lost = err instanceof TypeError || err instanceof StreamLost;
           const error = lost ? "Connexion au serveur perdue. La réponse s'affichera dès son retour." : (err as Error).message;
           update((m) => apply(m, { type: "done", status: "failed", error }, null));
           const conv = ownConversation.current;

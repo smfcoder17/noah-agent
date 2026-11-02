@@ -144,13 +144,14 @@ function InstallStep({ code, onNew }: { code: string; onNew: () => void }) {
   );
 }
 
-type RestoreState = { etape: string | null; erreur: string | null; fini: boolean };
+type RestoreState = { etape: string | null; erreur: string | null; fini: boolean; avertissement?: string | null };
 
 /** Envoi de l'archive de scripts/backup.sh, puis suivi : le serveur redémarre en cours de route (G3.5). */
 function Restore({ code }: { code: string }) {
   const [sent, setSent] = useState<number | null>(null); // pourcentage envoyé
   const [stage, setStage] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState(""); // restauré, avec quelque chose à refaire (dossiers partagés)
   const upload = (file: File) => {
     setError("");
     setSent(0);
@@ -197,6 +198,7 @@ function Restore({ code }: { code: string }) {
         } catch {
           /* rien à effacer */
         }
+        if (st.avertissement) return setNotice(st.avertissement);
         return location.reload(); // compte de la sauvegarde : écran de connexion
       }
     }
@@ -213,9 +215,15 @@ function Restore({ code }: { code: string }) {
           onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])}
           className="text-sm file:mr-3 file:cursor-pointer file:rounded-lg file:border file:border-border file:bg-background file:px-3 file:py-1.5" />
       ) : (
-        <p>{sent < 100 ? `Envoi de l'archive : ${sent} %` : stage || "Vérification de l'archive…"}</p>
+        !notice && <p>{sent < 100 ? `Envoi de l'archive : ${sent} %` : stage || "Vérification de l'archive…"}</p>
       )}
       <ErrorText>{error}</ErrorText>
+      {notice && (
+        <>
+          <p>Restauré. {notice}</p>
+          <Button onClick={() => location.reload()}>Se connecter</Button>
+        </>
+      )}
     </div>
   );
 }

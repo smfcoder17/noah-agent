@@ -125,6 +125,17 @@ public class MainActivity extends BridgeActivity {
             }
 
             @Override
+            public void onReceivedHttpError(android.webkit.WebView view, android.webkit.WebResourceRequest request,
+                                            android.webkit.WebResourceResponse response) {
+                super.onReceivedHttpError(view, request, response);
+                // Caddy en place mais Noah arrêté (502), ou en plein redémarrage (503) : même attente qu'une coupure.
+                if (!request.isForMainFrame() || response.getStatusCode() < 500) return;
+                view.loadDataWithBaseURL(null, OFFLINE, "text/html", "utf-8", null);
+                later.removeCallbacks(reload);
+                later.postDelayed(reload, 5000);
+            }
+
+            @Override
             public boolean shouldOverrideUrlLoading(android.webkit.WebView view, android.webkit.WebResourceRequest request) {
                 if (!home.equals(origin(request.getUrl().toString()))) {
                     try {

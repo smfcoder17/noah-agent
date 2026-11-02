@@ -55,4 +55,43 @@ refused(archive("vol.tar", {D + "apollo_apollo-data.tar.gz": b"x", D + "apollo-c
 refused(archive("deep.tar", {D + "apollo_apollo-data.tar.gz": b"x", D + "a/b.tar.gz": b"x"}), "sous-dossier")
 refused(archive("nodata.tar", {D + "apollo-agent-noah.tar.gz": b"x"}), "données du serveur absentes")
 print("2. chemins .. ou absolus, liens, volumes inconnus, sous-dossiers, données absentes : archive refusée")
+
+# 3. Avant tout : chaque archive intérieure se lit, et ce qu'elle déposera tient sur le disque (bombe de décompression).
+import gzip  # noqa: E402
+import shutil  # noqa: E402
+from collections import namedtuple  # noqa: E402
+
+
+def inner(files: dict[str, int]) -> bytes:
+    """Archive .tar.gz dont les fichiers annoncent la taille donnée (que des zéros : elle se compresse très bien)."""
+    raw = io.BytesIO()
+    with tarfile.open(fileobj=raw, mode="w") as t:
+        for n, size in files.items():
+            info = tarfile.TarInfo(n)
+            info.size = size
+            t.addfile(info, io.BytesIO(bytes(size)))
+    return gzip.compress(raw.getvalue())
+
+
+bomb = archive("bomb.tar", {D + "apollo_apollo-data.tar.gz": inner({"apollo.db": 1000}),
+                            D + "apollo-agent-x.tar.gz": inner({"zeros": 20 << 20})})
+Usage = namedtuple("Usage", "total used free")
+shutil.disk_usage = lambda _: Usage(0, 0, (2 << 30) + (10 << 20))  # 2 Go de marge + 10 Mo libres
+with tarfile.open(bomb) as tar:
+    try:
+        restore._preflight(tar, restore.inspect(bomb))
+        raise AssertionError("archive plus grosse que la place libre acceptée")
+    except ValueError as e:
+        assert "Pas assez de place" in str(e), e
+shutil.disk_usage = lambda _: Usage(0, 0, 100 << 30)
+with tarfile.open(bomb) as tar:
+    restore._preflight(tar, restore.inspect(bomb))
+broken = archive("broken.tar", {D + "apollo_apollo-data.tar.gz": inner({"apollo.db": 1000})[:-20]})
+with tarfile.open(broken) as tar:
+    try:
+        restore._preflight(tar, restore.inspect(broken))
+        raise AssertionError("archive intérieure tronquée acceptée")
+    except ValueError as e:
+        assert "abîmée" in str(e), e
+print("3. 20 Mo à déposer pour 10 Mo libres : refusé avant tout ; archive intérieure tronquée : refusée")
 print("restauration (archive) : tout est vert")

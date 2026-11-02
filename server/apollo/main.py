@@ -123,19 +123,24 @@ async def _after_updates(job) -> None:
 async def _refresh_browsers() -> None:
     """Recrée au besoin la machine de chaque agent (après une restauration sur un nouveau serveur, ses
     volumes sont là mais pas ses conteneurs), puis son navigateur (nouveaux réglages, langue et fuseau)."""
-    existing = await hermes.statuses()
-    for a in _agents():
-        # Aucun conteneur du tout (restauration sur un VPS neuf) : tous recréés ; lanceur muet (None) : rien.
-        if existing is not None and a["id"] not in existing:
+    # Le lanceur peut être occupé (restauration qui se termine, mise à jour) : on réessaie pendant 10 minutes.
+    for _ in range(40):
+        existing = await hermes.statuses()
+        done = existing is not None  # lanceur muet : plus tard
+        for a in _agents() if done else []:
+            if a["id"] not in existing:  # restauration sur un VPS neuf : volumes là, conteneurs absents
+                try:
+                    await hermes.recreate_container(a["id"], a["api_key"])
+                except Exception:
+                    done = False
+                    continue
             try:
-                await hermes.recreate_container(a["id"], a["api_key"])
+                await hermes.ensure_browser(a["id"])
             except Exception:
-                pass
-    for a in _agents():
-        try:
-            await hermes.ensure_browser(a["id"])
-        except Exception:
-            pass  # agent en cours de création ou lanceur pas encore prêt : réessayé au prochain démarrage
+                done = False  # agent en cours de création ou lanceur pas encore prêt
+        if done:
+            return
+        await asyncio.sleep(15)
 
 
 def _migrate_threads() -> None:
@@ -603,14 +608,16 @@ async def setup_restore(request: Request):
 
 @app.get("/api/setup/restore")
 async def setup_restore_status(request: Request):
-    """Avancement de la restauration. Une fois le compte revenu, elle est finie : on ne dit rien de plus à personne."""
-    if auth.has_users():
-        return {"etape": "Restauré", "erreur": None, "fini": True}
+    """Avancement de la restauration, tel que le lanceur le voit (y compris son erreur s'il y en a une) ; « Restauré »
+    seulement quand il l'a confirmé, après avoir vu ce serveur redémarrer avec la sauvegarde."""
     from .hermes import _launcher
     try:
-        return await _launcher("GET", "/restore")
+        st = await _launcher("GET", "/restore")
     except httpx.HTTPError:
-        return {"etape": "Redémarrage du serveur…", "erreur": None, "fini": False}
+        st = {"etape": "Redémarrage du serveur…", "erreur": None, "fini": False}
+    if auth.has_users() and not st.get("etape"):  # lanceur redémarré depuis : le compte est là, rien d'autre à dire
+        return {"etape": "Restauré", "erreur": None, "fini": True}
+    return {k: st.get(k) for k in ("etape", "erreur", "fini", "avertissement")}
 
 
 @app.post("/api/setup/done")
@@ -1471,7 +1478,14 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
 
     async def stream():
         try:
-            while (chunk := await queue.get()) is not None:
+            while True:
+                try:
+                    chunk = await asyncio.wait_for(queue.get(), HEARTBEAT)
+                except asyncio.TimeoutError:
+                    yield ": vivant\n\n"  # l'app distingue un agent qui réfléchit d'une connexion devenue muette
+                    continue
+                if chunk is None:
+                    break
                 yield chunk
         finally:
             listening[0] = False
@@ -1481,6 +1495,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
     return stream()
 
 
+HEARTBEAT = 15  # secondes entre deux signes de vie d'un flux de réponse
 TRIAL_LIMIT = 200  # secondes : un peu plus que les trois minutes que l'assistant attend
 
 
