@@ -84,6 +84,13 @@ configs:
             header Content-Type image/svg+xml*
           }
         }
+        # Journal d'accès tournant (Caddy n'y écrit ni l'en-tête Authorization ni les cookies).
+        log {
+          output file /data/access.log {
+            roll_size 10MiB
+            roll_keep 5
+          }
+        }
         header {
           Strict-Transport-Security "max-age=31536000"
           X-Content-Type-Options nosniff

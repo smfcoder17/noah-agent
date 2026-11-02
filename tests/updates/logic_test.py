@@ -169,7 +169,21 @@ assert u._load()["disponible"]["version"] == "2.0.1", "un manifeste plus ancien 
 served["raw"], served["sig"] = signed({"version": "2.0.2", "migration": True, "images": {"noah-server": "ghcr.io/smfcoder/noah-server@" + D}})
 asyncio.run(u.check())
 assert "accord" in told[-1][1], told[-1]
-print("check() : majeure annoncée 7 jours, Ignorer jusqu'à la suivante, ancien manifeste écarté, migration annoncée : OK")
+served["raw"] = None  # pas encore de version publiée : le manifeste répond 404
+_saved_handler = handler
+
+
+def handler(request):  # noqa: F811
+    if str(request.url).endswith(("manifest.json", ".sig")) and served["raw"] is None:
+        return httpx.Response(404)
+    return _saved_handler(request)
+
+
+asyncio.run(u.check())
+assert u._load()["erreur"] == "Aucune version publiée pour l'instant", u._load()["erreur"]
+handler = _saved_handler
+print("check() : majeure annoncée 7 jours, Ignorer jusqu'à la suivante, ancien manifeste écarté, migration annoncée, "
+      "aucune version publiée dite en clair : OK")
 
 # _follow : la notification dit ce qui s'est vraiment passé.
 cases = [({"ok": True, "version": "2.0.2", "composants": {"noah-server": "fait"}}, "Noah est à jour"),

@@ -250,7 +250,15 @@ async def _check() -> dict:
             sig = (await c.get(MANIFEST_URL + ".sig")).raise_for_status().text
         manifest = verify(raw, sig)
     except (httpx.HTTPError, ValueError) as e:
-        text = str(e)[:200]
+        # Messages lisibles dans Réglages > Mises à jour (pas l'erreur brute de la bibliothèque HTTP).
+        if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 404:
+            text = "Aucune version publiée pour l'instant"
+        elif isinstance(e, httpx.HTTPStatusError):
+            text = f"Le serveur des versions a répondu {e.response.status_code}, nouvel essai plus tard"
+        elif isinstance(e, httpx.HTTPError):
+            text = "Serveur des versions injoignable, nouvel essai plus tard"
+        else:
+            text = str(e)[:200]
         state = _load()
         if "signature" in text or "empreinte" in text or "incomplet" in text:
             print(f"[mises à jour] manifeste refusé : {text}", flush=True)
