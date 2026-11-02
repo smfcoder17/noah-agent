@@ -76,4 +76,23 @@ assert u["daily"] == 0.10 and u["today"]["a1"]["plafond"] == 0.10 and u["today"]
 assert web.post("/api/budget", json={"monthly": 50}).status_code == 200
 assert web.get("/api/usage").json()["daily"] == 0.10, "réglage du budget mensuel qui efface le plafond quotidien"
 print("4. dépense du jour et plafond visibles par agent ; régler le mensuel garde le quotidien")
+# 5. G8.2 : chaque appel compte pour la tâche (conversation) dont le run est en cours ; plusieurs runs à la fois ou
+# aucun = travail de fond. Vu par jour et par tâche dans /api/usage.
+with db.connect() as c:
+    for conv, title in (("c1", "Veille concurrents"), ("c2", "Article")):
+        c.execute("INSERT INTO conversations (id, user_id, agent_id, title) VALUES (?, ?, 'a2', ?)", (conv, user, title))
+assert web.put("/api/agents/a2/plafond", json={"daily": 10}).status_code == 200
+relay.active["a2"] = ["c1"]
+assert ask(other) == 200 and ask(other) == 200
+relay.active["a2"] = ["c1", "c2"]                              # deux tâches en même temps : on ne devine pas
+assert ask(other) == 200
+relay.active["a2"] = []
+assert ask(other) == 200                                       # routine planifiée, surveillance
+u = web.get("/api/usage").json()
+tasks = {t["conversation_id"]: t for t in u["tasks"] if t["agent_id"] == "a2"}
+assert tasks["c1"]["calls"] == 2 and tasks["c1"]["title"] == "Veille concurrents" and abs(tasks["c1"]["cost"] - 0.09) < 1e-9, tasks
+assert "c2" not in tasks and tasks[None]["calls"] == 3 and tasks[None]["title"] == "Travail de fond", tasks
+days = [d for d in u["days"] if d["agent_id"] == "a2"]
+assert len(days) == 1 and days[0]["calls"] == 5 and days[0]["tokens"] == 75, days
+print("5. dépense par tâche (une tâche en cours : elle ; plusieurs ou aucune : travail de fond) et par jour")
 print("plafond quotidien : tout est vert")

@@ -123,6 +123,22 @@ def _check_daily(agent_id: str) -> None:
                    f"{spent:.2f} $ dépensés aujourd'hui sur {cap:.2f} $. Au plafond, il s'arrête jusqu'à demain.")
 
 
+# Conversations dont un run est en cours, par agent (tenu par main._run). Les appels d'un agent ne disent pas pour
+# quelle tâche ils sont faits : avec un seul run en cours, c'est lui ; avec plusieurs, l'appel reste sans tâche.
+active: dict[str, list[str]] = {}
+
+
+def _task_of(agent_id: str) -> str | None:
+    runs = active.get(agent_id) or []
+    return runs[0] if len(set(runs)) == 1 else None
+
+
+def day_offset() -> int:
+    """Décalage (secondes) de l'heure de l'utilisateur sur UTC, pour regrouper les dépenses par jour chez lui."""
+    from . import updates
+    return int(datetime.now(updates.local_zone()).utcoffset().total_seconds())
+
+
 async def _record(agent_id: str, model: str, usage: dict | None) -> None:
     if not usage:
         return
@@ -136,9 +152,9 @@ async def _record(agent_id: str, model: str, usage: dict | None) -> None:
             cost = (prompt * price["price_in"] + completion * price["price_out"]) / 1e6
     with db.connect() as c:
         c.execute(
-            "INSERT INTO usage (agent_id, model, prompt_tokens, completion_tokens, cost, cached_tokens) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (agent_id, model, prompt, completion, float(cost or 0), cached),
+            "INSERT INTO usage (agent_id, model, prompt_tokens, completion_tokens, cost, cached_tokens, conversation_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (agent_id, model, prompt, completion, float(cost or 0), cached, _task_of(agent_id)),
         )
     _check_daily(agent_id)
 

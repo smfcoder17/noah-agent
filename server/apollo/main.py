@@ -801,9 +801,28 @@ def usage(user: int = Depends(auth.current_user)):
     with db.connect() as c:
         ids = [r["id"] for r in c.execute("SELECT id FROM agents")]
     today = {i: {"depense": round(relay.day_cost(i), 4), "plafond": relay.daily_cap(i)} for i in ids}
+    shift = f"{relay.day_offset():+d} seconds"
+    with db.connect() as c:
+        # Par jour (chez l'utilisateur), sur 14 jours, et par tâche ce mois-ci : où part l'argent.
+        days = c.execute(
+            "SELECT agent_id, date(created_at, ?) AS day, SUM(cost) AS cost, "
+            "SUM(prompt_tokens + completion_tokens) AS tokens, COUNT(*) AS calls FROM usage "
+            "WHERE created_at >= datetime('now', '-14 days') GROUP BY agent_id, day ORDER BY day",
+            (shift,),
+        ).fetchall()
+        tasks = c.execute(
+            "SELECT u.agent_id, u.conversation_id, COALESCE(v.title, 'Travail de fond') AS title, v.main, "
+            "SUM(u.cost) AS cost, SUM(u.prompt_tokens + u.completion_tokens) AS tokens, COUNT(*) AS calls "
+            "FROM usage u LEFT JOIN conversations v ON v.id = u.conversation_id "
+            "WHERE u.created_at >= strftime('%Y-%m-01', 'now') AND (v.user_id = ? OR u.conversation_id IS NULL) "
+            "GROUP BY u.agent_id, u.conversation_id ORDER BY cost DESC, tokens DESC LIMIT 50",
+            (user,),
+        ).fetchall()
     daily = db.get_setting("budget_daily")
     return {"month_cost": relay.month_cost(), "budget": relay.budget(), "agents": [dict(r) for r in rows],
-            "daily": float(daily) if daily else None, "today": today}
+            "daily": float(daily) if daily else None, "today": today,
+            "days": [dict(r) for r in days],
+            "tasks": [{**dict(r), "main": bool(r["main"])} for r in tasks]}
 
 
 class Budget(BaseModel):
@@ -1459,11 +1478,13 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
     listening = [True]
 
     async def pump():
+        relay.active.setdefault(agent.id, []).append(conv_id)  # appels au modèle comptés pour cette tâche
         try:
             async for chunk in body():
                 if listening[0]:  # client parti : on suit le run sans plus rien garder en mémoire pour lui
                     queue.put_nowait(chunk)
         finally:
+            relay.active[agent.id].remove(conv_id)
             queue.put_nowait(None)
     task = asyncio.create_task(pump())
     _running_runs.add(task)

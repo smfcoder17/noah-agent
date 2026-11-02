@@ -139,6 +139,18 @@ export type Usage = {
   agents: AgentUsage[];
   daily?: number | null; // plafond par agent et par jour
   today?: Record<string, { depense: number; plafond: number | null }>;
+  days?: { agent_id: string; day: string; cost: number; tokens: number; calls: number }[]; // 14 derniers jours
+  tasks?: TaskUsage[]; // ce mois-ci, la plus coûteuse d'abord
+};
+/** Dépense d'une tâche (conversation) ; conversation_id null = travail de fond (tâches planifiées, surveillance). */
+export type TaskUsage = {
+  agent_id: string;
+  conversation_id: string | null;
+  title: string;
+  main: boolean;
+  cost: number;
+  tokens: number;
+  calls: number;
 };
 export type WorkspaceFile = { path: string; size: number; modified: number };
 

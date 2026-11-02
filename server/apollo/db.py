@@ -66,6 +66,9 @@ def init() -> None:
         columns = {r["name"] for r in db.execute("PRAGMA table_info(usage)")}
         if "cached_tokens" not in columns:
             db.execute("ALTER TABLE usage ADD COLUMN cached_tokens INTEGER NOT NULL DEFAULT 0")
+        # Tâche (conversation) qui a provoqué l'appel ; vide pour le travail de fond (tâches planifiées, surveillance).
+        _add_columns(db, "usage", {"conversation_id": "TEXT"})
+        db.execute("CREATE INDEX IF NOT EXISTS usage_conversation ON usage(conversation_id)")
         _add_columns(db, "agents", {"color": "TEXT NOT NULL DEFAULT ''", "pinned": "INTEGER NOT NULL DEFAULT 0"})
         # Chaque session est un appareil (navigateur, app de bureau, téléphone), listé et révocable dans Réglages.
         _add_columns(db, "sessions", {"device": "TEXT NOT NULL DEFAULT ''", "platform": "TEXT NOT NULL DEFAULT 'web'",

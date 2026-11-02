@@ -102,12 +102,58 @@ function Details({ agent, onEdit, refreshKey, onAgentChanged, children }: { agen
         <Stat label="Jetons" value={(mine?.tokens ?? 0).toLocaleString("fr-CA")} />
         <Stat label="Lus depuis le cache" value={`${cacheRate} %`} />
       </div>
+      {usage && <Spending usage={usage} agentId={agent.id} />}
       <div className="flex flex-col gap-1">
         <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Rôle</span>
         <p className="text-sm whitespace-pre-wrap">{agent.role || "Aucun rôle précis."}</p>
       </div>
       <Button variant="outline" onClick={onEdit}>Personnaliser (nom, couleur, rôle)</Button>
     </div>
+  );
+}
+
+/** Où part l'argent de cet agent : aujourd'hui, les 14 derniers jours, et ses tâches les plus coûteuses du mois. */
+function Spending({ usage, agentId }: { usage: Usage; agentId: string }) {
+  const today = usage.today?.[agentId];
+  const byDay = new Map((usage.days ?? []).filter((d) => d.agent_id === agentId).map((d) => [d.day, d]));
+  const days = Array.from({ length: 14 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - 13 + i);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    return { key, label: d.toLocaleDateString("fr-CA", { weekday: "short", day: "numeric" }), cost: byDay.get(key)?.cost ?? 0 };
+  });
+  const top = Math.max(...days.map((d) => d.cost), 0.0001);
+  const tasks = (usage.tasks ?? []).filter((t) => t.agent_id === agentId).slice(0, 5);
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="flex items-baseline justify-between text-xs font-medium tracking-wide text-muted-foreground uppercase">
+        Dépense
+        <span className="normal-case tracking-normal">
+          Aujourd'hui : <b className="font-mono text-foreground">{money(today?.depense ?? 0)} $</b>
+          {today?.plafond != null && ` / ${money(today.plafond)} $`}
+        </span>
+      </h3>
+      <div className="flex h-12 items-end gap-0.5" role="img" aria-label="Dépense des 14 derniers jours">
+        {days.map((d) => (
+          <div
+            key={d.key}
+            title={`${d.label} : ${money(d.cost)} $`}
+            className={cn("flex-1 rounded-sm", d.cost ? "bg-foreground/70" : "bg-muted")}
+            style={{ height: `${Math.max(6, (d.cost / top) * 100)}%` }}
+          />
+        ))}
+      </div>
+      {tasks.length > 0 && (
+        <ul className="flex flex-col gap-0.5 text-sm">
+          {tasks.map((t) => (
+            <li key={t.conversation_id ?? "fond"} className="flex items-baseline justify-between gap-2">
+              <span className="truncate">{t.main ? "Conversation principale" : t.title}</span>
+              <span className="shrink-0 font-mono text-xs text-muted-foreground">{money(t.cost)} $</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
