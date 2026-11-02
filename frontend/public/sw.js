@@ -55,8 +55,14 @@ self.addEventListener("push", (e) => {
     data = { texte: e.data ? e.data.text() : "" };
   }
   e.waitUntil(
-    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
+    Promise.all([
+      self.clients.matchAll({ type: "window", includeUncontrolled: true }),
+      caches.open("noah-session").then((c) => c.match("/__session")).then((r) => (r ? r.text() : "")).catch(() => ""),
+    ]).then(([wins, current]) => {
       const foreground = wins.some((w) => w.visibilityState === "visible" && w.focused);
+      // Message pour une autre session que celle ouverte ici (un autre compte s'est connecté depuis) : on prévient sans
+      // rien montrer de son contenu (une notification reste obligatoire après un push).
+      if (data.pour && current && data.pour !== current) data = { titre: "Noah", texte: "Nouvelle notification pour un autre compte.", url: "/" };
       return self.registration.showNotification(data.titre || "Noah", {
         silent: foreground,
         body: data.texte || "",

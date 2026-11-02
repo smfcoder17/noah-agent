@@ -311,10 +311,19 @@ class PairingCode(BaseModel):
 
 def _too_many(request: Request) -> list[float]:
     now = time.time()
-    recent = [t for t in _failed_logins.get(_network(_ip(request)), []) if now - t < LOGIN_WINDOW]
-    if len(recent) >= LOGIN_TRIES:
+    net = _network(_ip(request))
+    recent = [t for t in _failed_logins.get(net, []) if now - t < LOGIN_WINDOW]
+    pairing = [t for t in _pairing_failures.get(net, []) if now - t < LOGIN_WINDOW]
+    if len(recent) >= LOGIN_TRIES or len(pairing) >= LOGIN_TRIES:
         raise HTTPException(429, "Trop d'essais. Réessaie dans quelques minutes.")
-    return recent
+    return recent + pairing
+
+
+def _pairing_failed(request: Request) -> None:
+    """Code ou nombre faux : compté à part des mots de passe (une connexion réussie n'efface pas ce budget)."""
+    net = _network(_ip(request))
+    now = time.time()
+    _pairing_failures[net] = [t for t in _pairing_failures.get(net, []) if now - t < LOGIN_WINDOW] + [now]
 
 
 @app.post("/api/pairing/claim")
@@ -334,7 +343,7 @@ def pairing_claim(body: PairingCode, request: Request):
                 _pairing.pop(k, None)
             _, poll, verif = _new_flow(request, body.appareil, body.type, entry["user"], "web")
     if not entry:
-        _failed_logins[_network(_ip(request))] = recent + [time.time()]
+        _pairing_failed(request)
         if short:
             _short_failures.append(time.time())
         raise HTTPException(400, "Ce code est faux, a expiré ou a déjà servi. Affiche un nouveau code dans Réglages > Appareils.")
@@ -426,8 +435,7 @@ def flow_poll(body: FlowPoll, request: Request, response: Response):
                         return {"attente": "nombre"}
                     if not secrets.compare_digest(body.verification.strip(), flow["verif"]):
                         _flows.pop(public, None)
-                        net = _network(_ip(request))
-                        _failed_logins[net] = _failed_logins.get(net, []) + [time.time()]
+                        _pairing_failed(request)
                         raise HTTPException(403, "Ce nombre ne correspond pas à celui du navigateur. Par prudence, la "
                                                  "demande est annulée : recommence.")
                 if not flow.get("jeton"):  # réponse perdue en route : le même sondage la relit pendant 30 s
@@ -459,7 +467,7 @@ def setup_account(body: Credentials, request: Request, response: Response):
             raise HTTPException(410, "Le compte administrateur existe déjà : connecte-toi.")
         given = body.installation.strip().upper().replace("-", "")
         if SETUP_CODE and not secrets.compare_digest(given, SETUP_CODE.upper().replace("-", "")):
-            _failed_logins[_network(_ip(request))] = recent + [time.time()]
+            _failed_logins[_network(_ip(request))] = _failed_logins.get(_network(_ip(request)), []) + [time.time()]
             raise HTTPException(403, "Code d'installation incorrect. Il est affiché à la fin de l'installation (et dans les journaux du serveur).")
         user_id = auth.create_user(body.username, body.password)
     forget_setup_code()
@@ -471,6 +479,7 @@ _setup_lock = threading.Lock()
 
 # Essais de connexion ratés par adresse IP : sur un VPS, la page de connexion est publique.
 _failed_logins: dict[str, list[float]] = {}
+_pairing_failures: dict[str, list[float]] = {}  # codes et nombres d'appairage faux, par adresse (ou réseau /64)
 LOGIN_WINDOW, LOGIN_TRIES = 600, 10
 
 

@@ -119,7 +119,7 @@ r = [x for x in received if x.url.path.endswith("/vivant")][0]
 assert r.headers["content-encoding"] == "aes128gcm" and r.headers["urgency"] == "high" and int(r.headers["ttl"]) > 0
 assert r.headers["authorization"].startswith("vapid t=")
 msg = json.loads(http_ece.decrypt(r.content, private_key=key, auth_secret=secret, version="aes128gcm"))
-assert msg == {"titre": "Veille", "texte": "Le prix a baissé", "url": "/"}, msg
+assert msg == {"titre": "Veille", "texte": "Le prix a baissé", "url": "/", "pour": push.session_tag(auth.digest(token_a))}, msg
 assert len([x for x in received if x.url.path.endswith("/instable")]) == 2, "pas de nouvel essai après le 503"
 assert len([x for x in received if x.url.path.endswith("/refuse")]) == 1, "erreur définitive réessayée"
 with db.connect() as c:
@@ -237,6 +237,9 @@ def swap(request: httpx.Request) -> httpx.Response:
 push.transport = httpx.MockTransport(swap)
 asyncio.run(push.send("Secret d'Alice", "contenu", user_id=user))
 assert swapped["n"] == 1, f"{swapped['n']} envois : le message d'Alice est reparti vers l'abonnement de Bob"
+with db.connect() as c:
+    assert c.execute("SELECT 1 FROM push_subscriptions WHERE endpoint = ? AND session = ?",
+                     (FCM + "partage", auth.digest(token_h))).fetchone(), "l'abonnement de Bob a été supprimé"
 push.transport = httpx.MockTransport(service)
 print("5 nonies. autre compte dans le même navigateur entre deux essais : le message ne part pas chez lui")
 
@@ -267,8 +270,33 @@ with db.connect() as c:  # une heure plus tard (après un redémarrage, la file 
 assert asyncio.run(push.flush_queue()) == 1 and state["n"] == 2
 with db.connect() as c:
     assert not c.execute("SELECT 1 FROM push_queue").fetchone()
+# Arrêt du serveur pendant le dépilage : l'envoi réservé redevient dû après le bail, rien n'est perdu.
+state["n"] = 0
+out = asyncio.run(push.send("Plus tard", "deux", session=auth.digest(token_i)))
+with db.connect() as c:
+    c.execute("UPDATE push_queue SET not_before = 0")
+
+
+def crash(request: httpx.Request) -> httpx.Response:
+    raise KeyboardInterrupt  # le processus s'arrête au milieu de l'envoi
+
+
+push.transport = httpx.MockTransport(crash)
+try:
+    asyncio.run(push.flush_queue())
+except BaseException:
+    pass
+with db.connect() as c:
+    kept = c.execute("SELECT not_before FROM push_queue WHERE endpoint LIKE '%plustard'").fetchone()
+assert kept and kept["not_before"] > time.time() + 200, "envoi perdu à l'arrêt pendant le dépilage"
+push.transport = httpx.MockTransport(later)
+with db.connect() as c:
+    c.execute("UPDATE push_queue SET not_before = 0")  # le bail est passé
+assert asyncio.run(push.flush_queue()) == 1
+with db.connect() as c:
+    assert not c.execute("SELECT 1 FROM push_queue").fetchone()
 push.transport = httpx.MockTransport(service)
-print("5 decies. Retry-After d'une heure : envoi gardé en base, repris à l'heure dite, pas avant")
+print("5 decies. Retry-After d'une heure : envoi gardé en base, repris à l'heure dite, pas avant ; un arrêt pendant le dépilage ne perd rien")
 
 # 6. Clé VAPID : vingt premiers appels simultanés ne créent qu'une seule clé.
 with db.connect() as c:

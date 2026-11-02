@@ -37,6 +37,7 @@ def reset() -> None:
     main._pairing.clear()
     main._flows.clear()
     main._failed_logins.clear()
+    main._pairing_failures.clear()
     main._short_failures.clear()
 
 
@@ -71,7 +72,7 @@ assert r.status_code == 200 and r.json()["attente"], r.text
 poll, verif = r.json()["sondage"], r.json()["verification"]
 pending = web_a.get("/api/pairing/pending").json()["demandes"]
 assert len(pending) == 1 and pending[0]["appareil"] == "Pixel 8" and pending[0]["type"] == "android", pending
-assert "verif" not in str(pending) and verif not in str(pending), "le nombre est montré à celui qui accepte"
+assert all(set(d) == {"id", "appareil", "type", "ip"} for d in pending), "le nombre est montré à celui qui accepte"
 assert web_b.get("/api/pairing/pending").json()["demandes"] == [], "un autre compte voit la demande"
 fid = pending[0]["id"]
 assert web_b.get(f"/api/pairing/flow/{fid}").status_code == 404
@@ -276,6 +277,24 @@ for i in range(main.LOGIN_TRIES + 2):
     phisher.post("/api/pairing/flow/poll", json={"sondage": r.json()["sondage"], "verification": wrong})
 assert codes[-1] == 429 and len(codes) <= main.LOGIN_TRIES + 1, codes
 print(f"8 octies. nombres faux recopiés : 429 après {len(codes) - 1} essais depuis la même adresse")
+
+# 8 novies. Une connexion réussie depuis la même adresse n'efface pas le budget des nombres faux.
+reset()
+bob_app = client(addr="198.51.100.78")  # même adresse, sans cookie : demande et sonde
+codes = []
+for i in range(main.LOGIN_TRIES + 2):
+    assert client(addr="198.51.100.78").post("/api/login", json={"username": "bob", "password": "motdepasse-b"}).status_code == 200
+    r = bob_app.post("/api/pairing/flow", json={"appareil": "PC", "type": "desktop"})
+    codes.append(r.status_code)
+    if r.status_code != 200:
+        break
+    fid = r.json()["adresse"].split("#autoriser=")[1]
+    web_a.get(f"/api/pairing/flow/{fid}")
+    web_a.post(f"/api/pairing/flow/{fid}/autoriser")
+    wrong = "10" if main._flows[fid]["verif"] != "10" else "11"
+    bob_app.post("/api/pairing/flow/poll", json={"sondage": r.json()["sondage"], "verification": wrong})
+assert codes[-1] == 429, codes
+print("8 novies. connexions réussies entre deux nombres faux : le budget d'appairage n'est pas remis à zéro")
 
 # 9. Navigateur du téléphone (QR scanné par l'appareil photo) : la session arrive en cookie au sondage.
 reset()

@@ -7,6 +7,7 @@ pas lire. Un abonnement est rattaché à la session de l'appareil : déconnecter
 import asyncio
 import base64
 import email.utils
+import hashlib
 import json
 import logging
 import os
@@ -37,6 +38,7 @@ PUSH_HOSTS = re.compile(r"^(fcm\.googleapis\.com|android\.googleapis\.com|[a-z0-
                         r"|[a-z0-9.-]+\.notify\.windows\.com|web\.push\.apple\.com|[a-z0-9.-]+\.push\.apple\.com)$")
 _key_lock = threading.Lock()
 TTL = 24 * 3600   # durée de vie d'un message chez le service de push
+LEASE = 300       # un envoi de la file réservé puis interrompu (arrêt du serveur) redevient dû après 5 minutes
 MAX_WAIT = TTL    # Retry-After respecté jusqu'à cette limite (attendre plus longtemps n'aurait plus de sens)
 RETRIES = (2, 10)  # secondes d'attente avant de réessayer après une erreur passagère (429, 5xx, réseau)
 
@@ -124,6 +126,15 @@ def _retry_after(value: str, default: float) -> float:
     return default
 
 
+def session_tag(session: str) -> str:
+    """Identité courte (non secrète, dérivée de l'empreinte) de la session à qui un message est destiné."""
+    return hashlib.sha256(("noah-push:" + session).encode()).hexdigest()[:16]
+
+
+def _payload(message: dict, session: str) -> bytes:
+    return json.dumps({**message, "pour": session_tag(session)}, ensure_ascii=False).encode()
+
+
 def _still_subscribed(sub) -> bool:
     """Le même abonnement (même appareil, même session, mêmes clés) existe toujours : un autre compte connecté depuis
     le même navigateur entre-temps a une autre session, son abonnement ne reçoit pas les messages du précédent."""
@@ -158,11 +169,13 @@ async def flush_queue() -> int:
     with db.connect() as c:
         c.execute("DELETE FROM push_queue WHERE created < ?", (now - TTL,))  # périmé chez le service de toute façon
         due = c.execute("SELECT * FROM push_queue WHERE not_before <= ?", (now,)).fetchall()
-        if due:
-            c.executemany("DELETE FROM push_queue WHERE id = ?", [(r["id"],) for r in due])
+        # Réservés, pas supprimés : un arrêt du serveur pendant l'envoi les rend de nouveau dus après le bail.
+        c.executemany("UPDATE push_queue SET not_before = ? WHERE id = ?", [(now + LEASE, r["id"]) for r in due])
     async with httpx.AsyncClient(timeout=15, transport=transport) as client:
         for r in due:
             await _send_one(client, r, r["payload"], bool(r["urgent"]), tries=r["tries"])
+            with db.connect() as c:  # traité (livré, refusé, ou de nouveau différé sous une autre ligne)
+                c.execute("DELETE FROM push_queue WHERE id = ?", (r["id"],))
     return len(due)
 
 
@@ -172,7 +185,7 @@ async def _send_one(client: httpx.AsyncClient, sub, payload: bytes, urgent: bool
     host = urlsplit(sub["endpoint"]).netloc
     for wait in (*RETRIES, None):
         if not _still_subscribed(sub):
-            return "mort"  # appareil déconnecté ou désabonné pendant l'attente : rien ne part
+            return "parti"  # appareil déconnecté ou désabonné pendant l'attente : rien ne part, rien à supprimer
         try:
             r = await client.post(sub["endpoint"], content=encrypt(payload, sub["p256dh"], sub["auth"]), headers={
                 "Authorization": vapid_header(sub["endpoint"]), "Content-Encoding": "aes128gcm",
@@ -220,13 +233,14 @@ async def send(title: str, text: str, url: str = "/", urgent: bool = False, user
             rows = [r for r in rows if r["endpoint"] not in stray]
     if not rows:
         return {"livres": 0, "echecs": 0, "morts": 0, "differes": 0}
-    payload = json.dumps({"titre": title[:120], "texte": text[:400], "url": url}, ensure_ascii=False).encode()
+    message = {"titre": title[:120], "texte": text[:400], "url": url}
     async with httpx.AsyncClient(timeout=15, transport=transport) as client:
-        outcome = await asyncio.gather(*(_send_one(client, r, payload, urgent) for r in rows))
-    dead = [r["endpoint"] for r, o in zip(rows, outcome) if o == "mort"]
+        outcome = await asyncio.gather(*(_send_one(client, r, _payload(message, r["session"]), urgent) for r in rows))
+    dead = [r for r, o in zip(rows, outcome) if o == "mort"]
     if dead:
-        with db.connect() as c:
-            c.executemany("DELETE FROM push_subscriptions WHERE endpoint = ?", [(e,) for e in dead])
+        with db.connect() as c:  # l'abonnement exact : un autre compte a pu s'abonner depuis au même endpoint
+            c.executemany("DELETE FROM push_subscriptions WHERE endpoint = ? AND session = ? AND p256dh = ? AND auth = ?",
+                          [(r["endpoint"], r["session"], r["p256dh"], r["auth"]) for r in dead])
     return {"livres": outcome.count("livre"), "echecs": outcome.count("echec"), "morts": len(dead),
             "differes": outcome.count("differe")}
 
@@ -293,7 +307,8 @@ def subscribed(request: Request, apollo_session: str | None = Cookie(None), _: i
     with db.connect() as c:
         row = c.execute("SELECT endpoint FROM push_subscriptions WHERE session = ?",
                         (auth.digest(auth.request_token(request, apollo_session) or ""),)).fetchone()
-    return {"abonne": bool(row), "endpoint": row["endpoint"] if row else None}
+    session = auth.digest(auth.request_token(request, apollo_session) or "")
+    return {"abonne": bool(row), "endpoint": row["endpoint"] if row else None, "pour": session_tag(session)}
 
 
 @router.post("/api/push/test")

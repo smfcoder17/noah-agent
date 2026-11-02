@@ -9,9 +9,11 @@ export const pushSupported = () => "serviceWorker" in navigator && "PushManager"
 export async function reconcilePush(): Promise<boolean> {
   if (!pushSupported()) return false;
   const [r, sub] = await Promise.all([
-    get<{ abonne: boolean; endpoint: string | null }>("/api/push/subscription"),
+    get<{ abonne: boolean; endpoint: string | null; pour: string }>("/api/push/subscription"),
     navigator.serviceWorker.ready.then((reg) => reg.pushManager.getSubscription()),
   ]);
+  // Session ouverte dans ce navigateur : le service worker n'affiche le contenu que des messages qui lui sont destinés.
+  await caches.open("noah-session").then((c) => c.put("/__session", new Response(r.pour))).catch(() => {});
   if (!sub || Notification.permission !== "granted") return false;
   if (!r.abonne || r.endpoint !== sub.endpoint) {
     const j = sub.toJSON();
