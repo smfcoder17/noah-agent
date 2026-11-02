@@ -105,6 +105,11 @@ async function openRemote(server) {
   }
   if (stale()) return; // serveur changé pendant l'attente : ce démarrage ne pose plus rien
   if (token) await useToken(server, token);
+  if (stale()) {
+    // Serveur oublié pendant la pose du cookie : on le retire, rien de l'ancien serveur ne se rouvre.
+    await session.defaultSession.cookies.remove(server, "apollo_session").catch(() => {});
+    return;
+  }
   origin = new URL(server).origin;
   await win.loadURL(server);
 }

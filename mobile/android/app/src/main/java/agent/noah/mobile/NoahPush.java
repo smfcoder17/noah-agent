@@ -63,7 +63,10 @@ public class NoahPush extends PushService {
 
     /** Serveur oublié : plus aucune notification (le serveur supprime aussi l'abonnement avec la session). */
     static void stop(Context context) {
-        new Pairing(context).clearPush();
+        synchronized (Pairing.class) {
+            new Pairing(context).clearPush();
+            NotificationManagerCompat.from(context).cancelAll(); // l'appareil peut changer de main : rien ne reste lisible
+        }
         UnifiedPush.unregister(context, ConstantsKt.INSTANCE_DEFAULT);
     }
 
@@ -108,13 +111,19 @@ public class NoahPush extends PushService {
             // l'ancien compte, arrivé après, ne montre rien.
             Pairing pairing = new Pairing(this);
             String mine = pairing.pushTag();
+            long gen = pairing.pushGeneration();
             if (mine != null && mine.equals(data.optString("pour")) && stillMine(pairing, mine)) {
-                title = data.optString("titre", title);
-                text = data.optString("texte", text);
-                url = data.optString("url", url);
-            } else {
-                text = "Nouvelle notification. Ouvre Noah pour la voir.";
+                // Affiché sous le même verrou que la déconnexion (clearPush puis fermeture des notifications) : soit
+                // la déconnexion est passée et on montre la version générique, soit elle passera après et fermera
+                // celle-ci.
+                synchronized (Pairing.class) {
+                    if (gen == pairing.pushGeneration()) {
+                        show(data.optString("titre", title), data.optString("texte", text), data.optString("url", url));
+                        return;
+                    }
+                }
             }
+            text = "Nouvelle notification. Ouvre Noah pour la voir.";
         } catch (Exception ignored) {
             // message mal formé : la notification générique suffit
         }

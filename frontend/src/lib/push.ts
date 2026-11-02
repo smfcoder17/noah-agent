@@ -26,8 +26,18 @@ export async function forgetPushSession() {
     /* indisponible : seul cet onglet est protégé */
   }
   await caches.delete("noah-session").catch(() => {});
+  // Les notifications déjà affichées partent aussi (l'appareil peut changer de main). Deux fois : une notification en
+  // cours d'affichage au moment de la déconnexion est fermée au second passage.
+  await closeNotifications();
+  setTimeout(() => void closeNotifications(), 1500);
   // App Android : ses notifications (UnifiedPush) oublient aussi la session.
   await window.Capacitor?.Plugins?.NoahShell?.pushForget?.().catch(() => {});
+}
+
+async function closeNotifications() {
+  if (!("serviceWorker" in navigator)) return;
+  const reg = await navigator.serviceWorker.getRegistration().catch(() => undefined);
+  (await reg?.getNotifications().catch(() => []))?.forEach((n) => n.close());
 }
 
 const b64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");

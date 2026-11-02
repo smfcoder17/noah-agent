@@ -1,6 +1,6 @@
 // Service worker minimal : rend l'app installable et garde la coquille hors ligne.
 // Les appels /api/ passent toujours au réseau (données toujours fraîches).
-const CACHE = "noah-v9";
+const CACHE = "noah-v10";
 const SHELL = ["/", "/assets/icon.svg"];
 
 self.addEventListener("install", (e) => {
@@ -63,7 +63,8 @@ self.addEventListener("push", (e) => {
       const foreground = wins.some((w) => w.visibilityState === "visible" && w.focused);
       // Marqueur concordant : on demande encore au serveur si cette session est toujours valable (elle a pu être
       // révoquée depuis un autre appareil pendant que le message attendait chez le service de push).
-      const valid = data.pour && data.pour === current && (await stillMine(data.pour));
+      // Relu après la vérification réseau : une déconnexion pendant l'attente efface le marqueur, rien ne s'affiche.
+      const valid = data.pour && data.pour === current && (await stillMine(data.pour)) && (await marker()) === current;
       // Message pour une autre session que celle ouverte ici (un autre compte s'est connecté, on s'est déconnecté, ou
       // la session a été révoquée) : on prévient sans rien montrer de son contenu (une notification reste obligatoire).
       if (!valid) {
@@ -80,6 +81,9 @@ self.addEventListener("push", (e) => {
     }),
   );
 });
+
+const marker = () =>
+  caches.open("noah-session").then((c) => c.match("/__session")).then((r) => (r ? r.text() : "")).catch(() => "");
 
 /** La session de ce navigateur est-elle encore celle à qui le message est destiné ? Non si révoquée, injoignable ou
  * lente (5 s) : dans le doute, rien du contenu n'est affiché. */
