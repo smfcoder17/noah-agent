@@ -1,0 +1,223 @@
+"""Appairage d'un appareil, sur le vrai serveur (FastAPI, base SQLite temporaire) : QR code et code court soumis à
+l'accord de l'utilisateur avec un nombre à recopier, autorisation depuis le navigateur, essais ralentis, révocation.
+
+    docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" \
+      -v "$PWD/frontend/src/App.tsx:/front/App.tsx:ro" -v "$PWD/mobile/www/app.js:/mobile/app.js:ro" python:3.12-slim \
+      sh -c "pip install -q -r /app/requirements.txt && python /tests/pairing/pairing_test.py"
+"""
+import asyncio
+import os
+import sys
+import tempfile
+import time
+
+os.environ["APOLLO_DATA_DIR"] = tempfile.mkdtemp()
+os.environ.setdefault("LAUNCHER_KEY", "x")
+os.environ.setdefault("APOLLO_SECRET_KEY", "y" * 32)
+sys.path.insert(0, "/app")
+from fastapi.testclient import TestClient  # noqa: E402
+
+from apollo import auth, db, main  # noqa: E402
+
+db.init()
+alice, bob = auth.create_user("alice", "motdepasse-a"), auth.create_user("bob", "motdepasse-b")
+ip = iter(range(1, 250))
+main._ip = lambda request: request.headers.get("x-test-ip", "")  # TestClient : une seule adresse sinon
+
+
+def client(token: str | None = None, addr: str | None = None) -> TestClient:
+    """Un appareil : sa propre adresse (les limites sont par adresse), sa session s'il en a une."""
+    c = TestClient(main.app, headers={"X-Noah-Version": "1.4.0", "X-Test-Ip": addr or f"10.0.0.{next(ip)}"})
+    if token:
+        c.headers["Authorization"] = f"Bearer {token}"
+    return c
+
+
+def reset() -> None:
+    main._pairing.clear()
+    main._flows.clear()
+    main._failed_logins.clear()
+    main._short_failures.clear()
+
+
+def sessions() -> int:
+    with db.connect() as c:
+        return c.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
+
+
+web_a = client(auth.new_session(alice, "Firefox", "web"))
+web_b = client(auth.new_session(bob, "Firefox", "web"))
+
+# 1. QR code : pas de session sans accord ; un QR filmé (partage d'écran) ne suffit pas.
+reset()
+p = web_a.post("/api/pairing").json()
+link = p["adresse"].split("#appairage=")[1]
+before = sessions()
+viewer = client()
+r = viewer.post("/api/pairing/claim", json={"code": link, "appareil": "Pixel 8", "type": "android"})
+assert r.status_code == 200 and r.json()["attente"] and "token" not in r.json() and "set-cookie" not in r.headers, r.text
+assert len(r.json()["verification"]) == 2 and sessions() == before
+assert viewer.post("/api/pairing/flow/poll", json={"sondage": r.json()["sondage"]}).status_code == 404
+assert client().post("/api/pairing/claim", json={"code": link}).status_code == 400
+assert client().post("/api/pairing/claim", json={"code": p["code"]}).status_code == 400, "le code court du même affichage sert encore"
+print("1. QR code : demande en attente sans session, à usage unique (le code court du même affichage meurt avec)")
+
+# 2. Code court : demande que seul le propriétaire voit et accepte, avec le nombre affiché sur l'appareil.
+reset()
+p = web_a.post("/api/pairing").json()
+phone = client()
+r = phone.post("/api/pairing/claim", json={"code": p["code"].lower().replace("-", " "), "appareil": "Pixel 8", "type": "android"})
+assert r.status_code == 200 and r.json()["attente"], r.text
+poll, verif = r.json()["sondage"], r.json()["verification"]
+pending = web_a.get("/api/pairing/pending").json()["demandes"]
+assert len(pending) == 1 and pending[0]["appareil"] == "Pixel 8" and pending[0]["type"] == "android", pending
+assert "verif" not in str(pending) and verif not in str(pending), "le nombre est montré à celui qui accepte"
+assert web_b.get("/api/pairing/pending").json()["demandes"] == [], "un autre compte voit la demande"
+fid = pending[0]["id"]
+assert web_b.get(f"/api/pairing/flow/{fid}").status_code == 404
+assert web_b.post(f"/api/pairing/flow/{fid}/autoriser", json={"verification": verif}).status_code == 404, "un autre compte accepte"
+before = sessions()
+assert web_a.post(f"/api/pairing/flow/{fid}/autoriser", json={"verification": verif}).status_code == 200
+assert sessions() == before, "session créée avant que l'appareil la récupère"
+r = phone.post("/api/pairing/flow/poll", json={"sondage": poll})
+assert r.status_code == 200 and "set-cookie" not in r.headers, r.text
+token = r.json()["token"]
+assert phone.post("/api/pairing/flow/poll", json={"sondage": poll}).json()["token"] == token, "deuxième session créée"
+assert sessions() == before + 1
+me = client(token)
+dev = [d for d in me.get("/api/devices").json()["appareils"] if d["actuel"]][0]
+assert (dev["nom"], dev["type"], dev["version"]) == ("Pixel 8", "android", "1.4.0"), dev
+print("2. code court : demande visible et acceptable par son seul propriétaire, avec le nombre ; session créée au sondage")
+
+# 3. Mauvais nombre : la demande est annulée (pas de seconde chance pour deviner).
+reset()
+p = web_a.post("/api/pairing").json()
+r = client().post("/api/pairing/claim", json={"code": p["code"], "appareil": "Inconnu"})
+wrong = "10" if r.json()["verification"] != "10" else "11"
+fid = web_a.get("/api/pairing/pending").json()["demandes"][0]["id"]
+assert web_a.post(f"/api/pairing/flow/{fid}/autoriser", json={"verification": wrong}).status_code == 403
+assert web_a.post(f"/api/pairing/flow/{fid}/autoriser", json={"verification": r.json()["verification"]}).status_code == 404
+assert web_a.post(f"/api/pairing/flow/{fid}/autoriser").status_code == 404
+assert client().post("/api/pairing/flow/poll", json={"sondage": r.json()["sondage"]}).status_code == 410
+print("3. mauvais nombre recopié : demande annulée, l'appareil s'arrête")
+
+# 4. Refus : l'appareil l'apprend et n'a rien.
+reset()
+p = web_a.post("/api/pairing").json()
+r = client().post("/api/pairing/claim", json={"code": p["code"], "appareil": "Inconnu"})
+fid = web_a.get("/api/pairing/pending").json()["demandes"][0]["id"]
+assert web_a.post(f"/api/pairing/flow/{fid}/refuser").status_code == 200
+assert client().post("/api/pairing/flow/poll", json={"sondage": r.json()["sondage"]}).status_code == 410
+print("4. demande refusée : pas de session, l'appareil s'arrête")
+
+# 5. « Nouveau code » et panneau fermé : l'ancien code et les demandes en attente ne servent plus.
+reset()
+old = web_a.post("/api/pairing").json()
+r = client().post("/api/pairing/claim", json={"code": old["code"], "appareil": "Inconnu"})
+new = web_a.post("/api/pairing").json()
+assert web_a.get("/api/pairing/pending").json()["demandes"] == [], "demande en attente gardée après « Nouveau code »"
+assert client().post("/api/pairing/flow/poll", json={"sondage": r.json()["sondage"]}).status_code == 410
+assert client().post("/api/pairing/claim", json={"code": old["adresse"].split("#appairage=")[1]}).status_code == 400
+client().post("/api/pairing/claim", json={"code": new["code"]})
+assert web_a.delete("/api/pairing").status_code == 200
+assert web_a.get("/api/pairing/pending").json()["demandes"] == []
+print("5. nouveau code ou panneau fermé : ancien code et demandes en attente annulés")
+
+# 6. Essais : 5 codes faux par adresse (tout le /64 en IPv6), puis 429 ; le code de Bob reste valable.
+reset()
+p = web_b.post("/api/pairing").json()
+codes = [s for s in ("BCDF-GHJK", "BCDF-GHJL", "BCDF-GHJM", "BCDF-GHJN", "BCDF-GHJP", "BCDF-GHJR") if s != p["code"]][:5]
+for i, c in enumerate(codes):
+    assert client(addr=f"2001:db8:1:2::{i + 1}").post("/api/pairing/claim", json={"code": c}).status_code == 400
+assert client(addr="2001:db8:1:2::99").post("/api/pairing/claim", json={"code": "BCDF-GHJQ"}).status_code == 429
+r = client().post("/api/pairing/claim", json={"code": p["code"], "appareil": "Mac de Bob", "type": "desktop"})
+assert r.status_code == 200 and r.json()["attente"], "le code de Bob a été annulé par les essais d'un autre"
+print("6. 5 codes faux par adresse (/64 en IPv6) puis 429 ; le code d'un autre utilisateur reste valable")
+
+# 7. Plafond global (attaque distribuée) : 429 pour tous, sans annuler les codes.
+reset()
+p = web_a.post("/api/pairing").json()
+main._short_failures.extend([time.time()] * main.SHORT_GLOBAL)
+assert client().post("/api/pairing/claim", json={"code": p["code"]}).status_code == 429
+main._short_failures.clear()
+assert client().post("/api/pairing/claim", json={"code": p["code"]}).json()["attente"], "le code a été annulé"
+print(f"7. {main.SHORT_GLOBAL} codes faux venus de partout : 429 pour tous, mais le vrai code reste valable")
+
+# 8. Autorisation dans le navigateur (app de bureau) : la page d'accord montre le nombre, l'app doit le recopier.
+reset()
+app_desktop = client(addr="203.0.113.7")
+r = app_desktop.post("/api/pairing/flow", json={"appareil": "PC du salon", "type": "desktop"}).json()
+assert "verification" not in r, "le nombre est rendu à celui qui crée la demande"
+fid = r["adresse"].split("#autoriser=")[1]
+info = web_a.get(f"/api/pairing/flow/{fid}").json()
+assert info["appareil"] == "PC du salon" and info["autre_reseau"] and len(info["verification"]) == 2, info
+me_a = web_a.headers["Authorization"][7:]
+assert client(me_a, addr="203.0.113.7").get(f"/api/pairing/flow/{fid}").json()["autre_reseau"] is False
+assert client(me_a, addr="2001:db8::5").get(f"/api/pairing/flow/{fid}").json()["autre_reseau"] is False, "double pile"
+assert web_a.post(f"/api/pairing/flow/{fid}/autoriser").status_code == 200
+assert app_desktop.post("/api/pairing/flow/poll", json={"sondage": r["sondage"]}).status_code == 428
+before = sessions()
+token = app_desktop.post("/api/pairing/flow/poll", json={"sondage": r["sondage"], "verification": info["verification"]}).json()["token"]
+again = app_desktop.post("/api/pairing/flow/poll", json={"sondage": r["sondage"]}).json()["token"]
+assert again == token and sessions() == before + 1, "réponse perdue : le même sondage doit relire la même session"
+assert client(token).get("/api/me").status_code == 200
+main._flows[next(iter(main._flows))]["expire"] = time.time() - 1
+assert app_desktop.post("/api/pairing/flow/poll", json={"sondage": r["sondage"]}).status_code == 410
+print("8. navigateur : nombre affiché dans la page, recopié dans l'app ; réponse relue 30 s ; double pile sans fausse alerte")
+
+# 8 bis. Hameçonnage : un tiers crée la demande et envoie le lien ; l'utilisateur accepte, mais le tiers ne voit pas
+# le nombre de la page d'accord : il ne récupère rien.
+reset()
+attacker = client(addr="198.51.100.9")
+r = attacker.post("/api/pairing/flow", json={"appareil": "Ordinateur FRANCK-PC", "type": "desktop"}).json()
+fid = r["adresse"].split("#autoriser=")[1]
+web_a.post(f"/api/pairing/flow/{fid}/autoriser")
+guess = "10" if main._flows[fid]["verif"] != "10" else "11"
+assert attacker.post("/api/pairing/flow/poll", json={"sondage": r["sondage"], "verification": guess}).status_code == 403
+assert attacker.post("/api/pairing/flow/poll", json={"sondage": r["sondage"], "verification": main._flows.get(fid, {}).get("verif", "")}).status_code == 410
+print("8 bis. lien d'accord envoyé par un tiers : sans le nombre de la page, pas de session (un seul essai)")
+
+# 9. Navigateur du téléphone (QR scanné par l'appareil photo) : la session arrive en cookie au sondage.
+reset()
+p = web_a.post("/api/pairing").json()
+browser = client()
+r = browser.post("/api/pairing/claim", json={"code": p["adresse"].split("#appairage=")[1]}).json()
+fid = web_a.get("/api/pairing/pending").json()["demandes"][0]["id"]
+web_a.post(f"/api/pairing/flow/{fid}/autoriser", json={"verification": r["verification"]})
+assert browser.post("/api/pairing/flow/poll", json={"sondage": r["sondage"]}).status_code == 200
+assert browser.cookies.get(auth.COOKIE) and browser.get("/api/me").status_code == 200
+print("9. navigateur du téléphone : cookie posé au sondage, connecté")
+
+# 10. Oublier : la session est révoquée sur le serveur ; un deuxième oubli ne fait pas d'erreur.
+gone = client(token)
+assert gone.delete("/api/devices/self").status_code == 200
+assert gone.get("/api/me").status_code == 401
+assert gone.delete("/api/devices/self").status_code == 200
+print("10. oublier ce serveur : session supprimée côté serveur, oubli rejoué sans erreur")
+
+
+# 11. Flux qui se tait (le modèle réfléchit) : la révocation le coupe quand même en quelques secondes.
+async def silent():
+    yield b"debut"
+    await asyncio.sleep(3600)
+    yield b"jamais"
+
+
+async def watch(token: str) -> tuple[list, float]:
+    got, t0 = [], time.monotonic()
+    async for chunk in auth.revocable(silent(), token, every=0.5):
+        got.append(chunk)
+        auth.drop_session(token)
+    return got, time.monotonic() - t0
+
+
+got, took = asyncio.run(asyncio.wait_for(watch(auth.new_session(alice, "Pixel", "android")), 10))
+assert got == [b"debut"] and took < 2, (got, took)
+print(f"11. flux silencieux d'un appareil révoqué : coupé en {took:.1f} s")
+
+# 12. Plus de jeton dans l'adresse (?appairage=) : ni le web ni l'app mobile ne le lisent.
+for path in ("/front/App.tsx", "/mobile/app.js"):
+    if os.path.exists(path):
+        assert 'get("appairage")' not in open(path).read(), path
+print("12. jeton d'appairage jamais lu dans l'adresse (seulement le fragment)")
+print("appairage : tout est vert")

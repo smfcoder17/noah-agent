@@ -16,5 +16,8 @@ if (location.protocol === "file:") {
     connect: (server, code) => ipcRenderer.invoke("noah:setup-connect", String(server), String(code)),
     authorize: (server) => ipcRenderer.invoke("noah:setup-authorize", String(server)),
     useLocal: () => ipcRenderer.invoke("noah:setup-local"),
+    onAskNumber: (fn) => ipcRenderer.on("noah:setup-ask-number", () => fn()),
+    sendNumber: (n) => ipcRenderer.invoke("noah:setup-number", String(n)),
+    onWaiting: (fn) => ipcRenderer.on("noah:setup-waiting", (_e, verification) => fn(String(verification || ""))),
   });
 }

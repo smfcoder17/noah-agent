@@ -107,17 +107,33 @@ def still_valid(token: str) -> bool:
 
 
 async def revocable(stream, token: str | None, every: float = 5):
-    """Relaie un flux tant que la session existe ; s'arrête dans les `every` secondes qui suivent sa révocation."""
+    """Relaie un flux tant que la session existe ; s'arrête dans les `every` secondes qui suivent sa révocation, même
+    quand le flux se tait (le modèle réfléchit)."""
     import asyncio
     import time
 
+    it = stream.__aiter__()
+    pending = None
     checked = time.monotonic()
-    async for chunk in stream:
-        if token and time.monotonic() - checked > every:
-            checked = time.monotonic()
-            if not await asyncio.to_thread(still_valid, token):
-                return
-        yield chunk
+    try:
+        while True:
+            if pending is None:
+                pending = asyncio.ensure_future(it.__anext__())
+            done, _ = await asyncio.wait({pending}, timeout=every)
+            if token and time.monotonic() - checked >= every:
+                checked = time.monotonic()
+                if not await asyncio.to_thread(still_valid, token):
+                    return
+            if pending in done:
+                try:
+                    chunk = pending.result()
+                except StopAsyncIteration:
+                    return
+                pending = None
+                yield chunk
+    finally:
+        if pending is not None and not pending.done():
+            pending.cancel()
 
 
 def devices(user_id: int, current: str | None) -> list[dict]:

@@ -18,6 +18,7 @@ type Summary = {
   erreur: string | null;
   en_cours: boolean;
   intervention: string[] | null;
+  gardes: string[];
   dernier_rapport: { ok: boolean; erreur?: string } | null;
   historique: { quand: number; texte: string }[];
 };
@@ -82,6 +83,13 @@ export function Updates() {
             <Button size="sm" disabled={!!busy} onClick={() => act("resolve", () => send("/api/updates/resolve", { action: "reessayer" }))}>Réessayer la restauration</Button>
             <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => confirm("Les laisser arrêtés tels quels ? Tu t'en occupes (sauvegardes dans le volume noah-backups).") && act("resolve", () => send("/api/updates/resolve", { action: "garder" }))}>Les laisser arrêtés</Button>
           </div>
+        </div>
+      )}
+
+      {s.gardes.length > 0 && (
+        <div className="flex flex-col gap-2 rounded-xl border border-border p-4 text-muted-foreground">
+          <p>Mis de côté après une mise à jour, en attente de ta vérification : {s.gardes.join(", ")}. Noah n'y touche pas.</p>
+          <Button size="sm" variant="outline" className="self-start" disabled={!!busy} onClick={() => confirm("Tu t'en es occupé ? Noah pourra de nouveau les démarrer et les mettre à jour.") && act("resolve", () => send("/api/updates/resolve", { action: "liberer" }))}>Je m'en suis occupé</Button>
         </div>
       )}
 

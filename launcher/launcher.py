@@ -81,6 +81,18 @@ BROWSER_LABEL = "apollo.browser"
 BROWSER_VERSION = "7"
 
 
+def _frozen(agent_id: str):
+    """Opération sur le parc (créer, supprimer, recréer un agent ou un navigateur) : elle tient le verrou des mises à
+    jour pendant toute sa durée. Une transaction qui démarre l'attend ; pendant une transaction, elle est refusée."""
+    if not updater._lock.acquire(blocking=False):
+        raise HTTPException(409, "Noah installe une mise à jour : réessaie dans quelques minutes.")
+    try:
+        not_updating(agent_id)
+        yield
+    finally:
+        updater._lock.release()
+
+
 class BrowserKeys(BaseModel):
     api_key: str
     vnc_password: str
@@ -101,7 +113,7 @@ def _ensure_image(name: str) -> None:
 _browser_lock = threading.Lock()  # deux appels simultanés recréaient le même conteneur (conflit Docker)
 
 
-@app.post("/agents/{agent_id}/browser", dependencies=[Depends(auth), Depends(lambda: not_updating())])
+@app.post("/agents/{agent_id}/browser", dependencies=[Depends(auth), Depends(_frozen)])
 def ensure_browser(agent_id: str, body: BrowserKeys):
     """Crée (si besoin) le navigateur Camoufox de l'agent, avec son écran partagé en noVNC.
 
@@ -195,7 +207,7 @@ def _tar(files: dict[str, bytes]) -> bytes:
     return buf.getvalue()
 
 
-@app.post("/agents/{agent_id}/browser/restart", dependencies=[Depends(auth), Depends(lambda: not_updating())])
+@app.post("/agents/{agent_id}/browser/restart", dependencies=[Depends(auth), Depends(_frozen)])
 def restart_browser(agent_id: str):
     """Redémarre le conteneur du navigateur (écran figé, navigateur planté). Profil et cookies restent."""
     check_id(agent_id)
@@ -342,7 +354,7 @@ def folder_roots():
     return {"racines": SHARE_ROOTS}
 
 
-@app.post("/agents/{agent_id}", dependencies=[Depends(auth), Depends(lambda: not_updating())])
+@app.post("/agents/{agent_id}", dependencies=[Depends(auth), Depends(_frozen)])
 def create(agent_id: str, body: NewAgent):
     check_id(agent_id)
     try:
@@ -357,7 +369,7 @@ class AgentFolders(BaseModel):
     dossiers: list[Folder]
 
 
-@app.put("/agents/{agent_id}/folders", dependencies=[Depends(auth), Depends(lambda: not_updating())])
+@app.put("/agents/{agent_id}/folders", dependencies=[Depends(auth), Depends(_frozen)])
 def set_folders(agent_id: str, body: AgentFolders):
     """Change les dossiers partagés : la machine de l'agent est recréée (son volume garde tout le reste)."""
     folders = _check_folders(body.dossiers)
@@ -568,13 +580,13 @@ def restore_packages() -> None:
     threading.Thread(target=_restore_packages, daemon=True).start()
 
 
-@app.post("/agents/{agent_id}/restart", dependencies=[Depends(auth), Depends(lambda: not_updating())])
+@app.post("/agents/{agent_id}/restart", dependencies=[Depends(auth), Depends(_frozen)])
 def restart(agent_id: str):
     container(check_id(agent_id)).restart(timeout=10)
     return {"ok": True}
 
 
-@app.delete("/agents/{agent_id}", dependencies=[Depends(auth), Depends(lambda: not_updating())])
+@app.delete("/agents/{agent_id}", dependencies=[Depends(auth), Depends(_frozen)])
 def delete(agent_id: str):
     c = container(check_id(agent_id))
     c.remove(force=True)
@@ -624,12 +636,16 @@ threading.Thread(target=updater.recover, daemon=True).start()
 threading.Thread(target=updater.watchdog, daemon=True).start()
 
 
-def not_updating() -> None:
-    """Pendant une mise à jour, on ne crée ni ne supprime d'agent : la transaction a figé la liste des conteneurs."""
+def not_updating(agent_id: str = "") -> None:
+    """Pendant une mise à jour, on ne crée ni ne supprime d'agent : la transaction a figé la liste des conteneurs.
+    Une transaction qui démarre attend la fin de l'opération en cours (même verrou), et aucune ne démarre pendant."""
     try:
-        tx = updater.load_state().get("en_cours")
+        state = updater.load_state()
     except updater.Corrupt:
-        tx = None
+        raise HTTPException(409, "Le journal des mises à jour est illisible : rien n'est modifié tant qu'il n'est pas vérifié.")
+    tx = state.get("en_cours")
+    if agent_id and any(agent_id in g for g in state.get("gardes", [])):
+        raise HTTPException(409, "Cet agent a été mis de côté après une mise à jour (Réglages > Mises à jour).")
     if tx and tx.get("phase") == "intervention":
         # Des conteneurs sont gardés arrêtés pour protéger leurs données : rien ne doit les redémarrer ou les recréer.
         raise HTTPException(409, "Une mise à jour attend ta décision (Réglages > Mises à jour) avant de toucher aux agents.")

@@ -112,7 +112,11 @@ def system() -> str:
 
 
 def notify(title: str, text: str) -> None:
-    """Notification sur l'ordinateur si l'application de bureau est ouverte ; personne n'attend la réponse."""
+    """Notification sur l'ordinateur si l'application de bureau est ouverte, et sur les appareils abonnés aux
+    notifications (téléphone, navigateur) ; personne n'attend la réponse."""
+    from . import push
+
+    push.notify(title, text)
     if not connected():
         return
     rid = uuid.uuid4().hex

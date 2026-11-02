@@ -3,14 +3,72 @@
 import qrcode from "qrcode-generator";
 import { Globe, Laptop, Loader2, Smartphone, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { del, get, send } from "@/lib/api";
+import { ApiError, del, get, send } from "@/lib/api";
 import { desktop } from "@/lib/desktop";
+import { appShell } from "@/lib/platform";
+import { PushToggle } from "./PushToggle";
 import { Button, ErrorText } from "./ui";
 
 type Pairing = { adresse: string; serveur: string; code: string; expire: number; local: boolean };
 type Device = { id: number; nom: string; type: string; depuis: string | null; vu: string | null; ip: string; version: string; actuel: boolean };
 
+type Pending = { id: string; appareil: string; type: string; ip: string };
+
 const ICONS: Record<string, typeof Globe> = { web: Globe, desktop: Laptop, android: Smartphone, ios: Smartphone };
+const KINDS: Record<string, string> = { web: "navigateur", desktop: "app de bureau", android: "Android", ios: "iPhone" };
+
+function since(iso: string | null) {
+  return iso ? `relié le ${new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}` : "";
+}
+
+/** Appareils qui ont saisi le code court : rien n'est accordé tant que l'utilisateur n'a pas vu qui demande. */
+function PendingRequests({ refresh, onDone }: { refresh: number; onDone: () => void }) {
+  const [list, setList] = useState<Pending[]>([]);
+  const [codes, setCodes] = useState<Record<string, string>>({});
+  const [error, setError] = useState("");
+  useEffect(() => {
+    get<{ demandes: Pending[] }>("/api/pairing/pending").then((r) => setList(r.demandes)).catch(() => {});
+  }, [refresh]);
+  const decide = async (p: Pending, decision: "autoriser" | "refuser") => {
+    try {
+      setError("");
+      await send(`/api/pairing/flow/${p.id}/${decision}`, { verification: codes[p.id] ?? "" });
+      setList((l) => l.filter((x) => x.id !== p.id));
+      onDone();
+    } catch (e) {
+      setError((e as Error).message);
+      if (e instanceof ApiError && e.status === 403) setList((l) => l.filter((x) => x.id !== p.id));
+    }
+  };
+  if (!list.length) return null;
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-warn bg-warn-soft p-3">
+      <p className="text-sm font-semibold">Un appareil a utilisé ton code</p>
+      <p className="text-xs text-muted-foreground">Recopie le nombre qu'il affiche pour l'autoriser.</p>
+      {list.map((p) => {
+        const Icon = ICONS[p.type] ?? Globe;
+        return (
+          <div key={p.id} className="flex flex-wrap items-center gap-2.5">
+            <Icon className="size-4 shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm">{p.appareil || "Appareil"}</p>
+              <p className="text-xs text-muted-foreground">{[KINDS[p.type] ?? p.type, p.ip].filter(Boolean).join(" · ")}</p>
+            </div>
+            <input
+              inputMode="numeric" autoComplete="off" maxLength={2} placeholder="00" aria-label="Nombre affiché sur l'appareil"
+              value={codes[p.id] ?? ""} onChange={(e) => setCodes((c) => ({ ...c, [p.id]: e.target.value.replace(/\D/g, "") }))}
+              className="w-14 rounded-lg border border-border bg-background px-2 py-1 text-center font-mono"
+            />
+            <Button size="sm" onClick={() => decide(p, "autoriser")} disabled={(codes[p.id] ?? "").length !== 2}>Autoriser</Button>
+            <Button size="sm" variant="ghost" onClick={() => decide(p, "refuser")}>Refuser</Button>
+          </div>
+        );
+      })}
+      <p className="text-xs text-muted-foreground">Si ce n'est pas toi, refuse : sans ton accord, le code ne donne accès à rien.</p>
+      <ErrorText>{error}</ErrorText>
+    </div>
+  );
+}
 
 function ago(iso: string | null) {
   if (!iso) return "";
@@ -57,7 +115,7 @@ function DeviceList({ refresh }: { refresh: number }) {
             <Icon className="size-4 shrink-0 text-muted-foreground" />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm">{d.nom || "Appareil"}{d.actuel && <span className="ml-2 text-xs text-ok">cet appareil</span>}</p>
-              <p className="text-xs text-muted-foreground">{[ago(d.vu), d.ip, d.version && `version ${d.version}`].filter(Boolean).join(" · ")}</p>
+              <p className="text-xs text-muted-foreground">{[KINDS[d.type] ?? d.type, since(d.depuis), ago(d.vu), d.ip, d.version && `version ${d.version}`].filter(Boolean).join(" · ")}</p>
             </div>
             {!d.actuel && (
               <Button size="sm" variant="ghost" onClick={() => revoke(d)} aria-label="Déconnecter"><Trash2 /></Button>
@@ -86,6 +144,10 @@ function QR({ text }: { text: string }) {
 
 export function PhonePairing() {
   const [refresh, setRefresh] = useState(0);
+  const shell = appShell();
+  const forget = () => {
+    if (confirm("Oublier ce serveur ? Cette app sera déconnectée et sa session révoquée ; il faudra la relier de nouveau.")) shell?.forget();
+  };
   const [pairing, setPairing] = useState<Pairing | null>(null);
   const [left, setLeft] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -123,6 +185,8 @@ export function PhonePairing() {
     }
   };
 
+  useEffect(() => () => void del("/api/pairing").catch(() => {}), []);
+
   useEffect(() => {
     if (!pairing) return;
     // Le nouvel appareil apparaît dans la liste dès qu'il a servi le code.
@@ -138,8 +202,8 @@ export function PhonePairing() {
     <div className="flex flex-col gap-4">
       <p className="text-sm text-muted-foreground">
         Pour relier un téléphone, scanne le QR code avec l'app Noah ou l'appareil photo. Pour l'app de bureau ou un autre
-        appareil, saisis l'adresse et le code court. Le code sert une seule fois ; le laisser expirer ne déconnecte aucun
-        appareil déjà relié.
+        appareil, saisis l'adresse et le code court, puis autorise l'appareil ici. Le code sert une seule fois ; le
+        laisser expirer ne déconnecte aucun appareil déjà relié.
       </p>
       {pairing && left > 0 ? (
         <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-start">
@@ -174,7 +238,14 @@ export function PhonePairing() {
         </Button>
       )}
       <ErrorText>{error}</ErrorText>
+      <PendingRequests refresh={refresh} onDone={() => setRefresh((n) => n + 1)} />
+      <PushToggle />
       <DeviceList refresh={refresh} />
+      {shell && (
+        <Button size="sm" variant="ghost" className="self-start text-danger" onClick={forget}>
+          Oublier ce serveur sur cet appareil
+        </Button>
+      )}
     </div>
   );
 }

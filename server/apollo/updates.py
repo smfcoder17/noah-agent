@@ -156,8 +156,9 @@ def busy() -> str | None:
     return None
 
 
-async def routine_soon(minutes: int = 15) -> str | None:
-    """Une routine (cron d'Hermes) qui part dans les 15 min ou tourne déjà : on ne coupe pas son agent."""
+async def routine_soon(minutes: int = 45) -> str | None:
+    """Une routine (cron d'Hermes) qui part avant la fin probable de l'installation (sauvegardes, santé de chaque
+    conteneur, 5 min d'observation : 45 min de marge) ou tourne déjà : on ne coupe pas son agent."""
     with db.connect() as c:
         ids = [r["id"] for r in c.execute("SELECT id FROM agents")]
     limit = time.time() + minutes * 60
@@ -370,10 +371,14 @@ async def _follow() -> None:
     tx = etat.get("en_cours")
     if report_failed_softly(etat):
         _patch({"reessai_apres": int(time.time()) + RETRY_AFTER})
-    # Le journal du lanceur fait foi, y compris pour un serveur qui vient d'être recréé au milieu de la transaction.
-    maintenance = bool(tx) and tx.get("phase") != "intervention"
     report = etat.get("dernier_rapport") or {}
     state = _load()
+    # Le journal du lanceur fait foi, y compris pour un serveur qui vient d'être recréé au milieu de la transaction.
+    # Entre la demande et l'ouverture du journal (téléchargement, place disque…), le lanceur prépare : on attend son
+    # rapport, 30 min au plus.
+    asked = (state.get("installee") or {}).get("depuis", 0)
+    preparing = maintenance and not tx and report.get("fin", 0) < asked and time.time() - asked < 1800
+    maintenance = (bool(tx) and tx.get("phase") != "intervention") or preparing
     if not report.get("fin") or report["fin"] <= state.get("rapport_vu", 0):
         return
     _patch({"rapport_vu": report["fin"]})
@@ -387,6 +392,11 @@ async def _follow() -> None:
     elif report.get("composants") or "interrompue" in (report.get("erreur") or ""):
         _tell("Mise à jour annulée", f"{report.get('erreur', 'Un composant ne répondait plus')}. Noah est revenu à "
               "la version d'avant, avec ses données.")
+    elif report.get("erreur"):
+        key = f"{report.get('version')}:{report['erreur'][:60]}"
+        if key not in state.get("deja_dit", []):  # refus, place disque, essais épuisés… : dit une fois
+            _patch(lambda s: s.update(deja_dit=(s.get("deja_dit", []) + [key])[-30:]))
+            _tell("Mise à jour en attente", f"Noah {report.get('version', '')} n'a pas été installée : {report['erreur']}.")
 
 
 def report_failed_softly(etat: dict) -> bool:
@@ -427,30 +437,39 @@ async def run(task_state: dict[str, str]) -> None:
     await asyncio.sleep(60)
     while True:
         try:
-            await _follow()
-            state = _load()
-            if time.time() - state.get("verifie", 0) > CHECK_EVERY:
-                state = await check()
-            if PUBLIC_KEY and state.get("disponible"):
-                now = time.time()
-                reason = due(state, now)
-                if reason is None:
-                    etat = (await _launcher("GET", "/update/status", timeout=10)).get("etat", {})
-                    failed = _failed_here(state["disponible"], etat)
-                    reason = f"elle a déjà échoué ici ({', '.join(failed)}) : elle attend la suivante ou un clic" if failed else None
-                reason = reason or await routine_soon()
-                if reason is None:
-                    result = await install()
-                    if not result.get("ok", True) or result.get("erreur"):
-                        print(f"[mises à jour] {state['disponible']['version']} : {result.get('erreur')}", flush=True)
-                        if not str(result.get("erreur", "")).startswith("Pas maintenant"):
-                            _patch({"reessai_apres": int(time.time()) + RETRY_AFTER})
-                elif _in_window(state, now) and reason != "à jour":
-                    print(f"[mises à jour] {state['disponible']['version']} reportée : {reason}", flush=True)
-                    _patch(lambda s: s.update(reports=(s.get("reports", []) + [{"quand": int(now), "texte": reason}])[-50:]))
+            await tick()
         except Exception as e:  # noqa: BLE001 - la boucle ne doit jamais s'arrêter
             print(f"[mises à jour] {e}", flush=True)
         await asyncio.sleep(300)
+
+
+async def tick(now: float | None = None) -> str | None:
+    """Un tour de la boucle : suivi, vérification, et installation si c'est le moment. Rend la raison d'attendre."""
+    await _follow()
+    state = _load()
+    if time.time() - state.get("verifie", 0) > CHECK_EVERY:
+        state = await check()
+    if PUBLIC_KEY and state.get("disponible"):
+        now = now or time.time()
+        reason = due(state, now)
+        if reason is None:
+            etat = (await _launcher("GET", "/update/status", timeout=10)).get("etat", {})
+            failed = _failed_here(state["disponible"], etat)
+            reason = f"elle a déjà échoué ici ({', '.join(failed)}) : elle attend la suivante ou un clic" if failed else None
+        reason = reason or await routine_soon()
+        if reason is None:
+            result = await install()
+            if not result.get("ok", True) or result.get("erreur"):
+                print(f"[mises à jour] {state['disponible']['version']} : {result.get('erreur')}", flush=True)
+                if not str(result.get("erreur", "")).startswith("Pas maintenant"):
+                    _patch({"reessai_apres": int(time.time()) + RETRY_AFTER})
+                return result.get("erreur")
+        elif _in_window(state, now) and reason != "à jour":
+            # Le journal prouve chaque report : quand, et pourquoi (tâche, validation, écran, routine…).
+            print(f"[mises à jour] {state['disponible']['version']} reportée : {reason}", flush=True)
+            _patch(lambda s: s.update(reports=(s.get("reports", []) + [{"quand": int(now), "texte": reason}])[-50:]))
+        return reason
+    return "à jour"
 
 
 async def summary() -> dict:
@@ -484,6 +503,7 @@ async def summary() -> dict:
                                           "les mises à jour automatiques sont désactivées."),
         "en_cours": bool(etat.get("en_cours")) and etat["en_cours"].get("phase") != "intervention",
         "intervention": (etat.get("en_cours") or {}).get("non_restaures") if (etat.get("en_cours") or {}).get("phase") == "intervention" else None,
+        "gardes": etat.get("gardes") or [],
         "dernier_rapport": etat.get("dernier_rapport"),
         "historique": list(reversed(etat.get("historique", [])))[:20],
     }

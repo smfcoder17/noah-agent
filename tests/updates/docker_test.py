@@ -243,8 +243,16 @@ assert u.load_state()["en_cours"]["phase"] == "intervention" and c.containers.ge
 assert "migre" in schema("noahtest-agent-a")
 rep = u.resolve("garder")
 assert u.load_state()["en_cours"] is None and c.containers.get("noahtest-agent-a").status != "running"
-assert u.apply(*signed({"hermes": ref("app", "v1b")}, "2.6.0"))["ok"] is not None  # les mises à jour reprennent
-print("10. intervention : « réessayer » refait la restauration (toujours impossible), « garder » ferme le journal")
+assert "noahtest-agent-a" in u.load_state()["gardes"]
+rep = u.apply(*signed({"hermes": ref("app", "v1b")}, "2.6.0"))  # les mises à jour reprennent, sans toucher au gardé
+assert rep["ok"] is True, rep
+a = c.containers.get("noahtest-agent-a")
+assert a.image.id == img("v1") and a.status != "running" and "migre" in schema("noahtest-agent-a")
+assert c.containers.get("noahtest-agent-b").image.id == img("v1b") and c.containers.get("noahtest-agent-b").status == "running"
+done_tx()
+u.resolve("liberer")
+assert not u.load_state().get("gardes")
+print("10. intervention : « réessayer » refait la restauration (toujours impossible), « garder » ferme le journal ; la mise à jour suivante passe sans toucher au conteneur gardé ; « libérer » le rend")
 
 # 11. Agent arrêté par l'utilisateur : recréé sur la nouvelle image et laissé arrêté, même coupé au milieu.
 for crash in ("", "arrete-renomme"):
@@ -276,6 +284,45 @@ u.recover()
 fleet_is("v1")
 done_tx()
 print("13. ancien conteneur disparu : recréé sur l'image d'avant, données d'avant remises (témoins exacts)")
+
+# 14. Le canari échoue : les agents jamais touchés ne sont ni arrêtés ni redémarrés (pas de coupure inutile).
+start_fleet()
+started = c.containers.get("noahtest-agent-b").attrs["State"]["StartedAt"]
+rep = u.apply(*signed({"hermes": ref("app", "v4")}, "3.0.0"))
+assert not rep["ok"], rep
+fleet_is("v1")
+assert c.containers.get("noahtest-agent-b").attrs["State"]["StartedAt"] == started, "agent jamais touché redémarré"
+done_tx()
+print("14. canari en échec : l'agent jamais touché n'a pas été arrêté ni redémarré")
+
+# 15. Coupure pendant la recréation de l'ancienne version (nom de côté « -neuf ») : reprise depuis ce nom.
+start_fleet()
+subprocess.run([sys.executable, "/tests/updates/crash_child.py", "v3", "3.1.0"],
+               env=dict(os.environ, NOAH_TEST_CRASH_AT="demarre"), capture_output=True)
+c.containers.get("noahtest-agent-a-ancien").remove(force=True)
+run = subprocess.run([sys.executable, "/tests/updates/crash_child.py", "recover"],
+                     env=dict(os.environ, NOAH_TEST_CRASH_AT="neuf-renomme"), capture_output=True, text=True)
+assert run.returncode == 137 and u._get("noahtest-agent-a") is None and u._get("noahtest-agent-a-neuf"), run.stderr[-300:]
+u.recover()
+fleet_is("v1")
+assert u._get("noahtest-agent-a-neuf") is None
+done_tx()
+print("15. coupure pendant la recréation de l'ancienne version : reprise depuis « -neuf », données d'avant, témoins exacts")
+
+# 16. Instantané attendu mais perdu (inventaire supprimé) alors que la nouvelle version a tourné : pas de démarrage
+# sur des données inconnues, intervention.
+start_fleet()
+subprocess.run([sys.executable, "/tests/updates/crash_child.py", "v3", "3.2.0"],
+               env=dict(os.environ, NOAH_TEST_CRASH_AT="demarre"), capture_output=True)
+snap = u.load_state()["en_cours"]["elements"][0]["sauvegarde"]
+sh("noahtest-backups", f"rm /data/{snap.split('/backups/', 1)[1]}/inventaire.json")
+u.recover()
+s = u.load_state()
+assert s["en_cours"]["phase"] == "intervention" and s["en_cours"]["non_restaures"] == ["noahtest-agent-a"], s["en_cours"]
+assert c.containers.get("noahtest-agent-a").status != "running"
+u.resolve("garder")
+u.resolve("liberer")
+print("16. instantané perdu après le démarrage de la nouvelle version : intervention, l'agent n'est pas démarré")
 
 # 12. Coupure au milieu du retour arrière (pendant la restauration des données) : la reprise le termine.
 start_fleet()

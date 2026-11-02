@@ -4,5 +4,8 @@ import sys
 sys.path.insert(0, "/tests/updates")
 from harness import ref, signed, u  # noqa: E402
 
-tag, version = sys.argv[1], sys.argv[2]
-print(u.apply(*signed({"hermes": ref("app", tag)}, version)), flush=True)
+if sys.argv[1] == "recover":
+    u.recover()
+else:
+    tag, version = sys.argv[1], sys.argv[2]
+    print(u.apply(*signed({"hermes": ref("app", tag)}, version)), flush=True)

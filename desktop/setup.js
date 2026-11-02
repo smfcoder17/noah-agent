@@ -37,6 +37,24 @@ $("server").addEventListener("input", () => {
   }
 });
 
+// Code court accepté : le serveur attend que l'utilisateur autorise cet ordinateur depuis un appareil déjà relié.
+// Flux navigateur : la page d'accord affiche un nombre ; le recopier ici prouve que c'est bien toi qui as accepté.
+window.noahSetup.onAskNumber(() => {
+  $("numberRow").style.display = "flex";
+  $("number").focus();
+  $("go").textContent = "Autorise dans le navigateur, puis saisis le nombre ici";
+});
+$("number").addEventListener("input", () => {
+  $("number").value = $("number").value.replace(/\D/g, "");
+  if ($("number").value.length === 2) window.noahSetup.sendNumber($("number").value);
+});
+
+window.noahSetup.onWaiting((verification) => {
+  $("go").textContent = verification
+    ? `Sur l'appareil déjà relié, accepte cet ordinateur et saisis le nombre ${verification}`
+    : "En attente de ton accord…";
+});
+
 form.onsubmit = async (e) => {
   e.preventDefault();
   $("error").textContent = "";

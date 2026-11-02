@@ -19,11 +19,11 @@ function origin(raw) {
   }
 }
 
-/** Le lien du QR code : https://serveur/#appairage=<jeton> (anciens codes : ?appairage=). */
+/** Le lien du QR code : https://serveur/#appairage=<jeton> (jamais dans l'adresse elle-même : elle finirait dans les journaux). */
 function parseLink(text) {
   try {
     const u = new URL(text.trim());
-    const code = (u.hash.match(/appairage=([\w-]+)/) || [])[1] || u.searchParams.get("appairage");
+    const code = (u.hash.match(/appairage=([\w-]+)/) || [])[1];
     return code ? { server: u.origin, code } : null;
   } catch {
     return null;
@@ -45,8 +45,34 @@ async function claim(server, code) {
     return say(`Impossible de joindre ${server}. Vérifie ta connexion et l'adresse.`);
   }
   const body = await r.json().catch(() => ({}));
+  if (r.ok && body.attente) return waitForApproval(server, body.sondage, body.expire, body.verification);
   if (!r.ok || !body.token) return say(body.detail || `Le serveur a refusé (${r.status}).`);
   await shell.connect({ server, token: body.token });
+}
+
+/**
+ * Le serveur attend que l'utilisateur autorise ce téléphone dans Réglages → Appareils, sur l'appareil où le code est
+ * affiché, en recopiant le nombre montré ici. On sonde jusqu'au refus ou à l'expiration (410) seulement.
+ */
+async function waitForApproval(server, sondage, expire, verification) {
+  say(`Sur l'appareil où le code est affiché, accepte ce téléphone et saisis le nombre ${verification}.`);
+  const until = Date.now() + (expire || 1200) * 1000;
+  while (Date.now() < until) {
+    await new Promise((ok) => setTimeout(ok, 2000));
+    let r;
+    try {
+      r = await fetch(`${server}/api/pairing/flow/poll`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sondage }),
+      });
+    } catch {
+      continue; // réseau coupé un instant : on réessaie
+    }
+    if (r.status === 410) return say("Demande refusée ou expirée. Affiche un nouveau code et recommence.");
+    if (!r.ok) continue; // en attente (404), mise à jour du serveur (503), ralentissement (429)
+    const body = await r.json().catch(() => ({}));
+    if (body.token) return shell.connect({ server, token: body.token });
+  }
+  say("Demande expirée. Affiche un nouveau code et recommence.");
 }
 
 $("scan").onclick = async () => {

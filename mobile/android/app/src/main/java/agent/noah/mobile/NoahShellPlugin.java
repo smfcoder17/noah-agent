@@ -45,7 +45,9 @@ public class NoahShellPlugin extends Plugin {
 
     @PluginMethod
     public void forget(PluginCall call) {
-        new Pairing(getContext()).forget();
+        Pairing pairing = new Pairing(getContext());
+        pairing.forget();
+        new Thread(pairing::revokeForgotten).start();
         CookieManager.getInstance().removeAllCookies(null);
         CookieManager.getInstance().flush();
         call.resolve();

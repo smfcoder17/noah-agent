@@ -53,8 +53,8 @@
   --color-warn-soft: var(--warn-soft);
   --color-danger: var(--danger);
   --color-ok: var(--ok);
-  --font-sans: "Geist", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
-  --font-mono: "Geist Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+  --font-sans: "Geist Variable", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, "Cascadia Code", Consolas, monospace;
 }
 
 html, body, #root { height: 100%; }

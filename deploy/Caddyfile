@@ -19,6 +19,15 @@
 		-Server
 	}
 
+	# Journal d'accès (qui s'est connecté, d'où) dans le volume de Caddy, tournant. Caddy n'y écrit ni l'en-tête
+	# Authorization ni les cookies, et aucun jeton ne passe par l'adresse (les liens d'appairage sont dans le #).
+	log {
+		output file /data/access.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+	}
+
 	# Le serveur écrit les réponses de l'agent au fil de l'eau : on les transmet sans tampon.
 	reverse_proxy server:8080 {
 		flush_interval -1

@@ -213,3 +213,48 @@ st = u._load()
 assert u.due({**st, "disponible": {"version": "3.0.0"}, "ignoree": None, "majeure": False, "reessai_apres": time.time() + 3600,
               "reportee": 0, "auto": True}, time.time()).startswith("dernier essai raté")
 print("recul de 6 h après un échec sans faute de la version : OK")
+
+# tick() dans le créneau : tâche en cours, écran ouvert, routine proche -> pas d'installation, raison au journal.
+applied = []
+_old_handler = handler
+
+
+def handler2(request: httpx.Request) -> httpx.Response:
+    if str(request.url).endswith("/update/apply"):
+        applied.append(json.loads(request.content))
+        return httpx.Response(200, json={"ok": True, "en_cours": True})
+    if str(request.url).endswith("/update/status"):
+        return httpx.Response(200, json={"actuel": {"noah-server": [{"digests": [], "image_id": "old"}]}, "etat": {}})
+    return _old_handler(request)
+
+
+u.httpx.AsyncClient = lambda **kw: RealClient(transport=httpx.MockTransport(handler2), **{k: v for k, v in kw.items() if k != "transport"})
+served["raw"], served["sig"] = signed({"version": "2.1.0", "images": {"noah-server": "ghcr.io/smfcoder/noah-server@" + D}})
+u._patch({"verifie": 0, "disponible": None, "ignoree": None, "reessai_apres": 0, "reportee": 0, "auto": True, "heure": 3,
+          "fuseau": "America/Toronto", "reports": [], "max_vue": "", "installee": None})
+asyncio.run(u.check())
+u._patch({"majeure": False, "verifie": time.time()})
+night = datetime(2026, 11, 3, 4, 0, tzinfo=ZoneInfo("America/Toronto")).timestamp()
+routines_at = late
+for setup, word in ((lambda: u._task_state.update(c1="work"), "tâche"), (lambda: setattr(u, "screens", 1), "écran"),
+                    (lambda: None, "routine")):
+    u._task_state.clear()
+    u.screens = 0
+    routines_at = soon if word == "routine" else late
+    setup()
+    reason = asyncio.run(u.tick(night))
+    assert word in reason, (word, reason)
+    assert word in u._load()["reports"][-1]["texte"]
+assert not applied, "installé malgré une raison d'attendre"
+u._task_state.clear()
+u.screens = 0
+print("tick() dans le créneau : tâche, écran, routine -> rien d'installé, raison écrite au journal des reports : OK")
+
+# « Installer maintenant » : une majeure annoncée hier s'installe quand même d'un clic (délai de 7 jours sauté).
+routines_at = late
+u._patch({"majeure": True, "annoncee": time.time() - 86400, "reessai_apres": 0})
+assert "7 jours" in u.due(u._load(), time.time())
+result = asyncio.run(u.install(manual=True))
+assert applied and applied[-1]["force"] is True and result.get("ok"), (result, applied)
+u.maintenance = False
+print("clic « Installer maintenant » : majeure de la veille installée, en réessayant une version bloquée : OK")

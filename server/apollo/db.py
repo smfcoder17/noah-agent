@@ -80,6 +80,9 @@ def init() -> None:
         db.execute("CREATE INDEX IF NOT EXISTS usage_created ON usage(created_at)")
         db.execute("CREATE INDEX IF NOT EXISTS messages_conversation ON messages(conversation_id)")
         db.execute("CREATE INDEX IF NOT EXISTS conversations_agent ON conversations(agent_id)")
+        # Abonnements Web Push : un par appareil, rattaché à sa session (déconnecter l'appareil coupe ses notifications).
+        db.execute("CREATE TABLE IF NOT EXISTS push_subscriptions (endpoint TEXT PRIMARY KEY, session TEXT NOT NULL, "
+                   "p256dh TEXT NOT NULL, auth TEXT NOT NULL, created_at TEXT)")
         # WAL : les lectures ne bloquent plus pendant une écriture (flux de chat et relais en parallèle).
         db.execute("PRAGMA journal_mode = WAL")
 

@@ -24,7 +24,23 @@ const ModelPicker = lazy(() => import("@/components/ModelPicker").then((m) => ({
 const SidePanel = lazy(() => import("@/components/SidePanel").then((m) => ({ default: m.SidePanel })));
 const SettingsDialog = lazy(() => import("@/components/Settings").then((m) => ({ default: m.SettingsDialog })));
 
-type Screen = "loading" | "setup" | "login" | "model" | "app" | "error";
+type Screen = "loading" | "setup" | "login" | "model" | "app" | "error" | "pairing";
+const WAITING = "noah:appairage";
+
+/** Téléphone qui a scanné le QR code : il attend que l'utilisateur l'accepte sur l'appareil où le code est affiché. */
+async function waitForApproval(sondage: string, expire: number) {
+  const until = Date.now() + expire * 1000;
+  while (Date.now() < until) {
+    await new Promise((ok) => setTimeout(ok, 2000));
+    try {
+      await send("/api/pairing/flow/poll", { sondage }); // la session arrive en cookie
+      return;
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 410) throw new Error("Demande refusée ou expirée. Scanne un nouveau code.");
+    }
+  }
+  throw new Error("Demande expirée. Scanne un nouveau code.");
+}
 
 /** Garde l'ancien objet si les données n'ont pas changé : rien ne se redessine pour rien toutes les 4 s. */
 function same<T>(cur: T, next: T): T {
@@ -47,15 +63,49 @@ const conversationsCache = new Map<string, Conversation[]>();
 export default function App() {
   const [screen, setScreen] = useState<Screen>("loading");
   const [error, setError] = useState("");
+  const [verification, setVerification] = useState("");
 
   const boot = useCallback(async () => {
     try {
       // Téléphone qui vient de scanner le QR code de Réglages > Téléphone : il se connecte, puis l'adresse est nettoyée.
-      // Le code est dans le fragment (#), jamais envoyé au serveur ni écrit dans ses journaux ; ?appairage= : anciens QR codes.
-      const code = location.hash.match(/appairage=([\w-]+)/)?.[1] ?? new URLSearchParams(location.search).get("appairage");
+      // Le code est dans le fragment (#), jamais envoyé au serveur ni écrit dans ses journaux.
+      // La demande en attente survit à un rechargement de la page (le QR code, lui, a déjà servi).
+      type Waiting = { sondage: string; verification: string; until: number };
+      const code = location.hash.match(/appairage=([\w-]+)/)?.[1];
+      let waiting: Waiting | null = null;
+      try {
+        waiting = JSON.parse(sessionStorage.getItem(WAITING) ?? "null");
+      } catch {
+        waiting = null;
+      }
       if (code) {
         history.replaceState(null, "", location.pathname);
-        await send("/api/pairing/claim", { code }).catch((e) => setError((e as Error).message));
+        const r = await send<{ sondage: string; verification: string; expire: number }>("/api/pairing/claim", { code }).catch((e) => {
+          setError((e as Error).message);
+          return null;
+        });
+        if (r) waiting = { sondage: r.sondage, verification: r.verification, until: Date.now() + r.expire * 1000 };
+      }
+      if (waiting && waiting.until > Date.now()) {
+        try {
+          sessionStorage.setItem(WAITING, JSON.stringify(waiting));
+        } catch {
+          /* stockage bloqué : l'attente ne survivra pas à un rechargement */
+        }
+        setVerification(waiting.verification);
+        setScreen("pairing");
+        try {
+          await waitForApproval(waiting.sondage, (waiting.until - Date.now()) / 1000);
+        } catch (e) {
+          setError((e as Error).message);
+          return;
+        } finally {
+          try {
+            sessionStorage.removeItem(WAITING);
+          } catch {
+            /* rien à nettoyer */
+          }
+        }
       }
       keepApprovalRequest();
       const status = await get<Status>("/api/status");
@@ -82,6 +132,20 @@ export default function App() {
   }, []);
 
   if (screen === "loading") return <p className="p-10 text-center text-muted-foreground">Chargement…</p>;
+  if (screen === "pairing")
+    return (
+      <div className="mx-auto flex max-w-sm flex-col items-center gap-4 p-10 text-center">
+        {error ? (
+          <p className="text-sm text-danger">{error}</p>
+        ) : (
+          <>
+            <p className="text-sm text-muted-foreground">Sur l'appareil où le code est affiché, accepte ce téléphone et saisis :</p>
+            <p className="font-mono text-5xl font-semibold tracking-widest">{verification}</p>
+            <p className="text-xs text-muted-foreground">Ce nombre prouve que c'est bien toi qui as scanné le code.</p>
+          </>
+        )}
+      </div>
+    );
   if (screen === "error") return <p className="p-10 text-center text-danger">Impossible de joindre le serveur Noah Agent : {error}</p>;
   if (screen === "setup" || screen === "login") return <AuthScreen mode={screen} onDone={boot} />;
   if (screen === "model")

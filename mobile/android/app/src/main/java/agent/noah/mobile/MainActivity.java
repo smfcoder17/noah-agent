@@ -21,6 +21,7 @@ public class MainActivity extends BridgeActivity {
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(NoahShellPlugin.class);
         Pairing pairing = new Pairing(this);
+        new Thread(pairing::revokeForgotten).start(); // sessions oubliées hors ligne : révoquées dès que possible
         server = pairing.server();
         token = server == null ? null : pairing.token();
         if (server != null && token != null) {

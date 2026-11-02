@@ -2,7 +2,7 @@
 // L'utilisateur, déjà connecté ici, voit quel appareil demande l'accès et décide. Le mot de passe ne passe jamais par l'app.
 import { Laptop, Loader2, Smartphone } from "lucide-react";
 import { useEffect, useState } from "react";
-import { get, send } from "@/lib/api";
+import { ApiError, get, send } from "@/lib/api";
 import { Button, ErrorText } from "./ui";
 
 const KEY = "noah:autoriser";
@@ -20,7 +20,7 @@ export function keepApprovalRequest() {
   history.replaceState(null, "", location.pathname + location.search);
 }
 
-type Request = { appareil: string; type: string; ip: string };
+type Request = { appareil: string; type: string; ip: string; autre_reseau: boolean; verification: string | null };
 
 export function DeviceApproval() {
   const [id] = useState(() => {
@@ -33,6 +33,7 @@ export function DeviceApproval() {
   const [req, setReq] = useState<Request | null>(null);
   const [state, setState] = useState<"ask" | "busy" | "ok" | "no">("ask");
   const [error, setError] = useState("");
+  const [code, setCode] = useState("");
 
   useEffect(() => {
     if (!id) return;
@@ -51,11 +52,12 @@ export function DeviceApproval() {
   const decide = async (decision: "autoriser" | "refuser") => {
     setState("busy");
     try {
-      await send(`/api/pairing/flow/${id}/${decision}`, {});
+      await send(`/api/pairing/flow/${id}/${decision}`, { verification: code });
       sessionStorage.removeItem(KEY);
       setState(decision === "autoriser" ? "ok" : "no");
     } catch (e) {
       setError((e as Error).message);
+      if (e instanceof ApiError && e.status === 403) setReq(null); // mauvais nombre : la demande est annulée
       setState("ask");
     }
   };
@@ -80,11 +82,30 @@ export function DeviceApproval() {
             <p className="text-sm">
               <b>{req.appareil}</b> demande à se connecter à ton compte Noah{req.ip ? <> depuis l'adresse <span className="font-mono">{req.ip}</span></> : null}.
             </p>
-            <p className="text-xs text-muted-foreground">Autorise seulement si tu viens de lancer cette demande toi-même. Tu pourras le déconnecter dans Réglages → Appareils.</p>
+            {req.autre_reseau && (
+              <p className="rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn">
+                Cette demande ne vient pas du même réseau que toi. Si tu n'as pas l'appareil en main, refuse.
+              </p>
+            )}
+            {req.verification ? (
+              <p className="text-sm">
+                Après avoir autorisé, saisis ce nombre dans l'app : <b className="font-mono text-2xl tracking-widest">{req.verification}</b>
+              </p>
+            ) : (
+            <label className="flex flex-col gap-1 text-sm">
+              Nombre affiché sur l'appareil
+              <input
+                inputMode="numeric" autoComplete="off" maxLength={2} value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+                className="w-24 rounded-lg border border-border bg-background px-3 py-2 text-center font-mono text-lg tracking-widest"
+              />
+            </label>
+            )}
+            <p className="text-xs text-muted-foreground">Autorise seulement si tu viens de lancer cette demande toi-même et que tu as l'appareil sous les yeux. Tu pourras le déconnecter dans Réglages → Appareils.</p>
             <ErrorText>{error}</ErrorText>
             <div className="flex justify-end gap-2">
               <Button variant="ghost" onClick={() => decide("refuser")} disabled={state === "busy"}>Refuser</Button>
-              <Button onClick={() => decide("autoriser")} disabled={state === "busy"}>
+              <Button onClick={() => decide("autoriser")} disabled={state === "busy" || (!req.verification && code.length !== 2)}>
                 {state === "busy" && <Loader2 className="animate-spin" />}Autoriser cet appareil
               </Button>
             </div>

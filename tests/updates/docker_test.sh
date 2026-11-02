@@ -7,8 +7,8 @@ cd "$(dirname "$0")/../.."
 REG=localhost:5055
 HERE="$(pwd -W 2>/dev/null || pwd)"
 cleanup() {
-  docker rm -f noahtest-registry noahtest-launcher noahtest-launcher-ancien noahtest-relais \
-    noahtest-agent-a noahtest-agent-b noahtest-agent-a-ancien noahtest-agent-b-ancien >/dev/null 2>&1 || true
+  docker rm -f noahtest-registry noahtest-launcher noahtest-launcher-ancien noahtest-relais noahtest-caddy noahtest-server \
+    noahtest-agent-a noahtest-agent-b noahtest-agent-a-ancien noahtest-agent-b-ancien noahtest-agent-a-neuf >/dev/null 2>&1 || true
   for owner in noahtest-runner noahtest-launcher; do
     docker ps -aq --filter label=noah.outil=$owner | xargs -r docker rm -f >/dev/null 2>&1 || true
   done
@@ -21,7 +21,7 @@ trap cleanup EXIT
 docker network create noahtest-net >/dev/null
 docker volume create --driver local --opt type=tmpfs --opt device=tmpfs --opt o=size=64k noahtest-tiny >/dev/null
 docker run -d --rm --name noahtest-registry -p 5055:5000 registry:2 >/dev/null
-for v in v1 v2 v3 v1b; do
+for v in v1 v2 v3 v4 v1b; do
   docker build -q --build-arg APPV=$v -t $REG/noahtest/app:$v -f tests/updates/app.Dockerfile tests/updates >/dev/null
   docker push -q $REG/noahtest/app:$v >/dev/null
 done
@@ -33,6 +33,11 @@ run() {
 }
 run --name noahtest-runner -e NOAH_LAUNCHER_NAME=noahtest-runner -v noahtest-state2:/state \
   noahtest/launcher python /tests/updates/docker_test.py
+
+# Contrôle de bout en bout à travers un vrai Caddy.
+docker pull -q caddy:2.10-alpine >/dev/null
+run --name noahtest-runner -e NOAH_LAUNCHER_NAME=noahtest-runner -e TESTS_DIR="$HERE/tests" -v noahtest-state2:/state \
+  noahtest/launcher python /tests/updates/caddy_test.py
 
 # Le lanceur remplacé par son relais : trois versions du lanceur (a, b saine, « casse » qui ne démarre pas).
 docker tag noahtest/launcher $REG/noahtest/launcher:a

@@ -62,6 +62,7 @@ _lock = threading.Lock()
 SERVER, CADDY = "apollo-server", "apollo-caddy"
 LAUNCHER = os.environ.get("NOAH_LAUNCHER_NAME", "apollo-launcher")
 RELAY = os.environ.get("NOAH_RELAY_NAME", "apollo-launcher-relais")
+IS_RELAY = os.environ.get("NOAH_IS_RELAY") == "1"
 ORDER = ["hermes", "navigateur", "caddy", "noah-server"]
 STEPS = ["arret", "sauve", "renomme", "cree", "demarre", "sain"]
 # Fichiers que Docker Compose copie dans le conteneur à sa création (configs: content) : une recréation les perdrait.
@@ -134,11 +135,16 @@ _write_lock = threading.Lock()
 
 
 def update_state(change) -> dict:
-    with _write_lock:
+    """Lecture, modification, écriture : sous un verrou entre processus (lanceur, relais), fichier temporaire unique."""
+    import fcntl
+    import uuid
+    STATE.parent.mkdir(parents=True, exist_ok=True)
+    with _write_lock, open(STATE.parent / ".verrou-etat", "a") as lockfh:
+        fcntl.flock(lockfh, fcntl.LOCK_EX)
         state = load_state()
         change(state)
         STATE.parent.mkdir(parents=True, exist_ok=True)
-        tmp = STATE.with_suffix(f".{os.getpid()}.tmp")
+        tmp = STATE.with_suffix(f".{uuid.uuid4().hex}.tmp")
         with open(tmp, "w") as fh:
             fh.write(json.dumps(state, ensure_ascii=False, indent=1))
             fh.flush()
@@ -335,8 +341,8 @@ def _tool(args: list[str], volumes: list[str], folder_rw: bool = True) -> str:
 def backup(volumes: list[str], folder: str) -> None:
     try:
         _tool(["snapshot", folder], volumes)
-    except ToolFailed as e:
-        raise BackupFailed(str(e)) from e
+    except Exception as e:  # noqa: BLE001 - délai dépassé, Docker indisponible… : jamais la faute de la nouvelle image
+        raise BackupFailed(str(e)[:300]) from e
 
 
 def space(volumes: list[str]) -> dict:
@@ -502,11 +508,11 @@ def volumes_of(name: str) -> list[str]:
 
 def _health_url(name: str) -> str | None:
     if name == SERVER:
-        return "http://apollo-server:8080/api/status"
+        return f"http://{SERVER}:8080/api/status"
     if name == LAUNCHER or name.endswith("-launcher"):
         return f"http://{name}:9000/health"
     if name == CADDY:
-        return "http://apollo-caddy:80/"  # Caddy répond (redirection vers HTTPS) : il a bien sa configuration
+        return f"http://{CADDY}:80/"  # Caddy répond (redirection vers HTTPS) : il a bien sa configuration
     if name.startswith("apollo-agent-"):
         return f"http://{name}:8642/health"
     if name.startswith("apollo-browser-"):
@@ -534,16 +540,18 @@ def _through_caddy() -> bool:
     if not _get(CADDY):
         return True  # installation sans Caddy (ordinateur local)
     try:
-        with urllib.request.urlopen("http://apollo-server:8080/api/public", timeout=5) as r:
+        with urllib.request.urlopen(f"http://{SERVER}:8080/api/public", timeout=5) as r:
             address = json.loads(r.read()).get("adresse") or ""
         host = address.split("://", 1)[-1].split("/", 1)[0].split(":", 1)[0] if address.startswith("https://") else ""
     except Exception:  # noqa: BLE001
         return False
     if not host:
         return True
-    ctx = ssl.create_default_context()  # certificat vérifié pour le nom public, comme le ferait un navigateur
+    # Certificat vérifié pour le nom public, comme le ferait un navigateur (tests : autorité locale de Caddy).
+    ctx = ssl.create_default_context(cafile=os.environ.get("NOAH_TEST_CA") or None)
+    deadline = time.monotonic() + 20  # échéance globale : un flux qui traîne compte comme un échec
     try:
-        raw = socket.create_connection(("apollo-caddy", 443), timeout=10)
+        raw = socket.create_connection((CADDY, 443), timeout=10)
         sock = ctx.wrap_socket(raw, server_hostname=host)
         conn = http.client.HTTPSConnection(host, 443, timeout=10, context=ctx)
         conn.sock = sock
@@ -552,11 +560,14 @@ def _through_caddy() -> bool:
         resp = conn.getresponse()
         if resp.status != 200:
             return False
-        events = 0
+        events, read = 0, 0
         while events < 2:
-            line = resp.fp.readline()
+            if time.monotonic() > deadline or read > 65536:
+                return False
+            line = resp.fp.readline(4096)
             if not line:
                 return False
+            read += len(line)
             events += line.startswith(b"data:")
         return True
     except Exception:  # noqa: BLE001
@@ -725,7 +736,20 @@ def undo(item: dict) -> bool:
     if item.get("restauration") == "impossible":
         return False  # en attente d'une décision (Réglages > Mises à jour) : on ne le démarre pas
     with LOCKS.get(_component(name)) or _nolock():
-        old, main = _get(f"{name}-ancien"), _get(name)
+        old, main, spare = _get(f"{name}-ancien"), _get(name), _get(f"{name}-neuf")
+        if spare is not None and main is None and old is None:
+            # Coupure pendant la recréation de l'ancienne version : on la reprend depuis le neuf mis de côté.
+            _create_like(spare, name, before)
+            main = client.containers.get(name)
+        if spare is not None and main is not None:
+            spare.remove(force=True)
+        untouched = (item.get("etape") is None and old is None and main is not None
+                     and (not before or main.image.id == before))
+        if untouched:
+            # Jamais touché (après le canari dans l'ordre) : pas d'arrêt, pas de restauration, pas de coupure.
+            if start and main.status != "running":
+                main.start()
+            return True
         if old is not None:
             if main is not None:
                 main.stop(timeout=20)  # la version fautive n'écrit plus pendant la restauration
@@ -736,6 +760,7 @@ def undo(item: dict) -> bool:
             # L'ancien conteneur a disparu (journal en retard) : on recrée l'ancienne version, même configuration.
             main.stop(timeout=20)
             main.rename(f"{name}-neuf")
+            _crash("neuf-renomme")
             _create_like(main, name, before)
             main.remove(force=True)
             main = client.containers.get(name)
@@ -751,7 +776,13 @@ def undo(item: dict) -> bool:
                 unpack(snap, volumes_of(name))
                 _item(name, restauration="faite")
             except NoSnapshot:
-                _item(name, restauration="faite")  # rien n'avait changé
+                if item.get("etape") in (None, "arret"):
+                    _item(name, restauration="faite")  # instantané jamais terminé : la nouvelle version n'a pas tourné
+                else:
+                    # L'instantané devait exister (étape franchie) et il manque : on ne sait pas ce qu'il y a dedans.
+                    _item(name, restauration="impossible")
+                    _log(f"{name} : instantané attendu mais introuvable ({snap}). Il reste arrêté.")
+                    return False
             except Exception as e:  # noqa: BLE001
                 _item(name, restauration="impossible")
                 _log(f"{name} : données d'avant impossibles à remettre ({str(e)[:160]}). Il reste arrêté ; "
@@ -792,6 +823,7 @@ def _commit(tx: dict) -> None:
 
     def close(s):
         s.setdefault("images", {}).update(pins)
+        s.setdefault("acceptes", {})[tx["version"]] = tx.get("empreinte")
         if _semver(tx["version"]) > _semver(s.get("version_max", "")):
             s["version_max"] = tx["version"]
         s["en_cours"] = None
@@ -799,6 +831,17 @@ def _commit(tx: dict) -> None:
     for comp in {i["composant"] for i in tx["elements"]}:
         if comp in AFTER:
             threading.Thread(target=AFTER[comp], daemon=True).start()
+
+
+def _commit_retry(tx: dict, tries: int = 3) -> None:
+    for attempt in range(tries):
+        try:
+            _commit(load_state()["en_cours"] or tx)
+            return
+        except Exception:  # noqa: BLE001
+            if attempt == tries - 1:
+                raise
+            time.sleep(10 * (attempt + 1))
 
 
 def _recreate_stopped(item: dict, image: str) -> None:
@@ -828,7 +871,7 @@ def _fail(tx: dict, why: str, bad_ref: str | None) -> dict:
     """Échec : tout revient. Le journal ne se ferme que si tout est revenu ; sinon il reste ouvert (intervention).
     Rejouable : relancé par la reprise si une coupure tombe au milieu."""
     _tx(lambda t: t.update(phase="retour_arriere", raison=why))
-    if tx.get("lanceur") and socket.gethostname() != LAUNCHER and _get(LAUNCHER) and _runs(LAUNCHER, tx["lanceur"]):
+    if tx.get("lanceur") and IS_RELAY and _get(LAUNCHER) and _runs(LAUNCHER, tx["lanceur"]):
         _get(LAUNCHER).stop(timeout=20)  # relais : le lanceur neuf ne touche plus à rien pendant le retour arrière
     left = _undo_all(load_state()["en_cours"]["elements"])
     if tx.get("lanceur"):
@@ -944,20 +987,21 @@ def apply(raw: bytes, signature: str, wanted: list[str] | None = None, retry_blo
             _log(report["erreur"])
             _report(report)
             return report
-        update_state(lambda s: s.setdefault("acceptes", {}).update({version: digest}))
         caddy_before = _through_caddy() if ("caddy" in targets or "noah-server" in targets) else False
         folder = f"/backups/maj-{time.strftime('%Y%m%d-%H%M%S')}"
         items = []
+        kept = set(state.get("gardes", []))  # mis de côté par l'utilisateur après une intervention : on n'y touche pas
         for comp in [c for c in ORDER if c in targets]:
             for name in names.get(comp, []):
-                if not _runs(name, targets[comp]):
+                if name not in kept and not _runs(name, targets[comp]):
                     items.append({"nom": name, "composant": comp, "etape": None,
                                   "sauvegarde": f"{folder}/{name}" if volumes_of(name) else None,
                                   "etait_arrete": _stopped_on_purpose(name),
                                   "image_avant": client.containers.get(name).image.id})
         launcher_ref = targets.get("noah-launcher") if not _runs(LAUNCHER, targets.get("noah-launcher", "")) else None
         tx = {"version": version, "depuis": int(time.time()), "phase": "remplacement", "cibles": targets,
-              "sauvegardes": folder, "elements": items, "lanceur": launcher_ref, "caddy_avant": caddy_before}
+              "sauvegardes": folder, "elements": items, "lanceur": launcher_ref, "caddy_avant": caddy_before,
+              "empreinte": digest}
         update_state(lambda s: s.update(en_cours=tx))
         try:
             for item in items:
@@ -998,9 +1042,10 @@ def apply(raw: bytes, signature: str, wanted: list[str] | None = None, retry_blo
             rep = _fail(load_state()["en_cours"], f"erreur imprévue ({str(e)[:160]})", None)
             _report(rep)
             return rep
-        # Point de non-retour : à partir d'ici, une erreur laisse la validation ouverte et la reprise la termine.
+        # Point de non-retour : à partir d'ici, une erreur laisse la validation ouverte ; elle est réessayée (chaque
+        # geste est rejouable), ici puis par la surveillance.
         try:
-            _commit(load_state()["en_cours"])
+            _commit_retry(load_state()["en_cours"])
         except Exception as e:  # noqa: BLE001
             _log(f"Validation de {version} interrompue ({str(e)[:160]}) : elle sera terminée au prochain démarrage")
             report.update(ok=False, erreur="validation à terminer au prochain démarrage du lanceur", validation="a_terminer")
@@ -1032,7 +1077,7 @@ def _start_relay(image: str) -> None:
         volumes[state_volume] = {"bind": "/state", "mode": "rw"}
     env = {k: os.environ[k] for k in ("NOAH_UPDATE_OBSERVE", "NOAH_UPDATE_HEALTH", "NOAH_BACKUP_VOLUME", "NOAH_TEST_CRASH_RELAY")
            if k in os.environ}
-    env.update(NOAH_UPDATE_STATE="/state/updates.json", NOAH_LAUNCHER_NAME=LAUNCHER, NOAH_RELAY_NAME=RELAY)
+    env.update(NOAH_UPDATE_STATE="/state/updates.json", NOAH_LAUNCHER_NAME=LAUNCHER, NOAH_RELAY_NAME=RELAY, NOAH_IS_RELAY="1")
     if os.environ.get("NOAH_TEST_CRASH_RELAY"):
         env["NOAH_TEST_CRASH_AT"] = os.environ["NOAH_TEST_CRASH_RELAY"]
     # Lancé depuis l'image du lanceur actuel, qui a mené la transaction : si la nouvelle version est cassée, c'est un
@@ -1066,7 +1111,8 @@ def _relay() -> None:
                 if client.containers.get(LAUNCHER).status != "running":
                     client.containers.get(LAUNCHER).start()
                 _crash("relais-demarre")
-                ok = healthy(LAUNCHER) and observe([LAUNCHER], min(OBSERVE, 120)) is None
+                fleet = [LAUNCHER] + [i["nom"] for i in tx["elements"] if not i.get("etait_arrete")]
+                ok = healthy(LAUNCHER) and observe(fleet, min(OBSERVE, 120), tx.get("caddy_avant", False)) is None
             except Exception as e:  # noqa: BLE001
                 print(f"[mise à jour] relais : {str(e)[:300]}", flush=True)
             if ok:
@@ -1145,6 +1191,9 @@ def watchdog() -> None:
         time.sleep(300)
         try:
             tx = load_state().get("en_cours")
+            if tx and tx.get("phase") == "validation" and not (_get(RELAY) and _get(RELAY).status == "running"):
+                recover()  # validation interrompue par une erreur : rejouable, on la termine
+                continue
             if tx and tx.get("phase") == "lanceur" and time.time() - tx.get("lanceur_depuis", time.time()) > RELAY_TIMEOUT:
                 relay = _get(RELAY)
                 if relay:
@@ -1159,6 +1208,8 @@ def resolve(action: str) -> dict:
     données d'avant ; « garder » : laisser ces conteneurs arrêtés tels quels, fermer le journal (il s'en occupe)."""
     with state_lock():
         tx = load_state().get("en_cours")
+        if action == "liberer":
+            tx = {"phase": "intervention"}
         if not tx or tx.get("phase") != "intervention":
             return {"ok": False, "erreur": "Rien en attente"}
         if action == "reessayer":
@@ -1168,8 +1219,13 @@ def resolve(action: str) -> dict:
             _report(rep)
             return rep
         if action == "garder":
-            update_state(lambda s: s.update(en_cours=None))
+            kept = tx.get("non_restaures", [])
+            update_state(lambda s: (s.update(en_cours=None), s.update(gardes=sorted(set(s.get("gardes", [])) | set(kept)))))
             _log(f"Journal de {tx['version']} fermé à la main ; restés arrêtés : {', '.join(tx.get('non_restaures', []))}")
+            return {"ok": True}
+        if action == "liberer":
+            update_state(lambda s: s.update(gardes=[]))
+            _log("Conteneurs mis de côté rendus à Noah")
             return {"ok": True}
         return {"ok": False, "erreur": "Action inconnue"}
 

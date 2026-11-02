@@ -101,18 +101,36 @@ function serverOrigin(raw) {
 }
 const BAD_ADDRESS = { error: "Cette adresse n'est pas valide (exemple : https://noah.exemple.com)." };
 const deviceName = () => `Ordinateur ${os.hostname()}`;
+/** Même origine exacte que le serveur de Noah (un préfixe accepterait https://noah.exemple.com.evil.net). */
+function sameOrigin(url) {
+  try {
+    return !!origin && new URL(url).origin === origin;
+  } catch {
+    return false;
+  }
+}
+
 const jsonHeaders = () => ({ "Content-Type": "application/json", "X-Noah-Version": app.getVersion() });
 
 /** Session de cet appareil : chiffrée par le système (safeStorage : DPAPI sous Windows, Trousseau sous macOS,
  * libsecret sous Linux) dans config.json. Jamais en clair sur le disque. */
 function storedToken() {
   const sealed = readConfig().jeton;
-  if (!sealed || !safeStorage.isEncryptionAvailable()) return null;
+  if (!sealed || !secureStorage()) return null;
   try {
     return safeStorage.decryptString(Buffer.from(sealed, "base64"));
   } catch {
     return null;
   }
+}
+
+/**
+ * Chiffrement vraiment protégé par le système. Sous Linux sans trousseau (ni GNOME Keyring ni KWallet), Electron se
+ * rabat sur « basic_text », une clé écrite en dur dans Chromium : autant dire en clair. On refuse alors de ranger.
+ */
+function secureStorage() {
+  if (!safeStorage.isEncryptionAvailable()) return false;
+  return !(process.platform === "linux" && safeStorage.getSelectedStorageBackend?.() === "basic_text");
 }
 
 /** Cookie de session de la fenêtre, sans date d'expiration : Chromium ne l'écrit pas sur le disque. */
@@ -123,8 +141,9 @@ async function useToken(server, token) {
 }
 
 async function adopt(server, token) {
-  if (!safeStorage.isEncryptionAvailable()) {
-    return { error: "Le trousseau du système n'est pas disponible : impossible de ranger la session en sécurité." };
+  if (!secureStorage()) {
+    return { error: "Le trousseau du système n'est pas disponible : impossible de ranger la session en sécurité. "
+      + "Sous Linux, installe et déverrouille GNOME Keyring (gnome-keyring) ou KWallet, puis relance l'app." };
   }
   writeConfig({ mode: "remote", server, jeton: safeStorage.encryptString(token).toString("base64") });
   boot();
@@ -152,22 +171,10 @@ async function authorize(rawServer) {
     return { error: "Réponse inattendue du serveur." };
   }
   shell.openExternal(start.adresse);
-  const until = Date.now() + start.expire * 1000;
-  while (Date.now() < until) {
-    await new Promise((res) => setTimeout(res, 2000));
-    try {
-      const r = await fetch(`${server}/api/pairing/flow/poll`, {
-        method: "POST", headers: jsonHeaders(), body: JSON.stringify({ sondage: start.sondage }),
-        signal: AbortSignal.timeout(15000),
-      });
-      if (r.ok) return adopt(server, (await r.json()).token);
-      if (r.status === 410) return { error: "Demande refusée ou expirée. Recommence." };
-    } catch {
-      /* coupure passagère : on continue de sonder */
-    }
-  }
-  return { error: "Pas d'accord dans les 20 minutes. Recommence." };
+  win?.webContents.send("noah:setup-ask-number");
+  return waitForApproval(server, start.sondage, start.expire, "", true);
 }
+
 
 /** Secours : le code court de Réglages → Appareils. */
 async function pair(rawServer, rawCode) {
@@ -184,8 +191,72 @@ async function pair(rawServer, rawCode) {
     return { error: `Impossible de joindre ${server}. Vérifie l'adresse.` };
   }
   const body = await r.json().catch(() => ({}));
+  if (r.ok && body.attente) return waitForApproval(server, body.sondage, body.expire, body.verification);
   if (!r.ok || !body.token) return { error: body.detail || `Le serveur a refusé (${r.status}).` };
   return adopt(server, body.token);
+}
+
+/**
+ * Le serveur rend la session quand l'utilisateur a autorisé cet ordinateur depuis un appareil déjà relié, en recopiant
+ * le nombre affiché ici. On sonde jusqu'au refus ou à l'expiration (410) ; une coupure, une mise à jour du serveur (503)
+ * ou un ralentissement (429) ne font qu'attendre.
+ */
+let typedNumber = ""; // voir « noah:setup-number »
+
+async function waitForApproval(server, sondage, expire, verification, askNumber = false) {
+  if (!askNumber) win?.webContents.send("noah:setup-waiting", String(verification || ""));
+  typedNumber = "";
+  const until = Date.now() + (expire || 1200) * 1000;
+  while (Date.now() < until) {
+    await new Promise((ok) => setTimeout(ok, 2000));
+    let r;
+    try {
+      r = await fetch(`${server}/api/pairing/flow/poll`, {
+        method: "POST", headers: jsonHeaders(), body: JSON.stringify({ sondage, verification: typedNumber }),
+        signal: AbortSignal.timeout(15000),
+      });
+    } catch {
+      continue;
+    }
+    if (r.status === 410) return { error: "Demande refusée ou expirée. Recommence." };
+    if (r.status === 403) return { error: "Ce nombre ne correspond pas à celui du navigateur. Recommence." };
+    if (!r.ok) continue;
+    const body = await r.json().catch(() => ({}));
+    if (body.token) return adopt(server, body.token);
+  }
+  return { error: "Pas d'accord dans les 20 minutes. Recommence." };
+}
+
+/** Révocations qui n'ont pas pu partir (serveur injoignable) : gardées chiffrées, rejouées jusqu'à réussir. */
+let flushing = false;
+async function flushRevocations() {
+  if (flushing) return;
+  flushing = true;
+  try {
+    await flushOnce();
+  } finally {
+    flushing = false;
+  }
+}
+
+async function flushOnce() {
+  const pending = readConfig().a_revoquer || [];
+  const done = new Set();
+  for (const item of pending) {
+    let ok = false;
+    try {
+      const token = safeStorage.decryptString(Buffer.from(item.jeton, "base64"));
+      const r = await fetch(`${item.server}/api/devices/self`, {
+        method: "DELETE", headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10000),
+      });
+      ok = r.ok || r.status === 401; // 401 : la session n'existe déjà plus
+    } catch {
+      ok = false;
+    }
+    if (ok) done.add(item.jeton);
+  }
+  // Relue juste avant d'écrire : un « Oublier » fait pendant les envois ajoute à la file, il ne doit pas se perdre.
+  writeConfig({ a_revoquer: (readConfig().a_revoquer || []).filter((item) => !done.has(item.jeton)) });
 }
 
 /** Oublie le serveur (ou Docker) choisi : l'écran du premier lancement revient. */
@@ -204,7 +275,16 @@ async function forgetServer() {
   const { server } = readConfig();
   const token = storedToken();
   if (server) {
-    if (token) await fetch(`${server}/api/devices/self`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
+    if (token) {
+      const r = await fetch(`${server}/api/devices/self`, {
+        method: "DELETE", headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10000),
+      }).catch(() => null);
+      if (!r || !(r.ok || r.status === 401)) {
+        // Pas de réponse : la session reste valable là-bas. On la garde (chiffrée) pour la révoquer plus tard.
+        const queue = (readConfig().a_revoquer || []).concat([{ server, jeton: readConfig().jeton }]);
+        writeConfig({ a_revoquer: queue });
+      }
+    }
     await session.defaultSession.cookies.remove(server, "apollo_session");
   }
   writeConfig({ mode: null, server: null, jeton: null });
@@ -230,7 +310,7 @@ function createWindow() {
     return { action: "deny" };
   });
   win.webContents.on("will-navigate", (e, url) => {
-    if (url.startsWith("data:") || url.startsWith("file:") || (origin && url.startsWith(origin))) return;
+    if (url.startsWith("data:") || url.startsWith("file:") || sameOrigin(url)) return;
     e.preventDefault();
     if (/^https?:/.test(url)) shell.openExternal(url);
   });
@@ -271,6 +351,10 @@ function createTray() {
 
 // Écran du premier lancement (fichier local de l'app, jamais une page du serveur).
 const fromSetup = (e) => e.senderFrame.url.startsWith("file:") && e.senderFrame.url.endsWith("setup.html");
+// Nombre lu dans la page d'accord du navigateur, saisi dans l'écran de connexion de l'app.
+ipcMain.handle("noah:setup-number", (e, n) => {
+  if (fromSetup(e)) typedNumber = String(n).replace(/\D/g, "").slice(0, 2);
+});
 ipcMain.handle("noah:setup-connect", async (e, server, code) => (fromSetup(e) ? pair(String(server), String(code)) : null));
 ipcMain.handle("noah:setup-authorize", async (e, server) => (fromSetup(e) ? authorize(String(server)) : null));
 ipcMain.handle("noah:setup-local", async (e) => {
@@ -281,7 +365,7 @@ ipcMain.handle("noah:setup-local", async (e) => {
 
 // Seuls deux gestes sont permis à la page : choisir un dossier (sélecteur du système) et ouvrir un dossier.
 ipcMain.handle("noah:pick-folder", async (e) => {
-  if (!origin || !e.senderFrame.url.startsWith(origin)) return null;
+  if (!origin || !sameOrigin(e.senderFrame.url)) return null;
   const r = await dialog.showOpenDialog(win, { title: "Dossier à confier à Noah", properties: ["openDirectory"] });
   return r.canceled ? null : r.filePaths[0];
 });
@@ -292,11 +376,11 @@ const lanUrl = () => {
   return ip ? `http://${ip}:${noah.readEnv(home).APOLLO_PORT || 8080}` : null;
 };
 ipcMain.handle("noah:lan-status", async (e) => {
-  if (!origin || !e.senderFrame.url.startsWith(origin) || !home) return { open: false, url: null };
+  if (!origin || !sameOrigin(e.senderFrame.url) || !home) return { open: false, url: null };
   return { open: noah.readEnv(home).APOLLO_BIND === "0.0.0.0", url: lanUrl() };
 });
 ipcMain.handle("noah:open-lan", async (e) => {
-  if (!origin || !e.senderFrame.url.startsWith(origin) || !home) return { open: false, url: null };
+  if (!origin || !sameOrigin(e.senderFrame.url) || !home) return { open: false, url: null };
   const r = await dialog.showMessageBox(win, {
     type: "question",
     title: "Ouvrir Noah à ton réseau",
@@ -313,11 +397,11 @@ ipcMain.handle("noah:open-lan", async (e) => {
 });
 // Page de Noah (app reliée à un serveur) : appareil déconnecté côté serveur, l'utilisateur le relie de nouveau.
 ipcMain.handle("noah:forget-server", async (e) => {
-  if (!origin || !e.senderFrame.url.startsWith(origin) || readConfig().mode !== "remote") return;
-  await forgetServer();
+  if (!origin || !sameOrigin(e.senderFrame.url)) return;
+  await forgetServer(); // en mode local aussi : l'écran « Relier de nouveau » doit toujours mener quelque part
 });
 ipcMain.handle("noah:open-path", async (e, p) => {
-  if (!origin || !e.senderFrame.url.startsWith(origin)) return;
+  if (!origin || !sameOrigin(e.senderFrame.url)) return;
   // Dossiers seulement : ouvrir un fichier pourrait lancer un programme.
   if (fs.existsSync(p) && fs.statSync(p).isDirectory()) await shell.openPath(p);
 });
@@ -329,10 +413,13 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     // Micro (dictée, mode vocal) : accordé à l'interface de Noah, refusé à toute autre page.
     session.defaultSession.setPermissionRequestHandler((wc, permission, done) => {
-      done(permission === "media" && !!origin && wc.getURL().startsWith(origin));
+      done(permission === "media" && !!origin && sameOrigin(wc.getURL()));
     });
-    session.defaultSession.setPermissionCheckHandler((wc, permission) => permission === "media" && !!origin && !!wc && wc.getURL().startsWith(origin));
+    session.defaultSession.setPermissionCheckHandler((wc, permission) => permission === "media" && !!origin && !!wc && sameOrigin(wc.getURL()));
     createTray();
+    // Sessions oubliées hors ligne : révoquées dès que le serveur répond (l'app peut rester des jours ouverte).
+    flushRevocations().catch(() => {});
+    setInterval(() => flushRevocations().catch(() => {}), 10 * 60 * 1000);
     createWindow();
     // Demandes de l'agent (ouvrir, notifier, lancer, commande), confirmées par l'utilisateur.
     actions.listen(() => origin);
