@@ -47,9 +47,18 @@ SEEN_MAX = 3000
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0"
 
 
+KEYS = "2"  # format des empreintes de blocs ; le changer fait réapprendre chaque page en silence
+
+
 def init() -> None:
     with db.connect() as c:
         c.executescript(SCHEMA)
+    if db.get_setting("veille_cles") != KEYS:
+        # Anciennes empreintes : la page entière paraîtrait nouvelle (un tri payant, une fausse alerte). Le passage
+        # suivant la réapprend sans prévenir, comme une veille neuve.
+        with db.connect() as c:
+            c.execute("UPDATE watches SET seen = '[]'")
+        db.set_setting("veille_cles", KEYS)
 
 
 # --- Relevé, sans modèle ----------------------------------------------------------------------
@@ -89,6 +98,20 @@ def _clean(fragment: str) -> str:
     return re.sub(r"[ \t \n]+", " ", html.unescape(re.sub(r"<[^>]+>", " ", fragment))).strip()
 
 
+# Mentions qui changent à chaque passage sans rien apprendre : « il y a 3 minutes », « 5 hours ago », « 14:32 ».
+# Retirées avant l'empreinte d'un bloc, sinon une page immobile paierait un tri par le modèle à chaque passage.
+_CLOCK = re.compile(
+    r"(?i)\b(?:il y a|depuis)\s+(?:\d+|une?|quelques)\s+(?:secondes?|minutes?|min|heures?|h|jours?)\b"
+    r"|\b(?:\d+|an?|a few)\s+(?:seconds?|minutes?|mins?|hours?|hrs?|days?)\s+ago\b"
+    r"|\b(?:à l'instant|just now|aujourd'hui|today|hier|yesterday)\b"
+    r"|\b\d{1,2}[:h]\d{2}(?::\d{2})?\s*(?:am|pm)?\b"
+)
+
+
+def _key(text: str) -> str:
+    return hashlib.sha1(re.sub(r"\s+", " ", _CLOCK.sub(" ", text)).strip().lower().encode()).hexdigest()[:16]
+
+
 def _page_items(body: str, base: str = "") -> list[dict]:
     """Blocs de texte d'une page web (paragraphes, titres, lignes de liste), assez longs pour avoir un sens. Chaque
     bloc garde le lien de son plus long texte cliquable : le titre d'un article plutôt que son domaine ou « 12 comments »."""
@@ -100,7 +123,7 @@ def _page_items(body: str, base: str = "") -> list[dict]:
             continue
         anchors = [(len(_clean(t)), h) for h, t in _ANCHOR.findall(raw) if not h.lower().startswith(("javascript:", "mailto:"))]
         link = urljoin(base, html.unescape(max(anchors)[1])) if anchors else ""
-        items.append({"cle": hashlib.sha1(b.encode()).hexdigest()[:16], "titre": "", "lien": link, "texte": b[:500]})
+        items.append({"cle": _key(b), "titre": "", "lien": link, "texte": b[:500]})
     return items
 
 
