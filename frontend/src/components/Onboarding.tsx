@@ -1,7 +1,7 @@
 // Assistant de premier lancement (G1.8), dans cet ordre : code d'installation, nouvelle installation ou restauration,
 // compte propriétaire, modèle, premier agent, puis un vrai échange avec le modèle. Il ne se termine qu'après la réponse.
 import { lazy, Suspense, useEffect, useState } from "react";
-import { type Agent, ApiError, get, send, type Status, streamChat } from "@/lib/api";
+import { type Agent, ApiError, get, request, send, type Status, streamChat } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button, ErrorText, Input, Label, Textarea } from "./ui";
 const ModelPicker = lazy(() => import("./ModelPicker").then((m) => ({ default: m.ModelPicker })));
@@ -53,7 +53,7 @@ export function Onboarding({ status, onDone }: { status: Status; onDone: () => v
       </ol>
       {step === "code" && <CodeStep code={code} setCode={setCode} onNext={() => setStep("installation")} />}
       {step === "installation" && <InstallStep onNew={() => setStep("account")} />}
-      {step === "account" && <AccountStep code={code} onNext={() => setStep("model")} />}
+      {step === "account" && <AccountStep code={code} onNext={() => setStep("model")} onBadCode={() => { setCode(""); setStep("code"); }} />}
       {step === "model" && (
         <Card>
           <h2 className="text-lg font-semibold">Le cerveau de tes agents</h2>
@@ -83,7 +83,10 @@ function CodeStep({ code, setCode, onNext }: { code: string; setCode: (c: string
     setBusy(true);
     setError("");
     try {
-      await send("/api/setup/check", { installation: value.trim() });
+      await send("/api/setup/check", { installation: value.trim() }).catch((e) => {
+        if (e instanceof ApiError && e.status === 410) location.reload(); // compte créé ailleurs entre-temps
+        throw e;
+      });
       history.replaceState(null, "", location.pathname); // le code ne reste pas dans l'historique
       try {
         sessionStorage.setItem(CODE_KEY, value.trim());
@@ -147,7 +150,7 @@ function InstallStep({ onNew }: { onNew: () => void }) {
   );
 }
 
-function AccountStep({ code, onNext }: { code: string; onNext: () => void }) {
+function AccountStep({ code, onNext, onBadCode }: { code: string; onNext: () => void; onBadCode: () => void }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -167,6 +170,15 @@ function AccountStep({ code, onNext }: { code: string; onNext: () => void }) {
     } catch (err) {
       // Compte déjà créé (autre onglet, réponse perdue) : on repart de l'état du serveur (connexion ou suite).
       if (err instanceof ApiError && err.status === 410) return location.reload();
+      // Code gardé pour l'onglet mais refusé (changé au redémarrage du serveur) : on le redemande.
+      if (err instanceof ApiError && err.status === 403 && code) {
+        try {
+          sessionStorage.removeItem(CODE_KEY);
+        } catch {
+          /* rien à effacer */
+        }
+        return onBadCode();
+      }
       setError((err as Error).message);
       setBusy(false);
     }
@@ -193,6 +205,7 @@ function AccountStep({ code, onNext }: { code: string; onNext: () => void }) {
 
 function AgentStep({ onNext }: { onNext: (agentId: string) => void }) {
   const [agent, setAgent] = useState<Agent | null>(null);
+  const [loaded, setLoaded] = useState(false); // tant que la liste n'est pas lue, « aucun agent » n'est pas sûr
   const [name, setName] = useState("");
   const [role, setRole] = useState("");
   const [error, setError] = useState("");
@@ -204,6 +217,7 @@ function AgentStep({ onNext }: { onNext: (agentId: string) => void }) {
         setAgent(a);
         setName(a?.name ?? "Noah");
         setRole(a?.role ?? "");
+        setLoaded(true);
       })
       .catch((e) => setError(e.message));
   }, []);
@@ -235,7 +249,7 @@ function AgentStep({ onNext }: { onNext: (agentId: string) => void }) {
           <Textarea rows={4} maxLength={4000} value={role} onChange={(e) => setRole(e.target.value)} />
         </Label>
         <ErrorText>{error}</ErrorText>
-        <Button type="submit" size="lg" disabled={busy || !name.trim()}>Continuer</Button>
+        <Button type="submit" size="lg" disabled={busy || !loaded || !name.trim()}>Continuer</Button>
       </Card>
     </form>
   );
@@ -261,7 +275,7 @@ function TrialStep({ agentId, onModel, onDone }: { agentId: string | null; onMod
         const until = Date.now() + READY_WAIT;
         let a: Agent | undefined;
         while (!stop.signal.aborted && Date.now() < until) {
-          const list = await get<Agent[]>("/api/agents");
+          const list: Agent[] = await (await request("/api/agents", { signal: AbortSignal.timeout(15_000) })).json();
           a = list.find((x) => x.id === agentId) ?? list[0];
           setAgent(a ?? null);
           setStep(a?.step ?? "");
@@ -295,7 +309,7 @@ function TrialStep({ agentId, onModel, onDone }: { agentId: string | null; onMod
         if (stop.signal.aborted) return;
         // Seule une exécution terminée compte : un texte suivi d'une erreur, ou un flux coupé, n'est pas une réponse.
         if (status !== "completed" || !text.trim()) throw new Error(failure || "Le modèle n'a pas répondu jusqu'au bout.");
-        await send("/api/setup/done", {});
+        await request("/api/setup/done", { method: "POST", body: "{}", signal: AbortSignal.timeout(15_000) });
         setPhase("ok");
       } catch (e) {
         if (stop.signal.reason === "délai" || !stop.signal.aborted) {
@@ -306,10 +320,15 @@ function TrialStep({ agentId, onModel, onDone }: { agentId: string | null; onMod
     })();
     return () => stop.abort();
   }, [attempt, agentId]);
-  // Machine de l'agent restée en erreur (navigateur, réseau) : la relancer avec le même nom et le même rôle.
+  // Machine de l'agent arrêtée, absente ou restée en erreur : le serveur la redémarre (ou la recrée) puis la configure.
   const repair = async () => {
-    if (agent) await send(`/api/agents/${agent.id}`, { name: agent.name, role: agent.role }, "PATCH").catch((e) => setError(e.message));
-    setAttempt((n) => n + 1);
+    if (!agent) return;
+    try {
+      await send(`/api/agents/${agent.id}/repair`, {});
+      setAttempt((n) => n + 1);
+    } catch (e) {
+      setError((e as Error).message);
+    }
   };
   return (
     <Card>

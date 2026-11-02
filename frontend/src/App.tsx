@@ -13,7 +13,7 @@ import { Thread } from "@/components/Thread";
 import type { SettingsTab } from "@/components/Settings";
 import { ViewerProvider } from "@/components/Viewer";
 import { Button } from "@/components/ui";
-import { type Agent, ApiError, type Conversation, type CurrentModel, currentAuthEpoch, get, request, send, type Status, type Usage } from "@/lib/api";
+import { type Agent, ApiError, type Conversation, type CurrentModel, currentAuthEpoch, get, request, send, setClientVersion, type Status, type Usage } from "@/lib/api";
 import { AgentContext } from "@/lib/agentContext";
 import { takeAsk } from "@/lib/askAgent";
 import { clearShare, pendingShare } from "@/lib/share";
@@ -119,7 +119,11 @@ export default function App() {
       setStatus(status);
       // App trop ancienne pour ce serveur : on le dit, plutôt que des erreurs incompréhensibles plus loin.
       const shell = appShell();
-      if (shell && tooOld(await shell.version().catch(() => "0"), status.min_client_version)) return setScreen("update");
+      if (shell) {
+        const version = await shell.version().catch(() => "");
+        setClientVersion(version);
+        if (version && tooOld(version, status.min_client_version)) return setScreen("update");
+      }
       if (!status.has_account) return setScreen("onboarding");
       try {
         await get("/api/me");
@@ -151,8 +155,13 @@ export default function App() {
       forgetPushSession(); // session refusée (révoquée à distance) : les notifications ne montrent plus leur contenu
       setScreen((s) => (s === "app" || s === "onboarding" ? "login" : s));
     };
+    const outdated = () => setScreen("update"); // serveur mis à jour pendant que l'app était ouverte
     window.addEventListener("noah:unauthorized", out);
-    return () => window.removeEventListener("noah:unauthorized", out);
+    window.addEventListener("noah:outdated", outdated);
+    return () => {
+      window.removeEventListener("noah:unauthorized", out);
+      window.removeEventListener("noah:outdated", outdated);
+    };
   }, []);
 
   if (screen === "loading") return <p className="p-10 text-center text-muted-foreground">Chargement…</p>;
@@ -175,8 +184,8 @@ export default function App() {
       <div className="mx-auto flex max-w-sm flex-col gap-3 p-10 text-center">
         <h1 className="text-xl font-semibold">Mets à jour l'app Noah</h1>
         <p className="text-sm text-muted-foreground">
-          Ton serveur Noah a été mis à jour et cette version de l'app est trop ancienne pour lui (il demande au moins la
-          version {status?.min_client_version}). Installe la dernière version de l'app, puis rouvre-la : tes agents et tes
+          Ton serveur Noah a été mis à jour et cette version de l'app est trop ancienne pour lui (il demande une
+          version plus récente). Installe la dernière version de l'app, puis rouvre-la : tes agents et tes
           réglages n'ont pas bougé.
         </p>
       </div>

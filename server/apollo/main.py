@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import ipaddress
 import json
 import mimetypes
@@ -177,11 +178,20 @@ def onboarded() -> bool:
     return db.get_setting("onboarded") != "0"
 
 
-def _model_replied(final: dict | None, text: str) -> None:
-    """Preuve de l'essai de l'assistant : une exécution terminée (« completed ») avec du texte du modèle, pour le
-    modèle en service. Une erreur, un texte partiel ou un message système n'en sont pas."""
+def _config_rev() -> str:
+    """Empreinte de la configuration du modèle (fournisseur, modèle, adresse, clé) : la preuve d'essai ne vaut que pour
+    celle qui a servi. Changer la clé ou le modèle après l'essai demande un nouvel essai."""
+    m = current_model() or {}
+    raw = json.dumps([m.get("provider"), m.get("model"), m.get("base_url"), m.get("api_key")])
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _model_replied(final: dict | None, text: str, rev: str) -> None:
+    """Preuve de l'essai de l'assistant : une exécution terminée (« completed ») avec du texte du modèle, rattachée à
+    la configuration en service au départ de l'exécution. Une erreur, un texte partiel ou un message système n'en sont
+    pas."""
     if final and final.get("status") == "completed" and text.strip() and db.get_setting("onboarded") == "0":
-        db.set_setting("model_replied", f"{db.get_setting('provider')}:{db.get_setting('model')}")
+        db.set_setting("model_replied", rev)
 
 
 @app.get("/api/status")
@@ -509,9 +519,11 @@ def flow_poll(body: FlowPoll, request: Request, response: Response):
     return {"token": token}
 
 
+# Essais du code d'installation, par adresse (ou réseau /64), comptés à part des connexions : aucune autre requête ne
+# réécrit ce compteur. Pas de plafond global : un inconnu ne doit pas pouvoir bloquer le propriétaire ; c'est la
+# longueur du code qui tient face aux essais répartis sur beaucoup d'adresses.
 _setup_tries_lock = threading.Lock()
-_setup_failures: list[float] = []  # codes faux, toutes adresses confondues
-SETUP_GLOBAL = 100  # par heure : au-delà, essais distribués sur beaucoup d'adresses ; on bloque la création du compte
+_setup_tries: dict[str, list[float]] = {}
 
 
 def _local(ip: str) -> bool:
@@ -527,26 +539,24 @@ def _check_setup_code(given: str, request: Request) -> None:
         raise HTTPException(410, "Le compte administrateur existe déjà : connecte-toi.")
     code = config.setup_code()
     if not code:
-        # Ordinateur personnel (pas de code) : seulement depuis cette machine ou le réseau local, jamais d'Internet.
-        if not _local(_ip(request)):
+        # Ordinateur personnel (pas de code) : seulement depuis cette machine ou le réseau local, jamais d'Internet ni
+        # à travers un relais (qui ferait paraître locale une requête venue d'ailleurs).
+        relayed = any(h in request.headers for h in ("x-forwarded-for", "forwarded", "x-real-ip"))
+        if relayed or not _local(_ip(request)):
             raise HTTPException(403, "Installation sans code d'installation : crée le compte depuis cet ordinateur.")
         return
     net, now = _network(_ip(request)), time.time()
     # Essai réservé avant la comparaison, sous verrou : des requêtes simultanées ne dépassent pas le plafond.
     with _setup_tries_lock:
-        _setup_failures[:] = [t for t in _setup_failures if now - t < 3600]
-        recent = [t for t in _failed_logins.get(net, []) if now - t < LOGIN_WINDOW]
-        if len(recent) >= LOGIN_TRIES or len(_setup_failures) >= SETUP_GLOBAL:
+        recent = [t for t in _setup_tries.get(net, []) if now - t < LOGIN_WINDOW]
+        if len(recent) >= LOGIN_TRIES:
             raise HTTPException(429, "Trop d'essais. Réessaie dans quelques minutes.")
-        _failed_logins[net] = recent + [now]
-        _setup_failures.append(now)
+        _setup_tries[net] = recent + [now]
     if not secrets.compare_digest(given.strip().upper().replace("-", ""), code.upper().replace("-", "")):
         raise HTTPException(403, "Code d'installation incorrect. Il est affiché à la fin de l'installation (et dans les journaux du serveur).")
     with _setup_tries_lock:  # bon code : l'essai réservé ne compte pas
-        if now in _failed_logins.get(net, []):
-            _failed_logins[net].remove(now)
-        if now in _setup_failures:
-            _setup_failures.remove(now)
+        if now in _setup_tries.get(net, []):
+            _setup_tries[net].remove(now)
 
 
 class SetupCode(BaseModel):
@@ -567,7 +577,7 @@ def setup_done(user: int = Depends(auth.current_user)):
     de bout en bout)."""
     if onboarded():
         return {"ok": True}
-    if db.get_setting("model_replied") != f"{db.get_setting('provider')}:{db.get_setting('model')}":
+    if db.get_setting("model_replied") != _config_rev():
         raise HTTPException(409, "Aucune réponse du modèle pour l'instant : l'essai doit réussir avant de finir.")
     db.set_setting("onboarded", "1")
     return {"ok": True}
@@ -1119,6 +1129,26 @@ async def create_agent(body: AgentBody, user: int = Depends(auth.current_user)):
     return {"id": await _start_agent(body.name.strip(), body.role)}
 
 
+@app.post("/api/agents/{agent_id}/repair")
+async def repair_agent(agent_id: str, user: int = Depends(auth.current_user)):
+    """Machine de l'agent arrêtée, absente ou restée en erreur : la (re)démarrer avec son volume, puis la configurer."""
+    agent = _agent(agent_id)
+    with db.connect() as c:
+        row = c.execute("SELECT name, role FROM agents WHERE id = ?", (agent_id,)).fetchone()
+    provisioning[agent_id] = "Redémarrage de la machine de l'agent…"
+    state = (await hermes.statuses()).get(agent_id)
+    try:
+        if state is None:
+            await hermes.recreate_container(agent_id, agent.api_key)
+        elif state != "running":
+            await hermes.restart(agent_id)
+    except Exception as e:
+        provisioning[agent_id] = f"Impossible de redémarrer l'agent : {e}"
+        raise HTTPException(503, provisioning[agent_id])
+    asyncio.create_task(_provision(agent, _soul(row["name"], row["role"])))
+    return {"ok": True}
+
+
 @app.patch("/api/agents/{agent_id}")
 async def update_agent(agent_id: str, body: AgentBody, user: int = Depends(auth.current_user)):
     agent = _agent(agent_id)
@@ -1263,6 +1293,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
         raise HTTPException(503, "Noah installe une mise à jour (quelques minutes). Réessaie juste après.")
     task_state[conv_id] = "work"  # avant le premier await : une mise à jour qui vérifie maintenant la voit
     _save_message(conv_id, "user", prompt)
+    rev = _config_rev()  # configuration qui sert à cette exécution (preuve de l'essai de l'assistant)
     try:
         run_id = await hermes.start_run(agent, context + prompt, session_id=f"apollo-{conv_id}")
     except Exception:
@@ -1312,7 +1343,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
             task_state[conv_id] = "error" if final and final.get("status") == "failed" else "idle"
         else:
             task_state[conv_id] = "choice" if CHOICE_RE.search(text) else "done"
-        _model_replied(final, text)
+        _model_replied(final, text, rev)
         if text:
             _save_message(conv_id, "agent", text)
         elif final and final.get("error"):

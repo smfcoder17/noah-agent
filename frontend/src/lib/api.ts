@@ -29,13 +29,26 @@ function bumpAuthEpoch() {
   }
 }
 
+// Version de l'app (bureau, téléphone) qui affiche cette interface : annoncée à chaque appel, pour que le serveur
+// réponde 426 à une app devenue trop ancienne pendant qu'elle est ouverte (G5.6). Vide dans un navigateur.
+let clientVersion = "";
+export const setClientVersion = (v: string) => {
+  clientVersion = v;
+};
+
 export async function request(path: string, init: RequestInit = {}): Promise<Response> {
   const res = await fetch(path, {
     ...init,
     credentials: "same-origin",
     // Fuseau de l'utilisateur : le serveur (souvent un VPS en UTC) installe les mises à jour pendant sa nuit à lui.
-    headers: { "Content-Type": "application/json", "X-Noah-Timezone": ZONE, ...(init.headers || {}) },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Noah-Timezone": ZONE,
+      ...(clientVersion ? { "X-Noah-Version": clientVersion } : {}),
+      ...(init.headers || {}),
+    },
   });
+  if (res.status === 426) window.dispatchEvent(new Event("noah:outdated"));
   // 200 seulement : un sondage en attente (202) n'a créé aucune session.
   if (res.status === 200 && /^\/api\/(login|setup\/account|pairing\/flow\/poll)/.test(path)) bumpAuthEpoch();
   // Session révoquée ou expirée pendant l'usage : l'interface revient à l'écran de connexion (ou de reliaison).

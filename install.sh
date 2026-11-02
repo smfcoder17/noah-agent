@@ -52,7 +52,7 @@ fi
 
 if [ -n "$domain" ]; then
   # Sur une adresse publique, le compte administrateur ne se crée qu'avec ce code (affiché plus bas).
-  ensure NOAH_SETUP_CODE "$(random | cut -c1-8 | tr a-f A-F)"
+  ensure NOAH_SETUP_CODE "$(random | cut -c1-16 | tr a-f A-F)"
   # Caddy obtient le certificat tout seul ; il faut que le domaine pointe déjà vers ce serveur (ports 80 et 443 ouverts).
   set_env NOAH_DOMAIN "$domain"
   set_env COMPOSE_FILE "docker-compose.yml:deploy/docker-compose.vps.yml"

@@ -22,7 +22,7 @@ from apollo import auth, config, db, main  # noqa: E402
 
 db.init()
 code = json.load(open(f"{vault}/noah.json"))["NOAH_SETUP_CODE"]
-assert len(code) == 8 and oct(os.stat(f"{vault}/noah.json").st_mode)[-3:] == "600", "secrets lisibles par d'autres"
+assert len(code) == 12 and oct(os.stat(f"{vault}/noah.json").st_mode)[-3:] == "600", "secrets lisibles par d'autres"
 ip = iter(range(1, 250))
 
 
@@ -74,14 +74,22 @@ with db.connect() as c:  # message « agent » sans exécution réussie (annonce
     c.execute("INSERT INTO messages (conversation_id, role, text) VALUES ('c1', 'agent', 'Noah 2.0 est installée.')")
 assert owner.post("/api/setup/done").status_code == 409, "un message système termine l'assistant"
 db.set_setting("provider", "openrouter"); db.set_setting("model", "m1")
-main._model_replied({"type": "done", "status": "failed"}, "Bonjour, je")  # texte puis échec
-main._model_replied({"type": "done", "status": "completed"}, "   ")        # rien de lisible
-main._model_replied(None, "Bonjour")                                       # flux coupé sans fin
+rev = main._config_rev()
+main._model_replied({"type": "done", "status": "failed"}, "Bonjour, je", rev)  # texte puis échec
+main._model_replied({"type": "done", "status": "completed"}, "   ", rev)        # rien de lisible
+main._model_replied(None, "Bonjour", rev)                                       # flux coupé sans fin
 assert owner.post("/api/setup/done").status_code == 409, "essai raté accepté"
-main._model_replied({"type": "done", "status": "completed"}, "Bonjour, je suis Noah.")
+main._model_replied({"type": "done", "status": "completed"}, "Bonjour, je suis Noah.", rev)
 db.set_setting("model", "m2")  # modèle changé après l'essai : il faut réessayer avec celui-ci
 assert owner.post("/api/setup/done").status_code == 409, "essai d'un autre modèle accepté"
-main._model_replied({"type": "done", "status": "completed"}, "Bonjour, je suis Noah.")
+main._model_replied({"type": "done", "status": "completed"}, "Bonjour, je suis Noah.", rev)  # parti avant le changement
+assert owner.post("/api/setup/done").status_code == 409, "essai lancé avec l'ancien modèle accepté"
+db.set_setting("api_key", "cle-essai", secret=True)
+rev = main._config_rev()
+main._model_replied({"type": "done", "status": "completed"}, "Bonjour, je suis Noah.", rev)
+db.set_setting("api_key", "autre-cle", secret=True)  # clé remplacée après l'essai
+assert owner.post("/api/setup/done").status_code == 409, "clé changée après l'essai acceptée"
+db.set_setting("api_key", "cle-essai", secret=True)
 assert owner.post("/api/setup/done").status_code == 200
 assert owner.get("/api/status").json()["onboarded"] is True
 print("3 bis. fin refusée (409) pour un message système, un essai raté ou un autre modèle ; acceptée après un vrai essai")
@@ -126,7 +134,7 @@ def verdict(given: str, ip: str) -> int:
 
 
 # 5a. Essais simultanés depuis une adresse : le plafond tient (essai réservé avant la comparaison).
-main._failed_logins.clear()
+main._setup_tries.clear()
 with ThreadPoolExecutor(16) as pool:
     results = list(pool.map(lambda i: verdict("BBBBBBBB", "198.51.100.7"), range(16)))
 assert results.count(403) <= main.LOGIN_TRIES and results.count(429) >= 16 - main.LOGIN_TRIES, results
@@ -136,7 +144,7 @@ print(f"5a. 16 essais simultanés : {results.count(403)} comparés, {results.cou
 config.SETUP_CODE = ""
 config.renew_setup_code()
 fresh = json.load(open(f"{vault}/noah.json"))["NOAH_SETUP_CODE"]
-assert len(fresh) == 8 and config.setup_code() == fresh
+assert len(fresh) == 12 and config.setup_code() == fresh
 assert verdict("", "198.51.100.8") == 403
 print("5b. code effacé sans compte : nouveau code tiré au démarrage")
 
@@ -144,7 +152,21 @@ print("5b. code effacé sans compte : nouveau code tiré au démarrage")
 config.SETUP_CODE = ""
 assert verdict("", "9.9.9.9") == 403, "installation sans code prise depuis Internet"
 assert verdict("", "127.0.0.1") == 200 and verdict("", "172.18.0.1") == 200
-print("5c. sans code : refusé depuis Internet, accepté depuis la machine (ou Docker en local)")
+relayed = SimpleNamespace(headers={"x-test-ip": "172.18.0.1", "x-forwarded-for": "9.9.9.9"})
+try:
+    main._check_setup_code("", relayed)
+    raise AssertionError("installation sans code acceptée à travers un relais")
+except HTTPException as e:
+    assert e.status_code == 403
+print("5c. sans code : refusé depuis Internet ou à travers un relais, accepté depuis la machine (ou Docker en local)")
+
+# 5d. Des essais faux depuis beaucoup d'adresses ne bloquent pas le propriétaire (pas de plafond global).
+config.SETUP_CODE = fresh
+for i in range(30):
+    for _ in range(main.LOGIN_TRIES):
+        verdict("BBBBBBBBBBBB", f"9.9.{i}.1")
+assert verdict(fresh, "8.8.4.4") == 200, "propriétaire bloqué par des essais d'inconnus"
+print("5d. 300 essais faux répartis sur 30 adresses : le propriétaire passe toujours")
 
 # 6. Compatibilité des apps (G5.6) : le serveur annonce la plus ancienne version servie ; en dessous, 426 et un
 # message lisible, au lieu d'une erreur plus loin. L'interface web (même version que le serveur) n'est pas concernée.

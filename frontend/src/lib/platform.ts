@@ -11,7 +11,7 @@ declare global {
 
 export function appShell(): Shell | null {
   const d = window.noahDesktop;
-  if (d?.forgetServer) return { kind: "desktop", forget: () => d.forgetServer!(), version: async () => (await d.version?.()) ?? "0.1.0" };
+  if (d?.forgetServer) return { kind: "desktop", forget: () => d.forgetServer!(), version: async () => (typeof d.version === "function" ? await d.version() : d.version) ?? "0.1.0" };
   const native = window.Capacitor?.Plugins?.NoahShell;
   if (native) return { kind: "android", forget: () => native.forget(), version: async () => ((await native.info()) as { version: string }).version };
   return null;

@@ -13,7 +13,8 @@ _SHARED = ("LAUNCHER_KEY", "APOLLO_SECRET_KEY", "NOAH_SETUP_CODE")
 
 
 def _new_setup_code() -> str:
-    return "".join(secrets.choice("BCDFGHJKLMNPQRSTVWXZ") for _ in range(8))
+    # 12 lettres (52 bits) : même des essais répartis sur des milliers d'adresses, chacune limitée, ne le trouvent pas.
+    return "".join(secrets.choice("BCDFGHJKLMNPQRSTVWXZ") for _ in range(12))
 
 
 def shared_secret(name: str, optional: bool = False) -> str:
