@@ -13,7 +13,9 @@
 set -eu
 
 RAW="https://raw.githubusercontent.com/SmfCoder/noah-agent/main"
-COMPOSE_URL="${NOAH_COMPOSE_URL:-$RAW/deploy/docker-compose.yml}"
+# Compose de la dernière version, images épinglées par empreinte ; à défaut, celui du dépôt.
+RELEASE_COMPOSE="https://github.com/SmfCoder/noah-agent/releases/latest/download/docker-compose.yml"
+COMPOSE_URL="${NOAH_COMPOSE_URL:-}"
 DIR="${NOAH_DIR:-/opt/noah}"
 
 say() { printf '\n\033[1m%s\033[0m\n' "$*"; }
@@ -78,7 +80,11 @@ fi
 mkdir -p "$DIR"
 cd "$DIR"
 say "Téléchargement de Noah Agent…"
-curl -fsSL "$COMPOSE_URL" -o docker-compose.yml.new
+if [ -n "$COMPOSE_URL" ]; then
+  curl -fsSL "$COMPOSE_URL" -o docker-compose.yml.new
+else
+  curl -fsSL "$RELEASE_COMPOSE" -o docker-compose.yml.new 2>/dev/null || curl -fsSL "$RAW/deploy/docker-compose.yml" -o docker-compose.yml.new
+fi
 mv docker-compose.yml.new docker-compose.yml
 # Sauvegarde et restauration (sh scripts/backup.sh) : à côté du compose.
 mkdir -p scripts

@@ -39,8 +39,8 @@ dans le QR code. À la main :
 
 Un VPS Linux (Ubuntu ou Debian) avec 4 Go de RAM, les ports 80 et 443 libres. Aucun nom de domaine n'est nécessaire.
 
-- **Hostinger** : VPS > Docker Manager > Compose > « Compose from URL », colle l'adresse brute de
-  `deploy/docker-compose.yml`, puis Deploy. Le lien de création du compte s'affiche dans les journaux du service
+- **Hostinger** : VPS > Docker Manager > Compose > « Compose from URL », colle
+  `https://github.com/SmfCoder/noah-agent/releases/latest/download/docker-compose.yml`, puis Deploy. Le lien de création du compte s'affiche dans les journaux du service
   `server`.
 - **Ailleurs**, en root : `curl -fsSL https://raw.githubusercontent.com/SmfCoder/noah-agent/main/get.sh | sh`
 

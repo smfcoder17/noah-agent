@@ -103,8 +103,17 @@ jobs:
           pip install --quiet cryptography==44.0.0
           git for-each-ref "refs/tags/${GITHUB_REF_NAME}" --format="%(contents)" > notes.md  # message de l'étiquette ; « [migration] » s'il change les données
           python scripts/release-manifest.py signer "${GITHUB_REF_NAME#v}" notes.md $(cat refs.txt)
+      - name: Compose épinglé
+        run: |
+          # Le compose de la version : chaque image remplacée par son empreinte (celle du manifeste signé).
+          set -e
+          ref() { sed -n "s/^$1=//p" refs.txt; }
+          owner=$(echo "${{ github.repository_owner }}" | tr A-Z a-z)
+          sed -e "s#ghcr.io/$owner/noah-server:stable#$(ref noah-server)#"               -e "s#ghcr.io/$owner/noah-launcher:stable#$(ref noah-launcher)#"               -e "s#caddy:2.10-alpine#$(ref caddy)#"               -e "s#nousresearch/hermes-agent:stable#$(ref hermes)#"               -e "s#ghcr.io/jo-inc/camofox-browser:latest#$(ref navigateur)#"               deploy/docker-compose.yml > docker-compose.yml
+          if grep -nE "image: [^@]+$|_IMAGE: [^@]+$" docker-compose.yml; then echo "image non épinglée" >&2; exit 1; fi
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             manifest.json
             manifest.json.sig
+            docker-compose.yml

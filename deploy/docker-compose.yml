@@ -1,6 +1,9 @@
 # Noah Agent sur un VPS, sans rien configurer : ce seul fichier suffit.
 #
-#   - Hostinger : VPS > Docker Manager > Compose > « Compose from URL », colle l'adresse brute de ce fichier, Deploy.
+#   - Hostinger : VPS > Docker Manager > Compose > « Compose from URL », colle
+#     https://github.com/SmfCoder/noah-agent/releases/latest/download/docker-compose.yml, puis Deploy.
+# La copie jointe à chaque version a toutes ses images épinglées par empreinte (celles du manifeste signé) ;
+# ce fichier-ci, dans le dépôt, suit les étiquettes.
 #   - Ailleurs : curl -fsSL https://raw.githubusercontent.com/SmfCoder/noah-agent/main/get.sh | sh
 #
 # Au premier démarrage, le serveur tire ses secrets au hasard (volume noah-secrets), trouve l'adresse publique du VPS
@@ -32,6 +35,7 @@ services:
     restart: unless-stopped
     environment:
       AGENT_IMAGE: nousresearch/hermes-agent:stable
+      BROWSER_IMAGE: ghcr.io/jo-inc/camofox-browser:latest
       AGENT_NETWORK: apollo-net
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
