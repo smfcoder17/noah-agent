@@ -50,6 +50,7 @@ public class MainActivity extends BridgeActivity {
         };
         later.postDelayed(retry, 5 * 60 * 1000);
         server = pairing.server();
+        startCallWatch(pairing);
         token = server == null ? null : pairing.token();
         if (server != null && token != null) {
             config = new CapConfig.Builder(this)
@@ -62,11 +63,15 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
     }
 
+    /** Sans distributeur UnifiedPush, c'est Noah lui-même qui attend les appels : rien à installer en plus. */
+    void startCallWatch(Pairing pairing) {
+        if (pairing.server() != null && org.unifiedpush.android.connector.UnifiedPush.getDistributors(this).isEmpty()) CallWatch.start(this);
+    }
+
     /** Notifications pas encore actives (première ouverture hors ligne, serveur injoignable) : inscription reprise. */
     private void resumePush(Pairing pairing) {
         String s = pairing.server(), t = Pairing.windowToken(s);
-        // Sans distributeur UnifiedPush, c'est Noah lui-même qui attend les appels : rien à installer en plus.
-        if (s != null && org.unifiedpush.android.connector.UnifiedPush.getDistributors(this).isEmpty()) CallWatch.start(this);
+        startCallWatch(pairing);
         // Seulement si tout est prêt sauf le serveur : pas de demande de permission ni de choix de distributeur
         // répétés toutes les 5 minutes.
         if (org.unifiedpush.android.connector.UnifiedPush.getDistributors(this).isEmpty() || !NoahPush.visible(this)) return;

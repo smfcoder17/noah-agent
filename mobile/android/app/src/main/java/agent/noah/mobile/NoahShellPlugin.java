@@ -39,6 +39,7 @@ public class NoahShellPlugin extends Plugin {
             call.reject("Impossible de ranger la session : " + e.getMessage());
             return;
         }
+        if (org.unifiedpush.android.connector.UnifiedPush.getDistributors(getContext()).isEmpty()) CallWatch.start(getContext());
         call.resolve();
         getActivity().runOnUiThread(() -> getActivity().recreate());
     }
