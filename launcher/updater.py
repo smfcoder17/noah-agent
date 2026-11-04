@@ -704,13 +704,19 @@ def _create_like(old, name: str, image: str) -> None:
         ports=list((cfg.get("ExposedPorts") or {}).keys()),
         host_config=hc, networking_config=networking)
     new = client.containers.get(created["Id"])
-    for net, endpoint in others:
-        client.networks.get(net).connect(new, aliases=[a for a in (endpoint.get("Aliases") or []) if a != old.id[:12]])
-    for path in COPIED_FILES.get(name, []):
-        if any(path == m or path.startswith(m.rstrip("/") + "/") for m in mounted):
-            continue  # monté depuis l'hôte : le montage suit déjà
-        stream, _ = old.get_archive(path)
-        new.put_archive(os.path.dirname(path), b"".join(stream))
+    try:
+        for net, endpoint in others:
+            client.networks.get(net).connect(new, aliases=[a for a in (endpoint.get("Aliases") or []) if a != old.id[:12]])
+        for path in COPIED_FILES.get(name, []):
+            if any(path == m or path.startswith(m.rstrip("/") + "/") for m in mounted):
+                continue  # monté depuis l'hôte : le montage suit déjà
+            stream, _ = old.get_archive(path)
+            new.put_archive(os.path.dirname(path), b"".join(stream))
+    except Exception:
+        # Création à moitié faite : on retire ce conteneur-ci (par son identifiant), le nom redevient libre pour le
+        # retour arrière de l'appelant.
+        new.remove(force=True)
+        raise
 
 
 def replace(name: str, image: str, snapshot: str | None) -> bool:

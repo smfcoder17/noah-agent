@@ -82,7 +82,7 @@ export type Status = {
   /** Plus ancienne version des apps (bureau, téléphone) que ce serveur sert encore. */
   min_client_version?: string;
 };
-export type Provider = { id: string; label: string; needs_key: boolean; default_model: string };
+export type Provider = { id: string; label: string; needs_key: boolean; default_model: string; own_url?: boolean };
 export type Model = {
   id: string;
   name: string;
@@ -97,7 +97,7 @@ export type Model = {
 };
 export type ModelGroup = { id: string; title: string; hint: string; models: Model[] };
 export type Catalog = { needs_key: boolean; groups: ModelGroup[]; models: Model[] };
-export type CurrentModel = { provider: string; model: string; has_key: boolean } | null;
+export type CurrentModel = { provider: string; model: string; has_key: boolean; base_url?: string | null } | null;
 export type TaskState = "work" | "approve" | "choice" | "done" | "error" | "idle";
 export type Agent = {
   id: string;

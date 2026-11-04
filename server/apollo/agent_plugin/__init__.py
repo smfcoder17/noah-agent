@@ -33,48 +33,85 @@ PIPE_TO_SHELL = re.compile(
 RUNNERS = {"sh", "bash", "zsh", "dash", "source", ".", "python", "python3", "node", "perl", "ruby", "exec"}
 READERS = {"cat", "less", "more", "head", "tail", "bat", "nl"}
 
-# Fichiers téléchargés et pas encore lus, d'un appel à l'autre (une machine = un agent).
+# Fichiers téléchargés et pas encore lus, d'un appel à l'autre (une machine = un agent). Une lecture ne compte que
+# dans un appel à part : l'agent voit le contenu avant de décider de le lancer (cat f && sh f ne le lui montre pas).
 _unread: set[str] = set()
 
 
-def _name(path: str) -> str:
-    """Nom du fichier seul : l'agent peut le télécharger en relatif et le lire en absolu (ou l'inverse)."""
-    return os.path.basename(path.strip("'\"").rstrip("/")) or path
+def _path(path: str) -> str:
+    return os.path.normpath(path.strip("'\"")) if path.strip("'\"") else ""
+
+
+def _same(a: str, b: str) -> bool:
+    """Même fichier : chemins égaux, ou l'un des deux relatif (dossier courant inconnu) et même nom."""
+    if a == b:
+        return True
+    if os.path.isabs(a) and os.path.isabs(b):
+        return False
+    return os.path.basename(a) == os.path.basename(b)
+
+
+def _hits(paths: set[str], unread: set[str]) -> set[str]:
+    return {p for p in paths for u in unread if _same(p, u)}
 
 
 def _words(command: str) -> list[str]:
     try:
-        return shlex.split(command, posix=True)
+        lex = shlex.shlex(command, posix=True, punctuation_chars="|<>")
+        lex.whitespace_split = True
+        return list(lex)
     except ValueError:
         return command.split()
 
 
 def _downloads(words: list[str]) -> list[str]:
-    """Fichiers écrits par curl/wget dans cette commande (-o, -O, --output, --output-document, redirection >)."""
+    """Fichiers écrits par curl/wget (-o f, -of, -O f, --output=f, > f, curl -O d'après l'adresse)."""
     out = []
     for i, w in enumerate(words):
-        if w in ("-o", "--output", "-O", "--output-document") and i + 1 < len(words):
-            if words[i + 1] != "-":
-                out.append(words[i + 1])
+        nxt = words[i + 1] if i + 1 < len(words) else ""
+        if w in ("-o", "--output", "-O", "--output-document"):
+            if nxt and nxt != "-" and not nxt.startswith("http"):
+                out.append(nxt)
         elif w.startswith(("--output=", "--output-document=")):
             out.append(w.split("=", 1)[1])
-        elif w in (">", ">>") and i + 1 < len(words):
-            out.append(words[i + 1])
-        elif w.startswith(">") and len(w.lstrip(">")) > 0:  # curl … >f
-            out.append(w.lstrip(">"))
-    if "-O" in words or "--remote-name" in words:  # curl -O : nom tiré de l'adresse
+        elif (m := re.fullmatch(r"-[a-zA-Z]*?[oO](.+)", w)) and not w.startswith("--"):  # -o/tmp/f, -sSLo/tmp/f
+            out.append(m.group(1))
+        elif w in (">", ">>") and nxt:
+            out.append(nxt)
+    if "-O" in words or "--remote-name" in words or any(re.fullmatch(r"-[a-zA-Z]*O", w) for w in words):
         out += [w.rsplit("/", 1)[-1] for w in words if w.startswith(("http://", "https://"))]
-    return [_name(f) for f in out if f]
+    return [_path(f) for f in out if f and f != "-"]
 
 
 def _executed(words: list[str]) -> set[str]:
-    """Fichiers lancés : `sh f`, `bash f`, `python3 f`, `. f`, `./f`, `/chemin/f`."""
-    out = set()
-    for i, w in enumerate(words):
-        if w in RUNNERS and i + 1 < len(words) and not words[i + 1].startswith("-"):
-            out.add(_name(words[i + 1]))
-        elif w.startswith(("./", "/")) and (i == 0 or words[i - 1] in ("&&", ";", "||", "|", "sudo", "then", "do")):
-            out.add(_name(w))
+    """Fichiers lancés : `sh f`, `bash -e f`, `python3 -u f`, `. f`, `./f`, `/chemin/f`, `sh < f`, `cat f | sh`,
+    et ce que lance `bash -c "…"`."""
+    out: set[str] = set()
+    i = 0
+    while i < len(words):
+        w = words[i]
+        if os.path.basename(w) in RUNNERS:
+            j = i + 1
+            while j < len(words) and words[j].startswith("-"):
+                if words[j] == "-c" and j + 1 < len(words):  # commande en texte : vérifiée comme une commande
+                    for seg in _segments(words[j + 1]):
+                        out |= _executed(seg)
+                    j = len(words)
+                    break
+                if words[j] == "-m":  # python -m module : pas un fichier
+                    j = len(words)
+                    break
+                j += 1
+            if j < len(words) and words[j] == "<" and j + 1 < len(words):
+                out.add(_path(words[j + 1]))
+            elif j < len(words) and words[j] not in ("|", "<", ">", ">>"):
+                out.add(_path(words[j]))
+        elif w.startswith(("./", "/")) and (i == 0 or words[i - 1] in ("|", "sudo", "then", "do", "exec", "env")):
+            out.add(_path(w))
+        elif w == "|" and i + 1 < len(words) and os.path.basename(words[i + 1]) in RUNNERS:
+            # cat f | sh : le contenu de f est lancé
+            out |= {_path(x) for x in words[:i] if not x.startswith("-") and x not in READERS and x not in ("|", "<", ">")}
+        i += 1
     return out
 
 
@@ -94,19 +131,21 @@ def check(command: str) -> str | None:
         if not source.startswith(TRUSTED):
             return (f"Noah n'installe pas de skill tiers non vérifié ({source}). Seuls les dépôts vérifiés "
                     f"({', '.join(TRUSTED)}) sont permis ; sinon, écris toi-même le skill avec skill_manage.")
-    unread = set(_unread)
+    unread, read_now = set(_unread), set()
     for words in _segments(command):
-        if words and words[0] in READERS:
-            unread -= {_name(w) for w in words[1:] if not w.startswith("-")}
+        if words and words[0] in READERS and "|" not in words:
+            read_now |= {_path(w) for w in words[1:] if not w.startswith("-")}
             continue
-        blind = _executed(words) & unread
+        blind = _hits(_executed(words), unread)
         if blind:
-            return (f"Noah refuse de lancer {', '.join(sorted(blind))} : ce fichier vient d'être téléchargé et tu ne "
-                    "l'as pas lu. Lis-le (read_file), vérifie ce qu'il fait, puis lance-le en le disant à l'utilisateur.")
-        if words and re.fullmatch(DOWNLOADER, words[0], re.I):
+            return (f"Noah refuse de lancer {', '.join(sorted(blind))} : ce fichier a été téléchargé et tu ne l'as "
+                    "pas encore lu. Lis-le d'abord (read_file, dans un appel à part), vérifie ce qu'il fait, puis "
+                    "lance-le en le disant à l'utilisateur.")
+        if words and re.fullmatch(DOWNLOADER, os.path.basename(words[0]), re.I):
             unread |= set(_downloads(words))
+    # Lu dans cette commande : compte pour les suivantes (l'agent a vu le contenu dans le résultat).
     _unread.clear()
-    _unread.update(unread)
+    _unread.update(u for u in unread if not any(_same(u, r) for r in read_now))
     return None
 
 
@@ -114,7 +153,8 @@ def _pre_tool_call(tool_name: str = "", args: dict | None = None, **_) -> dict |
     if not isinstance(args, dict):
         return None
     if tool_name == "read_file":
-        _unread.discard(_name(str(args.get("path", ""))))
+        read = _path(str(args.get("path", "")))
+        _unread.difference_update({u for u in _unread if _same(u, read)})
         return None
     if tool_name != "terminal":
         return None

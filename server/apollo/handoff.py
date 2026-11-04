@@ -36,7 +36,7 @@ def open_call(agent_id: str, message: str, origin: str = "agent", leave_host: st
     call = {"id": uuid.uuid4().hex[:10], "message": message, "depuis": time.time(), "origine": origin,
             "attente": asyncio.get_running_loop().create_future(), "attentifs": 0}
     _calls[agent_id] = call
-    asyncio.create_task(_keep_private(agent_id, call))
+    _ensure_keeper(agent_id)
     desktop.notify("Noah a besoin de toi", message[:240])
     if leave_host:
         asyncio.create_task(_until_left(agent_id, call, leave_host))
@@ -56,18 +56,64 @@ async def _private(agent_id: str, seconds: int) -> bool:
         return False
 
 
-PRIVATE_EVERY = 20  # secondes : un navigateur recréé pendant l'appel (mise à jour, plantage) repasse en privé
+PRIVATE_EVERY = 20  # secondes : un navigateur recréé pendant la prise en main (mise à jour, plantage) repasse en privé
+MANUAL_SECONDS = 3600  # « Prendre le contrôle » depuis l'écran, sans appel de l'agent : rendu de lui-même après 1 h
+
+_manual: dict[str, float] = {}  # agent -> échéance de la prise de contrôle manuelle
+_keepers: dict[str, asyncio.Task] = {}
+_wake: dict[str, asyncio.Event] = {}
 
 
-async def _keep_private(agent_id: str, call: dict) -> None:
-    """Mode privé posé à l'ouverture de l'appel, puis rappelé tant qu'il dure : un échec (navigateur qui démarre) est
-    retenté, et un navigateur neuf qui ne connaît pas l'appel le reçoit aussi."""
-    while _calls.get(agent_id) is call:
-        ok = await _private(agent_id, PRIVATE_SECONDS)
-        if _calls.get(agent_id) is not call:  # appel fermé pendant l'envoi : notre « privé » est arrivé après la fin
-            await _private(agent_id, 0)
-            return
-        await asyncio.sleep(PRIVATE_EVERY if ok else 3)
+def _wanted(agent_id: str) -> bool:
+    """L'utilisateur a la main : un appel de l'agent en cours, ou « Prendre le contrôle » dans l'écran."""
+    return agent_id in _calls or _manual.get(agent_id, 0) > time.time()
+
+
+def _ensure_keeper(agent_id: str) -> None:
+    _wake.setdefault(agent_id, asyncio.Event()).set()
+    task = _keepers.get(agent_id)
+    if not task or task.done():
+        _keepers[agent_id] = asyncio.get_running_loop().create_task(_keeper(agent_id))
+
+
+async def _keeper(agent_id: str) -> None:
+    """Un seul gardien par agent, qui envoie l'état voulu dans l'ordre : deux prises en main qui se suivent ne se
+    marchent pas dessus (la fin de l'ancienne ne peut pas couper la nouvelle). Rappel toutes les 20 s tant que
+    l'utilisateur a la main ; un échec (navigateur qui démarre) est retenté après 3 s."""
+    wake = _wake.setdefault(agent_id, asyncio.Event())
+    try:
+        while True:
+            wake.clear()
+            if _wanted(agent_id):
+                ok = await _private(agent_id, PRIVATE_SECONDS)
+                if _wanted(agent_id):
+                    try:
+                        await asyncio.wait_for(wake.wait(), PRIVATE_EVERY if ok else 3)
+                    except asyncio.TimeoutError:
+                        pass
+                    continue
+            for _ in range(5):  # rendre les captures : jamais laissées bloquées par erreur
+                if await _private(agent_id, 0) or _wanted(agent_id):
+                    break
+                await asyncio.sleep(3)
+            if not _wanted(agent_id):  # aucune attente depuis le dernier contrôle : rien n'a pu se glisser
+                return
+    finally:
+        _keepers.pop(agent_id, None)
+
+
+async def take_control(agent_id: str, on: bool) -> bool:
+    """Prise de contrôle depuis l'écran. Rend True quand le navigateur a confirmé le mode privé (ou qu'il est rendu)."""
+    if not on:
+        _manual.pop(agent_id, None)
+        _ensure_keeper(agent_id)
+        return True
+    _manual[agent_id] = time.time() + MANUAL_SECONDS
+    if not await _private(agent_id, PRIVATE_SECONDS):  # acquitté avant de laisser la main
+        _manual.pop(agent_id, None)
+        return False
+    _ensure_keeper(agent_id)
+    return True
 
 
 async def _until_left(agent_id: str, call: dict, host: str) -> None:
@@ -92,7 +138,7 @@ def close_call(agent_id: str, call_id: str | None, answer: str) -> None:
             call["attente"].set_result(answer)
         _calls.pop(agent_id, None)
         try:
-            asyncio.get_running_loop().create_task(_private(agent_id, 0))
+            _ensure_keeper(agent_id)
         except RuntimeError:  # appelé hors de la boucle : la fenêtre privée se fermera seule
             pass
         _answered[call["id"]] = answer

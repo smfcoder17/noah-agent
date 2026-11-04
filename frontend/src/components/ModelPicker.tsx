@@ -69,6 +69,7 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
   const [usage, setUsage] = useState<Usage | null>(null);
   const [provider, setProvider] = useState<Provider | null>(null);
   const [apiKey, setApiKey] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState("");
@@ -97,15 +98,16 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
       setDaily(u?.daily != null ? String(u.daily) : "");
       // Premier lancement : aucun fournisseur choisi d'avance (l'utilisateur choisit où partent ses données).
       setProvider(p.find((x) => x.id === c?.provider) || (first ? null : p[0]));
+      setBaseUrl(c?.base_url || "");
       if (c) setPicked({ id: c.model, name: c.model });
     })().catch((e) => setError(e.message));
   }, [first]);
 
-  const load = useCallback(async (p: Provider, key: string) => {
+  const load = useCallback(async (p: Provider, key: string, url = "") => {
     setLoading(true);
     setError("");
     try {
-      setCatalog(await send<Catalog>("/api/models", { provider: p.id, api_key: key || null }));
+      setCatalog(await send<Catalog>("/api/models", { provider: p.id, api_key: key || null, base_url: url || null }));
     } catch (e) {
       setCatalog(null);
       setError((e as Error).message);
@@ -115,7 +117,11 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
   }, []);
 
   useEffect(() => {
-    if (provider) load(provider, "");
+    // Un service à adresse attend qu'on l'ait saisie, sauf Ollama sur cette machine et une adresse déjà enregistrée.
+    if (provider && provider.id !== "custom") load(provider, "");
+    else if (provider && current?.provider === "custom") load(provider, "");
+    else setCatalog(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider, load]);
 
   const choose = (p: Provider) => {
@@ -137,7 +143,7 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
     setError("");
     try {
       await send("/api/budget", { monthly: budget === "" ? null : Number(budget), daily: daily === "" ? null : Number(daily) });
-      await send("/api/model", { provider: provider.id, api_key: apiKey || null, model: picked.id });
+      await send("/api/model", { provider: provider.id, api_key: apiKey || null, model: picked.id, base_url: provider.own_url ? baseUrl || null : null });
       onDone();
     } catch (e) {
       setError((e as Error).message);
@@ -190,6 +196,25 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
               </button>
             ))}
           </div>
+          {provider?.own_url && (
+            <div className="flex flex-col gap-2">
+              <Label>
+                Adresse {provider.id === "ollama" ? "(vide : Ollama sur cette machine)" : "de l'API, finie par /v1"}
+                <Input
+                  type="url"
+                  autoComplete="off"
+                  value={baseUrl}
+                  onChange={(e) => setBaseUrl(e.target.value)}
+                  placeholder={provider.id === "ollama" ? "http://mon-serveur:11434/v1" : "http://mon-serveur:8000/v1"}
+                />
+              </Label>
+              <Label>
+                Clé API (facultative)
+                <Input type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
+              </Label>
+              <Button variant="outline" onClick={() => provider && load(provider, apiKey, baseUrl)}>Afficher les modèles</Button>
+            </div>
+          )}
           {provider?.needs_key && (
             <div className="flex items-end gap-2">
               <Label className="flex-1">

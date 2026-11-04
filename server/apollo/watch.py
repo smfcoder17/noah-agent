@@ -47,7 +47,7 @@ SEEN_MAX = 3000
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0"
 
 
-KEYS = "2"  # format des empreintes de blocs ; le changer fait réapprendre chaque page en silence
+KEYS = "3"  # format des empreintes de blocs ; le changer fait réapprendre chaque page en silence
 
 
 def init() -> None:
@@ -98,18 +98,24 @@ def _clean(fragment: str) -> str:
     return re.sub(r"[ \t \n]+", " ", html.unescape(re.sub(r"<[^>]+>", " ", fragment))).strip()
 
 
-# Mentions qui changent à chaque passage sans rien apprendre : « il y a 3 minutes », « 5 hours ago », « 14:32 ».
-# Retirées avant l'empreinte d'un bloc, sinon une page immobile paierait un tri par le modèle à chaque passage.
-_CLOCK = re.compile(
+# Mentions qui changent à chaque passage sans rien apprendre, retirées avant l'empreinte d'un bloc (sinon une page
+# immobile paierait un tri par le modèle à chaque passage) : « il y a 3 minutes », « 5 hours ago », et l'heure d'un
+# horodatage de page (« Mis à jour à 14:32 », « Last updated 2:05 pm »). Une heure du contenu (« départ à 14h30 »)
+# reste : son changement est une nouveauté.
+_VOLATILE = re.compile(
     r"(?i)\b(?:il y a|depuis)\s+(?:\d+|une?|quelques)\s+(?:secondes?|minutes?|min|heures?|h|jours?)\b"
     r"|\b(?:\d+|an?|a few)\s+(?:seconds?|minutes?|mins?|hours?|hrs?|days?)\s+ago\b"
-    r"|\b(?:à l'instant|just now|aujourd'hui|today|hier|yesterday)\b"
-    r"|\b\d{1,2}[:h]\d{2}(?::\d{2})?\s*(?:am|pm)?\b"
+    r"|\b(?:à l'instant|just now)\b"
+)
+_STAMP = re.compile(
+    r"(?i)\b((?:mis à jour|mise à jour|actualisée?|dernière modification|updated|last updated|as of|publiée?|posted)"
+    r"\b[^.\n]{0,40}?)\b\d{1,2}[:h]\d{2}(?::\d{2})?(?:\s*(?:am|pm)\b)?"
 )
 
 
 def _key(text: str) -> str:
-    return hashlib.sha1(re.sub(r"\s+", " ", _CLOCK.sub(" ", text)).strip().lower().encode()).hexdigest()[:16]
+    text = _STAMP.sub(r"\1", _VOLATILE.sub(" ", text))
+    return hashlib.sha1(re.sub(r"\s+", " ", text).strip().lower().encode()).hexdigest()[:16]
 
 
 def _page_items(body: str, base: str = "") -> list[dict]:
@@ -214,7 +220,11 @@ async def check(wid: str, save_message, main_conversation) -> dict:
     known = set(seen)
     new = [it for it in items if it["cle"] not in known]
     first = not seen
-    seen = (seen + [it["cle"] for it in new])[-SEEN_MAX:]
+    # Toute la page actuelle reste connue, quelle que soit sa taille (au-delà de SEEN_MAX blocs, l'éviction en
+    # faisait reparaître un à chaque passage) ; les anciens blocs disparus de la page gardent SEEN_MAX places.
+    current = [it["cle"] for it in items]
+    on_page = set(current)
+    seen = [k for k in seen if k not in on_page][-SEEN_MAX:] + current
     result = {"nouveautes": 0 if first else len(new), "alerte": False}
     alert = None
     if new and not first:  # premier passage : on apprend la page, sans prévenir

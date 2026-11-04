@@ -14,7 +14,7 @@ from pathlib import Path
 
 import httpx
 
-from . import db, relay
+from . import catalog, db, relay
 
 BASE = "https://openrouter.ai/api/v1"
 CACHE_SECONDS = 3600
@@ -57,11 +57,11 @@ class MediaError(Exception):
 
 
 def _key() -> str:
-    if db.get_setting("provider") != "openrouter":
-        raise MediaError("La création de médias et la voix demandent une clé OpenRouter (Réglages > Cerveau).")
-    key = db.get_setting("api_key", secret=True) if db.get_setting("api_key") else None
+    if db.get_setting("media_api_key"):
+        return db.get_setting("media_api_key", secret=True)
+    key = db.get_setting("api_key", secret=True) if db.get_setting("provider") == "openrouter" and db.get_setting("api_key") else None
     if not key:
-        raise MediaError("Aucune clé OpenRouter enregistrée.")
+        raise MediaError("La création de médias et la voix demandent une clé OpenRouter (Réglages > Cerveau).")
     return key
 
 
@@ -470,6 +470,37 @@ async def backups(kind: str, limit: int = 3) -> list[str]:
 _voice_pick: dict[str, float | str] = {"at": 0.0, "model": ""}
 
 
+# Voix rapide quand le cerveau n'est pas sur OpenRouter : le plus rapide disponible, sinon le cerveau lui-même.
+FAST_OLLAMA = ["gpt-oss:20b-cloud", "glm-5.3-flash:cloud", "deepseek-v4.1-flash:cloud"]
+_fast_pick: dict[str, str] = {}
+
+
+async def _voice_target() -> tuple[str, dict, list[str]]:
+    """Où parle la voix rapide : (adresse, en-têtes, modèles à essayer). Elle suit le fournisseur du cerveau."""
+    provider = db.get_setting("provider")
+    if provider == "openrouter" or not provider:
+        model = await voice_model()
+        return BASE, _headers(), [model, model, *[m for m in VOICE_MODELS if m != model][:2]]
+    key = db.get_setting("api_key", secret=True) if db.get_setting("api_key") else None
+    base_url = db.get_setting("base_url") or None
+    brain = db.get_setting("model")
+    chosen = db.get_setting("media_voice_brain") or "auto"
+    if chosen != "auto":
+        model = chosen
+    elif provider in ("ollama", "ollama-cloud"):
+        where = f"{provider}|{base_url}"
+        if where not in _fast_pick:
+            try:
+                ids = {m["id"] for m in await catalog.models_for(provider, key, base_url)}
+            except httpx.HTTPError:
+                ids = set()
+            _fast_pick[where] = next((m for m in FAST_OLLAMA if m in ids), brain)
+        model = _fast_pick[where]
+    else:
+        model = brain
+    return relay.upstream_base(provider, base_url), {"Authorization": f"Bearer {key}"} if key else {}, [model, model, brain]
+
+
 async def voice_model() -> str:
     chosen = db.get_setting("media_voice_brain") or "auto"
     if chosen != "auto":
@@ -486,7 +517,6 @@ async def voice_model() -> str:
 
 
 async def _refresh_voice_model() -> None:
-    from . import catalog
 
     try:
         ids = {m["id"] for m in await catalog.models_for("openrouter", _key())}
@@ -510,7 +540,8 @@ async def voice_reply(agent_id: str, name: str, role: str, text: str, history: l
     content, cost = "", None
     try:
         _check_budget()
-        model = await voice_model()
+        base, headers, fallbacks = await _voice_target()
+        on_openrouter = base == BASE
         if mode == "result":
             messages = [{"role": "system", "content": VOICE_RESULT.format(name=name)}, {"role": "user", "content": text[:12000]}]
         else:
@@ -519,16 +550,19 @@ async def voice_reply(agent_id: str, name: str, role: str, text: str, history: l
             messages += [{"role": "assistant" if h.get("role") == "assistant" else "user", "content": str(h.get("text", ""))[:1500]} for h in history[-6:]]
             messages.append({"role": "user", "content": text})
         # Modèle saturé ou en panne avant d'avoir rien dit : le suivant répond à sa place.
-        fallbacks = [model, model, *[m for m in VOICE_MODELS if m != model][:2]]
         for i, model in enumerate(fallbacks):
-            body = {"model": model, "messages": messages, "max_tokens": 300, "temperature": 0.4,
-                    "provider": {"sort": "latency"}, "stream": True, "usage": {"include": True}}
+            body = {"model": model, "messages": messages, "max_tokens": 300, "temperature": 0.4, "stream": True}
+            if on_openrouter:
+                body |= {"provider": {"sort": "latency"}, "usage": {"include": True}}
             if mode != "result":
                 body["response_format"] = {"type": "json_object"}
             if "gpt-oss" in model:  # modèle à raisonnement : le minimum, et rien de lu à voix haute
-                body["reasoning"] = {"effort": "low", "exclude": True}
+                if on_openrouter:
+                    body["reasoning"] = {"effort": "low", "exclude": True}
+                else:
+                    body["reasoning_effort"] = "low"
             try:
-                async with relay.upstream_client().stream("POST", f"{BASE}/chat/completions", json=body, headers=_headers(), timeout=30) as r:
+                async with relay.upstream_client().stream("POST", f"{base}/chat/completions", json=body, headers=headers, timeout=30) as r:
                     if r.status_code != 200:
                         await r.aread()
                         raise _fail(r)

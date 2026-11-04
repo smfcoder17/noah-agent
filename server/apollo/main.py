@@ -9,7 +9,7 @@ import threading
 import time
 import unicodedata
 import uuid
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
 
 import httpx
 import websockets
@@ -738,16 +738,27 @@ def me(user: int = Depends(auth.current_user)):
 @app.get("/api/providers")
 def providers():
     return [
-        {"id": k, "label": v["label"], "needs_key": v["env"] is not None, "default_model": v["model"]}
+        {"id": k, "label": v["label"], "needs_key": v["env"] is not None, "default_model": v["model"], "own_url": k in relay.OWN_URL}
         for k, v in hermes.PROVIDERS.items()
     ]
+
+
+def _clean_base_url(value: str | None) -> str | None:
+    """Adresse d'un fournisseur : http ou https, sans identifiants ni paramètres (ils finiraient dans les journaux)."""
+    value = (value or "").strip()
+    if not value:
+        return None
+    u = urlsplit(value)
+    if u.scheme not in ("http", "https") or not u.hostname or u.username or u.password or u.query or u.fragment:
+        raise HTTPException(400, "Adresse invalide. Exemple : http://mon-serveur:11434/v1")
+    return value.rstrip("/")
 
 
 class ModelChoice(BaseModel):
     provider: str
     api_key: str | None = None
     model: str | None = None
-    base_url: str | None = None
+    base_url: str | None = Field(default=None, max_length=500)
 
 
 def current_model() -> dict | None:
@@ -777,6 +788,7 @@ def _clear_agent_models() -> None:
 class ModelQuery(BaseModel):
     provider: str
     api_key: str | None = None
+    base_url: str | None = Field(default=None, max_length=500)
 
 
 @app.post("/api/models")
@@ -784,18 +796,25 @@ async def list_models(body: ModelQuery, user: int = Depends(auth.current_user)):
     """Modèles disponibles pour un fournisseur, avec les groupes recommandés."""
     if body.provider not in hermes.PROVIDERS:
         raise HTTPException(400, "Fournisseur inconnu")
+    base_url = _clean_base_url(body.base_url)
+    same = db.get_setting("provider") == body.provider
+    if not base_url and same:
+        base_url = db.get_setting("base_url") or None
+    # La clé enregistrée ne part que vers l'adresse pour laquelle elle a été donnée.
     key = body.api_key
-    if not key and db.get_setting("provider") == body.provider and db.get_setting("api_key"):
+    if not key and same and db.get_setting("api_key") and base_url == (db.get_setting("base_url") or None):
         key = db.get_setting("api_key", secret=True)
     try:
-        models = await catalog.models_for(body.provider, key)
+        models = await catalog.models_for(body.provider, key, base_url)
     except httpx.HTTPStatusError as e:
         if e.response.status_code in (401, 403):
             raise HTTPException(400, "Le fournisseur a refusé cette clé API.")
         raise HTTPException(502, "Le fournisseur n'a pas répondu correctement. Réessaie.")
     except httpx.HTTPError:
         if body.provider == "ollama":
-            raise HTTPException(502, "Ollama est injoignable. Vérifie qu'il tourne sur cette machine.")
+            raise HTTPException(502, "Ollama est injoignable. Vérifie qu'il tourne et que son adresse est juste.")
+        if body.provider == "custom":
+            raise HTTPException(502, "Ce service est injoignable. Vérifie son adresse.")
         raise HTTPException(502, "Impossible de joindre le fournisseur.")
     return {
         "needs_key": not models and hermes.PROVIDERS[body.provider]["env"] is not None and not key,
@@ -814,32 +833,39 @@ def usage(user: int = Depends(auth.current_user)):
             "SUM(u.prompt_tokens + u.completion_tokens) AS tokens, COUNT(*) AS calls, "
             "SUM(u.prompt_tokens) AS prompt_tokens, SUM(u.cached_tokens) AS cached_tokens "
             "FROM usage u LEFT JOIN agents a ON a.id = u.agent_id "
-            "WHERE u.created_at >= strftime('%Y-%m-01', 'now') GROUP BY u.agent_id ORDER BY cost DESC"
+            "WHERE u.created_at >= ? GROUP BY u.agent_id ORDER BY cost DESC", (relay.month_start(),)
         ).fetchall()
     with db.connect() as c:
         ids = [r["id"] for r in c.execute("SELECT id FROM agents")]
     today = {i: {"depense": round(relay.day_cost(i), 4), "plafond": relay.daily_cap(i)} for i in ids}
-    shift = f"{relay.day_offset():+d} seconds"
     with db.connect() as c:
-        # Par jour (chez l'utilisateur), sur 14 jours, et par tâche ce mois-ci : où part l'argent.
-        days = c.execute(
-            "SELECT agent_id, date(created_at, ?) AS day, SUM(cost) AS cost, "
+        # Par jour (chez l'utilisateur), sur 14 jours, et par tâche ce mois-ci : où part l'argent. Regroupé par tranche
+        # de 10 minutes en SQL, puis rangé dans son jour avec le décalage horaire de cette date (heure d'été).
+        slices = c.execute(
+            "SELECT agent_id, substr(created_at, 1, 15) || '0:00' AS slice, SUM(cost) AS cost, "
             "SUM(prompt_tokens + completion_tokens) AS tokens, COUNT(*) AS calls FROM usage "
-            "WHERE created_at >= datetime('now', '-14 days') GROUP BY agent_id, day ORDER BY day",
-            (shift,),
+            "WHERE created_at >= datetime('now', '-15 days') GROUP BY agent_id, slice"
         ).fetchall()
+    by_day: dict[tuple[str, str], dict] = {}
+    for r in slices:
+        d = by_day.setdefault((r["agent_id"], relay.local_day(r["slice"])), {"cost": 0.0, "tokens": 0, "calls": 0})
+        d["cost"] += r["cost"]
+        d["tokens"] += r["tokens"]
+        d["calls"] += r["calls"]
+    days = [{"agent_id": a, "day": day, **v} for (a, day), v in sorted(by_day.items(), key=lambda kv: kv[0][1])]
+    with db.connect() as c:
         tasks = c.execute(
             "SELECT u.agent_id, u.conversation_id, COALESCE(v.title, 'Travail de fond') AS title, v.main, "
             "SUM(u.cost) AS cost, SUM(u.prompt_tokens + u.completion_tokens) AS tokens, COUNT(*) AS calls "
             "FROM usage u LEFT JOIN conversations v ON v.id = u.conversation_id "
-            "WHERE u.created_at >= strftime('%Y-%m-01', 'now') AND (v.user_id = ? OR u.conversation_id IS NULL) "
+            "WHERE u.created_at >= ? AND (v.user_id = ? OR u.conversation_id IS NULL) "
             "GROUP BY u.agent_id, u.conversation_id ORDER BY cost DESC, tokens DESC LIMIT 50",
-            (user,),
+            (relay.month_start(), user),
         ).fetchall()
     daily = db.get_setting("budget_daily")
     return {"month_cost": relay.month_cost(), "budget": relay.budget(), "agents": [dict(r) for r in rows],
             "daily": float(daily) if daily else None, "today": today,
-            "days": [dict(r) for r in days],
+            "days": days,
             "tasks": [{**dict(r), "main": bool(r["main"])} for r in tasks]}
 
 
@@ -886,12 +912,12 @@ def outbound_flows(user: int = Depends(auth.current_user)):
         if not m:
             continue
         p = hermes.PROVIDERS.get(m["provider"], {})
-        base = m.get("base_url") or relay.UPSTREAMS.get(m["provider"], "")
-        local = m["provider"] == "ollama"
+        base = relay.upstream_base(m["provider"], m.get("base_url"))
+        local = m["provider"] == "ollama" and not m.get("base_url")
         flows.append({"quoi": f"Cerveau de {a['name']}", "vers": "ce serveur (Ollama)" if local else _host(base),
                       "detail": f"{p.get('label', m['provider'])} · {m.get('model') or p.get('model', '')}",
                       "quand": "à chaque message et à chaque étape d'une tâche", "agent": a["id"], "local": local})
-    if db.get_setting("provider") == "openrouter":
+    if db.get_setting("media_api_key") or db.get_setting("provider") == "openrouter":
         flows.append({"quoi": "Création et voix (images, vidéos, musique, dictée, lecture)", "vers": "openrouter.ai",
                       "quand": "seulement quand tu t'en sers"})
     # catalog.price_index : liste publique des modèles et de leurs prix, quel que soit le fournisseur choisi.
@@ -911,11 +937,11 @@ def outbound_flows(user: int = Depends(auth.current_user)):
     if not (config.BROWSER_LOCALE and config.BROWSER_TIMEZONE):
         flows.append({"quoi": "Pays et fuseau de l'adresse du serveur, pour le navigateur des agents", "vers": "ipinfo.io",
                       "quand": "une seule fois (APOLLO_LOCALE et APOLLO_TIMEZONE l'évitent)"})
-    if config.PUBLIC_DOMAIN:
+    if config.PUBLIC_DOMAIN:  # public.setup : adresse IP publique (noms sslip.io et nip.io), avec ou sans domaine à soi
         flows.append({"quoi": "Certificat HTTPS", "vers": "acme-v02.api.letsencrypt.org", "quand": "tous les deux mois environ"})
-        if config.PUBLIC_DOMAIN == "auto":
-            flows.append({"quoi": "Adresse publique du serveur (nom sslip.io)", "vers": "api.ipify.org",
-                          "quand": "au démarrage"})
+        flows.append({"quoi": "Adresse IP publique du serveur (noms sslip.io et nip.io)",
+                      "vers": ", ".join(_host(u) for u in public.IP_SERVICES),
+                      "quand": "au démarrage (le premier qui répond ; les suivants seulement en secours)"})
     flows.append({"quoi": "Google (Gmail, Agenda, Drive…)", "vers": "googleapis.com",
                   "quand": "seulement si tu connectes ton compte Google à un agent"})
     return {"flux": flows, "telemetrie": False}
@@ -924,7 +950,7 @@ def outbound_flows(user: int = Depends(auth.current_user)):
 @app.get("/api/model")
 def get_model(user: int = Depends(auth.current_user)):
     m = current_model()
-    return {"provider": m["provider"], "model": m["model"], "has_key": bool(m["api_key"])} if m else None
+    return {"provider": m["provider"], "model": m["model"], "has_key": bool(m["api_key"]), "base_url": m["base_url"]} if m else None
 
 
 _first_agent_lock = asyncio.Lock()
@@ -935,18 +961,28 @@ async def set_model(body: ModelChoice, user: int = Depends(auth.current_user)):
     p = hermes.PROVIDERS.get(body.provider)
     if not p:
         raise HTTPException(400, "Fournisseur inconnu")
+    base_url = _clean_base_url(body.base_url) if body.provider in relay.OWN_URL else None
+    if body.provider == "custom" and not base_url:
+        raise HTTPException(400, "Indique l'adresse du service, par exemple http://mon-serveur:8000/v1")
     previous = current_model()
-    # Garder la clé déjà enregistrée si on ne change que le modèle.
-    api_key = body.api_key or (previous["api_key"] if previous and previous["provider"] == body.provider else None)
+    # Garder la clé déjà enregistrée si on ne change que le modèle : jamais vers un autre fournisseur ni une autre adresse.
+    same_target = previous and previous["provider"] == body.provider and previous["base_url"] == base_url
+    api_key = body.api_key or (previous["api_key"] if same_target else None)
     if p["env"] and not api_key:
         raise HTTPException(400, "Cette option demande une clé API")
+    if not (body.model or p["model"]):
+        raise HTTPException(400, "Choisis un modèle")
     if previous and previous["provider"] != body.provider:
         _clear_agent_models()  # les modèles propres à un agent n'existent pas chez le nouveau fournisseur
+    # La création et la voix passent par OpenRouter : sa clé reste pour elles quand le cerveau change de fournisseur.
+    if previous and previous["provider"] == "openrouter" and previous["api_key"]:
+        db.set_setting("media_api_key", previous["api_key"], secret=True)
+    if body.provider == "openrouter" and api_key:
+        db.set_setting("media_api_key", api_key, secret=True)
     db.set_setting("provider", body.provider)
     db.set_setting("model", body.model or p["model"])
-    db.set_setting("base_url", body.base_url or "")
-    if api_key:
-        db.set_setting("api_key", api_key, secret=True)
+    db.set_setting("base_url", base_url or "")
+    db.set_setting("api_key", api_key or "", secret=bool(api_key))
 
     async with _first_agent_lock:  # deux onglets qui choisissent le premier modèle en même temps : un seul Noah
         agents = _agents()
@@ -1631,8 +1667,12 @@ async def agent_upload(agent_id: str, name: str, request: Request, user: int = D
 # --- Écran du navigateur (noVNC), relayé derrière la connexion Noah Agent -------------------------
 
 @app.get("/api/agents/{agent_id}/screen-url")
-def screen_url(agent_id: str, view_only: bool = False, user: int = Depends(auth.current_user)):
+async def screen_url(agent_id: str, view_only: bool = False, user: int = Depends(auth.current_user)):
     _agent(agent_id)
+    # Prendre le contrôle = l'utilisateur peut taper un mot de passe : le navigateur doit d'abord confirmer qu'il
+    # refuse les captures (G7.7). Rendre la main les permet de nouveau (sauf appel de l'agent en cours).
+    if not await handoff.take_control(agent_id, not view_only):
+        raise HTTPException(503, "Le navigateur ne confirme pas le mode privé : réessaie dans un instant.")
     _, password = hermes.browser_secrets(agent_id)
     base = f"/api/agents/{agent_id}/screen"
     params = {

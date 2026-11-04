@@ -199,7 +199,10 @@ PROVIDERS = {
     "anthropic": {"label": "Anthropic (Claude)", "env": "ANTHROPIC_API_KEY", "model": "claude-sonnet-4-5"},
     "openai": {"label": "OpenAI", "env": "OPENAI_API_KEY", "model": "gpt-5"},
     "gemini": {"label": "Google Gemini", "env": "GEMINI_API_KEY", "model": "gemini-2.5-pro"},
-    "ollama": {"label": "Ollama", "env": None, "model": "gpt-oss:20b"},
+    "ollama": {"label": "Ollama (cette machine ou une adresse)", "env": None, "model": "gpt-oss:20b"},
+    "ollama-cloud": {"label": "Ollama Cloud", "env": "OLLAMA_API_KEY", "model": "gpt-oss:120b"},
+    # Tout service qui parle l'API OpenAI : LM Studio, vLLM, LiteLLM, llama.cpp… La clé est facultative.
+    "custom": {"label": "Autre service compatible OpenAI", "env": None, "model": ""},
 }
 
 

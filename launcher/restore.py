@@ -212,8 +212,10 @@ def _preflight(tar: tarfile.TarFile, found: dict) -> None:
         sizes[name] = size
         total += size
     # Au plus fort : tous les volumes restaurés, plus la copie de vérification des données du serveur (elle vit
-    # jusqu'à la fin), plus la plus grosse archive intérieure posée dans un conteneur avant d'être décompressée.
-    peak = total + sizes.get("apollo_apollo-data.tar.gz", 0) + max((m.size for n, m in found.items() if n in sizes), default=0)
+    # jusqu'à la fin), plus deux copies de la plus grosse archive intérieure (_fill la pose sur le lanceur, puis dans le
+    # conteneur qui la décompresse), plus 2 % pour les en-têtes tar et les blocs du système de fichiers.
+    biggest = max((m.size for n, m in found.items() if n in sizes), default=0)
+    peak = int((total + sizes.get("apollo_apollo-data.tar.gz", 0) + 2 * biggest) * 1.02)
     free = shutil.disk_usage("/").free
     if peak + MARGIN > free:
         raise ValueError(f"Pas assez de place : la restauration a besoin de {peak >> 20} Mo au plus fort, "

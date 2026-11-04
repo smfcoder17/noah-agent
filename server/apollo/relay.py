@@ -25,7 +25,10 @@ UPSTREAMS = {
     "anthropic": "https://api.anthropic.com/v1",
     "gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
     "ollama": "http://host.docker.internal:11434/v1",
+    "ollama-cloud": "https://ollama.com/v1",
 }
+# Ces fournisseurs acceptent une adresse choisie par l'utilisateur. Aucun prix connu : leur coût reste à 0.
+OWN_URL = {"ollama", "custom"}
 # URL que les agents utilisent, sur le réseau Docker interne.
 RELAY_URL = "http://apollo-server:8080/relay/v1"
 
@@ -41,6 +44,13 @@ def upstream_client() -> httpx.AsyncClient:
         _client = httpx.AsyncClient(timeout=httpx.Timeout(600, connect=20),
                                     limits=httpx.Limits(max_keepalive_connections=20, keepalive_expiry=120))
     return _client
+
+
+def upstream_base(provider: str, base_url: str | None = None) -> str:
+    """Adresse de l'API OpenAI du fournisseur, sans « / » final. Vide si le fournisseur demande une adresse et n'en a pas."""
+    if provider in OWN_URL and base_url:
+        return base_url.rstrip("/")
+    return UPSTREAMS.get(provider, "")
 
 
 def token_for(agent_id: str) -> str:
@@ -60,8 +70,7 @@ def _agent_from(request: Request) -> str:
 def month_cost() -> float:
     with db.connect() as c:
         row = c.execute(
-            "SELECT COALESCE(SUM(cost), 0) AS total FROM usage "
-            "WHERE created_at >= strftime('%Y-%m-01', 'now')"
+            "SELECT COALESCE(SUM(cost), 0) AS total FROM usage WHERE created_at >= ?", (month_start(),)
         ).fetchone()
     return float(row["total"])
 
@@ -125,6 +134,7 @@ def _check_daily(agent_id: str) -> None:
 
 # Conversations dont un run est en cours, par agent (tenu par main._run). Les appels d'un agent ne disent pas pour
 # quelle tâche ils sont faits : avec un seul run en cours, c'est lui ; avec plusieurs, l'appel reste sans tâche.
+# Approximation assumée : une routine planifiée qui tourne pendant un run interactif lui est comptée.
 active: dict[str, list[str]] = {}
 
 
@@ -133,20 +143,29 @@ def _task_of(agent_id: str) -> str | None:
     return runs[0] if len(set(runs)) == 1 else None
 
 
-def day_offset() -> int:
-    """Décalage (secondes) de l'heure de l'utilisateur sur UTC, pour regrouper les dépenses par jour chez lui."""
+def local_day(created_at: str) -> str:
+    """Jour chez l'utilisateur d'un horodatage UTC de SQLite, avec le décalage de cette date-là (heure d'été comprise)."""
     from . import updates
-    return int(datetime.now(updates.local_zone()).utcoffset().total_seconds())
+    utc = datetime.strptime(created_at[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+    return utc.astimezone(updates.local_zone()).strftime("%Y-%m-%d")
 
 
-async def _record(agent_id: str, model: str, usage: dict | None) -> None:
+def month_start() -> str:
+    """Premier du mois à minuit chez l'utilisateur, en UTC au format de created_at."""
+    from . import updates
+    zone = updates.local_zone()
+    first = datetime.combine(datetime.now(zone).date().replace(day=1), dtime(0), zone)
+    return first.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
+async def _record(agent_id: str, model: str, usage: dict | None, task: str | None = None) -> None:
     if not usage:
         return
     prompt = int(usage.get("prompt_tokens") or 0)
     completion = int(usage.get("completion_tokens") or 0)
     cached = int((usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)
     cost = usage.get("cost")
-    if cost is None and db.get_setting("provider") != "ollama":
+    if cost is None and db.get_setting("provider") not in (*OWN_URL, "ollama-cloud"):
         price = (await catalog.price_index()).get(catalog._norm(model))
         if price:
             cost = (prompt * price["price_in"] + completion * price["price_out"]) / 1e6
@@ -154,7 +173,7 @@ async def _record(agent_id: str, model: str, usage: dict | None) -> None:
         c.execute(
             "INSERT INTO usage (agent_id, model, prompt_tokens, completion_tokens, cost, cached_tokens, conversation_id) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (agent_id, model, prompt, completion, float(cost or 0), cached, _task_of(agent_id)),
+            (agent_id, model, prompt, completion, float(cost or 0), cached, task),
         )
     _check_daily(agent_id)
 
@@ -172,11 +191,15 @@ def _upstream_headers(provider: str, api_key: str | None) -> dict:
 @router.api_route("/relay/v1/{path:path}", methods=["GET", "POST"])
 async def relay(path: str, request: Request):
     agent_id = _agent_from(request)
+    task = _task_of(agent_id)  # lue au départ de l'appel : la tâche peut finir avant la réponse du fournisseur
     provider = db.get_setting("provider")
     if not provider:
         raise HTTPException(503, "Aucun modèle n'est configuré")
     api_key = db.get_setting("api_key", secret=True) if db.get_setting("api_key") else None
-    url = f"{UPSTREAMS[provider]}/{path}"
+    base = upstream_base(provider, db.get_setting("base_url"))
+    if not base:
+        raise HTTPException(503, "Ce fournisseur n'a pas d'adresse : renseigne-la dans Réglages > Cerveau.")
+    url = f"{base}/{path}"
     headers = _upstream_headers(provider, api_key)
 
     if request.method == "GET":
@@ -216,7 +239,7 @@ async def relay(path: str, request: Request):
         r = await upstream_client().post(url, headers=headers, json=body)
         if r.status_code == 200:
             try:
-                await _record(agent_id, model, r.json().get("usage"))
+                await _record(agent_id, model, r.json().get("usage"), task)
             except ValueError:
                 pass
         return Response(r.content, status_code=r.status_code, media_type=r.headers.get("content-type"))
@@ -244,6 +267,6 @@ async def relay(path: str, request: Request):
                             pass
         finally:
             await upstream.aclose()
-            await _record(agent_id, model, usage)
+            await _record(agent_id, model, usage, task)
 
     return StreamingResponse(passthrough(), status_code=200, media_type=upstream.headers.get("content-type", "text/event-stream"))

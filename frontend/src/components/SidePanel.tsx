@@ -120,7 +120,7 @@ function Spending({ usage, agentId }: { usage: Usage; agentId: string }) {
     const d = new Date();
     d.setDate(d.getDate() - 13 + i);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    return { key, label: d.toLocaleDateString("fr-CA", { weekday: "short", day: "numeric" }), cost: byDay.get(key)?.cost ?? 0 };
+    return { key, label: d.toLocaleDateString("fr-CA", { weekday: "short", day: "numeric" }), cost: byDay.get(key)?.cost ?? 0, tokens: byDay.get(key)?.tokens ?? 0 };
   });
   const top = Math.max(...days.map((d) => d.cost), 0.0001);
   const tasks = (usage.tasks ?? []).filter((t) => t.agent_id === agentId).slice(0, 5);
@@ -137,7 +137,7 @@ function Spending({ usage, agentId }: { usage: Usage; agentId: string }) {
         {days.map((d) => (
           <div
             key={d.key}
-            title={`${d.label} : ${money(d.cost)} $`}
+            title={`${d.label} : ${money(d.cost)} $ · ${d.tokens.toLocaleString("fr-CA")} jetons`}
             className={cn("flex-1 rounded-sm", d.cost ? "bg-foreground/70" : "bg-muted")}
             style={{ height: `${Math.max(6, (d.cost / top) * 100)}%` }}
           />
@@ -148,7 +148,9 @@ function Spending({ usage, agentId }: { usage: Usage; agentId: string }) {
           {tasks.map((t) => (
             <li key={t.conversation_id ?? "fond"} className="flex items-baseline justify-between gap-2">
               <span className="truncate">{t.main ? "Conversation principale" : t.title}</span>
-              <span className="shrink-0 font-mono text-xs text-muted-foreground">{money(t.cost)} $</span>
+              <span className="shrink-0 font-mono text-xs text-muted-foreground" title={`${t.calls} appels au modèle`}>
+                {Math.round(t.tokens / 1000).toLocaleString("fr-CA")} k jetons · {money(t.cost)} $
+              </span>
             </li>
           ))}
         </ul>
@@ -413,6 +415,8 @@ function Computer({ agentId }: { agentId: string }) {
       .catch(() => !cancelled && setUrl(""));
     return () => {
       cancelled = true;
+      // Panneau fermé ou agent changé pendant la prise de contrôle : le serveur rend les captures à l'agent.
+      if (control) void get(`/api/agents/${agentId}/screen-url?view_only=1`).catch(() => {});
     };
   }, [agentId, control, nonce]);
 

@@ -80,4 +80,21 @@ watch.init()
 r = run()
 assert r["nouveautes"] == 0 and len(model_calls) == 2, (r, len(model_calls))
 print("4. nouveau format d'empreinte : la page est réapprise sans tri ni fausse alerte")
+
+# 6. Codex (3e passage) : une heure du contenu qui change est une nouveauté ; l'heure d'un horodatage ne l'est pas.
+k = watch._key
+assert k("Le prochain départ du train Montréal Québec est prévu à 14h30.") != k("Le prochain départ du train Montréal Québec est prévu à 15h30.")
+assert k("Last updated 2:05 pm. Prices below are checked daily for all plans.") == k("Last updated 3:47 pm. Prices below are checked daily for all plans.")
+assert k("Publié le 2 novembre à 08:12 par la rédaction, lecture de cinq minutes.") == k("Publié le 2 novembre à 09:40 par la rédaction, lecture de cinq minutes.")
+print("6. « départ prévu à 14h30 » → « 15h30 » : nouveauté ; « mis à jour / publié à HH:MM » : ignoré")
+
+# 7. Page stable de plus de SEEN_MAX blocs : aucun tri, passage après passage.
+page["extra"] = "".join(f"<p>Produit numéro {i} de la gamme, disponible en trois couleurs et deux tailles.</p>" for i in range(3100))
+before = len(model_calls)
+run()
+for _ in range(5):
+    r = run()
+    assert r["nouveautes"] == 0, r
+assert len(model_calls) - before <= 1, f"{len(model_calls) - before} tris pour une page stable de 3 100 blocs"
+print("7. page stable de 3 100 blocs : plus aucun tri après son apprentissage")
 print("veilles : tout est vert")

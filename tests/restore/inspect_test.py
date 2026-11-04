@@ -107,6 +107,28 @@ with tarfile.open(two) as tar:
         assert "au plus fort" in str(e), e
 print("4. place disque : la copie de vérification des données compte (13 Mo au plus fort pour 9 Mo libres : refusé)")
 
+# 4 bis. Codex (3e passage) : une archive peu compressible existe deux fois avant d'être décompressée.
+def raw(n: int) -> bytes:
+    data = io.BytesIO()
+    with tarfile.open(fileobj=data, mode="w") as t:
+        info = tarfile.TarInfo("apollo.db")
+        info.size = n
+        t.addfile(info, io.BytesIO(os.urandom(n)))
+    return gzip.compress(data.getvalue())
+
+
+import os  # noqa: E402
+
+dense = archive("dense.tar", {D + "apollo_apollo-data.tar.gz": raw(3 << 20)})
+shutil.disk_usage = lambda _: Usage(0, 0, (2 << 30) + (10 << 20))  # 3 + 3 + 2 × 3 Mo au plus fort : 12 Mo
+with tarfile.open(dense) as tar:
+    try:
+        restore._preflight(tar, restore.inspect(dense))
+        raise AssertionError("deux copies temporaires de l'archive oubliées")
+    except ValueError as e:
+        assert "au plus fort" in str(e), e
+print("4 bis. archive peu compressible : ses deux copies temporaires comptent (12 Mo pour 10 Mo libres : refusé)")
+
 # 5. Codex : la clé de la sauvegarde doit signer ses secrets, sinon rien n'est remplacé.
 import base64  # noqa: E402
 import hashlib  # noqa: E402

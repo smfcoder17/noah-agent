@@ -96,9 +96,22 @@ async def _native(provider: str, api_key: str) -> list[str]:
     return []
 
 
-async def _ollama() -> list[dict]:
+def _auth(api_key: str | None) -> dict:
+    return {"Authorization": f"Bearer {api_key}"} if api_key else {}
+
+
+async def _openai_compatible(base_url: str, api_key: str | None) -> list[dict]:
+    """Les modèles d'un service compatible OpenAI. On ne connaît ni leurs prix ni leurs capacités : on les suppose capables d'outils."""
+    async with httpx.AsyncClient(timeout=10) as c:
+        r = await c.get(f"{base_url.rstrip('/')}/models", headers=_auth(api_key))
+    r.raise_for_status()
+    return [{"id": m["id"], "name": m["id"], "lab": "custom", "created": m.get("created") or 0, "context": 0, "price_in": None,
+             "price_out": None, "tools": True, "vision": False, "free": False} for m in r.json().get("data", [])]
+
+
+async def _ollama(url: str = OLLAMA_URL, api_key: str | None = None) -> list[dict]:
     async with httpx.AsyncClient(timeout=5) as c:
-        r = await c.get(f"{OLLAMA_URL}/api/tags")
+        r = await c.get(f"{url}/api/tags", headers=_auth(api_key))
     r.raise_for_status()
     out = []
     for m in r.json().get("models", []):
@@ -121,11 +134,17 @@ async def _ollama() -> list[dict]:
     return out
 
 
-async def models_for(provider: str, api_key: str | None) -> list[dict]:
+async def models_for(provider: str, api_key: str | None, base_url: str | None = None) -> list[dict]:
     if provider == "openrouter":
         return [m for m in await openrouter_catalog() if m["tools"]]
     if provider == "ollama":
-        return [m for m in await _ollama() if m["tools"]]
+        return [m for m in await _ollama((base_url or OLLAMA_URL).rstrip("/").removesuffix("/v1"), api_key) if m["tools"]]
+    if provider == "custom":
+        return await _openai_compatible(base_url, api_key) if base_url else []
+    if not api_key:
+        return []
+    if provider == "ollama-cloud":
+        return [{**m, "cloud": True} for m in await _ollama("https://ollama.com", api_key) if m["tools"]]
     if not api_key:
         return []
     prices = await price_index()
@@ -149,7 +168,9 @@ async def models_for(provider: str, api_key: str | None) -> list[dict]:
 
 def groups(provider: str, models: list[dict]) -> list[dict]:
     """Groupes recommandés : pour chaque labo et chaque gamme de prix, le modèle le plus récent."""
-    if provider == "ollama":
+    if provider == "custom":
+        return []
+    if provider in ("ollama", "ollama-cloud"):
         cloud = [m for m in models if m.get("cloud")]
         local = [m for m in models if not m.get("cloud")]
         return [g for g in (

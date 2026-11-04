@@ -30,8 +30,11 @@ def main_url() -> str:
     return f"https://{names[0]}" if names else ""
 
 
+IP_SERVICES = ("https://api.ipify.org", "https://ifconfig.me/ip", "https://icanhazip.com")  # listés dans /api/flux
+
+
 async def _public_ip() -> str:
-    for url in ("https://api.ipify.org", "https://ifconfig.me/ip", "https://icanhazip.com"):
+    for url in IP_SERVICES:
         try:
             async with httpx.AsyncClient(timeout=10) as c:
                 ip = (await c.get(url)).text.strip()

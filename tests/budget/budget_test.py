@@ -95,4 +95,31 @@ assert "c2" not in tasks and tasks[None]["calls"] == 3 and tasks[None]["title"] 
 days = [d for d in u["days"] if d["agent_id"] == "a2"]
 assert len(days) == 1 and days[0]["calls"] == 5 and days[0]["tokens"] == 75, days
 print("5. dépense par tâche (une tâche en cours : elle ; plusieurs ou aucune : travail de fond) et par jour")
+
+# 6. Codex (3e passage) : la tâche est celle du départ de l'appel, même si une autre lui succède avant la réponse.
+switch = upstream
+
+
+def upstream(request: httpx.Request) -> httpx.Response:  # noqa: F811
+    relay.active["a2"] = ["c2"]  # c1 finit et c2 commence pendant que le fournisseur répond
+    return switch(request)
+
+
+relay._client = httpx.AsyncClient(transport=httpx.MockTransport(upstream))
+relay.active["a2"] = ["c1"]
+assert ask(other) == 200
+tasks = {t["conversation_id"]: t for t in web.get("/api/usage").json()["tasks"] if t["agent_id"] == "a2"}
+assert tasks["c1"]["calls"] == 3 and "c2" not in tasks, tasks
+print("6. appel compté pour la tâche en cours à son départ, pas à sa réponse")
+
+# 7. Jours au fuseau de l'utilisateur, avec le décalage de chaque date (heure d'été).
+from zoneinfo import ZoneInfo  # noqa: E402
+
+from apollo import updates  # noqa: E402
+
+updates.local_zone = lambda: ZoneInfo("America/Toronto")
+assert relay.local_day("2026-11-01 04:30:00") == "2026-11-01"   # 00:30, encore à UTC−4
+assert relay.local_day("2026-11-02 04:30:00") == "2026-11-01"   # 23:30, passé à UTC−5
+assert relay.month_start().endswith(("04:00:00", "05:00:00"))  # minuit à Toronto, le 1er du mois
+print("7. jour de chaque dépense avec le décalage de sa date (changement d'heure du 1er novembre)")
 print("plafond quotidien : tout est vert")

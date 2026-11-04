@@ -109,6 +109,17 @@ try:
     assert back.id == orig.id and back.status == "running", (back.id, orig.id, back.status)
     assert not [c for c in client.containers.list(all=True) if c.name.startswith(mig) and c.id != orig.id]
     print("5. migration au démarrage : « -ancien » déjà là, rien ne bouge ; nouveau muet, l'original revient intact")
+
+    # 6. Codex (3e passage) : création à moitié faite (copie d'un fichier qui échoue après la création du conteneur).
+    L.updater.COPIED_FILES[mig] = ["/introuvable/fichier"]
+    try:
+        L._migrate_agent_tokens()
+    finally:
+        L.updater.COPIED_FILES.pop(mig, None)
+    back = client.containers.get(mig)
+    assert back.id == orig.id and back.status == "running", (back.id, orig.id, back.status)
+    assert not [c for c in client.containers.list(all=True) if c.name.startswith(mig) and c.id != orig.id]
+    print("6. création à moitié faite : le conteneur neuf est retiré, l'original revient sous son nom")
     print("secrets hors de la config Docker : tout est vert")
 finally:
     call("DELETE", f"http://localhost:9000/agents/{agent_id}")
