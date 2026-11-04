@@ -586,6 +586,12 @@ async def voice_reply(agent_id: str, name: str, role: str, text: str, history: l
                             piece = (ch.get("delta") or {}).get("content") or ""
                             content += piece
                             split.feed(reader.feed(piece) if reader else piece)
+                # Un modèle qui finit sans rien dire laisserait la personne dans le silence : le suivant répond à sa place.
+                if not content.strip() or (reader and reader.start is not None and reader.pos == reader.start):
+                    print(f"[voix] {model} n'a rien dit : {content[:80]!r}", flush=True)
+                    content = ""
+                    reader = _DireReader() if reader else None
+                    raise MediaError("La voix rapide n'a rien répondu.")
                 break
             except (httpx.HTTPError, MediaError) as e:
                 if content or i == len(fallbacks) - 1:
