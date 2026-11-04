@@ -98,14 +98,18 @@ def _conversation_user(conv_id: str) -> int | None:
 
 
 def launcher(agent_id: str) -> int | None:
-    """Le profil qui a lancé la tâche en cours, s'il n'y en a qu'une ; sinon le propriétaire de l'agent."""
-    task = relay._task_of(agent_id)
-    return (_conversation_user(task) if task else None) or owner_of(agent_id)
+    """Le profil des tâches en cours, s'il n'y en a qu'un ; sans tâche, le propriétaire. Plusieurs profils : voir ambiguous."""
+    users = _active_users(agent_id)
+    return (next(iter(users)) if len(users) == 1 else None) or owner_of(agent_id)
+
+
+def _active_users(agent_id: str) -> set:
+    return {u for u in (_conversation_user(conv) for conv in set(relay.active.get(agent_id) or [])) if u is not None}
 
 
 def ambiguous(agent_id: str) -> bool:
     """Des tâches de plusieurs profils tournent : on ne sait pas de laquelle vient l'appel de l'agent."""
-    return len({_conversation_user(conv) for conv in set(relay.active.get(agent_id) or [])}) > 1
+    return len(_active_users(agent_id)) > 1
 
 
 def guest_task(agent_id: str) -> bool:

@@ -16,6 +16,7 @@ déclaration vient du serveur), `agir` (tout, sans demander), `confirmer` (chaqu
 """
 import asyncio
 import contextvars
+import hashlib
 import ipaddress
 import json
 import re
@@ -688,7 +689,10 @@ _grants: dict[tuple[str, str], list[tuple[float, str]]] = {}
 
 def _shown(tool: str, args) -> str:
     """Ce que le plugin de garde montre à la personne : un accord ne vaut que pour cela."""
-    return f"{tool}\n{json.dumps(args, ensure_ascii=False, default=str)[:600]}"
+    text = json.dumps(args, ensure_ascii=False, default=str)
+    if len(text) <= 600:
+        return f"{tool}\n{text}"
+    return f"{tool}\n{text[:600]}… [empreinte {hashlib.sha256(text.encode()).hexdigest()[:16]}]"
 
 
 def approval_seen(agent_id: str, request_id: str | None, summary: str) -> None:

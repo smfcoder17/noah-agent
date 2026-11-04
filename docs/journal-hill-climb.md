@@ -244,3 +244,7 @@ Les deux ont reçu le code et la promesse, sans notes. Chaque constat a été re
   - un coût Ollama ou compatible OpenAI vaut 0 $, le plafond ne les arrête pas ; une réponse vocale annulée n'est pas comptée ;
   - le résultat d'un autre agent reste un tour de conversation, marqué comme information : une injection reste possible chez un modèle qui ignore la consigne ;
   - le secret client Google passe par le terminal de l'agent ; l'adresse d'un serveur de voix n'a pas de garde réseau, mais seul le propriétaire la règle.
+
+## 2026-11-04 : audit de contrôle Codex sur les corrections : 4/10
+
+Il a réfuté six corrections : jeton encore valable depuis une vraie adresse sur un port publié, invité à deux conversations traité comme le propriétaire, accord qui ignorait ce qui dépasse 600 caractères, profil supprimé pendant le démarrage d'une tâche, droits perdus quand les dossiers changent, audio déjà en file après une révocation. Corrigées, avec une reprise qui écrit le message avant ses marqueurs. Parcours réels rejoués sur l'image reconstruite : 3, 13, 8 et 27 vérifications, toutes tenues. Cette dernière série de corrections n'a pas encore été auditée.

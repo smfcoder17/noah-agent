@@ -7,6 +7,7 @@
 """
 import hashlib
 import hmac
+import ipaddress
 import json
 import socket
 from contextvars import ContextVar
@@ -60,20 +61,35 @@ def token_for(agent_id: str) -> str:
     return hmac.new(SECRET_KEY.encode(), f"relay:{agent_id}".encode(), hashlib.sha256).hexdigest()
 
 
-def _gateway() -> str | None:
-    """La passerelle du réseau Docker : c'est d'elle que semble venir tout ce qui entre par un port publié."""
+def _routes() -> tuple[list, str | None]:
+    """Les réseaux Docker de ce conteneur et leur passerelle, lus dans le noyau."""
+    networks, gateway = [], None
     try:
         for line in Path("/proc/net/route").read_text().splitlines()[1:]:
             fields = line.split()
+            to_ip = lambda v: socket.inet_ntoa(int(v, 16).to_bytes(4, "little"))  # noqa: E731
             if fields[1] == "00000000":
-                return socket.inet_ntoa(int(fields[2], 16).to_bytes(4, "little"))
+                gateway = to_ip(fields[2])
+            else:
+                networks.append(ipaddress.ip_network(f"{to_ip(fields[1])}/{to_ip(fields[7])}", strict=False))
     except (OSError, ValueError, IndexError):
         pass
-    return None
+    return networks, gateway
 
 
 def _from_outside(request: Request) -> bool:
-    return "x-forwarded-for" in request.headers or (request.client is not None and request.client.host == _gateway())
+    """Tout ce qui entre par un port publié semble venir de la passerelle, ou garde sa vraie adresse (Linux, réseau local)."""
+    if "x-forwarded-for" in request.headers:
+        return True
+    host = request.client.host if request.client else ""
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False  # client de test, sans adresse
+    networks, gateway = _routes()
+    if address.is_loopback or not networks:
+        return False
+    return host == gateway or not any(address in n for n in networks)
 
 
 def _agent_from(request: Request) -> str:

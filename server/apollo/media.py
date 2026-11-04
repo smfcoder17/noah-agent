@@ -664,6 +664,8 @@ def close_streams(user: int) -> None:
     """Accès retiré : les voix de ce profil se taisent. Tout ce qui lui parle, faute de savoir pour quel agent."""
     for stream in _streams.values():
         if stream.owner == user and not stream.closed:
+            while not stream.queue.empty():  # ce qui attend dans la file ne doit plus partir non plus
+                stream.queue.get_nowait()
             stream.put(None)
             stream.closed = True
             if stream.task:

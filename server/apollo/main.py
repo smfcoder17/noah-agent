@@ -1586,6 +1586,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
     if db.get_setting(f"applied:{agent.id}") != rev:
         rev = "aucune"
     trial = db.get_setting("onboarded") == "0"  # essai de l'assistant : borné, et arrêté s'il est abandonné
+    launched_by = _conversation_owner(conv_id)  # avant l'attente : le profil peut disparaître, avec ses conversations
     try:
         run_id = await hermes.start_run(agent, context + prompt, session_id=f"apollo-{conv_id}")
     except Exception:
@@ -1593,7 +1594,6 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
         raise HTTPException(503, "L'agent ne répond pas. Il démarre peut-être encore : réessaie dans un instant.")
 
     updates.activity()
-    launched_by = _conversation_owner(conv_id)
     _runs[run_id] = {"agent": agent.id, "user": launched_by}
     if launched_by is not None and not access.allowed(launched_by, agent.id, "usage"):  # retiré pendant le démarrage d'Hermes
         task_state[conv_id] = "idle"

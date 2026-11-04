@@ -22,6 +22,7 @@ Limite : c'est un filtre de commandes, pas un bac à sable. Il ferme le schéma 
 à lancer sans le lire) ; un agent décidé à le contourner le pourrait, d'où les autres protections (machine isolée,
 aucun secret de Noah dans l'agent, accord demandé pour les actions sensibles).
 """
+import hashlib
 import json
 import os
 import re
@@ -232,9 +233,11 @@ def check_mcp(tool_name: str, args: dict) -> dict | None:
             "routine. Continue sans cet outil et signale-le dans ton compte rendu ; l'utilisateur peut passer ce droit à "
             "« agir » dans Détails → Connexions.")}
     shown = json.dumps(args, ensure_ascii=False, default=str)
+    if len(shown) > 600:  # le serveur compare à ce qui a été montré : ce qui dépasse compte aussi, par son empreinte
+        shown = f"{shown[:600]}… [empreinte {hashlib.sha256(shown.encode()).hexdigest()[:16]}]"
     # Clé neuve à chaque appel : aucun accord ne se réutilise, même si un client répondait « pour la session ».
     return {"action": "approve", "rule_key": f"noah-mcp-{uuid.uuid4().hex}",
-            "message": f"Outil « {server} » : {tool}\n{shown[:600]}"}
+            "message": f"Outil « {server} » : {tool}\n{shown}"}
 
 
 _browser_awake_at = 0.0

@@ -388,6 +388,7 @@ def test_rights() -> None:
     assert call_tool("fiches", "creer_fiche", agent=agent_a) is not None  # « fiches » est en agir : sans lien avec l'accord
     assert rpc(agent_b, "libre", "tools/call", {"name": "creer_fiche"}).status_code == 404
     assert not mcp._take_grant(A, "libre", mcp._shown("autre_outil", {"titre": "Devis"})), "un accord vaut pour cet outil seulement"
+    assert mcp._shown("t", {"a": "x" * 700}) != mcp._shown("t", {"a": "x" * 700 + "y"}), "ce qui dépasse de l'écran compte aussi"
     assert mcp._grants[(A, "libre")], "un autre appel ne consomme pas l'accord"
     what = mcp._grants[(A, "libre")][0][1]
     assert mcp._take_grant(A, "libre", what) and not mcp._take_grant(A, "libre", what)

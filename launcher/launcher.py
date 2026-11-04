@@ -397,8 +397,11 @@ def set_folders(agent_id: str, body: AgentFolders):
     folders = _check_folders(body.dossiers)
     c = container(check_id(agent_id))
     key = _agent_key(c)
+    rights = c.exec_run(["cat", "/etc/noah/mcp-droits.json"], user="root")
     c.remove(force=True)
     out = _run_agent(agent_id, key, folders)
+    if rights.exit_code == 0:
+        _seal_rights(container(agent_id), json.loads(rights.output))
     threading.Thread(target=_restore_packages, daemon=True).start()
     return out
 
