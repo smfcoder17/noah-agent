@@ -260,3 +260,103 @@ Docker dans Docker, `get.sh`, Caddy en HTTPS (`tls internal`, seule différence 
 ## 2026-11-04 : deuxième audit de contrôle Codex : 4/10
 
 Sept défauts, reproduits en mémoire par l'auditeur. Corrigés : profil en suppression sans plus aucun droit dès le départ, suppression d'agent qu'on peut reprendre, demande de plus de 6 h réellement arrêtée, échec d'un accord qui retire le bon, synthèse comptée au modèle qui a parlé (test sur l'écriture dans `usage`), droits des outils recopiés à une mise à jour d'Hermes, réveil raté du navigateur non retenu. Ni la recopie à la mise à jour ni l'arrêt à 6 h n'ont de test réel : à rejouer avec `tests/updates/docker_test.sh`.
+
+## 2026-11-04, G10.5 : banc des tâches vocales
+
+**Verdict.** La cible de 71 % sur 30 scénarios n'est pas tenue. Le code retenu fait 62,5 % sur les 24 scénarios du dépôt. La branche d'essai `hc/voix-resultats` fait 79,2 % sur ces 24, 33,3 % sur le lot réservé, soit 70 % sur 30. Ses changements ne passent pas la règle de garde et restent hors de `feat/mvp-skeleton`.
+
+**Le banc.** `tests/real/taches_vocales.mjs` (vraie synthèse dans un faux micro, vrai composant, vrais agents, vrai serveur MCP qui écrit ce qu'il reçoit), `taches_verif.mjs` (ce que le code vérifie, où il place un échec, autotest), `taches_juges.mjs` (juges), `taches_vocales.json` (20 de travail, 4 garde-fous, version 3). Lot réservé : 6 scénarios écrits par `kimi-k3:cloud` dans `/data/bench-voix/taches-reserve.json`, jamais lus, 1 consultation comptée.
+
+**Trois versions du banc, trois défauts du banc, trouvés en lisant ses échecs :**
+
+- La synthèse ajoute parfois une suite inventée après la phrase (« Nei sosui fella medobila », partie au modèle comme un tour de plus). Chaque voix est désormais relue une fois et refaite si besoin.
+- Version 2 : le banc attend que le droit de l'outil soit pris en compte, et le fait de transcrire « 30 et 1 » pour « 31 » se place enfin en transcription. Les juges voient aussi ce que l'outil a répondu : ils prenaient une fiche bien lue pour une invention.
+- Version 3 : les fichiers de la série précédente sont effacés. Rita retrouvait son fichier et ne le récrivait pas : T11 a échoué à tort dans la base. **La base n'a pas été rejouée en version 3** : cet échec à tort y reste compté.
+
+**Résultats.** Une série par état, intervalle à 95 % groupé par cas. Un échec du code ou un refus de 2 juges sur 3 fait échouer l'appel ; un appel sans verdict compte comme un échec.
+
+| État | Tout (24) | Travail (20) | Garde-fous (4) | Causes des échecs |
+|---|---|---|---|---|
+| Base v1, juges avec MiniMax, à titre d'information | 62,5 % [41,7 ; 79,2] | 65 % | 50 % | |
+| **Base v2, code retenu** | **62,5 % [41,7 ; 79,2]** | 60 % [40 ; 80] | 75 % [25 ; 100] | modèle 5, voix 2, transcription 1, tri 1 |
+| Essai, tour 1 seul | 75 % [58,3 ; 91,7] | 75 % [55 ; 90] | 75 % [25 ; 100] | modèle 5, transcription 1 |
+| **Essai final, branche** | **79,2 % [62,5 ; 95,8]** | 85 % [70 ; 100] | 50 % [0 ; 100] | modèle 4, tri 1 |
+| Lot réservé, branche, score seul | 33,3 % [0 ; 66,7] : 2 sur 6, code tenu sur 3 | | | non lues |
+| Branche, 24 + 6 réservés | **70 % [53,3 ; 86,7]** sur 30 | | | |
+
+**Le lot réservé est loin du lot de travail** : 33 % contre 85 %. Il n'a pas de base. Trois explications restent ouvertes : du sur-apprentissage, un lot plus dur, ou la machine : mémoire libre tombée à **5 Mo** pendant cette série (319 à 477 Mo au plus bas sur les autres). Je n'ai pas lu les appels pour ne pas user le lot.
+
+**Base contre branche, gain apparié : 16,7 points, intervalle de -4,2 à 37,5.** Montent : T09, T11, T12, T15, T16, T20. Descendent : T19, G4. T11 monte surtout parce que la base l'avait fait échouer à tort, et T09 et T12 varient d'une série à l'autre (T12 monte parce que l'agent a dit « 93 » parmi deux lectures, alors que la transcription reste fausse).
+
+**Le code tient sur les 24 de la série finale** : les 5 échecs viennent tous des juges.
+
+### Tours
+
+Tous mesurés sur le même lot, hypothèse écrite avant le code. Une seule série complète pour le tour 1, une pour le cumul, faute de mémoire et de temps : les tours 2 et 3 n'ont eu qu'un filtre chacun.
+
+**Tour 1 : le résultat d'un agent rapide se perdait.**
+- *Hypothèse :* `action.current` n'est lu qu'après la fin de l'accusé de réception ; si l'agent finit avant, le tri vaut encore celui du tour d'avant, et le résultat n'est jamais dit. Attendre l'accusé doit faire entendre T15, T16 et T20. Gain prédit : 3 cas, soit 12,5 points. Risque : un texte intermédiaire de l'agent se met à être lu.
+- *Mesure :* T15, T16 et T20 échouent sur les 2 séries de base (0 sur 6), et réussissent sur les 2 séries suivantes (6 sur 6) ; le filtre fait aussi entendre le résultat aux 3, sans juges. Gain sur la série : 12,5 points, intervalle de -4,2 à 29,2. Le risque s'est produit : T14 est tombé sur « Demande envoyée à Rita (31b80acb7c) », lu à voix haute.
+- *Règle :* borne basse négative. **NON RETENU.**
+
+**Tour 2 : un identifiant interne lu à voix haute.** Conséquence directe du tour 1. *Hypothèse :* retirer les identifiants entre parenthèses de ce qui est dit relève T11 et T14, 2 cas. *Mesure :* filtre : les identifiants ont disparu sur T10 et T14. **NON RETENU** avec le cumul.
+
+**Tour 3 : changer le droit d'un outil ne se voyait pas.**
+- *Hypothèse :* « lire » cache les outils d'écriture, et Hermes garde sa liste. L'agent dit à l'utilisateur de changer le droit, puis répond encore que l'outil est en lecture seule. Reconnecter l'outil doit faire passer T17, T18 et G3 au code. Gain prédit : 3 cas, 12,5 points.
+- *Premier essai réfuté :* reposer l'outil avec un en-tête changé ne fait rien : Hermes compare les noms, pas les réglages. Le retirer pour une relecture (70 s) marche.
+- *Mesure :* T17, T18 et G3 passent le code (carte d'accord, l'outil reçoit `creer_fiche` après Autoriser, rien après Refuser), et échouent encore aux juges sur la phrase suivante.
+- *Risque :* l'outil disparaît 70 s, et `tests/tools/mcp_test.py` échoue à l'étape 9 sur la branche pour cette raison. Un défaut trouvé après la mesure (un deuxième changement ne retirait pas l'outil) est corrigé sur la branche, sans nouvelle mesure. **NON RETENU.**
+
+**Tour 4, annulé :** faire dire à la voix le résultat d'une demande arrivé hors d'un tour (`Rita a fini`). Le filtre n'a rien fait entendre, en deux essais. Code retiré, cause non trouvée.
+
+**Décision par la règle : rien n'est gardé sur `feat/mvp-skeleton`.** La borne basse du gain ne dépasse pas zéro, G4 tombe, et le réservé ne peut pas confirmer. Les 3 commits restent sur `hc/voix-resultats`. À l'humain de trancher : le tour 1 corrige un défaut lisible dans le code, avec 0 sur 6 puis 6 sur 6, et la règle demande plus de cas que ce lot n'en donne pour un défaut qui touche 3 cas.
+
+### Ce qui reste faux, classé par gain
+
+1. **La voix lit le nom interne de l'outil** : « Outil « outil-192-168-65-254 » : creerfiche ». C'est ce qui fait échouer T17, T18 et G3 sur la branche, et T19 en partie. 3 cas d'un coup.
+2. **La voix rapide promet ce qu'elle ne sait pas** : « D'accord, j'envoie un courriel », puis l'agent dit qu'il ne peut pas (G4, T19, T20). Le tri change d'une série à l'autre sur ces cas.
+3. **Le résultat d'une demande à Rita n'est jamais dit**, sauf par rappel. L'agent annonce pourtant qu'il arrivera « ici ». T10 et T11 réussissent quand même, car ces scénarios ne demandent pas de l'entendre : ce trou n'est pas dans le score.
+4. **« trente et un » devient « 30 et 1 »** à la transcription, à chaque série (T12). `gpt-audio-mini` comprend « 31 ».
+5. L'agent garde en conversation ce qu'il a dit d'un outil, et s'y tient même après un changement.
+
+### Juges
+
+Haiku 5.5 (Anthropic), `kimi-k3:cloud` (Moonshot), `glm-5.3:cloud` (Zhipu). Modèle testé : `deepseek-v4.1-flash:cloud`, voix rapide `gpt-oss:20b-cloud`. Ils ne voient ni le banc, ni le lot, ni la note attendue. Chaque verdict porte une citation vérifiée dans ce qui a été entendu.
+
+| Juge | Constance sur 3 passes : alpha, unités constantes (série finale) | Verdicts sans citation valide | Invention glissée, vue sur 24 | Dont citation de l'invention |
+|---|---|---|---|---|
+| Haiku 5.5 | 0,82, 74 sur 79 | 6 sur 237 | 23 | 18 |
+| Kimi K3 | 0,76, 75 sur 79 | 0 | 24 | 19 |
+| GLM 5.3 | 0,49, 77 sur 79 | 0 | 24 | 16 |
+| MiniMax M3, **écarté** (série de base v1) | 0,93, 78 sur 79 | **56 sur 237** | 23 | 15 |
+
+L'accord entre juges est faible : alpha de 0,37 sur la série finale, 0,28 à 0,55 selon les séries. Les verdicts « non » étant rares, cet alpha chute vite. Les juges tiennent une invention flagrante ; ils ne s'accordent pas sur le reste. **GLM est plus indulgent que MiniMax** sur 4 unités où MiniMax refusait (T07, T17, G3 deux fois) : le remplacement a pu lever 1 ou 2 cas. Il a été décidé sur le format, sans regarder le score, mais c'est moi, l'optimiseur, qui l'ai décidé.
+
+Un juge a parfois refusé une phrase vraie qu'il ne pouvait pas vérifier : T07 (« pas de dossier de travail configuré ») et G4 (« ton agenda ne contient rien »). Aucun verdict humain ne les a tranchés.
+
+### Speech-to-speech : `openai/gpt-audio-mini`, essai isolé (H4)
+
+Mêmes scénarios, mêmes voix, mêmes juges, sans rien brancher dans le produit (`tests/real/taches_audio.py`). **24 sur 24, soit 100 %, 1 série. Coût : 0,021 $, soit 0,0009 $ par appel.** Premier son : médiane 0,91 s, p95 1,36 s, 26 mesures.
+
+**Ce n'est pas une comparaison à égalité, et le chiffre ne dit pas que ce modèle fait mieux :**
+
+- Ses outils sont simulés et répondent à l'avance. Il n'a ni vrai agent, ni vrai fichier, ni vraie Rita, ni attente, ni carte d'accord à l'écran, et seulement 5 outils décrits exprès.
+- Rien ne vérifie ce qu'il a compris : le texte de référence tient lieu de transcription.
+- Son son n'est pas joué dans le vrai composant. Le temps part de l'envoi complet de la voix, sans détection de fin de tour : il n'est pas comparable aux 2,4 s de la cascade.
+
+Ce qu'il montre quand même : le français tient, les nombres aussi, et il a appelé les bons outils avec les bons arguments. Cela justifie un essai sur de vrais agents (H4), pas une conclusion.
+
+### Coût réel
+
+Compteur de Noah (transcription, synthèse ; le cerveau Ollama vaut 0 $ au compteur) : 0,072 $ pour la série finale de 24 appels, soit 0,003 $ par appel, 0,052 $ pour la base. Durée de la série : 1 937 s. Juges : 0,034 $ par série en Haiku, 0,012 $ par sabotage ; Kimi et GLM passent par le compte Ollama, sans prix par jeton connu. Tout compris sur le chantier, compteur et Haiku : environ 0,5 $, dont l'essai `gpt-audio-mini` à 0,021 $. Estimation, les filtres n'étant pas tous relevés un par un.
+
+### Non vérifié
+
+- **Le code final mêle deux chantiers.** Une autre session a poussé `precall.py` (branché dans `voice_reply`) et modifié `Call.tsx` pendant le travail. Les images du filtre final et de la série finale les contiennent, pas la base. Une partie de l'écart, dans un sens ou l'autre, peut venir de là. Cette session a pu aussi solliciter les mêmes agents.
+- La base n'a qu'une série par version : pas de bruit mesuré sur la même image, ni de répétition de la série finale. Haiku et GLM varient d'une série à l'autre.
+- Niveau 2 seulement : voix de synthèse sans bruit, sans vrai micro, sans 4G ni VPS. La transcription est ici un plafond.
+- Les agents gardent leur mémoire entre les séries. La conversation est neuve à chaque série, pas à chaque appel.
+- Le classement des causes est une heuristique relue à la main sur le lot de travail, jamais sur le réservé.
+- Les ajouts d'après-mesure sur la branche n'ont pas été rejoués.
+
+**G10.5 reste à 0 dans la grille** : le critère dit « au moins 71 % », et un critère n'est compté que tenu, comme G10.1, mesuré mais non tenu. Le banc existe et est cité comme test.

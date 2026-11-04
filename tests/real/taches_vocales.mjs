@@ -255,7 +255,7 @@ print(v)`);
     const r = await api("PUT", `/api/agents/${agents.Noah}/connections/tools/${TOOL}/droit`, { droit: scn.droit_outil });
     if (r.status !== 200) obs.erreur_banc = `droit de l'outil : ${r.status}`;
     droitActuel = scn.droit_outil;
-    await sleep(75); // Hermes relit la liste de ses outils environ chaque minute : avant, l'agent ne voit pas le nouveau droit
+    await sleep(150); // le temps qu'Hermes relise ses outils, y compris si le produit le reconnecte
   }
   await declineCalls();
   let m = null;

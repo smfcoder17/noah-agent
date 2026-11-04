@@ -58,7 +58,7 @@ Le schéma vient de [VAmoS Bench](https://arxiv.org/html/2607.27453) et de [MTVA
 - un appel sans verdict compte comme un échec ;
 - l'échec est localisé : transcription, modèle, outil ou voix. Un score global ne dit pas quoi corriger.
 
-Ce banc **reste à construire** : c'est le premier chantier du vocal.
+Le banc existe (`tests/real/taches_vocales.mjs`, puis `taches_juges.mjs`) : 24 scénarios dans le dépôt, 6 réservés sur le serveur. Il ne tient pas encore la cible : résultats et causes dans le [journal](journal-hill-climb.md). L'essai isolé de H4 passe par `tests/real/taches_audio.py`.
 
 ### 5. Goût et expérience
 

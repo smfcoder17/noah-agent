@@ -166,7 +166,7 @@
     { "id": "G10.2", "t": "Une pause en pleine phrase ne déclenche pas de réponse : moins de 5 coupures pour 100 tours", "requis": 2, "preuve": 1, "test": "tools/eval/voice_browser.mjs" },
     { "id": "G10.3", "t": "Couper la parole : l'agent se tait en 200 ms au plus ; moins de 5 arrêts à tort pour 100 tours, « mm-hm » compris", "requis": 2, "preuve": 1, "test": "tools/eval/voice_browser.mjs" },
     { "id": "G10.4", "t": "Transcription française : moins de 10 % d'erreurs de mots, sur de vraies voix et avec du bruit", "requis": 2, "preuve": 0 },
-    { "id": "G10.5", "t": "Réussite des tâches vocales avec outils : au moins 71 %, sur 30 scénarios jugés par 3 fournisseurs", "requis": 2, "preuve": 0, "b": 1 },
+    { "id": "G10.5", "t": "Réussite des tâches vocales avec outils : au moins 71 %, sur 30 scénarios jugés par 3 fournisseurs", "requis": 2, "preuve": 0, "b": 1, "test": "tests/real/taches_vocales.mjs" },
     { "id": "G10.6", "t": "Jamais plus de 3 s de silence pendant que l'agent travaille, et aucun résultat inventé", "requis": 2, "preuve": 0, "b": 1 },
     { "id": "G10.7", "t": "Coût : 0,05 $ la minute au plus, compteur par appel visible", "requis": 2, "preuve": 0 },
     { "id": "G10.8", "b": 1, "t": "Le fournisseur de voix se change sans toucher au code ; une voie entièrement open source existe", "requis": 2, "preuve": 1, "test": "tests/voice/voice_test.py" }
