@@ -58,6 +58,8 @@ export function CallScreen({ agents, onOpen }: { agents: Agent[]; onOpen: (repor
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const closed = useRef(new Set<string>()); // un relevé parti avant la réponse ne rouvre pas l'écran
+  const openReport = useRef(onOpen);
+  openReport.current = onOpen;
   const box = useRef<HTMLDivElement>(null);
   const first = useRef<HTMLButtonElement>(null);
   const baseId = useId();
@@ -67,9 +69,15 @@ export function CallScreen({ agents, onOpen }: { agents: Agent[]; onOpen: (repor
   // Adresse d'une notification : le rappel a pu finir de sonner depuis, on le dit au lieu de ne rien montrer.
   useEffect(() => {
     const fromAddress = async () => {
-      const id = location.hash.match(/^#appel=([\w-]+)/)?.[1];
+      const [, id, picked] = location.hash.match(/^#appel=([\w-]+)(&decroche)?/) ?? [];
       if (!id) return;
       history.replaceState(null, "", location.pathname);
+      if (picked) {
+        // Déjà décroché sur l'écran d'appel du téléphone : pas de seconde sonnerie.
+        closed.current.add(id);
+        const done = await send<VoiceCall>(`/api/calls/${id}/answer`, {}).catch(() => null);
+        if (done) return openReport.current({ id: done.id, agentId: done.agent_id, text: done.texte });
+      }
       const found = await get<VoiceCall>(`/api/calls/${id}`).catch(() => null);
       if (found) setCall(found);
     };
@@ -171,7 +179,7 @@ export function CallScreen({ agents, onOpen }: { agents: Agent[]; onOpen: (repor
           {ringing ? `${call.agent} t'appelle` : `${OVER[call.etat] ?? "Appel terminé"} : ${call.agent}`}
         </h1>
         <div className={`relative my-auto flex shrink-0 items-center justify-center ${ringing ? "noah-call-waves" : ""}`}>
-          {ringing && [0, 1, 2].map((i) => <span key={i} aria-hidden="true" style={{ animationDelay: `${i * 0.8}s`, background: agentColor(agent ?? { id: call.agent_id }) }} />)}
+          {ringing && [0, 1, 2].map((i) => <span key={i} aria-hidden="true" className="noah-call-wave" style={{ animationDelay: `${i * 0.8}s`, background: agentColor(agent ?? { id: call.agent_id }) }} />)}
           <NoahTile color={agentColor(agent ?? { id: call.agent_id })} className="relative size-28" />
         </div>
         <p id={`${baseId}-texte`} className={`overflow-y-auto text-sm whitespace-pre-wrap text-muted-foreground ${ringing ? "sr-only" : "max-h-[40vh]"}`}>{call.texte}</p>

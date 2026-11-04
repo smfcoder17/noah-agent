@@ -89,14 +89,14 @@ body {
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 
 /* Écran d'appel : des ondes partent du visage de l'agent, le bouton Répondre appelle le geste. */
-.noah-call-waves > span {
+.noah-call-waves > .noah-call-wave {
   position: absolute;
   inset: 0;
   border-radius: 9999px;
   opacity: 0;
 }
 @media (prefers-reduced-motion: no-preference) {
-  .noah-call-waves > span {
+  .noah-call-waves > .noah-call-wave {
     animation: noah-call-wave 2.4s ease-out infinite;
   }
   .noah-call-answer {
@@ -104,7 +104,7 @@ body {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .noah-call-waves > span:first-child {
+  .noah-call-waves > .noah-call-wave:first-child {
     opacity: 0.2;
     transform: scale(1.4);
   }

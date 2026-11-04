@@ -10,6 +10,7 @@ import hmac
 import ipaddress
 import json
 import socket
+import time
 from contextvars import ContextVar
 from datetime import datetime, time as dtime, timezone
 from pathlib import Path
@@ -45,7 +46,7 @@ _client: httpx.AsyncClient | None = None
 def upstream_client() -> httpx.AsyncClient:
     global _client
     if _client is None or _client.is_closed:
-        _client = httpx.AsyncClient(timeout=httpx.Timeout(600, connect=20),
+        _client = httpx.AsyncClient(timeout=httpx.Timeout(600, connect=8),
                                     limits=httpx.Limits(max_keepalive_connections=20, keepalive_expiry=120))
     return _client
 
@@ -266,6 +267,39 @@ async def _record(agent_id: str, model: str, usage: dict | None, task: str | Non
     _check_profile(agent_id)
 
 
+# Fournisseur injoignable, par agent : Hermes réessaie plusieurs minutes sans rien dire, la tâche le dit à sa place (main._run).
+UNREACHABLE = "Le modèle est injoignable. Vérifie son adresse dans Réglages > Cerveau, ou réessaie dans un instant."
+_failing: dict[str, float] = {}  # depuis quand les appels de cet agent échouent
+_reached: dict[str, float] = {}  # dernier appel qui a eu une réponse
+
+
+def failing_for(agent_id: str) -> float | None:
+    """Secondes depuis le premier échec de suite. None : le fournisseur répond."""
+    since = _failing.get(agent_id)
+    return None if since is None else time.time() - since
+
+
+def forget_failure(agent_id: str) -> None:
+    _failing.pop(agent_id, None)
+
+
+def reached_since(agent_id: str, moment: float) -> bool:
+    return _reached.get(agent_id, 0) >= moment
+
+
+def _note_status(agent_id: str, status: int) -> None:
+    if status in (502, 504):  # un intermédiaire dit que le service derrière lui ne répond pas
+        _failing.setdefault(agent_id, time.time())
+    else:
+        _failing.pop(agent_id, None)
+        _reached[agent_id] = time.time()
+
+
+def _unreachable(agent_id: str) -> JSONResponse:
+    _failing.setdefault(agent_id, time.time())
+    return JSONResponse({"error": {"message": UNREACHABLE, "type": "upstream_unreachable", "code": 502}}, status_code=502)
+
+
 def _upstream_headers(provider: str, api_key: str | None) -> dict:
     headers = {"Content-Type": "application/json"}
     if api_key:
@@ -291,7 +325,11 @@ async def relay(path: str, request: Request):
     headers = _upstream_headers(provider, api_key)
 
     if request.method == "GET":
-        r = await upstream_client().get(url, headers=headers, params=request.query_params, timeout=30)
+        try:
+            r = await upstream_client().get(url, headers=headers, params=request.query_params, timeout=30)
+        except httpx.TransportError:
+            return _unreachable(agent_id)
+        _note_status(agent_id, r.status_code)
         return Response(r.content, status_code=r.status_code, media_type=r.headers.get("content-type"))
 
     limit = budget()
@@ -329,7 +367,11 @@ async def relay(path: str, request: Request):
             body.setdefault("provider", {"sort": "latency"})
 
     if not stream:
-        r = await upstream_client().post(url, headers=headers, json=body)
+        try:
+            r = await upstream_client().post(url, headers=headers, json=body)
+        except httpx.TransportError:
+            return _unreachable(agent_id)
+        _note_status(agent_id, r.status_code)
         if r.status_code == 200:
             try:
                 await _record(agent_id, model, r.json().get("usage"), task)
@@ -338,7 +380,11 @@ async def relay(path: str, request: Request):
         return Response(r.content, status_code=r.status_code, media_type=r.headers.get("content-type"))
 
     client = upstream_client()
-    upstream = await client.send(client.build_request("POST", url, headers=headers, json=body), stream=True)
+    try:
+        upstream = await client.send(client.build_request("POST", url, headers=headers, json=body), stream=True)
+    except httpx.TransportError:
+        return _unreachable(agent_id)
+    _note_status(agent_id, upstream.status_code)
     if upstream.status_code != 200:
         content = await upstream.aread()
         await upstream.aclose()

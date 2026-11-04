@@ -703,7 +703,7 @@ export function VoiceMode({ onClose, report, onReportRead }: {
     <div role="region" aria-label="Appel vocal" className="flex w-full flex-col gap-3 rounded-2xl border border-accent/40 bg-surface p-4 shadow-sm">
       <div className="flex items-center gap-4">
         <span className={cn("relative ml-1 grid shrink-0 place-items-center", phase === "speaking" && "noah-call-waves")}>
-          {phase === "speaking" && [0, 1, 2].map((i) => <span key={i} aria-hidden="true" style={{ animationDelay: `${i * 0.8}s`, background: agentColor }} />)}
+          {phase === "speaking" && [0, 1, 2].map((i) => <span key={i} aria-hidden="true" className="noah-call-wave" style={{ animationDelay: `${i * 0.8}s`, background: agentColor }} />)}
           <NoahTile color={agentColor} className="relative size-14" />
         </span>
         <div className="min-w-0 flex-1">

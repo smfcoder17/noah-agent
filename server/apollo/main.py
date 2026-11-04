@@ -1608,6 +1608,8 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
             await hermes.stop_run(agent, run_id)
         raise HTTPException(404, "Agent introuvable")
 
+    gave_up = [False]  # modèle jamais joint pendant cette tâche : le run arrêté finit par ce motif
+
     async def body():
         yield _sse({"type": "start", "conversation_id": conv_id, "run_id": run_id})
         reply: list[str] = []
@@ -1630,6 +1632,8 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
                 out = events.translate(kind, data, details)
                 if not out:
                     continue
+                if out["type"] == "done" and gave_up[0]:
+                    out = {"type": "done", "status": "failed", "error": relay.UNREACHABLE}
                 if out["type"] == "approval":
                     mcp.approval_seen(agent.id, out.get("request_id"), str(out.get("summary") or ""))
                 if out["type"] == "approval" and task_state.get(conv_id) != "approve":
@@ -1681,6 +1685,28 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
     _running_runs.add(task)
     task.add_done_callback(_running_runs.discard)
 
+    async def watch_model():
+        """Un modèle injoignable se dit tout de suite. Sans une seule réponse depuis le début de la tâche, elle s'arrête ;
+        après, elle continue d'attendre : une coupure courte ne doit pas perdre un long travail."""
+        started = time.time()
+        told = False
+        relay.forget_failure(agent.id)
+        while not task.done():
+            await asyncio.sleep(MODEL_WATCH)
+            down = relay.failing_for(agent.id)
+            if down is None:
+                told = False
+                continue
+            if not told and listening[0]:
+                told = True
+                queue.put_nowait(_sse({"type": "activity", "label": "Le modèle ne répond pas, nouvel essai…"}))
+            if down >= MODEL_DOWN_LIMIT and not relay.reached_since(agent.id, started):
+                gave_up[0] = True
+                with contextlib.suppress(Exception):
+                    await hermes.stop_run(agent, run_id)
+                return
+    asyncio.create_task(watch_model())
+
     if trial:
         async def deadline():
             await asyncio.sleep(TRIAL_LIMIT)
@@ -1707,6 +1733,8 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
     return stream()
 
 
+MODEL_WATCH = 2  # secondes entre deux regards sur le relais
+MODEL_DOWN_LIMIT = 30  # secondes d'échecs avant d'abandonner une tâche qui n'a jamais joint le modèle
 HEARTBEAT = 10  # secondes entre deux signes de vie (l'app déclare la connexion perdue après 20 s de silence)
 TRIAL_LIMIT = 200  # secondes : un peu plus que les trois minutes que l'assistant attend
 

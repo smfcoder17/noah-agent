@@ -385,3 +385,9 @@ VPS Hostinger de la personne, qui héberge d'autres applications. Noah tourne da
 
 - **Décision : GARDÉ.** Préparation : 1,7 s, ici. Un fait sans intérêt s'est glissé dans les notes (« 15 compilations »).
 - **Limite :** le banc n'a que neuf faits pour huit places et je l'ai écrit moi-même, sans lot réservé. Avec une mémoire bien plus riche, le tri comptera davantage : le résultat reste à confirmer. La voix de vrais appels n'a pas été entendue.
+
+## 2026-11-04, appel réel sur émulateur et modèle injoignable
+
+- **Appel, tenu :** app sur émulateur reliée au VPS, écran verrouillé et éteint. « Appelle-moi : … » envoyé à l'agent : écran d'appel au premier plan en 2 à 3 s, écran rallumé. Limite : téléphone connecté en permanence, sans Doze ni 4G.
+- **Défauts trouvés en regardant les captures, corrigés :** Répondre ouvrait une seconde sonnerie dans l'application (`&decroche` dans l'adresse). Le visage de l'agent était décentré et presque transparent, web et panneau vocal : le sélecteur des ondes attrapait aussi son `<span>`. Aucun test ne voyait ces deux défauts.
+- **Modèle injoignable :** 5 min de silence observées sur le VPS. Le relais rend maintenant un 502 lisible et retient la panne ; la conversation le dit à la première panne (2 s au plus après l'échec), et une tâche qui n'a jamais joint le modèle s'arrête après 30 s d'échecs avec son motif. Après une première réponse, elle continue d'attendre : une coupure courte ne doit pas perdre un long travail. Test : `tests/coordination/injoignable_test.py`, Hermes simulé. À rejouer sur le VPS.

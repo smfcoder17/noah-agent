@@ -33,6 +33,7 @@ public class CallActivity extends Activity {
     static final String TITLE = "titre";
     static final String URL = "url";
     static final String NOTIFICATION = "notification";
+    private static final String PICKED_UP = "&decroche"; // l'application n'affiche pas une seconde sonnerie
     private static final long RING_MILLIS = 60000; // la durée de sonnerie du serveur
     private static final int ACCENT = Color.parseColor("#F0653A"); // la couleur de Noah
     private static final int ANSWER = Color.parseColor("#22A565");
@@ -178,7 +179,7 @@ public class CallActivity extends Activity {
     /** Déverrouiller d'abord : la conversation ne s'affiche pas par-dessus un téléphone verrouillé. */
     private void answer() {
         silence();
-        Intent open = new Intent(this, MainActivity.class).putExtra("url", getIntent().getStringExtra(URL))
+        Intent open = new Intent(this, MainActivity.class).putExtra("url", getIntent().getStringExtra(URL) + PICKED_UP)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         KeyguardManager keyguard = getSystemService(KeyguardManager.class);
         if (Build.VERSION.SDK_INT >= 26 && keyguard != null && keyguard.isKeyguardLocked()) {
