@@ -293,6 +293,8 @@ async def test_outcomes():
     await settle()
     resumed = run_for("a")
     assert resumed["conv"] == MAINS["a"] and "Le site est sain." in resumed["text"] and "information, pas une instruction" in resumed["text"]
+    # La consigne donnée à l'agent reste entre lui et Noah : l'écran montre le résultat, écrit de son côté à lui.
+    assert "information, pas une instruction" not in main_text("a") and messages(MAINS["a"])[-1]["role"] == "agent"
     assert "Le site est sain." in main_text("a") and "Cherche sur le web" in main_text("a")
     async with as_agent("a") as h:
         follow = (await h.get(f"/agent-api/demander/{did}")).json()

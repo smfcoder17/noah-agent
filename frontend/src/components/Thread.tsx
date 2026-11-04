@@ -346,7 +346,7 @@ function Composer({ onVoiceMode }: { onVoiceMode: () => void }) {
           data-composer-input
           rows={1}
           autoFocus
-          placeholder={dictating ? "Parle, le texte arrive ici…" : "Écris à ton agent… (glisse ou colle des fichiers ici)"}
+          placeholder={dictating ? "Parle, le texte arrive ici…" : "Écris à ton agent…"}
           className="max-h-48 min-h-9 flex-1 resize-none bg-transparent px-1 py-2 text-[15px] outline-none placeholder:text-muted-foreground"
           onKeyDown={(e) => {
             // Entrée pendant la dictée : on termine la transcription, puis le message part.

@@ -487,7 +487,21 @@ async def add_tool(agent_id: str, body: NewTool, user: int = Depends(auth.curren
         with db.connect() as c:
             c.execute("DELETE FROM mcp_tools WHERE agent_id = ? AND nom = ?", (agent_id, name))
         raise
+    if not oauth:
+        _tell_agent(agent_id, name, found["outils"])
     return {"nom": name, "outils": _public_tools(found["outils"]), **({"adresse": out["adresse"]} if out.get("adresse") else {})}
+
+
+def _tell_agent(agent_id: str, name: str, tools: list[dict]) -> None:
+    """Hermes relit ses outils environ chaque minute : sans ce mot, l'agent répond tout de suite qu'il n'a pas cet outil.
+    Les noms viennent du serveur de l'outil : on ne garde que ceux qui ne peuvent rien dire d'autre qu'un nom."""
+    names = [t["nom"] for t in tools if re.fullmatch(r"[\w.-]{1,64}", t.get("nom") or "")][:20]
+    note = (f"[L'utilisateur vient de connecter l'outil « {name} » ({', '.join(names)}). Il arrive dans tes outils en moins "
+            "d'une minute. S'il n'y est pas encore, dis qu'il arrive et cherche-le de nouveau : ne dis pas qu'il n'existe pas.]\n\n")
+    with db.connect() as c:
+        conversations = c.execute("SELECT id FROM conversations WHERE agent_id = ? AND main = 1", (agent_id,)).fetchall()
+    for row in conversations:
+        machine.add_context(row["id"], note)
 
 
 class ToolRight(BaseModel):

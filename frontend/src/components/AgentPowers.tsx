@@ -341,6 +341,7 @@ export function Connections({ agentId, shared = false }: { agentId: string; shar
   const [adding, setAdding] = useState(false);
   const [query, setQuery] = useState("");
   const [login, setLogin] = useState<string | null>(null); // outil OAuth qui vient d'être ajouté : l'onglet d'accord est ouvert
+  const [arriving, setArriving] = useState("");
   const google = data?.google;
   const apps = data?.applications ?? [];
   const tools = data?.outils ?? [];
@@ -353,9 +354,10 @@ export function Connections({ agentId, shared = false }: { agentId: string; shar
       {google?.disponible && data && <GoogleCard agentId={agentId} onError={setError} />}
       {connected.map((a) => <AppRow key={a.nom} agentId={agentId} app={a} onChange={load} onError={setError} />)}
       {tools.map((t) => <ToolRow key={t.nom} agentId={agentId} tool={t} justAdded={login === t.nom} onChange={load} onError={setError} />)}
+      {arriving && <p className="text-xs text-muted-foreground">« {arriving} » arrive chez l'agent en moins d'une minute.</p>}
       {data && (adding ? (
         <AddTool agentId={agentId} shared={shared} onClose={() => setAdding(false)}
-          onAdded={(name, oauth) => { setAdding(false); if (oauth) setLogin(name); load(); }} />
+          onAdded={(name, oauth) => { setAdding(false); if (oauth) setLogin(name); else setArriving(name); load(); }} />
       ) : (
         <Button variant="outline" size="sm" className="self-start" onClick={() => setAdding(true)}><Plus />Ajouter un outil</Button>
       ))}

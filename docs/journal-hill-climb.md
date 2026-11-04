@@ -33,7 +33,6 @@ Mesure dans le vrai composant `Voice.tsx`, avec un faux micro : depuis la fin de
 
 **Légèreté, au repos, un agent.** Serveur 73 Mo, lanceur 40 Mo, agent 258 Mo, navigateur 332 Mo. Images : Hermes 4,31 Go, Camoufox 4,08 Go, serveur 275 Mo, lanceur 239 Mo. Soit près de 9 Go à télécharger sur un VPS neuf, ce qui menace les 10 minutes du parcours J1.
 
-**Sensibilité des tests.** 4 sabotages sur 4 vus lors du dernier passage, avec témoin vert. Ce passage datait d'avant la règle qui exige une assertion : il reste à rejouer.
 
 **Audit Codex à l'aveugle : 4/10.** Il a corrigé ce système :
 
@@ -215,3 +214,13 @@ T1, T2, T2 ter et T4 en place, image reconstruite. Mémoire libre : 1 191 Mo au 
 **Non vérifié.** La 4G et un VPS. Un vrai micro, l'écho d'un vrai haut-parleur, qui peut faire pomper la baisse de volume ou déclencher des arrêts à tort. De vraies voix et le bruit : un vrai « mm-hm » n'est pas une voix de synthèse. Le volume sur iOS. L'attente d'une réponse retenue dans un élément audio sur téléphone. Les erreurs de mots sur des morceaux coupés à 500 ms. Un vrai serveur de voix ouvert. L'historique du banc n'a pas de réponses de l'agent.
 
 **Coût du tour complet.** Compteur : 0,13 $, 876 transcriptions. **Le compteur ignore la synthèse** : `speak_stream` enregistre un coût nul. Il y a eu 863 appels à `microsoft/mai-voice-2.1-flash`, à 0,013 $ la minute d'après le catalogue. Pour environ 5 s par appel, c'est de l'ordre de 0,9 $, estimation et non mesure. Le chiffre de « 0,00017 $ par tour » sous-estime donc le coût réel d'un facteur 5 ou plus, et G10.7 reste à mesurer. Voix rapide : Ollama, non facturée au compteur. Lot réservé : 1 consultation, 48 tours.
+
+## 2026-11-04 : première vérification sur de vrais agents
+
+Deux vrais conteneurs Hermes, modèle `deepseek-v4.1-flash:cloud` par Ollama, vrai navigateur, vrai serveur MCP sur un autre réseau. Scripts dans `tests/real/`.
+
+- **Tenu :** demande de Noah à Rita à l'écrit et à la voix, fichier relu sur la machine de Rita, rappel de lui-même, sonnerie en 2,4 s, compte rendu lu, accord à l'écran (un « oui » parlé ne suffit pas), profils, isolation, révocation en moins de 50 ms, droits `confirmer`, `lire` et `agir` vérifiés sur ce que le serveur reçoit, panne dite et affichée.
+- **Défauts trouvés et corrigés :** consignes internes entre crochets affichées à l'utilisateur, comme s'il les avait écrites ; « Rappel de l'utilisateur » incompréhensible ; un outil tout juste ajouté n'arrive chez Hermes qu'après environ une minute, et l'agent répondait qu'il n'existait pas ; le texte d'aide du champ prenait trois lignes sur téléphone, avec un cadre bleu.
+- **Défauts vus, non corrigés :** « ≈ 0 $ / 5 s » sur Seedance dans Réglages > Création ; les sessions du banc comptent comme des appareils dans Profils.
+- **Limites :** tâches simples (calculs), navigateur sans vrai micro ni vrai haut-parleur, téléphone simulé par la taille d'écran, aucun VPS.
+- **Note :** le journal disait qu'il restait à rejouer les sabotages : c'est fait depuis, 11 sur 11.

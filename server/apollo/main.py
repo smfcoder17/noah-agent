@@ -1572,14 +1572,14 @@ def _new_conversation(user: int, agent_id: str, title: str, main: bool = False, 
     return conv_id
 
 
-async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, context: str = ""):
+async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, context: str = "", author: str = "user"):
     """Lance un run Hermes dans une conversation et rend le générateur SSE qui l'enregistre au fil de l'eau.
-    `context` précède le message pour l'agent seulement : l'utilisateur ne le voit pas."""
+    `context` précède le message pour l'agent seulement : l'utilisateur ne le voit pas. `author` : qui l'a écrit, à l'écran."""
     if updates.maintenance:  # le lanceur recrée les agents : une tâche lancée maintenant serait coupée
         raise HTTPException(503, "Noah installe une mise à jour (quelques minutes). Réessaie juste après.")
     task_state[conv_id] = "work"  # avant le premier await : une mise à jour qui vérifie maintenant la voit
     coordination.start_actions(conv_id)
-    _save_message(conv_id, "user", prompt)
+    _save_message(conv_id, author, prompt)
     # Configuration qui sert à cette exécution (preuve de l'essai de l'assistant) : celle que l'agent a vraiment reçue.
     rev = _config_rev(agent.id)
     if db.get_setting(f"applied:{agent.id}") != rev:
@@ -2339,13 +2339,13 @@ class ThreadBody(BaseModel):
 _background: set[asyncio.Task] = set()
 
 
-async def _resume_agent(agent_id: str, text: str) -> asyncio.Task | None:
+async def _resume_agent(agent_id: str, text: str, note: str = "", author: str = "user") -> asyncio.Task | None:
     """Message de l'utilisateur envoyé hors du fil (réponse à un appel) : l'agent repart dans sa conversation
     principale, comme si l'utilisateur l'avait tapé ; l'interface voit la conversation changer."""
     conv_id = _main_conversation(agent_id)
     if not conv_id:
         return None
-    stream = await _run(_agent(agent_id), conv_id, text, context=machine.pop_context(conv_id))
+    stream = await _run(_agent(agent_id), conv_id, text, context=machine.pop_context(conv_id) + note, author=author)
 
     async def drain():
         async for _ in stream:
