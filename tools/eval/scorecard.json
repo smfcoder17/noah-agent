@@ -10,7 +10,7 @@
  "parcours": [
   { "id": "J1", "t": "VPS Hostinger neuf : première réponse de l'agent en 10 min, sans taper une commande", "requis": 3, "preuve": 2, "test": "tests/real/vps_repetition.py" },
   { "id": "J2", "t": "App de bureau installée, reliée au compte du VPS, puis conversation", "requis": 3, "preuve": 0 },
-  { "id": "J3", "t": "APK installé, QR scanné en 4G, puis conversation", "requis": 3, "preuve": 0 },
+  { "id": "J3", "t": "APK installé, QR scanné en 4G, puis conversation", "requis": 3, "preuve": 2, "note": "APK de la CI sur émulateur, relié au vrai VPS par adresse et code : ni vrai téléphone, ni QR, ni 4G" },
   { "id": "J4", "t": "Version majeure publiée : installée seule à une heure calme, sans perte ; panne provoquée : retour arrière", "requis": 3, "preuve": 0 },
   { "id": "J5", "t": "Appeler un agent depuis le téléphone, lui parler, lui couper la parole, raccrocher", "requis": 3, "preuve": 0 },
   { "id": "J6", "t": "Appeler un agent, créer un deuxième agent, l'appeler à son tour", "requis": 3, "preuve": 2, "test": "tests/real/voix_ordre.mjs" },
@@ -82,12 +82,12 @@
    "nom": "App Android",
    "seuil": 8,
    "criteres": [
-    { "id": "G4.1", "requis": 2, "preuve": 0, "note": "APK construit sur le poste de développement : ni machine propre, ni installation sur Android 7" },
+    { "id": "G4.1", "requis": 2, "preuve": 1, "test": ".github/workflows/apps.yml", "note": "Construit sur une machine propre par la CI et installé sur un émulateur récent ; jamais essayé sur Android 7" },
     { "id": "G4.2", "requis": 1, "preuve": 0 },
-    { "id": "G4.3", "b": 1, "requis": 3, "preuve": 0 },
+    { "id": "G4.3", "b": 1, "requis": 3, "preuve": 0, "note": "Ni ntfy ni FCM mesurés ; sans distributeur, l'attente de CallWatch sonne en 2 à 6 s sur émulateur (G11.2)" },
     { "id": "G4.4", "b": 1, "requis": 2, "preuve": 1, "test": "tests/push/push_test.py" },
     { "id": "G4.5", "b": 1, "requis": 3, "preuve": 0 },
-    { "id": "G4.6", "requis": 3, "preuve": 0 },
+    { "id": "G4.6", "requis": 3, "preuve": 0, "note": "Micro accepté dans la WebView sur émulateur sans son ; partage de fichier jamais essayé" },
     { "id": "G4.7", "requis": 3, "preuve": 0 },
     { "id": "G4.8", "requis": 3, "preuve": 0 }
    ]
@@ -142,7 +142,7 @@
     { "id": "G8.1", "b": 1, "requis": 2, "preuve": 1, "test": "tests/budget/budget_test.py" },
     { "id": "G8.2", "requis": 2, "preuve": 1, "test": "tests/budget/budget_test.py" },
     { "id": "G8.3", "requis": 1, "preuve": 1, "test": "tests/watch/watch_test.py" },
-    { "id": "G8.4", "requis": 3, "preuve": 0 },
+    { "id": "G8.4", "requis": 3, "preuve": 2, "test": "tests/real/vps_repetition.py", "note": "Sur le VPS réel, conteneur d'essai redémarré : agent en ligne en 38 s, téléphone resté relié, tour perdu levé. Pas un redémarrage de la machine, navigateur non vérifié" },
     { "id": "G8.5", "requis": 3, "preuve": 0 }
    ]
   },
@@ -178,7 +178,7 @@
    "seuil": 8,
    "criteres": [
     { "id": "G11.1", "t": "Bouton Appeler : en ligne en 2 s au plus, avec l'agent choisi", "requis": 3, "preuve": 0, "b": 1 },
-    { "id": "G11.2", "t": "Écran d'appel Android natif : écran éteint, sonnerie en 5 s au plus ; refuser laisse un compte rendu écrit", "requis": 3, "preuve": 0, "b": 1 },
+    { "id": "G11.2", "t": "Écran d'appel Android natif : écran éteint, sonnerie en 5 s au plus ; refuser laisse un compte rendu écrit", "requis": 3, "preuve": 2, "b": 1, "test": "tests/coordination/coordination_test.py", "note": "Émulateur relié au VPS réel, écran éteint : 2 à 6 s, y compris en Doze forcé. Refus et expiration vus. Pas de vrai téléphone ni de 4G" },
     { "id": "G11.3", "t": "L'appel survit au passage du Wi-Fi à la 4G et à l'écran verrouillé", "requis": 3, "preuve": 0 },
     { "id": "G11.4", "t": "Outil « demander à un autre agent » avec suivi de la tâche, boucles refusées", "requis": 2, "preuve": 2, "b": 1, "test": "tests/real/parcours_agents.py" },
     { "id": "G11.5", "t": "Outil « appeler l'utilisateur » : un agent ou la demande d'un autre fait sonner le téléphone", "requis": 2, "preuve": 2, "b": 1, "test": "tests/real/parcours_agents.py" },

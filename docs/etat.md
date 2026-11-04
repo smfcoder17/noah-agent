@@ -8,7 +8,7 @@ Fichier généré par `tools/eval/score.mjs`, à ne pas modifier à la main. Un 
 |---|---|---|---|
 | J1. VPS Hostinger neuf : première réponse de l'agent en 10 min, sans taper une commande | 3 | 2 | non |
 | J2. App de bureau installée, reliée au compte du VPS, puis conversation | 3 | 0 | non |
-| J3. APK installé, QR scanné en 4G, puis conversation | 3 | 0 | non |
+| J3. APK installé, QR scanné en 4G, puis conversation | 3 | 2 | non |
 | J4. Version majeure publiée : installée seule à une heure calme, sans perte ; panne provoquée : retour arrière | 3 | 0 | non |
 | J5. Appeler un agent depuis le téléphone, lui parler, lui couper la parole, raccrocher | 3 | 0 | non |
 | J6. Appeler un agent, créer un deuxième agent, l'appeler à son tour | 3 | 2 | non |
@@ -23,14 +23,14 @@ Fichier généré par `tools/eval/score.mjs`, à ne pas modifier à la main. Un 
 | G1 Installation en un clic | 0 | 3.3 | 3.3 | 8 | G1.2, G1.3 |
 | G2 Appairage | 0 | 4.2 | 4.2 | 9 | G2.1, G2.2, G2.4 |
 | G3 App de bureau | 0 | 0 | 1.1 | 8 | G3.1, G3.3 |
-| G4 App Android | 0 | 0 | 1.8 | 8 | G4.3, G4.4, G4.5 |
+| G4 App Android | 0 | 0 | 2.7 | 8 | G4.3, G4.4, G4.5 |
 | G5 PWA | 0 | 0 | 2.9 | 8 | G5.1 |
 | G6 Mises à jour | 9.1 | 9.1 | 10 | 9 | — |
 | G7 Sécurité et vie privée | 0 | 3 | 5 | 9 | G7.1, G7.3 |
-| G8 Coûts et 24 h/24 | 0 | 1.7 | 6.7 | 8 | G8.1 |
+| G8 Coûts et 24 h/24 | 0 | 1.7 | 8.3 | 8 | G8.1 |
 | G9 Formation | 0 | 0 | 0 | 8 | — |
 | G10 Conversation vocale | 0 | 0 | 3.3 | 8 | G10.1, G10.5, G10.6, G10.8 |
-| G11 Appels et coordination | 0 | 5.8 | 5.8 | 8 | G11.1, G11.2 |
+| G11 Appels et coordination | 0 | 5.8 | 7.5 | 8 | G11.1, G11.2 |
 | G12 Profils et partage | 0 | 5 | 7.5 | 9 | G12.3, G12.5 |
 | G13 Outils au choix | 5 | 5 | 10 | 8 | — |
 | G14 Rapidité et légèreté | 0 | 0 | 1.4 | 8 | G14.2 |
@@ -65,7 +65,7 @@ Les critères G0 à G9 sont décrits dans [grille-validation.md](grille-validati
 ### G11. Appels et coordination (seuil 8)
 
 - G11.1 [B] (exige 3, atteint 0) : Bouton Appeler : en ligne en 2 s au plus, avec l'agent choisi
-- G11.2 [B] (exige 3, atteint 0) : Écran d'appel Android natif : écran éteint, sonnerie en 5 s au plus ; refuser laisse un compte rendu écrit
+- G11.2 [B] (exige 3, atteint 2) : Écran d'appel Android natif : écran éteint, sonnerie en 5 s au plus ; refuser laisse un compte rendu écrit
 - G11.3 (exige 3, atteint 0) : L'appel survit au passage du Wi-Fi à la 4G et à l'écran verrouillé
 - G11.4 [B] (exige 2, atteint 2) : Outil « demander à un autre agent » avec suivi de la tâche, boucles refusées
 - G11.5 [B] (exige 2, atteint 2) : Outil « appeler l'utilisateur » : un agent ou la demande d'un autre fait sonner le téléphone
