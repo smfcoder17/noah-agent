@@ -1,12 +1,13 @@
 // Panneau de droite : Détails de l'agent, ses Fichiers, et son Ordinateur (écran du navigateur en direct).
-import { Archive, ArchiveRestore, ChevronDown, Download, ExternalLink, Eye, Hand, Loader2, LogIn, MonitorPlay, Power, RefreshCw, Sunrise, X } from "lucide-react";
+import { Archive, ArchiveRestore, ChevronDown, Download, ExternalLink, Eye, Hand, Loader2, LogIn, MonitorPlay, Power, RefreshCw, Sunrise, Users, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { type Agent, type Conversation, get, mediaUrl, rawFileUrl, send, type Usage, type WorkspaceFile } from "@/lib/api";
+import { type Agent, canAdmin, canTalk, type Conversation, get, mediaUrl, rawFileUrl, send, type Usage, type WorkspaceFile } from "@/lib/api";
 import { wireClipboard } from "@/lib/vncClipboard";
 import { cn, fileSize, money } from "@/lib/utils";
 import { AgentBrain } from "./AgentBrain";
 import { Connections, Folders, Memory, Routines, Software, Watches } from "./AgentPowers";
 import { NoahTile, agentColor } from "./Noah";
+import { ShareDialog } from "./Sharing";
 import { STATE_WORD, StateShape } from "./Sidebar";
 import { Button, Dialog, DialogContent, Tabs, TabsContent, TabsList, TabsTrigger } from "./ui";
 
@@ -21,6 +22,8 @@ export function SidePanel({
   onEditAgent,
   refreshKey,
   threads,
+  main,
+  onConversationChanged,
   threadId,
   onOpenThread,
   onArchiveThread,
@@ -34,29 +37,38 @@ export function SidePanel({
   onEditAgent: () => void;
   refreshKey: number;
   threads: Conversation[];
+  /** La conversation principale de ce compte avec l'agent. */
+  main: Conversation | null;
+  onConversationChanged: () => void;
   threadId: string | null;
   onOpenThread: (id: string | null) => void;
   onArchiveThread: (id: string, archived: boolean) => void;
 }) {
+  const admin = canAdmin(agent);
   return (
     <Tabs value={tab} onValueChange={(v) => onTab(v as PanelTab)} className="flex h-full min-h-0 flex-col gap-3 p-3 pt-[max(12px,env(safe-area-inset-top))]">
       <div className="flex items-center justify-between gap-2">
         <TabsList>
           <TabsTrigger value="details">Détails</TabsTrigger>
-          <TabsTrigger value="files">Fichiers</TabsTrigger>
-          <TabsTrigger value="computer">Ordinateur</TabsTrigger>
+          {canTalk(agent) && <TabsTrigger value="files">Fichiers</TabsTrigger>}
+          {admin && <TabsTrigger value="computer">Ordinateur</TabsTrigger>}
         </TabsList>
         <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Fermer le panneau"><X /></Button>
       </div>
       <TabsContent value="details" className="min-h-0 flex-1 overflow-y-auto">
         <Details agent={agent} onEdit={onEditAgent} refreshKey={refreshKey} onAgentChanged={onAgentChanged}>
           <Threads threads={threads} threadId={threadId} onOpen={onOpenThread} onArchive={onArchiveThread} />
-          <Routines agentId={agent.id} />
-          <Watches agentId={agent.id} />
-          <Memory agentId={agent.id} />
-          <Connections agentId={agent.id} />
-          <Folders agentId={agent.id} />
-          <Software agentId={agent.id} />
+          {agent.partage && main && <ConversationVisibility conversation={main} onChanged={onConversationChanged} />}
+          {admin && (
+            <>
+              <Routines agentId={agent.id} />
+              <Watches agentId={agent.id} />
+              <Memory agentId={agent.id} />
+              <Connections agentId={agent.id} />
+              <Folders agentId={agent.id} />
+              <Software agentId={agent.id} />
+            </>
+          )}
         </Details>
       </TabsContent>
       <TabsContent value="files" className="min-h-0 flex-1 overflow-y-auto">
@@ -78,7 +90,22 @@ function Stat({ label, value }: { label: string; value: string | number }) {
   );
 }
 
+/** Sur un agent partagé, rien n'est lisible par les autres tant que l'auteur ne le décide pas. */
+function ConversationVisibility({ conversation, onChanged }: { conversation: Conversation; onChanged: () => void }) {
+  const toggle = async (partagee: boolean) => {
+    await send(`/api/conversations/${conversation.id}/partage`, { partagee }).catch(() => {});
+    onChanged();
+  };
+  return (
+    <label className="flex cursor-pointer items-start gap-2 rounded-xl bg-muted px-3 py-2.5 text-sm">
+      <input type="checkbox" className="mt-1" checked={conversation.partagee} onChange={(e) => toggle(e.target.checked)} />
+      Rendre ma conversation lisible par ceux qui ont accès à cet agent
+    </label>
+  );
+}
+
 function Details({ agent, onEdit, refreshKey, onAgentChanged, children }: { agent: Agent; onEdit: () => void; refreshKey: number; onAgentChanged: () => void; children: React.ReactNode }) {
+  const [sharing, setSharing] = useState(false);
   const [usage, setUsage] = useState<Usage | null>(null);
   useEffect(() => {
     get<Usage>("/api/usage").then(setUsage).catch(() => {});
@@ -92,10 +119,15 @@ function Details({ agent, onEdit, refreshKey, onAgentChanged, children }: { agen
         <div className="min-w-0">
           <p className="truncate font-semibold">{agent.name}</p>
           <p className="text-sm text-muted-foreground">{agent.step || (agent.online ? "En ligne" : "Hors ligne")}</p>
+          {agent.partage_par && <p className="text-xs text-muted-foreground">Partagé par {agent.partage_par} · droit : {agent.droit}</p>}
         </div>
+        {agent.droit === "proprietaire" && (
+          <Button variant="outline" size="sm" className="ml-auto shrink-0" onClick={() => setSharing(true)}><Users />Partager</Button>
+        )}
       </div>
+      <ShareDialog agent={agent} open={sharing} onOpenChange={setSharing} onChanged={onAgentChanged} />
       {children}
-      <AgentBrain key={agent.id} agentId={agent.id} own={agent.model} onChanged={onAgentChanged} />
+      {canAdmin(agent) && <AgentBrain key={agent.id} agentId={agent.id} own={agent.model} onChanged={onAgentChanged} />}
       <div className="grid grid-cols-2 gap-2">
         <Stat label="Coût ce mois-ci" value={`${money(mine?.cost ?? 0)} $`} />
         <Stat label="Appels au modèle" value={mine?.calls ?? 0} />
@@ -107,7 +139,7 @@ function Details({ agent, onEdit, refreshKey, onAgentChanged, children }: { agen
         <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Rôle</span>
         <p className="text-sm whitespace-pre-wrap">{agent.role || "Aucun rôle précis."}</p>
       </div>
-      <Button variant="outline" onClick={onEdit}>Personnaliser (nom, couleur, rôle)</Button>
+      {canAdmin(agent) && <Button variant="outline" onClick={onEdit}>Personnaliser (nom, couleur, rôle)</Button>}
     </div>
   );
 }
@@ -191,10 +223,11 @@ function Threads({
         >
           <StateShape state={t.state} />
           {STATE_WORD[t.state] || "en pause"}
-          {t.origin === "agent" && <span className="text-muted-foreground"> · ouvert par l'agent</span>}
+          {t.de ? <span className="text-muted-foreground"> · conversation de {t.de}</span>
+            : t.origin === "agent" && <span className="text-muted-foreground"> · ouvert par l'agent</span>}
         </span>
       </button>
-      <Button
+      {!t.de && <Button
         variant="ghost"
         size="icon-sm"
         className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
@@ -203,7 +236,7 @@ function Threads({
         title={t.archived ? "Désarchiver" : "Archiver"}
       >
         {t.archived ? <ArchiveRestore /> : <Archive />}
-      </Button>
+      </Button>}
     </div>
   );
   return (

@@ -5,13 +5,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { get, request, send } from "@/lib/api";
 import { ModelPicker } from "./ModelPicker";
 import { PhonePairing } from "./PhonePairing";
+import { MyPassword, Profiles } from "./Profiles";
 import { Updates } from "./Updates";
 import { Flows } from "./Flows";
 import { type MediaModel, ModelSelect } from "./ModelSelect";
 import { Dialog, DialogContent, Tabs, TabsContent, TabsList, TabsTrigger } from "./ui";
 import { Button } from "./ui";
 
-export type SettingsTab = "brain" | "create" | "voice" | "phone" | "updates" | "privacy";
+export type SettingsTab = "brain" | "create" | "voice" | "phone" | "updates" | "privacy" | "profiles";
 
 type Kind = { label: string; setting: string; auto: string | null; routed?: boolean; models: MediaModel[] };
 type MediaState = {
@@ -30,9 +31,11 @@ const HINTS: Record<string, string> = {
   transcription: "Transforme ta voix en texte quand tu dictes ou parles.",
 };
 
-export function SettingsDialog({ open, tab, onTab, onOpenChange, onBrainSaved }: {
+export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainSaved }: {
   open: boolean;
   tab: SettingsTab;
+  /** Propriétaire de ce serveur : la configuration globale n'est montrée qu'à lui (le serveur la refuse aux autres). */
+  owner: boolean;
   onTab: (t: SettingsTab) => void;
   onOpenChange: (o: boolean) => void;
   onBrainSaved: () => void;
@@ -43,12 +46,13 @@ export function SettingsDialog({ open, tab, onTab, onOpenChange, onBrainSaved }:
         <DialogContent title="Réglages" description="Les clés restent chiffrées sur cette machine. Les agents ne les voient jamais : ils passent par Noah Agent." className="max-w-4xl">
           <Tabs value={tab} onValueChange={(v) => onTab(v as SettingsTab)} className="flex min-h-0 flex-col gap-4">
             <TabsList className="self-start">
-              <TabsTrigger value="brain">Cerveau</TabsTrigger>
-              <TabsTrigger value="create">Création</TabsTrigger>
-              <TabsTrigger value="voice">Voix</TabsTrigger>
+              {owner && <TabsTrigger value="brain">Cerveau</TabsTrigger>}
+              {owner && <TabsTrigger value="create">Création</TabsTrigger>}
+              {owner && <TabsTrigger value="voice">Voix</TabsTrigger>}
               <TabsTrigger value="phone">Appareils</TabsTrigger>
-              <TabsTrigger value="updates">Mises à jour</TabsTrigger>
-              <TabsTrigger value="privacy">Confidentialité</TabsTrigger>
+              {owner && <TabsTrigger value="profiles">Profils</TabsTrigger>}
+              {owner && <TabsTrigger value="updates">Mises à jour</TabsTrigger>}
+              {owner && <TabsTrigger value="privacy">Confidentialité</TabsTrigger>}
             </TabsList>
             <TabsContent value="brain">
               <ModelPicker onCancel={() => onOpenChange(false)} onDone={onBrainSaved} />
@@ -61,6 +65,10 @@ export function SettingsDialog({ open, tab, onTab, onOpenChange, onBrainSaved }:
             </TabsContent>
             <TabsContent value="phone">
               <PhonePairing />
+              <MyPassword />
+            </TabsContent>
+            <TabsContent value="profiles">
+              <Profiles />
             </TabsContent>
             <TabsContent value="updates">
               <Updates />

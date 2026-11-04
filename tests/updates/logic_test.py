@@ -207,7 +207,7 @@ print("_follow : à jour, annulée, à vérifier (avec les noms), rien tant que 
 db.init()
 with db.connect() as conn:
     cols = [r[1] for r in conn.execute("PRAGMA table_info(agents)")]
-    values = {c: ("agent-t" if c == "id" else "x") for c in cols}
+    values = {c: ("agent-t" if c == "id" else None if c == "owner_id" else "x") for c in cols}  # owner_id : clé étrangère
     conn.execute(f"INSERT OR REPLACE INTO agents ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", list(values.values()))
 soon = datetime.fromtimestamp(time.time() + 600, ZoneInfo("UTC")).isoformat()
 late = datetime.fromtimestamp(time.time() + 7200, ZoneInfo("UTC")).isoformat()

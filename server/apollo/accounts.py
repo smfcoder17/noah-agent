@@ -23,7 +23,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from . import auth, db, handoff, hermes, relay
+from . import access, auth, db, handoff, hermes, relay
 from .machine import _check, admin
 
 router = APIRouter()
@@ -410,14 +410,15 @@ def _valid(perms: list[str]) -> list[str]:
 
 @router.get("/api/agents/{agent_id}/google")
 async def google_state(agent_id: str, user: int = Depends(auth.current_user)):
-    return _state(_check(agent_id))
+    return _state(_check(agent_id, user))
 
 
 @router.post("/api/agents/{agent_id}/google/connect")
 async def google_connect(agent_id: str, body: Connect, user: int = Depends(auth.current_user)):
     """Avec les identifiants : ouvre l'accord dans l'écran de l'agent. Sans : rend la consigne à envoyer à l'agent
     pour qu'il les crée (l'accord suivra tout seul)."""
-    agent_id = _check(agent_id)
+    agent_id = _check(agent_id, user)
+    _own_client(agent_id)
     perms = _valid(body.permissions)
     db.set_setting(f"google_voulu_{agent_id}", json.dumps(perms))
     if not _client():
@@ -430,7 +431,7 @@ async def google_connect(agent_id: str, body: Connect, user: int = Depends(auth.
 
 @router.post("/api/agents/{agent_id}/google/cancel")
 async def google_cancel(agent_id: str, user: int = Depends(auth.current_user)):
-    flow = _flows.pop(_check(agent_id), None)
+    flow = _flows.pop(_check(agent_id, user), None)
     if flow and flow.get("tache"):
         flow["tache"].cancel()
     handoff.close_call(agent_id, None, "impossible")
@@ -441,7 +442,7 @@ async def google_cancel(agent_id: str, user: int = Depends(auth.current_user)):
 async def google_disconnect(agent_id: str, user: int = Depends(auth.current_user)):
     """Efface le jeton de cet agent. Pas de révocation chez Google : elle retirerait l'accord de toute
     l'application, donc aussi aux autres agents. L'utilisateur peut tout retirer sur myaccount.google.com."""
-    agent_id = _check(agent_id)
+    agent_id = _check(agent_id, user)
     await admin(agent_id, "google_revoquer", {"local": True})
     db.set_setting(f"google_{agent_id}", "")
     return _state(agent_id)
@@ -450,6 +451,14 @@ async def google_disconnect(agent_id: str, user: int = Depends(auth.current_user
 class ClientIds(BaseModel):
     client_id: str = Field(min_length=10, max_length=300)
     client_secret: str = Field(min_length=6, max_length=300)
+
+
+def _own_client(agent_id: str) -> None:
+    """Les identifiants OAuth de Google sont ceux du propriétaire de l'installation, et l'accord les installe dans la
+    machine de l'agent : ils n'entrent pas dans celle d'un autre profil, et son agent ne peut pas les remplacer."""
+    if access.owner_of(agent_id) != db.owner_id():
+        raise HTTPException(403, "Google passe par les identifiants du propriétaire de ce Noah Agent : pas encore possible "
+                                 "sur l'agent d'un autre profil. Demande-lui de partager un agent connecté à Google.")
 
 
 def _save_client(body: ClientIds) -> None:
@@ -464,7 +473,7 @@ class ClientFile(BaseModel):
 
 
 @router.post("/api/google/client")
-async def google_client_file(body: ClientFile, user: int = Depends(auth.current_user)):
+async def google_client_file(body: ClientFile, user: int = Depends(access.owner_only)):
     """Pour qui a déjà un fichier d'identifiants (« Application de bureau ») : le dépose à la place de la recette."""
     try:
         data = json.loads(body.fichier)
@@ -493,6 +502,7 @@ async def agent_recipe(name: str, request: Request):
 async def agent_consent(request: Request):
     """L'agent relance l'accord (après avoir publié l'application, par exemple) avec les accès choisis."""
     agent_id = relay._agent_from(request)
+    _own_client(agent_id)
     perms = json.loads(db.get_setting(f"google_voulu_{agent_id}") or "[]")
     if not _client() or not perms:
         raise HTTPException(409, "Rien à relancer : l'utilisateur choisit ses accès dans Détails → Connexions → Google.")
@@ -503,6 +513,7 @@ async def agent_consent(request: Request):
 @router.post("/agent-api/google/identifiants")
 async def agent_client_ids(body: ClientIds, request: Request):
     agent_id = relay._agent_from(request)
+    _own_client(agent_id)
     _save_client(body)
     perms = json.loads(db.get_setting(f"google_voulu_{agent_id}") or "[]")
     if not perms:

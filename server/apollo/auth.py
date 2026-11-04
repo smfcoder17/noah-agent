@@ -34,13 +34,24 @@ def has_users() -> bool:
         return c.execute("SELECT 1 FROM users LIMIT 1").fetchone() is not None
 
 
-def create_user(username: str, password: str) -> int:
+def create_user(username: str, password: str, role: str | None = None) -> int:
+    """Sans rôle donné : le tout premier compte est le propriétaire de l'installation, les suivants des profils."""
     pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
     with db.connect() as c:
+        first = c.execute("SELECT 1 FROM users LIMIT 1").fetchone() is None
         cur = c.execute(
-            "INSERT INTO users (username, pw_hash) VALUES (?, ?)", (username, pw_hash)
+            "INSERT INTO users (username, pw_hash, role) VALUES (?, ?, ?)",
+            (username, pw_hash, role or ("owner" if first else "member")),
         )
         return cur.lastrowid
+
+
+def set_password(user_id: int, password: str, keep: str | None = None) -> None:
+    """Change le mot de passe et coupe les sessions du compte, sauf `keep` (empreinte) s'il est donné."""
+    pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
+    with db.connect() as c:
+        c.execute("UPDATE users SET pw_hash = ? WHERE id = ?", (pw_hash, user_id))
+        c.execute("DELETE FROM sessions WHERE user_id = ? AND token != ?", (user_id, keep or ""))
 
 
 def check_password(username: str, password: str) -> int | None:
@@ -134,9 +145,12 @@ def still_valid(token: str) -> bool:
     return bool(row) and datetime.fromisoformat(row["expires_at"]) > datetime.now(timezone.utc)
 
 
-async def revocable(stream, token: str | None, every: float = 5):
-    """Relaie un flux tant que la session existe ; s'arrête dans les `every` secondes qui suivent sa révocation, même
-    quand le flux se tait (le modèle réfléchit)."""
+REVOKE_EVERY = 2  # secondes entre deux contrôles d'un flux ouvert : la révocation doit le couper en 5 s au plus
+
+
+async def revocable(stream, token: str | None, every: float = REVOKE_EVERY, allowed=None):
+    """Relaie un flux tant que la session existe et que `allowed()` (droit sur l'agent) reste vrai ; s'arrête dans les
+    `every` secondes qui suivent, même quand le flux se tait (le modèle réfléchit) et même quand il parle sans arrêt."""
     import asyncio
     import time
 
@@ -147,10 +161,12 @@ async def revocable(stream, token: str | None, every: float = 5):
         while True:
             if pending is None:
                 pending = asyncio.ensure_future(it.__anext__())
-            done, _ = await asyncio.wait({pending}, timeout=every)
-            if token and time.monotonic() - checked >= every:
+            done, _ = await asyncio.wait({pending}, timeout=max(0, every - (time.monotonic() - checked)))
+            if time.monotonic() - checked >= every:
                 checked = time.monotonic()
-                if not await asyncio.to_thread(still_valid, token):
+                if token and not await asyncio.to_thread(still_valid, token):
+                    return
+                if allowed and not await asyncio.to_thread(allowed):
                     return
             if pending in done:
                 try:

@@ -20,7 +20,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from . import auth, db, desktop, media, relay
+from . import access, auth, db, desktop, media, relay
 
 router = APIRouter()
 
@@ -153,6 +153,9 @@ Réponds uniquement par un objet JSON : {{"pertinent": true ou false, "resume": 
 
 
 async def triage(agent_id: str, w: dict, new: list[dict]) -> dict:
+    refused = relay.profile_refusal(agent_id)
+    if refused:
+        raise media.MediaError(refused)
     lines = []
     # Des numéros plutôt que des adresses : le modèle ne peut ni tronquer ni inventer un lien.
     for n, it in enumerate(new[:40], 1):
@@ -246,7 +249,7 @@ async def check(wid: str, save_message, main_conversation) -> dict:
             save_message(conv, "agent", text)
             pending = json.loads(db.get_setting(f"contexte_{conv}") or "[]")
             db.set_setting(f"contexte_{conv}", json.dumps((pending + [text])[-5:]))
-        desktop.notify(f"Veille « {w['name']} »", alert["resume"][:240])
+        desktop.notify(f"Veille « {w['name']} »", alert["resume"][:240], agent_id=w["agent_id"])
         with db.connect() as c:
             c.execute("UPDATE watches SET last_alert = ?, alerts = alerts + 1 WHERE id = ?", (now, wid))
         result["alerte"] = True
@@ -330,11 +333,13 @@ async def _act(agent_id: str, wid: str, action: str) -> dict:
 
 @router.get("/api/agents/{agent_id}/watches")
 def list_watches(agent_id: str, user: int = Depends(auth.current_user)):
+    access.access(user, agent_id, "admin")
     return {"veilles": _list(agent_id)}
 
 
 @router.post("/api/agents/{agent_id}/watches")
 async def create_watch(agent_id: str, body: NewWatch, user: int = Depends(auth.current_user)):
+    access.access(user, agent_id, "admin")
     w = _create(agent_id, body)
     await check(w["id"], _hooks["save"], _hooks["main"])  # premier relevé tout de suite : la source est vérifiée
     return _public(_row(w["id"]))
@@ -342,6 +347,7 @@ async def create_watch(agent_id: str, body: NewWatch, user: int = Depends(auth.c
 
 @router.post("/api/agents/{agent_id}/watches/{wid}/{action}")
 async def watch_action(agent_id: str, wid: str, action: str, user: int = Depends(auth.current_user)):
+    access.access(user, agent_id, "admin")
     return await _act(agent_id, wid, action)
 
 

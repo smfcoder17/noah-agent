@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from . import auth, desktop, hermes, relay
+from . import access, auth, desktop, hermes, relay
 
 router = APIRouter()
 
@@ -37,7 +37,7 @@ def open_call(agent_id: str, message: str, origin: str = "agent", leave_host: st
             "attente": asyncio.get_running_loop().create_future(), "attentifs": 0}
     _calls[agent_id] = call
     _ensure_keeper(agent_id)
-    desktop.notify("Noah a besoin de toi", message[:240])
+    desktop.notify("Noah a besoin de toi", message[:240], agent_id=agent_id)
     if leave_host:
         asyncio.create_task(_until_left(agent_id, call, leave_host))
     return call
@@ -173,7 +173,9 @@ def _public(call: dict | None) -> dict | None:
 
 @router.get("/api/agents/{agent_id}/appel")
 async def get_call(agent_id: str, user: int = Depends(auth.current_user)):
-    return {"appel": _public(current(agent_id))}
+    """La prise en main passe par l'écran de l'agent, réservé à ceux qui ont ses réglages : les autres ne voient rien."""
+    access.access(user, agent_id, "lecture")
+    return {"appel": _public(current(agent_id)) if access.allowed(user, agent_id, "admin") else None}
 
 
 class Answer(BaseModel):
@@ -182,6 +184,7 @@ class Answer(BaseModel):
 
 @router.post("/api/agents/{agent_id}/appel/{call_id}")
 async def answer_call(agent_id: str, call_id: str, body: Answer, user: int = Depends(auth.current_user)):
+    access.access(user, agent_id, "admin")
     call = current(agent_id)
     if not call or call["id"] != call_id:
         raise HTTPException(404, "Cet appel est déjà terminé")

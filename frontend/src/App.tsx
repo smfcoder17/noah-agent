@@ -14,7 +14,7 @@ import { Thread } from "@/components/Thread";
 import type { SettingsTab } from "@/components/Settings";
 import { ViewerProvider } from "@/components/Viewer";
 import { Button } from "@/components/ui";
-import { type Agent, ApiError, type Conversation, type CurrentModel, currentAuthEpoch, get, request, send, setClientVersion, type Status, type Usage } from "@/lib/api";
+import { type Agent, ApiError, canAdmin, canTalk, type Conversation, type CurrentModel, currentAuthEpoch, get, type Me, request, send, setClientVersion, type Status, type Usage } from "@/lib/api";
 import { AgentContext } from "@/lib/agentContext";
 import { takeAsk } from "@/lib/askAgent";
 import { clearShare, pendingShare } from "@/lib/share";
@@ -126,13 +126,15 @@ export default function App() {
         if (version && tooOld(version, status.min_client_version)) return setScreen("update");
       }
       if (!status.has_account) return setScreen("onboarding");
+      let me: Me;
       try {
-        await get("/api/me");
+        me = await get<Me>("/api/me");
       } catch (e) {
         if (e instanceof ApiError && e.status === 401) return setScreen("login");
         throw e;
       }
-      setScreen(status.onboarded ? "app" : "onboarding");
+      // L'assistant de premier lancement configure le serveur : il ne concerne que son propriétaire.
+      setScreen(status.onboarded || me.role !== "owner" ? "app" : "onboarding");
     } catch (e) {
       if (e instanceof ApiError && e.status === 426) return setScreen("update"); // minimum relevé pendant le démarrage
       setError((e as Error).message);
@@ -210,6 +212,10 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   // l'ouverture de l'app, sans attendre qu'on ouvre les réglages.
   useEffect(() => {
     reconcilePush().catch(() => {});
+  }, []);
+  const [me, setMe] = useState<Me | null>(null);
+  useEffect(() => {
+    get<Me>("/api/me").then(setMe).catch(() => {});
   }, []);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [agentId, setAgentId] = useState<string | null>(null);
@@ -327,6 +333,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
             agentId={agentId}
             model={model}
             usage={usage}
+            owner={me?.role === "owner"}
             onClose={() => setSidebarOpen(false)}
             onSelectAgent={selectAgent}
             onPin={pin}
@@ -355,7 +362,9 @@ function Shell({ onLogout }: { onLogout: () => void }) {
                 {!agent
                   ? "Crée ton premier agent"
                   : thread
-                    ? `Fil de ${agent.name}${thread.archived ? " · archivé" : ""}`
+                    ? thread.de
+                      ? `Conversation de ${thread.de} · en lecture`
+                      : `Fil de ${agent.name}${thread.archived ? " · archivé" : ""}`
                     : agent.step || (agent.online ? "En ligne" : "Hors ligne")}
               </p>
             </div>
@@ -386,18 +395,19 @@ function Shell({ onLogout }: { onLogout: () => void }) {
                 <PanelRight /><span className="hidden sm:inline">Détails</span>
               </Button>
             )}
-            {agent && (
+            {agent && canAdmin(agent) && (
               <Button variant={panel === "computer" ? "outline" : "default"} size="sm" onClick={() => setPanel(panel === "computer" ? null : "computer")} aria-pressed={panel === "computer"}>
                 <MonitorPlay /><span className="hidden sm:inline">Ordinateur</span>
               </Button>
             )}
           </header>
-          {agent && <HandoffBanner agentId={agent.id} onOpenScreen={() => setPanel("computer")} />}
+          {agent && canAdmin(agent) && <HandoffBanner agentId={agent.id} onOpenScreen={() => setPanel("computer")} />}
           <div className="min-h-0 flex-1">
             {agent && conversations ? (
               <AgentChat
                 key={`${agent.id}-${threadId ?? "main"}`}
                 agent={agent}
+                readOnly={!canTalk(agent) || !!shown?.de}
                 main={!threadId}
                 conversationId={shown?.id ?? null}
                 updatedAt={shown?.updated_at}
@@ -427,12 +437,14 @@ function Shell({ onLogout }: { onLogout: () => void }) {
             <SidePanel
               agent={agent}
               onAgentChanged={refreshAgents}
-              tab={panel}
+              tab={panel === "computer" && !canAdmin(agent) ? "details" : panel}
               onTab={setPanel}
               onClose={() => setPanel(null)}
               onEditAgent={() => setAgentDialog({ open: true, agent })}
               refreshKey={refreshKey}
               threads={(conversations ?? []).filter((c) => !c.main)}
+              main={main}
+              onConversationChanged={refreshConversations}
               threadId={threadId}
               onOpenThread={setThreadId}
               onArchiveThread={async (id, archived) => {
@@ -464,6 +476,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
         {settings && <SettingsDialog
           open={!!settings}
           tab={settings ?? "brain"}
+          owner={me?.role === "owner"}
           onTab={setSettings}
           onOpenChange={(o) => !o && setSettings(null)}
           onBrainSaved={() => {
@@ -480,6 +493,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
 
 function AgentChat(props: {
   agent: Agent;
+  readOnly: boolean;
   main: boolean;
   conversationId: string | null;
   updatedAt?: string;
@@ -526,6 +540,7 @@ function AgentChat(props: {
   }, [main, say]);
   // Valeur stable : tous les messages du fil lisent ce contexte, un objet neuf les redessinerait à chaque jeton.
   const { id, name, role } = props.agent;
+  const { readOnly } = props;
   const color = agentColor(props.agent);
   const context = useMemo(
     () => ({
@@ -534,8 +549,9 @@ function AgentChat(props: {
       agentName: name,
       agentColor: color,
       hint: role ? role.slice(0, 180) : "Pose une question, confie une tâche ou envoie un fichier.",
+      readOnly,
     }),
-    [say, id, name, color, role],
+    [say, id, name, color, role, readOnly],
   );
   return (
     <AssistantRuntimeProvider runtime={runtime}>

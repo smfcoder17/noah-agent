@@ -102,8 +102,54 @@ def init() -> None:
                    "agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, user_id INTEGER NOT NULL, "
                    "conversation_id TEXT NOT NULL, texte TEXT NOT NULL, etat TEXT NOT NULL, created_at REAL NOT NULL, ended_at REAL)")
         db.execute("CREATE INDEX IF NOT EXISTS voice_calls_user ON voice_calls(user_id, etat)")
+        # Profils (G12) : un rôle et un plafond mensuel par compte, un propriétaire par agent, payeur de chaque dépense.
+        # `usage.owner_id` survit à l'agent : supprimer un agent ne remet pas le compteur du mois à zéro.
+        _add_columns(db, "users", {"role": "TEXT NOT NULL DEFAULT 'member'", "budget_monthly": "REAL"})
+        _add_columns(db, "agents", {"owner_id": "INTEGER REFERENCES users(id)"})
+        _add_columns(db, "usage", {"owner_id": "INTEGER"})
+        # shared : l'auteur rend cette conversation lisible par ceux qui ont accès à l'agent.
+        _add_columns(db, "conversations", {"shared": "INTEGER NOT NULL DEFAULT 0"})
+        db.execute("CREATE TABLE IF NOT EXISTS agent_shares (agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, "
+                   "user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
+                   "droit TEXT NOT NULL CHECK (droit IN ('lecture', 'usage', 'admin')), "
+                   "created_at TEXT DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (agent_id, user_id))")
+        db.execute("CREATE INDEX IF NOT EXISTS agent_shares_user ON agent_shares(user_id)")
+        db.execute("CREATE INDEX IF NOT EXISTS usage_owner ON usage(owner_id, created_at)")
+        _adopt(db)
+        db.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_one_owner ON users(role) WHERE role = 'owner'")
+        db.commit()  # le changement de journal ne se fait pas au milieu d'une transaction
         # WAL : les lectures ne bloquent plus pendant une écriture (flux de chat et relais en parallèle).
         db.execute("PRAGMA journal_mode = WAL")
+
+
+def _adopt(db) -> None:
+    """Installation d'avant les profils (ou sauvegarde restaurée) : le premier compte devient propriétaire, et ce qui
+    n'a pas de propriétaire lui revient. Rejoué à chaque démarrage : une mise à jour annulée a pu écrire sans ces colonnes."""
+    db.execute("UPDATE users SET role = 'owner' WHERE id = (SELECT MIN(id) FROM users) "
+               "AND NOT EXISTS (SELECT 1 FROM users WHERE role = 'owner')")
+    row = db.execute("SELECT id FROM users WHERE role = 'owner'").fetchone()
+    if row:
+        db.execute("UPDATE agents SET owner_id = ? WHERE owner_id IS NULL", (row["id"],))
+        db.execute("UPDATE usage SET owner_id = COALESCE((SELECT owner_id FROM agents a WHERE a.id = usage.agent_id), ?) "
+                   "WHERE owner_id IS NULL", (row["id"],))
+
+
+def owner_id() -> int | None:
+    """Le propriétaire de l'installation."""
+    with connect() as db:
+        row = db.execute("SELECT id FROM users ORDER BY role = 'owner' DESC, id LIMIT 1").fetchone()
+    return row["id"] if row else None
+
+
+def agent_owner(agent_id: str) -> int | None:
+    """Le compte à qui appartient cet agent. Une base migrée a toujours `owner_id` ; sans lui, celui de ses conversations."""
+    with connect() as db:
+        row = db.execute("SELECT owner_id FROM agents WHERE id = ?", (agent_id,)).fetchone()
+        if row and row["owner_id"] is not None:
+            return row["owner_id"]
+        row = db.execute("SELECT user_id FROM conversations WHERE agent_id = ? ORDER BY main DESC, updated_at DESC LIMIT 1",
+                         (agent_id,)).fetchone()
+    return row["user_id"] if row else None
 
 
 def _add_columns(db, table: str, wanted: dict[str, str]) -> None:

@@ -393,7 +393,7 @@ function EmptyNoah() {
 }
 
 export function Thread({ report, onReportRead }: { report: { id: string; text: string } | null; onReportRead: () => void }) {
-  const { agentName, hint } = useContext(AgentContext);
+  const { agentName, hint, readOnly } = useContext(AgentContext);
   const [voice, setVoice] = useState(false);
   // Rappel pris : le mode vocal s'ouvre et lit le compte rendu.
   const reportId = report?.id;
@@ -421,7 +421,13 @@ export function Thread({ report, onReportRead }: { report: { id: string; text: s
                 <ArrowDown />
               </Button>
             </ThreadPrimitive.ScrollToBottom>
-            {voice ? <VoiceMode onClose={() => setVoice(false)} report={report} onReportRead={onReportRead} /> : <Composer onVoiceMode={() => setVoice(true)} />}
+            {readOnly ? (
+              <p className="w-full rounded-2xl border border-border bg-surface p-3 text-center text-sm text-muted-foreground">Tu peux lire ici, pas écrire.</p>
+            ) : voice ? (
+              <VoiceMode onClose={() => setVoice(false)} report={report} onReportRead={onReportRead} />
+            ) : (
+              <Composer onVoiceMode={() => setVoice(true)} />
+            )}
           </ThreadPrimitive.ViewportFooter>
         </ThreadPrimitive.Viewport>
       </ComposerPrimitive.AttachmentDropzone>

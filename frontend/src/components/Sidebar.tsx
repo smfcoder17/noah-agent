@@ -1,7 +1,7 @@
 // Colonne de gauche : uniquement les agents. Clic droit (ou « ⋯ ») pour épingler ou personnaliser.
-import { LogOut, MoreHorizontal, Palette, Pin, PinOff, Plus, Settings, X } from "lucide-react";
+import { LogOut, MoreHorizontal, Palette, Pin, PinOff, Plus, Settings, Users, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { Agent, CurrentModel, TaskState, Usage } from "@/lib/api";
+import { type Agent, canAdmin, type CurrentModel, type TaskState, type Usage } from "@/lib/api";
 import { cn, money } from "@/lib/utils";
 import { NoahTile, agentColor } from "./Noah";
 import type { SettingsTab } from "./Settings";
@@ -61,6 +61,7 @@ export function Sidebar(props: {
   agentId: string | null;
   model: CurrentModel;
   usage: Usage | null;
+  owner: boolean;
   onClose: () => void;
   onSelectAgent: (id: string) => void;
   onPin: (agent: Agent, pinned: boolean) => void;
@@ -112,7 +113,7 @@ export function Sidebar(props: {
                 onClick={() => props.onSelectAgent(a.id)}
                 onContextMenu={(e) => {
                   e.preventDefault();
-                  openMenu(a, e.clientX, e.clientY);
+                  if (canAdmin(a)) openMenu(a, e.clientX, e.clientY);
                 }}
                 aria-current={active ? "page" : undefined}
                 className={cn(
@@ -132,11 +133,19 @@ export function Sidebar(props: {
                   <span className="flex items-center gap-1.5">
                     <span className="truncate text-sm font-semibold">{a.name}</span>
                     {a.pinned && <Pin className="size-3 shrink-0 rotate-45 text-muted-foreground" aria-label="Épinglé" />}
+                    {a.partage && (
+                      <span
+                        className="inline-flex shrink-0 items-center gap-1 rounded-full bg-muted px-1.5 py-px text-[10px] font-medium text-muted-foreground"
+                        title={a.partage_par ? `Partagé par ${a.partage_par}` : "Partagé avec d'autres profils"}
+                      >
+                        <Users className="size-2.5" />partagé
+                      </span>
+                    )}
                   </span>
                   <span className={cn("truncate text-xs font-medium", s.tone)}>{s.text}</span>
                 </span>
               </button>
-              <button
+              {canAdmin(a) && <button
                 type="button"
                 aria-label={`Options de ${a.name}`}
                 className="absolute top-1/2 right-1.5 hidden -translate-y-1/2 cursor-pointer rounded-md p-1 text-muted-foreground group-hover:block hover:bg-muted hover:text-foreground focus-visible:block"
@@ -146,7 +155,7 @@ export function Sidebar(props: {
                 }}
               >
                 <MoreHorizontal className="size-4" />
-              </button>
+              </button>}
             </div>
           );
         })}
@@ -193,7 +202,7 @@ export function Sidebar(props: {
       )}
 
       <div className="flex flex-col gap-2">
-        <button type="button" onClick={() => props.onSettings("brain")} className="flex cursor-pointer flex-col gap-2 rounded-xl border border-border bg-surface p-3 text-left hover:border-muted-foreground/50">
+        <button type="button" onClick={() => props.onSettings(props.owner ? "brain" : "phone")} className="flex cursor-pointer flex-col gap-2 rounded-xl border border-border bg-surface p-3 text-left hover:border-muted-foreground/50">
           <span className="flex items-baseline justify-between gap-2 text-xs">
             <span className="text-muted-foreground">Ce mois-ci</span>
             <span className="font-mono font-medium tabular-nums">
@@ -208,7 +217,7 @@ export function Sidebar(props: {
           <span className="truncate text-xs text-muted-foreground">Cerveau : <span className="font-mono text-foreground">{props.model?.model ?? "aucun"}</span></span>
         </button>
         <div className="flex gap-1">
-          <Button variant="ghost" size="sm" className="flex-1 justify-start text-muted-foreground" onClick={() => props.onSettings("create")}><Settings />Réglages</Button>
+          <Button variant="ghost" size="sm" className="flex-1 justify-start text-muted-foreground" onClick={() => props.onSettings(props.owner ? "create" : "phone")}><Settings />Réglages</Button>
           <Button variant="ghost" size="icon-sm" className="text-muted-foreground" onClick={props.onLogout} aria-label="Se déconnecter" title="Se déconnecter"><LogOut /></Button>
         </div>
       </div>

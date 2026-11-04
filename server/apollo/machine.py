@@ -12,17 +12,16 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from . import auth, db, hermes, relay
+from . import access, auth, db, hermes, relay
 from .config import LAUNCHER_URL
 from .hermes import LAUNCHER
 
 router = APIRouter()
 
 
-def _check(agent_id: str) -> str:
-    with db.connect() as c:
-        if not c.execute("SELECT 1 FROM agents WHERE id = ?", (agent_id,)).fetchone():
-            raise HTTPException(404, "Agent introuvable")
+def _check(agent_id: str, user: int) -> str:
+    """Tout ce qui est ici (machine, mémoire, routines, connexions, dossiers) fait partie des réglages de l'agent."""
+    access.access(user, agent_id, "admin")
     return agent_id
 
 
@@ -55,12 +54,12 @@ class Install(BaseModel):
 
 @router.get("/api/agents/{agent_id}/computer")
 async def computer(agent_id: str, user: int = Depends(auth.current_user)):
-    return await admin(_check(agent_id), "ordinateur")
+    return await admin(_check(agent_id, user), "ordinateur")
 
 
 @router.post("/api/agents/{agent_id}/install")
 async def computer_install(agent_id: str, body: Install, user: int = Depends(auth.current_user)):
-    return await install(_check(agent_id), body.paquets)
+    return await install(_check(agent_id, user), body.paquets)
 
 
 @router.post("/agent-api/installer")
@@ -77,12 +76,12 @@ class MemoryWrite(BaseModel):
 
 @router.get("/api/agents/{agent_id}/memory")
 async def memory(agent_id: str, user: int = Depends(auth.current_user)):
-    return await admin(_check(agent_id), "memoire")
+    return await admin(_check(agent_id, user), "memoire")
 
 
 @router.put("/api/agents/{agent_id}/memory")
 async def memory_write(agent_id: str, body: MemoryWrite, user: int = Depends(auth.current_user)):
-    return await admin(_check(agent_id), "memoire_ecrire", body.model_dump())
+    return await admin(_check(agent_id, user), "memoire_ecrire", body.model_dump())
 
 
 # --- Routines -------------------------------------------------------------------------------
@@ -101,12 +100,12 @@ class RoutineEdit(BaseModel):
 
 @router.get("/api/agents/{agent_id}/routines")
 async def routines(agent_id: str, user: int = Depends(auth.current_user)):
-    return await admin(_check(agent_id), "routines")
+    return await admin(_check(agent_id, user), "routines")
 
 
 @router.post("/api/agents/{agent_id}/routines")
 async def routine_create(agent_id: str, body: NewRoutine, user: int = Depends(auth.current_user)):
-    return await admin(_check(agent_id), "routine_creer", body.model_dump())
+    return await admin(_check(agent_id, user), "routine_creer", body.model_dump())
 
 
 @router.post("/api/agents/{agent_id}/routines/{routine_id}/{action}")
@@ -115,7 +114,7 @@ async def routine_action(agent_id: str, routine_id: str, action: str, body: Rout
     if action not in ("pause", "reprendre", "lancer", "supprimer", "modifier"):
         raise HTTPException(400, "Action inconnue")
     payload = {"id": routine_id, "action": action, **(body.model_dump(exclude_none=True) if body else {})}
-    return await admin(_check(agent_id), "routine_action", payload)
+    return await admin(_check(agent_id, user), "routine_action", payload)
 
 
 async def deliver_routines(save_message, main_conversation) -> None:
@@ -160,7 +159,7 @@ def pop_context(conv_id: str) -> str:
 
 @router.get("/api/agents/{agent_id}/connections")
 async def connections(agent_id: str, user: int = Depends(auth.current_user)):
-    google, apps = await asyncio.gather(admin(_check(agent_id), "google"), admin(agent_id, "applications"))
+    google, apps = await asyncio.gather(admin(_check(agent_id, user), "google"), admin(agent_id, "applications"))
     return {"google": google, "applications": apps["applications"]}
 
 
@@ -173,7 +172,7 @@ async def app_action(agent_id: str, name: str, action: str, body: AppFinish | No
                      user: int = Depends(auth.current_user)):
     """Connecte ou retire une application du catalogue d'Hermes. La gateway relit sa configuration et
     ses jetons d'elle-même : les outils arrivent sans redémarrer l'agent (ni couper une connexion en cours)."""
-    _check(agent_id)
+    _check(agent_id, user)
     if action == "connect":
         out = await admin(agent_id, "application_connecter", {"nom": name})
     elif action == "finish":
@@ -216,12 +215,15 @@ async def _roots() -> list[str]:
 
 @router.get("/api/agents/{agent_id}/folders")
 async def folders(agent_id: str, user: int = Depends(auth.current_user)):
-    return {"racines": await _roots(), "dossiers": hermes.shared_folders(_check(agent_id))}
+    dossiers = hermes.shared_folders(_check(agent_id, user))
+    return {"racines": await _roots() if access.is_owner(user) else [], "dossiers": dossiers}
 
 
 @router.put("/api/agents/{agent_id}/folders")
 async def set_folders(agent_id: str, body: SharedFolders, user: int = Depends(auth.current_user)):
-    _check(agent_id)
+    _check(agent_id, user)
+    if not access.is_owner(user):  # ces dossiers sont sur l'ordinateur du propriétaire : un profil ne les monte pas
+        raise HTTPException(403, "Seul le propriétaire de ce Noah Agent peut confier des dossiers de son ordinateur.")
     out, used = [], set()
     for f in body.dossiers:
         chemin = f.chemin.strip().rstrip("\\/") or f.chemin.strip()

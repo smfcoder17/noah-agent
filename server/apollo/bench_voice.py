@@ -151,8 +151,8 @@ async def main() -> None:
     reps = int(sys.argv[2]) if len(sys.argv) > 2 else 3
     lot = sys.argv[3] if len(sys.argv) > 3 else "travail"
     with db.connect() as c:
-        user = c.execute("SELECT id FROM users ORDER BY id LIMIT 1").fetchone()["id"]
-        agent = c.execute("SELECT id FROM agents ORDER BY pinned DESC, created_at LIMIT 1").fetchone()["id"]
+        user = db.owner_id()
+        agent = c.execute("SELECT id FROM agents WHERE owner_id = ? ORDER BY pinned DESC, created_at LIMIT 1", (user,)).fetchone()["id"]
     token = auth.new_session(user)
     cases = corpus(lot)
     voices = [await _fixture(agent, sentence) for sentence, _ in cases]  # avant le compteur : leur coût n'est pas celui du tour

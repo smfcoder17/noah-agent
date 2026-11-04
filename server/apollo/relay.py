@@ -8,6 +8,7 @@
 import hashlib
 import hmac
 import json
+from contextvars import ContextVar
 from datetime import datetime, time as dtime, timezone
 
 import httpx
@@ -80,6 +81,37 @@ def budget() -> float | None:
     return float(value) if value else None
 
 
+def profile_cost(user: int) -> float:
+    with db.connect() as c:
+        row = c.execute("SELECT COALESCE(SUM(cost), 0) AS total FROM usage WHERE owner_id = ? AND created_at >= ?",
+                        (user, month_start())).fetchone()
+    return float(row["total"])
+
+
+def profile_budget(user: int | None) -> float | None:
+    with db.connect() as c:
+        row = c.execute("SELECT budget_monthly FROM users WHERE id = ?", (user,)).fetchone()
+    return row["budget_monthly"] if row else None
+
+
+# Qui paie une dépense sans agent (voix, routeur de médias) : le compte de la requête en cours.
+payer: ContextVar[int | None] = ContextVar("payer", default=None)
+
+
+def billed_to(agent_id: str) -> int | None:
+    """Une dépense compte pour le propriétaire de l'agent, même quand un profil partagé lui parle."""
+    return db.agent_owner(agent_id) or payer.get() or db.owner_id()
+
+
+def profile_refusal(agent_id: str) -> str | None:
+    """Message de refus si le profil qui paie pour cet agent a atteint son plafond du mois."""
+    user = billed_to(agent_id)
+    limit = profile_budget(user)
+    if limit is not None and profile_cost(user) >= limit:
+        return f"Budget mensuel de ce profil ({limit:.2f} $) atteint. Le propriétaire de Noah Agent peut l'augmenter."
+    return None
+
+
 def daily_cap(agent_id: str) -> float | None:
     """Plafond du jour de cet agent : le sien s'il en a un, sinon celui de tous les agents. None : pas de plafond."""
     value = db.get_setting(f"budget_daily:{agent_id}") or db.get_setting("budget_daily")
@@ -108,13 +140,28 @@ def _agent_name(agent_id: str) -> str:
 
 
 def _warn_once(agent_id: str, level: str, title: str, text: str) -> None:
-    """Une alerte par niveau (80 %, 100 %) et par jour, sur le téléphone et les navigateurs abonnés."""
+    """Une alerte par niveau (80 %, 100 %) et par jour, sur les appareils du propriétaire de l'agent."""
     from . import push
     key, today = f"budget_alert:{agent_id}:{level}", _day_start()
     if db.get_setting(key) == today:
         return
     db.set_setting(key, today)
-    push.notify(title, text, url="/", urgent=level == "100")
+    push.notify(title, text, url="/", urgent=level.endswith("100"), user_id=billed_to(agent_id))
+
+
+def _check_profile(agent_id: str) -> None:
+    """Après chaque appel mesuré : même échelle que le plafond du jour, pour le plafond mensuel du profil."""
+    user = billed_to(agent_id)
+    limit = profile_budget(user)
+    if limit is None:
+        return
+    spent = profile_cost(user)
+    tag = f"profil{user}"
+    if spent >= limit:
+        _warn_once(agent_id, f"{tag}:100", "Budget du profil atteint",
+                   f"{spent:.2f} $ dépensés ce mois-ci sur {limit:.2f} $ : les agents de ce profil s'arrêtent.")
+    elif spent >= 0.8 * limit:
+        _warn_once(agent_id, f"{tag}:80", "Budget du profil bientôt atteint", f"{spent:.2f} $ dépensés ce mois-ci sur {limit:.2f} $.")
 
 
 def _check_daily(agent_id: str) -> None:
@@ -171,11 +218,12 @@ async def _record(agent_id: str, model: str, usage: dict | None, task: str | Non
             cost = (prompt * price["price_in"] + completion * price["price_out"]) / 1e6
     with db.connect() as c:
         c.execute(
-            "INSERT INTO usage (agent_id, model, prompt_tokens, completion_tokens, cost, cached_tokens, conversation_id) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (agent_id, model, prompt, completion, float(cost or 0), cached, task),
+            "INSERT INTO usage (agent_id, model, prompt_tokens, completion_tokens, cost, cached_tokens, conversation_id, owner_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (agent_id, model, prompt, completion, float(cost or 0), cached, task, billed_to(agent_id)),
         )
     _check_daily(agent_id)
+    _check_profile(agent_id)
 
 
 def _upstream_headers(provider: str, api_key: str | None) -> dict:
@@ -214,6 +262,11 @@ async def relay(path: str, request: Request):
                        "type": "budget_exceeded", "code": 402}},
             status_code=402,
         )
+
+    refused = profile_refusal(agent_id)
+    if refused:
+        _check_profile(agent_id)
+        return JSONResponse({"error": {"message": refused, "type": "budget_exceeded", "code": 402}}, status_code=402)
 
     cap = daily_cap(agent_id)
     if cap is not None and day_cost(agent_id) >= cap:

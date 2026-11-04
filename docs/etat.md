@@ -31,7 +31,7 @@ Fichier généré par `tools/eval/score.mjs`, à ne pas modifier à la main. Un 
 | G9 Formation | 0 | 0 | 0 | 8 | — |
 | G10 Conversation vocale | 0 | 0 | 0 | 8 | G10.1, G10.5, G10.6, G10.8 |
 | G11 Appels et coordination | 0 | 0 | 4.2 | 8 | G11.1, G11.2, G11.4, G11.5, G11.7 |
-| G12 Profils et partage | 0 | 0 | 0 | 9 | G12.2, G12.3, G12.5 |
+| G12 Profils et partage | 0 | 2.5 | 7.5 | 9 | G12.3, G12.5 |
 | G13 Outils au choix | 0 | 0 | 0 | 8 | — |
 | G14 Rapidité et légèreté | 0 | 0 | 0 | 8 | G14.2 |
 | G15 Expérience face aux références | 0 | 0 | 0 | 8 | — |
@@ -74,10 +74,10 @@ Les critères G0 à G9 sont décrits dans [grille-validation.md](grille-validati
 
 ### G12. Profils et partage (seuil 9)
 
-- G12.1 (exige 2, atteint 0) : Le propriétaire crée et supprime des profils ; chacun a ses appareils, ses agents et son budget
-- G12.2 [B] (exige 1, atteint 0) : Isolation testée sur toutes les routes : un profil reçoit 403 ou 404 sur les données d'un autre
-- G12.3 [B] (exige 2, atteint 0) : Les conteneurs, fichiers, secrets et comptes d'un agent sont invisibles des autres profils
-- G12.4 (exige 2, atteint 0) : Partage d'un agent : lecture, usage, admin ; la révocation coupe tout en 5 s
+- G12.1 (exige 2, atteint 1) : Le propriétaire crée et supprime des profils ; chacun a ses appareils, ses agents et son budget
+- G12.2 [B] (exige 1, atteint 1) : Isolation testée sur toutes les routes : un profil reçoit 403 ou 404 sur les données d'un autre
+- G12.3 [B] (exige 2, atteint 1) : Les conteneurs, fichiers, secrets et comptes d'un agent sont invisibles des autres profils
+- G12.4 (exige 2, atteint 1) : Partage d'un agent : lecture, usage, admin ; la révocation coupe tout en 5 s
 - G12.5 [B] (exige 2, atteint 0) : Sur un agent partagé, la mémoire et les comptes connectés de chacun restent séparés, sauf choix explicite
 
 ### G13. Outils au choix (seuil 8)

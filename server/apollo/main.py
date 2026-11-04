@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import accounts, auth, catalog, coordination, db, desktop, events, handoff, hermes, machine, media, public, push, relay, updates, watch
+from . import access, accounts, auth, catalog, coordination, db, desktop, events, handoff, hermes, machine, media, profiles, public, push, relay, updates, watch
 from . import config
 from .config import WEB_DIR, forget_setup_code
 from .hermes import Agent
@@ -74,6 +74,7 @@ app.include_router(watch.router)
 app.include_router(handoff.router)
 app.include_router(coordination.router)
 app.include_router(accounts.router)
+app.include_router(profiles.router)
 app.include_router(public.router)
 
 # Agents en cours de création : id -> message d'étape ou d'erreur affiché dans l'interface.
@@ -641,7 +642,7 @@ async def setup_restore_status(request: Request):
 
 
 @app.post("/api/setup/done")
-def setup_done(user: int = Depends(auth.current_user)):
+def setup_done(user: int = Depends(access.owner_only)):
     """Dernière étape : refusée tant que le modèle en service n'a pas vraiment répondu (clé, modèle et agent vérifiés
     de bout en bout)."""
     if onboarded():
@@ -731,8 +732,8 @@ def revoke_device(device_id: str, user: int = Depends(auth.current_user)):
 @app.get("/api/me")
 def me(user: int = Depends(auth.current_user)):
     with db.connect() as c:
-        row = c.execute("SELECT username FROM users WHERE id = ?", (user,)).fetchone()
-    return {"id": user, "username": row["username"]}
+        row = c.execute("SELECT username, role FROM users WHERE id = ?", (user,)).fetchone()
+    return {"id": user, "username": row["username"], "role": row["role"]}
 
 
 # --- Modèle (partagé par tous les agents) ----------------------------------------------
@@ -795,9 +796,12 @@ class ModelQuery(BaseModel):
 
 @app.post("/api/models")
 async def list_models(body: ModelQuery, user: int = Depends(auth.current_user)):
-    """Modèles disponibles pour un fournisseur, avec les groupes recommandés."""
+    """Modèles disponibles pour un fournisseur, avec les groupes recommandés. Un profil ne lit que la liste du fournisseur
+    en service (pour le cerveau de ses agents) : essayer une autre adresse ou une autre clé est réservé au propriétaire."""
     if body.provider not in hermes.PROVIDERS:
         raise HTTPException(400, "Fournisseur inconnu")
+    if not access.is_owner(user) and (body.api_key or body.base_url or body.provider != db.get_setting("provider")):
+        raise HTTPException(403, "Réservé au propriétaire de ce Noah Agent.")
     base_url = _clean_base_url(body.base_url)
     same = db.get_setting("provider") == body.provider
     if not base_url and same:
@@ -829,24 +833,32 @@ async def list_models(body: ModelQuery, user: int = Depends(auth.current_user)):
 
 @app.get("/api/usage")
 def usage(user: int = Depends(auth.current_user)):
+    """Ce que ce profil paie, et ce qu'il a lui-même dépensé sur un agent partagé avec lui ; rien des autres. Le
+    propriétaire de l'installation voit en plus le total du serveur, celui que son budget global limite."""
+    installation = access.is_owner(user)
+    # Dépense visible : sur un de ses agents, ou faite dans une de ses conversations sur un agent qui lui est encore partagé.
+    mine = ("(u.owner_id = :me" + (" OR u.owner_id IS NULL" if installation else "") + ")")
+    seen = (f"({mine} OR (v.user_id = :me AND EXISTS (SELECT 1 FROM agent_shares s "
+            "WHERE s.agent_id = u.agent_id AND s.user_id = :me)))")
     with db.connect() as c:
         rows = c.execute(
             "SELECT u.agent_id, COALESCE(a.name, u.agent_id) AS name, SUM(u.cost) AS cost, "
             "SUM(u.prompt_tokens + u.completion_tokens) AS tokens, COUNT(*) AS calls, "
             "SUM(u.prompt_tokens) AS prompt_tokens, SUM(u.cached_tokens) AS cached_tokens "
-            "FROM usage u LEFT JOIN agents a ON a.id = u.agent_id "
-            "WHERE u.created_at >= ? GROUP BY u.agent_id ORDER BY cost DESC", (relay.month_start(),)
+            "FROM usage u LEFT JOIN agents a ON a.id = u.agent_id LEFT JOIN conversations v ON v.id = u.conversation_id "
+            f"WHERE u.created_at >= :start AND {seen} GROUP BY u.agent_id ORDER BY cost DESC",
+            {"start": relay.month_start(), "me": user},
         ).fetchall()
-    with db.connect() as c:
-        ids = [r["id"] for r in c.execute("SELECT id FROM agents")]
+    ids = [a["id"] for a in _agents() if access.right(user, a["id"]) == "proprietaire"]
     today = {i: {"depense": round(relay.day_cost(i), 4), "plafond": relay.daily_cap(i)} for i in ids}
     with db.connect() as c:
         # Par jour (chez l'utilisateur), sur 14 jours, et par tâche ce mois-ci : où part l'argent. Regroupé par tranche
         # de 10 minutes en SQL, puis rangé dans son jour avec le décalage horaire de cette date (heure d'été).
         slices = c.execute(
-            "SELECT agent_id, substr(created_at, 1, 15) || '0:00' AS slice, SUM(cost) AS cost, "
-            "SUM(prompt_tokens + completion_tokens) AS tokens, COUNT(*) AS calls FROM usage "
-            "WHERE created_at >= datetime('now', '-15 days') GROUP BY agent_id, slice"
+            "SELECT u.agent_id, substr(u.created_at, 1, 15) || '0:00' AS slice, SUM(u.cost) AS cost, "
+            "SUM(u.prompt_tokens + u.completion_tokens) AS tokens, COUNT(*) AS calls "
+            "FROM usage u LEFT JOIN conversations v ON v.id = u.conversation_id "
+            f"WHERE u.created_at >= datetime('now', '-15 days') AND {seen} GROUP BY u.agent_id, slice", {"me": user},
         ).fetchall()
     by_day: dict[tuple[str, str], dict] = {}
     for r in slices:
@@ -860,13 +872,15 @@ def usage(user: int = Depends(auth.current_user)):
             "SELECT u.agent_id, u.conversation_id, COALESCE(v.title, 'Travail de fond') AS title, v.main, "
             "SUM(u.cost) AS cost, SUM(u.prompt_tokens + u.completion_tokens) AS tokens, COUNT(*) AS calls "
             "FROM usage u LEFT JOIN conversations v ON v.id = u.conversation_id "
-            "WHERE u.created_at >= ? AND (v.user_id = ? OR u.conversation_id IS NULL) "
+            f"WHERE u.created_at >= :start AND {seen} AND (v.user_id = :me OR u.conversation_id IS NULL) "
             "GROUP BY u.agent_id, u.conversation_id ORDER BY cost DESC, tokens DESC LIMIT 50",
-            (relay.month_start(), user),
+            {"start": relay.month_start(), "me": user},
         ).fetchall()
     daily = db.get_setting("budget_daily")
-    return {"month_cost": relay.month_cost(), "budget": relay.budget(), "agents": [dict(r) for r in rows],
-            "daily": float(daily) if daily else None, "today": today,
+    spent, cap = relay.profile_cost(user), relay.profile_budget(user)
+    return {"month_cost": relay.month_cost() if installation else spent, "budget": relay.budget() if installation else cap,
+            "agents": [dict(r) for r in rows], "profil": {"depense": round(spent, 4), "plafond": cap},
+            "daily": float(daily) if daily and installation else None, "today": today,
             "days": days,
             "tasks": [{**dict(r), "main": bool(r["main"])} for r in tasks]}
 
@@ -877,7 +891,7 @@ class Budget(BaseModel):
 
 
 @app.post("/api/budget")
-def set_budget(body: Budget, user: int = Depends(auth.current_user)):
+def set_budget(body: Budget, user: int = Depends(access.owner_only)):
     db.set_setting("budget_monthly", "" if body.monthly is None else str(body.monthly))
     if "daily" in body.model_fields_set:
         db.set_setting("budget_daily", "" if body.daily is None else str(body.daily))
@@ -890,9 +904,7 @@ class AgentCap(BaseModel):
 
 @app.put("/api/agents/{agent_id}/plafond")
 def set_agent_cap(agent_id: str, body: AgentCap, user: int = Depends(auth.current_user)):
-    with db.connect() as c:
-        if not c.execute("SELECT 1 FROM agents WHERE id = ?", (agent_id,)).fetchone():
-            raise HTTPException(404, "Agent introuvable")
+    access.access(user, agent_id, "proprietaire")  # c'est son argent : un partage, même admin, n'y touche pas
     db.set_setting(f"budget_daily:{agent_id}", "" if body.daily is None else str(body.daily))
     return {"ok": True}
 
@@ -905,11 +917,13 @@ def _host(url: str) -> str:
 
 
 @app.get("/api/flux")
-def outbound_flows(user: int = Depends(auth.current_user)):
+def outbound_flows(user: int = Depends(access.owner_only)):
     """Tout ce qui sort de ce serveur, et vers où : le fournisseur de chaque agent d'abord. La liste suit le code
     (relay.UPSTREAMS, updates.MANIFEST_URL, abonnements aux notifications…), pas une promesse écrite à la main."""
     flows = []
     for a in _agents():
+        if access.right(user, a["id"]) != "proprietaire":  # les agents des autres profils restent les leurs
+            continue
         m = model_for(a["id"])
         if not m:
             continue
@@ -932,7 +946,8 @@ def outbound_flows(user: int = Depends(auth.current_user)):
     flows.append({"quoi": "Téléchargement des mises à jour", "vers": "ghcr.io, registry-1.docker.io",
                   "quand": "quand une mise à jour s'installe"})
     with db.connect() as c:
-        push_hosts = sorted({_host(r["endpoint"]) for r in c.execute("SELECT endpoint FROM push_subscriptions")})
+        push_hosts = sorted({_host(r["endpoint"]) for r in c.execute(
+            "SELECT p.endpoint FROM push_subscriptions p JOIN sessions s ON s.token = p.session WHERE s.user_id = ?", (user,))})
     if push_hosts:
         flows.append({"quoi": "Notifications (contenu chiffré de bout en bout)", "vers": ", ".join(push_hosts),
                       "quand": "à chaque notification"})
@@ -951,15 +966,17 @@ def outbound_flows(user: int = Depends(auth.current_user)):
 
 @app.get("/api/model")
 def get_model(user: int = Depends(auth.current_user)):
+    """Un profil voit quel cerveau sert ses agents, pas l'adresse du service."""
     m = current_model()
-    return {"provider": m["provider"], "model": m["model"], "has_key": bool(m["api_key"]), "base_url": m["base_url"]} if m else None
+    url = m["base_url"] if m and access.is_owner(user) else None
+    return {"provider": m["provider"], "model": m["model"], "has_key": bool(m["api_key"]), "base_url": url} if m else None
 
 
 _first_agent_lock = asyncio.Lock()
 
 
 @app.post("/api/model")
-async def set_model(body: ModelChoice, user: int = Depends(auth.current_user)):
+async def set_model(body: ModelChoice, user: int = Depends(access.owner_only)):
     p = hermes.PROVIDERS.get(body.provider)
     if not p:
         raise HTTPException(400, "Fournisseur inconnu")
@@ -989,7 +1006,7 @@ async def set_model(body: ModelChoice, user: int = Depends(auth.current_user)):
     async with _first_agent_lock:  # deux onglets qui choisissent le premier modèle en même temps : un seul Noah
         agents = _agents()
         if not agents:
-            await _start_agent("Noah", "Tu es l'assistant personnel de l'utilisateur. Réponds en français, de façon brève et concrète.")
+            await _start_agent("Noah", "Tu es l'assistant personnel de l'utilisateur. Réponds en français, de façon brève et concrète.", user)
     if agents:
         await asyncio.gather(*(_configure(a["id"]) for a in agents), return_exceptions=True)
     return {"ok": True}
@@ -1000,7 +1017,7 @@ async def set_model(body: ModelChoice, user: int = Depends(auth.current_user)):
 def _agents() -> list[dict]:
     with db.connect() as c:
         return [dict(r) for r in c.execute(
-            "SELECT id, name, role, api_key, color, pinned FROM agents ORDER BY pinned DESC, created_at"
+            "SELECT id, name, role, api_key, color, pinned, owner_id FROM agents ORDER BY pinned DESC, created_at"
         )]
 
 
@@ -1010,6 +1027,12 @@ def _agent(agent_id: str) -> Agent:
     if not row:
         raise HTTPException(404, "Agent introuvable")
     return Agent(row["id"], row["api_key"])
+
+
+def _usable(user: int, agent_id: str, droit: str = "usage") -> Agent:
+    """L'agent, si ce compte a ce droit dessus (voir access.py)."""
+    access.access(user, agent_id, droit)
+    return _agent(agent_id)
 
 
 # Brief commun à tous les agents. Texte fixe, sans date ni variable : il forme le début du prompt
@@ -1162,12 +1185,13 @@ def _slug(name: str) -> str:
     return f"{base}-{secrets.token_hex(2)}"
 
 
-async def _start_agent(name: str, role: str) -> str:
+async def _start_agent(name: str, role: str, owner: int) -> str:
     agent_id = _slug(name)
     provisioning[agent_id] = "Création de la machine…"
     api_key = await hermes.create_container(agent_id)
     with db.connect() as c:
-        c.execute("INSERT INTO agents (id, name, role, api_key) VALUES (?, ?, ?, ?)", (agent_id, name, role, api_key))
+        c.execute("INSERT INTO agents (id, name, role, api_key, owner_id) VALUES (?, ?, ?, ?, ?)",
+                  (agent_id, name, role, api_key, owner))
     asyncio.create_task(_provision(Agent(agent_id, api_key), _soul(name, role)))
     return agent_id
 
@@ -1202,10 +1226,15 @@ async def _provision(agent: Agent, soul: str) -> None:
 
 @app.get("/api/agents")
 async def list_agents(user: int = Depends(auth.current_user)):
-    agents = _agents()
+    """Les agents de ce profil et ceux qui lui sont partagés, rien d'autre. Leur état ne compte que ses conversations."""
+    everyone = _agents()
+    rights = {a["id"]: access.right(user, a["id"]) for a in everyone}
+    agents = [a for a in everyone if rights[a["id"]]]
     online = await asyncio.gather(*(_health(a) for a in agents))
     with db.connect() as c:
-        convs = c.execute("SELECT id, agent_id, main FROM conversations").fetchall()
+        convs = c.execute("SELECT id, agent_id, main FROM conversations WHERE user_id = ?", (user,)).fetchall()
+        shared = {r["agent_id"] for r in c.execute("SELECT DISTINCT agent_id FROM agent_shares")}
+        names = {r["id"]: r["username"] for r in c.execute("SELECT id, username FROM users")}
         own_models = {r["key"][6:]: r["value"] for r in c.execute("SELECT key, value FROM settings WHERE key LIKE 'model\\_%' ESCAPE '\\'")}
     by_agent: dict[str, list[str]] = {}
     mains: dict[str, str] = {}
@@ -1225,6 +1254,9 @@ async def list_agents(user: int = Depends(auth.current_user)):
             "color": a["color"],
             "pinned": bool(a["pinned"]),
             "model": own_models.get(a["id"]),
+            "droit": rights[a["id"]],
+            "partage": rights[a["id"]] != "proprietaire" or a["id"] in shared,
+            "partage_par": names.get(access.owner_of(a["id"])) if rights[a["id"]] != "proprietaire" else None,
         }
         for a, ok in zip(agents, online)
     ]
@@ -1260,15 +1292,18 @@ def _task_counts(agent_id: str, ids: list[str] | None = None) -> dict[str, int]:
 def _announce_update(text: str) -> None:
     """Nouvelle de mise à jour, dans la conversation du premier agent : visible depuis le web et le téléphone."""
     with db.connect() as c:
-        row = c.execute("SELECT id FROM agents ORDER BY rowid LIMIT 1").fetchone()
+        row = c.execute("SELECT id FROM agents WHERE owner_id = ? ORDER BY rowid LIMIT 1", (db.owner_id(),)).fetchone()
     conv = _main_conversation(row["id"]) if row else None
     if conv:
         _save_message(conv, "agent", text)
 
 
-def _main_conversation(agent_id: str) -> str | None:
+def _main_conversation(agent_id: str, user: int | None = None) -> str | None:
+    """La conversation principale de ce compte avec l'agent ; sans compte, celle de son propriétaire, qui reçoit ce que
+    l'agent produit seul (routines, veilles, résultats de demandes)."""
+    user = user if user is not None else db.agent_owner(agent_id)
     with db.connect() as c:
-        row = c.execute("SELECT id FROM conversations WHERE agent_id = ? AND main = 1", (agent_id,)).fetchone()
+        row = c.execute("SELECT id FROM conversations WHERE agent_id = ? AND user_id = ? AND main = 1", (agent_id, user)).fetchone()
     return row["id"] if row else None
 
 
@@ -1279,7 +1314,7 @@ class AgentModel(BaseModel):
 @app.put("/api/agents/{agent_id}/model")
 async def agent_model(agent_id: str, body: AgentModel, user: int = Depends(auth.current_user)):
     """Cerveau propre à un agent (None : celui de tous). L'agent redémarre avec, ses conversations restent."""
-    agent = _agent(agent_id)
+    agent = _usable(user, agent_id, "admin")
     if not current_model():
         raise HTTPException(400, "Choisis d'abord un cerveau dans Réglages.")
     if body.model and body.model != db.get_setting("model"):
@@ -1299,7 +1334,7 @@ class AgentLook(BaseModel):
 @app.patch("/api/agents/{agent_id}/look")
 def agent_look(agent_id: str, body: AgentLook, user: int = Depends(auth.current_user)):
     """Apparence de l'agent dans la liste (couleur, épingle) : aucun redémarrage."""
-    _agent(agent_id)
+    _usable(user, agent_id, "admin")
     with db.connect() as c:
         if body.color is not None:
             c.execute("UPDATE agents SET color = ? WHERE id = ?", (body.color, agent_id))
@@ -1317,13 +1352,13 @@ class AgentBody(BaseModel):
 async def create_agent(body: AgentBody, user: int = Depends(auth.current_user)):
     if not current_model():
         raise HTTPException(400, "Choisis d'abord un modèle")
-    return {"id": await _start_agent(body.name.strip(), body.role)}
+    return {"id": await _start_agent(body.name.strip(), body.role, user)}
 
 
 @app.post("/api/agents/{agent_id}/repair")
 async def repair_agent(agent_id: str, user: int = Depends(auth.current_user)):
     """Machine de l'agent arrêtée, absente ou restée en erreur : la (re)démarrer avec son volume, puis la configurer."""
-    agent = _agent(agent_id)
+    agent = _usable(user, agent_id, "admin")
     with db.connect() as c:
         row = c.execute("SELECT name, role FROM agents WHERE id = ?", (agent_id,)).fetchone()
     provisioning[agent_id] = "Redémarrage de la machine de l'agent…"
@@ -1342,7 +1377,7 @@ async def repair_agent(agent_id: str, user: int = Depends(auth.current_user)):
 
 @app.patch("/api/agents/{agent_id}")
 async def update_agent(agent_id: str, body: AgentBody, user: int = Depends(auth.current_user)):
-    agent = _agent(agent_id)
+    agent = _usable(user, agent_id, "admin")
     with db.connect() as c:
         c.execute("UPDATE agents SET name = ?, role = ? WHERE id = ?", (body.name.strip(), body.role, agent_id))
     provisioning[agent.id] = "Application du nouveau rôle…"
@@ -1352,7 +1387,12 @@ async def update_agent(agent_id: str, body: AgentBody, user: int = Depends(auth.
 
 @app.delete("/api/agents/{agent_id}")
 async def delete_agent(agent_id: str, user: int = Depends(auth.current_user)):
-    _agent(agent_id)
+    access.access(user, agent_id, "proprietaire")
+    await _remove_agent(agent_id)
+    return {"ok": True}
+
+
+async def _remove_agent(agent_id: str) -> None:
     try:
         await hermes.delete_container(agent_id)
     except Exception:
@@ -1360,7 +1400,19 @@ async def delete_agent(agent_id: str, user: int = Depends(auth.current_user)):
     with db.connect() as c:
         c.execute("DELETE FROM agents WHERE id = ?", (agent_id,))
     provisioning.pop(agent_id, None)
-    return {"ok": True}
+
+
+async def _stop_runs(user: int, agent_id: str | None = None) -> None:
+    """Accès retiré : ce que ce profil a lancé s'arrête, l'agent ne continue pas à ses frais pour quelqu'un de parti."""
+    for run_id, r in list(_runs.items()):
+        if r["user"] == user and agent_id in (None, r["agent"]):
+            try:
+                await hermes.stop_run(_agent(r["agent"]), run_id)
+            except Exception:  # noqa: BLE001 - agent arrêté : plus rien à arrêter
+                pass
+
+
+profiles.setup(stop_runs=_stop_runs, remove_agent=_remove_agent, drop_pending=_drop_pending)
 
 
 # --- Conversations ----------------------------------------------------------------------
@@ -1371,21 +1423,27 @@ THREAD_STALE_DAYS = 2
 
 @app.get("/api/agents/{agent_id}/conversations")
 def conversations(agent_id: str, user: int = Depends(auth.current_user)):
-    """La conversation principale de l'agent et ses fils. Un fil vieux et terminé compte comme archivé."""
+    """La conversation principale de ce compte avec l'agent et ses fils, plus celles que d'autres ont rendues visibles.
+    Un fil vieux et terminé compte comme archivé."""
+    access.access(user, agent_id, "lecture")
     with db.connect() as c:
         rows = c.execute(
-            "SELECT id, title, updated_at, main, archived, origin, "
-            f"updated_at < datetime('now', '-{THREAD_STALE_DAYS} days') AS stale "
-            "FROM conversations WHERE user_id = ? AND agent_id = ? ORDER BY updated_at DESC LIMIT 200",
-            (user, agent_id),
+            "SELECT v.id, v.title, v.updated_at, v.main, v.archived, v.origin, v.shared, v.user_id, u.username, "
+            f"v.updated_at < datetime('now', '-{THREAD_STALE_DAYS} days') AS stale "
+            "FROM conversations v JOIN users u ON u.id = v.user_id "
+            "WHERE v.agent_id = ? AND (v.user_id = ? OR v.shared = 1) ORDER BY v.updated_at DESC LIMIT 200",
+            (agent_id, user),
         ).fetchall()
     out = []
     for r in rows:
         state = task_state.get(r["id"], "idle")
+        own = r["user_id"] == user
+        main = bool(r["main"]) and own
         archived = bool(r["archived"]) or (bool(r["stale"]) and state not in ("work", "approve", "choice"))
         out.append({
             "id": r["id"], "title": r["title"], "updated_at": r["updated_at"], "state": state,
-            "main": bool(r["main"]), "archived": archived and not r["main"], "origin": r["origin"],
+            "main": main, "archived": archived and not main, "origin": r["origin"],
+            "partagee": bool(r["shared"]), "de": None if own else r["username"],
         })
     return out
 
@@ -1396,6 +1454,7 @@ class ArchiveBody(BaseModel):
 
 @app.post("/api/conversations/{conv_id}/archive")
 def archive_conversation(conv_id: str, body: ArchiveBody, user: int = Depends(auth.current_user)):
+    access.conversation(user, conv_id, ecrire=True)
     with db.connect() as c:
         c.execute(
             "UPDATE conversations SET archived = ?, updated_at = CASE WHEN ? THEN updated_at ELSE CURRENT_TIMESTAMP END "
@@ -1407,9 +1466,8 @@ def archive_conversation(conv_id: str, body: ArchiveBody, user: int = Depends(au
 
 @app.get("/api/conversations/{conv_id}/messages")
 def messages(conv_id: str, user: int = Depends(auth.current_user)):
+    access.conversation(user, conv_id)
     with db.connect() as c:
-        if not c.execute("SELECT 1 FROM conversations WHERE id = ? AND user_id = ?", (conv_id, user)).fetchone():
-            raise HTTPException(404, "Conversation introuvable")
         rows = c.execute(
             "SELECT role, text, created_at FROM messages WHERE conversation_id = ? ORDER BY id", (conv_id,)
         ).fetchall()
@@ -1418,9 +1476,23 @@ def messages(conv_id: str, user: int = Depends(auth.current_user)):
 
 @app.delete("/api/conversations/{conv_id}")
 def delete_conversation(conv_id: str, user: int = Depends(auth.current_user)):
+    access.conversation(user, conv_id, ecrire=True)
     with db.connect() as c:
         c.execute("DELETE FROM conversations WHERE id = ? AND user_id = ?", (conv_id, user))
     task_state.pop(conv_id, None)
+    return {"ok": True}
+
+
+class ConversationShare(BaseModel):
+    partagee: bool
+
+
+@app.post("/api/conversations/{conv_id}/partage")
+def share_conversation(conv_id: str, body: ConversationShare, user: int = Depends(auth.current_user)):
+    """L'auteur rend sa conversation lisible par ceux qui ont accès à l'agent, ou la reprend. Rien n'est visible par défaut."""
+    access.conversation(user, conv_id, ecrire=True)
+    with db.connect() as c:
+        c.execute("UPDATE conversations SET shared = ? WHERE id = ?", (int(body.partagee), conv_id))
     return {"ok": True}
 
 
@@ -1449,7 +1521,7 @@ class ChatMessage(BaseModel):
 @app.post("/api/chat")
 async def chat(body: ChatMessage, request: Request, apollo_session: str | None = Cookie(None),
                user: int = Depends(auth.current_user)):
-    agent = _agent(body.agent_id)
+    agent = _usable(user, body.agent_id)
     conv_id = body.conversation_id
     with db.connect() as c:
         if conv_id and not c.execute(
@@ -1457,14 +1529,30 @@ async def chat(body: ChatMessage, request: Request, apollo_session: str | None =
         ).fetchone():
             raise HTTPException(404, "Conversation introuvable")
     if not conv_id:
-        conv_id = _main_conversation(agent.id) or _new_conversation(user, agent.id, "Conversation", main=True)
+        conv_id = _main_conversation(agent.id, user) or _new_conversation(user, agent.id, "Conversation", main=True)
     attachments = [p for p in body.attachments if p.startswith("/opt/data/workspace/uploads/")]
     prompt = body.text
     if attachments:
         prompt += "\n\nFichiers joints par l'utilisateur :\n" + "\n".join(f"- {p}" for p in attachments)
-    stream = await _run(agent, conv_id, prompt, body.details, machine.pop_context(conv_id))
-    return StreamingResponse(auth.revocable(stream, auth.request_token(request, apollo_session)),
+    stream = await _run(agent, conv_id, prompt, body.details, _speaker(user, agent.id) + machine.pop_context(conv_id))
+    return StreamingResponse(auth.revocable(stream, auth.request_token(request, apollo_session),
+                                            allowed=lambda: access.allowed(user, agent.id, "usage")),
                              media_type="text/event-stream")
+
+
+def _speaker(user: int, agent_id: str) -> str:
+    """Sur un agent partagé, il sait à qui il parle. Rien sur un agent qui n'a qu'un utilisateur : le début du prompt
+    reste le même, donc en cache, et son comportement ne change pas."""
+    owner = access.owner_of(agent_id)
+    with db.connect() as c:
+        shared = c.execute("SELECT 1 FROM agent_shares WHERE agent_id = ? LIMIT 1", (agent_id,)).fetchone()
+    if user == owner and not shared:
+        return ""
+    name = re.sub(r"[\[\]\s]+", " ", access.username(user)).strip()
+    who = f"{name}, ton propriétaire" if user == owner else f"{name}, avec qui ton propriétaire te partage"
+    return (f"[Cette conversation est avec {who}. Tu sers plusieurs personnes : chacune a ses conversations, mais ta mémoire, "
+            f"ton navigateur et tes comptes connectés sont communs. Ne répète pas à {name} ce que d'autres t'ont confié, "
+            "et note en mémoire à qui appartient une préférence.]\n\n")
 
 
 def _new_conversation(user: int, agent_id: str, title: str, main: bool = False, origin: str = "user") -> str:
@@ -1497,6 +1585,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
         raise HTTPException(503, "L'agent ne répond pas. Il démarre peut-être encore : réessaie dans un instant.")
 
     updates.activity()
+    _runs[run_id] = {"agent": agent.id, "user": _conversation_owner(conv_id)}
 
     async def body():
         yield _sse({"type": "start", "conversation_id": conv_id, "run_id": run_id})
@@ -1521,8 +1610,10 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
                 if not out:
                     continue
                 if out["type"] == "approval" and task_state.get(conv_id) != "approve":
-                    push.notify("Noah attend ton accord", str(out.get("summary") or "Une action demande ton accord."),
-                                urgent=True, user_id=_conversation_owner(conv_id))
+                    # Celui qui a lancé la tâche et le propriétaire de l'agent : pas les autres profils partagés.
+                    for target in dict.fromkeys((_conversation_owner(conv_id), access.owner_of(agent.id))):
+                        push.notify("Noah attend ton accord", str(out.get("summary") or "Une action demande ton accord."),
+                                    urgent=True, user_id=target)
                 task_state[conv_id] = "approve" if out["type"] == "approval" else "work"
                 if out["type"] == "message":
                     reply.append(out["text"])
@@ -1561,6 +1652,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
                     queue.put_nowait(chunk)
         finally:
             relay.active[agent.id].remove(conv_id)
+            _runs.pop(run_id, None)
             queue.put_nowait(None)
     task = asyncio.create_task(pump())
     _running_runs.add(task)
@@ -1630,13 +1722,29 @@ class ApprovalAnswer(BaseModel):
 
 @app.post("/api/agents/{agent_id}/runs/{run_id}/approval")
 async def approval(agent_id: str, run_id: str, body: ApprovalAnswer, user: int = Depends(auth.current_user)):
-    await hermes.answer_approval(_agent(agent_id), run_id, body.request_id, body.generation, body.approve)
+    await hermes.answer_approval(_run_of(user, agent_id, run_id), run_id, body.request_id, body.generation, body.approve)
     return {"ok": True}
+
+
+# Tâches en cours : run -> agent et compte qui l'a lancée.
+_runs: dict[str, dict] = {}
+
+
+def _run_of(user: int, agent_id: str, run_id: str) -> Agent:
+    """Répondre à une tâche ou l'arrêter : celui qui l'a lancée, ou ceux qui ont les réglages de l'agent. Une tâche
+    inconnue (serveur redémarré depuis) ne dit pas à qui elle est : pareil, réglages seulement."""
+    run = _runs.get(run_id)
+    if run and run["agent"] != agent_id:
+        access.access(user, agent_id, "lecture")
+        raise HTTPException(404, "Tâche introuvable")
+    if run and run["user"] == user:
+        return _usable(user, agent_id, "usage")
+    return _usable(user, agent_id, "admin")
 
 
 @app.get("/api/agents/{agent_id}/media")
 async def agent_media(agent_id: str, path: str, user: int = Depends(auth.current_user)):
-    _agent(agent_id)
+    _usable(user, agent_id)
     r = await hermes.media(agent_id, path)
     if r.status_code != 200:
         raise HTTPException(r.status_code, "Image indisponible")
@@ -1647,7 +1755,7 @@ async def agent_media(agent_id: str, path: str, user: int = Depends(auth.current
 
 @app.get("/api/agents/{agent_id}/files")
 async def agent_files(agent_id: str, user: int = Depends(auth.current_user)):
-    _agent(agent_id)
+    _usable(user, agent_id)
     return await hermes.list_files(agent_id)
 
 
@@ -1655,7 +1763,7 @@ async def agent_files(agent_id: str, user: int = Depends(auth.current_user)):
 async def agent_file(agent_id: str, path: str, download: bool = False, user: int = Depends(auth.current_user)):
     """Sert un fichier de l'espace de travail. Les pages HTML (aperçu d'app) tournent dans un bac à sable :
     origine opaque, donc aucun accès à la session Noah Agent ni à son API."""
-    _agent(agent_id)
+    _usable(user, agent_id)
     r = await hermes.read_file(agent_id, path)
     if r.status_code != 200:
         raise HTTPException(r.status_code, "Fichier indisponible")
@@ -1673,7 +1781,7 @@ async def agent_file(agent_id: str, path: str, download: bool = False, user: int
 
 @app.post("/api/agents/{agent_id}/upload")
 async def agent_upload(agent_id: str, name: str, request: Request, user: int = Depends(auth.current_user)):
-    _agent(agent_id)
+    _usable(user, agent_id)
     data = await request.body()
     if not data:
         raise HTTPException(400, "Fichier vide")
@@ -1687,7 +1795,9 @@ async def agent_upload(agent_id: str, name: str, request: Request, user: int = D
 
 @app.get("/api/agents/{agent_id}/screen-url")
 async def screen_url(agent_id: str, view_only: bool = False, user: int = Depends(auth.current_user)):
-    _agent(agent_id)
+    # Réservé aux réglages de l'agent, même en lecture seule : le mot de passe de l'écran est le même, et « view_only »
+    # n'est qu'une option de la page. Qui voit l'écran peut le prendre en main, avec les comptes qui y sont connectés.
+    _usable(user, agent_id, "admin")
     # Prendre le contrôle = l'utilisateur peut taper un mot de passe : le navigateur doit d'abord confirmer qu'il
     # refuse les captures (G7.7). Rendre la main les permet de nouveau (sauf appel de l'agent en cours).
     if not await handoff.take_control(agent_id, not view_only):
@@ -1728,7 +1838,7 @@ class ClipboardText(BaseModel):
 @app.post("/api/agents/{agent_id}/clipboard/paste")
 async def clipboard_paste(agent_id: str, body: ClipboardText, user: int = Depends(auth.current_user)):
     """Ctrl+V dans l'écran : tape le texte là où se trouve le curseur (champ, iframe de connexion comprise)."""
-    _agent(agent_id)
+    _usable(user, agent_id, "admin")
     tab = await _focused_tab(agent_id)
     if not tab:
         raise HTTPException(409, "Aucune page ouverte")
@@ -1755,7 +1865,7 @@ SELECTION_JS = """(() => {
 @app.get("/api/agents/{agent_id}/clipboard/copy")
 async def clipboard_copy(agent_id: str, user: int = Depends(auth.current_user)):
     """Ctrl+C dans l'écran : le texte sélectionné dans l'onglet actif, pour le presse-papiers de l'utilisateur."""
-    _agent(agent_id)
+    _usable(user, agent_id, "admin")
     tab = await _focused_tab(agent_id)
     if not tab:
         return {"texte": ""}
@@ -1767,7 +1877,7 @@ async def clipboard_copy(agent_id: str, user: int = Depends(auth.current_user)):
 @app.get("/api/agents/{agent_id}/screen-status")
 async def screen_status(agent_id: str, user: int = Depends(auth.current_user)):
     """Le navigateur s'éteint après un moment sans activité ; son écran avec lui."""
-    _agent(agent_id)
+    _usable(user, agent_id, "admin")
     d = await _browser_diagnosis(agent_id)
     return {"awake": d["ecran_actif"], "reachable": d["joignable"], "running": d["navigateur_allume"], "tabs": d.get("onglets") or 0}
 
@@ -1834,7 +1944,7 @@ async def _browser_restart(agent_id: str) -> dict:
 
 @app.post("/api/agents/{agent_id}/browser/wake")
 async def browser_wake(agent_id: str, user: int = Depends(auth.current_user)):
-    _agent(agent_id)
+    _usable(user, agent_id, "admin")
     return await _browser_wake(agent_id)
 
 
@@ -1884,7 +1994,7 @@ class CookieImport(BaseModel):
 async def browser_cookies(agent_id: str, body: CookieImport, user: int = Depends(auth.current_user)):
     """Reprend une session ouverte dans le navigateur habituel de l'utilisateur (X, Google…),
     sans repasser par l'écran de connexion, souvent bloqué pour les navigateurs automatisés."""
-    _agent(agent_id)
+    _usable(user, agent_id, "admin")
     try:
         cookies = _parse_cookies(body.cookies)
     except ValueError:
@@ -1905,14 +2015,14 @@ async def browser_cookies(agent_id: str, body: CookieImport, user: int = Depends
 
 @app.post("/api/agents/{agent_id}/browser/restart")
 async def browser_restart(agent_id: str, user: int = Depends(auth.current_user)):
-    _agent(agent_id)
+    _usable(user, agent_id, "admin")
     return await _browser_restart(agent_id)
 
 
 # --- Médias et voix --------------------------------------------------------------------------
 
 @app.get("/api/media")
-async def media_settings(user: int = Depends(auth.current_user)):
+async def media_settings(user: int = Depends(access.owner_only)):
     """Pour chaque type : le réglage, le modèle que prendrait « Automatique », la liste des modèles."""
     out: dict = {"kinds": {}, "available": True, "reason": None}
     try:
@@ -1938,7 +2048,7 @@ class MediaChoice(BaseModel):
 
 
 @app.post("/api/media")
-def set_media(body: MediaChoice, user: int = Depends(auth.current_user)):
+def set_media(body: MediaChoice, user: int = Depends(access.owner_only)):
     if body.kind not in (*media.KINDS, "voice", "preferences"):
         raise HTTPException(400, "Type inconnu")
     db.set_setting("media_voice" if body.kind == "voice" else f"media_{body.kind}", body.model.strip())
@@ -1946,11 +2056,30 @@ def set_media(body: MediaChoice, user: int = Depends(auth.current_user)):
 
 
 AUDIO_FORMATS = {"webm", "ogg", "mp3", "wav", "m4a", "aac", "flac"}
+NO_AGENT = "voix"  # dictée ou essai de voix sans agent : la dépense va au compte qui parle
+
+
+def _voice_for(user: int, agent_id: str) -> None:
+    """La voix coûte et parle au nom d'un agent : il faut le droit de lui parler. Payeur : le propriétaire de l'agent."""
+    relay.payer.set(user)
+    if agent_id != NO_AGENT:
+        access.access(user, agent_id, "usage")
+
+
+def _audio_for(user: int, audio_id: str) -> media.AudioStream:
+    """Un flux de son appartient au compte qui l'a ouvert : ni un autre pour l'écouter, ni un autre pour y écrire."""
+    stream = media.audio_stream(audio_id)
+    if stream.owner is None:
+        stream.owner = user
+    if stream.owner != user:
+        raise HTTPException(404, "Flux introuvable")
+    return stream
 
 
 @app.post("/api/voice/transcribe")
-async def voice_transcribe(request: Request, format: str = "webm", agent_id: str = "voix", user: int = Depends(auth.current_user)):
+async def voice_transcribe(request: Request, format: str = "webm", agent_id: str = NO_AGENT, user: int = Depends(auth.current_user)):
     """Dictée : l'audio enregistré par le navigateur devient du texte."""
+    _voice_for(user, agent_id)
     if format not in AUDIO_FORMATS:
         raise HTTPException(400, "Format audio non pris en charge")
     data = await request.body()
@@ -1970,6 +2099,7 @@ class SpeakBody(BaseModel):
 @app.post("/api/voice/speak")
 async def voice_speak(body: SpeakBody, user: int = Depends(auth.current_user)):
     """Mode vocal : la réponse de l'agent lue à voix haute."""
+    _voice_for(user, body.agent_id)
     try:
         data, ctype, _ = await media.speak(body.agent_id, body.text)
     except media.MediaError as e:
@@ -1987,6 +2117,8 @@ class SayBody(SpeakBody):
 @app.post("/api/voice/say")
 async def voice_say(body: SayBody, user: int = Depends(auth.current_user)):
     """Lance la lecture d'un texte dans le flux `audio_id`, que le navigateur ouvre en même temps."""
+    _voice_for(user, body.agent_id)
+    _audio_for(user, body.audio_id)
     media.say(body.agent_id, body.text, body.audio_id)
     return {"ok": True}
 
@@ -1996,7 +2128,7 @@ async def voice_audio(audio_id: str, user: int = Depends(auth.current_user)):
     """Le son d'une réponse, envoyé au navigateur au fur et à mesure qu'il est synthétisé."""
     if not re.match(AUDIO_ID, audio_id):
         raise HTTPException(400, "Identifiant invalide")
-    stream = media.audio_stream(audio_id)
+    stream = _audio_for(user, audio_id)
     # Le premier morceau décide du type (MP3, ou WAV pour les voix qui ne rendent que du PCM).
     try:
         first = await asyncio.wait_for(stream.queue.get(), 30)
@@ -2030,13 +2162,17 @@ class VoiceTurn(BaseModel):
 @app.post("/api/voice/reply")
 async def voice_reply(body: VoiceTurn, user: int = Depends(auth.current_user)):
     """Mode vocal : réponse orale immédiate pendant que l'agent travaille, puis résumé de son résultat."""
-    out = media.audio_stream(body.audio_id) if body.audio_id else None
-    with db.connect() as c:
-        row = c.execute("SELECT name, role FROM agents WHERE id = ?", (body.agent_id,)).fetchone()
-    if not row:
+    out = _audio_for(user, body.audio_id) if body.audio_id else None
+    try:
+        _voice_for(user, body.agent_id)
+        if body.agent_id == NO_AGENT:
+            raise HTTPException(404, "Agent introuvable")
+    except HTTPException:
         if out:
             out.put(None)  # le navigateur qui attend ce flux reçoit une fin, pas 30 s de silence
-        raise HTTPException(404, "Agent introuvable")
+        raise
+    with db.connect() as c:
+        row = c.execute("SELECT name, role FROM agents WHERE id = ?", (body.agent_id,)).fetchone()
     try:
         return await media.voice_reply(body.agent_id, row["name"], row["role"], body.text, body.history, body.mode, out)
     except media.MediaError as e:
@@ -2060,6 +2196,7 @@ class MediaRequest(BaseModel):
 async def agent_media_create(body: MediaRequest, request: Request):
     """L'agent crée un média avec le modèle choisi dans les réglages ; le fichier atterrit dans outputs/."""
     agent_id = relay._agent_from(request)
+    relay.payer.set(relay.billed_to(agent_id))  # le routeur de médias compte sa dépense sans agent
     stamp = time.strftime("%Y%m%d-%H%M%S")
     plain = unicodedata.normalize("NFKD", body.description.lower()).encode("ascii", "ignore").decode()
     slug = re.sub(r"[^a-z0-9]+", "-", plain)[:40].strip("-") or "media"
@@ -2097,7 +2234,11 @@ async def agent_media_create(body: MediaRequest, request: Request):
 @app.get("/agent-api/etat")
 async def agent_state(request: Request):
     agent_id = relay._agent_from(request)
+    # L'agent d'un profil ne voit ni le total du serveur ni le budget global, seulement ce qui le limite, lui.
+    owner = relay.billed_to(agent_id)
     spent, cap = relay.month_cost(), relay.budget()
+    if owner != db.owner_id():
+        spent, cap = relay.profile_cost(owner), relay.profile_budget(owner)
     return {
         "navigateur": await _browser_diagnosis(agent_id),
         "budget": {"depense_du_mois": round(spent, 4), "plafond": cap,
@@ -2146,7 +2287,7 @@ async def _resume_agent(agent_id: str, text: str) -> asyncio.Task | None:
 async def agent_thread(body: ThreadBody, request: Request):
     """L'agent ouvre un fil de travail parallèle : nouvelle session Hermes, visible dans Détails."""
     agent_id = relay._agent_from(request)
-    conv_id = _new_conversation(coordination.user_of(agent_id), agent_id, body.titre, origin="agent")
+    conv_id = _new_conversation(access.launcher(agent_id), agent_id, body.titre, origin="agent")
     stream = await _run(_agent(agent_id), conv_id, body.consigne)
 
     async def drain():
@@ -2178,7 +2319,7 @@ def agent_thread_state(conv_id: str, request: Request):
 
 @app.get("/api/agents/{agent_id}/screen/{path:path}")
 async def screen_files(agent_id: str, path: str, request: Request, user: int = Depends(auth.current_user)):
-    _agent(agent_id)
+    _usable(user, agent_id, "admin")
     try:
         async with httpx.AsyncClient(timeout=20) as c:
             r = await c.get(f"http://{hermes.browser_host(agent_id)}:6080/{path}", params=request.query_params)
@@ -2189,10 +2330,10 @@ async def screen_files(agent_id: str, path: str, request: Request, user: int = D
 
 @app.websocket("/api/agents/{agent_id}/screen/websockify")
 async def screen_socket(websocket: WebSocket, agent_id: str):
-    # Même contrôle que les routes HTTP : cookie de session obligatoire.
+    # Même contrôle que les routes HTTP : session obligatoire, et droit de voir l'écran de cet agent.
     try:
-        auth.current_user(websocket, websocket.cookies.get(auth.COOKIE))
-        _agent(agent_id)
+        user = auth.current_user(websocket, websocket.cookies.get(auth.COOKIE))
+        access.access(user, agent_id, "admin")
     except HTTPException:
         await websocket.close(code=4401)
         return
@@ -2222,11 +2363,12 @@ async def screen_socket(websocket: WebSocket, agent_id: str):
                     else:
                         await websocket.send_text(data)
 
-            token = websocket.cookies.get(auth.COOKIE)
+            token = auth.request_token(websocket, websocket.cookies.get(auth.COOKIE))
 
-            async def still_allowed():  # appareil révoqué : son écran partagé se ferme dans les 5 s
-                while await asyncio.to_thread(auth.still_valid, token or ""):
-                    await asyncio.sleep(5)
+            async def still_allowed():  # appareil ou partage révoqué : l'écran se ferme dans les 5 s
+                while await asyncio.to_thread(auth.still_valid, token or "") \
+                        and await asyncio.to_thread(access.allowed, user, agent_id, "admin"):
+                    await asyncio.sleep(auth.REVOKE_EVERY)
 
             tasks = [asyncio.create_task(client_to_upstream()), asyncio.create_task(upstream_to_client()),
                      asyncio.create_task(still_allowed())]
@@ -2249,18 +2391,18 @@ class UpdateSettings(BaseModel):
 
 
 @app.get("/api/updates")
-async def updates_summary(user: int = Depends(auth.current_user)):
+async def updates_summary(user: int = Depends(access.owner_only)):
     return await updates.summary()
 
 
 @app.post("/api/updates/check")
-async def updates_check(user: int = Depends(auth.current_user)):
+async def updates_check(user: int = Depends(access.owner_only)):
     await updates.check()
     return await updates.summary()
 
 
 @app.post("/api/updates/install")
-async def updates_install(force: bool = False, user: int = Depends(auth.current_user)):
+async def updates_install(force: bool = False, user: int = Depends(access.owner_only)):
     """« Installer maintenant » : tout de suite, sauf une tâche en cours (l'utilisateur peut passer outre)."""
     reason = await updates.blocked()
     if reason and not force:
@@ -2272,7 +2414,7 @@ async def updates_install(force: bool = False, user: int = Depends(auth.current_
 
 
 @app.post("/api/updates/skip")
-def updates_skip(user: int = Depends(auth.current_user)):
+def updates_skip(user: int = Depends(access.owner_only)):
     updates.skip()
     return {"ok": True}
 
@@ -2292,7 +2434,7 @@ class UpdateResolve(BaseModel):
 
 
 @app.post("/api/updates/resolve")
-async def updates_resolve(body: UpdateResolve, user: int = Depends(auth.current_user)):
+async def updates_resolve(body: UpdateResolve, user: int = Depends(access.owner_only)):
     """Après un retour arrière incomplet : réessayer la restauration, ou garder ces conteneurs arrêtés."""
     if body.action not in ("reessayer", "garder", "liberer"):
         raise HTTPException(400, "Action inconnue")
@@ -2300,13 +2442,13 @@ async def updates_resolve(body: UpdateResolve, user: int = Depends(auth.current_
 
 
 @app.post("/api/updates/postpone")
-def updates_postpone(user: int = Depends(auth.current_user)):
+def updates_postpone(user: int = Depends(access.owner_only)):
     updates.postpone(1)
     return {"ok": True}
 
 
 @app.put("/api/updates/settings")
-def updates_settings(body: UpdateSettings, user: int = Depends(auth.current_user)):
+def updates_settings(body: UpdateSettings, user: int = Depends(access.owner_only)):
     if body.heure not in (None, "auto") and not (str(body.heure).isdigit() and 0 <= int(body.heure) <= 23):
         raise HTTPException(400, "Heure entre 0 et 23, ou « auto »")
     updates.settings(body.auto, body.heure)
@@ -2315,7 +2457,7 @@ def updates_settings(body: UpdateSettings, user: int = Depends(auth.current_user
 
 @app.post("/api/agents/{agent_id}/runs/{run_id}/stop")
 async def stop(agent_id: str, run_id: str, user: int = Depends(auth.current_user)):
-    await hermes.stop_run(_agent(agent_id), run_id)
+    await hermes.stop_run(_run_of(user, agent_id, run_id), run_id)
     return {"ok": True}
 
 

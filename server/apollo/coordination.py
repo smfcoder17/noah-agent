@@ -13,7 +13,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from . import auth, db, machine, push, relay
+from . import access, auth, db, machine, push, relay
 
 router = APIRouter()
 
@@ -68,19 +68,12 @@ def _actions_line(conv_ids: list[str]) -> str:
 # --- Qui, et pour quel compte ----------------------------------------------------------------
 
 def _owner(agent_id: str) -> int | None:
-    with db.connect() as c:
-        row = c.execute("SELECT user_id FROM conversations WHERE agent_id = ? ORDER BY main DESC, updated_at DESC LIMIT 1",
-                        (agent_id,)).fetchone()
-    return row["user_id"] if row else None
+    return db.agent_owner(agent_id)
 
 
 def user_of(agent_id: str) -> int:
-    """Compte de l'agent : celui de ses conversations, sinon le propriétaire de l'installation."""
-    owner = _owner(agent_id)
-    if owner is not None:
-        return owner
-    with db.connect() as c:
-        return c.execute("SELECT id FROM users ORDER BY id LIMIT 1").fetchone()["id"]
+    """Compte de l'agent : son propriétaire, sinon celui de l'installation."""
+    return access.owner_of(agent_id)
 
 
 def _colleagues(me: str) -> list[dict]:
@@ -138,6 +131,9 @@ def _budget_refusal(agent_id: str) -> str | None:
     limit = relay.budget()
     if limit is not None and relay.month_cost() >= limit:
         return f"Budget mensuel de {limit:.2f} $ atteint : aucune demande ne part."
+    refused = relay.profile_refusal(agent_id)
+    if refused:
+        return refused
     cap = relay.daily_cap(agent_id)
     if cap is not None and relay.day_cost(agent_id) >= cap:
         return f"{_name(agent_id)} a atteint son plafond du jour ({cap:.2f} $) : il reprend demain."
@@ -164,6 +160,10 @@ async def agent_demand(body: Demand, request: Request):
     consigne = body.consigne.strip()
     if not consigne:
         raise HTTPException(400, "Consigne vide.")
+    # L'agent n'en sait pas plus sur la personne que son droit : une tâche lancée en partage ne passe pas par ses collègues,
+    # qui n'ont pas été partagés et tiennent les comptes de leur propriétaire.
+    if access.guest_task(me):
+        raise HTTPException(403, "Cette tâche vient d'une personne avec qui tu es partagé : elle ne passe pas par les autres agents.")
     target = _find(me, body.agent)
     if target["id"] == me:
         raise HTTPException(400, "Tu ne peux pas te demander une tâche à toi-même : fais-la, ou ouvre un fil.")
@@ -316,7 +316,10 @@ def _ring(agent_id: str, texte: str, actions: str = "") -> dict:
         recent = c.execute("SELECT COUNT(*) AS n FROM voice_calls WHERE agent_id = ? AND created_at > ?", (agent_id, now - HOUR)).fetchone()["n"]
     if recent >= CALLS_PER_HOUR:
         raise HTTPException(429, f"Limite atteinte : {CALLS_PER_HOUR} rappels par heure. Écris plutôt dans ta conversation.")
-    user, conv = user_of(agent_id), _main(agent_id)
+    # Le propriétaire de l'agent, ou le profil partagé qui a lancé la tâche : c'est à lui que ce compte rendu s'adresse.
+    owner, user = user_of(agent_id), access.launcher(agent_id)
+    conv = _main(agent_id) if user == owner else (_h["main_conversation"](agent_id, user)
+                                                  or _h["new_conversation"](user, agent_id, "Conversation", main=True))
     with db.connect() as c:
         c.execute("INSERT INTO voice_calls (id, agent_id, user_id, conversation_id, texte, etat, created_at) "
                   "VALUES (?, ?, ?, ?, ?, 'sonne', ?)", (call_id, agent_id, user, conv, texte, now))
@@ -325,6 +328,8 @@ def _ring(agent_id: str, texte: str, actions: str = "") -> dict:
     if conv not in relay.active.get(agent_id, []):  # depuis un fil : sa conversation principale ne le sait pas encore
         machine.add_context(conv, written)
     push.notify(f"{_name(agent_id)} t'appelle", texte[:200], url=f"/#appel={call_id}", urgent=True, user_id=user)
+    if user != owner:  # le propriétaire sait que son agent a appelé, sans lire ce qui ne lui est pas adressé
+        push.notify(f"{_name(agent_id)} a rappelé {access.username(user)}", "Le compte rendu est dans sa conversation.", user_id=owner)
     _spawn(_expire_later(RING_SECONDS))
     return {"id": call_id, "etat": "sonne"}
 
@@ -380,7 +385,7 @@ CALL_ROW = "SELECT v.*, a.name AS agent FROM voice_calls v LEFT JOIN agents a ON
 def _call(call_id: str, user: int) -> sqlite3.Row:
     with db.connect() as c:
         row = c.execute(CALL_ROW + "WHERE v.id = ? AND v.user_id = ?", (call_id, user)).fetchone()
-    if not row:
+    if not row or not access.allowed(user, row["agent_id"]):  # accès retiré : son rappel part avec lui
         raise HTTPException(404, "Appel introuvable")
     return row
 
@@ -390,7 +395,7 @@ def calls_pending(user: int = Depends(auth.current_user)):
     _expire()
     with db.connect() as c:
         rows = c.execute(CALL_ROW + "WHERE v.user_id = ? AND v.etat = 'sonne' ORDER BY v.created_at", (user,)).fetchall()
-    return {"appels": [_public(r) for r in rows]}
+    return {"appels": [_public(r) for r in rows if access.allowed(user, r["agent_id"])]}
 
 
 @router.get("/api/calls/{call_id}")

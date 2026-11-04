@@ -32,8 +32,8 @@ PROMPTS = [
 
 def _setup() -> tuple[str, str, str]:
     with db.connect() as c:
-        user = c.execute("SELECT id FROM users ORDER BY id LIMIT 1").fetchone()["id"]
-        agent = c.execute("SELECT id FROM agents ORDER BY pinned DESC, created_at LIMIT 1").fetchone()["id"]
+        user = db.owner_id()
+        agent = c.execute("SELECT id FROM agents WHERE owner_id = ? ORDER BY pinned DESC, created_at LIMIT 1", (user,)).fetchone()["id"]
         row = c.execute("SELECT id FROM conversations WHERE agent_id = ? AND title = 'Mesure de vitesse'", (agent,)).fetchone()
         if row:
             conv = row["id"]

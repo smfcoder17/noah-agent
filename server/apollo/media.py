@@ -69,17 +69,21 @@ def _headers() -> dict:
     return {"Authorization": f"Bearer {_key()}", "HTTP-Referer": "https://github.com/noah-agent", "X-Title": "Noah Agent"}
 
 
-def _check_budget() -> None:
+def _check_budget(agent_id: str) -> None:
     limit = relay.budget()
     if limit is not None and relay.month_cost() >= limit:
         raise MediaError(f"Budget mensuel de {limit:.2f} $ atteint. Augmente-le dans Noah Agent pour continuer.")
+    refused = relay.profile_refusal(agent_id)
+    if refused:
+        raise MediaError(refused)
 
 
 def _record(agent_id: str, model: str, cost: float | None) -> None:
     with db.connect() as c:
         c.execute(
-            "INSERT INTO usage (agent_id, model, prompt_tokens, completion_tokens, cost, cached_tokens) VALUES (?, ?, 0, 0, ?, 0)",
-            (agent_id, model, float(cost or 0)),
+            "INSERT INTO usage (agent_id, model, prompt_tokens, completion_tokens, cost, cached_tokens, owner_id) "
+            "VALUES (?, ?, 0, 0, ?, 0, ?)",
+            (agent_id, model, float(cost or 0), relay.billed_to(agent_id)),
         )
 
 
@@ -319,7 +323,7 @@ EXT = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/svg
 
 async def image(agent_id: str, prompt: str, aspect_ratio: str | None = None, model: str | None = None) -> tuple[bytes, str, str]:
     """Rend (octets, extension, modèle)."""
-    _check_budget()
+    _check_budget(agent_id)
     model = model or await resolve("image", prompt)
     body = {"model": model, "prompt": prompt}
     if aspect_ratio:
@@ -338,7 +342,7 @@ async def image(agent_id: str, prompt: str, aspect_ratio: str | None = None, mod
 
 async def music(agent_id: str, prompt: str, model: str | None = None) -> tuple[bytes, str, str]:
     """Lyria passe par chat/completions en flux : l'audio arrive en base64 dans les deltas."""
-    _check_budget()
+    _check_budget(agent_id)
     model = model or await resolve("music", prompt)
     chunks: list[str] = []
     cost = None
@@ -370,7 +374,7 @@ async def music(agent_id: str, prompt: str, model: str | None = None) -> tuple[b
 
 async def video(agent_id: str, prompt: str, duration: int | None = None, aspect_ratio: str | None = None, model: str | None = None) -> tuple[bytes, str, str]:
     """Tâche asynchrone : on soumet, on attend la fin (jusqu'à 10 min), puis on télécharge le MP4."""
-    _check_budget()
+    _check_budget(agent_id)
     model = model or await resolve("video", prompt)
     body = {"model": model, "prompt": prompt}
     if duration:
@@ -403,7 +407,7 @@ async def video(agent_id: str, prompt: str, duration: int | None = None, aspect_
 
 async def speak(agent_id: str, text: str) -> tuple[bytes, str, str]:
     """Synthèse vocale en MP3. Rend (octets, type MIME, modèle)."""
-    _check_budget()
+    _check_budget(agent_id)
     model = await resolve("speech")
     body = {"model": model, "input": text[:4000], "response_format": "mp3"}
     voice = await voice_for(model)
@@ -543,7 +547,7 @@ async def voice_reply(agent_id: str, name: str, role: str, text: str, history: l
     reader = _DireReader() if mode != "result" else None
     content, cost = "", None
     try:
-        _check_budget()
+        _check_budget(agent_id)
         base, headers, fallbacks = await _voice_target()
         on_openrouter = base == BASE
         if mode == "result":
@@ -615,6 +619,7 @@ class AudioStream:
         self.closed = False  # le navigateur a coupé : inutile de continuer à synthétiser
         self.born = time.monotonic()
         self.ctype = "audio/mpeg"
+        self.owner: int | None = None  # le compte qui l'a ouvert le premier : lui seul l'écoute ou y écrit
 
     def put(self, data: bytes | None) -> None:
         if not self.closed:
@@ -754,7 +759,7 @@ async def speak_stream(agent_id: str, texts, out: AudioStream) -> None:
     pendant que la précédente est lue : pas de blanc entre deux phrases."""
     model = None
     try:
-        _check_budget()
+        _check_budget(agent_id)
         candidates = await backups("speech", 2)
         model = candidates[0]
         voices = {m: await voice_for(m) for m in candidates}
@@ -823,7 +828,7 @@ async def speak_stream(agent_id: str, texts, out: AudioStream) -> None:
 async def transcribe(agent_id: str, audio: bytes, fmt: str, language: str | None = "fr") -> str:
     """Transcription qui ne doit pas échouer : le modèle choisi, puis les meilleurs autres modèles disponibles.
     Un refus passager (429, 5xx, délai) est réessayé une fois ; un refus du modèle (format) passe au suivant."""
-    _check_budget()
+    _check_budget(agent_id)
     data = base64.b64encode(audio).decode()
     last: MediaError | None = None
     for model in await backups("transcription"):

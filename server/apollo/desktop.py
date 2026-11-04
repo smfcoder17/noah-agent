@@ -10,16 +10,18 @@ import re
 import time
 import uuid
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
-from . import auth, db, hermes, relay
+from . import access, auth, db, hermes, relay
 
 router = APIRouter()
 
-_queue: asyncio.Queue = asyncio.Queue()
-_waiting: dict[str, asyncio.Future] = {}
-_seen = {"at": 0.0, "os": ""}  # dernier passage de l'application de bureau, et son système
+# Par compte : l'ordinateur d'un profil ne reçoit jamais les actions de l'agent d'un autre.
+_queues: dict[int, asyncio.Queue] = {}
+_waiting: dict[str, tuple[asyncio.Future, int]] = {}  # demande -> (réponse attendue, compte dont l'ordinateur répond)
+_seen: dict[int, dict] = {}  # dernier passage de l'application de bureau de ce compte, et son système
+WAIT = 25  # secondes d'attente longue de l'application de bureau
 
 ACTIONS = ("ouvrir", "notifier", "presse_papiers", "lancer", "commande")
 
@@ -31,8 +33,12 @@ class AgentAction(BaseModel):
     texte: str = Field(default="", max_length=4000)
 
 
-def connected() -> bool:
-    return time.time() - _seen["at"] < 40
+def _queue(user: int) -> asyncio.Queue:
+    return _queues.setdefault(user, asyncio.Queue())
+
+
+def connected(user: int) -> bool:
+    return time.time() - _seen.get(user, {}).get("at", 0.0) < 40
 
 
 def _host_path(agent_id: str, path: str) -> str | None:
@@ -54,7 +60,10 @@ def _working_folder(agent_id: str) -> str:
 @router.post("/agent-api/ordinateur")
 async def agent_action(body: AgentAction, request: Request):
     agent_id = relay._agent_from(request)
-    if not connected():
+    if access.guest_task(agent_id):
+        return {"erreur": "Une personne avec qui tu es partagé t'a confié cette tâche : l'ordinateur de ton propriétaire n'en fait pas partie."}
+    target = access.owner_of(agent_id)
+    if not connected(target):
         return {"erreur": "L'application de bureau Noah Agent n'est pas ouverte sur l'ordinateur de l'utilisateur. "
                           "Dis-lui de l'ouvrir (elle peut rester dans la zone de notification), puis réessaie."}
     cible = body.cible.strip()
@@ -68,8 +77,8 @@ async def agent_action(body: AgentAction, request: Request):
         row = c.execute("SELECT name FROM agents WHERE id = ?", (agent_id,)).fetchone()
     rid = uuid.uuid4().hex
     future = asyncio.get_running_loop().create_future()
-    _waiting[rid] = future
-    await _queue.put({"id": rid, "agent": row["name"] if row else "Noah", "action": body.action, "cible": cible,
+    _waiting[rid] = (future, target)
+    await _queue(target).put({"id": rid, "agent": row["name"] if row else "Noah", "action": body.action, "cible": cible,
                       "titre": body.titre, "texte": body.texte, "dossier": _working_folder(agent_id)})
     try:
         # Le temps pour l'utilisateur de lire la demande et de répondre.
@@ -83,43 +92,44 @@ async def agent_action(body: AgentAction, request: Request):
 @router.get("/api/desktop/next")
 async def next_action(os: str = "", user: int = Depends(auth.current_user)):
     """Attente longue de l'application de bureau : rend la prochaine action, ou 204 après 25 s."""
-    _seen.update(at=time.time(), os=os[:20])
+    _seen[user] = {"at": time.time(), "os": os[:20]}
     while True:
         try:
-            item = await asyncio.wait_for(_queue.get(), 25)
+            item = await asyncio.wait_for(_queue(user).get(), WAIT)
         except asyncio.TimeoutError:
             return Response(status_code=204)
         if item["id"] in _waiting:  # l'agent attend encore (sinon elle a expiré)
-            _seen["at"] = time.time()
+            _seen[user]["at"] = time.time()
             return item
 
 
 @router.post("/api/desktop/result/{rid}")
 async def action_result(rid: str, body: dict, user: int = Depends(auth.current_user)):
-    future = _waiting.get(rid)
-    if future and not future.done():
+    future, target = _waiting.get(rid, (None, None))
+    if future is None or target != user:
+        raise HTTPException(404, "Demande introuvable")
+    if not future.done():
         future.set_result(body)
     return {"ok": True}
 
 
 @router.get("/api/desktop/status")
 async def status(user: int = Depends(auth.current_user)):
-    return {"connecte": connected(), "systeme": _seen["os"]}
+    return {"connecte": connected(user), "systeme": _seen.get(user, {}).get("os", "")}
 
 
-def system() -> str:
-    return _seen["os"]
-
-
-def notify(title: str, text: str) -> None:
+def notify(title: str, text: str, agent_id: str | None = None) -> None:
     """Notification sur l'ordinateur si l'application de bureau est ouverte, et sur les appareils abonnés aux
-    notifications (téléphone, navigateur) ; personne n'attend la réponse."""
+    notifications (téléphone, navigateur) ; personne n'attend la réponse. Pour un agent : son propriétaire, et le profil
+    partagé qui a lancé la tâche. Sans agent : le propriétaire de l'installation."""
     from . import push
 
-    push.notify(title, text)
-    if not connected():
-        return
-    rid = uuid.uuid4().hex
-    _waiting[rid] = asyncio.get_running_loop().create_future()
-    _queue.put_nowait({"id": rid, "agent": "Noah", "action": "notifier", "cible": "", "titre": title, "texte": text, "dossier": ""})
-    asyncio.get_running_loop().call_later(120, lambda: _waiting.pop(rid, None))
+    for user in access.recipients(agent_id) if agent_id else [db.owner_id()]:
+        if user is None:
+            continue
+        push.notify(title, text, user_id=user)
+        if connected(user):
+            rid = uuid.uuid4().hex
+            _waiting[rid] = (asyncio.get_running_loop().create_future(), user)
+            _queue(user).put_nowait({"id": rid, "agent": "Noah", "action": "notifier", "cible": "", "titre": title, "texte": text, "dossier": ""})
+            asyncio.get_running_loop().call_later(120, lambda r=rid: _waiting.pop(r, None))

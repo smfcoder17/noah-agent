@@ -99,6 +99,9 @@ export type ModelGroup = { id: string; title: string; hint: string; models: Mode
 export type Catalog = { needs_key: boolean; groups: ModelGroup[]; models: Model[] };
 export type CurrentModel = { provider: string; model: string; has_key: boolean; base_url?: string | null } | null;
 export type TaskState = "work" | "approve" | "choice" | "done" | "error" | "idle";
+/** Compte connecté : le rôle cache ce qui n'est pas permis, le serveur reste la seule protection. */
+export type Me = { id: number; username: string; role: "owner" | "member" };
+export type AgentRight = "lecture" | "usage" | "admin" | "proprietaire";
 export type Agent = {
   id: string;
   name: string;
@@ -112,7 +115,14 @@ export type Agent = {
   pinned: boolean;
   /** Cerveau propre à cet agent ; absent : celui de tous. */
   model?: string | null;
+  /** Ce que ce compte a le droit d'en faire. */
+  droit: AgentRight;
+  /** Partagé avec d'autres, ou par quelqu'un d'autre. */
+  partage: boolean;
+  partage_par?: string | null;
 };
+export const canAdmin = (a: Agent) => a.droit === "admin" || a.droit === "proprietaire";
+export const canTalk = (a: Agent) => a.droit !== "lecture";
 /** main : la conversation unique avec l'agent ; les autres sont des fils (origin "agent" s'il les a ouverts). */
 /** Rappel vocal d'un agent : il sonne, puis il est pris, refusé ou manqué. */
 export type VoiceCall = {
@@ -132,6 +142,10 @@ export type Conversation = {
   main: boolean;
   archived: boolean;
   origin: "user" | "agent";
+  /** L'auteur l'a rendue lisible par ceux qui ont accès à l'agent. */
+  partagee: boolean;
+  /** Auteur, si ce n'est pas ce compte : elle se lit, elle ne s'écrit pas. */
+  de: string | null;
 };
 export type StoredMessage = { role: "user" | "agent" | "error"; text: string; created_at: string };
 export type AgentUsage = {
@@ -151,6 +165,7 @@ export type Usage = {
   today?: Record<string, { depense: number; plafond: number | null }>;
   days?: { agent_id: string; day: string; cost: number; tokens: number; calls: number }[]; // 14 derniers jours
   tasks?: TaskUsage[]; // ce mois-ci, la plus coûteuse d'abord
+  profil?: { depense: number; plafond: number | null }; // ce que paie ce compte et son plafond du mois
 };
 /** Dépense d'une tâche (conversation) ; conversation_id null = travail de fond (tâches planifiées, surveillance). */
 export type TaskUsage = {

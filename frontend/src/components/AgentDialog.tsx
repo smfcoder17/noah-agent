@@ -103,7 +103,7 @@ function AgentForm({ agent, onSaved, onDeleted, onCancel }: { agent: Agent | nul
       </Label>
       <ErrorText>{error}</ErrorText>
       <div className="flex flex-wrap justify-end gap-2">
-        {agent && (
+        {agent?.droit === "proprietaire" && (
           <Button type="button" variant="danger" className="mr-auto" onClick={remove} disabled={busy}>
             {confirm ? "Confirmer la suppression" : "Supprimer"}
           </Button>

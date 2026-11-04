@@ -287,10 +287,8 @@ async def send(title: str, text: str, url: str = "/", urgent: bool = False, user
 
 
 def _owner() -> int | None:
-    """Compte propriétaire de l'installation (le premier créé) : c'est lui que l'agent prévient."""
-    with db.connect() as c:
-        row = c.execute("SELECT MIN(id) AS id FROM users").fetchone()
-    return row["id"] if row else None
+    """Compte propriétaire de l'installation : c'est lui qu'on prévient pour ce qui ne concerne aucun agent."""
+    return db.owner_id()
 
 
 def notify(title: str, text: str, url: str = "/", urgent: bool = False, user_id: int | None = None) -> None:

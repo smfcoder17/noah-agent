@@ -191,10 +191,10 @@
    "nom": "Profils et partage",
    "seuil": 9,
    "criteres": [
-    { "id": "G12.1", "t": "Le propriétaire crée et supprime des profils ; chacun a ses appareils, ses agents et son budget", "requis": 2, "preuve": 0 },
-    { "id": "G12.2", "b": 1, "t": "Isolation testée sur toutes les routes : un profil reçoit 403 ou 404 sur les données d'un autre", "requis": 1, "preuve": 0 },
-    { "id": "G12.3", "b": 1, "t": "Les conteneurs, fichiers, secrets et comptes d'un agent sont invisibles des autres profils", "requis": 2, "preuve": 0 },
-    { "id": "G12.4", "t": "Partage d'un agent : lecture, usage, admin ; la révocation coupe tout en 5 s", "requis": 2, "preuve": 0 },
+    { "id": "G12.1", "t": "Le propriétaire crée et supprime des profils ; chacun a ses appareils, ses agents et son budget", "requis": 2, "preuve": 1, "test": "tests/profiles/profiles_test.py" },
+    { "id": "G12.2", "b": 1, "t": "Isolation testée sur toutes les routes : un profil reçoit 403 ou 404 sur les données d'un autre", "requis": 1, "preuve": 1, "test": "tests/profiles/profiles_test.py" },
+    { "id": "G12.3", "b": 1, "t": "Les conteneurs, fichiers, secrets et comptes d'un agent sont invisibles des autres profils", "requis": 2, "preuve": 1, "test": "tests/profiles/profiles_test.py" },
+    { "id": "G12.4", "t": "Partage d'un agent : lecture, usage, admin ; la révocation coupe tout en 5 s", "requis": 2, "preuve": 1, "test": "tests/profiles/profiles_test.py" },
     { "id": "G12.5", "t": "Sur un agent partagé, la mémoire et les comptes connectés de chacun restent séparés, sauf choix explicite", "b": 1, "requis": 2, "preuve": 0 }
    ]
   },
