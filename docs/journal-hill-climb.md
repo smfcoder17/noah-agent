@@ -165,3 +165,16 @@ Cerveau : `deepseek-v4.1-flash:cloud`. Voix rapide : `gpt-oss:20b-cloud`, choisi
 - **Décision : ANNULÉ.** Gain 163 ms, intervalle de -218 à 538 ms : la borne basse est sous zéro. Médiane 2 333 ms contre 2 497 ms, p95 3 764 ms contre 3 847 ms. Le sens est bon mais rien n'est prouvé, et le risque (couper à chaque virgule d'une vraie voix, plus d'appels, plus de mots coupés) n'est pas mesurable sur ce banc.
 - **Coût.** 28 tours.
 - **Ce qu'on apprend.** C'est le deuxième tour plat sur le temps entendu (T2 bis, T3) : je m'arrête sur ce réglage. Reste à gagner sur la voix (1 300 ms). La fenêtre glissante n'a pas été essayée : elle double les appels à OpenRouter pour au plus 200 ms, plafonnés par la même attente, et avec un temps de transcription de 700 ms dominé par l'aller-retour. Pour aller plus bas, il faut une transcription en flux (H2), ce qui est un changement d'architecture.
+
+### T4, voix indépendante du fournisseur (G10.8)
+
+- **Cause.** La synthèse et la transcription sont liées à OpenRouter par le code : aucune voie ouverte n'est possible.
+- **Hypothèse.** Une adresse compatible OpenAI dans Réglages > Voix suffit : `/audio/speech` et `/audio/transcriptions` en multipart, chez un serveur comme Speaches, dont j'ai lu la documentation (les deux routes, licence MIT).
+- **Changement.** `media.py` : `voice_server()`, utilisé par `speak`, `speak_stream` et `transcribe`. `main.py` : `/api/voice/server`. `Settings.tsx` : un panneau. Une fonction sans modèle reste sur OpenRouter. Avec un serveur choisi, il n'y a aucun repli vers OpenRouter, pour que la voix ne sorte pas à l'insu de la personne.
+- **Doit bouger.** G10.8 passe à une preuve de niveau 1, par `tests/voice/voice_test.py` avec `httpx.MockTransport`.
+- **Peut reculer.** Rien sur le banc : sans adresse, le chemin reste celui d'OpenRouter.
+- **Gain prédit.** Aucun en latence. Non vérifié sur un vrai serveur : aucun modèle n'est téléchargé.
+- **Mesure.** `tests/voice/voice_test.py`, avec `httpx.MockTransport`. Prouvé : sans adresse, tout va à OpenRouter avec sa clé ; avec adresse, la synthèse par flux, la synthèse directe et la transcription multipart vont au serveur choisi, avec le modèle et la voix réglés ; rien ne part vers OpenRouter, même serveur en panne ; une fonction sans modèle reste sur OpenRouter ; la clé ne revient jamais à l'interface, ne suit pas une nouvelle adresse et se retire ; adresses invalides refusées ; réservé au propriétaire. `/api/flux` liste maintenant ce serveur.
+- **Décision : GARDÉ.** Une capacité nouvelle, sans changement du chemin par défaut. G10.8 passe à la preuve 1 ; il en exige 2.
+- **Coût.** Aucun appel au fournisseur.
+- **Ce qu'on apprend.** Le test de couverture des routes (`tests/profiles`) a vu deux choses : la route d'annulation de T2 n'était pas déclarée, et un identifiant annulé perdait son propriétaire. Corrigé ici : T2 avait été gardé avec ce test rouge sur la déclaration, ma faute. **Non vérifié :** aucun vrai serveur n'a tourné, faute de modèle téléchargé. Speaches est cité d'après sa documentation (`/v1/audio/speech`, `/v1/audio/transcriptions` en multipart, licence MIT). Le streaming réel de ses formats, la latence et la qualité en français restent inconnus.

@@ -1,4 +1,5 @@
-"""Voix : une réponse préparée en silence s'annule sans bruit, côté serveur.
+"""Voix : une réponse préparée en silence s'annule sans bruit, côté serveur. Le fournisseur de voix se change sans toucher
+au code : un serveur compatible OpenAI reçoit la synthèse et la transcription, et sa clé ne part que vers lui (G10.8).
 
     docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \
       "pip install -q -r /app/requirements.txt && python /tests/voice/voice_test.py"
@@ -15,6 +16,7 @@ os.environ.setdefault("APOLLO_SECRET_KEY", "y" * 32)
 sys.path.insert(0, "/app")
 import httpx  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
 
 from apollo import auth, db, main, media, relay  # noqa: E402
 
@@ -105,3 +107,118 @@ async def cancellation() -> None:
 
 asyncio.run(cancellation())
 print("OK : réponse préparée annulée, requête coupée, aucun message écrit")
+
+# --- Serveur de voix au choix -----------------------------------------------------------------
+
+OWN = "http://voix.test/v1"
+web = TestClient(main.app, headers={"Authorization": f"Bearer {auth.new_session(user, 'Firefox', 'web')}"})
+other = TestClient(main.app, headers={"Authorization": f"Bearer {auth.new_session(stranger, 'Firefox', 'web')}"})
+
+
+async def heard_speech() -> bytes:
+    stream = media.AudioStream()
+    await media.speak_stream("a1", media._drain_list(["Bonjour."]), stream)
+    out = b""
+    while not stream.queue.empty():
+        out += (stream.queue.get_nowait() or b"")
+    return out
+
+
+def voice_calls() -> list[httpx.Request]:
+    return [r for r in seen if r.url.path.endswith(("/audio/speech", "/audio/transcriptions"))]
+
+
+async def round_trip() -> None:
+    """Une synthèse par flux, une synthèse directe et une transcription."""
+    seen.clear()
+    assert await heard_speech() == b"son"
+    await media.speak("a1", "Bonjour.")
+    assert await media.transcribe("a1", b"AUDIO", "webm") == "transcrit"
+
+
+# Sans adresse : OpenRouter, sa clé, et le format JSON d'OpenRouter.
+assert web.get("/api/voice/server").json() == {"base_url": "", "has_key": False, "speech_model": "", "transcription_model": "", "voice": ""}
+asyncio.run(round_trip())
+assert len(voice_calls()) == 3
+for r in voice_calls():
+    assert r.url.host == "openrouter.ai" and r.headers["authorization"] == "Bearer cle-openrouter", r.url
+assert json.loads(voice_calls()[2].content)["input_audio"]["format"] == "webm"
+print("OK : sans adresse, OpenRouter reste le défaut")
+
+# Réservé au propriétaire, adresses invalides refusées.
+assert other.post("/api/voice/server", json={"base_url": OWN}).status_code == 403
+assert other.get("/api/voice/server").status_code == 403
+for bad in ("ftp://x/v1", "http://moi:secret@x/v1", "http://x/v1?cle=1", "x:8000"):
+    assert web.post("/api/voice/server", json={"base_url": bad}).status_code == 400, bad
+
+# Avec une adresse, un modèle et une voix choisis dans les réglages.
+state = web.post("/api/voice/server", json={"base_url": OWN + "/", "api_key": "cle-du-serveur", "speech_model": "kokoro",
+                                            "transcription_model": "whisper", "voice": "ff_siwis"}).json()
+assert state == {"base_url": OWN, "has_key": True, "speech_model": "kokoro", "transcription_model": "whisper", "voice": "ff_siwis"}
+assert "cle-du-serveur" not in web.get("/api/voice/server").text, "la clé ne revient jamais à l'interface"
+asyncio.run(round_trip())
+stream_call, direct_call, stt_call = voice_calls()
+for r in (stream_call, direct_call, stt_call):
+    assert r.url.host == "voix.test" and r.url.path.startswith("/v1/audio/"), r.url
+    assert r.headers["authorization"] == "Bearer cle-du-serveur"
+assert not [r for r in seen if b"cle-du-serveur" in r.headers.get("authorization", "").encode() and r.url.host != "voix.test"]
+for r in (stream_call, direct_call):
+    sent = json.loads(r.content)
+    assert (sent["model"], sent["voice"], sent["input"]) == ("kokoro", "ff_siwis", "Bonjour."), sent
+assert stt_call.headers["content-type"].startswith("multipart/form-data")
+assert b'name="model"' in stt_call.content and b"whisper" in stt_call.content
+assert b'name="file"; filename="audio.webm"' in stt_call.content and b"AUDIO" in stt_call.content
+assert b'name="language"' in stt_call.content
+assert all(r.url.host != "openrouter.ai" for r in seen), "rien ne doit partir vers OpenRouter"
+print("OK : synthèse et transcription chez le serveur choisi, modèle et voix réglables, clé envoyée à lui seul")
+
+
+# Serveur en panne : aucun repli vers OpenRouter, l'audio ne sort pas ailleurs.
+def down(request: httpx.Request) -> httpx.Response:
+    seen.append(request)
+    return httpx.Response(503, json={"error": {"message": "en panne"}})
+
+
+working = relay._client
+relay._client = real_client(transport=httpx.MockTransport(down))
+
+
+async def outage() -> None:
+    seen.clear()
+    try:
+        await media.transcribe("a1", b"AUDIO", "webm")
+        raise AssertionError("la panne devait se voir")
+    except media.MediaError:
+        pass
+    assert await heard_speech() == b""
+
+
+asyncio.run(outage())
+assert seen and all(r.url.host == "voix.test" for r in seen), "repli interdit"
+relay._client = working
+print("OK : serveur en panne, aucun repli vers OpenRouter")
+
+# Une fonction sans modèle reste sur OpenRouter, avec la clé d'OpenRouter.
+web.post("/api/voice/server", json={"base_url": OWN, "speech_model": "", "transcription_model": "whisper", "voice": ""})
+assert web.get("/api/voice/server").json()["has_key"] is True, "même adresse : la clé reste"
+asyncio.run(round_trip())
+stream_call, direct_call, stt_call = voice_calls()
+assert stream_call.url.host == direct_call.url.host == "openrouter.ai" and stream_call.headers["authorization"] == "Bearer cle-openrouter"
+assert stt_call.url.host == "voix.test" and stt_call.headers["authorization"] == "Bearer cle-du-serveur"
+print("OK : une fonction sans modèle reste sur OpenRouter")
+
+# Nouvelle adresse sans nouvelle clé : l'ancienne clé ne la suit pas.
+state = web.post("/api/voice/server", json={"base_url": "http://autre.test/v1", "speech_model": "kokoro", "transcription_model": "whisper"}).json()
+assert state["has_key"] is False
+asyncio.run(round_trip())
+for r in voice_calls():
+    assert r.url.host == "autre.test" and "authorization" not in r.headers, r.headers
+print("OK : la clé ne suit pas une nouvelle adresse")
+
+# Clé retirée à la demande, et retour au défaut quand l'adresse est vidée.
+web.post("/api/voice/server", json={"base_url": OWN, "api_key": "cle-du-serveur", "speech_model": "kokoro", "transcription_model": "whisper"})
+assert web.post("/api/voice/server", json={"base_url": OWN, "api_key": "", "speech_model": "kokoro", "transcription_model": "whisper"}).json()["has_key"] is False
+web.post("/api/voice/server", json={"base_url": "", "speech_model": "kokoro", "transcription_model": "whisper"})
+asyncio.run(round_trip())
+assert all(r.url.host == "openrouter.ai" for r in voice_calls())
+print("OK : clé retirée, et adresse vide : retour à OpenRouter")

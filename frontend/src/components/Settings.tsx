@@ -61,7 +61,10 @@ export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainS
               <MediaPanel kinds={["image", "video", "music"]} withPreferences />
             </TabsContent>
             <TabsContent value="voice">
-              <MediaPanel kinds={["transcription", "speech"]} withVoice />
+              <div className="flex flex-col gap-3">
+                <MediaPanel kinds={["transcription", "speech"]} withVoice />
+                <VoiceServerPanel />
+              </div>
             </TabsContent>
             <TabsContent value="phone">
               <PhonePairing />
@@ -153,6 +156,86 @@ function Preferences({ initial, onSave }: { initial: string; onSave: (v: string)
         placeholder="Ex. Logos toujours en SVG. Couleurs de marque : corail et bleu nuit. Miniatures YouTube très contrastées. Budget serré : modèles économiques sauf si je dis « qualité max »."
         className="w-full rounded-lg border border-border bg-background p-3 text-sm"
       />
+    </div>
+  );
+}
+
+type VoiceServer = { base_url: string; has_key: boolean; speech_model: string; transcription_model: string; voice: string };
+
+/** Un serveur de voix au choix, compatible OpenAI. Sans adresse, tout reste sur OpenRouter. */
+function VoiceServerPanel() {
+  const [form, setForm] = useState<VoiceServer | null>(null);
+  const [key, setKey] = useState("");
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  useEffect(() => {
+    get<VoiceServer>("/api/voice/server").then(setForm).catch(() => {});
+  }, []);
+  if (!form) return null;
+  const field = (name: "base_url" | "speech_model" | "transcription_model" | "voice", label: string, placeholder: string) => (
+    <label className="grid gap-1 text-xs font-medium">
+      {label}
+      <input
+        value={form[name]}
+        onChange={(e) => setForm({ ...form, [name]: e.target.value })}
+        placeholder={placeholder}
+        className="h-10 min-w-0 rounded-lg border border-border bg-background px-3 text-sm font-normal"
+      />
+    </label>
+  );
+  const save = async () => {
+    try {
+      // Une clé vide n'est pas envoyée : on garde celle qui existe, sauf si l'adresse change (le serveur la retire alors).
+      setForm(await send<VoiceServer>("/api/voice/server", { ...form, ...(key ? { api_key: key } : {}) }));
+      setKey("");
+      setMessage({ ok: true, text: "Enregistré." });
+    } catch (e) {
+      setMessage({ ok: false, text: e instanceof Error ? e.message : "Enregistrement impossible." });
+    }
+  };
+  return (
+    <div className="flex flex-col gap-3 rounded-2xl border border-border p-4">
+      <div>
+        <p className="text-sm font-semibold">Ton propre serveur de voix</p>
+        <p className="text-xs text-muted-foreground">
+          Facultatif. Une adresse compatible OpenAI (<code>/audio/speech</code> et <code>/audio/transcriptions</code>), par exemple{" "}
+          <a className="underline" href="https://speaches.ai/" target="_blank" rel="noreferrer">Speaches</a>, un serveur ouvert sous licence MIT. Une
+          fonction sans modèle reste sur OpenRouter. Une fonction avec modèle ne repasse jamais par OpenRouter, même si ton serveur tombe.
+        </p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {field("base_url", "Adresse", "http://mon-serveur:8000/v1")}
+        <label className="grid gap-1 text-xs font-medium">
+          Clé (facultative)
+          <input
+            type="password"
+            autoComplete="off"
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+            placeholder={form.has_key ? "Clé enregistrée, laisser vide pour la garder" : "Aucune"}
+            className="h-10 min-w-0 rounded-lg border border-border bg-background px-3 text-sm font-normal"
+          />
+        </label>
+        {field("speech_model", "Modèle de synthèse", "Nom du modèle chez ce serveur")}
+        {field("transcription_model", "Modèle de transcription", "Nom du modèle chez ce serveur")}
+        {field("voice", "Voix", "Nom de la voix chez ce serveur")}
+      </div>
+      <div className="flex items-center gap-3">
+        <Button variant="outline" onClick={save}>Enregistrer</Button>
+        {form.has_key && (
+          <Button
+            variant="ghost"
+            onClick={() =>
+              send<VoiceServer>("/api/voice/server", { ...form, api_key: "" })
+                .then(setForm)
+                .then(() => setMessage({ ok: true, text: "Clé retirée." }))
+                .catch(() => setMessage({ ok: false, text: "La clé n'a pas pu être retirée." }))
+            }
+          >
+            Retirer la clé
+          </Button>
+        )}
+        {message && <span role="status" className={message.ok ? "text-xs text-ok" : "text-xs text-warn"}>{message.text}</span>}
+      </div>
     </div>
   );
 }

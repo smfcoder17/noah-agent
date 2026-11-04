@@ -3,7 +3,8 @@
 Tout passe par la clé du fournisseur gardée dans le serveur (jamais par l'agent). Pour chaque type,
 l'utilisateur choisit un modèle ou laisse « Automatique » : on prend alors le meilleur modèle
 disponible dans son catalogue, selon un classement tenu à jour ici (qualité d'abord, puis coût).
-Seul OpenRouter expose aujourd'hui tous ces types derrière une même clé.
+Seul OpenRouter expose aujourd'hui tous ces types derrière une même clé. La voix et la transcription peuvent aussi
+passer par un serveur compatible OpenAI choisi dans les réglages (voice_server).
 """
 import asyncio
 import base64
@@ -67,6 +68,17 @@ def _key() -> str:
 
 def _headers() -> dict:
     return {"Authorization": f"Bearer {_key()}", "HTTP-Referer": "https://github.com/noah-agent", "X-Title": "Noah Agent"}
+
+
+def voice_server(kind: str) -> tuple[str, dict, str] | None:
+    """(adresse, en-têtes, modèle) si ce type passe par le serveur de voix choisi : « speech » ou « transcription ».
+    Sans adresse ou sans modèle, OpenRouter reste le défaut. La clé de ce serveur ne part que vers son adresse."""
+    base = db.get_setting("voice_base_url")
+    model = db.get_setting(f"voice_{kind}_model")
+    if not base or not model:
+        return None
+    key = db.get_setting("voice_api_key", secret=True) if db.get_setting("voice_api_key") else None
+    return base, {"Authorization": f"Bearer {key}"} if key else {}, model
 
 
 def _check_budget(agent_id: str) -> None:
@@ -408,17 +420,18 @@ async def video(agent_id: str, prompt: str, duration: int | None = None, aspect_
 async def speak(agent_id: str, text: str) -> tuple[bytes, str, str]:
     """Synthèse vocale en MP3. Rend (octets, type MIME, modèle)."""
     _check_budget(agent_id)
-    model = await resolve("speech")
+    own = voice_server("speech")
+    base, headers, model = own if own else (BASE, _headers(), await resolve("speech"))
     body = {"model": model, "input": text[:4000], "response_format": "mp3"}
-    voice = await voice_for(model)
+    voice = (db.get_setting("voice_name") or None) if own else await voice_for(model)
     if voice:
         body["voice"] = voice
     # Client partagé avec le relais : la connexion à OpenRouter reste ouverte entre deux tours de voix.
     c = relay.upstream_client()
-    r = await c.post(f"{BASE}/audio/speech", json=body, headers=_headers(), timeout=120)
+    r = await c.post(f"{base}/audio/speech", json=body, headers=headers, timeout=120)
     if r.status_code == 400 and "format" in r.text.lower():  # modèle qui ne rend que du PCM
         body["response_format"] = "pcm"
-        r = await c.post(f"{BASE}/audio/speech", json=body, headers=_headers(), timeout=120)
+        r = await c.post(f"{base}/audio/speech", json=body, headers=headers, timeout=120)
     if r.status_code != 200:
         raise _fail(r)
     ctype = r.headers.get("content-type", "audio/mpeg")
@@ -643,7 +656,7 @@ def _wav_header(rate: int) -> bytes:
 
 _PCM_ONLY: set[str] = set()
 _streams: dict[str, AudioStream] = {}
-_cancelled: dict[str, float] = {}
+_cancelled: dict[str, tuple[float, int | None]] = {}  # identifiant annulé : quand, et à quel compte il reste
 _tasks: set[asyncio.Task] = set()
 
 
@@ -652,10 +665,11 @@ def audio_stream(sid: str) -> AudioStream:
     now = time.monotonic()
     for k in [k for k, s in _streams.items() if now - s.born > 300]:
         _streams.pop(k).closed = True
-    for k in [k for k, at in _cancelled.items() if now - at > 300]:
+    for k in [k for k, (at, _) in _cancelled.items() if now - at > 300]:
         del _cancelled[k]
     if sid in _cancelled:  # annulé avant d'être ouvert : la demande arrive après l'annulation
         gone = AudioStream()
+        gone.owner = _cancelled[sid][1]
         gone.closed = True
         gone.queue.put_nowait(None)
         return gone
@@ -664,8 +678,8 @@ def audio_stream(sid: str) -> AudioStream:
 
 def cancel_stream(sid: str) -> None:
     """Réponse préparée qui ne sera pas dite : on coupe le modèle et la synthèse, le lecteur reçoit une fin."""
-    _cancelled[sid] = time.monotonic()
     s = _streams.pop(sid, None)
+    _cancelled[sid] = (time.monotonic(), s.owner if s else None)
     if s:
         s.closed = True
         s.queue.put_nowait(None)
@@ -788,9 +802,12 @@ async def speak_stream(agent_id: str, texts, out: AudioStream) -> None:
     said = 0
     try:
         _check_budget(agent_id)
-        candidates = await backups("speech", 2)
+        # Serveur choisi : ni modèle de secours, ni repli vers OpenRouter, la voix ne sort pas à l'insu de la personne.
+        own = voice_server("speech")
+        base, headers = own[:2] if own else (BASE, _headers())
+        candidates = [own[2]] if own else await backups("speech", 2)
         model = candidates[0]
-        voices = {m: await voice_for(m) for m in candidates}
+        voices = {model: db.get_setting("voice_name") or None} if own else {m: await voice_for(m) for m in candidates}
         parts: asyncio.Queue = asyncio.Queue()
 
         async def attempt(m: str, text: str, q: asyncio.Queue) -> bool:
@@ -798,7 +815,7 @@ async def speak_stream(agent_id: str, texts, out: AudioStream) -> None:
             voice = voices[m]
             for fmt in ("pcm",) if m in _PCM_ONLY else ("mp3", "pcm"):
                 body = {"model": m, "input": text[:4000], "response_format": fmt, **({"voice": voice} if voice else {})}
-                async with relay.upstream_client().stream("POST", f"{BASE}/audio/speech", json=body, headers=_headers(), timeout=60) as r:
+                async with relay.upstream_client().stream("POST", f"{base}/audio/speech", json=body, headers=headers, timeout=60) as r:
                     if r.status_code != 200:
                         await r.aread()
                         if fmt == "mp3" and r.status_code == 400 and "pcm" in r.text.lower():
@@ -862,6 +879,9 @@ async def transcribe(agent_id: str, audio: bytes, fmt: str, language: str | None
     """Transcription qui ne doit pas échouer : le modèle choisi, puis les meilleurs autres modèles disponibles.
     Un refus passager (429, 5xx, délai) est réessayé une fois ; un refus du modèle (format) passe au suivant."""
     _check_budget(agent_id)
+    own = voice_server("transcription")
+    if own:
+        return await _transcribe_at(agent_id, own, audio, fmt, language)
     data = base64.b64encode(audio).decode()
     last: MediaError | None = None
     for model in await backups("transcription"):
@@ -882,3 +902,25 @@ async def transcribe(agent_id: str, audio: bytes, fmt: str, language: str | None
             await asyncio.sleep(0.4 * (attempt + 1))
         print(f"[voix] {model} n'a pas transcrit ({last}), modèle suivant", flush=True)
     raise last or MediaError("Aucun modèle de transcription disponible.")
+
+
+async def _transcribe_at(agent_id: str, own: tuple[str, dict, str], audio: bytes, fmt: str, language: str | None) -> str:
+    """Le serveur de voix choisi, en multipart comme l'API OpenAI. En cas d'échec, l'audio ne part pas ailleurs."""
+    base, headers, model = own
+    form = {"model": model, **({"language": language} if language else {})}
+    last: MediaError | None = None
+    for attempt in range(2):
+        try:
+            r = await relay.upstream_client().post(f"{base}/audio/transcriptions", data=form, files={"file": (f"audio.{fmt}", audio)},
+                                                   headers=headers, timeout=60)
+        except httpx.HTTPError as e:
+            last = MediaError(f"Serveur de voix injoignable : {e}")
+            continue
+        if r.status_code == 200:
+            _record(agent_id, model, None)
+            return (r.json().get("text") or "").strip()
+        last = _fail(r)
+        if r.status_code not in RETRYABLE:
+            break
+        await asyncio.sleep(0.4 * (attempt + 1))
+    raise last or MediaError("Serveur de voix indisponible.")

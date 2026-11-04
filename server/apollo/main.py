@@ -937,6 +937,9 @@ def outbound_flows(user: int = Depends(access.owner_only)):
     if db.get_setting("media_api_key") or db.get_setting("provider") == "openrouter":
         flows.append({"quoi": "Création et voix (images, vidéos, musique, dictée, lecture)", "vers": "openrouter.ai",
                       "quand": "seulement quand tu t'en sers"})
+    if db.get_setting("voice_base_url"):
+        flows.append({"quoi": "Voix et dictée, pour les fonctions qui ont un modèle sur ton serveur de voix", "vers": _host(db.get_setting("voice_base_url")),
+                      "quand": "seulement quand tu t'en sers"})
     # catalog.price_index : liste publique des modèles et de leurs prix, quel que soit le fournisseur choisi.
     flows.append({"quoi": "Catalogue public des modèles et de leurs prix (rien de toi n'est envoyé)", "vers": _host(catalog.OPENROUTER_MODELS),
                   "quand": "quand tu choisis un modèle, et au plus une fois par heure pour estimer les coûts"})
@@ -2065,6 +2068,46 @@ def set_media(body: MediaChoice, user: int = Depends(access.owner_only)):
         raise HTTPException(400, "Type inconnu")
     db.set_setting("media_voice" if body.kind == "voice" else f"media_{body.kind}", body.model.strip())
     return {"ok": True}
+
+
+class VoiceServer(BaseModel):
+    base_url: str | None = Field(default=None, max_length=500)
+    api_key: str | None = Field(default=None, max_length=2000)  # absente : on garde la clé ; vide : on la retire
+    speech_model: str = Field(default="", max_length=200)
+    transcription_model: str = Field(default="", max_length=200)
+    voice: str = Field(default="", max_length=200)
+
+
+def _voice_server_state() -> dict:
+    """Jamais la clé : seulement si elle existe."""
+    return {
+        "base_url": db.get_setting("voice_base_url") or "",
+        "has_key": bool(db.get_setting("voice_api_key")),
+        "speech_model": db.get_setting("voice_speech_model") or "",
+        "transcription_model": db.get_setting("voice_transcription_model") or "",
+        "voice": db.get_setting("voice_name") or "",
+    }
+
+
+@app.get("/api/voice/server")
+def get_voice_server(user: int = Depends(access.owner_only)):
+    return _voice_server_state()
+
+
+@app.post("/api/voice/server")
+def set_voice_server(body: VoiceServer, user: int = Depends(access.owner_only)):
+    """Serveur compatible OpenAI pour la synthèse et la transcription. Sans adresse, OpenRouter reste le défaut."""
+    base = _clean_base_url(body.base_url)
+    # Une clé ne suit jamais une nouvelle adresse : elle ne part que vers le serveur pour lequel elle a été donnée.
+    if body.api_key:
+        db.set_setting("voice_api_key", body.api_key, secret=True)
+    elif body.api_key == "" or not base or base != (db.get_setting("voice_base_url") or None):
+        db.set_setting("voice_api_key", "")
+    db.set_setting("voice_base_url", base or "")
+    db.set_setting("voice_speech_model", body.speech_model.strip())
+    db.set_setting("voice_transcription_model", body.transcription_model.strip())
+    db.set_setting("voice_name", body.voice.strip())
+    return _voice_server_state()
 
 
 AUDIO_FORMATS = {"webm", "ogg", "mp3", "wav", "m4a", "aac", "flac"}
