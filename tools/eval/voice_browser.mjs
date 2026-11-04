@@ -32,7 +32,7 @@ try {
   await page.addInitScript(() => {
     const ctx = new AudioContext();
     const mic = ctx.createMediaStreamDestination();
-    const marks = (window.__marks = { played: [], paused: [], replies: [], chats: [], calls: 0, speaking: 0, last: 0 });
+    const marks = (window.__marks = { played: [], paused: [], lowered: [], replies: [], chats: [], calls: 0, speaking: 0, last: 0 });
     const live = (window.__live = new Set()); // voix ouvertes : ni finies, ni coupées
     const touch = () => (marks.last = performance.now());
     navigator.mediaDevices.getUserMedia = async () => mic.stream.clone();
@@ -60,6 +60,17 @@ try {
       touch();
       return pause.call(this);
     };
+    // La voix baissée : ce que la personne entend avant l'arrêt franc.
+    const volume = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "volume");
+    Object.defineProperty(HTMLMediaElement.prototype, "volume", {
+      get() {
+        return volume.get.call(this);
+      },
+      set(v) {
+        if (v < volume.get.call(this)) marks.lowered.push(performance.now());
+        volume.set.call(this, v);
+      },
+    });
     const nativeFetch = window.fetch;
     window.fetch = (input, init) => {
       const url = String(input.url || input);
@@ -163,6 +174,7 @@ try {
 
   // Couper la parole : on parle dessus une fois le son parti.
   const interrupts = [];
+  const lowers = [];
   if (parts.has("interruptions")) {
     for (let i = 0; i < 5; i++) {
       const played = await count("played");
@@ -171,9 +183,11 @@ try {
         await waitFor("played", played, 20000);
         await page.waitForTimeout(400);
         const paused = await count("paused");
+        const lowered = await count("lowered");
         const speech = await page.evaluate((b) => window.__start(b), talk);
         const stop = await waitFor("paused", paused, 5000);
         interrupts.push(Math.round(stop - speech));
+        if ((await count("lowered")) > lowered) lowers.push(Math.round((await waitFor("lowered", lowered, 100)) - speech));
       } catch {
         interrupts.push(null);
       }
@@ -195,7 +209,8 @@ try {
           const paused = await count("paused");
           await page.evaluate((b) => window.__say(b), word); // jusqu'à la fin du fichier
           await page.waitForTimeout(800);
-          shorts.push({ mot: w, arret: (await count("paused")) > paused });
+          const restored = await page.evaluate(() => [...window.__live].every((a) => a.volume === 1));
+          shorts.push({ mot: w, arret: (await count("paused")) > paused, retablie: restored });
         } catch {
           shorts.push({ mot: w, echec: true });
         }
@@ -234,6 +249,7 @@ try {
       entendu_mediane: median(heard), entendu_p95: percentile(heard, 0.95),
       jusqua_envoi_mediane: median(good.map((r) => r.envoi)), voix_mediane: median(good.map((r) => r.voix)),
     }),
+    ...(lowers.length && { baisse_mediane: median(lowers), baisses: lowers }),
     ...(interrupts.length && { interruption_mediane: stops.length ? median(stops) : null, interruptions_ratees: interrupts.length - stops.length, interruptions: interrupts }),
     ...(shorts.length && { arrets_a_tort: `${shorts.filter((s) => s.arret || s.echec).length} sur ${shorts.length}`, courts: shorts }),
     ...(tries && { coupures: `${cuts} sur ${tries}` }),
