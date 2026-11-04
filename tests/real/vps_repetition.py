@@ -14,7 +14,8 @@ import time
 
 import httpx
 
-BASE = "https://noah.test"
+BASE = os.environ.get("NOAH_BASE", "https://noah.test")
+VERIFY = os.environ.get("NOAH_VERIFY") == "1"  # un vrai certificat sur un vrai serveur
 MODEL = os.environ.get("NOAH_MODEL", "deepseek-v4.1-flash:cloud")
 BAD = []
 
@@ -28,7 +29,7 @@ def check(name, ok, detail=""):
 def client(token=None):
     # Sans autorité publique pour noah.test, Caddy signe lui-même : seule la vérification du certificat est retirée.
     headers = {"Authorization": f"Bearer {token}"} if token else {}
-    return httpx.Client(base_url=BASE, verify=False, timeout=60, headers=headers)
+    return httpx.Client(base_url=BASE, verify=VERIFY, timeout=60, headers=headers)
 
 
 def say(c, agent, text):
@@ -67,7 +68,7 @@ def first_install() -> None:
     t0 = time.monotonic()
     web = client()
     status = web.get("/api/status")
-    check("Noah répond en HTTPS par Caddy", status.status_code == 200, f"{status.json()}"[:120])
+    check("Noah répond en HTTPS", status.status_code == 200, f"{status.json()}"[:120])
     check("Sans code d'installation, pas de compte", web.post("/api/setup/account", json={"username": "moi", "password": "x" * 12}).status_code == 403)
     password = secrets.token_urlsafe(12)
     account = web.post("/api/setup/account", json={"username": "moi", "password": password, "installation": os.environ["NOAH_CODE"]})
