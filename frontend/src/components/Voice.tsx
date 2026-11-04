@@ -175,6 +175,7 @@ function spoken(text: string) {
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
     .replace(/[*_#>`|]/g, "")
     .replace(/\/opt\/data\/\S+/g, "le fichier")
+    .replace(/\s*\((?:demande\s+)?(?=[0-9a-f]*\d)[0-9a-f]{8,}\)/gi, "") // un identifiant interne ne se dit pas à voix haute
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 1500);
