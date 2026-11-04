@@ -641,6 +641,38 @@ def test_sharing_warning() -> None:
     print("8. partage : l'avertissement cite le dossier de travail et les dossiers confiés" + (" ; l'interface dit le reste" if powers.exists() else ""))
 
 
+# --- Le droit change : Hermes redemande la liste par le flux MCP, sans perdre l'outil ------------------------------------------
+def test_list_changed() -> None:
+    import uvicorn
+
+    r = agent_a.post("/agent-api/mcp/fiches", json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+    assert r.headers.get("mcp-session-id") and r.json()["result"]["capabilities"]["tools"]["listChanged"] is True, r.text
+    assert agent_a.get("/agent-api/mcp/fiches").status_code == 405, "sans session : la sonde d'Hermes ne doit jamais attendre"
+    server = uvicorn.Server(uvicorn.Config(main.app, host="127.0.0.1", port=18765, log_level="warning"))
+    threading.Thread(target=server.run, daemon=True).start()
+    while not server.started:
+        time.sleep(0.02)
+    headers = {**agent_a.headers, "Mcp-Session-Id": "s"}
+    with httpx.stream("GET", "http://127.0.0.1:18765/agent-api/mcp/fiches", headers=headers, timeout=10) as stream:
+        assert stream.status_code == 200 and stream.headers["content-type"].startswith("text/event-stream"), stream.status_code
+        set_right("fiches", "agir")
+        set_right("fiches", "lire")
+        lines = stream.iter_lines()
+        assert next(lines) == "event: message"
+        assert "notifications/tools/list_changed" in next(lines), "le passage à lire doit prévenir Hermes"
+        set_right("fiches", "confirmer")
+        next(lines)
+        assert next(lines) == "event: message"
+        assert "notifications/tools/list_changed" in next(lines), "la sortie de lire doit prévenir Hermes"
+    with httpx.stream("GET", "http://127.0.0.1:18765/agent-api/mcp/inconnu", headers=headers, timeout=10) as stream:
+        assert stream.status_code == 404
+    other = {"Authorization": "Bearer faux", "Mcp-Session-Id": "s"}
+    with httpx.stream("GET", "http://127.0.0.1:18765/agent-api/mcp/fiches", headers=other, timeout=10) as stream:
+        assert stream.status_code == 401
+    server.should_exit = True
+    print("droit changé : Hermes prévenu par le flux, sans retirer l'outil ; sonde et jeton inconnu refusés")
+
+
 # --- 9. Voix, écrit, routine : un seul chemin côté Noah ------------------------------------------------------------------
 def test_everywhere() -> None:
     """Ce test prouve les entrées côté Noah, pas qu'un modèle choisit l'outil ni qu'Hermes le sert dans une routine : voir
@@ -687,6 +719,7 @@ test_outage()
 test_oauth()
 test_access()
 test_sharing_warning()
+test_list_changed()
 test_everywhere()
 assert not [line for line in LOGS if JETON in line], "jeton en clair dans les journaux"
 print("OK")

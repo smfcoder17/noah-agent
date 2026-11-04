@@ -29,7 +29,7 @@ from urllib.parse import parse_qsl, urlsplit
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from . import access, auth, db, machine, relay
@@ -550,6 +550,8 @@ async def set_right(agent_id: str, name: str, body: ToolRight, user: int = Depen
             else:
                 c.execute("DELETE FROM mcp_tools WHERE agent_id = ? AND nom = ?", (agent_id, name))
         raise
+    if (before == "lire") != (body.droit == "lire"):
+        _tell_tools_changed(agent_id, name, body.droit)
     return {"droit": body.droit}
 
 
@@ -770,10 +772,52 @@ def _gate(row, tool: str, args=None) -> str | None:
             "Détails → Connexions. Dis-le-lui et continue sans cet outil.")
 
 
-@router.api_route("/agent-api/mcp/{name}", methods=["GET", "DELETE"])
+# Le droit « lire » cache les outils d'écriture. Hermes garde sa liste tant que le serveur reste connecté : le flux MCP lui dit
+# de la redemander, sans lui retirer l'outil un seul instant.
+STREAM_ALIVE = 25  # secondes entre deux signes de vie du flux
+_listening: dict[tuple[str, str], set[asyncio.Queue]] = {}
+TOOLS_CHANGED = json.dumps({"jsonrpc": "2.0", "method": "notifications/tools/list_changed"})
+
+
+def _tell_tools_changed(agent_id: str, name: str, droit: str) -> None:
+    for queue in _listening.get((agent_id, name), ()):
+        queue.put_nowait(TOOLS_CHANGED)
+    note = (f"[L'utilisateur vient de changer son droit sur l'outil « {name} » : {droit}. Ce que tu as dit plus tôt sur ce qu'il "
+            "permet n'est peut-être plus vrai : regarde de nouveau avant de répondre.]\n\n")
+    with db.connect() as c:
+        conversations = c.execute("SELECT id FROM conversations WHERE agent_id = ? AND main = 1", (agent_id,)).fetchall()
+    for row in conversations:
+        machine.add_context(row["id"], note)
+
+
+@router.get("/agent-api/mcp/{name}")
 async def proxy_stream(name: str, request: Request):
+    agent_id = relay._agent_from(request)
+    if "mcp-session-id" not in request.headers:  # la sonde d'Hermes, qui attendrait la fin d'un flux sans fin
+        return Response(status_code=405, headers={"Allow": "POST"})
+    row = _row(agent_id, name)
+    if not row or row["auth"] not in ("aucune", "jeton"):
+        raise HTTPException(404, "Outil inconnu")
+    key, queue = (agent_id, name), asyncio.Queue()
+    _listening.setdefault(key, set()).add(queue)
+
+    async def events():
+        try:
+            while True:
+                try:
+                    yield f"event: message\ndata: {await asyncio.wait_for(queue.get(), STREAM_ALIVE)}\n\n"
+                except TimeoutError:
+                    yield ": vivant\n\n"
+        finally:
+            _listening[key].discard(queue)
+
+    return StreamingResponse(events(), media_type="text/event-stream")
+
+
+@router.delete("/agent-api/mcp/{name}")
+async def proxy_end(name: str, request: Request):
     relay._agent_from(request)
-    return Response(status_code=405, headers={"Allow": "POST"})  # pas de flux serveur : le protocole permet de le dire ainsi
+    return Response(status_code=405, headers={"Allow": "GET, POST"})  # pas de session à fermer côté Noah
 
 
 @router.post("/agent-api/mcp/{name}")
@@ -797,8 +841,10 @@ async def proxy(name: str, request: Request):
         return Response(status_code=202)
     if method == "initialize":  # répondu ici : un serveur en panne au démarrage de l'agent ne lui retire pas l'outil
         version = (msg.get("params") or {}).get("protocolVersion") or PROTOCOL
-        return _rpc(msg_id, {"protocolVersion": version, "capabilities": {"tools": {"listChanged": False}},
-                             "serverInfo": {"name": f"noah-{name}", "version": "1"}})
+        answer = _rpc(msg_id, {"protocolVersion": version, "capabilities": {"tools": {"listChanged": True}},
+                               "serverInfo": {"name": f"noah-{name}", "version": "1"}})
+        answer.headers["Mcp-Session-Id"] = uuid.uuid4().hex  # le client MCP n'ouvre le flux qu'avec une session
+        return answer
     if method == "ping":
         return _rpc(msg_id, {})
     token, key = _token(row), (agent_id, name)
