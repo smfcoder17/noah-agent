@@ -225,6 +225,12 @@ Deux vrais conteneurs Hermes, modèle `deepseek-v4.1-flash:cloud` par Ollama, vr
 - **Limites :** tâches simples (calculs), navigateur sans vrai micro ni vrai haut-parleur, téléphone simulé par la taille d'écran, aucun VPS.
 - **Note :** le journal disait qu'il restait à rejouer les sabotages : c'est fait depuis, 11 sur 11.
 
+## 2026-11-04, G14.3 : navigateur au premier usage
+
+- **Hypothèse :** le navigateur démarre avec chaque agent et pèse 300 à 500 Mo pour rien ; le démarrer au premier outil `browser_*` et l'arrêter au repos libère cette mémoire, et retire 4 Go du téléchargement initial. Risque : l'attente du premier usage.
+- **Mesure, vrai agent :** deux agents au repos, 410 Mo au lieu d'environ 1,1 Go. Navigateur froid : page ouverte et titre rendu en 20 s, dont 10 s pour l'outil. Redémarrage de deux agents : 36 s au lieu de 216 s.
+- **Décision :** GARDÉ. Arrêt au repos prouvé par un test simulé seulement (niveau 1) : il faut attendre 35 min en vrai. Le téléchargement au premier usage n'a pas été mesuré sur une machine neuve.
+
 ## 2026-11-04 : audits à l'aveugle, Codex et Kimi : 4/10 tous les deux
 
 Les deux ont reçu le code et la promesse, sans notes. Chaque constat a été relu dans le code avant correction.

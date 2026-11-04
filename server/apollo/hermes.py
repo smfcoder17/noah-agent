@@ -106,6 +106,10 @@ def browser_host(agent_id: str) -> str:
     return f"apollo-browser-{agent_id}"
 
 
+async def stop_browser(agent_id: str) -> None:
+    await _launcher("POST", f"/agents/{agent_id}/browser/stop", timeout=60)
+
+
 async def restart_browser(agent_id: str) -> None:
     await _launcher("POST", f"/agents/{agent_id}/browser/restart")
 
@@ -163,7 +167,7 @@ async def ensure_browser(agent_id: str) -> None:
     api_key, vnc_password = browser_secrets(agent_id)
     await _launcher("POST", f"/agents/{agent_id}/browser",
                     json={"api_key": api_key, "vnc_password": vnc_password, "private_key": private_key(agent_id),
-                          **await browser_identity()})
+                          **await browser_identity()}, timeout=900)  # le premier usage télécharge l'image
 
 
 async def list_files(agent_id: str) -> list[dict]:

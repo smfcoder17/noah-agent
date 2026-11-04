@@ -89,7 +89,7 @@ _running_runs: set = set()  # runs suivis en arrière-plan (référence gardée 
 task_state: dict[str, str] = {}
 
 # Version du branchement des agents ; l'augmenter reconfigure tous les agents au démarrage.
-AGENT_SETUP_VERSION = "25-droits"  # 25 : droits des outils hors de portée de l'agent
+AGENT_SETUP_VERSION = "26-navigateur"  # 26 : navigateur au premier usage
 
 
 @app.on_event("startup")
@@ -110,6 +110,7 @@ async def startup() -> None:
     accounts.setup(_save_message, _main_conversation, _resume_agent)
     asyncio.create_task(watch.run_watches(_save_message, _main_conversation))
     asyncio.create_task(handoff.keep_browser_sessions())
+    asyncio.create_task(_rest_browsers_loop())
     asyncio.create_task(accounts.keep_google_fresh())
     handoff.setup(_resume_agent)
     asyncio.create_task(_after_updates(coordination.recover))
@@ -126,8 +127,8 @@ async def _after_updates(job) -> None:
 
 
 async def _refresh_browsers() -> None:
-    """Recrée au besoin la machine de chaque agent (après une restauration sur un nouveau serveur, ses
-    volumes sont là mais pas ses conteneurs), puis son navigateur (nouveaux réglages, langue et fuseau)."""
+    """Recrée au besoin la machine de chaque agent (après une restauration sur un nouveau serveur, ses volumes sont là
+    mais pas ses conteneurs). Le navigateur, lui, ne démarre qu'au premier usage (voir _browser_wake)."""
     # Le lanceur peut être occupé (restauration qui se termine, mise à jour) : on réessaie pendant 10 minutes.
     for _ in range(40):
         existing = await hermes.statuses()
@@ -139,10 +140,6 @@ async def _refresh_browsers() -> None:
                 except Exception:
                     done = False
                     continue
-            try:
-                await hermes.ensure_browser(a["id"])
-            except Exception:
-                done = False  # agent en cours de création ou lanceur pas encore prêt
         if done:
             return
         await asyncio.sleep(15)
@@ -1220,11 +1217,6 @@ async def _provision(agent: Agent, soul: str) -> None:
         if not await _wait_online(agent):
             provisioning[agent.id] = "L'agent n'a pas démarré. Supprime-le et réessaie."
             return
-        provisioning[agent.id] = "Démarrage du navigateur…"
-        try:
-            await hermes.ensure_browser(agent.id)
-        except httpx.HTTPError as e:  # l'agent sait répondre sans lui, et le rallume quand il en a besoin
-            print(f"[agent] navigateur de {agent.id} non démarré : {e}", flush=True)
         provisioning[agent.id] = "Configuration du modèle…"
         await _configure(agent.id, soul)
         await asyncio.sleep(3)
@@ -1919,7 +1911,7 @@ async def _browser_diagnosis(agent_id: str) -> dict:
                                            hermes.browser_call(agent_id, "GET", "/vnc/status"))
     except httpx.HTTPError:
         return {"joignable": False, "navigateur_allume": False, "ecran_actif": False,
-                "conseil": "Le conteneur du navigateur ne répond pas. Lance « navigateur redemarrer »."}
+                "conseil": "Le navigateur est arrêté : il ne tourne que quand on s'en sert. « navigateur reveiller » le démarre."}
     running = bool(health.get("browserRunning"))
     screen = bool(vnc.get("running"))
     if health.get("http_status") == 503 or health.get("recovering"):
@@ -1936,7 +1928,7 @@ async def _browser_diagnosis(agent_id: str) -> dict:
             "onglets": health.get("activeTabs"), "sessions": health.get("activeSessions"), "conseil": advice}
 
 
-async def _browser_wake(agent_id: str, may_restart: bool = True) -> dict:
+async def _browser_wake(agent_id: str, may_restart: bool = True, started: bool = False) -> dict:
     """Rallume le navigateur et, si aucune page n'est ouverte, ouvre l'onglet partagé avec l'agent. Firefox peut
     se figer en entier (vu sur la console Google Cloud) : s'il n'arrive plus à ouvrir une page, on le redémarre
     tout de suite (profil et cookies gardés) plutôt que de laisser l'agent réessayer en vain."""
@@ -1949,8 +1941,14 @@ async def _browser_wake(agent_id: str, may_restart: bool = True) -> dict:
                                           json={**user, "sessionKey": hermes.BROWSER_USER})
             if r["http_status"] >= 500 and may_restart:
                 return await _browser_restart(agent_id) | {"redemarre": True}
-    except httpx.HTTPError:
+    except httpx.HTTPError:  # conteneur arrêté au repos, ou jamais créé : c'est ici qu'il démarre, avec ses réglages à jour
+        if started:
+            return await _browser_diagnosis(agent_id)
         await hermes.ensure_browser(agent_id)
+        for _ in range(60):
+            if (await _browser_diagnosis(agent_id))["joignable"]:
+                return await _browser_wake(agent_id, may_restart, started=True)
+            await asyncio.sleep(1)
     for _ in range(15):
         d = await _browser_diagnosis(agent_id)
         if d["ecran_actif"]:
@@ -1970,6 +1968,40 @@ async def _browser_restart(agent_id: str) -> dict:
         if d["joignable"]:
             return await _browser_wake(agent_id, may_restart=False)
     return d
+
+
+BROWSER_REST_AFTER = 300  # secondes après que Camoufox a fermé Firefox de lui-même (30 min sans appel)
+_browser_asleep: dict[str, float] = {}
+
+
+async def rest_browsers() -> None:
+    """Arrête le conteneur d'un navigateur éteint depuis un moment : il pèse 300 Mo pour un écran noir. Cookies gardés."""
+    for a in _agents():
+        agent_id = a["id"]
+        try:
+            health = await hermes.browser_call(agent_id, "GET", "/health", timeout=3)
+        except httpx.HTTPError:  # déjà arrêté
+            _browser_asleep.pop(agent_id, None)
+            continue
+        if health.get("browserRunning") or health.get("recovering") or relay.active.get(agent_id):
+            _browser_asleep.pop(agent_id, None)
+            continue
+        since = _browser_asleep.setdefault(agent_id, time.monotonic())
+        if time.monotonic() - since >= BROWSER_REST_AFTER:
+            try:
+                await hermes.stop_browser(agent_id)
+            except httpx.HTTPError as e:
+                print(f"[navigateur] {agent_id} non arrêté : {e}", flush=True)
+            _browser_asleep.pop(agent_id, None)
+
+
+async def _rest_browsers_loop() -> None:
+    while True:
+        await asyncio.sleep(60)
+        try:
+            await rest_browsers()
+        except Exception as e:  # noqa: BLE001 - la mesure d'après réessaie
+            print(f"[navigateur] {e}", flush=True)
 
 
 @app.post("/api/agents/{agent_id}/browser/wake")

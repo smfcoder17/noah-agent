@@ -487,7 +487,7 @@ function Computer({ agentId }: { agentId: string }) {
                   : status === null
                     ? "Connexion à l'écran…"
                     : !status.reachable
-                      ? "Le navigateur ne répond pas"
+                      ? "Le navigateur est arrêté"
                       : awake
                         ? "Aucune page ouverte"
                         : "Le navigateur est en veille"}
@@ -497,15 +497,15 @@ function Computer({ agentId }: { agentId: string }) {
                 <span className="max-w-xs text-sm opacity-70">
                   {status.reachable
                     ? "Il s'éteint après un moment sans activité et se rallume dès que l'agent navigue."
-                    : "Son conteneur est arrêté ou planté. Un redémarrage garde tes sessions connectées."}
+                    : "Il ne tourne que quand on s'en sert. Il démarre dès que l'agent navigue, et garde tes sessions connectées."}
                 </span>
                 <div className="flex flex-wrap justify-center gap-2">
+                  <Button onClick={() => fix("wake")}><Sunrise />{status.reachable && awake ? "Ouvrir une page" : "Réveiller"}</Button>
                   {status.reachable && (
-                    <Button onClick={() => fix("wake")}><Sunrise />{awake ? "Ouvrir une page" : "Réveiller"}</Button>
-                  )}
-                  <Button variant={status.reachable ? "outline" : "default"} className={status.reachable ? "border-white/30 bg-transparent text-white hover:bg-white/10" : ""} onClick={() => fix("restart")}>
+                    <Button variant={status.reachable ? "outline" : "default"} className={status.reachable ? "border-white/30 bg-transparent text-white hover:bg-white/10" : ""} onClick={() => fix("restart")}>
                     <Power />Redémarrer
                   </Button>
+                  )}
                 </div>
               </>
             )}

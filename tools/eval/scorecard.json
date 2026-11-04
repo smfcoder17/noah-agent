@@ -216,7 +216,7 @@
    "criteres": [
     { "id": "G14.1", "t": "Chat : première réaction à 800 ms au plus en médiane sur VPS ; gain jugé au-delà du bruit mesuré", "requis": 3, "preuve": 0 },
     { "id": "G14.2", "t": "Sur KVM 2 à 8 Go, 2 agents actifs : mémoire libre d'au moins 2 Go", "requis": 3, "preuve": 0, "b": 1 },
-    { "id": "G14.3", "t": "Un navigateur ne tourne que si l'agent s'en sert, et s'éteint au repos", "requis": 2, "preuve": 0 },
+    { "id": "G14.3", "t": "Un navigateur ne tourne que si l'agent s'en sert, et s'éteint au repos", "requis": 2, "preuve": 1, "test": "tests/budget/repos_navigateur_test.py" },
     { "id": "G14.4", "t": "Chaque dépendance et service est justifié ; un service en plus doit gagner sa place au banc", "requis": 1, "preuve": 0 },
     { "id": "G14.5", "t": "Application : ouverture en 1 s, liste de 1 000 messages fluide, sur un Android moyen", "requis": 3, "preuve": 0 },
     { "id": "G14.6", "t": "Première installation : 4 Go à télécharger au plus, et le navigateur seulement à son premier usage", "requis": 2, "preuve": 0 }

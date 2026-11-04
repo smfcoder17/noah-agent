@@ -1,6 +1,6 @@
 # Installer Noah Agent
 
-Trois façons d'installer, puis les mêmes réglages. Il faut Docker, et de la place : les images des agents et du navigateur pèsent environ 9 Go.
+Trois façons d'installer, puis les mêmes réglages. Il faut Docker, et de la place : environ 5 Go sur le disque, plus 4 Go la première fois qu'un agent navigue.
 
 | Tu veux | Fais | Temps |
 |---|---|---|

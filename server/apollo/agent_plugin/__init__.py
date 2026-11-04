@@ -26,6 +26,9 @@ import json
 import os
 import re
 import shlex
+import subprocess
+import sys
+import time
 import uuid
 
 TRUSTED = ("openai/skills", "anthropics/skills", "huggingface/skills", "NVIDIA/skills")
@@ -234,7 +237,25 @@ def check_mcp(tool_name: str, args: dict) -> dict | None:
             "message": f"Outil « {server} » : {tool}\n{shown[:600]}"}
 
 
+_browser_awake_at = 0.0
+
+
+def _wake_browser() -> None:
+    """Le navigateur ne tourne que quand on s'en sert : le premier outil qui le demande attend qu'il soit prêt."""
+    global _browser_awake_at
+    if time.monotonic() - _browser_awake_at < 60:
+        return
+    try:
+        subprocess.run([sys.executable, "/opt/data/noah.py", "navigateur", "reveiller"], capture_output=True, timeout=900)
+    except (OSError, subprocess.SubprocessError):
+        return  # l'outil dira lui-même qu'il n'a pas de navigateur
+    _browser_awake_at = time.monotonic()
+
+
 def _pre_tool_call(tool_name: str = "", args: dict | None = None, **_) -> dict | None:
+    if tool_name.startswith("browser_"):
+        _wake_browser()
+        return None
     if tool_name.startswith("mcp__"):  # avant le test des arguments : un appel sans argument passe aussi par le droit
         return check_mcp(tool_name, args if isinstance(args, dict) else {})
     if not isinstance(args, dict):

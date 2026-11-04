@@ -215,6 +215,20 @@ def _tar(files: dict[str, bytes]) -> bytes:
     return buf.getvalue()
 
 
+@app.post("/agents/{agent_id}/browser/stop", dependencies=[Depends(auth), Depends(_frozen)])
+def stop_browser(agent_id: str):
+    """Au repos : arrêt propre, Camoufox enregistre ses cookies. Le profil reste dans son volume."""
+    check_id(agent_id)
+    try:
+        c = client.containers.get(BROWSER_PREFIX + agent_id)
+    except NotFound:
+        return {"ok": True}
+    if c.labels.get(BROWSER_LABEL) != agent_id:
+        raise HTTPException(403, "Ce conteneur n'est pas un navigateur Noah Agent")
+    c.stop(timeout=20)
+    return {"ok": True}
+
+
 @app.post("/agents/{agent_id}/browser/restart", dependencies=[Depends(auth), Depends(_frozen)])
 def restart_browser(agent_id: str):
     """Redémarre le conteneur du navigateur (écran figé, navigateur planté). Profil et cookies restent."""

@@ -33,7 +33,7 @@ Fichier généré par `tools/eval/score.mjs`, à ne pas modifier à la main. Un 
 | G11 Appels et coordination | 0 | 5.8 | 5.8 | 8 | G11.1, G11.2 |
 | G12 Profils et partage | 0 | 5 | 7.5 | 9 | G12.3, G12.5 |
 | G13 Outils au choix | 5 | 5 | 10 | 8 | — |
-| G14 Rapidité et légèreté | 0 | 0 | 0 | 8 | G14.2 |
+| G14 Rapidité et légèreté | 0 | 0 | 1.4 | 8 | G14.2 |
 | G15 Expérience face aux références | 0 | 0 | 0 | 8 | — |
 | G16 Open source | 0 | 0 | 0 | 9 | G16.1, G16.2 |
 
@@ -91,7 +91,7 @@ Les critères G0 à G9 sont décrits dans [grille-validation.md](grille-validati
 
 - G14.1 (exige 3, atteint 0) : Chat : première réaction à 800 ms au plus en médiane sur VPS ; gain jugé au-delà du bruit mesuré
 - G14.2 [B] (exige 3, atteint 0) : Sur KVM 2 à 8 Go, 2 agents actifs : mémoire libre d'au moins 2 Go
-- G14.3 (exige 2, atteint 0) : Un navigateur ne tourne que si l'agent s'en sert, et s'éteint au repos
+- G14.3 (exige 2, atteint 1) : Un navigateur ne tourne que si l'agent s'en sert, et s'éteint au repos
 - G14.4 (exige 1, atteint 0) : Chaque dépendance et service est justifié ; un service en plus doit gagner sa place au banc
 - G14.5 (exige 3, atteint 0) : Application : ouverture en 1 s, liste de 1 000 messages fluide, sur un Android moyen
 - G14.6 (exige 2, atteint 0) : Première installation : 4 Go à télécharger au plus, et le navigateur seulement à son premier usage
