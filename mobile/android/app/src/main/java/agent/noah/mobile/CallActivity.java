@@ -8,7 +8,6 @@ import android.app.KeyguardManager;
 import android.app.NotificationManager;
 import android.content.Intent;
 import android.graphics.Color;
-import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Bundle;
@@ -33,6 +32,7 @@ public class CallActivity extends Activity {
     static final String TITLE = "titre";
     static final String URL = "url";
     static final String NOTIFICATION = "notification";
+    static final String COLOR = "couleur";
     private static final String PICKED_UP = "&decroche"; // l'application n'affiche pas une seconde sonnerie
     private static final long RING_MILLIS = 60000; // la durée de sonnerie du serveur
     private static final int ACCENT = Color.parseColor("#F0653A"); // la couleur de Noah
@@ -78,16 +78,10 @@ public class CallActivity extends Activity {
         FrameLayout center = new FrameLayout(this);
         LinearLayout.LayoutParams grow = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
         page.addView(center, grow);
-        FrameLayout.LayoutParams middle = new FrameLayout.LayoutParams(dp(112), dp(112), Gravity.CENTER);
-        for (int i = 0; i < 3; i++) center.addView(wave(i), middle);
-        TextView face = new TextView(this);
-        face.setText(title.substring(0, 1).toUpperCase());
-        face.setTextColor(Color.WHITE);
-        face.setTextSize(44);
-        face.setTypeface(Typeface.DEFAULT_BOLD);
-        face.setGravity(Gravity.CENTER);
-        face.setBackground(round(ACCENT));
-        center.addView(face, middle);
+        FrameLayout.LayoutParams middle = new FrameLayout.LayoutParams(dp(136), dp(136), Gravity.CENTER);
+        int face = getIntent().getIntExtra(COLOR, ACCENT);
+        for (int i = 0; i < 3; i++) center.addView(wave(i, face), middle);
+        center.addView(new NoahFace(this, face), middle);
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
@@ -114,9 +108,9 @@ public class CallActivity extends Activity {
     }
 
     /** Une onde : part du visage, grandit et s'efface, décalée des deux autres. */
-    private View wave(int index) {
+    private View wave(int index, int color) {
         View v = new View(this);
-        v.setBackground(round(ACCENT));
+        v.setBackground(round(color));
         v.setAlpha(0f);
         ValueAnimator grow = ValueAnimator.ofFloat(0f, 1f);
         grow.setDuration(2400);

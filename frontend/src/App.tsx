@@ -1,9 +1,10 @@
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import { QuoteContext, useQuoteState } from "@/lib/quotes";
 import { ArrowLeft, Bug, Menu, MonitorPlay, PanelRight, Plus } from "lucide-react";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AuthScreen } from "@/components/AuthScreen";
 import { CallScreen, type CallReport } from "@/components/Call";
+import { CALL_SLOT } from "@/components/CallStage";
 import { Onboarding } from "@/components/Onboarding";
 import { DeviceApproval, keepApprovalRequest } from "@/components/DeviceApproval";
 import { HandoffBanner } from "@/components/Handoff";
@@ -232,6 +233,8 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [report, setReport] = useState<CallReport | null>(null); // rappel pris : lu dans le mode vocal de cet agent
   const reportRead = useCallback(() => setReport(null), []);
+  // La conversation de l'appel en cours reste ouverte, cachée, quand on navigue ailleurs dans l'application.
+  const [inCall, setInCall] = useState<ChatProps | null>(null);
 
   const agent = agents.find((a) => a.id === agentId) ?? null;
   // Message envoyé à l'agent depuis Détails : il part dans la conversation principale.
@@ -243,6 +246,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const main = conversations?.find((c) => c.main) ?? null;
   const thread = conversations?.find((c) => c.id === threadId) ?? null;
   const shown = thread ?? main;
+  const liveKey = `${agent?.id}-${threadId ?? "main"}`;
 
   const refreshAgents = useCallback(async () => {
     try {
@@ -284,6 +288,12 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     setThreadId(null);
     setSidebarOpen(false);
   };
+
+  useEffect(() => {
+    const watch = () => setPanel("computer");
+    window.addEventListener("noah:voir-ecran", watch);
+    return () => window.removeEventListener("noah:voir-ecran", watch);
+  }, []);
 
   const onRunFinished = useCallback(() => {
     refreshConversations();
@@ -406,22 +416,27 @@ function Shell({ onLogout }: { onLogout: () => void }) {
               </Button>
             )}
           </header>
+          <div id={CALL_SLOT} />
           {agent && canAdmin(agent) && <HandoffBanner agentId={agent.id} onOpenScreen={() => setPanel("computer")} />}
           <div className="min-h-0 flex-1">
+            {inCall && inCall.chatKey !== liveKey && <div key={inCall.chatKey} hidden><AgentChat {...inCall} /></div>}
             {agent && conversations ? (
-              <AgentChat
-                key={`${agent.id}-${threadId ?? "main"}`}
-                agent={agent}
-                readOnly={!canTalk(agent) || !!shown?.de}
-                main={!threadId}
-                conversationId={shown?.id ?? null}
-                updatedAt={shown?.updated_at}
-                details={details}
-                onConversationCreated={refreshConversations}
-                onRunFinished={onRunFinished}
-                report={!threadId && report?.agentId === agent.id ? report : null}
-                onReportRead={reportRead}
-              />
+              <div key={liveKey} className="h-full">
+                <AgentChat
+                  chatKey={liveKey}
+                  onCallChange={setInCall}
+                  agent={agent}
+                  readOnly={!canTalk(agent) || !!shown?.de}
+                  main={!threadId}
+                  conversationId={shown?.id ?? null}
+                  updatedAt={shown?.updated_at}
+                  details={details}
+                  onConversationCreated={refreshConversations}
+                  onRunFinished={onRunFinished}
+                  report={!threadId && report?.agentId === agent.id ? report : null}
+                  onReportRead={reportRead}
+                />
+              </div>
             ) : agent ? (
               <p className="p-10 text-center text-sm text-muted-foreground">Chargement de la conversation…</p>
             ) : (
@@ -496,7 +511,9 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   );
 }
 
-function AgentChat(props: {
+type ChatProps = {
+  chatKey: string;
+  onCallChange: React.Dispatch<React.SetStateAction<ChatProps | null>>;
   agent: Agent;
   readOnly: boolean;
   main: boolean;
@@ -507,7 +524,9 @@ function AgentChat(props: {
   onRunFinished: () => void;
   report: CallReport | null;
   onReportRead: () => void;
-}) {
+};
+
+function AgentChat(props: ChatProps) {
   const quotes = useQuoteState();
   const takeQuotes = quotes.take;
   const runtime = useAgentChat({
@@ -521,6 +540,13 @@ function AgentChat(props: {
   const say = useCallback(
     (text: string) => runtime.thread.append({ role: "user", content: [{ type: "text", text }] }),
     [runtime],
+  );
+  const self = useRef(props);
+  self.current = props;
+  const onCall = useCallback(
+    (on: boolean) =>
+      self.current.onCallChange((cur) => (on ? self.current : cur?.chatKey === self.current.chatKey ? null : cur)),
+    [],
   );
   const { main } = props;
   // Texte ou lien partagé depuis une autre app (PWA sur Android) : cité dans le prochain message.
@@ -555,14 +581,16 @@ function AgentChat(props: {
       agentColor: color,
       hint: role ? role.slice(0, 180) : "Pose une question, confie une tâche ou envoie un fichier.",
       readOnly,
+      canWatch: canAdmin(props.agent),
     }),
-    [say, id, name, color, role, readOnly],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [say, id, name, color, role, readOnly, canAdmin(props.agent)],
   );
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <AgentContext.Provider value={context}>
         <QuoteContext.Provider value={quotes.value}>
-          <Thread report={props.report} onReportRead={props.onReportRead} />
+          <Thread report={props.report} onReportRead={props.onReportRead} onCall={onCall} />
         </QuoteContext.Provider>
       </AgentContext.Provider>
     </AssistantRuntimeProvider>

@@ -230,7 +230,7 @@ public class NoahPush extends PushService {
         // Un code par notification : sinon toucher une ancienne ouvrirait la page de la dernière reçue.
         PendingIntent tap = PendingIntent.getActivity(this, id, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         if (url != null && url.startsWith(CALL_URL)) {
-            ring(this, manager, id, title, text, url, tap);
+            ring(this, manager, id, title, text, url, NoahFace.colorOf("#ff7a59", null), tap);
             return;
         }
         NotificationCompat.Builder n = new NotificationCompat.Builder(this, CHANNEL)
@@ -245,7 +245,7 @@ public class NoahPush extends PushService {
     }
 
     /** Un rappel sonne comme un appel. Android 14 peut refuser le plein écran à une app qui n'est pas un téléphone : il reste la sonnerie. */
-    static void ring(Context context, NotificationManager manager, int id, String title, String text, String url, PendingIntent tap) {
+    static void ring(Context context, NotificationManager manager, int id, String title, String text, String url, int color, PendingIntent tap) {
         NotificationChannel channel = new NotificationChannel(CALLS, "Appels de tes agents", NotificationManager.IMPORTANCE_HIGH);
         channel.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE),
             new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE).build());
@@ -254,7 +254,7 @@ public class NoahPush extends PushService {
         channel.setLockscreenVisibility(Notification.VISIBILITY_PRIVATE);
         manager.createNotificationChannel(channel);
         Intent screen = new Intent(context, CallActivity.class).putExtra(CallActivity.TITLE, title).putExtra(CallActivity.URL, url)
-            .putExtra(CallActivity.NOTIFICATION, id).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            .putExtra(CallActivity.NOTIFICATION, id).putExtra(CallActivity.COLOR, color).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         PendingIntent full = PendingIntent.getActivity(context, id, screen, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         NotificationCompat.Builder n = new NotificationCompat.Builder(context, CALLS)
             .setSmallIcon(R.drawable.ic_stat_noah).setContentTitle(title).setContentText(text)

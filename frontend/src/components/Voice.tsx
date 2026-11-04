@@ -2,12 +2,13 @@
 // Le micro est découpé en morceaux aux petites pauses : chaque morceau part à la transcription pendant que la
 // personne continue de parler, et le texte apparaît au fur et à mesure (modèle choisi dans Réglages > Voix).
 import { useAui, useAuiState } from "@assistant-ui/react";
-import { AudioLines, Loader2, Mic, Square, PhoneOff } from "lucide-react";
+import { AudioLines, Loader2, Mic } from "lucide-react";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { AgentContext } from "@/lib/agentContext";
 import { request, send } from "@/lib/api";
+import { nativeCall } from "@/lib/platform";
 import { cn } from "@/lib/utils";
-import { NoahTile } from "./Noah";
+import { CallStage } from "./CallStage";
 import { Button } from "./ui";
 
 const TICK = 50; // relevé du niveau, en ms
@@ -93,8 +94,13 @@ function useMic() {
     level.current = 0;
   }, []);
 
+  /** Micro coupé : la piste reste ouverte et le silence ne coûte rien. */
+  const mute = useCallback((off: boolean) => {
+    mic.current?.stream.getAudioTracks().forEach((t) => (t.enabled = !off));
+  }, []);
+
   useEffect(() => close, [close]);
-  return { open, cut, close, level, onTick, seg };
+  return { open, cut, close, level, onTick, seg, mute };
 }
 
 async function transcribe(blob: Blob, agentId: string): Promise<string> {
@@ -434,16 +440,18 @@ function endOfTurnDelay(text: string) {
  * fait le travail avec son cerveau et ses outils ; à la fin, elle résume son résultat. Tout reste écrit dans la
  * conversation. `report` : compte rendu d'un rappel pris, lu dès que le micro est prêt.
  */
-export function VoiceMode({ onClose, report, onReportRead }: {
+export function VoiceMode({ onClose, report, onReportRead, link }: {
   onClose: () => void;
+  link: (text: string) => string;
   report?: { id: string; text: string } | null;
   onReportRead?: () => void;
 }) {
-  const { agentId, agentName, agentColor, say } = useContext(AgentContext);
+  const { agentId, agentName, say } = useContext(AgentContext);
   const running = useAuiState((s) => s.thread.isRunning);
   const messages = useAuiState((s) => s.thread.messages);
   const mic = useMic();
   const [speaking, setSpeaking] = useState(false);
+  const [muted, setMuted] = useState(false);
   const [sending, setSending] = useState(false);
   const [live, setLive] = useState("");
   const [note, setNote] = useState("");
@@ -677,6 +685,20 @@ export function VoiceMode({ onClose, report, onReportRead }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [running]);
 
+  // Android garde l'appel vivant hors de l'application ; sa notification et sa fenêtre flottante peuvent raccrocher.
+  const hangUp = useRef(onClose);
+  hangUp.current = onClose;
+  useEffect(() => {
+    const leave = () => hangUp.current();
+    window.addEventListener("noah:raccrocher", leave);
+    nativeCall(true, agentName);
+    return () => {
+      window.removeEventListener("noah:raccrocher", leave);
+      nativeCall(false, agentName);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // L'appel s'ouvre : l'agent prépare ce qu'il devra savoir sans le chercher, et la durée commence.
   const [seconds, setSeconds] = useState(0);
   useEffect(() => {
@@ -700,40 +722,35 @@ export function VoiceMode({ onClose, report, onReportRead }: {
       (phase === "speaking" ? "Parle pour l'interrompre." : phase === "error" ? "Vérifie l'accès au micro." : "Parle naturellement, j'envoie quand tu as fini.");
 
   return (
-    <div role="region" aria-label="Appel vocal" className="flex w-full flex-col gap-3 rounded-2xl border border-accent/40 bg-surface p-4 shadow-sm">
-      <div className="flex items-center gap-4">
-        <span className={cn("relative ml-1 grid shrink-0 place-items-center", phase === "speaking" && "noah-call-waves")}>
-          {phase === "speaking" && [0, 1, 2].map((i) => <span key={i} aria-hidden="true" className="noah-call-wave" style={{ animationDelay: `${i * 0.8}s`, background: agentColor }} />)}
-          <NoahTile color={agentColor} className="relative size-14" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-xs text-muted-foreground tabular-nums">En appel avec {agentName} · {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")}</p>
-          <p className={cn("font-semibold", phase === "error" && "text-warn")} aria-live="polite">{words[phase]}</p>
-          <p className="truncate text-xs text-muted-foreground">{hint}</p>
-        </div>
-        {phase !== "error" && phase !== "speaking" && <span className="text-accent"><Level level={mic.level} /></span>}
-        {(phase === "sending" || t.pending > 0) && <Loader2 className="size-5 animate-spin text-accent" />}
-      </div>
-      <div className="flex items-center justify-center gap-3">
-        {phase === "speaking" && (
-          <Button
-            variant="outline"
-            onClick={() => {
-              cancel();
-              void mic.cut(); // ce morceau ne contient que la voix de l'agent
-            }}
-          >
-            <Square className="fill-current" />Interrompre
-          </Button>
-        )}
-        {(phase === "listening" || phase === "waiting") && (live || t.pending > 0) && (
-          <Button variant="outline" onClick={() => commit(true)}>Envoyer</Button>
-        )}
-        {phase === "error" && <Button variant="outline" onClick={openMic}>Réessayer</Button>}
-        <button type="button" onClick={onClose} aria-label="Raccrocher" title="Raccrocher" className="flex size-12 items-center justify-center rounded-full bg-danger text-white">
-          <PhoneOff className="size-5" />
-        </button>
-      </div>
-    </div>
+    <CallStage
+      phase={phase}
+      status={words[phase]}
+      hint={hint}
+      seconds={seconds}
+      busy={running || busy.current}
+      needsYou={!!asked}
+      muted={muted}
+      level={<Level level={mic.level} />}
+      messages={messages}
+      link={link}
+      extra={
+        <>
+          {(phase === "sending" || t.pending > 0) && <Loader2 className="size-5 animate-spin text-accent" />}
+          {(phase === "listening" || phase === "waiting") && (live || t.pending > 0) && (
+            <Button variant="outline" onClick={() => commit(true)}>Envoyer</Button>
+          )}
+          {phase === "error" && <Button variant="outline" onClick={openMic}>Réessayer</Button>}
+        </>
+      }
+      onMute={() => {
+        mic.mute(!muted);
+        setMuted(!muted);
+      }}
+      onInterrupt={() => {
+        cancel();
+        void mic.cut(); // ce morceau ne contient que la voix de l'agent
+      }}
+      onHangUp={onClose}
+    />
   );
 }

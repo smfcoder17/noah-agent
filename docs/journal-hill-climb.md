@@ -401,3 +401,11 @@ VPS Hostinger de la personne, qui héberge d'autres applications. Noah tourne da
 ### Droit d'un outil passé de lire à confirmer
 
 Le correctif mis de côté (`f581e5e`) retirait l'outil 70 s, et un redémarrage du serveur pendant ces 70 s l'aurait perdu. Remplacé : le relais ouvre le flux MCP et envoie `tools/list_changed`. Avec le vrai client d'Hermes (`tests/tools/mcp_hermes_liste.py`, à la main) : outil d'écriture vu en 0,05 s, retiré en 0,10 s, sans reconnexion. Piège trouvé là : la sonde d'Hermes lit `GET` jusqu'au bout, donc le flux n'existe qu'avec `Mcp-Session-Id`. Non prouvé : un tour de modèle complet avec un vrai agent.
+
+## 2026-11-04, l'appel devient un mode
+
+Demande de la personne : un appel où l'on voit le logo et le travail de l'agent, où il présente ce qu'il produit, qui dure des minutes ou des heures, et qui continue pendant qu'on utilise l'application ou qu'on en sort.
+
+- **Fait :** la conversation de l'appel reste ouverte quand on navigue, l'appel se réduit en barre ou s'agrandit en vue d'appel (visage, ce que fait l'agent, images et fichiers cliquables). On peut écrire pendant l'appel, couper le micro, voir son écran. Une carte d'accord réduit la vue, pour qu'on la voie. Écran de sonnerie Android : le vrai visage, à la couleur de l'agent. Android : service de premier plan « micro », fenêtre flottante, Raccrocher depuis la notification ou la fenêtre.
+- **Tenu :** `tests/real/appel_en_cours.mjs`, vrai navigateur, ordinateur et téléphone, sur le VPS avec le faux modèle. Faux micro : ce test ne prouve pas la voix.
+- **À prouver :** Android sur émulateur, micro réel écran éteint, un appel long, une vraie image produite par un vrai agent.

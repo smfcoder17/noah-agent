@@ -400,10 +400,10 @@ async def _expire_later(seconds: float) -> None:
 
 def _public(r: sqlite3.Row) -> dict:
     return {"id": r["id"], "agent_id": r["agent_id"], "agent": r["agent"] or r["agent_id"], "conversation_id": r["conversation_id"],
-            "texte": r["texte"], "etat": r["etat"], "expire_a": r["created_at"] + RING_SECONDS}
+            "texte": r["texte"], "etat": r["etat"], "expire_a": r["created_at"] + RING_SECONDS, "couleur": r["color"] or ""}
 
 
-CALL_ROW = "SELECT v.*, a.name AS agent FROM voice_calls v LEFT JOIN agents a ON a.id = v.agent_id "
+CALL_ROW = "SELECT v.*, a.name AS agent, a.color AS color FROM voice_calls v LEFT JOIN agents a ON a.id = v.agent_id "
 
 
 def _call(call_id: str, user: int) -> sqlite3.Row:

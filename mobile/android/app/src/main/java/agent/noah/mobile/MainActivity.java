@@ -1,12 +1,23 @@
 package agent.noah.mobile;
 
+import android.app.PendingIntent;
+import android.app.PictureInPictureParams;
+import android.app.RemoteAction;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.graphics.drawable.Icon;
 import android.net.ConnectivityManager;
 import android.net.Network;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Rational;
 import android.webkit.CookieManager;
+import androidx.core.content.ContextCompat;
+import java.util.Collections;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.CapConfig;
 
@@ -23,10 +34,38 @@ public class MainActivity extends BridgeActivity {
     private ConnectivityManager.NetworkCallback onNetwork;
     private final Handler later = new Handler(Looper.getMainLooper());
     private Runnable retry;
+    private boolean inCall;
+    private final BroadcastReceiver hangUp = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (bridge != null) bridge.eval("window.dispatchEvent(new Event('noah:raccrocher'))", value -> { });
+        }
+    };
+
+    /** L'appel se poursuit hors de l'application, dans une petite fenêtre au-dessus des autres. */
+    void setInCall(boolean on) {
+        inCall = on;
+        if (Build.VERSION.SDK_INT >= 31) runOnUiThread(() -> setPictureInPictureParams(floating(on)));
+    }
+
+    private PictureInPictureParams floating(boolean on) {
+        PictureInPictureParams.Builder params = new PictureInPictureParams.Builder().setAspectRatio(new Rational(3, 4));
+        PendingIntent hang = CallSession.hangUp(this);
+        params.setActions(Collections.singletonList(new RemoteAction(Icon.createWithResource(this, R.drawable.ic_stat_noah), "Raccrocher", "Raccrocher", hang)));
+        if (Build.VERSION.SDK_INT >= 31) params.setAutoEnterEnabled(on);
+        return params.build();
+    }
+
+    @Override
+    protected void onUserLeaveHint() {
+        super.onUserLeaveHint();
+        if (inCall && Build.VERSION.SDK_INT >= 26 && Build.VERSION.SDK_INT < 31) enterPictureInPictureMode(floating(true));
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(NoahShellPlugin.class);
+        ContextCompat.registerReceiver(this, hangUp, new IntentFilter(CallSession.HANG_UP), ContextCompat.RECEIVER_NOT_EXPORTED);
         Pairing pairing = new Pairing(this);
         new Thread(pairing::revokeForgotten).start(); // sessions oubliées hors ligne : révoquées dès que possible
         // … et de nouveau à chaque retour du réseau, sans attendre une réouverture de l'app.
@@ -97,6 +136,8 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onDestroy() {
+        unregisterReceiver(hangUp);
+        CallSession.stop(this);
         ConnectivityManager network = getSystemService(ConnectivityManager.class);
         if (network != null && onNetwork != null) network.unregisterNetworkCallback(onNetwork); // recréée : pas de doublon
         later.removeCallbacksAndMessages(null);

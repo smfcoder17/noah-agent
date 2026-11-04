@@ -326,7 +326,7 @@ function AssistantMessage() {
 
 // --- Zone de saisie -----------------------------------------------------------------
 
-function Composer({ onVoiceMode }: { onVoiceMode: () => void }) {
+function Composer({ onVoiceMode, inCall }: { onVoiceMode: () => void; inCall: boolean }) {
   const dictation = useDictation();
   const running = useAuiState((s) => s.thread.isRunning);
   const dictating = dictation.state !== "idle";
@@ -356,8 +356,8 @@ function Composer({ onVoiceMode }: { onVoiceMode: () => void }) {
             }
           }}
         />
-        <DictateButton dictation={dictation} />
-        <VoiceModeButton onClick={onVoiceMode} />
+        {!inCall && <DictateButton dictation={dictation} />}
+        {!inCall && <VoiceModeButton onClick={onVoiceMode} />}
         <ThreadPrimitive.If running={false}>
           {dictating ? (
             <Button
@@ -392,14 +392,23 @@ function EmptyNoah() {
   return <NoahTile color={agentColor} className="mb-2 size-20" />;
 }
 
-export function Thread({ report, onReportRead }: { report: { id: string; text: string } | null; onReportRead: () => void }) {
-  const { agentName, hint, readOnly } = useContext(AgentContext);
+export function Thread({ report, onReportRead, onCall }: { report: { id: string; text: string } | null; onReportRead: () => void; onCall: (on: boolean) => void }) {
+  const { agentId, agentName, hint, readOnly } = useContext(AgentContext);
   const [voice, setVoice] = useState(false);
+  // Pour l'appel : un aperçu intégré compte aussi comme un artefact à ouvrir.
+  const link = useCallback(
+    (text: string) =>
+      linkPaths(text, agentId).replace(/```noah\s*\{"type":"preview","path":"([^"]+)"\}\s*```/g, (_m, path: string) => `[${path.split("/").pop()}](${rawFileUrl(agentId, path)})`),
+    [agentId],
+  );
   // Rappel pris : le mode vocal s'ouvre et lit le compte rendu.
   const reportId = report?.id;
   useEffect(() => {
     if (reportId) setVoice(true);
   }, [reportId]);
+  useEffect(() => {
+    onCall(voice); // l'application garde cette conversation ouverte tant que l'appel dure
+  }, [voice, onCall]);
   return (
     <ThreadPrimitive.Root className="flex h-full min-h-0 flex-col">
       <SelectionReply />
@@ -423,10 +432,11 @@ export function Thread({ report, onReportRead }: { report: { id: string; text: s
             </ThreadPrimitive.ScrollToBottom>
             {readOnly ? (
               <p className="w-full rounded-2xl border border-border bg-surface p-3 text-center text-sm text-muted-foreground">Tu peux lire ici, pas écrire.</p>
-            ) : voice ? (
-              <VoiceMode onClose={() => setVoice(false)} report={report} onReportRead={onReportRead} />
             ) : (
-              <Composer onVoiceMode={() => setVoice(true)} />
+              <>
+                {voice && <VoiceMode onClose={() => setVoice(false)} report={report} onReportRead={onReportRead} link={link} />}
+                <Composer onVoiceMode={() => setVoice(true)} inCall={voice} />
+              </>
             )}
           </ThreadPrimitive.ViewportFooter>
         </ThreadPrimitive.Viewport>

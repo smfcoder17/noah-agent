@@ -15,6 +15,16 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 @CapacitorPlugin(name = "NoahShell")
 public class NoahShellPlugin extends Plugin {
 
+    /** Un appel commence ou finit dans la page : micro hors de l'application, fenêtre flottante en la quittant. */
+    @PluginMethod
+    public void callState(PluginCall call) {
+        boolean active = Boolean.TRUE.equals(call.getBoolean("active"));
+        if (active) CallSession.start(getContext(), call.getString("agent"));
+        else CallSession.stop(getContext());
+        if (getActivity() instanceof MainActivity) ((MainActivity) getActivity()).setInCall(active);
+        call.resolve();
+    }
+
     @PluginMethod
     public void info(PluginCall call) {
         JSObject out = new JSObject();

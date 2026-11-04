@@ -17,6 +17,11 @@ export function appShell(): Shell | null {
   return null;
 }
 
+/** Un appel commence ou finit : l'app Android garde le micro hors de l'application et propose sa fenêtre flottante. */
+export function nativeCall(active: boolean, agent: string) {
+  void window.Capacitor?.Plugins?.NoahShell?.callState?.({ active, agent })?.catch(() => {});
+}
+
 const parts = (v: string) => (v.split("-")[0].match(/\d+/g) ?? ["0"]).slice(0, 3).map(Number);
 
 /** Version d'app plus ancienne que la plus ancienne que le serveur sert encore (G5.6). */
