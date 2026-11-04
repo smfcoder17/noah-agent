@@ -78,11 +78,13 @@ def first_install() -> None:
     again = client().post("/api/setup/account", json={"username": "autre", "password": "x" * 12, "installation": os.environ["NOAH_CODE"]})
     check("Le code ne sert qu'une fois", again.status_code in (400, 403, 409, 410), str(again.status_code))
 
-    chosen = owner.post("/api/model", json={"provider": "ollama", "model": MODEL, "base_url": os.environ["NOAH_OLLAMA"]})
+    t_model = time.monotonic()
+    chosen = owner.post("/api/model", json={"provider": "ollama", "model": MODEL, "base_url": os.environ["NOAH_OLLAMA"]}, timeout=900)
+    print(f"     choix du modèle : {time.monotonic() - t_model:.0f} s", flush=True)
     check("Modèle choisi : Ollama par son adresse", chosen.status_code == 200, chosen.text[:200])
     agent = None
     t1 = time.monotonic()
-    while time.monotonic() - t1 < 300:
+    while time.monotonic() - t1 < 900:
         agents = owner.get("/api/agents").json()
         if agents and agents[0]["online"] and not agents[0].get("step"):
             agent = agents[0]["id"]

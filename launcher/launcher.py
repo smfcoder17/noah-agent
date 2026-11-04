@@ -112,6 +112,17 @@ def _ensure_image(name: str) -> None:
         client.images.pull(name)
 
 
+def _prefetch_agent_image() -> None:
+    """Sur un VPS neuf, l'image de l'agent pèse 4 Go : la prendre tout de suite, pendant que la personne crée son compte,
+    plutôt qu'au moment où elle choisit son modèle, où l'écran resterait figé plusieurs minutes."""
+    try:
+        _ensure_image(AGENT_IMAGE)
+    except Exception as e:  # noqa: BLE001 - réseau coupé : la création de l'agent réessaiera et dira l'erreur
+        print(f"[lanceur] image de l'agent non préchargée : {e}", flush=True)
+
+
+threading.Thread(target=_prefetch_agent_image, daemon=True).start()
+
 _browser_lock = threading.Lock()  # deux appels simultanés recréaient le même conteneur (conflit Docker)
 
 
