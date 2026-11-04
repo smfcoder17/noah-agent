@@ -227,7 +227,7 @@
    "nom": "Expérience face aux références",
    "seuil": 8,
    "criteres": [
-    { "id": "G15.1", "t": "Grille de 20 comportements relevés sur Grok Bot, Dots, Duet et Muse, chacun avec sa source", "requis": 1, "preuve": 0 },
+    { "id": "G15.1", "t": "Grille de 20 comportements relevés sur Grok Bot, Dots, Duet et Muse, chacun avec sa source", "requis": 1, "preuve": 1, "artefact": "docs/comportements.md" },
     { "id": "G15.2", "t": "Comparaisons à l'aveugle de captures : préféré à au moins une référence par 3 juges sur 4 parcours", "requis": 2, "preuve": 0 },
     { "id": "G15.3", "t": "Verdict humain à l'aveugle : au moins aussi agréable que la référence choisie pour l'appel", "requis": 4, "preuve": 0 }
    ]
