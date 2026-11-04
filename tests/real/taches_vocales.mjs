@@ -137,7 +137,7 @@ const INIT = () => {
     const b = body(init);
     if (url.includes("/api/voice/cancel/")) m.abandons.push(url.split("/").pop());
     if (url.includes("/api/voice/say")) m.paroles.push({ source: "say", audio_id: b.audio_id, texte: b.text });
-    const entry = url.includes("/api/voice/reply") ? { source: b.mode === "result" ? "result" : "reply", audio_id: b.audio_id, texte: "", demande: (b.text || "").slice(0, 300) } : null;
+    const entry = url.includes("/api/voice/reply") || url.includes("/api/voice/direct") ? { source: b.mode === "result" ? "result" : "reply", audio_id: b.audio_id, texte: "", demande: (b.text || "").slice(0, 300) } : null;
     if (entry) m.paroles.push(entry);
     return nativeFetch(input, init).then(async (r) => {
       try {
@@ -147,6 +147,8 @@ const INIT = () => {
           entry.texte = j.dire || "";
           entry.action = j.action;
           if (j.annule) entry.annule = true;
+          // Voix directe : un tour que le modèle garde pour lui ne passe jamais par /api/chat.
+          if (url.includes("/api/voice/direct") && !j.action && !j.annule) m.envoyes.push(m.transcrits.join(" ").slice(-300));
         }
         if (url.includes("/api/voice/transcribe")) m.transcrits.push((await r.clone().json()).text);
       } catch {}

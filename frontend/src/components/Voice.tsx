@@ -301,8 +301,42 @@ export function VoiceModeButton({ onClick }: { onClick: () => void }) {
 const audioId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
 
 type VoiceReply = { dire: string; action: boolean };
+/** Tour de voix directe : le son de la personne est parti au modèle audio. `demande` : ce qu'il confie au vrai agent. */
+type DirectReply = VoiceReply & { demande?: string; annule?: boolean };
+type DirectHeld = { parts: number; reply: Promise<DirectReply>; listen: () => Promise<void>; drop: () => void };
 /** Réponse préparée en silence : on l'entend avec `speak`, ou on l'abandonne avec `drop`. */
 type Held = { text: string; speak: () => Promise<VoiceReply>; drop: () => void };
+
+/** Les morceaux du micro, d'un seul tenant, en WAV mono 16 kHz encodé en base64 : le format que ces modèles acceptent partout. */
+async function wavBase64(parts: Blob[]): Promise<string> {
+  const rate = 16000;
+  const ctx = new OfflineAudioContext(1, 1, rate); // decodeAudioData rééchantillonne au débit du contexte
+  const buffers = await Promise.all(parts.map(async (b) => ctx.decodeAudioData(await b.arrayBuffer())));
+  const samples = buffers.reduce((n, b) => n + b.length, 0);
+  const view = new DataView(new ArrayBuffer(44 + samples * 2));
+  const tag = (at: number, s: string) => [...s].forEach((c, i) => view.setUint8(at + i, c.charCodeAt(0)));
+  tag(0, "RIFF");
+  view.setUint32(4, 36 + samples * 2, true);
+  tag(8, "WAVEfmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, rate, true);
+  view.setUint32(28, rate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  tag(36, "data");
+  view.setUint32(40, samples * 2, true);
+  let at = 44;
+  for (const b of buffers) {
+    const data = b.getChannelData(0);
+    for (let i = 0; i < data.length; i++, at += 2) view.setInt16(at, Math.max(-1, Math.min(1, data[i])) * 32767, true);
+  }
+  const bytes = new Uint8Array(view.buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(binary);
+}
 
 /**
  * Voix de l'agent en flux : le navigateur ouvre /api/voice/audio/<id> pendant que le serveur écrit la réponse
@@ -399,6 +433,26 @@ function useSpeaker(agentId: string, onPlaying: (playing: boolean, interrupted: 
     },
     [agentId, play],
   );
+  /** Voix directe : le son part au modèle audio tout de suite, sa réponse arrive dans l'élément, qui n'est pas lancé. */
+  const holdDirect = useCallback(
+    (parts: Blob[], history: unknown[]): DirectHeld => {
+      const id = audioId();
+      const reply = wavBase64(parts).then((audio) => send<DirectReply>("/api/voice/direct", { agent_id: agentId, audio, history, audio_id: id }));
+      reply.catch(() => {}); // lue par le tour ; une réponse abandonnée n'intéresse personne
+      const element = new Audio(`/api/voice/audio/${id}`);
+      return {
+        parts: parts.length,
+        reply,
+        listen: () => play(id, element),
+        drop: () => {
+          element.removeAttribute("src");
+          element.load();
+          send(`/api/voice/cancel/${id}`, {}).catch(() => {});
+        },
+      };
+    },
+    [agentId, play],
+  );
   const cancel = useCallback(() => {
     const a = current.current;
     if (!a) return;
@@ -412,7 +466,7 @@ function useSpeaker(agentId: string, onPlaying: (playing: boolean, interrupted: 
   const lower = useCallback((on: boolean) => {
     if (current.current) current.current.volume = on ? LOWERED : 1;
   }, []);
-  return { speak, reply, hold, cancel, lower };
+  return { speak, reply, hold, holdDirect, cancel, lower };
 }
 
 /**
@@ -464,13 +518,19 @@ export function VoiceMode({ onClose, report, onReportRead }: {
   const voiceHeard = useRef(0);
   const held = useRef<Held | null>(null); // réponse préparée, pas encore confirmée
   const cutting = useRef(0); // morceaux coupés, pas encore partis à la transcription
+  // Voix directe (désactivée par défaut, le serveur le dit à l'ouverture) : le son du tour va au modèle audio.
+  // La transcription continue : elle décide de la fin du tour, s'affiche, garde le fil, et sert au repli vers la cascade.
+  const direct = useRef(false);
+  const parts = useRef<Blob[]>([]); // le son du tour en cours
+  const heldDirect = useRef<DirectHeld | null>(null);
+  const directLog = useRef<{ role: string; text: string }[]>([]); // tours que l'agent n'a pas reçus : ils ne sont pas dans la conversation
 
   const t = useTranscripts(agentId, (text) => {
     heard.current.push(text);
     setLive(heard.current.join(" "));
   });
 
-  const { speak, reply: speakReply, hold, cancel, lower } = useSpeaker(agentId, (on, interrupted) => {
+  const { speak, reply: speakReply, hold, holdDirect, cancel, lower } = useSpeaker(agentId, (on, interrupted) => {
     loud.current = 0;
     gap.current = 0;
     if (on) voiceHeard.current++;
@@ -491,10 +551,12 @@ export function VoiceMode({ onClose, report, onReportRead }: {
   latest.current = messages;
   const history = () => latest.current.slice(-6).map((m) => ({ role: m.role, text: spoken(textOf(m)).slice(0, 800) }));
 
-  const priorTurns = () => [...history(), ...queue.current.map((q) => ({ role: "user", text: q.text }))];
+  const priorTurns = () => [...history(), ...directLog.current.slice(-6), ...queue.current.map((q) => ({ role: "user", text: q.text }))].slice(-12);
   const dropHeld = () => {
     held.current?.drop();
     held.current = null;
+    heldDirect.current?.drop();
+    heldDirect.current = null;
   };
 
   /** La voix rapide répond tout de suite ; rend `true` si la demande demande à l'agent d'agir. */
@@ -524,6 +586,36 @@ export function VoiceMode({ onClose, report, onReportRead }: {
     action.current = await answering.current;
   };
 
+  /** Un tour en voix directe. Le modèle entend le son et tranche par son outil ; seul ce qu'il confie part à l'agent. Toute panne : la cascade, pour le reste de l'appel. */
+  const directTurn = async (text: string, audio: Blob[], ready: DirectHeld | null) => {
+    const h = ready ?? holdDirect(audio, priorTurns());
+    const sound = h.listen();
+    let r: DirectReply;
+    try {
+      r = await h.reply;
+    } catch {
+      h.drop();
+      direct.current = false;
+      await turn(text, null);
+      return;
+    }
+    if (r.annule) return;
+    if (r.action) {
+      const demande = r.demande || text;
+      if (busy.current) {
+        queue.current.push({ text: demande, action: true });
+        setNote(`Je lui transmets ensuite : « ${demande.slice(0, 60)} »`);
+      } else {
+        busy.current = true;
+        started.current = false;
+        action.current = true;
+        answering.current = sound.then(() => true); // son résultat attend la fin de l'accusé de réception
+        say(demande);
+      }
+    } else directLog.current.push({ role: "user", text }, { role: "assistant", text: r.dire.slice(0, 800) });
+    await sound;
+  };
+
   /** Envoie ce qui a été dit (fin de tour détectée, ou bouton Envoyer). */
   const commit = async (force = false) => {
     if (committing.current) return;
@@ -531,7 +623,10 @@ export function VoiceMode({ onClose, report, onReportRead }: {
     setSending(true);
     if (force) {
       const { blob, speech } = await mic.cut();
-      if (blob && speech >= 150) t.submit(blob);
+      if (blob && speech >= 150) {
+        t.submit(blob);
+        parts.current.push(blob);
+      }
     }
     await t.settle();
     const text = heard.current.join(" ").trim();
@@ -539,6 +634,15 @@ export function VoiceMode({ onClose, report, onReportRead }: {
     setLive("");
     committing.current = false;
     setSending(false);
+    if (direct.current) {
+      const audio = parts.current;
+      parts.current = [];
+      const ready = heldDirect.current?.parts === audio.length ? heldDirect.current : null;
+      if (ready) heldDirect.current = null;
+      else dropHeld();
+      if (text && alive.current) await directTurn(text, audio, ready);
+      return;
+    }
     // La réponse préparée ne vaut que pour exactement ce qui a été dit.
     const ready = held.current?.text === text ? held.current : null;
     if (ready) held.current = null;
@@ -561,19 +665,33 @@ export function VoiceMode({ onClose, report, onReportRead }: {
       return;
     }
     // La personne reprend : la réponse préparée n'a plus d'objet.
-    if (held.current && speech >= RESUMED) dropHeld();
+    if ((held.current || heldDirect.current) && speech >= RESUMED) dropHeld();
     // Petite pause : ce morceau part à la transcription, la personne peut continuer.
     if (speech >= 250 && silence >= TURN_PAUSE) {
       cutting.current++;
       void mic.cut().then(({ blob }) => {
         cutting.current--;
-        if (blob) t.submit(blob);
+        if (blob) {
+          t.submit(blob);
+          if (direct.current) parts.current.push(blob);
+        }
       });
       return;
     }
     const said = heard.current.join(" ");
+    if (direct.current) {
+      // Voix directe : le son part dès la pause, sans attendre la transcription.
+      if (parts.current.length && !heldDirect.current && !committing.current && speech < RESUMED && silence >= TURN_PAUSE && !cutting.current) {
+        heldDirect.current = holdDirect(parts.current.slice(), priorTurns());
+      }
+      // Du bruit que le transcripteur a rendu vide : il ne doit pas s'ajouter au tour suivant.
+      if (parts.current.length && !said && !t.pending && !t.inFlight() && !cutting.current && !committing.current && speech < 150 && silence >= 2300) {
+        parts.current = [];
+        dropHeld();
+      }
+    }
     // Tout est transcrit et la personne se tait : on prépare la réponse, sans la faire entendre.
-    if (said && !held.current && !committing.current && speech < RESUMED && silence >= TURN_PAUSE && !cutting.current && !t.inFlight()) {
+    else if (said && !held.current && !committing.current && speech < RESUMED && silence >= TURN_PAUSE && !cutting.current && !t.inFlight()) {
       held.current = hold(said.trim(), priorTurns());
     }
     // Fin du tour : silence assez long pour ce qui a été dit, et plus rien en train d'être dit.
@@ -680,7 +798,7 @@ export function VoiceMode({ onClose, report, onReportRead }: {
   // L'appel s'ouvre : l'agent prépare ce qu'il devra savoir sans le chercher, et la durée commence.
   const [seconds, setSeconds] = useState(0);
   useEffect(() => {
-    void send("/api/voice/prepare", { agent_id: agentId }).catch(() => {});
+    void send<{ direct?: boolean }>("/api/voice/prepare", { agent_id: agentId }).then((r) => (direct.current = !!r.direct)).catch(() => {});
     const timer = setInterval(() => setSeconds((n) => n + 1), 1000);
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -12,7 +12,7 @@ import { clusterMeanCI, krippendorffAlpha } from "../../tools/eval/stats.mjs";
 import { heard, heardText, locate, norm, verify } from "./taches_verif.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const envFile = join(HERE, "../../.env");
+const envFile = process.env.TACHES_ENV || join(HERE, "../../.env"); // un worktree n'a pas de .env
 const API_KEY = existsSync(envFile) ? (readFileSync(envFile, "utf8").match(/^ANTHROPIC_API_KEY=(.*)$/m)?.[1] || "").trim().replace(/^["']|["']$/g, "") : "";
 const JUDGES = (process.env.TACHES_JUGES || "claude-haiku-5-5,kimi-k3:cloud,glm-5.3:cloud").split(",");
 const PASSES = Number(process.env.TACHES_PASSES || 3);

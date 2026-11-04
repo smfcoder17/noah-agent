@@ -936,6 +936,9 @@ def outbound_flows(user: int = Depends(access.owner_only)):
     if db.get_setting("media_api_key") or db.get_setting("provider") == "openrouter":
         flows.append({"quoi": "Création et voix (images, vidéos, musique, dictée, lecture)", "vers": "openrouter.ai",
                       "quand": "seulement quand tu t'en sers"})
+    if media.direct_model():
+        flows.append({"quoi": "Voix directe : le son de ta voix en appel, tel quel", "vers": "openrouter.ai", "detail": db.get_setting("media_direct"),
+                      "quand": "à chaque tour d'un appel vocal"})
     if db.get_setting("voice_base_url"):
         flows.append({"quoi": "Voix et dictée, pour les fonctions qui ont un modèle sur ton serveur de voix", "vers": _host(db.get_setting("voice_base_url")),
                       "quand": "seulement quand tu t'en sers"})
@@ -2146,7 +2149,7 @@ class MediaChoice(BaseModel):
 
 @app.post("/api/media")
 def set_media(body: MediaChoice, user: int = Depends(access.owner_only)):
-    if body.kind not in (*media.KINDS, "voice", "preferences"):
+    if body.kind not in (*media.KINDS, "voice", "preferences", "direct"):  # direct : modèle audio de la voix directe, vide pour la cascade
         raise HTTPException(400, "Type inconnu")
     db.set_setting("media_voice" if body.kind == "voice" else f"media_{body.kind}", body.model.strip())
     return {"ok": True}
@@ -2308,10 +2311,11 @@ async def voice_prepare(body: CallPrepare, user: int = Depends(auth.current_user
     if body.agent_id == NO_AGENT:
         raise HTTPException(404, "Agent introuvable")
     precall.prepare(body.agent_id, user)
+    direct = media.direct_model() is not None
     if body.attendre:
         await precall.ready(body.agent_id, user)
-        return {"ok": True, "notes": precall.known(body.agent_id, user)}
-    return {"ok": True}
+        return {"ok": True, "direct": direct, "notes": precall.known(body.agent_id, user)}
+    return {"ok": True, "direct": direct}
 
 
 @app.post("/api/voice/reply")
@@ -2344,6 +2348,41 @@ async def voice_reply(body: VoiceTurn, user: int = Depends(auth.current_user)):
         raise HTTPException(400, str(e))
     except httpx.HTTPError:
         raise HTTPException(502, "La voix rapide ne répond pas.")
+
+
+class DirectTurn(BaseModel):
+    agent_id: str
+    audio: str = Field(min_length=1, max_length=16_000_000)  # WAV en base64 : environ 4 minutes à 16 kHz
+    history: list[dict] = Field(default_factory=list, max_length=12)
+    audio_id: str = Field(pattern=AUDIO_ID)
+
+
+@app.post("/api/voice/direct")
+async def voice_direct(body: DirectTurn, user: int = Depends(auth.current_user)):
+    """Voix directe : le son va au modèle audio, sa réponse revient en son dans le flux. Une erreur ici veut dire : repasse par la cascade."""
+    out = _audio_for(user, body.audio_id)
+    try:
+        _voice_for(user, body.agent_id)
+        if body.agent_id == NO_AGENT:
+            raise HTTPException(404, "Agent introuvable")
+    except HTTPException:
+        out.put(None)
+        raise
+    with db.connect() as c:
+        row = c.execute("SELECT name, role FROM agents WHERE id = ?", (body.agent_id,)).fetchone()
+    if out.closed:
+        return {"dire": "", "action": False, "annule": True}
+    out.task = task = asyncio.create_task(media.direct_reply(body.agent_id, row["name"], row["role"], body.audio, body.history, out, precall.known(body.agent_id, user)))
+    try:
+        return await task
+    except asyncio.CancelledError:
+        if not task.cancelled():
+            raise
+        return {"dire": "", "action": False, "annule": True}
+    except media.MediaError as e:
+        raise HTTPException(400, str(e))
+    except httpx.HTTPError:
+        raise HTTPException(502, "La voix directe ne répond pas.")
 
 
 @app.post("/api/voice/cancel/{audio_id}")

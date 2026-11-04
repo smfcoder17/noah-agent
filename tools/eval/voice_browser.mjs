@@ -74,7 +74,7 @@ try {
     const nativeFetch = window.fetch;
     window.fetch = (input, init) => {
       const url = String(input.url || input);
-      if (url.includes("/api/voice/reply")) marks.replies.push(performance.now());
+      if (url.includes("/api/voice/reply") || url.includes("/api/voice/direct")) marks.replies.push(performance.now());
       if (url.endsWith("/api/chat")) marks.chats.push(performance.now());
       if (!url.includes("/api/voice/")) return nativeFetch(input, init);
       marks.calls++;
@@ -181,8 +181,8 @@ try {
       const end = await page.evaluate((b) => window.__say(b), voice);
       try {
         const reply = await waitFor("replies", replies, 20000);
-        const chat = await waitFor("chats", chats, 20000);
         const sound = await waitFor("played", played, 20000);
+        const chat = process.env.NOAH_DIRECT ? sound : await waitFor("chats", chats, 20000); // voix directe : seul ce qui est confié part à l'agent
         rows.push({ case: `c${i}`, run, entendu: Math.round(sound - end), envoi: Math.round(chat - end), voix: Math.round(sound - reply) });
       } catch {
         rows.push({ case: `c${i}`, run, echec: true });
