@@ -19,7 +19,7 @@ Fichier généré par `tools/eval/score.mjs`, à ne pas modifier à la main. Un 
 
 | Objectif | Prouvé | Sans bloquants | Déclaré | Seuil | Bloquants manquants |
 |---|---|---|---|---|---|
-| G0 Images publiées | 0 | 0 | 0 | 9 | G0.1, G0.5 |
+| G0 Images publiées | 0 | 2.5 | 2.5 | 9 | G0.5 |
 | G1 Installation en un clic | 0 | 3.3 | 3.3 | 8 | G1.2, G1.3 |
 | G2 Appairage | 0 | 4.2 | 4.2 | 9 | G2.1, G2.2, G2.4 |
 | G3 App de bureau | 0 | 0 | 1.1 | 8 | G3.1, G3.3 |

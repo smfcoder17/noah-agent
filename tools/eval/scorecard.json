@@ -25,7 +25,7 @@
    "nom": "Images publiées",
    "seuil": 9,
    "criteres": [
-    { "id": "G0.1", "b": 1, "requis": 3, "preuve": 0, "note": "release.yml écrit, jamais exécuté : pas de dépôt public" },
+    { "id": "G0.1", "b": 1, "requis": 3, "preuve": 3, "test": "tests/real/vps_conteneur.sh", "note": "vrai VPS, images GHCR tirées sans compiler ; étiquette edge, aucune version signée encore" },
     { "id": "G0.2", "requis": 3, "preuve": 0 },
     { "id": "G0.3", "requis": 3, "preuve": 0 },
     { "id": "G0.4", "requis": 3, "preuve": 0 },
