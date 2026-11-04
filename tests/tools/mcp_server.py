@@ -18,11 +18,12 @@ TOOLS = [
 class Server(http.server.ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, port=0, token=None, sse=False, session=True):
+    def __init__(self, port=0, token=None, sse=False, session=True, fiches=None):
         super().__init__(("0.0.0.0", port), Handler)
         self.expected = token  # sans lui : réponse 401, comme un vrai serveur protégé
         self.sse = sse  # répond en flux (text/event-stream) plutôt qu'en JSON
         self.session = session
+        self.fiches = fiches  # {id: texte} : lire_fiche rend un vrai contenu, que l'agent peut répéter ou déformer
         self.calls = []  # (outil, arguments, en-tête Authorization) de chaque tools/call
         self.auth_seen = []
         self.sessions_opened = 0
@@ -99,6 +100,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 args = msg["params"].get("arguments") or {}
                 srv.calls.append((name, args, auth))
                 text = auth if name == "echo_jeton" else f"fait : {name} {json.dumps(args, ensure_ascii=False)}"
+                if name == "lire_fiche" and srv.fiches is not None:
+                    text = srv.fiches.get(str(args.get("id")), "Fiche introuvable.")
                 result = {"content": [{"type": "text", "text": text}]}
             else:
                 return self._send(200, json.dumps({"jsonrpc": "2.0", "id": msg["id"], "error": {"code": -32601, "message": "inconnu"}}).encode())
