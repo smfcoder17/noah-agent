@@ -31,6 +31,8 @@ Un VPS Ubuntu ou Debian, 4 Go de mémoire au moins, ports 80 et 443 libres. Aucu
 curl -fsSL https://raw.githubusercontent.com/smfcoder17/noah-agent/main/get.sh | sh
 ```
 
+**Un Traefik tient déjà les ports 80 et 443 ?** `get.sh` le voit et place Noah derrière lui : tes autres sites ne bougent pas. Sans domaine, Noah répond sur `<ip-en-tirets>.sslip.io`.
+
 Le lien de création du compte s'affiche à la fin, ou dans les journaux du service `server`. Il porte un code à usage unique : personne d'autre ne peut créer le compte. Noah répond en HTTPS sur `<ip-en-tirets>.sslip.io`, ou sur ton domaine avec `NOAH_DOMAIN=noah.exemple.com` devant la commande.
 
 ## Choisir le modèle
