@@ -65,6 +65,8 @@ public class MainActivity extends BridgeActivity {
     /** Notifications pas encore actives (première ouverture hors ligne, serveur injoignable) : inscription reprise. */
     private void resumePush(Pairing pairing) {
         String s = pairing.server(), t = Pairing.windowToken(s);
+        // Sans distributeur UnifiedPush, c'est Noah lui-même qui attend les appels : rien à installer en plus.
+        if (s != null && org.unifiedpush.android.connector.UnifiedPush.getDistributors(this).isEmpty()) CallWatch.start(this);
         // Seulement si tout est prêt sauf le serveur : pas de demande de permission ni de choix de distributeur
         // répétés toutes les 5 minutes.
         if (org.unifiedpush.android.connector.UnifiedPush.getDistributors(this).isEmpty() || !NoahPush.visible(this)) return;

@@ -33,6 +33,21 @@
             android:excludeFromRecents="true"
             android:exported="false" />
 
+        <!-- Sans distributeur UnifiedPush : Noah attend lui-même les appels de ton serveur (voir CallWatch). -->
+        <service
+            android:name=".CallWatch"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Reçoit les appels vocaux de ton agent depuis ton propre serveur, sans service de notification tiers" />
+        </service>
+        <receiver android:name=".BootReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
         <!-- Notifications par UnifiedPush (voir NoahPush) : reçues d'un distributeur, jamais d'une autre app. -->
         <service android:name=".NoahPush" android:exported="false">
             <intent-filter>
@@ -59,6 +74,10 @@
     <!-- Faire sonner l'écran d'appel quand un agent rappelle. -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Rester prêt à sonner sans service tiers, y compris après un redémarrage. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Dictée et mode vocal de Noah dans la fenêtre de l'app. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />

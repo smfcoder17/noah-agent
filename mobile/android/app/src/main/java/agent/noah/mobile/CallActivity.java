@@ -199,7 +199,7 @@ public class CallActivity extends Activity {
         silence();
         String url = getIntent().getStringExtra(URL);
         Pairing pairing = new Pairing(this);
-        String server = pairing.server(), token = pairing.pushToken();
+        String server = pairing.server(), token = pairing.session();
         if (url != null && url.startsWith(NoahPush.CALL_URL) && server != null && token != null) {
             String id = url.substring(NoahPush.CALL_URL.length());
             new Thread(() -> {

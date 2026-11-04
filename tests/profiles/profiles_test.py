@@ -282,6 +282,7 @@ ROUTES = {
     ("POST", "/api/voice/speak"): "usage",
     ("POST", "/api/voice/say"): "usage",
     ("POST", "/api/voice/reply"): "usage",
+    ("GET", "/api/calls/wait"): "auteur",
     ("POST", "/api/voice/prepare"): "usage",
     ("GET", "/api/voice/audio/{audio_id}"): "auteur",
     ("POST", "/api/voice/cancel/{audio_id}"): "auteur",

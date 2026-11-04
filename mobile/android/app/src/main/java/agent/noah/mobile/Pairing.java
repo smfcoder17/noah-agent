@@ -92,6 +92,18 @@ final class Pairing {
         }
     }
 
+    /** La session de ce téléphone, celle de la fenêtre d'abord, pour parler au serveur quand la fenêtre est fermée. */
+    String session() {
+        String window = windowToken(server());
+        if (window != null) return window;
+        try {
+            String sealed = prefs.getString("token", null);
+            return sealed == null ? null : open(sealed);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     /** Session réellement utilisée par la fenêtre (cookie apollo_session), ou null. */
     static String windowToken(String server) {
         String all = server == null ? null : android.webkit.CookieManager.getInstance().getCookie(server);

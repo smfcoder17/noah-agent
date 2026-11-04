@@ -73,6 +73,7 @@ public class NoahPush extends PushService {
 
     /** Serveur oublié : plus aucune notification (le serveur supprime aussi l'abonnement avec la session). */
     static void stop(Context context) {
+        CallWatch.stop(context);
         synchronized (Pairing.class) {
             new Pairing(context).clearPush();
             NotificationManagerCompat.from(context).cancelAll(); // l'appareil peut changer de main : rien ne reste lisible
@@ -229,7 +230,7 @@ public class NoahPush extends PushService {
         // Un code par notification : sinon toucher une ancienne ouvrirait la page de la dernière reçue.
         PendingIntent tap = PendingIntent.getActivity(this, id, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         if (url != null && url.startsWith(CALL_URL)) {
-            ring(manager, id, title, text, url, tap);
+            ring(this, manager, id, title, text, url, tap);
             return;
         }
         NotificationCompat.Builder n = new NotificationCompat.Builder(this, CHANNEL)
@@ -244,7 +245,7 @@ public class NoahPush extends PushService {
     }
 
     /** Un rappel sonne comme un appel. Android 14 peut refuser le plein écran à une app qui n'est pas un téléphone : il reste la sonnerie. */
-    private void ring(NotificationManager manager, int id, String title, String text, String url, PendingIntent tap) {
+    static void ring(Context context, NotificationManager manager, int id, String title, String text, String url, PendingIntent tap) {
         NotificationChannel channel = new NotificationChannel(CALLS, "Appels de tes agents", NotificationManager.IMPORTANCE_HIGH);
         channel.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE),
             new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE).build());
@@ -252,16 +253,16 @@ public class NoahPush extends PushService {
         channel.setVibrationPattern(new long[] { 0, 800, 400, 800, 400 });
         channel.setLockscreenVisibility(Notification.VISIBILITY_PRIVATE);
         manager.createNotificationChannel(channel);
-        Intent screen = new Intent(this, CallActivity.class).putExtra(CallActivity.TITLE, title).putExtra(CallActivity.URL, url)
+        Intent screen = new Intent(context, CallActivity.class).putExtra(CallActivity.TITLE, title).putExtra(CallActivity.URL, url)
             .putExtra(CallActivity.NOTIFICATION, id).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        PendingIntent full = PendingIntent.getActivity(this, id, screen, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-        NotificationCompat.Builder n = new NotificationCompat.Builder(this, CALLS)
+        PendingIntent full = PendingIntent.getActivity(context, id, screen, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        NotificationCompat.Builder n = new NotificationCompat.Builder(context, CALLS)
             .setSmallIcon(R.drawable.ic_stat_noah).setContentTitle(title).setContentText(text)
             .setCategory(NotificationCompat.CATEGORY_CALL).setPriority(NotificationCompat.PRIORITY_MAX)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE) // le compte rendu ne s'affiche pas sur l'écran verrouillé
             .setContentIntent(tap).setFullScreenIntent(full, true).setAutoCancel(true).setTimeoutAfter(60000);
         try {
-            NotificationManagerCompat.from(this).notify(id, n.build());
+            NotificationManagerCompat.from(context).notify(id, n.build());
         } catch (SecurityException ignored) {
             // permission de notifier refusée par l'utilisateur
         }
@@ -286,7 +287,7 @@ public class NoahPush extends PushService {
         return call(method, url, token, json, 15000);
     }
 
-    private static String call(String method, String url, String token, String json, int timeout) throws Exception {
+    static String call(String method, String url, String token, String json, int timeout) throws Exception {
         HttpURLConnection http = (HttpURLConnection) new URL(url).openConnection();
         http.setRequestMethod(method);
         http.setRequestProperty("Authorization", "Bearer " + token);

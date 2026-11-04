@@ -422,6 +422,18 @@ def calls_pending(user: int = Depends(auth.current_user)):
     return {"appels": [_public(r) for r in rows if access.allowed(user, r["agent_id"])]}
 
 
+@router.get("/api/calls/wait")
+async def calls_wait(secondes: int = 50, connus: str = "", user: int = Depends(auth.current_user)):
+    """Attente longue d'un téléphone sans service de notification : répond dès que les appels qui sonnent changent."""
+    known = {k for k in connus.split(",") if k}
+    limit = time.monotonic() + max(1, min(secondes, 55))
+    while True:
+        found = calls_pending(user)
+        if {a["id"] for a in found["appels"]} != known or time.monotonic() >= limit:
+            return found
+        await asyncio.sleep(1)
+
+
 @router.get("/api/calls/{call_id}")
 def call_detail(call_id: str, user: int = Depends(auth.current_user)):
     """Pour l'adresse d'une notification : elle a pu être touchée après la fin de la sonnerie."""
