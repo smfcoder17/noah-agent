@@ -446,7 +446,7 @@ Le gain dépasse les 150 ms exigés, avec moins de queue. Il ne vient pas d'un m
 
 **Interruption, `gpt-audio-mini`, sur la cascade :** arrêt franc 699 ms contre 693 ms, voix baissée 100 ms contre 90 ms, 0 raté sur 5 des deux côtés. Arrêts à tort sur un mot bref : 0 sur 6 des deux côtés. Coupures, pause de 1,5 s : 0 sur 9 des deux côtés, 0 sur 6 à 2 s. Le WAV de longueur inconnue ne change rien. Le critère de coupure compte ici le son entendu et les tours envoyés, or un tour gardé par le modèle n'est pas envoyé : il est un peu moins sévère en voix directe. **Non mesuré sur `gpt-audio`.**
 
-**Coût réel, solde OpenRouter avant et après.** Par appel : cascade 0,003 $, `gpt-audio-mini` 0,0024 $, `gpt-audio` 0,009 $, transcription de la fin de tour et synthèse des résultats comprises. Le compteur de Noah suit le solde (0,215 $ contre 0,215 $ sur `gpt-audio`). Une réponse coupée en route n'a pas de coût connu : le compteur la sous-estime. Cerveau et voix rapide Ollama : compte sans prix par jeton. Total du tour sur OpenRouter : **0,70 $** sur 1 $, dont une garde qui coupait la voie à 0,89 $ et qui n'a pas servi. Haiku pour les juges : environ 0,16 $ à part, sur le compte Anthropic.
+**Coût réel, solde OpenRouter avant et après.** Par appel : cascade 0,003 $, `gpt-audio-mini` 0,0024 $, `gpt-audio` 0,009 $, transcription de la fin de tour et synthèse des résultats comprises. Le compteur de Noah suit le solde (0,215 $ contre 0,215 $ sur `gpt-audio`). Une réponse coupée en route n'a pas de coût connu : le compteur la sous-estime. Cerveau et voix rapide Ollama : compte sans prix par jeton. Total du tour sur OpenRouter : **0,72 $** sur 1 $, dont une garde qui coupait la voie à 0,89 $ et qui n'a pas servi. Haiku pour les juges : environ 0,16 $ à part, sur le compte Anthropic.
 
 **Juges.** Haiku 5.5, Kimi K3, GLM 5.3, 3 passes. Accord entre juges : alpha de 0,24 et 0,31 sur les bases, de 0,43 à 0,59 sur la voix directe. Constance : Haiku 0,81 à 0,92, Kimi 0,51 à 0,87, GLM 0,32 à 0,65. Verdicts sans citation valide : au plus 10 sur 237. Inventions glissées dans la série `gpt-audio` : vues 24 sur 24 par les trois, citées 19, 23 et 17 fois. Les juges ne voient que le son transcrit : ils ne jugent ni la qualité de la voix, ni le changement de voix entre accusé et résultat.
 
@@ -457,7 +457,7 @@ Le gain dépasse les 150 ms exigés, avec moins de queue. Il ne vient pas d'un m
 **Non vérifié.**
 
 - Une seule série par état de voix directe ; trois états essayés sur le même lot de travail, sans correction pour comparaisons multiples. Les bases sont avant et après, pas intercalées avec chaque état (ordre : base 1, mini 1, mini 2, base 2, `gpt-audio`). Les agents gardent leur mémoire entre séries.
-- Mémoire libre au plus bas : 410 à 1 017 Mo selon la série.
+- Mémoire libre au plus bas : 410 à 1 017 Mo selon la série. Les conteneurs `brolls-browser-local-*`, lancés par une autre session, ont démarré pendant les séries.
 - Voix de synthèse, sans bruit, sans vrai micro, sans 4G ni VPS. Personne n'a écouté le son : ni sa qualité, ni le passage d'une voix à l'autre.
 - Dans la voie directe, **un tour que le modèle garde pour lui n'est pas écrit dans la conversation.** Il ne vit que dans le fil de l'appel, et l'agent ne l'apprend pas. À corriger avant toute activation. Le réglage n'a pas d'écran.
 - Le repli du navigateur est prouvé par un filtre réel et une lecture du code en CI, pas par un test de navigateur en CI. L'application mobile n'a pas été touchée.
