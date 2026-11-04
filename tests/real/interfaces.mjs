@@ -97,6 +97,15 @@ try {
   await owner.addCookies([{ name: "apollo_session", value: token, url: BASE }]);
   page = await owner.newPage();
   watch(page, "propriétaire");
+  await page.addInitScript(() => {
+    window.__played = 0;
+    const Native = window.Audio;
+    window.Audio = function (src) {
+      const a = new Native(src);
+      a.addEventListener("playing", () => window.__played++);
+      return a;
+    };
+  });
   await page.goto(BASE);
   await page.waitForTimeout(500);
   // Rien d'un passage précédent : ni sonnerie, ni profil, ni outil.
@@ -163,8 +172,10 @@ try {
     }
     const talk = await say(g, noah, "Réponds seulement : BONJOUR PARTAGE.");
     check("Droit usage : le profil parle vraiment à l'agent", talk.status === 200 && /PARTAGE/i.test(talk.output), talk.output.slice(0, 120));
+    const private_ = (await api(g, "GET", `/api/agents/${noah}/conversations`)).json.find((c) => c.main).id;
     const convs = (await api(page, "GET", `/api/agents/${noah}/conversations`)).json;
-    check("Sa conversation reste invisible du propriétaire", !JSON.stringify(convs).includes("BONJOUR PARTAGE"));
+    const read_ = await api(page, "GET", `/api/conversations/${private_}/messages`);
+    check("Sa conversation reste invisible du propriétaire", !JSON.stringify(convs).includes(private_) && [403, 404].includes(read_.status), String(read_.status));
 
     const guestId = (await api(page, "GET", "/api/profiles")).json.profils.find((p) => p.username === PROFILE).id;
     await api(page, "PUT", `/api/agents/${noah}/shares`, { utilisateur: PROFILE, droit: "lecture", compris: true });
@@ -208,6 +219,17 @@ try {
 
   await step("Droits de l'outil, sur le vrai agent", async () => {
     const setRight = (droit) => api(page, "PUT", `/api/agents/${noah}/connections/tools/${toolName}/droit`, { droit });
+
+    // Le jeton d'un agent, sorti de sa machine, ne sert à rien depuis dehors.
+    const leaked = py(`from apollo import relay
+print(relay.token_for(${JSON.stringify(noah)}))`);
+    const outside = await fetch(BASE + "/agent-api/agents", { headers: { Authorization: "Bearer " + leaked } });
+    check("Le jeton d'un agent est refusé depuis dehors", outside.status === 403, String(outside.status));
+
+    // L'agent ne peut pas se donner un droit : son utilisateur n'écrit pas ce fichier, et le parent n'est pas à lui.
+    const forged = () => { try { docker("exec", "-u", "hermes", "apollo-agent-" + noah, "sh", "-c", `echo '{"${toolName}":"agir"}' > /etc/noah/mcp-droits.json`); return true; } catch { return false; } };
+    check("L'agent ne peut pas réécrire ses droits", !forged());
+    check("Ses droits sont bien ceux de Noah", JSON.parse(docker("exec", "apollo-agent-" + noah, "cat", "/etc/noah/mcp-droits.json"))[toolName] === "confirmer");
 
     // Confirmer : l'appel attend, et un refus n'arrive jamais au serveur.
     let calls = toolCalls().length;
@@ -255,8 +277,7 @@ try {
     await page.waitForTimeout(1500);
     console.log("rappel :", docker("exec", "apollo-agent-" + noah, "python3", "/opt/data/noah.py", "rappeler", "Le rapport est prêt : tout est en ordre.").replace(/\s+/g, " ").slice(0, 120));
     const t0 = Date.now();
-    const spoken = [];
-    page.on("request", (r) => (r.url().includes("/api/voice/say") || r.url().includes("/api/voice/audio/")) && spoken.push(r.url()));
+    const heard = await page.evaluate(() => window.__played);
     const ring = page.getByRole("button", { name: "Répondre", exact: true });
     await ring.waitFor({ timeout: 30000 });
     check("La sonnerie s'affiche", true, `${Date.now() - t0} ms`);
@@ -264,7 +285,8 @@ try {
     await ring.click();
     await page.waitForTimeout(6000);
     await shot(page, "15-appel-decroche");
-    check("Le compte rendu est lu à voix haute", spoken.length > 0, spoken.length + " requête(s)");
+    const played = await page.evaluate(() => window.__played);
+    check("Le compte rendu est vraiment lu à voix haute", played > heard, `${played - heard} lecture(s)`);
   });
 } finally {
   if (page) {

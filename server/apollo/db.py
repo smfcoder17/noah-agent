@@ -95,6 +95,7 @@ def init() -> None:
         db.execute("CREATE TABLE IF NOT EXISTS delegations (id TEXT PRIMARY KEY, de TEXT NOT NULL, vers TEXT NOT NULL, "
                    "conversation_id TEXT NOT NULL, profondeur INTEGER NOT NULL, chaine TEXT NOT NULL, "
                    "rappeler INTEGER NOT NULL DEFAULT 0, etat TEXT NOT NULL, consigne TEXT NOT NULL, created_at REAL NOT NULL)")
+        _add_columns(db, "delegations", {"livre": "INTEGER NOT NULL DEFAULT 1"})  # 1 : les anciennes sont déjà arrivées
         db.execute("CREATE INDEX IF NOT EXISTS delegations_de ON delegations(de, created_at)")
         db.execute("CREATE INDEX IF NOT EXISTS delegations_vers ON delegations(vers, etat)")
         # Rappels vocaux : sonne, puis repondu, refuse ou manque.

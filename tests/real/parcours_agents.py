@@ -91,7 +91,8 @@ def main() -> None:
         main_conv = rows("SELECT id FROM conversations WHERE agent_id = ? AND main = 1 LIMIT 1", noah)[0]["id"]
         back = wait("résultat revenu chez Noah", lambda: rows("SELECT id FROM messages WHERE conversation_id = ? AND role = 'agent' AND text LIKE '%Rita a fini%' AND text LIKE '%391%'", main_conv), 120)
         check("J7 : le résultat revient chez Noah", bool(back))
-    print("FICHIER", rita, f"calcul-{mark}.txt", "391", flush=True)
+    written = web.get(f"/api/agents/{rita}/files/raw/calcul-{mark}.txt")
+    check("J7 : le fichier existe vraiment, avec le résultat", written.status_code == 200 and "391" in written.text, str(written.status_code))
     time.sleep(20)  # Noah reprend la main sur le résultat : on ne lui parle pas par-dessus
 
     # J8 : tâche écrite, puis l'agent fait sonner de lui-même. Le téléphone éteint relève du niveau 3.
@@ -109,7 +110,8 @@ def main() -> None:
         r = web.post(f"/api/calls/{c['id']}/answer")
         check("J8 : on décroche", r.status_code == 200, r.text[:200])
         check("J8 : le compte rendu reste écrit", bool(rows("SELECT id FROM messages WHERE conversation_id = ? AND text LIKE '%appelé%' AND text LIKE '%144%'", c["conversation_id"])))
-    print("FICHIER", rita, f"carre-{mark2}.txt", "144", flush=True)
+    written = web.get(f"/api/agents/{rita}/files/raw/carre-{mark2}.txt")
+    check("J8 : le fichier existe vraiment, avec le résultat", written.status_code == 200 and "144" in written.text, str(written.status_code))
 
     # Le chemin complet : Noah demande à Rita, et la fin de la demande fait sonner.
     calls = len(rows("SELECT id FROM voice_calls"))

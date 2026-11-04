@@ -25,7 +25,7 @@ import time
 from pathlib import Path
 
 DATA = Path(tempfile.mkdtemp())
-RIGHTS_FILE = Path("/opt/data/.noah/mcp-droits.json")
+RIGHTS_FILE = Path("/tmp/noah-droits/mcp-droits.json")  # le lanceur l'écrit en root : ici, le même contenu que lui
 os.environ["APOLLO_DATA_DIR"] = str(DATA)
 os.environ.setdefault("LAUNCHER_KEY", "x")
 os.environ.setdefault("APOLLO_SECRET_KEY", "y" * 32)
@@ -136,6 +136,9 @@ async def real_admin(agent_id: str, action: str, body: dict | None = None, timeo
     out = json.loads(r.stdout.strip().splitlines()[-1]) if r.stdout.strip() else {}
     if r.returncode:
         raise machine.HTTPException(400, out.get("erreur") or r.stderr[-300:])
+    if "droits" in (body or {}):
+        RIGHTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        RIGHTS_FILE.write_text(json.dumps(body["droits"]))
     return out
 
 
@@ -384,7 +387,10 @@ def test_rights() -> None:
     approve_like_the_conversation("libre", "q3", True, "creer_fiche")
     assert call_tool("fiches", "creer_fiche", agent=agent_a) is not None  # « fiches » est en agir : sans lien avec l'accord
     assert rpc(agent_b, "libre", "tools/call", {"name": "creer_fiche"}).status_code == 404
-    assert mcp._take_grant(A, "libre") and not mcp._take_grant(A, "libre")
+    assert not mcp._take_grant(A, "libre", mcp._shown("autre_outil", {"titre": "Devis"})), "un accord vaut pour cet outil seulement"
+    assert mcp._grants[(A, "libre")], "un autre appel ne consomme pas l'accord"
+    what = mcp._grants[(A, "libre")][0][1]
+    assert mcp._take_grant(A, "libre", what) and not mcp._take_grant(A, "libre", what)
 
     async def broken_answer(*a):
         raise RuntimeError("Hermes injoignable")
@@ -394,10 +400,10 @@ def test_rights() -> None:
     assert asked, "le plugin doit demander"
     mcp.approval_seen(A, "q4", asked["message"])
     assert alice.post(f"/api/agents/{A}/runs/run-1/approval", json={"request_id": "q4", "generation": 1, "approve": True}).status_code >= 500
-    assert not mcp._take_grant(A, "libre"), "accord gardé alors qu'Hermes n'a pas la réponse"
+    assert not mcp._grants[(A, "libre")], "accord gardé alors qu'Hermes n'a pas la réponse"
     hermes.answer_approval = fake_answer
     # Un accord qui a expiré ne vaut plus.
-    mcp._grants[(A, "libre")] = [time.time() - 1]
+    mcp._grants[(A, "libre")] = [(time.time() - 1, mcp._shown("creer_fiche", {"titre": "Vieux"}))]
     assert call_tool("libre", "creer_fiche").get("isError")
     # Un résumé qui n'est pas celui d'un outil n'ouvre rien (une commande dangereuse approuvée, par exemple).
     mcp.approval_seen(A, "q5", "rm -rf /tmp/x")
@@ -565,6 +571,7 @@ def test_oauth() -> None:
     waiting = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Callback)
     threading.Thread(target=waiting.serve_forever, daemon=True).start()
     log = Path("/opt/data/.noah/mcp-protege.log")
+    log.parent.mkdir(parents=True, exist_ok=True)
     log.write_text(f"https://f.example/a?redirect_uri=http%3A%2F%2F127.0.0.1%3A{waiting.server_port}%2Fcallback\nNOAH_RESULT ok\n")
     r = alice.post(f"{TOOLS}/protege/finish", json={"adresse": "http://127.0.0.1:1/callback?code=abc&state=x"})
     waiting.shutdown()

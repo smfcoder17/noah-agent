@@ -459,13 +459,16 @@ async def start_run(agent: Agent, text: str, session_id: str) -> str:
     return r.json()["run_id"]
 
 
+RUN_SILENCE = 120  # secondes sans aucun octet : conteneur figé. Hermes envoie un signe de vie toutes les 10 s, même pendant une attente
+
+
 async def run_events(agent: Agent, run_id: str) -> AsyncIterator[tuple[str, dict]]:
     """Lit le flux SSE d'un run et rend des paires (type d'événement, données).
 
     Hermes envoie des trames `data: {"event": "tool.started", "run_id": …, …}` ;
     le type est dans le champ "event" du JSON.
     """
-    async with http().stream("GET", f"{agent.url}/v1/runs/{run_id}/events", headers=agent.headers, timeout=None) as r:
+    async with http().stream("GET", f"{agent.url}/v1/runs/{run_id}/events", headers=agent.headers, timeout=httpx.Timeout(None, read=RUN_SILENCE)) as r:
         r.raise_for_status()
         data: list[str] = []
         async for line in r.aiter_lines():

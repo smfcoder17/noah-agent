@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import hashlib
 import ipaddress
 import json
@@ -88,7 +89,7 @@ _running_runs: set = set()  # runs suivis en arrière-plan (référence gardée 
 task_state: dict[str, str] = {}
 
 # Version du branchement des agents ; l'augmenter reconfigure tous les agents au démarrage.
-AGENT_SETUP_VERSION = "24-outils"  # 24 : droits par outil MCP dans la garde (G13.2)
+AGENT_SETUP_VERSION = "25-droits"  # 25 : droits des outils hors de portée de l'agent
 
 
 @app.on_event("startup")
@@ -212,6 +213,7 @@ async def _configure(agent_id: str, soul: str | None = None) -> None:
     rev = _config_rev(agent_id)
     db.set_setting(f"applied:{agent_id}", "")
     await hermes.configure(agent_id, model_for(agent_id), soul)
+    await mcp.seal_rights(agent_id)
     db.set_setting(f"applied:{agent_id}", rev)
 
 
@@ -1219,7 +1221,10 @@ async def _provision(agent: Agent, soul: str) -> None:
             provisioning[agent.id] = "L'agent n'a pas démarré. Supprime-le et réessaie."
             return
         provisioning[agent.id] = "Démarrage du navigateur…"
-        await hermes.ensure_browser(agent.id)
+        try:
+            await hermes.ensure_browser(agent.id)
+        except httpx.HTTPError as e:  # l'agent sait répondre sans lui, et le rallume quand il en a besoin
+            print(f"[agent] navigateur de {agent.id} non démarré : {e}", flush=True)
         provisioning[agent.id] = "Configuration du modèle…"
         await _configure(agent.id, soul)
         await asyncio.sleep(3)
@@ -1402,8 +1407,11 @@ async def delete_agent(agent_id: str, user: int = Depends(auth.current_user)):
 async def _remove_agent(agent_id: str) -> None:
     try:
         await hermes.delete_container(agent_id)
-    except Exception:
-        pass  # conteneur déjà absent : on nettoie quand même la base
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code != 404:  # machine, volume et comptes resteraient là, sans plus personne pour les gérer
+            raise HTTPException(502, "La machine de l'agent n'a pas pu être effacée : réessaie.") from None
+    except httpx.HTTPError:
+        raise HTTPException(502, "La machine de l'agent n'a pas pu être effacée : réessaie.") from None
     with db.connect() as c:
         c.execute("DELETE FROM agents WHERE id = ?", (agent_id,))
     provisioning.pop(agent_id, None)
@@ -1411,6 +1419,7 @@ async def _remove_agent(agent_id: str) -> None:
 
 async def _stop_runs(user: int, agent_id: str | None = None) -> None:
     """Accès retiré : ce que ce profil a lancé s'arrête, l'agent ne continue pas à ses frais pour quelqu'un de parti."""
+    media.close_streams(user)
     for run_id, r in list(_runs.items()):
         if r["user"] == user and agent_id in (None, r["agent"]):
             try:
@@ -1592,7 +1601,13 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
         raise HTTPException(503, "L'agent ne répond pas. Il démarre peut-être encore : réessaie dans un instant.")
 
     updates.activity()
-    _runs[run_id] = {"agent": agent.id, "user": _conversation_owner(conv_id)}
+    launched_by = _conversation_owner(conv_id)
+    _runs[run_id] = {"agent": agent.id, "user": launched_by}
+    if launched_by is not None and not access.allowed(launched_by, agent.id, "usage"):  # retiré pendant le démarrage d'Hermes
+        task_state[conv_id] = "idle"
+        with contextlib.suppress(Exception):
+            await hermes.stop_run(agent, run_id)
+        raise HTTPException(404, "Agent introuvable")
 
     async def body():
         yield _sse({"type": "start", "conversation_id": conv_id, "run_id": run_id})
@@ -2361,6 +2376,8 @@ async def _resume_agent(agent_id: str, text: str, note: str = "", author: str = 
 async def agent_thread(body: ThreadBody, request: Request):
     """L'agent ouvre un fil de travail parallèle : nouvelle session Hermes, visible dans Détails."""
     agent_id = relay._agent_from(request)
+    if access.ambiguous(agent_id):
+        raise HTTPException(409, "Plusieurs personnes te parlent en ce moment : fais ce travail dans ta conversation, sans ouvrir de fil.")
     conv_id = _new_conversation(access.launcher(agent_id), agent_id, body.titre, origin="agent")
     stream = await _run(_agent(agent_id), conv_id, body.consigne)
 

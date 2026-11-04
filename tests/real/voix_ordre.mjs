@@ -34,6 +34,17 @@ const until = async (fn, seconds) => {
   return null;
 };
 
+// Un vrai outil, hors du réseau de Noah, qui écrit ce qu'il reçoit.
+const docker = (...args) => execFileSync("docker", args, { maxBuffer: 1 << 26 }).toString();
+const MCP = "noah-mcp-essai";
+try { docker("rm", "-f", MCP); } catch {}
+docker("run", "-d", "--name", MCP, "-p", "127.0.0.1:9911:9911", "-v", resolve("tests/tools") + ":/t:ro", "-w", "/t", "apollo-server", "python", "-c",
+  "import json, mcp_server, time\ns = mcp_server.Server(port=9911, session=False).start()\nwhile True:\n    open('/tmp/calls.json', 'w').write(json.dumps([c[0] for c in s.calls]))\n    time.sleep(0.5)");
+const toolCalls = () => JSON.parse(docker("exec", MCP, "cat", "/tmp/calls.json"));
+const TOOL = "outil-192-168-65-254";
+const post = (page, method, path, body) => page.evaluate(async ([method, path, body]) => (await fetch(path, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined })).status, [method, path, body]);
+let openPage, agentId;
+
 const browser = await chromium.launch({ channel: "chrome", headless: true, args: ["--autoplay-policy=no-user-gesture-required", "--use-fake-ui-for-media-stream"] });
 try {
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, permissions: ["microphone"] });
@@ -62,10 +73,22 @@ try {
     };
   });
   await page.goto(BASE);
+  await page.evaluate(async () => {
+    const { appels } = await (await fetch("/api/calls/pending")).json();
+    for (const call of appels) await fetch(`/api/calls/${call.id}/decline`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  });
+  await page.reload();
   await page.waitForTimeout(1500);
   await page.getByRole("button", { name: /^Noah/ }).first().click();
   const agent = py(`from apollo import db
 with db.connect() as c: print(c.execute("SELECT id FROM agents WHERE name = 'Noah'").fetchone()[0])`);
+  openPage = page;
+  agentId = agent;
+  await post(page, "PUT", "/api/mcp/reseaux", { reseaux: ["192.168.65.0/24"] });
+  await post(page, "POST", `/api/agents/${agent}/connections/tools/${TOOL}/remove`, {});
+  const added = await post(page, "POST", `/api/agents/${agent}/connections/tools`, { url: "http://192.168.65.254:9911/mcp", nom: "", auth: "aucune", jeton: "", droit: "confirmer" });
+  if (added !== 200) throw new Error("outil non ajouté : " + added);
+  await page.waitForTimeout(70000); // Hermes relit ses outils environ chaque minute
   await page.getByRole("button", { name: "Mode vocal" }).click({ timeout: 30000 });
   await page.getByText("Je t'écoute").waitFor({ timeout: 15000 });
   await page.waitForTimeout(800);
@@ -75,7 +98,7 @@ with db.connect() as c: print(c.execute("SELECT id FROM agents WHERE name = 'Noa
   await page.evaluate((b64) => window.__say(b64), speak(agent, "Demande à Rita de calculer quinze fois sept, et d'écrire le résultat dans un fichier."));
   const sent = await until(() => count("SELECT COUNT(*) FROM delegations") > before, 150);
   check("J7 : à la voix, la demande part chez Rita", sent !== null, `${sent} s`);
-  const done = sent !== null && await until(() => count("SELECT COUNT(*) FROM delegations WHERE etat = 'fini' AND consigne LIKE '%15%' OR etat = 'fini' AND consigne LIKE '%quinze%'") > 0, 150);
+  const done = sent !== null && await until(() => count("SELECT etat = 'fini' FROM delegations ORDER BY created_at DESC LIMIT 1") === 1, 150);
   check("J7 : Rita a fini", done !== false && done !== null, `${done} s`);
   console.log("consigne :", py(`from apollo import db
 with db.connect() as c: print(c.execute("SELECT consigne FROM delegations ORDER BY created_at DESC LIMIT 1").fetchone()[0][:200])`));
@@ -92,11 +115,12 @@ with db.connect() as c: print(c.execute("SELECT consigne FROM delegations ORDER 
     // Un « oui » parlé ne donne pas l'accord.
     await page.evaluate((b64) => window.__say(b64), speak(agent, "Oui, vas-y, je confirme."));
     await page.waitForTimeout(6000);
-    check("G11.7 : un oui parlé ne suffit pas", (await page.getByRole("button", { name: "Autoriser" }).count()) > 0);
+    check("G11.7 : un oui parlé ne suffit pas", (await page.getByRole("button", { name: "Autoriser" }).count()) > 0 && !toolCalls().includes("creer_fiche"), JSON.stringify(toolCalls()));
     await page.getByRole("button", { name: "Autoriser" }).first().click();
     await page.waitForTimeout(8000);
     await page.screenshot({ path: `${OUT}/22-voix-apres-accord.png` });
     check("G11.7 : la carte disparaît après l'accord", (await page.getByRole("button", { name: "Autoriser" }).count()) === 0);
+    check("G11.7 : après l'accord, l'action arrive vraiment à l'outil", toolCalls().includes("creer_fiche"), JSON.stringify(toolCalls()));
   }
   // J6 : on appelle aussi l'autre agent, celui qu'on a créé.
   await page.getByRole("button", { name: /^Rita/ }).first().click();
@@ -110,6 +134,11 @@ with db.connect() as c: print(c.execute("SELECT consigne FROM delegations ORDER 
   check("J6 : l'autre agent répond à la voix", answered !== null, `${answered} s`);
   await page.screenshot({ path: `${OUT}/23-voix-rita.png` });
 } finally {
+  if (openPage) {
+    await post(openPage, "POST", `/api/agents/${agentId}/connections/tools/${TOOL}/remove`, {}).catch(() => {});
+    await post(openPage, "PUT", "/api/mcp/reseaux", { reseaux: [] }).catch(() => {});
+  }
+  try { docker("rm", "-f", MCP); } catch {}
   await browser.close();
   py(`from apollo import auth
 auth.drop_session(${JSON.stringify(token)})`);

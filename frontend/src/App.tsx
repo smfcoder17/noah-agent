@@ -368,6 +368,11 @@ function Shell({ onLogout }: { onLogout: () => void }) {
                     : agent.step || (agent.online ? "En ligne" : "Hors ligne")}
               </p>
             </div>
+            {agent && !agent.online && !agent.step && canAdmin(agent) && (
+              <Button variant="outline" size="sm" className="shrink-0" onClick={() => send(`/api/agents/${agent.id}/repair`, {}).then(refreshAgents).catch(() => {})}>
+                Redémarrer
+              </Button>
+            )}
             {STATE_WORD[state] && state !== "done" && (
               <span
                 role="status"

@@ -8,8 +8,10 @@
 import hashlib
 import hmac
 import json
+import socket
 from contextvars import ContextVar
 from datetime import datetime, time as dtime, timezone
+from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
@@ -58,7 +60,27 @@ def token_for(agent_id: str) -> str:
     return hmac.new(SECRET_KEY.encode(), f"relay:{agent_id}".encode(), hashlib.sha256).hexdigest()
 
 
+def _gateway() -> str | None:
+    """La passerelle du réseau Docker : c'est d'elle que semble venir tout ce qui entre par un port publié."""
+    try:
+        for line in Path("/proc/net/route").read_text().splitlines()[1:]:
+            fields = line.split()
+            if fields[1] == "00000000":
+                return socket.inet_ntoa(int(fields[2], 16).to_bytes(4, "little"))
+    except (OSError, ValueError, IndexError):
+        pass
+    return None
+
+
+def _from_outside(request: Request) -> bool:
+    return "x-forwarded-for" in request.headers or (request.client is not None and request.client.host == _gateway())
+
+
 def _agent_from(request: Request) -> str:
+    # Un agent parle à Noah par le réseau Docker. Un jeton affiché par un agent à une personne ne sert à rien depuis dehors :
+    # elle reprendrait la main sur les collègues et les fonds de l'agent, même après la fin de son partage.
+    if _from_outside(request):
+        raise HTTPException(403, "Réservé aux agents")
     token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
     with db.connect() as c:
         ids = [r["id"] for r in c.execute("SELECT id FROM agents")]

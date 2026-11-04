@@ -99,11 +99,26 @@ def _record(agent_id: str, model: str, cost: float | None) -> None:
         )
 
 
+async def _speech_cost(model: str, chars: int) -> float | None:
+    """Estimation depuis le prix du catalogue (par minute, ~900 caractères). OpenRouter ne rend pas le coût d'une synthèse."""
+    try:
+        for m in await models("speech"):
+            if m["id"] == model and m["cost"] and m["cost"]["value"]:
+                return m["cost"]["value"] * chars / 900
+    except (httpx.HTTPError, KeyError, ValueError):
+        pass
+    return None
+
+
 def _fail(r: httpx.Response) -> MediaError:
     try:
         msg = r.json().get("error", {}).get("message") or r.text
     except ValueError:
         msg = r.text
+    # Un serveur peut répéter la clé reçue dans son erreur, et l'erreur part chez un profil qui n'a pas à la connaître.
+    sent = r.request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+    if sent:
+        msg = str(msg).replace(sent, "***")
     if r.status_code == 402:
         return MediaError("Le compte OpenRouter n'a plus de crédit.")
     return MediaError(f"Le modèle a refusé la demande ({r.status_code}) : {str(msg)[:300]}")
@@ -439,8 +454,7 @@ async def speak(agent_id: str, text: str) -> tuple[bytes, str, str]:
     if ctype.startswith("audio/pcm"):
         rate = int((re.search(r"rate=(\d+)", ctype) or [0, 24000])[1])
         data, ctype = _wav(data, rate), "audio/wav"
-    # Prix au caractère (champ prompt du catalogue), approximatif.
-    _record(agent_id, model, None)
+    _record(agent_id, model, None if own else await _speech_cost(model, len(body["input"])))
     return data, ctype.split(";")[0], model
 
 
@@ -646,6 +660,16 @@ class AudioStream:
             self.queue.put_nowait(data)
 
 
+def close_streams(user: int) -> None:
+    """Accès retiré : les voix de ce profil se taisent. Tout ce qui lui parle, faute de savoir pour quel agent."""
+    for stream in _streams.values():
+        if stream.owner == user and not stream.closed:
+            stream.put(None)
+            stream.closed = True
+            if stream.task:
+                stream.task.cancel()
+
+
 def _wav_header(rate: int) -> bytes:
     import struct
 
@@ -800,6 +824,7 @@ async def speak_stream(agent_id: str, texts, out: AudioStream) -> None:
     model = None
     sent = False
     said = 0
+    chars = 0
     try:
         _check_budget(agent_id)
         # Serveur choisi : ni modèle de secours, ni repli vers OpenRouter, la voix ne sort pas à l'insu de la personne.
@@ -845,11 +870,12 @@ async def speak_stream(agent_id: str, texts, out: AudioStream) -> None:
                 q.put_nowait(None)
 
         async def feed() -> None:
-            nonlocal said
+            nonlocal said, chars
             async for text in texts:
                 if out.closed:
                     break
                 said += 1
+                chars += len(text)
                 q: asyncio.Queue = asyncio.Queue()
                 _background(fetch(text, q))
                 parts.put_nowait(q)
@@ -872,7 +898,7 @@ async def speak_stream(agent_id: str, texts, out: AudioStream) -> None:
             print(f"[voix] réponse sans aucun son (modèle {model}, {said} phrase(s) reçue(s))", flush=True)
         out.put(None)
         if model:
-            _record(agent_id, model, None)
+            _record(agent_id, model, None if voice_server("speech") else await _speech_cost(model, chars))
 
 
 async def transcribe(agent_id: str, audio: bytes, fmt: str, language: str | None = "fr") -> str:

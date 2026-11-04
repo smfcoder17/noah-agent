@@ -67,6 +67,8 @@ def create_profile(body: NewProfile, _: int = Depends(access.owner_only)):
 @router.patch("/api/profiles/{profile_id}")
 def edit_profile(profile_id: int, body: ProfileEdit, _: int = Depends(access.owner_only)):
     _profile(profile_id)
+    if "budget" not in body.model_fields_set:  # un champ absent ne retire pas le plafond
+        return _public(_profile(profile_id))
     with db.connect() as c:
         c.execute("UPDATE users SET budget_monthly = ? WHERE id = ?", (body.budget, profile_id))
     return _public(_profile(profile_id))
@@ -183,5 +185,8 @@ async def revoke_share(agent_id: str, user_id: int, user: int = Depends(auth.cur
         gone = c.execute("DELETE FROM agent_shares WHERE agent_id = ? AND user_id = ?", (agent_id, user_id)).rowcount
     if not gone:
         raise HTTPException(404, "Ce partage n'existe plus.")
+    # Un rappel en attente d'envoi peut porter un compte rendu de cet agent ; la file ne dit pas lequel : on la vide.
+    with db.connect() as c:
+        c.execute("DELETE FROM push_queue WHERE session IN (SELECT token FROM sessions WHERE user_id = ?)", (user_id,))
     await _h["stop_runs"](user_id, agent_id)
     return {"partages": _shares(agent_id)}

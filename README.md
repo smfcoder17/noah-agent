@@ -6,6 +6,8 @@ plusieurs agents isolés, et un chat qui montre ce que fait l'agent sans affiche
 
 ## Démarrer
 
+Le guide complet, du premier lancement au téléphone : [docs/installation.md](docs/installation.md).
+
 Prérequis : Docker (Docker Desktop sous Windows et macOS).
 
 ```sh
@@ -15,7 +17,7 @@ sh install.sh
 Puis ouvre http://localhost:8080 :
 
 1. crée le compte administrateur (il reste sur ta machine) ;
-2. choisis un fournisseur (OpenRouter, Anthropic, OpenAI, Gemini ou Ollama), colle ta clé et le modèle ;
+2. choisis un fournisseur (Ollama, Ollama Cloud, un serveur compatible OpenAI, OpenRouter, Anthropic, OpenAI ou Gemini) et le modèle ;
 3. ton premier agent, « Assistant », démarre en une trentaine de secondes ;
 4. crée d'autres agents avec « + Nouveau » : un nom et un rôle suffisent.
 
@@ -141,8 +143,9 @@ puis ouvre http://localhost:5173 (l'API et l'écran noVNC sont relayés vers le 
 
 Les agents n'ont jamais la clé du fournisseur. Ils appellent `apollo-server` (`/relay/v1`, compatible OpenAI)
 avec un jeton propre à chacun ; le serveur ajoute la clé, transmet la requête et enregistre les jetons
-et le coût de chaque appel (coût exact avec OpenRouter, estimé avec les prix publics sinon).
-Un budget mensuel optionnel bloque les appels une fois atteint. La dépense du mois s'affiche en bas
+et le coût de chaque appel (exact avec OpenRouter, estimé avec les prix publics chez les grands fournisseurs, estimé
+au catalogue pour la synthèse vocale). Ollama et un serveur compatible OpenAI comptent 0 $ : Noah n'a pas leur tarif,
+et un plafond ne les arrête donc pas. Un budget mensuel optionnel bloque les appels une fois atteint. La dépense du mois s'affiche en bas
 de la colonne de gauche.
 
 ## Navigateur et écran de l'agent

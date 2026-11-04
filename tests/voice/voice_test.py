@@ -9,6 +9,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 
 os.environ["APOLLO_DATA_DIR"] = tempfile.mkdtemp()
 os.environ.setdefault("LAUNCHER_KEY", "x")
@@ -136,9 +137,22 @@ async def round_trip() -> None:
     assert await media.transcribe("a1", b"AUDIO", "webm") == "transcrit"
 
 
+refused = httpx.Response(401, json={"error": {"message": "Invalid API key: sk-secret"}},
+                         request=httpx.Request("POST", "http://voix/x", headers={"Authorization": "Bearer sk-secret"}))
+assert "sk-secret" not in str(media._fail(refused)), "une clé répétée par le serveur de voix sort vers le profil"
+
+
+async def speech_is_counted() -> None:
+    """OpenRouter ne rend pas le coût d'une synthèse : sans estimation, la voix échappait au plafond."""
+    media._cache["speech"] = (time.time(), [{"id": "tts-test", "cost": {"value": 0.09}}])
+    assert await media._speech_cost("tts-test", 900) == 0.09
+    assert await media._speech_cost("tts-inconnu", 900) is None
+
+
 # Sans adresse : OpenRouter, sa clé, et le format JSON d'OpenRouter.
 assert web.get("/api/voice/server").json() == {"base_url": "", "has_key": False, "speech_model": "", "transcription_model": "", "voice": ""}
 asyncio.run(round_trip())
+asyncio.run(speech_is_counted())
 assert len(voice_calls()) == 3
 for r in voice_calls():
     assert r.url.host == "openrouter.ai" and r.headers["authorization"] == "Bearer cle-openrouter", r.url

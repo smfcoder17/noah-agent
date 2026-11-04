@@ -343,18 +343,6 @@ def app_remove(body):
 
 # --- Outils ajoutés par adresse (G13) : le serveur de Noah a déjà vérifié l'adresse et testé la connexion ---------------
 
-RIGHTS = ("lire", "agir", "confirmer")
-
-
-def _write_rights(rights):
-    """Lu à chaque appel par le plugin de garde : un droit changé vaut pour l'appel suivant, sans redémarrer."""
-    clean = {str(k): v for k, v in (rights or {}).items() if v in RIGHTS}
-    NOAH.mkdir(parents=True, exist_ok=True)
-    tmp = NOAH / "mcp-droits.tmp"
-    tmp.write_text(json.dumps(clean, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(NOAH / "mcp-droits.json")
-
-
 def _tool_name(body):
     import re
     name = body.get("nom") or ""
@@ -373,7 +361,6 @@ def tool_set(body):
         fail(f"Un outil s'appelle déjà « {name} »")
     if not _save_mcp_server(name, cfg):
         fail("Configuration refusée par Hermes")
-    _write_rights(body.get("droits"))
     return _start_login(name) if cfg.get("auth") == "oauth" else {"connecte": True}
 
 
@@ -394,7 +381,6 @@ def tool_finish(body):
 
 
 def tool_rights(body):
-    _write_rights(body.get("droits"))
     return {"ok": True}
 
 
@@ -404,7 +390,6 @@ def tool_remove(body):
     name = _tool_name(body)
     _remove_mcp_server(name)
     HermesTokenStorage(name).remove()
-    _write_rights(body.get("droits"))
     return {"connecte": False}
 
 

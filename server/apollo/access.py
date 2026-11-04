@@ -103,6 +103,11 @@ def launcher(agent_id: str) -> int | None:
     return (_conversation_user(task) if task else None) or owner_of(agent_id)
 
 
+def ambiguous(agent_id: str) -> bool:
+    """Des tâches de plusieurs profils tournent : on ne sait pas de laquelle vient l'appel de l'agent."""
+    return len({_conversation_user(conv) for conv in set(relay.active.get(agent_id) or [])}) > 1
+
+
 def guest_task(agent_id: str) -> bool:
     """Une tâche lancée par un profil partagé tourne : l'agent ne doit pas lui prêter ce que seul son propriétaire a
     (les autres agents, l'ordinateur du propriétaire)."""

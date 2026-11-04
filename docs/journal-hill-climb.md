@@ -224,3 +224,17 @@ Deux vrais conteneurs Hermes, modèle `deepseek-v4.1-flash:cloud` par Ollama, vr
 - **Défauts vus, non corrigés :** « ≈ 0 $ / 5 s » sur Seedance dans Réglages > Création ; les sessions du banc comptent comme des appareils dans Profils.
 - **Limites :** tâches simples (calculs), navigateur sans vrai micro ni vrai haut-parleur, téléphone simulé par la taille d'écran, aucun VPS.
 - **Note :** le journal disait qu'il restait à rejouer les sabotages : c'est fait depuis, 11 sur 11.
+
+## 2026-11-04 : audits à l'aveugle, Codex et Kimi : 4/10 tous les deux
+
+Les deux ont reçu le code et la promesse, sans notes. Chaque constat a été relu dans le code avant correction.
+
+- **Corrigé :** droits des outils écrits en root hors du volume ; un accord ne vaut que pour cet outil et ces arguments ; jeton d'agent refusé depuis dehors ; compte rendu envoyé au bon profil, et refus quand plusieurs profils sont actifs ; tâche arrêtée si l'accès est retiré pendant son démarrage ; voix coupée à la révocation ; file de notifications vidée ; agent figé coupé après 120 s de silence, demande bornée à 6 h ; résultat livré même après un redémarrage ; plafond de 100 demandes par jour ; synthèse vocale comptée ; clé masquée dans les erreurs du serveur de voix ; machine d'agent non effacée signalée ; plafond conservé si un champ manque ; navigateur en panne qui n'empêche plus l'agent de démarrer (trouvé par nos parcours).
+- **Tests durcis :** fichier lu pour de vrai, voix réellement jouée, accord suivi de l'arrivée à l'outil, confidentialité vérifiée par l'identifiant et la lecture des messages.
+- **Reste ouvert :**
+  - un outil OAuth s'exécute dans la machine de l'agent, avec ses jetons : la confirmation arrête le modèle, pas un agent déjà pris en main ;
+  - les agents gardent un accès sortant direct, donc au réseau de métadonnées d'un VPS et au réseau Docker ;
+  - un processus lancé pendant le tour d'un profil partagé peut survivre à ce tour (G12.5) ;
+  - un coût Ollama ou compatible OpenAI vaut 0 $, le plafond ne les arrête pas ; une réponse vocale annulée n'est pas comptée ;
+  - le résultat d'un autre agent reste un tour de conversation, marqué comme information : une injection reste possible chez un modèle qui ignore la consigne ;
+  - le secret client Google passe par le terminal de l'agent ; l'adresse d'un serveur de voix n'a pas de garde réseau, mais seul le propriétaire la règle.

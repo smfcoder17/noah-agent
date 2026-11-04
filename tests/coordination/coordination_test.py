@@ -244,7 +244,7 @@ async def test_limits():
     now = time.time()
     with db.connect() as c:
         for i in range(coordination.DEMANDS_PER_HOUR):
-            c.execute("INSERT INTO delegations VALUES (?, 'a', 'b', 'z', 1, '[\"a\"]', 0, 'fini', 'x', ?)", (f"o{i}", now - 60))
+            c.execute("INSERT INTO delegations VALUES (?, 'a', 'b', 'z', 1, '[\"a\"]', 0, 'fini', 'x', ?, 1)", (f"o{i}", now - 60))
     before = len(runs)
     r = await ask("a", "b")
     assert r.status_code == 429 and str(coordination.DEMANDS_PER_HOUR) in r.json()["detail"], r.text
@@ -384,10 +384,13 @@ async def test_outcomes():
     # Redémarrage du serveur pendant une demande : le demandeur le sait, sans relancer le modèle.
     clear_demands()
     with db.connect() as c:
-        c.execute("INSERT INTO delegations VALUES ('perdue', 'a', 'b', 'z', 1, '[\"a\"]', 0, 'en_cours', 'Tâche perdue', ?)", (time.time() - 100,))
+        c.execute("INSERT INTO delegations VALUES ('perdue', 'a', 'b', 'z', 1, '[\"a\"]', 0, 'en_cours', 'Tâche perdue', ?, 0)", (time.time() - 100,))
+        c.execute("INSERT INTO delegations VALUES ('a-livrer', 'a', 'b', ?, 1, '[\"a\"]', 0, 'fini', 'Tâche finie', ?, 0)", (MAINS["b"], time.time() - 100))
     before = len(runs)
+    coordination._h["save"](MAINS["b"], "agent", "Résultat tardif")
     coordination._BOOT = time.time()
     await coordination.recover()
+    assert "Résultat tardif" in main_text("a") and delegation("a-livrer")["livre"] == 1, "fini avant le redémarrage : le résultat arrive quand même"
     assert delegation("perdue")["etat"] == "echec" and "Tâche perdue" in main_text("a") and "redémarré" in main_text("a")
     assert len(runs) == before
     assert (await ask("b", "a")).status_code == 200, "une demande perdue ne doit plus bloquer les suivantes"
@@ -513,7 +516,11 @@ async def test_calls():
         did = (await ask("a", "b", "Prépare le devis", rappeler=True)).json()["id"]
         assert delegation(did)["rappeler"] == 1 and not rings
         finish(run_for("b"), "Devis prêt.\n```noah\n{\"type\":\"preview\"}\n```", tools=["web_search"])
+        # Un profil partagé a une tâche sur le demandeur pendant ce temps : le compte rendu ne va pas chez lui pour autant.
+        launcher = coordination.access.launcher
+        coordination.access.launcher = lambda agent: 999
         await settle()
+        coordination.access.launcher = launcher
         assert len(rings) == 1 and rings[0]["urgent"] and rings[0]["url"].startswith("/#appel=") and rings[0]["title"] == "Alma t'appelle"
         pending = (await alice.get("/api/calls/pending")).json()["appels"]
         assert len(pending) == 1 and "Basile a fini" in pending[0]["texte"] and "Devis prêt" in pending[0]["texte"] and "```" not in pending[0]["texte"]

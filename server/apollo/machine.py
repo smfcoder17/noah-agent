@@ -142,7 +142,7 @@ async def deliver_routines(save_message, main_conversation) -> None:
 def add_context(conv_id: str, text: str) -> None:
     """Hermes n'a pas ce message dans sa session : il le recevra avec le prochain message de l'utilisateur."""
     pending = json.loads(db.get_setting(f"contexte_{conv_id}") or "[]")
-    db.set_setting(f"contexte_{conv_id}", json.dumps((pending + [text])[-5:]))
+    db.set_setting(f"contexte_{conv_id}", json.dumps((pending + [text])[-20:]))
 
 
 def pop_context(conv_id: str) -> str:

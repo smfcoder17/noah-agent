@@ -13,7 +13,7 @@ communautaire jugé sûr, sans signature. Ici :
 
 Les skills que l'agent écrit lui-même (skill_manage) restent permis : ils passent par l'analyse d'Hermes.
 
-Outils MCP (G13.2) : chaque serveur a un droit choisi par l'utilisateur, écrit par Noah dans .noah/mcp-droits.json. `lire` :
+Outils MCP (G13.2) : chaque serveur a un droit choisi par l'utilisateur, écrit par le lanceur en root dans /etc/noah/mcp-droits.json. `lire` :
 seuls les outils que le serveur déclare en lecture ; `agir` : tout ; `confirmer` (par défaut, y compris fichier absent ou
 illisible) : chaque appel passe par la validation humaine d'Hermes, la même que les commandes dangereuses, et Noah répond
 « une fois » seulement. Dans une routine, personne ne peut valider : refus. L'agent ne branche pas de serveur MCP lui-même.
@@ -163,7 +163,7 @@ def check(command: str) -> str | None:
 
 # --- Droits des outils MCP -----------------------------------------------------------------------------------------
 
-MCP_RIGHTS = os.environ.get("NOAH_MCP_DROITS", "/opt/data/.noah/mcp-droits.json")
+MCP_RIGHTS = os.environ.get("NOAH_MCP_DROITS", "/etc/noah/mcp-droits.json")
 
 
 def _rights() -> dict:

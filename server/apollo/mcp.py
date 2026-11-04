@@ -246,6 +246,15 @@ async def _read_sse(response, wanted):
 
 
 async def _post(url: str, token: str | None, payload: dict, session: str | None, seconds: float):
+    """Le délai d'httpx ne limite que le silence : un serveur qui envoie des lignes vides ne doit pas tenir l'appel ouvert."""
+    try:
+        async with asyncio.timeout(seconds + CONNECT_SECONDS):
+            return await _post_once(url, token, payload, session, seconds)
+    except TimeoutError:
+        raise Down("le serveur ne finit pas de répondre") from None
+
+
+async def _post_once(url: str, token: str | None, payload: dict, session: str | None, seconds: float):
     target = await resolve(url)  # à chaque requête : un nom peut avoir changé d'adresse depuis l'ajout
     headers = {"Host": target.host_header, "Accept": "application/json, text/event-stream",
                "Content-Type": "application/json", "MCP-Protocol-Version": PROTOCOL}
@@ -374,6 +383,14 @@ def _note(agent_id: str, name: str, etat: str, erreur: str = "", outils: list | 
 
 def _rights(agent_id: str) -> dict[str, str]:
     return {r["nom"]: r["droit"] for r in _rows(agent_id)}
+
+
+async def seal_rights(agent_id: str) -> None:
+    """Un conteneur recréé a perdu ses droits : ils redeviennent ceux choisis ici. Sans lanceur, un droit absent vaut « confirmer »."""
+    try:
+        await machine.admin(agent_id, "outil_droits", {"droits": _rights(agent_id)})
+    except HTTPException as e:
+        print(f"[outils] droits non écrits pour {agent_id} : {e.detail}", flush=True)
 
 
 def _name_from(url: str) -> str:
@@ -665,17 +682,22 @@ async def connections_state(agent_id: str, apps: list[dict], personal: dict) -> 
 
 # Le plugin de garde écrit ce début dans la demande d'accord d'Hermes ; c'est ce qui relie l'accord au serveur.
 ASKED = re.compile(r"^Outil « ([a-z0-9-]{1,31}) » : ")
-_asked: dict[tuple[str, str], tuple[str, float]] = {}
-_grants: dict[tuple[str, str], list[float]] = {}
+_asked: dict[tuple[str, str], tuple[str, str, float]] = {}  # (serveur, ce qui a été montré à la personne, quand)
+_grants: dict[tuple[str, str], list[tuple[float, str]]] = {}
+
+
+def _shown(tool: str, args) -> str:
+    """Ce que le plugin de garde montre à la personne : un accord ne vaut que pour cela."""
+    return f"{tool}\n{json.dumps(args, ensure_ascii=False, default=str)[:600]}"
 
 
 def approval_seen(agent_id: str, request_id: str | None, summary: str) -> None:
     m = ASKED.match(str(summary or ""))
     if m and request_id:
         now = time.time()
-        for key in [k for k, (_, at) in _asked.items() if now - at > 3600]:
+        for key in [k for k, (_, _, at) in _asked.items() if now - at > 3600]:
             _asked.pop(key, None)
-        _asked[(agent_id, str(request_id))] = (m.group(1), now)
+        _asked[(agent_id, str(request_id))] = (m.group(1), str(summary)[m.end():], now)
 
 
 def approval_answered(agent_id: str, request_id: str, approve: bool) -> tuple[str, str] | None:
@@ -684,7 +706,7 @@ def approval_answered(agent_id: str, request_id: str, approve: bool) -> tuple[st
     if not asked or not approve:
         return None
     key = (agent_id, asked[0])
-    _grants.setdefault(key, []).append(time.time() + GRANT_SECONDS)
+    _grants.setdefault(key, []).append((time.time() + GRANT_SECONDS, asked[1]))
     return key
 
 
@@ -694,12 +716,15 @@ def approval_failed(key: tuple[str, str] | None) -> None:
         _grants[key].pop()
 
 
-def _take_grant(agent_id: str, name: str) -> bool:
+def _take_grant(agent_id: str, name: str, what: str) -> bool:
+    """Consomme l'accord donné pour cet appel précis, et aucun autre : un appel concurrent ne peut pas passer à sa place."""
     now = time.time()
-    left = [t for t in _grants.get((agent_id, name), []) if t > now]
-    ok = bool(left)
-    _grants[(agent_id, name)] = left[1:]
-    return ok
+    left = [g for g in _grants.get((agent_id, name), []) if g[0] > now]
+    match = next((g for g in left if g[1] == what), None)
+    if match:
+        left.remove(match)
+    _grants[(agent_id, name)] = left
+    return match is not None
 
 
 # --- Ce que voit Hermes : un serveur MCP sans état, en JSON ---------------------------------------------------------
@@ -721,7 +746,7 @@ def _outage_text(name: str, why: str) -> str:
             "avant de la refaire.")
 
 
-def _gate(row, tool: str) -> str | None:
+def _gate(row, tool: str, args=None) -> str | None:
     """Le droit, tenu ici quoi que dise le plugin de garde dans la machine de l'agent. Rend la raison du refus."""
     name = row["nom"]
     if row["droit"] == "agir":
@@ -732,7 +757,7 @@ def _gate(row, tool: str) -> str | None:
             return None
         return (f"Refusé : « {name} » est en lecture seule sur cet agent et « {tool} » n'est pas déclaré en lecture. "
                 "Dis-le à l'utilisateur ; il peut changer ce droit dans Détails → Connexions.")
-    if _take_grant(row["agent_id"], name):
+    if _take_grant(row["agent_id"], name, _shown(tool, args if args is not None else {})):
         return None
     return (f"Refusé : « {name} » demande la confirmation de l'utilisateur à chaque appel et elle n'a pas été donnée. "
             "Dans une routine personne ne peut l'accorder : pour s'en servir là, il doit passer ce droit à « agir » dans "
@@ -785,7 +810,7 @@ async def proxy(name: str, request: Request):
         return _rpc(msg_id, error=(-32601, "Méthode non prise en charge"))
     params = msg.get("params") if isinstance(msg.get("params"), dict) else {}
     tool = str(params.get("name") or "")
-    refusal = _gate(row, tool)
+    refusal = _gate(row, tool, params.get("arguments"))
     if refusal:
         return _tool_error(msg_id, refusal)
     try:
