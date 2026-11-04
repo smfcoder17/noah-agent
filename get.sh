@@ -63,13 +63,22 @@ port_holder() {
     if grep -q ":$hex 00000000:0000 0A" /proc/net/tcp /proc/net/tcp6 2>/dev/null; then echo "un programme du serveur"; fi
   fi
 }
+# Un Traefik tient déjà les ports (Docker Manager de Hostinger) : Noah se range derrière lui, les autres sites ne bougent pas.
 if ! docker ps --format '{{.Names}}' | grep -q '^apollo-caddy$'; then
   for port in 80 443; do
     holder=$(port_holder "$port")
-    if [ -n "$holder" ]; then
-      fail "Le port $port est déjà pris par $holder. Noah en a besoin pour le HTTPS.
-Arrête ce service (par exemple le Traefik du Docker Manager de Hostinger : docker stop <nom>), puis relance."
+    [ -n "$holder" ] || continue
+    if docker ps --format '{{.Names}} {{.Image}}' | grep -qi 'traefik' && [ -z "$COMPOSE_URL" ]; then
+      COMPOSE_URL="$RAW/deploy/docker-compose.traefik.yml"
+      if [ -z "${NOAH_DOMAIN:-}" ]; then
+        ip=$(curl -4 -fsS https://api.ipify.org) || fail "Adresse publique introuvable. Indique ton domaine : NOAH_DOMAIN=noah.exemple.com"
+        NOAH_DOMAIN="$(echo "$ip" | tr . -).sslip.io"
+      fi
+      say "Un Traefik tient déjà les ports 80 et 443 : Noah Agent se place derrière lui, sur $NOAH_DOMAIN."
+      break
     fi
+    [ -n "$COMPOSE_URL" ] && break
+    fail "Le port $port est déjà pris par $holder. Noah en a besoin pour le HTTPS. Libère-le, ou indique un fichier compose avec NOAH_COMPOSE_URL, puis relance."
   done
 fi
 

@@ -87,3 +87,43 @@ body {
 .prose-chat img { max-width: 100%; max-height: 420px; border-radius: 10px; border: 1px solid var(--border); cursor: zoom-in; }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* Écran d'appel : des ondes partent du visage de l'agent, le bouton Répondre appelle le geste. */
+.noah-call-waves > span {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 7rem;
+  height: 7rem;
+  border-radius: 9999px;
+  opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .noah-call-waves > span {
+    animation: noah-call-wave 2.4s ease-out infinite;
+  }
+  .noah-call-answer {
+    animation: noah-call-nudge 1.2s ease-in-out infinite;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .noah-call-waves > span:first-child {
+    opacity: 0.2;
+    transform: scale(1.4);
+  }
+}
+@keyframes noah-call-wave {
+  from {
+    opacity: 0.4;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(2.1);
+  }
+}
+@keyframes noah-call-nudge {
+  50% {
+    transform: scale(1.1);
+  }
+}

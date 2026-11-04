@@ -165,22 +165,28 @@ export function CallScreen({ agents, onOpen }: { agents: Agent[]; onOpen: (repor
       onKeyDown={onKeyDown}
       className="fixed inset-0 z-[60] flex flex-col items-center justify-between gap-6 overflow-y-auto bg-background px-6 pt-[max(48px,env(safe-area-inset-top))] pb-[max(32px,env(safe-area-inset-bottom))] text-center"
     >
-      <div className="flex min-h-0 w-full max-w-md flex-col items-center gap-4">
-        <NoahTile color={agentColor(agent ?? { id: call.agent_id })} className={ringing ? "size-28 motion-safe:animate-pulse" : "size-28"} />
-        <h1 id={`${baseId}-titre`} className="text-2xl font-semibold">
+      <div className="flex min-h-0 w-full max-w-md flex-1 flex-col items-center gap-4">
+        <p className="text-sm text-muted-foreground">{ringing ? "Appel vocal" : "Appel"}</p>
+        <h1 id={`${baseId}-titre`} className="text-center text-2xl font-semibold">
           {ringing ? `${call.agent} t'appelle` : `${OVER[call.etat] ?? "Appel terminé"} : ${call.agent}`}
         </h1>
-        <p id={`${baseId}-texte`} className="max-h-[40vh] overflow-y-auto text-sm whitespace-pre-wrap text-muted-foreground">{call.texte}</p>
+        <div className={`relative my-auto flex shrink-0 items-center justify-center ${ringing ? "noah-call-waves" : ""}`}>
+          {ringing && [0, 1, 2].map((i) => <span key={i} aria-hidden="true" style={{ animationDelay: `${i * 0.8}s`, background: agentColor(agent ?? { id: call.agent_id }) }} />)}
+          <NoahTile color={agentColor(agent ?? { id: call.agent_id })} className="relative size-28" />
+        </div>
+        <p id={`${baseId}-texte`} className={`overflow-y-auto text-sm whitespace-pre-wrap text-muted-foreground ${ringing ? "sr-only" : "max-h-[40vh]"}`}>{call.texte}</p>
         {error && <p role="alert" className="text-sm text-danger">{error}</p>}
       </div>
       {ringing ? (
-        <div className="flex w-full max-w-md gap-3">
-          <Button ref={first} size="lg" className="flex-1" disabled={busy} onClick={() => decide("answer")}>
-            <Phone />Répondre
-          </Button>
-          <Button size="lg" variant="danger" className="flex-1" disabled={busy} onClick={() => decide("decline")}>
-            <PhoneOff />Refuser
-          </Button>
+        <div className="flex w-full max-w-md items-start justify-center gap-16">
+          <button type="button" disabled={busy} onClick={() => decide("decline")} className="flex flex-col items-center gap-2 text-sm disabled:opacity-50">
+            <span className="flex size-[72px] items-center justify-center rounded-full bg-danger text-white"><PhoneOff className="size-7" /></span>
+            Refuser
+          </button>
+          <button ref={first} type="button" disabled={busy} onClick={() => decide("answer")} className="flex flex-col items-center gap-2 text-sm disabled:opacity-50">
+            <span className="noah-call-answer flex size-[72px] items-center justify-center rounded-full bg-[#22a565] text-white"><Phone className="size-7" /></span>
+            Répondre
+          </button>
         </div>
       ) : (
         <div className="flex w-full max-w-md gap-3">

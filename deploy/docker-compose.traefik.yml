@@ -1,0 +1,55 @@
+# Noah Agent derrière un Traefik déjà en place (celui du Docker Manager de Hostinger, par exemple) : Traefik garde les
+# ports 80 et 443 et le certificat, les autres sites du serveur ne bougent pas. get.sh choisit ce fichier tout seul.
+# NOAH_DOMAIN doit pointer vers ce serveur. Variables facultatives :
+#   NOAH_TRAEFIK_RESOLVER=letsencrypt    nom du résolveur de certificats de ton Traefik
+#   NOAH_PUBLISH=127.0.0.1:8088          port local où publier le serveur, utile à un Traefik qui ne lit pas Docker
+name: apollo
+
+services:
+  server:
+    image: ghcr.io/smfcoder17/noah-server:${NOAH_TAG:-stable}
+    container_name: apollo-server
+    restart: unless-stopped
+    environment:
+      NOAH_DOMAIN: ${NOAH_DOMAIN:?NOAH_DOMAIN est obligatoire derrière Traefik}
+      NOAH_SETUP_CODE: auto
+      LAUNCHER_URL: http://launcher:9000
+      NOAH_PUSH_HOSTS: ${NOAH_PUSH_HOSTS:-}
+    ports:
+      - "${NOAH_PUBLISH:-127.0.0.1:8088}:8080"
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.noah.rule: Host(`${NOAH_DOMAIN}`)
+      traefik.http.routers.noah.entrypoints: websecure
+      traefik.http.routers.noah.tls.certresolver: ${NOAH_TRAEFIK_RESOLVER:-letsencrypt}
+      traefik.http.services.noah.loadbalancer.server.port: "8080"
+    volumes:
+      - apollo-data:/data
+      - noah-secrets:/secrets
+    networks: [apollo]
+    depends_on: [launcher]
+
+  # Seul service qui parle à Docker (il crée un conteneur isolé par agent). Jamais exposé.
+  launcher:
+    image: ghcr.io/smfcoder17/noah-launcher:${NOAH_TAG:-stable}
+    container_name: apollo-launcher
+    restart: unless-stopped
+    environment:
+      AGENT_IMAGE: nousresearch/hermes-agent:stable
+      BROWSER_IMAGE: ghcr.io/jo-inc/camofox-browser:latest
+      AGENT_NETWORK: apollo-net
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - noah-updates:/state
+      - noah-secrets:/secrets:ro
+    networks: [apollo]
+
+networks:
+  apollo:
+    name: apollo-net
+
+volumes:
+  noah-updates:
+  noah-backups:
+  apollo-data:
+  noah-secrets:
