@@ -13,6 +13,12 @@ import { Button } from "./ui";
 const TICK = 50; // relevé du niveau, en ms
 const VOICE = 0.035; // niveau (RMS) au-dessus duquel on considère que quelqu'un parle
 const PAUSE = 700; // petite pause (virgule, respiration) : le morceau part à la transcription
+// Couper la parole, en deux temps : un « mm-hm » ne dure pas assez pour arrêter l'agent, mais on baisse sa voix tout de suite.
+const BARGE_LEVEL = 0.05; // niveau de voix par-dessus l'agent
+const BARGE_LOWER = 100; // parole continue qui baisse sa voix
+const BARGE_STOP = 600; // parole continue qui l'arrête : plus long qu'un mot bref
+const BARGE_GAP = 150; // creux toléré entre deux syllabes ; au-delà, c'était un mot bref : sa voix remonte
+const LOWERED = 0.1; // volume pendant le doute
 
 type Tick = { rms: number; speech: number; silence: number };
 
@@ -319,7 +325,8 @@ function useSpeaker(agentId: string, onPlaying: (playing: boolean, interrupted: 
         // cancel() appelle end lui-même : load() annule l'événement « pause » encore en attente.
         stop.current = () => end(true);
         a.onplaying = () => {
-          if (over) return;
+          // « playing » revient après chaque manque de données : seul le premier compte.
+          if (over || heard) return;
           heard = true;
           notify.current(true, false);
         };
@@ -365,7 +372,11 @@ function useSpeaker(agentId: string, onPlaying: (playing: boolean, interrupted: 
     a.removeAttribute("src"); // coupe le téléchargement : le serveur arrête la synthèse
     a.load();
   }, []);
-  return { speak, reply, cancel };
+  /** Baisse ou remet la voix en cours, sans perdre ce qu'elle dit. */
+  const lower = useCallback((on: boolean) => {
+    if (current.current) current.current.volume = on ? LOWERED : 1;
+  }, []);
+  return { speak, reply, cancel, lower };
 }
 
 /**
@@ -408,6 +419,7 @@ export function VoiceMode({ onClose, report, onReportRead }: {
   const heard = useRef<string[]>([]); // ce que la personne a dit depuis le dernier tour envoyé
   const playing = useRef(false);
   const loud = useRef(0);
+  const gap = useRef(0);
   const committing = useRef(false);
   const micReady = useRef<Promise<void> | null>(null);
   const reportSaid = useRef<string | null>(null);
@@ -418,8 +430,9 @@ export function VoiceMode({ onClose, report, onReportRead }: {
     setLive(heard.current.join(" "));
   });
 
-  const { speak, reply: speakReply, cancel } = useSpeaker(agentId, (on, interrupted) => {
+  const { speak, reply: speakReply, cancel, lower } = useSpeaker(agentId, (on, interrupted) => {
     loud.current = 0;
+    gap.current = 0;
     if (on) voiceHeard.current++;
     if (on && mic.seg.current.speech > 0 && mic.seg.current.silence < 300) {
       // La personne parle encore quand la voix arrive : l'agent se tait aussitôt et on garde sa phrase.
@@ -484,9 +497,16 @@ export function VoiceMode({ onClose, report, onReportRead }: {
 
   mic.onTick.current = ({ rms, speech, silence }) => {
     if (playing.current) {
-      // Interruption : la personne parle fort et assez longtemps par-dessus l'agent → il se tait.
-      loud.current = rms > 0.05 ? loud.current + TICK : Math.max(0, loud.current - TICK);
-      if (loud.current >= 250) cancel();
+      // Interruption : sa voix baisse dès que la personne parle, et il se tait si elle continue. Un mot bref : elle remonte.
+      if (rms > BARGE_LEVEL) {
+        loud.current += TICK;
+        gap.current = 0;
+      } else if ((gap.current += TICK) >= BARGE_GAP && loud.current) {
+        loud.current = 0;
+        lower(false);
+      }
+      if (loud.current >= BARGE_STOP) cancel();
+      else if (loud.current >= BARGE_LOWER) lower(true);
       return;
     }
     // Petite pause : ce morceau part à la transcription, la personne peut continuer.
