@@ -248,3 +248,11 @@ Les deux ont reçu le code et la promesse, sans notes. Chaque constat a été re
 ## 2026-11-04 : audit de contrôle Codex sur les corrections : 4/10
 
 Il a réfuté six corrections : jeton encore valable depuis une vraie adresse sur un port publié, invité à deux conversations traité comme le propriétaire, accord qui ignorait ce qui dépasse 600 caractères, profil supprimé pendant le démarrage d'une tâche, droits perdus quand les dossiers changent, audio déjà en file après une révocation. Corrigées, avec une reprise qui écrit le message avant ses marqueurs. Parcours réels rejoués sur l'image reconstruite : 3, 13, 8 et 27 vérifications, toutes tenues. Cette dernière série de corrections n'a pas encore été auditée.
+
+## 2026-11-04 : répétition sur un VPS simulé
+
+Docker dans Docker, `get.sh`, Caddy en HTTPS (`tls internal`, seule différence avec le fichier publié), client qui ne parle qu'à l'adresse publique.
+
+- **Tenu :** installation en 4 s avec les images déjà là, compte par code à usage unique, premier agent en 22 s, première réponse à 26 s, liaison d'un téléphone et d'un bureau avec accord, conversation depuis chacun, redémarrage de la machine : tout revient en 6 s et l'appareil reste relié. Au repos : 350 Mo pour Caddy, le serveur, le lanceur et un agent.
+- **Défaut trouvé et corrigé :** une adresse Ollama saisie sans `/v1`, comme l'écran le propose, donnait 404 à chaque réponse. Aucun test ne le voyait : ils utilisaient l'adresse par défaut.
+- **Non prouvé :** vrai VPS, vrai certificat, temps de téléchargement, vraies apps de bureau et mobile (seule leur demande réseau est reproduite), 4G.

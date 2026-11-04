@@ -6,7 +6,7 @@ Fichier généré par `tools/eval/score.mjs`, à ne pas modifier à la main. Un 
 
 | Parcours | Exigé | Atteint | Tenu |
 |---|---|---|---|
-| J1. VPS Hostinger neuf : première réponse de l'agent en 10 min, sans taper une commande | 3 | 0 | non |
+| J1. VPS Hostinger neuf : première réponse de l'agent en 10 min, sans taper une commande | 3 | 2 | non |
 | J2. App de bureau installée, reliée au compte du VPS, puis conversation | 3 | 0 | non |
 | J3. APK installé, QR scanné en 4G, puis conversation | 3 | 0 | non |
 | J4. Version majeure publiée : installée seule à une heure calme, sans perte ; panne provoquée : retour arrière | 3 | 0 | non |
@@ -20,8 +20,8 @@ Fichier généré par `tools/eval/score.mjs`, à ne pas modifier à la main. Un 
 | Objectif | Prouvé | Sans bloquants | Déclaré | Seuil | Bloquants manquants |
 |---|---|---|---|---|---|
 | G0 Images publiées | 0 | 0 | 0 | 9 | G0.1, G0.5 |
-| G1 Installation en un clic | 0 | 0 | 3.3 | 8 | G1.2, G1.3, G1.4, G1.5 |
-| G2 Appairage | 0 | 1.7 | 4.2 | 9 | G2.1, G2.2, G2.3, G2.4 |
+| G1 Installation en un clic | 0 | 3.3 | 3.3 | 8 | G1.2, G1.3 |
+| G2 Appairage | 0 | 4.2 | 4.2 | 9 | G2.1, G2.2, G2.4 |
 | G3 App de bureau | 0 | 0 | 1.1 | 8 | G3.1, G3.3 |
 | G4 App Android | 0 | 0 | 1.8 | 8 | G4.3, G4.4, G4.5 |
 | G5 PWA | 0 | 0 | 2.9 | 8 | G5.1 |
