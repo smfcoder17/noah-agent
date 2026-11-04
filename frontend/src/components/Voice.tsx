@@ -2,7 +2,7 @@
 // Le micro est découpé en morceaux aux petites pauses : chaque morceau part à la transcription pendant que la
 // personne continue de parler, et le texte apparaît au fur et à mesure (modèle choisi dans Réglages > Voix).
 import { useAui, useAuiState } from "@assistant-ui/react";
-import { AudioLines, Loader2, Mic, Square, X } from "lucide-react";
+import { AudioLines, Loader2, Mic, Square, PhoneOff } from "lucide-react";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { AgentContext } from "@/lib/agentContext";
 import { request, send } from "@/lib/api";
@@ -677,6 +677,15 @@ export function VoiceMode({ onClose, report, onReportRead }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [running]);
 
+  // L'appel s'ouvre : l'agent prépare ce qu'il devra savoir sans le chercher, et la durée commence.
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    void send("/api/voice/prepare", { agent_id: agentId }).catch(() => {});
+    const timer = setInterval(() => setSeconds((n) => n + 1), 1000);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentId]);
+
   const phase = error ? "error" : speaking ? "speaking" : sending ? "sending" : running || busy.current ? "waiting" : "listening";
   const words: Record<typeof phase, string> = {
     listening: "Je t'écoute…",
@@ -691,33 +700,40 @@ export function VoiceMode({ onClose, report, onReportRead }: {
       (phase === "speaking" ? "Parle pour l'interrompre." : phase === "error" ? "Vérifie l'accès au micro." : "Parle naturellement, j'envoie quand tu as fini.");
 
   return (
-    <div role="region" aria-label="Mode vocal" className="flex w-full items-center gap-3 rounded-2xl border border-accent/40 bg-surface p-3 shadow-sm">
-      <span className={cn("relative grid place-items-center rounded-full", phase === "speaking" && "animate-pulse")}>
-        <NoahTile color={agentColor} className="size-11" />
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className={cn("text-sm font-semibold", phase === "error" && "text-warn")} aria-live="polite">{words[phase]}</p>
-        <p className="truncate text-xs text-muted-foreground">{hint}</p>
+    <div role="region" aria-label="Appel vocal" className="flex w-full flex-col gap-3 rounded-2xl border border-accent/40 bg-surface p-4 shadow-sm">
+      <div className="flex items-center gap-4">
+        <span className={cn("relative ml-1 grid shrink-0 place-items-center", phase === "speaking" && "noah-call-waves")}>
+          {phase === "speaking" && [0, 1, 2].map((i) => <span key={i} aria-hidden="true" style={{ animationDelay: `${i * 0.8}s`, background: agentColor }} />)}
+          <NoahTile color={agentColor} className="relative size-14" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs text-muted-foreground tabular-nums">En appel avec {agentName} · {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")}</p>
+          <p className={cn("font-semibold", phase === "error" && "text-warn")} aria-live="polite">{words[phase]}</p>
+          <p className="truncate text-xs text-muted-foreground">{hint}</p>
+        </div>
+        {phase !== "error" && phase !== "speaking" && <span className="text-accent"><Level level={mic.level} /></span>}
+        {(phase === "sending" || t.pending > 0) && <Loader2 className="size-5 animate-spin text-accent" />}
       </div>
-      {phase !== "error" && phase !== "speaking" && <span className="text-accent"><Level level={mic.level} /></span>}
-      {(phase === "sending" || t.pending > 0) && <Loader2 className="size-5 animate-spin text-accent" />}
-      {phase === "speaking" && (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            cancel();
-            void mic.cut(); // ce morceau ne contient que la voix de l'agent
-          }}
-        >
-          <Square className="fill-current" />Interrompre
-        </Button>
-      )}
-      {(phase === "listening" || phase === "waiting") && (live || t.pending > 0) && (
-        <Button variant="outline" size="sm" onClick={() => commit(true)}>Envoyer</Button>
-      )}
-      {phase === "error" && <Button variant="outline" size="sm" onClick={openMic}>Réessayer</Button>}
-      <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Quitter le mode vocal" title="Quitter le mode vocal"><X /></Button>
+      <div className="flex items-center justify-center gap-3">
+        {phase === "speaking" && (
+          <Button
+            variant="outline"
+            onClick={() => {
+              cancel();
+              void mic.cut(); // ce morceau ne contient que la voix de l'agent
+            }}
+          >
+            <Square className="fill-current" />Interrompre
+          </Button>
+        )}
+        {(phase === "listening" || phase === "waiting") && (live || t.pending > 0) && (
+          <Button variant="outline" onClick={() => commit(true)}>Envoyer</Button>
+        )}
+        {phase === "error" && <Button variant="outline" onClick={openMic}>Réessayer</Button>}
+        <button type="button" onClick={onClose} aria-label="Raccrocher" title="Raccrocher" className="flex size-12 items-center justify-center rounded-full bg-danger text-white">
+          <PhoneOff className="size-5" />
+        </button>
+      </div>
     </div>
   );
 }

@@ -92,9 +92,6 @@ body {
 .noah-call-waves > span {
   position: absolute;
   inset: 0;
-  margin: auto;
-  width: 7rem;
-  height: 7rem;
   border-radius: 9999px;
   opacity: 0;
 }
