@@ -152,3 +152,16 @@ Cerveau : `deepseek-v4.1-flash:cloud`. Voix rapide : `gpt-oss:20b-cloud`, choisi
 - **Décision : GARDÉ, passage au modèle suivant seul.** Filtre à 2 répétitions contre T2 : gain 160 ms, intervalle de -343 à 665 ms, sans recul prouvé. Échecs : 0 sur 28 au lot travail contre 1 sur 42, 1 sur 4 au lot garde contre 2 sur 6. Réponses vides rattrapées d'après le journal : 3 tours sur 32 environ, et 7 sur 34 au filtre suivant. Il reste un tour muet quand les trois essais rendent du vide (1 sur 66).
 - **Coût.** 60 tours environ pour ce tour. La reprise ajoute le temps d'un appel au tour concerné.
 - **Ce qu'on apprend.** `gpt-oss:20b-cloud` rend parfois une réponse vide, sans raison visible (`finish_reason: stop`), quelle que soit la forme de l'historique. **Limite du banc :** son historique, sans réponses de l'agent, ne ressemble pas à une vraie conversation. La latence réelle de la voix rapide pourrait y être un peu meilleure. Je ne change pas le banc pour ça.
+
+### T3, transcription plus tôt
+
+- **Cause.** Le son n'est prêt qu'après 500 ms de pause, 700 ms de transcription et 1 300 ms de voix. Seule la pause de départ est sous notre main sans dépendance nouvelle, car la transcription coûte surtout son temps d'aller-retour : une fenêtre glissante sur une longue phrase ne le réduirait pas, et transcrire deux fois doublerait les appels à OpenRouter.
+- **Hypothèse.** Couper et préparer à 300 ms de pause au lieu de 500 ms avance le son d'environ 200 ms sur les tours non bornés par la confirmation.
+- **Changement.** `TURN_PAUSE` à 300 ms.
+- **Doit bouger.** Temps entendu : gain d'au moins 150 ms.
+- **Peut reculer.** Plus de morceaux par tour, donc plus d'appels et plus de mots coupés. Plus de réponses préparées et jetées dans une vraie parole, qui fait souvent des pauses de 300 ms.
+- **Gain prédit.** 100 à 200 ms, plafonné par l'attente de 2,3 s.
+- **Mesure.** Filtre à 2 répétitions contre le même code à 500 ms, 28 paires, 1 180 Mo libres. 29 transcriptions pour 28 tours, aucune réponse jetée : la voix de synthèse ne fait pas les pauses d'une vraie parole.
+- **Décision : ANNULÉ.** Gain 163 ms, intervalle de -218 à 538 ms : la borne basse est sous zéro. Médiane 2 333 ms contre 2 497 ms, p95 3 764 ms contre 3 847 ms. Le sens est bon mais rien n'est prouvé, et le risque (couper à chaque virgule d'une vraie voix, plus d'appels, plus de mots coupés) n'est pas mesurable sur ce banc.
+- **Coût.** 28 tours.
+- **Ce qu'on apprend.** C'est le deuxième tour plat sur le temps entendu (T2 bis, T3) : je m'arrête sur ce réglage. Reste à gagner sur la voix (1 300 ms). La fenêtre glissante n'a pas été essayée : elle double les appels à OpenRouter pour au plus 200 ms, plafonnés par la même attente, et avec un temps de transcription de 700 ms dominé par l'aller-retour. Pour aller plus bas, il faut une transcription en flux (H2), ce qui est un changement d'architecture.
