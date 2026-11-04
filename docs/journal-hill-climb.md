@@ -125,3 +125,25 @@ Cerveau : `deepseek-v4.1-flash:cloud`. Voix rapide : `gpt-oss:20b-cloud`, choisi
 
 - **Coût des spéculations.** 15 réponses jetées sur 88 au lot travail, exactement une par essai de pause, aucune sur les tours sans pause. 3 sur 9 au lot garde, à cause du doublon « Bonjour ». Une réponse jetée paie sa voix rapide et sa première phrase de synthèse. `tests/voice/voice_test.py` prouve l'annulation avec simulation : requête au modèle fermée, aucun message écrit, un autre compte refusé, et une demande arrivée après l'annulation ne lance rien.
 - **Ce qu'on apprend.** Le temps entendu ne bouge presque pas, car l'attente de confirmation de 2,3 s devient la borne quand la voix est prête tôt : sur le lot garde, le son part à 2 301 ms, juste après la confirmation. Le gain possible est là. Les erreurs de mots sur des morceaux coupés à 500 ms ne sont pas mesurées : le banc du serveur transcrit des phrases entières. La cause des tours muets se précise : le journal dit 0 phrase reçue (3 fois), la synthèse n'y est donc pour rien, c'est la voix rapide qui ne dit rien.
+
+### T2 bis, attente de confirmation
+
+- **Cause.** Avec la réponse préparée à l'avance, l'attente de 2,3 s borne le temps entendu dès que la voix est prête avant.
+- **Hypothèse.** Revenir à 1,8 s garde 300 ms de marge sur le critère de 1,5 s et laisse le son partir plus tôt.
+- **Changement.** `endOfTurnDelay` : 1,8 s au lieu de 2,3 s après un point ou une fin ordinaire.
+- **Doit bouger.** Temps entendu : gain d'au moins 150 ms, surtout sur les cas rapides.
+- **Peut reculer.** Coupures à 2 s : elles reviendront, c'est le prix. Coupures à 1,5 s : doivent rester à 0 sur 9.
+- **Gain prédit.** 200 à 300 ms.
+- **Mesure.** Filtre à 2 répétitions contre T2, 26 paires, mémoire libre 1 192 Mo au départ.
+- **Décision : ANNULÉ.** Gain 151 ms, mais intervalle de -154 à 514 ms : la borne basse est sous zéro. Médiane 2 584 ms contre 2 588 ms. Coupures à 1,5 s : 0 sur 9. Coupures à 2 s : 6 sur 6 contre 0 sur 6, donc on perd la marge pour rien de prouvé. L'envoi à l'agent passe de 2 268 à 1 781 ms, ce qui reste un vrai avantage à revoir si la voix devient plus rapide.
+- **Coût.** 28 tours et 15 essais de pause.
+- **Ce qu'on apprend.** La médiane dépend surtout de la voix (1 300 à 1 400 ms entre la demande et le premier son) : l'attente de confirmation n'est bornante que sur les cas rapides. Tant que la voix ne descend pas, raccourcir cette attente rapporte peu.
+
+### T2 ter, tours muets
+
+- **Cause.** Le journal du serveur dit « 0 phrase reçue » : la voix rapide termine sans rien dire et la boucle s'arrête quand même sur ce modèle. Sur le banc, l'historique contient des réponses vides de l'agent intercepté, ce qui peut favoriser le défaut : en usage réel, il serait plus rare.
+- **Hypothèse.** Traiter une réponse vide comme un modèle indisponible : le suivant répond à sa place.
+- **Changement.** `media.voice_reply` : une réponse sans rien à dire passe au modèle suivant, et le journal en garde le début.
+- **Doit bouger.** Échecs : de 2 à 5 % des tours (2 sur 6 sur le lot garde selon les passages) vers 0.
+- **Peut reculer.** Le temps entendu de ces seuls tours, qui comptaient jusqu'ici comme des échecs.
+- **Gain prédit.** Aucun sur la médiane.
