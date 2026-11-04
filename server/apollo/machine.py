@@ -136,10 +136,14 @@ async def deliver_routines(save_message, main_conversation) -> None:
                 if conv:
                     text = f"**Routine « {r['nom']} »**\n\n{r['texte'].strip()}"
                     save_message(conv, "agent", text)
-                    # Hermes n'a pas ce message dans sa session : il le recevra avec le prochain message de l'utilisateur.
-                    pending = json.loads(db.get_setting(f"contexte_{conv}") or "[]")
-                    db.set_setting(f"contexte_{conv}", json.dumps((pending + [text])[-5:]))
+                    add_context(conv, text)
                 db.set_setting(key, r["quand"])
+
+
+def add_context(conv_id: str, text: str) -> None:
+    """Hermes n'a pas ce message dans sa session : il le recevra avec le prochain message de l'utilisateur."""
+    pending = json.loads(db.get_setting(f"contexte_{conv_id}") or "[]")
+    db.set_setting(f"contexte_{conv_id}", json.dumps((pending + [text])[-5:]))
 
 
 def pop_context(conv_id: str) -> str:

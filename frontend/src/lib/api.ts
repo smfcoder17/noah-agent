@@ -114,6 +114,16 @@ export type Agent = {
   model?: string | null;
 };
 /** main : la conversation unique avec l'agent ; les autres sont des fils (origin "agent" s'il les a ouverts). */
+/** Rappel vocal d'un agent : il sonne, puis il est pris, refusé ou manqué. */
+export type VoiceCall = {
+  id: string;
+  agent_id: string;
+  agent: string;
+  conversation_id: string;
+  texte: string;
+  etat: "sonne" | "repondu" | "refuse" | "manque";
+  expire_a: number;
+};
 export type Conversation = {
   id: string;
   title: string;

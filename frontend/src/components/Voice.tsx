@@ -384,9 +384,13 @@ function endOfTurnDelay(text: string) {
  * Mode vocal. Le micro écoute en continu : on peut parler pendant que l'agent parle (il se tait et écoute), et
  * faire de courtes pauses sans qu'il prenne la parole. Une voix rapide répond tout de suite pendant que l'agent
  * fait le travail avec son cerveau et ses outils ; à la fin, elle résume son résultat. Tout reste écrit dans la
- * conversation.
+ * conversation. `report` : compte rendu d'un rappel pris, lu dès que le micro est prêt.
  */
-export function VoiceMode({ onClose }: { onClose: () => void }) {
+export function VoiceMode({ onClose, report, onReportRead }: {
+  onClose: () => void;
+  report?: { id: string; text: string } | null;
+  onReportRead?: () => void;
+}) {
   const { agentId, agentName, agentColor, say } = useContext(AgentContext);
   const running = useAuiState((s) => s.thread.isRunning);
   const messages = useAuiState((s) => s.thread.messages);
@@ -405,6 +409,9 @@ export function VoiceMode({ onClose }: { onClose: () => void }) {
   const playing = useRef(false);
   const loud = useRef(0);
   const committing = useRef(false);
+  const micReady = useRef<Promise<void> | null>(null);
+  const reportSaid = useRef<string | null>(null);
+  const voiceHeard = useRef(0);
 
   const t = useTranscripts(agentId, (text) => {
     heard.current.push(text);
@@ -413,6 +420,7 @@ export function VoiceMode({ onClose }: { onClose: () => void }) {
 
   const { speak, reply: speakReply, cancel } = useSpeaker(agentId, (on, interrupted) => {
     loud.current = 0;
+    if (on) voiceHeard.current++;
     if (on && mic.seg.current.speech > 0 && mic.seg.current.silence < 300) {
       // La personne parle encore quand la voix arrive : l'agent se tait aussitôt et on garde sa phrase.
       cancel();
@@ -502,7 +510,7 @@ export function VoiceMode({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     alive.current = true;
-    void openMic();
+    micReady.current = openMic();
     return () => {
       alive.current = false;
       cancel();
@@ -510,6 +518,23 @@ export function VoiceMode({ onClose }: { onClose: () => void }) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Rappel pris : le compte rendu est lu une fois. S'il ne peut pas être entendu, on le dit : il reste écrit.
+  const reportId = report?.id;
+  useEffect(() => {
+    if (!report || reportSaid.current === report.id) return;
+    reportSaid.current = report.id;
+    const text = spoken(report.text);
+    onReportRead?.();
+    void (async () => {
+      await micReady.current;
+      if (!alive.current) return;
+      const before = voiceHeard.current;
+      await speak(text);
+      if (alive.current && voiceHeard.current === before) setNote("La voix n'a pas pu lire le compte rendu : il est écrit dans la conversation.");
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportId]);
 
   // L'agent a fini : on lit le résumé de ce qu'il a fait (s'il a agi), puis la demande suivante part.
   useEffect(() => {

@@ -322,6 +322,13 @@ AIDE = """Utilisation : python3 /opt/data/noah.py <commande>
                                          appelle l'utilisateur (connexion, code) et attend sa réponse ; avec
                                          --quand-quitte, l'appel se termine seul quand il a quitté ce site
   attendre <id>                          continue d'attendre la réponse à un appel « en_attente »
+  rappeler "compte rendu"                fait sonner l'utilisateur et lui lit ce compte rendu à la voix ; il reste écrit
+                                         dans ta conversation, même s'il ne répond pas (6 par heure au plus)
+  agents                                 liste les autres agents (id, nom, rôle)
+  demander <agent> "consigne" [--rappeler]   confie une tâche à un autre agent (id ou nom) ; le résultat revient dans ta
+                                         conversation principale ; avec --rappeler, l'utilisateur est aussi rappelé
+  demande-etat <id>                      état et dernière réponse d'une demande
+  demandes                               tes demandes envoyées et reçues
   recette <service>                      étapes pour connecter un service à sa place (google)
   google-identifiants <ID client> <code secret>   enregistre l'accès Google créé avec la recette
   google-accord                          relance l'accord Google (après avoir publié l'application)
@@ -404,6 +411,17 @@ elif a[:1] == ["appeler"] and len(a) >= 2:
     out = call("POST", "/appel", {"message": " ".join(rest), "quand_quitte": leave})
 elif a[:1] == ["attendre"] and len(a) == 2:
     out = call("GET", "/appel/" + a[1])
+elif a[:1] == ["rappeler"] and len(a) >= 2:
+    out = call("POST", "/rappel", {"texte": " ".join(a[1:])})
+elif a[:1] == ["agents"]:
+    out = call("GET", "/agents")
+elif a[:1] == ["demander"] and len(a) >= 3:
+    rest = [w for w in a[1:] if w != "--rappeler"]
+    out = call("POST", "/demander", {"agent": rest[0], "consigne": " ".join(rest[1:]), "rappeler": "--rappeler" in a})
+elif a[:1] == ["demande-etat"] and len(a) == 2:
+    out = call("GET", "/demander/" + a[1])
+elif a[:1] == ["demandes"]:
+    out = call("GET", "/demandes")
 elif a[:1] == ["recette"] and len(a) == 2:
     out = call("GET", "/recettes/" + a[1])
     if "recette" in out:

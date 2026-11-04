@@ -392,9 +392,14 @@ function EmptyNoah() {
   return <NoahTile color={agentColor} className="mb-2 size-20" />;
 }
 
-export function Thread() {
+export function Thread({ report, onReportRead }: { report: { id: string; text: string } | null; onReportRead: () => void }) {
   const { agentName, hint } = useContext(AgentContext);
   const [voice, setVoice] = useState(false);
+  // Rappel pris : le mode vocal s'ouvre et lit le compte rendu.
+  const reportId = report?.id;
+  useEffect(() => {
+    if (reportId) setVoice(true);
+  }, [reportId]);
   return (
     <ThreadPrimitive.Root className="flex h-full min-h-0 flex-col">
       <SelectionReply />
@@ -416,7 +421,7 @@ export function Thread() {
                 <ArrowDown />
               </Button>
             </ThreadPrimitive.ScrollToBottom>
-            {voice ? <VoiceMode onClose={() => setVoice(false)} /> : <Composer onVoiceMode={() => setVoice(true)} />}
+            {voice ? <VoiceMode onClose={() => setVoice(false)} report={report} onReportRead={onReportRead} /> : <Composer onVoiceMode={() => setVoice(true)} />}
           </ThreadPrimitive.ViewportFooter>
         </ThreadPrimitive.Viewport>
       </ComposerPrimitive.AttachmentDropzone>

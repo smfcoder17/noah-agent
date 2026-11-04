@@ -37,6 +37,10 @@ jobs:
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \
             "pip install -q -r /app/requirements.txt && python /tests/watch/watch_test.py"
+      - name: Demandes entre agents et rappels vocaux
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \
+            "pip install -q -r /app/requirements.txt && python /tests/coordination/coordination_test.py"
       - name: Restauration (archive refusée si elle sort de backup.sh)
         run: |
           docker run --rm -e NOAH_TOOL=1 -v "$PWD/launcher:/l" -v "$PWD/tests:/tests" python:3.12-slim sh -c \

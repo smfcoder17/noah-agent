@@ -91,6 +91,17 @@ def init() -> None:
                    "session TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL, payload BLOB NOT NULL, "
                    "urgent INTEGER NOT NULL DEFAULT 0, not_before REAL NOT NULL, tries INTEGER NOT NULL DEFAULT 0, "
                    "created REAL NOT NULL)")
+        # Demandes entre agents : `chaine` liste les agents dont celle-ci descend (boucles et profondeur).
+        db.execute("CREATE TABLE IF NOT EXISTS delegations (id TEXT PRIMARY KEY, de TEXT NOT NULL, vers TEXT NOT NULL, "
+                   "conversation_id TEXT NOT NULL, profondeur INTEGER NOT NULL, chaine TEXT NOT NULL, "
+                   "rappeler INTEGER NOT NULL DEFAULT 0, etat TEXT NOT NULL, consigne TEXT NOT NULL, created_at REAL NOT NULL)")
+        db.execute("CREATE INDEX IF NOT EXISTS delegations_de ON delegations(de, created_at)")
+        db.execute("CREATE INDEX IF NOT EXISTS delegations_vers ON delegations(vers, etat)")
+        # Rappels vocaux : sonne, puis repondu, refuse ou manque.
+        db.execute("CREATE TABLE IF NOT EXISTS voice_calls (id TEXT PRIMARY KEY, "
+                   "agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, user_id INTEGER NOT NULL, "
+                   "conversation_id TEXT NOT NULL, texte TEXT NOT NULL, etat TEXT NOT NULL, created_at REAL NOT NULL, ended_at REAL)")
+        db.execute("CREATE INDEX IF NOT EXISTS voice_calls_user ON voice_calls(user_id, etat)")
         # WAL : les lectures ne bloquent plus pendant une écriture (flux de chat et relais en parallèle).
         db.execute("PRAGMA journal_mode = WAL")
 

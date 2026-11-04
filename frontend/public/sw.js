@@ -71,8 +71,11 @@ self.addEventListener("push", (e) => {
         data = { titre: "Noah", texte: current ? "Nouvelle notification pour un autre compte." : "Nouvelle notification. Connecte-toi pour la voir.", url: "/" };
       }
       const tag = valid ? `noah-${Date.now()}-${Math.random()}` : data.titre || "noah";
+      // Un rappel d'agent : la notification reste et vibre, comme un appel. Toucher ouvre l'écran d'appel.
+      const ringing = valid && String(data.url).startsWith("/#appel=");
       await self.registration.showNotification(data.titre || "Noah", {
         silent: foreground,
+        ...(ringing ? { requireInteraction: true, vibrate: [400, 200, 400, 200, 400] } : {}),
         body: data.texte || "",
         icon: "/assets/icon-192.png",
         badge: "/assets/icon-192.png",

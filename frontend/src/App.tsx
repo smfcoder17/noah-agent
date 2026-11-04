@@ -3,6 +3,7 @@ import { QuoteContext, useQuoteState } from "@/lib/quotes";
 import { ArrowLeft, Bug, Menu, MonitorPlay, PanelRight, Plus } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { AuthScreen } from "@/components/AuthScreen";
+import { CallScreen, type CallReport } from "@/components/Call";
 import { Onboarding } from "@/components/Onboarding";
 import { DeviceApproval, keepApprovalRequest } from "@/components/DeviceApproval";
 import { HandoffBanner } from "@/components/Handoff";
@@ -223,6 +224,8 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const [settings, setSettings] = useState<SettingsTab | null>(null);
   const [details, setDetails] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [report, setReport] = useState<CallReport | null>(null); // rappel pris : lu dans le mode vocal de cet agent
+  const reportRead = useCallback(() => setReport(null), []);
 
   const agent = agents.find((a) => a.id === agentId) ?? null;
   // Message envoyé à l'agent depuis Détails : il part dans la conversation principale.
@@ -303,6 +306,13 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   return (
     <ViewerProvider>
       <DeviceApproval />
+      <CallScreen
+        agents={agents}
+        onOpen={(r) => {
+          selectAgent(r.agentId);
+          setReport(r);
+        }}
+      />
       {/* Le panneau devient une colonne seulement sur grand écran ; en dessous il glisse par-dessus le chat. */}
       <div className={cn("grid h-full md:grid-cols-[264px_minmax(0,1fr)]", panel && "xl:grid-cols-[264px_minmax(0,1fr)_minmax(400px,40%)]")}>
         {/* Colonne de gauche : les agents, rien d'autre */}
@@ -394,6 +404,8 @@ function Shell({ onLogout }: { onLogout: () => void }) {
                 details={details}
                 onConversationCreated={refreshConversations}
                 onRunFinished={onRunFinished}
+                report={!threadId && report?.agentId === agent.id ? report : null}
+                onReportRead={reportRead}
               />
             ) : agent ? (
               <p className="p-10 text-center text-sm text-muted-foreground">Chargement de la conversation…</p>
@@ -474,6 +486,8 @@ function AgentChat(props: {
   details: boolean;
   onConversationCreated: () => void;
   onRunFinished: () => void;
+  report: CallReport | null;
+  onReportRead: () => void;
 }) {
   const quotes = useQuoteState();
   const takeQuotes = quotes.take;
@@ -527,7 +541,7 @@ function AgentChat(props: {
     <AssistantRuntimeProvider runtime={runtime}>
       <AgentContext.Provider value={context}>
         <QuoteContext.Provider value={quotes.value}>
-          <Thread />
+          <Thread report={props.report} onReportRead={props.onReportRead} />
         </QuoteContext.Provider>
       </AgentContext.Provider>
     </AssistantRuntimeProvider>

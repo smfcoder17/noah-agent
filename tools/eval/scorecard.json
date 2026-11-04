@@ -180,9 +180,9 @@
     { "id": "G11.1", "t": "Bouton Appeler : en ligne en 2 s au plus, avec l'agent choisi", "requis": 3, "preuve": 0, "b": 1 },
     { "id": "G11.2", "t": "Écran d'appel Android natif : écran éteint, sonnerie en 5 s au plus ; refuser laisse un compte rendu écrit", "requis": 3, "preuve": 0, "b": 1 },
     { "id": "G11.3", "t": "L'appel survit au passage du Wi-Fi à la 4G et à l'écran verrouillé", "requis": 3, "preuve": 0 },
-    { "id": "G11.4", "t": "Outil « demander à un autre agent » avec suivi de la tâche, boucles refusées", "requis": 2, "preuve": 0, "b": 1 },
-    { "id": "G11.5", "t": "Outil « appeler l'utilisateur » : un agent ou la demande d'un autre fait sonner le téléphone", "requis": 2, "preuve": 0, "b": 1 },
-    { "id": "G11.6", "t": "Chaque appel est écrit dans la conversation de l'agent, avec les actions faites", "requis": 2, "preuve": 0 },
+    { "id": "G11.4", "t": "Outil « demander à un autre agent » avec suivi de la tâche, boucles refusées", "requis": 2, "preuve": 1, "b": 1, "test": "tests/coordination/coordination_test.py" },
+    { "id": "G11.5", "t": "Outil « appeler l'utilisateur » : un agent ou la demande d'un autre fait sonner le téléphone", "requis": 2, "preuve": 1, "b": 1, "test": "tests/coordination/coordination_test.py" },
+    { "id": "G11.6", "t": "Chaque appel est écrit dans la conversation de l'agent, avec les actions faites", "requis": 2, "preuve": 1, "test": "tests/coordination/coordination_test.py" },
     { "id": "G11.7", "t": "Une action irréversible demandée à la voix attend une confirmation explicite", "b": 1, "requis": 2, "preuve": 0 }
    ]
   },

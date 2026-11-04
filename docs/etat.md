@@ -30,7 +30,7 @@ Fichier généré par `tools/eval/score.mjs`, à ne pas modifier à la main. Un 
 | G8 Coûts et 24 h/24 | 0 | 1.7 | 6.7 | 8 | G8.1 |
 | G9 Formation | 0 | 0 | 0 | 8 | — |
 | G10 Conversation vocale | 0 | 0 | 0 | 8 | G10.1, G10.5, G10.6, G10.8 |
-| G11 Appels et coordination | 0 | 0 | 0 | 8 | G11.1, G11.2, G11.4, G11.5, G11.7 |
+| G11 Appels et coordination | 0 | 0 | 4.2 | 8 | G11.1, G11.2, G11.4, G11.5, G11.7 |
 | G12 Profils et partage | 0 | 0 | 0 | 9 | G12.2, G12.3, G12.5 |
 | G13 Outils au choix | 0 | 0 | 0 | 8 | — |
 | G14 Rapidité et légèreté | 0 | 0 | 0 | 8 | G14.2 |
@@ -67,9 +67,9 @@ Les critères G0 à G9 sont décrits dans [grille-validation.md](grille-validati
 - G11.1 [B] (exige 3, atteint 0) : Bouton Appeler : en ligne en 2 s au plus, avec l'agent choisi
 - G11.2 [B] (exige 3, atteint 0) : Écran d'appel Android natif : écran éteint, sonnerie en 5 s au plus ; refuser laisse un compte rendu écrit
 - G11.3 (exige 3, atteint 0) : L'appel survit au passage du Wi-Fi à la 4G et à l'écran verrouillé
-- G11.4 [B] (exige 2, atteint 0) : Outil « demander à un autre agent » avec suivi de la tâche, boucles refusées
-- G11.5 [B] (exige 2, atteint 0) : Outil « appeler l'utilisateur » : un agent ou la demande d'un autre fait sonner le téléphone
-- G11.6 (exige 2, atteint 0) : Chaque appel est écrit dans la conversation de l'agent, avec les actions faites
+- G11.4 [B] (exige 2, atteint 1) : Outil « demander à un autre agent » avec suivi de la tâche, boucles refusées
+- G11.5 [B] (exige 2, atteint 1) : Outil « appeler l'utilisateur » : un agent ou la demande d'un autre fait sonner le téléphone
+- G11.6 (exige 2, atteint 1) : Chaque appel est écrit dans la conversation de l'agent, avec les actions faites
 - G11.7 [B] (exige 2, atteint 0) : Une action irréversible demandée à la voix attend une confirmation explicite
 
 ### G12. Profils et partage (seuil 9)
