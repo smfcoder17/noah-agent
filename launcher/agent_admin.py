@@ -244,14 +244,19 @@ def _mcp_connected(name, cfg):
 
 def apps(_):
     from hermes_cli import mcp_catalog
+    from hermes_cli.mcp_config import _get_mcp_servers
     installed = mcp_catalog.installed_servers()
     out = []
     for e in mcp_catalog.list_catalog():
         cfg = installed.get(e.name)
         out.append({"nom": e.name, "description": (e.description or "").strip(), "source": e.source,
                     "oauth": e.auth.type == "oauth", "hote": (e.suggest.hosts[0] if e.suggest and e.suggest.hosts else None),
-                    "installe": cfg is not None, "connecte": bool(cfg) and _mcp_connected(e.name, cfg)})
-    return {"applications": out}
+                    "installe": cfg is not None, "connecte": bool(cfg) and _mcp_connected(e.name, cfg),
+                    "url": (cfg or {}).get("url")})
+    catalog = {a["nom"] for a in out}
+    # Les outils ajoutés par adresse : seul Hermes sait si leur connexion OAuth a abouti.
+    personal = {name: {"connecte": _mcp_connected(name, cfg)} for name, cfg in _get_mcp_servers().items() if name not in catalog}
+    return {"applications": out, "personnels": personal}
 
 
 def _check_name(name):
@@ -263,8 +268,6 @@ def _check_name(name):
 
 
 def app_connect(body):
-    import re
-    import time
     from hermes_cli import mcp_catalog
     from hermes_cli.mcp_config import _save_mcp_server
     entry = _check_name(body.get("nom"))
@@ -274,11 +277,17 @@ def app_connect(body):
         fail("Configuration refusée par Hermes")
     if entry.auth.type != "oauth":
         return {"connecte": True}
-    log = _mcp_log(entry.name)
+    return _start_login(entry.name)
+
+
+def _start_login(name):
+    import re
+    import time
+    log = _mcp_log(name)
     log.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["pkill", "-f", f"NOAH_MCP_LOGIN {entry.name}$"], capture_output=True)
+    subprocess.run(["pkill", "-f", f"NOAH_MCP_LOGIN {name}$"], capture_output=True)
     with open(log, "w") as f:
-        subprocess.Popen([sys.executable, "-c", MCP_LOGIN, entry.name, "NOAH_MCP_LOGIN", entry.name],
+        subprocess.Popen([sys.executable, "-c", MCP_LOGIN, name, "NOAH_MCP_LOGIN", name],
                          stdin=subprocess.DEVNULL, stdout=f, stderr=subprocess.STDOUT, start_new_session=True,
                          cwd=str(DATA), env={**os.environ, "HOME": str(DATA)})
     for _ in range(60):
@@ -290,16 +299,19 @@ def app_connect(body):
 
 
 def app_finish(body):
+    return _finish_login(_check_name(body.get("nom")).name, body)
+
+
+def _finish_login(name, body):
     import re
     import time
     import urllib.parse
     import urllib.request
-    entry = _check_name(body.get("nom"))
     pasted = (body.get("adresse") or "").strip()
     query = pasted.split("?", 1)[1] if "?" in pasted else pasted
     if "code=" not in query and "error=" not in query:
         fail("Colle l'adresse complète de la page de retour (elle contient « code= »)")
-    log = _mcp_log(entry.name)
+    log = _mcp_log(name)
     text = log.read_text(errors="replace") if log.exists() else ""
     m = re.search(r"redirect_uri=([^&\s]+)", text)
     if not m:
@@ -329,9 +341,78 @@ def app_remove(body):
     return {"connecte": False}
 
 
+# --- Outils ajoutés par adresse (G13) : le serveur de Noah a déjà vérifié l'adresse et testé la connexion ---------------
+
+RIGHTS = ("lire", "agir", "confirmer")
+
+
+def _write_rights(rights):
+    """Lu à chaque appel par le plugin de garde : un droit changé vaut pour l'appel suivant, sans redémarrer."""
+    clean = {str(k): v for k, v in (rights or {}).items() if v in RIGHTS}
+    NOAH.mkdir(parents=True, exist_ok=True)
+    tmp = NOAH / "mcp-droits.tmp"
+    tmp.write_text(json.dumps(clean, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(NOAH / "mcp-droits.json")
+
+
+def _tool_name(body):
+    import re
+    name = body.get("nom") or ""
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,30}", name):
+        fail("Nom d'outil refusé")
+    return name
+
+
+def tool_set(body):
+    from hermes_cli.mcp_config import _get_mcp_servers, _save_mcp_server
+    name, cfg = _tool_name(body), body.get("config") or {}
+    # Une commande locale (stdio) reviendrait à exécuter du code téléchargé (G7.6) : seule une adresse entre ici.
+    if "command" in cfg or not str(cfg.get("url", "")).startswith(("http://", "https://")):
+        fail("Seule une adresse est acceptée : pas de commande locale")
+    if name in _get_mcp_servers():
+        fail(f"Un outil s'appelle déjà « {name} »")
+    if not _save_mcp_server(name, cfg):
+        fail("Configuration refusée par Hermes")
+    _write_rights(body.get("droits"))
+    return _start_login(name) if cfg.get("auth") == "oauth" else {"connecte": True}
+
+
+def tool_connect(body):
+    return _start_login(_tool_name(body))
+
+
+def tool_finish(body):
+    from hermes_cli.mcp_config import _get_mcp_servers, _probe_single_server
+    name = _tool_name(body)
+    result = _finish_login(name, body)
+    try:  # la liste des outils, maintenant que le serveur accepte Hermes
+        found = _probe_single_server(name, _get_mcp_servers()[name])
+        result["outils"] = [{"name": n, "description": d} for n, d in found]
+    except Exception:  # connecté quand même : l'état dans Connexions dira si le serveur tombe
+        result["outils"] = []
+    return result
+
+
+def tool_rights(body):
+    _write_rights(body.get("droits"))
+    return {"ok": True}
+
+
+def tool_remove(body):
+    from hermes_cli.mcp_config import _remove_mcp_server
+    from tools.mcp_oauth import HermesTokenStorage
+    name = _tool_name(body)
+    _remove_mcp_server(name)
+    HermesTokenStorage(name).remove()
+    _write_rights(body.get("droits"))
+    return {"connecte": False}
+
+
 ACTIONS = {
     "applications": apps, "application_connecter": app_connect, "application_finir": app_finish,
     "application_retirer": app_remove,
+    "outil_poser": tool_set, "outil_connecter": tool_connect, "outil_finir": tool_finish, "outil_droits": tool_rights,
+    "outil_retirer": tool_remove,
     "ordinateur": computer,
     "memoire": memory, "memoire_ecrire": memory_write,
     "routines": routines, "routine_creer": routine_create, "routine_action": routine_action,

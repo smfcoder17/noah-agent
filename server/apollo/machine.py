@@ -159,8 +159,12 @@ def pop_context(conv_id: str) -> str:
 
 @router.get("/api/agents/{agent_id}/connections")
 async def connections(agent_id: str, user: int = Depends(auth.current_user)):
+    from . import mcp
+
     google, apps = await asyncio.gather(admin(_check(agent_id, user), "google"), admin(agent_id, "applications"))
-    return {"google": google, "applications": apps["applications"]}
+    applications = apps.get("applications") or []
+    state = await mcp.connections_state(agent_id, applications, apps.get("personnels") or {})
+    return {"google": google, "applications": applications, **state}
 
 
 class AppFinish(BaseModel):
@@ -180,7 +184,10 @@ async def app_action(agent_id: str, name: str, action: str, body: AppFinish | No
             raise HTTPException(400, "Adresse de retour manquante")
         out = await admin(agent_id, "application_finir", {"nom": name, "adresse": body.adresse})
     elif action == "remove":
+        from . import mcp
+
         out = await admin(agent_id, "application_retirer", {"nom": name})
+        mcp.forget(agent_id, name)
     else:
         raise HTTPException(400, "Action inconnue")
     return out

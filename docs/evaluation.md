@@ -115,7 +115,7 @@ Chacune est un tour de hill climbing, jugé sur le même banc.
 | Voix, chaîne | Pipecat, Smart Turn | Licence lue ; à tester |
 | Voix, transport et SIP | LiveKit, seulement si le banc le justifie | Licence lue ; à tester |
 | Écran d'appel Android | `ConnectionService` et notification plein écran d'Android | Absent de l'app ; à vérifier sur téléphone |
-| Outils | MCP côté Hermes : Noah sait déjà ouvrir son catalogue et son OAuth | Il manque l'ajout par adresse |
+| Outils | MCP côté Hermes : son catalogue et son OAuth, plus l'ajout par adresse à travers Noah (G13, preuve de niveau 1) | À vérifier sur un vrai agent et un vrai fournisseur OAuth |
 | Profils | Hermes propose des profils isolés ; Noah a déjà ses agents dans des conteneurs séparés | Profils, droits et partage faits (G12, preuve de niveau 1) ; à vérifier sur de vrais conteneurs |
 | Partage et droits | Open WebUI et LibreChat, à étudier | **Non lus** |
 

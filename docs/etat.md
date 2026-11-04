@@ -32,7 +32,7 @@ Fichier généré par `tools/eval/score.mjs`, à ne pas modifier à la main. Un 
 | G10 Conversation vocale | 0 | 0 | 0 | 8 | G10.1, G10.5, G10.6, G10.8 |
 | G11 Appels et coordination | 0 | 0 | 4.2 | 8 | G11.1, G11.2, G11.4, G11.5, G11.7 |
 | G12 Profils et partage | 0 | 2.5 | 7.5 | 9 | G12.3, G12.5 |
-| G13 Outils au choix | 0 | 0 | 0 | 8 | — |
+| G13 Outils au choix | 0 | 0 | 10 | 8 | — |
 | G14 Rapidité et légèreté | 0 | 0 | 0 | 8 | G14.2 |
 | G15 Expérience face aux références | 0 | 0 | 0 | 8 | — |
 | G16 Open source | 0 | 0 | 0 | 9 | G16.1, G16.2 |
@@ -82,10 +82,10 @@ Les critères G0 à G9 sont décrits dans [grille-validation.md](grille-validati
 
 ### G13. Outils au choix (seuil 8)
 
-- G13.1 (exige 2, atteint 0) : Ajouter un serveur MCP par adresse, avec OAuth, depuis l'interface, en 60 s au plus
-- G13.2 (exige 2, atteint 0) : Droits par agent et par outil : lire, agir, demander confirmation
-- G13.3 (exige 2, atteint 0) : Un outil connecté marche à la voix, à l'écrit et dans une routine
-- G13.4 (exige 2, atteint 0) : La panne d'un outil est dite clairement et n'arrête pas l'agent
+- G13.1 (exige 2, atteint 1) : Ajouter un serveur MCP par adresse, avec OAuth, depuis l'interface, en 60 s au plus
+- G13.2 (exige 2, atteint 1) : Droits par agent et par outil : lire, agir, demander confirmation
+- G13.3 (exige 2, atteint 1) : Un outil connecté marche à la voix, à l'écrit et dans une routine
+- G13.4 (exige 2, atteint 1) : La panne d'un outil est dite clairement et n'arrête pas l'agent
 
 ### G14. Rapidité et légèreté (seuil 8)
 

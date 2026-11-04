@@ -203,10 +203,10 @@
    "nom": "Outils au choix",
    "seuil": 8,
    "criteres": [
-    { "id": "G13.1", "t": "Ajouter un serveur MCP par adresse, avec OAuth, depuis l'interface, en 60 s au plus", "requis": 2, "preuve": 0 },
-    { "id": "G13.2", "t": "Droits par agent et par outil : lire, agir, demander confirmation", "requis": 2, "preuve": 0 },
-    { "id": "G13.3", "t": "Un outil connecté marche à la voix, à l'écrit et dans une routine", "requis": 2, "preuve": 0 },
-    { "id": "G13.4", "t": "La panne d'un outil est dite clairement et n'arrête pas l'agent", "requis": 2, "preuve": 0 }
+    { "id": "G13.1", "t": "Ajouter un serveur MCP par adresse, avec OAuth, depuis l'interface, en 60 s au plus", "requis": 2, "preuve": 1, "test": "tests/tools/mcp_test.py" },
+    { "id": "G13.2", "t": "Droits par agent et par outil : lire, agir, demander confirmation", "requis": 2, "preuve": 1, "test": "tests/tools/mcp_test.py" },
+    { "id": "G13.3", "t": "Un outil connecté marche à la voix, à l'écrit et dans une routine", "requis": 2, "preuve": 1, "test": "tests/tools/mcp_test.py" },
+    { "id": "G13.4", "t": "La panne d'un outil est dite clairement et n'arrête pas l'agent", "requis": 2, "preuve": 1, "test": "tests/tools/mcp_test.py" }
    ]
   },
   {

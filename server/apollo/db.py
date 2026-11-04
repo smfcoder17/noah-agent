@@ -115,6 +115,13 @@ def init() -> None:
                    "created_at TEXT DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (agent_id, user_id))")
         db.execute("CREATE INDEX IF NOT EXISTS agent_shares_user ON agent_shares(user_id)")
         db.execute("CREATE INDEX IF NOT EXISTS usage_owner ON usage(owner_id, created_at)")
+        # Outils branchés par l'utilisateur (G13) : `jeton` chiffré par seal(), `outils` la dernière liste connue du serveur.
+        db.execute("CREATE TABLE IF NOT EXISTS mcp_tools (agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, "
+                   "nom TEXT NOT NULL, url TEXT NOT NULL DEFAULT '', "
+                   "auth TEXT NOT NULL CHECK (auth IN ('aucune', 'jeton', 'oauth', 'catalogue')), jeton TEXT, "
+                   "droit TEXT NOT NULL DEFAULT 'confirmer' CHECK (droit IN ('lire', 'agir', 'confirmer')), "
+                   "outils TEXT NOT NULL DEFAULT '[]', etat TEXT NOT NULL DEFAULT '', erreur TEXT NOT NULL DEFAULT '', vu_a REAL, "
+                   "created_at TEXT DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (agent_id, nom))")
         _adopt(db)
         db.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_one_owner ON users(role) WHERE role = 'owner'")
         db.commit()  # le changement de journal ne se fait pas au milieu d'une transaction
@@ -170,6 +177,14 @@ def connect():
         db.commit()
     finally:
         db.close()
+
+
+def seal(value: str) -> str:
+    return _fernet.encrypt(value.encode()).decode()
+
+
+def unseal(value: str) -> str:
+    return _fernet.decrypt(value.encode()).decode()
 
 
 def get_setting(key: str, secret: bool = False) -> str | None:

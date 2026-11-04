@@ -235,6 +235,7 @@ def fixture() -> None:
         if not c.execute("SELECT 1 FROM messages WHERE conversation_id = ?", (CA,)).fetchone():
             c.execute("INSERT INTO messages (conversation_id, role, text) VALUES (?, 'user', ?)", (CA, f"message {SECRET_A}"))
         c.execute("INSERT OR IGNORE INTO watches (id, agent_id, name, url) VALUES (?, ?, 'Veille', 'https://example.org')", (WID, A))
+        c.execute("INSERT OR IGNORE INTO mcp_tools (agent_id, nom, url, auth) VALUES (?, 'notion', 'https://93.184.216.34/mcp', 'aucune')", (A,))
         c.execute("INSERT OR REPLACE INTO voice_calls (id, agent_id, user_id, conversation_id, texte, etat, created_at) "
                   "VALUES (?, ?, ?, ?, ?, 'sonne', ?)", (CALL, A, ALICE, CA, f"rappel {SECRET_A}", now))
         c.execute("DELETE FROM agent_shares WHERE agent_id = ?", (A,))
@@ -291,6 +292,10 @@ ROUTES = {
     ("POST", "/api/agents/{agent_id}/routines/{routine_id}/{action}"): "admin",
     ("GET", "/api/agents/{agent_id}/connections"): "admin",
     ("POST", "/api/agents/{agent_id}/connections/apps/{name}/{action}"): "admin",
+    ("POST", "/api/agents/{agent_id}/connections/tools/test"): "admin",
+    ("POST", "/api/agents/{agent_id}/connections/tools"): "admin",
+    ("PUT", "/api/agents/{agent_id}/connections/tools/{name}/droit"): "admin",
+    ("POST", "/api/agents/{agent_id}/connections/tools/{name}/{action}"): "admin",
     ("GET", "/api/agents/{agent_id}/folders"): "admin",
     ("PUT", "/api/agents/{agent_id}/folders"): "proprietaire",  # et rôle owner : c'est son ordinateur (voir test_secrets)
     ("GET", "/api/agents/{agent_id}/google"): "admin",
@@ -329,6 +334,9 @@ BODIES = {
     "/api/agents/{agent_id}/install": lambda: {"paquets": ["cowsay"]},
     "/api/agents/{agent_id}/memory": lambda: {"cible": "memory", "entrees": []},
     "/api/agents/{agent_id}/routines": lambda: {"consigne": "x", "quand": "every day"},
+    "/api/agents/{agent_id}/connections/tools/test": lambda: {"url": "https://93.184.216.34/mcp"},
+    "/api/agents/{agent_id}/connections/tools": lambda: {"url": "https://93.184.216.34/mcp", "nom": "essai"},
+    "/api/agents/{agent_id}/connections/tools/{name}/droit": lambda: {"droit": "agir"},
     "/api/agents/{agent_id}/folders": lambda: {"dossiers": []},
     "/api/agents/{agent_id}/google/connect": lambda: {"permissions": [next(iter(__import__("apollo.accounts").accounts.PERMS))]},
     "/api/agents/{agent_id}/watches": lambda: {"nom": "n", "url": "https://example.org"},
@@ -365,6 +373,8 @@ OWNER_ROUTES = {
     ("PUT", "/api/updates/settings"): {"auto": True},
     ("GET", "/api/profiles"): None,
     ("POST", "/api/profiles"): {"username": "nouveau-essai", "password": "motdepasse-n"},
+    ("GET", "/api/mcp/reseaux"): None,
+    ("PUT", "/api/mcp/reseaux"): {"reseaux": []},
 }
 OWNER_WITH_ID = {("PATCH", "/api/profiles/{profile_id}"): {"budget": None}, ("DELETE", "/api/profiles/{profile_id}"): None}
 # … et les routes ouvertes, chacune avec la raison pour laquelle elle ne montre rien d'un autre.
@@ -630,7 +640,8 @@ def test_rights() -> None:
     assert ada.put(f"/api/agents/{A}/plafond", json={"daily": 99}).status_code == 403
     # Partage : l'avertissement est dit, et demandé en retour.
     shares = alice.get(f"/api/agents/{A}/shares").json()
-    assert "seule mémoire et un seul navigateur" in shares["avertissement"] and "comptes connectés" in shares["avertissement"]
+    assert "seule mémoire, un seul navigateur et un seul dossier de travail" in shares["avertissement"]
+    assert "comptes connectés et ses dossiers" in shares["avertissement"]
     r = alice.put(f"/api/agents/{A}/shares", json={"utilisateur": "bruno", "droit": "lecture"})
     assert r.status_code == 400 and "seule mémoire" in r.json()["detail"], r.text
     assert alice.put(f"/api/agents/{A}/shares", json={"utilisateur": "alice", "droit": "lecture", "compris": True}).status_code == 400

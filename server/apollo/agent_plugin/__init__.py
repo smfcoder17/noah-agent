@@ -12,13 +12,21 @@ communautaire jugé sûr, sans signature. Ici :
   lance et peut le dire.
 
 Les skills que l'agent écrit lui-même (skill_manage) restent permis : ils passent par l'analyse d'Hermes.
+
+Outils MCP (G13.2) : chaque serveur a un droit choisi par l'utilisateur, écrit par Noah dans .noah/mcp-droits.json. `lire` :
+seuls les outils que le serveur déclare en lecture ; `agir` : tout ; `confirmer` (par défaut, y compris fichier absent ou
+illisible) : chaque appel passe par la validation humaine d'Hermes, la même que les commandes dangereuses, et Noah répond
+« une fois » seulement. Dans une routine, personne ne peut valider : refus. L'agent ne branche pas de serveur MCP lui-même.
+
 Limite : c'est un filtre de commandes, pas un bac à sable. Il ferme le schéma courant des skills piégés (un prérequis
 à lancer sans le lire) ; un agent décidé à le contourner le pourrait, d'où les autres protections (machine isolée,
 aucun secret de Noah dans l'agent, accord demandé pour les actions sensibles).
 """
+import json
 import os
 import re
 import shlex
+import uuid
 
 TRUSTED = ("openai/skills", "anthropics/skills", "huggingface/skills", "NVIDIA/skills")
 INSTALL = re.compile(r"\b(?:hermes\s+skills\s+(?:install|add)|npx\s+(?:-y\s+)?skills\s+add|clawhub\s+install)\s+(\S+)")
@@ -30,6 +38,7 @@ PIPE_TO_SHELL = re.compile(
     r"|iex\s*\(\s*(?:iwr|invoke-webrequest|new-object\s+net\.webclient)",
     re.I,
 )
+MCP_CONFIG = re.compile(r"\bhermes\s+mcp\s+(?:add|install|remove|rm|configure|reauth|login)\b", re.I)
 RUNNERS = {"sh", "bash", "zsh", "dash", "source", ".", "python", "python3", "node", "perl", "ruby", "exec"}
 READERS = {"cat", "less", "more", "head", "tail", "bat", "nl"}
 
@@ -121,6 +130,9 @@ def _segments(command: str) -> list[list[str]]:
 
 def check(command: str) -> str | None:
     """Raison du refus, ou None si la commande passe. Tient la liste des fichiers téléchargés non lus."""
+    if MCP_CONFIG.search(command):
+        return ("Noah refuse de changer les serveurs MCP depuis la machine de l'agent : une commande locale exécuterait du "
+                "code téléchargé. L'utilisateur ajoute ses outils dans Détails → Connexions.")
     if PIPE_TO_SHELL.search(command):
         return ("Noah refuse d'exécuter un script téléchargé d'un trait. Télécharge-le dans un fichier, lis-le, puis "
                 "lance-le en expliquant à l'utilisateur ce qu'il fait.")
@@ -149,7 +161,82 @@ def check(command: str) -> str | None:
     return None
 
 
+# --- Droits des outils MCP -----------------------------------------------------------------------------------------
+
+MCP_RIGHTS = os.environ.get("NOAH_MCP_DROITS", "/opt/data/.noah/mcp-droits.json")
+
+
+def _rights() -> dict:
+    try:
+        with open(MCP_RIGHTS, encoding="utf-8") as f:
+            rights = json.load(f)
+        return rights if isinstance(rights, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _mcp_parts(tool_name: str, rights: dict) -> tuple[str, str]:
+    """mcp__<serveur>__<outil> : Hermes remplace « - » par « _ » dans le nom, sa table d'outils garde le vrai serveur."""
+    server = ""
+    try:
+        from tools.registry import registry
+        toolset = registry.get_toolset_for_tool(tool_name) or ""
+        server = toolset.removeprefix("mcp-") if toolset.startswith("mcp-") else ""
+    except Exception:  # noqa: BLE001 - hors d'Hermes, ou table en cours de changement : on déduit du nom
+        pass
+    rest = tool_name.removeprefix("mcp__")
+    known = {name.replace("-", "_"): name for name in rights}
+    if not server:
+        head = rest.split("__", 1)[0]
+        server = known.get(head, head)
+    head = server.replace("-", "_")
+    return server, rest[len(head) + 2:] if rest.startswith(head + "__") else rest
+
+
+def _read_only(server: str, tool: str) -> bool:
+    """Ce que le serveur a déclaré à Hermes ; inconnu ou pas encore lu : pas en lecture."""
+    try:
+        from tools.mcp_tool_handlers import _tool_is_read_only
+        return _tool_is_read_only(server, tool) is True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _unattended() -> bool:
+    try:
+        from tools.approval_context import _is_cron_approval_context
+        return bool(_is_cron_approval_context())
+    except Exception:  # noqa: BLE001 - le portail d'Hermes refuse de lui-même sans personne pour répondre
+        return False
+
+
+def check_mcp(tool_name: str, args: dict) -> dict | None:
+    """La décision pour un appel d'outil MCP : rien (il passe), un refus, ou la validation humaine d'Hermes."""
+    rights = _rights()
+    server, tool = _mcp_parts(tool_name, rights)
+    droit = rights.get(server, "confirmer")
+    if droit == "agir":
+        return None
+    if droit == "lire":
+        if _read_only(server, tool):
+            return None
+        return {"action": "block", "message": (
+            f"Noah refuse : « {server} » est en lecture seule sur cet agent et « {tool} » n'est pas déclaré en lecture. "
+            "Dis-le à l'utilisateur ; il peut changer ce droit dans Détails → Connexions.")}
+    if _unattended():
+        return {"action": "block", "message": (
+            f"Noah refuse : « {server} » demande la confirmation de l'utilisateur et personne ne peut la donner pendant une "
+            "routine. Continue sans cet outil et signale-le dans ton compte rendu ; l'utilisateur peut passer ce droit à "
+            "« agir » dans Détails → Connexions.")}
+    shown = json.dumps(args, ensure_ascii=False, default=str)
+    # Clé neuve à chaque appel : aucun accord ne se réutilise, même si un client répondait « pour la session ».
+    return {"action": "approve", "rule_key": f"noah-mcp-{uuid.uuid4().hex}",
+            "message": f"Outil « {server} » : {tool}\n{shown[:600]}"}
+
+
 def _pre_tool_call(tool_name: str = "", args: dict | None = None, **_) -> dict | None:
+    if tool_name.startswith("mcp__"):  # avant le test des arguments : un appel sans argument passe aussi par le droit
+        return check_mcp(tool_name, args if isinstance(args, dict) else {})
     if not isinstance(args, dict):
         return None
     if tool_name == "read_file":

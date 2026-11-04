@@ -277,6 +277,8 @@ async def configure(agent_id: str, model: dict, role: str | None = None) -> None
     plugins = cfg.setdefault("plugins", {})
     plugins["enabled"] = sorted(set(plugins.get("enabled") or []) | {"noah-garde"})
     cfg.setdefault("skills", {})["inline_shell"] = False
+    # Une routine n'a personne pour dire oui : un outil en « confirmer » y est refusé, jamais accepté tout seul (G13.2).
+    cfg.setdefault("approvals", {})["cron_mode"] = "deny"
     for name in ("plugin.yaml", "__init__.py"):
         files[f"plugins/noah-garde/{name}"] = (AGENT_PLUGIN / name).read_text(encoding="utf-8")
     files["config.yaml"] = yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True)

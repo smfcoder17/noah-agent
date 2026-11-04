@@ -45,6 +45,11 @@ jobs:
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \
             "pip install -q -r /app/requirements.txt && python /tests/profiles/profiles_test.py"
+      - name: Outils MCP au choix (adresses, jeton, droits, panne, accès)
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/launcher:/l" -v "$PWD/tests:/tests" \
+            -v "$PWD/frontend/src/components:/front:ro" python:3.12-slim sh -c \
+            "pip install -q -r /app/requirements.txt && python /tests/tools/mcp_test.py"
       - name: Restauration (archive refusée si elle sort de backup.sh)
         run: |
           docker run --rm -e NOAH_TOOL=1 -v "$PWD/launcher:/l" -v "$PWD/tests:/tests" python:3.12-slim sh -c \

@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import access, accounts, auth, catalog, coordination, db, desktop, events, handoff, hermes, machine, media, profiles, public, push, relay, updates, watch
+from . import access, accounts, auth, catalog, coordination, db, desktop, events, handoff, hermes, machine, mcp, media, profiles, public, push, relay, updates, watch
 from . import config
 from .config import WEB_DIR, forget_setup_code
 from .hermes import Agent
@@ -68,6 +68,7 @@ async def same_origin_only(request: Request, call_next):
     return await call_next(request)
 app.include_router(relay.router)
 app.include_router(machine.router)
+app.include_router(mcp.router)
 app.include_router(desktop.router)
 app.include_router(push.router)
 app.include_router(watch.router)
@@ -87,7 +88,7 @@ _running_runs: set = set()  # runs suivis en arrière-plan (référence gardée 
 task_state: dict[str, str] = {}
 
 # Version du branchement des agents ; l'augmenter reconfigure tous les agents au démarrage.
-AGENT_SETUP_VERSION = "23-coordination"  # 23 : noah.py demander, agents, rappeler (G11.4, G11.5)
+AGENT_SETUP_VERSION = "24-outils"  # 24 : droits par outil MCP dans la garde (G13.2)
 
 
 @app.on_event("startup")
@@ -1085,8 +1086,11 @@ Propose une routine quand tu remarques une tâche qui revient.
 
 ## Gmail, Agenda, Drive et autres applications
 Si l'utilisateur a connecté Google dans Détails → Connexions, utilise la compétence google-workspace (seulement pour les accès
-qu'il a cochés). Les applications connectées là (Notion, Todoist, Linear, Figma…) t'apportent leurs propres outils. Pour une
-application pas encore connectée, invite-le à le faire dans Détails → Connexions plutôt que de lui demander des identifiants.
+qu'il a cochés). Les applications et outils connectés là (Notion, Todoist, Linear, Figma, ou tout serveur MCP ajouté par son
+adresse) t'apportent leurs propres outils, à la voix, à l'écrit et dans les routines. Pour une application pas encore connectée,
+invite-le à le faire dans Détails → Connexions plutôt que de lui demander des identifiants. Chaque outil a un droit choisi par
+l'utilisateur : un appel peut être refusé ou attendre son accord. Un outil injoignable ou un refus n'arrête pas ta tâche : dis-le
+en une phrase et continue le reste. N'installe jamais un serveur MCP toi-même : l'ajout se fait dans Détails → Connexions.
 Quand on te demande de connecter Google, suis la recette : `python3 /opt/data/noah.py recette google`.
 
 ## Appeler l'utilisateur
@@ -1609,6 +1613,8 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
                 out = events.translate(kind, data, details)
                 if not out:
                     continue
+                if out["type"] == "approval":
+                    mcp.approval_seen(agent.id, out.get("request_id"), str(out.get("summary") or ""))
                 if out["type"] == "approval" and task_state.get(conv_id) != "approve":
                     # Celui qui a lancé la tâche et le propriétaire de l'agent : pas les autres profils partagés.
                     for target in dict.fromkeys((_conversation_owner(conv_id), access.owner_of(agent.id))):
@@ -1722,7 +1728,13 @@ class ApprovalAnswer(BaseModel):
 
 @app.post("/api/agents/{agent_id}/runs/{run_id}/approval")
 async def approval(agent_id: str, run_id: str, body: ApprovalAnswer, user: int = Depends(auth.current_user)):
-    await hermes.answer_approval(_run_of(user, agent_id, run_id), run_id, body.request_id, body.generation, body.approve)
+    agent = _run_of(user, agent_id, run_id)
+    grant = mcp.approval_answered(agent_id, body.request_id, body.approve)  # avant : l'appel part dès que Hermes a la réponse
+    try:
+        await hermes.answer_approval(agent, run_id, body.request_id, body.generation, body.approve)
+    except Exception:
+        mcp.approval_failed(grant)
+        raise
     return {"ok": True}
 
 

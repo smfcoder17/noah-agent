@@ -12,12 +12,20 @@ const BUDGET = PIP + "python /tests/budget/budget_test.py";
 const WATCH = PIP + "python /tests/watch/watch_test.py";
 const GUARD = "python /tests/skills/guard_test.py";
 const PAIRING = PIP + "python /tests/pairing/pairing_test.py";
+const MCP = PIP + "python /tests/tools/mcp_test.py";
 
 const SABOTAGES = [
   ["Plafond de dépense ignoré", "apollo/relay.py", "if cap is not None and day_cost(agent_id) >= cap:", "if False:", BUDGET],
   ["Heures non retirées des pages surveillées", "apollo/watch.py", String.raw`text = _STAMP.sub(r"\1", _VOLATILE.sub(" ", text))`, "pass", WATCH],
   ["Téléchargement puis exécution autorisés", "apollo/agent_plugin/__init__.py", 'DOWNLOADER = r"(?:curl|wget|iwr|invoke-webrequest|fetch)"', 'DOWNLOADER = r"(?:zzzz)"', GUARD],
   ["Session d'appairage qui n'expire plus", "apollo/auth.py", "UNCLAIMED = timedelta(minutes=10)", "UNCLAIMED = timedelta(days=3650)", PAIRING],
+  ["Outil : adresse jugée sans la résolution DNS", "apollo/mcp.py", "_judge(ipaddress.ip_address(a), scheme)", "pass", MCP],
+  ["Outil : jeton en clair en base", "apollo/mcp.py", "db.seal(token) if token else None", "token", MCP],
+  ["Outil : « confirmer » laisse passer sans accord", "apollo/mcp.py", 'if _take_grant(row["agent_id"], name):', "if True:", MCP],
+  ["Outil : un accord sert plusieurs fois", "apollo/mcp.py", "_grants[(agent_id, name)] = left[1:]", "_grants[(agent_id, name)] = left", MCP],
+  ["Outil : garde qui accepte par défaut", "apollo/agent_plugin/__init__.py", 'droit = rights.get(server, "confirmer")', 'droit = rights.get(server, "agir")', MCP],
+  ["Outil : une panne casse le tour de l'agent", "apollo/mcp.py", 'return _tool_error(msg_id, _outage_text(name, erreur.rstrip(".")))', 'raise HTTPException(502, "panne")', MCP],
+  ["Outil : ajout sans contrôle d'accès", "apollo/mcp.py", 'access.access(user, agent_id, "admin")\n    _scope(agent_id)\n    token = _clean_token(body)', "_scope(agent_id)\n    token = _clean_token(body)", MCP],
 ];
 
 function run([sabotage, path, old, replacement, cmd]) {
@@ -29,7 +37,7 @@ function run([sabotage, path, old, replacement, cmd]) {
     const source = readFileSync(target, "utf8");
     if (old && source.split(old).length !== 2) return { sabotage, resultat: "cible introuvable" };
     if (old) writeFileSync(target, source.replace(old, () => replacement));
-    const r = spawnSync("docker", ["run", "--rm", "-v", `${server}:/app`, "-v", `${join(ROOT, "tests")}:/tests`,
+    const r = spawnSync("docker", ["run", "--rm", "-v", `${server}:/app`, "-v", `${join(ROOT, "tests")}:/tests`, "-v", `${join(ROOT, "launcher")}:/l:ro`,
       "-v", `${join(ROOT, "frontend/src/App.tsx")}:/front/App.tsx:ro`, "-v", `${join(ROOT, "mobile/www/app.js")}:/mobile/app.js:ro`,
       "python:3.12-slim", "sh", "-c", cmd], { timeout: 600000 });
     // Seule une assertion compte : une panne d'installation ou de Docker ne prouve rien.

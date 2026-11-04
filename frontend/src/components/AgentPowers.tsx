@@ -297,25 +297,68 @@ function MemoryList({ title, entries, limit, empty, onSave }: { title: string; e
 
 type GoogleState = { disponible: boolean; connecte?: boolean };
 
-type App = { nom: string; description: string; source: string | null; oauth: boolean; hote: string | null; installe: boolean; connecte: boolean };
-type ConnectionsState = { google: GoogleState; applications: App[] };
+type Droit = "lire" | "agir" | "confirmer";
+type Etat = "ok" | "injoignable" | "a_connecter" | "jeton_refuse" | "refuse" | "";
+type App = { nom: string; description: string; source: string | null; oauth: boolean; hote: string | null; installe: boolean; connecte: boolean; droit?: Droit; etat?: Etat; erreur?: string };
+type FoundTool = { nom: string; description: string; lecture_seule: boolean };
+type CustomTool = { nom: string; url: string; auth: "aucune" | "jeton" | "oauth"; jeton: boolean; droit: Droit; etat: Etat; erreur: string; connecte: boolean; outils: FoundTool[] };
+type ConnectionsState = { google: GoogleState; applications: App[]; outils?: CustomTool[] };
 
 const appLabel = (name: string) => name.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
-export function Connections({ agentId }: { agentId: string }) {
+const DROITS: [Droit, string][] = [
+  ["confirmer", "Demander confirmation"],
+  ["lire", "Lire seulement"],
+  ["agir", "Agir sans demander"],
+];
+
+/** Le droit vaut pour tout le serveur : MCP ne donne pas de quoi régler chaque action autrement que par sa déclaration de lecture. */
+function RightSelect({ agentId, name, droit, onChange, onError }: { agentId: string; name: string; droit: Droit; onChange: () => void; onError: (e: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const change = async (next: string) => {
+    setBusy(true);
+    onError("");
+    try {
+      await send(`/api/agents/${agentId}/connections/tools/${name}/droit`, { droit: next }, "PUT");
+      onChange();
+    } catch (e) {
+      onError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <select aria-label={`Droit de l'agent sur ${appLabel(name)}`} value={droit} disabled={busy} onChange={(e) => change(e.target.value)}
+      className="h-8 cursor-pointer rounded-lg border border-border bg-background px-2 text-xs">
+      {DROITS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+    </select>
+  );
+}
+
+export function Connections({ agentId, shared = false }: { agentId: string; shared?: boolean }) {
   const { data, error, setError, load } = useAgentData<ConnectionsState>(`/api/agents/${agentId}/connections`);
   const [browsing, setBrowsing] = useState(false);
+  const [adding, setAdding] = useState(false);
   const [query, setQuery] = useState("");
+  const [login, setLogin] = useState<string | null>(null); // outil OAuth qui vient d'être ajouté : l'onglet d'accord est ouvert
   const google = data?.google;
   const apps = data?.applications ?? [];
+  const tools = data?.outils ?? [];
   const connected = apps.filter((a) => a.installe);
   const q = query.trim().toLowerCase();
   const others = apps.filter((a) => !a.installe && (!q || `${a.nom} ${a.description}`.toLowerCase().includes(q)));
   return (
-    <Section title="Connexions" count={(google?.connecte ? 1 : 0) + connected.filter((a) => a.connecte).length}>
+    <Section title="Connexions" count={(google?.connecte ? 1 : 0) + connected.filter((a) => a.connecte).length + tools.filter((t) => t.connecte).length}>
       {!data && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture…</p>}
       {google?.disponible && data && <GoogleCard agentId={agentId} onError={setError} />}
       {connected.map((a) => <AppRow key={a.nom} agentId={agentId} app={a} onChange={load} onError={setError} />)}
+      {tools.map((t) => <ToolRow key={t.nom} agentId={agentId} tool={t} justAdded={login === t.nom} onChange={load} onError={setError} />)}
+      {data && (adding ? (
+        <AddTool agentId={agentId} shared={shared} onClose={() => setAdding(false)}
+          onAdded={(name, oauth) => { setAdding(false); if (oauth) setLogin(name); load(); }} />
+      ) : (
+        <Button variant="outline" size="sm" className="self-start" onClick={() => setAdding(true)}><Plus />Ajouter un outil</Button>
+      ))}
       {data && (browsing ? (
         <div className="flex flex-col gap-1.5 rounded-xl border border-border p-2">
           <Input value={query} onChange={(e) => setQuery(e.target.value)} className="h-9" placeholder="Notion, Todoist, Linear, Figma…" aria-label="Chercher une application" autoFocus />
@@ -380,7 +423,9 @@ function AppRow({ agentId, app, onChange, onError }: { agentId: string; app: App
         </div>
         {app.connecte ? (
           <>
-            <span className="flex items-center gap-1 text-xs font-medium text-ok"><Check className="size-3.5" />Connecté</span>
+            {app.etat && app.etat !== "ok"
+              ? <span className="text-xs font-medium text-danger">En panne</span>
+              : <span className="flex items-center gap-1 text-xs font-medium text-ok"><Check className="size-3.5" />Connecté</span>}
             <Button size="icon-sm" variant="ghost" onClick={remove} disabled={busy} aria-label={`Retirer ${appLabel(app.nom)}`}><Trash2 /></Button>
           </>
         ) : !waiting ? (
@@ -389,19 +434,213 @@ function AppRow({ agentId, app, onChange, onError }: { agentId: string; app: App
           </Button>
         ) : null}
       </div>
-      {waiting && (
-        <div className="flex flex-col gap-2">
-          <p className="text-xs text-muted-foreground">
-            Accepte dans l'onglet ouvert. Tu arrives ensuite sur une page qui ne s'affiche pas (adresse « 127.0.0.1 ») : c'est normal, copie son adresse complète ici.
-          </p>
-          <Input value={back} onChange={(e) => setBack(e.target.value)} className="h-9" placeholder="http://127.0.0.1:…/callback?code=…" aria-label={`Adresse de retour de ${appLabel(app.nom)}`} />
-          <div className="flex justify-end gap-2">
-            <Button size="sm" variant="ghost" onClick={connect} disabled={busy}>Rouvrir</Button>
-            <Button size="sm" onClick={finish} disabled={!back.trim() || busy}>{busy && <Loader2 className="animate-spin" />}Terminer</Button>
-          </div>
+      {app.installe && app.connecte && app.erreur && <p className="text-xs text-danger">{app.erreur}</p>}
+      {app.installe && app.connecte && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span>Droit de l'agent</span>
+          <RightSelect agentId={agentId} name={app.nom} droit={app.droit ?? "confirmer"} onChange={onChange} onError={onError} />
         </div>
       )}
+      {waiting && (
+        <LoginBack label={appLabel(app.nom)} value={back} onValue={setBack} onReopen={connect} onFinish={finish} busy={busy} />
+      )}
     </div>
+  );
+}
+
+/** Retour du fournisseur OAuth : l'adresse de la page de retour, qu'Hermes attend sur un port de la machine de l'agent. */
+function LoginBack({ label, value, onValue, onReopen, onFinish, busy }: { label: string; value: string; onValue: (v: string) => void; onReopen: () => void; onFinish: () => void; busy: boolean }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-xs text-muted-foreground">
+        Accepte dans l'onglet ouvert. Tu arrives ensuite sur une page qui ne s'affiche pas (adresse « 127.0.0.1 ») : c'est normal, copie son adresse complète ici.
+      </p>
+      <Input value={value} onChange={(e) => onValue(e.target.value)} className="h-9" placeholder="http://127.0.0.1:…/callback?code=…" aria-label={`Adresse de retour de ${label}`} />
+      <div className="flex justify-end gap-2">
+        <Button size="sm" variant="ghost" onClick={onReopen} disabled={busy}>Rouvrir</Button>
+        <Button size="sm" onClick={onFinish} disabled={!value.trim() || busy}>{busy && <Loader2 className="animate-spin" />}Terminer</Button>
+      </div>
+    </div>
+  );
+}
+
+const ETATS: Partial<Record<Etat, string>> = { injoignable: "En panne", refuse: "Adresse refusée", jeton_refuse: "Jeton refusé", a_connecter: "À connecter" };
+
+/** Un outil ajouté par adresse : son état, son droit, et ce qu'il offre. */
+function ToolRow({ agentId, tool, justAdded, onChange, onError }: { agentId: string; tool: CustomTool; justAdded: boolean; onChange: () => void; onError: (e: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [waiting, setWaiting] = useState(justAdded);
+  const [back, setBack] = useState("");
+  const base = `/api/agents/${agentId}/connections/tools/${tool.nom}`;
+  const label = appLabel(tool.nom);
+  const run = async (fn: () => Promise<void>) => {
+    setBusy(true);
+    onError("");
+    try {
+      await fn();
+    } catch (e) {
+      onError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const connect = () =>
+    run(async () => {
+      const r = await send<{ adresse?: string }>(`${base}/connect`, {});
+      if (r.adresse) window.open(r.adresse, "_blank", "noopener");
+      setWaiting(true);
+    });
+  const finish = () =>
+    run(async () => {
+      await send(`${base}/finish`, { adresse: back });
+      setWaiting(false);
+      setBack("");
+      onChange();
+    });
+  const remove = () =>
+    run(async () => {
+      if (!confirm(`Retirer ${label} ? L'agent n'y aura plus accès.`)) return;
+      await send(`${base}/remove`, {});
+      onChange();
+    });
+  const problem = ETATS[tool.etat];
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-border p-2.5">
+      <div className="flex items-center gap-2.5">
+        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-muted text-sm font-bold">{tool.nom[0].toUpperCase()}</span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium">{label}</p>
+          <p className="truncate text-xs text-muted-foreground" title={tool.url}>{tool.url}</p>
+        </div>
+        {problem
+          ? <span className={cn("text-xs font-medium", tool.etat === "a_connecter" ? "text-warn" : "text-danger")}>{problem}</span>
+          : <span className="flex items-center gap-1 text-xs font-medium text-ok"><Check className="size-3.5" />Connecté</span>}
+        <Button size="icon-sm" variant="ghost" onClick={remove} disabled={busy} aria-label={`Retirer ${label}`}><Trash2 /></Button>
+      </div>
+      {tool.erreur && <p className="text-xs text-danger">{tool.erreur} L'agent le sait et continue sans cet outil.</p>}
+      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <span>Droit de l'agent</span>
+        <RightSelect agentId={agentId} name={tool.nom} droit={tool.droit} onChange={onChange} onError={onError} />
+        {tool.outils.length > 0 && <span title={tool.outils.map((o) => o.nom).join(", ")}>{tool.outils.length} outil{tool.outils.length > 1 ? "s" : ""}</span>}
+      </div>
+      {tool.auth === "oauth" && !tool.connecte && !waiting && (
+        <Button size="sm" className="self-start" onClick={connect} disabled={busy}>{busy && <Loader2 className="animate-spin" />}Terminer la connexion</Button>
+      )}
+      {waiting && <LoginBack label={label} value={back} onValue={setBack} onReopen={connect} onFinish={finish} busy={busy} />}
+    </div>
+  );
+}
+
+/** Ajouter un serveur MCP par son adresse : rien ne s'enregistre avant un test réussi, avec exactement ces réglages. */
+function AddTool({ agentId, shared, onClose, onAdded }: { agentId: string; shared: boolean; onClose: () => void; onAdded: (name: string, oauth: boolean) => void }) {
+  const base = `/api/agents/${agentId}/connections/tools`;
+  const [form, setForm] = useState({ url: "", nom: "", auth: "aucune", jeton: "", droit: "confirmer" });
+  const [found, setFound] = useState<{ nom: string; oauth: boolean; outils: FoundTool[] } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const change = (patch: Partial<typeof form>) => {
+    setForm({ ...form, ...patch });
+    setFound(null); // un autre réglage demande un autre test
+    setError("");
+  };
+  const run = async (fn: () => Promise<void>) => {
+    setBusy(true);
+    setError("");
+    try {
+      await fn();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const test = () => run(async () => setFound(await send<{ nom: string; oauth: boolean; outils: FoundTool[] }>(`${base}/test`, form)));
+  const save = () =>
+    run(async () => {
+      const r = await send<{ nom: string; adresse?: string }>(base, form);
+      if (r.adresse) window.open(r.adresse, "_blank", "noopener");
+      onAdded(r.nom, !!r.adresse);
+    });
+  return (
+    <form onSubmit={(e) => { e.preventDefault(); void (found ? save() : test()); }} className="flex flex-col gap-2 rounded-xl border border-border p-3">
+      <Input value={form.url} onChange={(e) => change({ url: e.target.value })} className="h-9" required placeholder="https://mcp.exemple.fr/mcp" aria-label="Adresse du serveur MCP" autoFocus />
+      <Input value={form.nom} onChange={(e) => change({ nom: e.target.value })} className="h-9" placeholder="Nom (déduit de l'adresse si vide)" aria-label="Nom de l'outil" maxLength={31} />
+      <div className="flex flex-wrap gap-2">
+        <select aria-label="Authentification" value={form.auth} onChange={(e) => change({ auth: e.target.value, jeton: "" })} className="h-9 min-w-0 flex-1 cursor-pointer rounded-lg border border-border bg-background px-2 text-sm">
+          <option value="aucune">Sans authentification</option>
+          <option value="jeton">Avec un jeton</option>
+          <option value="oauth">Avec OAuth</option>
+        </select>
+        <select aria-label="Droit de l'agent" value={form.droit} onChange={(e) => setForm({ ...form, droit: e.target.value })} className="h-9 min-w-0 flex-1 cursor-pointer rounded-lg border border-border bg-background px-2 text-sm">
+          {DROITS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+      </div>
+      {form.auth === "jeton" && (
+        <Input type="password" autoComplete="off" value={form.jeton} onChange={(e) => change({ jeton: e.target.value })} className="h-9" required placeholder="Jeton" aria-label="Jeton" />
+      )}
+      {form.auth === "jeton" && <p className="text-xs text-muted-foreground">Le jeton reste chiffré sur ton serveur : ni l'agent ni cet écran ne le reverront.</p>}
+      <p className="text-xs text-muted-foreground">Le droit vaut pour tout ce serveur. « Lire seulement » s'en remet à ce que le serveur déclare en lecture. Dans une routine, personne ne peut confirmer : l'appel y est refusé.</p>
+      <p className="text-xs text-muted-foreground">Une commande locale n'est pas acceptée ici : elle reviendrait à exécuter du code téléchargé sur la machine de l'agent.</p>
+      <p className={cn("text-xs", shared ? "font-medium text-warn" : "text-muted-foreground")}>
+        {shared ? "Cet agent est partagé : cet outil servira aussi à tous ceux avec qui tu le partages." : "Si tu partages cet agent, cet outil servira aussi à tous ceux avec qui tu le partages."}
+      </p>
+      {found && (
+        <div className="rounded-lg bg-muted p-2 text-xs">
+          {found.oauth ? (
+            <p>Le serveur répond et demande OAuth. Ses outils seront listés une fois la connexion acceptée.</p>
+          ) : (
+            <>
+              <p className="font-medium">Connexion réussie : {found.outils.length} outil{found.outils.length > 1 ? "s" : ""} trouvé{found.outils.length > 1 ? "s" : ""}, enregistré sous « {found.nom} ».</p>
+              <ul className="mt-1 flex max-h-40 flex-col gap-0.5 overflow-y-auto">
+                {found.outils.map((o) => <li key={o.nom} className="truncate" title={o.description}><span className="font-mono">{o.nom}</span>{o.lecture_seule ? " · lecture" : ""}</li>)}
+              </ul>
+            </>
+          )}
+        </div>
+      )}
+      <PrivateNetworks />
+      <ErrorText>{error}</ErrorText>
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="ghost" size="sm" onClick={onClose}>Annuler</Button>
+        {found
+          ? <Button type="submit" size="sm" disabled={busy}>{busy && <Loader2 className="animate-spin" />}{found.oauth ? "Enregistrer et connecter" : "Enregistrer"}</Button>
+          : <Button type="submit" size="sm" disabled={busy || !form.url.trim()}>{busy && <Loader2 className="animate-spin" />}Tester la connexion</Button>}
+      </div>
+    </form>
+  );
+}
+
+/** Pour le propriétaire seulement (la route refuse les autres, et rien ne s'affiche alors) : un outil sur son réseau privé. */
+function PrivateNetworks() {
+  const [text, setText] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    get<{ reseaux: string[] }>("/api/mcp/reseaux").then((r) => setText(r.reseaux.join(", "))).catch(() => setText(null));
+  }, []);
+  if (text === null) return null;
+  const save = async () => {
+    setError("");
+    try {
+      const r = await send<{ reseaux: string[] }>("/api/mcp/reseaux", { reseaux: text.split(/[\s,]+/).filter(Boolean) }, "PUT");
+      setText(r.reseaux.join(", "));
+      setSaved(true);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+  return (
+    <details className="text-xs text-muted-foreground">
+      <summary className="cursor-pointer">Serveur sur ton réseau privé</summary>
+      <div className="mt-1.5 flex flex-col gap-1.5">
+        <p>Adresses privées et http restent refusés, sauf sur un réseau que tu acceptes ici (exemple : 192.168.1.0/24). Le réseau interne de Noah reste toujours refusé.</p>
+        <div className="flex gap-2">
+          <Input value={text} onChange={(e) => { setText(e.target.value); setSaved(false); }} className="h-8" placeholder="192.168.1.0/24" aria-label="Réseaux privés acceptés" />
+          <Button type="button" size="sm" variant="outline" onClick={save}>{saved ? <Check /> : null}Accepter</Button>
+        </div>
+        <ErrorText>{error}</ErrorText>
+      </div>
+    </details>
   );
 }
 

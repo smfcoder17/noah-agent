@@ -1,4 +1,4 @@
-// Partager un agent avec un autre profil : le droit, l'avertissement sur sa mémoire et ses comptes, la révocation.
+// Partager un agent avec un autre profil : le droit, l'avertissement sur sa mémoire, ses comptes et ses dossiers, la révocation.
 import { TriangleAlert, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { type Agent, del, get, send } from "@/lib/api";
@@ -69,7 +69,7 @@ function ShareForm({ agent, onChanged }: { agent: Agent; onChanged: () => void }
     <div className="flex flex-col gap-4">
       <p role="alert" className="flex gap-2 rounded-xl bg-warn-soft p-3 text-sm text-warn">
         <TriangleAlert className="mt-0.5 size-4 shrink-0" />
-        <span>Attention : {warning || "cet agent garde une seule mémoire et un seul navigateur, ses comptes connectés servent à tous ceux avec qui tu le partages."}</span>
+        <span>Attention : {warning || "cet agent garde une seule mémoire, un seul navigateur et un seul dossier de travail ; ses comptes connectés et ses dossiers servent à tous ceux avec qui tu le partages."}</span>
       </p>
       {shares && shares.length > 0 && (
         <ul className="flex flex-col gap-1.5">

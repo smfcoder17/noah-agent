@@ -14,9 +14,9 @@ from . import auth, db, relay
 
 SHARE_RIGHTS = ("lecture", "usage", "admin")
 LEVELS = {"lecture": 1, "usage": 2, "admin": 3, "proprietaire": 4}
-# Limite réelle d'Hermes : une mémoire et un navigateur par conteneur. Dite telle quelle au moment du partage.
-SHARE_WARNING = ("cet agent garde une seule mémoire et un seul navigateur, ses comptes connectés servent à tous ceux "
-                 "avec qui tu le partages.")
+# Limite réelle d'Hermes : une mémoire, un navigateur et un dossier de travail par conteneur. Dite telle quelle au partage.
+SHARE_WARNING = ("cet agent garde une seule mémoire, un seul navigateur et un seul dossier de travail ; ses comptes "
+                 "connectés et ses dossiers servent à tous ceux avec qui tu le partages.")
 
 
 def role(user: int) -> str:

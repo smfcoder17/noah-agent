@@ -64,7 +64,7 @@ export function SidePanel({
               <Routines agentId={agent.id} />
               <Watches agentId={agent.id} />
               <Memory agentId={agent.id} />
-              <Connections agentId={agent.id} />
+              <Connections agentId={agent.id} shared={agent.partage || !!agent.partage_par} />
               <Folders agentId={agent.id} />
               <Software agentId={agent.id} />
             </>

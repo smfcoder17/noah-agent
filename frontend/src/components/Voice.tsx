@@ -536,6 +536,25 @@ export function VoiceMode({ onClose, report, onReportRead }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reportId]);
 
+  // Une action attend l'accord de la personne : on le dit à voix haute, une fois. L'accord se donne à l'écran, sur la carte
+  // « À valider » : aucun mot entendu ne vaut « oui », une transcription peut se tromper (G11.7).
+  const asked = (() => {
+    const last = messages[messages.length - 1];
+    if (last?.role !== "assistant") return null;
+    const part = (last.content as readonly { type: string; toolName?: string; toolCallId?: string; result?: unknown; args?: { summary?: unknown } }[]).find(
+      (p) => p.type === "tool-call" && p.toolName === "approval" && p.result === undefined,
+    );
+    return part ? { id: part.toolCallId ?? "", what: String(part.args?.summary ?? "").split("\n")[0] } : null;
+  })();
+  const askedSaid = useRef<string | null>(null);
+  const askedId = asked?.id;
+  useEffect(() => {
+    if (!asked || askedSaid.current === asked.id) return;
+    askedSaid.current = asked.id;
+    void speak(`J'ai besoin de ton accord avant d'agir. ${spoken(asked.what).slice(0, 160)}. Réponds à l'écran : Autoriser ou Refuser.`).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [askedId]);
+
   // L'agent a fini : on lit le résumé de ce qu'il a fait (s'il a agi), puis la demande suivante part.
   useEffect(() => {
     if (!busy.current) return;
@@ -578,7 +597,7 @@ export function VoiceMode({ onClose, report, onReportRead }: {
     listening: "Je t'écoute…",
     sending: "J'envoie…",
     speaking: `${agentName} parle…`,
-    waiting: `${agentName} s'en occupe… tu peux continuer à parler`,
+    waiting: asked ? `${agentName} attend ton accord, à l'écran` : `${agentName} s'en occupe… tu peux continuer à parler`,
     error: error || "Le mode vocal s'est arrêté.",
   };
   const hint = live
