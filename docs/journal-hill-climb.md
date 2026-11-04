@@ -391,3 +391,15 @@ VPS Hostinger de la personne, qui héberge d'autres applications. Noah tourne da
 - **Appel, tenu :** app sur émulateur reliée au VPS, écran verrouillé et éteint. « Appelle-moi : … » envoyé à l'agent : écran d'appel au premier plan en 2 à 3 s, écran rallumé. Limite : téléphone connecté en permanence, sans Doze ni 4G.
 - **Défauts trouvés en regardant les captures, corrigés :** Répondre ouvrait une seconde sonnerie dans l'application (`&decroche` dans l'adresse). Le visage de l'agent était décentré et presque transparent, web et panneau vocal : le sélecteur des ondes attrapait aussi son `<span>`. Aucun test ne voyait ces deux défauts.
 - **Modèle injoignable :** 5 min de silence observées sur le VPS. Le relais rend maintenant un 502 lisible et retient la panne ; la conversation le dit à la première panne (2 s au plus après l'échec), et une tâche qui n'a jamais joint le modèle s'arrête après 30 s d'échecs avec son motif. Après une première réponse, elle continue d'attendre : une coupure courte ne doit pas perdre un long travail. Test : `tests/coordination/injoignable_test.py`, Hermes simulé. À rejouer sur le VPS.
+
+## 2026-11-04, voix directe branchée dans le produit (H4)
+
+**Hypothèse, écrite avant le code.** Quand le modèle entend le son lui-même et tranche par un seul outil (`confier_a_l_agent`), au lieu d'un transcripteur puis d'une voix rapide qui trie en JSON, et que le vrai agent ne reçoit que ce qui lui est confié :
+
+- *Doit monter :* la réussite des tâches, de 5 points au moins, borne basse du gain appariée au-dessus de zéro. Cas attendus : T12 (« trente et un » entendu juste), G4, T19 et T20 (la voix rapide promet ce qu'elle ne sait pas), parce que l'agent ne double plus chaque tour.
+- *Premier son :* gain faible. L'attente de fin de tour ne change pas (`endOfTurnDelay`, 1 à 2,3 s) : c'est elle qui coupe la parole à tort si on la raccourcit. Le seul gain possible vient de la réponse prête plus tôt, car elle part dès 500 ms de pause sans attendre la transcription. Gain minimal : 150 ms.
+- *Interruption :* rien ne doit bouger. Même élément `Audio`, même code ; le risque est le WAV de longueur inconnue au lieu du MP3.
+- *Peut reculer :* le modèle répond lui-même sans confier (T07, T08, T13) ou invente un résultat, le coût par tour (0,0009 $ en essai isolé, contre 0,003 $ par appel en cascade, mais le son jeté d'une réponse préparée se paie aussi), et l'accusé de réception peut venir d'une voix différente de la synthèse qui lit le résultat.
+- *Pas du vrai full duplex :* une requête-réponse par tour, le micro reste ouvert et l'interruption vit dans le navigateur. La fin de tour reste décidée chez nous, et le transcripteur reste nécessaire pour elle, pour l'écran et pour le repli.
+
+**Base.** La base citée de 19 sur 24 (79,2 %, sur tout le lot et non sur le travail) mesurait la branche `hc/voix-resultats`, avec son tour 3 qui n'est pas sur `main`, et sans le pré-contexte ni les changements d'appel. Elle ne vaut donc plus : je la rejoue en cascade sur la même image, voie désactivée, avant de comparer.
