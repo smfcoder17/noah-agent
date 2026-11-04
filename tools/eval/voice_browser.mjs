@@ -7,7 +7,7 @@
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 
-const VERSION = 3;
+const VERSION = 4;
 const [label = "mesure", reps = "3", lot = "travail"] = process.argv.slice(2);
 const BASE = process.env.NOAH_URL || "http://localhost:8080";
 const parts = new Set((process.env.NOAH_PARTIES || "tours,interruptions,courts,pauses").split(","));
@@ -112,6 +112,27 @@ try {
       s.start();
       await ended;
       return started + (last / buffer.sampleRate) * 1000;
+    };
+    /**
+     * Deux moitiés de phrase séparées par un vrai silence de `gap` ms, de la dernière syllabe à la première : le silence
+     * de queue et de tête des fichiers n'en est pas la cause. Rend si l'agent a parlé pendant la pause, et le silence réel.
+     */
+    window.__pair = async (a, b, gap) => {
+      const second = await load(b);
+      const data = second.getChannelData(0);
+      let first = 0;
+      while (first < data.length - 1 && Math.abs(data[first]) < 0.02) first++;
+      const lead = (first / second.sampleRate) * 1000;
+      const chats = marks.chats.length;
+      const played = marks.played.length;
+      const end = await window.__say(a);
+      await new Promise((resolve) => setTimeout(resolve, Math.max(0, end + gap - lead - performance.now())));
+      const early = marks.chats.length > chats || marks.played.length > played;
+      const { s, ended } = source(second);
+      const silence = performance.now() + lead - end;
+      s.start();
+      await ended;
+      return { early, silence };
     };
     /** Démarre une voix sans attendre sa fin. Rend l'heure du premier son, sans le silence de tête du fichier. */
     window.__start = async (b64) => {
@@ -219,23 +240,21 @@ try {
     }
   }
 
-  // Une pause de 1,5 s en pleine phrase : l'agent ne doit ni prendre la parole, ni envoyer la première moitié.
+  // Une pause en pleine phrase : l'agent ne doit ni prendre la parole, ni envoyer la première moitié.
   // Une réponse préparée en silence n'est pas une coupure : seuls comptent le son entendu et le tour envoyé.
-  let cuts = 0;
-  let tries = 0;
+  // Le critère G10.2 est à 1,5 s ; 2 s montrent la marge.
+  const pauseTrial = async (first, second, gap) => {
+    const chats = await count("chats");
+    const { early, silence } = await page.evaluate(([a, b, g]) => window.__pair(a, b, g), [first, second, gap]);
+    await page.waitForFunction((x) => window.__marks.chats.length > x, chats, { timeout: 20000 }).catch(() => {});
+    await settle(3000);
+    return { cut: early || (await count("chats")) > chats + 1, silence: Math.round(silence) };
+  };
+  const pauses = [];
+  const longPauses = [];
   for (const [first, second] of parts.has("pauses") ? corpus("pauses") : []) {
-    for (let i = 0; i < 3; i++) {
-      tries++;
-      const chats = await count("chats");
-      const played = await count("played");
-      await page.evaluate((b) => window.__say(b), first);
-      await page.waitForTimeout(1500);
-      const early = (await count("chats")) > chats || (await count("played")) > played;
-      await page.evaluate((b) => window.__say(b), second);
-      await page.waitForFunction((x) => window.__marks.chats.length > x, chats, { timeout: 20000 }).catch(() => {});
-      await settle(3000);
-      if (early || (await count("chats")) > chats + 1) cuts++;
-    }
+    for (let i = 0; i < 3; i++) pauses.push(await pauseTrial(first, second, 1500));
+    for (let i = 0; i < 2; i++) longPauses.push(await pauseTrial(first, second, 2000));
   }
 
   const good = rows.filter((r) => !r.echec);
@@ -252,7 +271,11 @@ try {
     ...(lowers.length && { baisse_mediane: median(lowers), baisses: lowers }),
     ...(interrupts.length && { interruption_mediane: stops.length ? median(stops) : null, interruptions_ratees: interrupts.length - stops.length, interruptions: interrupts }),
     ...(shorts.length && { arrets_a_tort: `${shorts.filter((s) => s.arret || s.echec).length} sur ${shorts.length}`, courts: shorts }),
-    ...(tries && { coupures: `${cuts} sur ${tries}` }),
+    ...(pauses.length && {
+      coupures: `${pauses.filter((p) => p.cut).length} sur ${pauses.length}`,
+      silence_reel_mediane: median(pauses.map((p) => p.silence)),
+      coupures_2s: `${longPauses.filter((p) => p.cut).length} sur ${longPauses.length}`,
+    }),
     reponses_demandees: replies, tours_envoyes: chats, reponses_jetees: Math.max(0, replies - chats),
   }));
   if (lot !== "reserve") console.log(JSON.stringify(good.map((r) => ({ case: r.case, run: r.run, score: r.entendu }))));
