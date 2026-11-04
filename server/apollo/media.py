@@ -758,6 +758,8 @@ async def speak_stream(agent_id: str, texts, out: AudioStream) -> None:
     """Synthèse phrase par phrase dans `out`, en MP3. La phrase suivante est demandée dès qu'elle est connue,
     pendant que la précédente est lue : pas de blanc entre deux phrases."""
     model = None
+    sent = False
+    said = 0
     try:
         _check_budget(agent_id)
         candidates = await backups("speech", 2)
@@ -800,9 +802,11 @@ async def speak_stream(agent_id: str, texts, out: AudioStream) -> None:
                 q.put_nowait(None)
 
         async def feed() -> None:
+            nonlocal said
             async for text in texts:
                 if out.closed:
                     break
+                said += 1
                 q: asyncio.Queue = asyncio.Queue()
                 _background(fetch(text, q))
                 parts.put_nowait(q)
@@ -816,10 +820,13 @@ async def speak_stream(agent_id: str, texts, out: AudioStream) -> None:
                         out.ctype = "audio/wav"
                         out.put(_wav_header(data))
                     continue
+                sent = True
                 out.put(data)
     except MediaError as e:
         print(f"[voix] {e}", flush=True)
     finally:
+        if not sent and not out.closed:
+            print(f"[voix] réponse sans aucun son (modèle {model}, {said} phrase(s) reçue(s))", flush=True)
         out.put(None)
         if model:
             _record(agent_id, model, None)
