@@ -85,7 +85,10 @@ def first_install() -> None:
     agent = None
     t1 = time.monotonic()
     while time.monotonic() - t1 < 900:
-        agents = owner.get("/api/agents").json()
+        try:  # un proxy peut fermer une connexion restée ouverte : un appareil réessaie aussi
+            agents = owner.get("/api/agents").json()
+        except httpx.TransportError:
+            agents = []
         if agents and agents[0]["online"] and not agents[0].get("step"):
             agent = agents[0]["id"]
             break
