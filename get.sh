@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # Installation de Noah Agent sur un VPS vierge, en une commande (Ubuntu ou Debian, en root) :
 #
-#   curl -fsSL https://raw.githubusercontent.com/SmfCoder/noah-agent/main/get.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/smfcoder17/noah-agent/main/get.sh | sh
 #
 # Installe Docker s'il le faut, télécharge le fichier deploy/docker-compose.yml dans /opt/noah, ouvre les ports web et
 # démarre Noah à partir des images publiées (rien n'est compilé sur le VPS). Sans nom de domaine, Noah répond en
@@ -12,9 +12,9 @@
 # Relancer la commande met Noah Agent à jour sans toucher aux données ni aux secrets.
 set -eu
 
-RAW="https://raw.githubusercontent.com/SmfCoder/noah-agent/main"
+RAW="https://raw.githubusercontent.com/smfcoder17/noah-agent/main"
 # Compose de la dernière version, images épinglées par empreinte ; à défaut, celui du dépôt.
-RELEASE_COMPOSE="https://github.com/SmfCoder/noah-agent/releases/latest/download/docker-compose.yml"
+RELEASE_COMPOSE="https://github.com/smfcoder17/noah-agent/releases/latest/download/docker-compose.yml"
 COMPOSE_URL="${NOAH_COMPOSE_URL:-}"
 DIR="${NOAH_DIR:-/opt/noah}"
 

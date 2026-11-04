@@ -1,5 +1,6 @@
 {
   "name": "noah-agent-mobile",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "version": "0.1.0",
   "private": true,
   "description": "Noah Agent sur le téléphone : relie l'app à ton serveur Noah, puis ouvre son interface.",

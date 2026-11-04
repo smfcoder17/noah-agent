@@ -4,7 +4,7 @@ Ce que ça ne prouve pas : un vrai VPS, un vrai certificat, le téléchargement 
 Le client ne parle qu'à l'adresse HTTPS publique, comme un appareil de l'extérieur.
 
     docker exec noah-vps docker run --rm --network host --add-host noah.test:127.0.0.1 -e NOAH_CODE=<code> -e NOAH_OLLAMA=<adresse> \
-      -v /src/tests:/t ghcr.io/smfcoder/noah-server:stable python /t/real/vps_repetition.py [apres-redemarrage]
+      -v /src/tests:/t ghcr.io/smfcoder17/noah-server:stable python /t/real/vps_repetition.py [apres-redemarrage]
 """
 import json
 import os

@@ -24,11 +24,11 @@ Ouvre http://localhost:8080, crée ton compte et choisis ton modèle. Noah reste
 
 Un VPS Ubuntu ou Debian, 4 Go de mémoire au moins, ports 80 et 443 libres. Aucun nom de domaine n'est nécessaire.
 
-- **Hostinger :** VPS > Docker Manager > Compose > « Compose from URL », colle `https://github.com/SmfCoder/noah-agent/releases/latest/download/docker-compose.yml`, puis Deploy.
+- **Hostinger :** VPS > Docker Manager > Compose > « Compose from URL », colle `https://github.com/smfcoder17/noah-agent/releases/latest/download/docker-compose.yml`, puis Deploy.
 - **Ailleurs,** en root :
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SmfCoder/noah-agent/main/get.sh | sh
+curl -fsSL https://raw.githubusercontent.com/smfcoder17/noah-agent/main/get.sh | sh
 ```
 
 Le lien de création du compte s'affiche à la fin, ou dans les journaux du service `server`. Il porte un code à usage unique : personne d'autre ne peut créer le compte. Noah répond en HTTPS sur `<ip-en-tirets>.sslip.io`, ou sur ton domaine avec `NOAH_DOMAIN=noah.exemple.com` devant la commande.

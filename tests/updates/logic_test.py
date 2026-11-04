@@ -32,7 +32,7 @@ def signed(manifest: dict, key=PRIV) -> tuple[bytes, str]:
     return raw, base64.b64encode(key.sign(raw)).decode()
 
 
-m = {"version": "1.3.0", "images": {"noah-server": "ghcr.io/smfcoder/noah-server@" + D, "caddy": "caddy@" + D,
+m = {"version": "1.3.0", "images": {"noah-server": "ghcr.io/smfcoder17/noah-server@" + D, "caddy": "caddy@" + D,
                                     "hermes": "nousresearch/hermes-agent@" + D}}
 raw, sig = signed(m)
 assert u.verify(raw, sig)["version"] == "1.3.0"
@@ -46,7 +46,7 @@ for bad_raw, bad_sig, why in [(raw + b" ", sig, "contenu modifié"), (raw, signe
 assert u.verify(*signed({"version": "1.3.0", "images": {"x": "localhost:5000/a/b@" + D}}))  # registre avec port
 
 # Versions en attente : instance par instance, et épinglage des agents à venir.
-running = {"noah-server": [{"digests": ["ghcr.io/smfcoder/noah-server@" + D], "image_id": "x"}],
+running = {"noah-server": [{"digests": ["ghcr.io/smfcoder17/noah-server@" + D], "image_id": "x"}],
            "caddy": [{"digests": ["caddy@" + E], "image_id": "y"}],
            "hermes": [{"digests": ["nousresearch/hermes-agent@" + D]}, {"digests": ["nousresearch/hermes-agent@" + E]}]}
 assert u.pending(m, running) == {"caddy": "caddy@" + D, "hermes": "nousresearch/hermes-agent@" + D}, u.pending(m, running)
@@ -151,7 +151,7 @@ def handler(request: httpx.Request) -> httpx.Response:
 
 RealClient = httpx.AsyncClient
 u.httpx.AsyncClient = lambda **kw: RealClient(transport=httpx.MockTransport(handler), **{k: v for k, v in kw.items() if k != "transport"})
-served["raw"], served["sig"] = signed({"version": "2.0.0", "images": {"noah-server": "ghcr.io/smfcoder/noah-server@" + D}})
+served["raw"], served["sig"] = signed({"version": "2.0.0", "images": {"noah-server": "ghcr.io/smfcoder17/noah-server@" + D}})
 u._patch({"verifie": 0, "max_vue": "", "disponible": None})
 asyncio.run(u.check())
 st = u._load()
@@ -159,14 +159,14 @@ assert st["disponible"]["version"] == "2.0.0" and st["majeure"] is True and st["
 assert told and "majeure" in told[-1][1] and "7 jours" in told[-1][1], told
 u.skip()
 assert u.due(u._load(), time.time()) == "version ignorée"
-served["raw"], served["sig"] = signed({"version": "2.0.1", "images": {"noah-server": "ghcr.io/smfcoder/noah-server@" + E}})
+served["raw"], served["sig"] = signed({"version": "2.0.1", "images": {"noah-server": "ghcr.io/smfcoder17/noah-server@" + E}})
 asyncio.run(u.check())
 st = u._load()
 assert st["disponible"]["version"] == "2.0.1" and st["ignoree"] == "2.0.0" and u.due(st, time.time()) != "version ignorée"
-served["raw"], served["sig"] = signed({"version": "1.9.0", "images": {"noah-server": "ghcr.io/smfcoder/noah-server@" + D}})
+served["raw"], served["sig"] = signed({"version": "1.9.0", "images": {"noah-server": "ghcr.io/smfcoder17/noah-server@" + D}})
 asyncio.run(u.check())
 assert u._load()["disponible"]["version"] == "2.0.1", "un manifeste plus ancien a remplacé l'annonce"
-served["raw"], served["sig"] = signed({"version": "2.0.2", "migration": True, "images": {"noah-server": "ghcr.io/smfcoder/noah-server@" + D}})
+served["raw"], served["sig"] = signed({"version": "2.0.2", "migration": True, "images": {"noah-server": "ghcr.io/smfcoder17/noah-server@" + D}})
 asyncio.run(u.check())
 assert "accord" in told[-1][1], told[-1]
 served["raw"] = None  # pas encore de version publiée : le manifeste répond 404
@@ -243,7 +243,7 @@ def handler2(request: httpx.Request) -> httpx.Response:
 
 
 u.httpx.AsyncClient = lambda **kw: RealClient(transport=httpx.MockTransport(handler2), **{k: v for k, v in kw.items() if k != "transport"})
-served["raw"], served["sig"] = signed({"version": "2.1.0", "images": {"noah-server": "ghcr.io/smfcoder/noah-server@" + D}})
+served["raw"], served["sig"] = signed({"version": "2.1.0", "images": {"noah-server": "ghcr.io/smfcoder17/noah-server@" + D}})
 u._patch({"verifie": 0, "disponible": None, "ignoree": None, "reessai_apres": 0, "reportee": 0, "auto": True, "heure": 3,
           "fuseau": "America/Toronto", "reports": [], "max_vue": "", "installee": None})
 asyncio.run(u.check())

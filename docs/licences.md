@@ -1,6 +1,6 @@
 # Licences de ce qui est distribué
 
-Généré par `node tools/eval/licences.mjs`. Le choix de la licence de Noah reste à décider par la personne : ce fichier sert à ce choix.
+Généré par `node tools/eval/licences.mjs`. Noah Agent est sous PolyForm Noncommercial 1.0.0 (voir LICENSE) : ce fichier vérifie que chaque dépendance le permet.
 
 ## Serveur (Python) : 27 paquets
 

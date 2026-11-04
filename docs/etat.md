@@ -34,8 +34,8 @@ Fichier généré par `tools/eval/score.mjs`, à ne pas modifier à la main. Un 
 | G12 Profils et partage | 0 | 5 | 7.5 | 9 | G12.3, G12.5 |
 | G13 Outils au choix | 5 | 5 | 10 | 8 | — |
 | G14 Rapidité et légèreté | 0 | 0 | 1.4 | 8 | G14.2 |
-| G15 Expérience face aux références | 0 | 0 | 0 | 8 | — |
-| G16 Open source | 0 | 0 | 0 | 9 | G16.1, G16.2 |
+| G15 Expérience face aux références | 3.3 | 3.3 | 3.3 | 8 | — |
+| G16 Open source | 0 | 4 | 4 | 9 | G16.1 |
 
 **Objectifs au seuil : 1 sur 17.**
 
@@ -98,12 +98,12 @@ Les critères G0 à G9 sont décrits dans [grille-validation.md](grille-validati
 
 ### G15. Expérience face aux références (seuil 8)
 
-- G15.1 (exige 1, atteint 0) : Grille de 20 comportements relevés sur Grok Bot, Dots, Duet et Muse, chacun avec sa source
+- G15.1 (exige 1, atteint 1) : Grille de 20 comportements relevés sur Grok Bot, Dots, Duet et Muse, chacun avec sa source
 - G15.2 (exige 2, atteint 0) : Comparaisons à l'aveugle de captures : préféré à au moins une référence par 3 juges sur 4 parcours
 - G15.3 (exige 4, atteint 0) : Verdict humain à l'aveugle : au moins aussi agréable que la référence choisie pour l'appel
 
 ### G16. Open source (seuil 9)
 
 - G16.1 [B] (exige 3, atteint 0) : Sources publiques de tout ce qui est distribué : serveur, lanceur, bureau, Android
-- G16.2 [B] (exige 1, atteint 0) : Licence choisie par la personne et compatible avec chaque dépendance, inventaire à l'appui
+- G16.2 [B] (exige 1, atteint 1) : Licence choisie par la personne et compatible avec chaque dépendance, inventaire à l'appui
 - G16.3 (exige 2, atteint 0) : Images et APK se reconstruisent depuis les sources sur une machine propre

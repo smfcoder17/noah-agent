@@ -1,5 +1,6 @@
 {
   "name": "noah-agent-desktop",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "productName": "Noah Agent",
   "version": "0.1.0",
   "description": "Noah Agent sur ton ordinateur : la fenêtre de l'app, et des dossiers que tu confies à tes agents.",

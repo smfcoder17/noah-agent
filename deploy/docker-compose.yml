@@ -1,10 +1,10 @@
 # Noah Agent sur un VPS, sans rien configurer : ce seul fichier suffit.
 #
 #   - Hostinger : VPS > Docker Manager > Compose > « Compose from URL », colle
-#     https://github.com/SmfCoder/noah-agent/releases/latest/download/docker-compose.yml, puis Deploy.
+#     https://github.com/smfcoder17/noah-agent/releases/latest/download/docker-compose.yml, puis Deploy.
 # La copie jointe à chaque version a toutes ses images épinglées par empreinte (celles du manifeste signé) ;
 # ce fichier-ci, dans le dépôt, suit les étiquettes.
-#   - Ailleurs : curl -fsSL https://raw.githubusercontent.com/SmfCoder/noah-agent/main/get.sh | sh
+#   - Ailleurs : curl -fsSL https://raw.githubusercontent.com/smfcoder17/noah-agent/main/get.sh | sh
 #
 # Au premier démarrage, le serveur tire ses secrets au hasard (volume noah-secrets), trouve l'adresse publique du VPS
 # et Caddy obtient un certificat HTTPS pour <ip-en-tirets>.sslip.io. Le lien de création du compte, avec son code
@@ -15,7 +15,7 @@ name: apollo
 
 services:
   server:
-    image: ghcr.io/smfcoder/noah-server:stable
+    image: ghcr.io/smfcoder17/noah-server:stable
     container_name: apollo-server
     restart: unless-stopped
     environment:
@@ -32,7 +32,7 @@ services:
 
   # Seul service qui parle à Docker (accès complet à l'hôte : il crée un conteneur isolé par agent). Jamais exposé.
   launcher:
-    image: ghcr.io/smfcoder/noah-launcher:stable
+    image: ghcr.io/smfcoder17/noah-launcher:stable
     container_name: apollo-launcher
     restart: unless-stopped
     environment:

@@ -238,7 +238,7 @@
    "seuil": 9,
    "criteres": [
     { "id": "G16.1", "b": 1, "t": "Sources publiques de tout ce qui est distribué : serveur, lanceur, bureau, Android", "requis": 3, "preuve": 0 },
-    { "id": "G16.2", "b": 1, "t": "Licence choisie par la personne et compatible avec chaque dépendance, inventaire à l'appui", "requis": 1, "preuve": 0 },
+    { "id": "G16.2", "b": 1, "t": "Licence choisie par la personne et compatible avec chaque dépendance, inventaire à l'appui", "requis": 1, "preuve": 1, "test": "docs/licences.md", "note": "PolyForm Noncommercial 1.0.0, choix délégué par la personne ; deux images tierces restent à confirmer sur leur dépôt" },
     { "id": "G16.3", "t": "Images et APK se reconstruisent depuis les sources sur une machine propre", "requis": 2, "preuve": 0 }
    ]
   }

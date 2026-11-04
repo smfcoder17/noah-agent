@@ -42,9 +42,9 @@ dans le QR code. À la main :
 Un VPS Linux (Ubuntu ou Debian) avec 4 Go de RAM, les ports 80 et 443 libres. Aucun nom de domaine n'est nécessaire.
 
 - **Hostinger** : VPS > Docker Manager > Compose > « Compose from URL », colle
-  `https://github.com/SmfCoder/noah-agent/releases/latest/download/docker-compose.yml`, puis Deploy. Le lien de création du compte s'affiche dans les journaux du service
+  `https://github.com/smfcoder17/noah-agent/releases/latest/download/docker-compose.yml`, puis Deploy. Le lien de création du compte s'affiche dans les journaux du service
   `server`.
-- **Ailleurs**, en root : `curl -fsSL https://raw.githubusercontent.com/SmfCoder/noah-agent/main/get.sh | sh`
+- **Ailleurs**, en root : `curl -fsSL https://raw.githubusercontent.com/smfcoder17/noah-agent/main/get.sh | sh`
 
 Noah répond en HTTPS sur `<ip-en-tirets>.sslip.io` (ou ton domaine : `NOAH_DOMAIN=noah.exemple.com` devant la
 commande). Le lien affiché porte un code d'installation à usage unique : personne d'autre ne peut créer le compte.
@@ -225,3 +225,9 @@ et seulement depuis les dossiers de travail de l'agent.
 5. ~~App desktop, appairage du téléphone par QR code, installation en une commande sur VPS.~~ App mobile native.
 
 L'architecture complète est décrite dans [docs/architecture.html](docs/architecture.html).
+
+## Licence
+
+[PolyForm Noncommercial 1.0.0](LICENSE). Le code est public et gratuit pour tout usage personnel et non commercial, y compris par une école, une association ou un organisme public. Un usage commercial demande un accord à part.
+
+Ce n'est pas une licence « open source » au sens de l'OSI, qui interdit de restreindre le commerce : Noah Agent est à code source ouvert, avec cette restriction. Les dépendances gardent leurs licences, voir [docs/licences.md](docs/licences.md).

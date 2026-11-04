@@ -34,7 +34,7 @@ from .config import BROWSER_TIMEZONE, DATA_DIR, LAUNCHER_KEY, LAUNCHER_URL
 
 VERSION = os.environ.get("NOAH_VERSION", "dev")
 MANIFEST_URL = os.environ.get("NOAH_UPDATE_MANIFEST",
-                              "https://github.com/SmfCoder/noah-agent/releases/latest/download/manifest.json")
+                              "https://github.com/smfcoder17/noah-agent/releases/latest/download/manifest.json")
 # Clé publique des versions (base64, 32 octets). Sans elle, aucune mise à jour n'est installée : un manifeste non
 # signé pourrait faire tourner n'importe quelle image avec l'accès à Docker.
 PUBLIC_KEY = os.environ.get("NOAH_UPDATE_KEY", "")
