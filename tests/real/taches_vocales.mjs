@@ -148,7 +148,7 @@ const INIT = () => {
           entry.action = j.action;
           if (j.annule) entry.annule = true;
           // Voix directe : un tour que le modèle garde pour lui ne passe jamais par /api/chat.
-          if (url.includes("/api/voice/direct") && !j.action && !j.annule) m.envoyes.push(m.transcrits.join(" ").slice(-300));
+          if (url.includes("/api/voice/direct") && r.ok && !j.action && !j.annule) m.envoyes.push(m.transcrits.join(" ").slice(-300));
         }
         if (url.includes("/api/voice/transcribe")) m.transcrits.push((await r.clone().json()).text);
       } catch {}

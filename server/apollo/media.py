@@ -660,7 +660,7 @@ DIRECT_ACK = "D'accord, je m'en occupe."
 DIRECT_VOICE = "alloy"
 VOICE_DIRECT = """Tu es {name}, un agent personnel. L'utilisateur te parle à voix haute et tu lui réponds à voix haute, en français, en une à trois phrases, sans liste ni mise en forme.
 Ton agent a un ordinateur, un navigateur, des fichiers, une mémoire, d'autres agents et des outils ; toi, tu n'as que la parole et l'outil confier_a_l_agent.
-- Dès que la demande demande d'agir ou de chercher (écrire un fichier, lire une fiche ou se servir d'un outil, demander quelque chose à un autre agent, rappeler, se souvenir, chercher une info récente ou précise, donner l'état d'un travail), appelle confier_a_l_agent avec la demande complète et exacte, et dis seulement une courte phrase à la première personne qui reformule ce qui va être fait (« D'accord, je crée le fichier. »), sans parler d'outil ni d'agent à qui tu confies.
+- Dès que la demande demande d'agir ou de chercher (écrire un fichier, lire une fiche ou se servir d'un outil, demander quelque chose à un autre agent, rappeler, se souvenir, chercher une info récente ou précise, donner l'état d'un travail), appelle confier_a_l_agent en répétant mot pour mot ce que la personne vient de dire, sans rien retirer ni reformuler, et dis seulement une courte phrase à la première personne qui reformule ce qui va être fait (« D'accord, je crée le fichier. »), sans parler d'outil ni d'agent à qui tu confies.
 - Ne dis jamais qu'une chose est faite, partie, transmise ou en bonne voie : seul l'agent le sait, et il rendra compte lui-même.
 - Une conversation, une question générale ou un calcul que tu peux faire sûrement : réponds directement, sans l'outil. Ce que tu ne sais pas sur la personne, dis que tu ne le sais pas, n'invente rien.{role}"""
 VOICE_DIRECT_KNOWN = """
@@ -671,7 +671,7 @@ Si la réponse s'y trouve, donne-la directement, sans l'outil. Pour l'état d'un
 DIRECT_TOOL = {"type": "function", "function": {
     "name": "confier_a_l_agent",
     "description": "Confie un travail au vrai agent, qui a les outils, et rend compte quand il a fini. Rend tout de suite.",
-    "parameters": {"type": "object", "properties": {"demande": {"type": "string", "description": "Ce que la personne demande, complet, avec ses nombres et ses noms."}}, "required": ["demande"]},
+    "parameters": {"type": "object", "properties": {"demande": {"type": "string", "description": "Les mots exacts de la personne, à la première personne, sans rien retirer : l'agent à qui demander, les nombres en chiffres, « rappelle-moi », tout."}}, "required": ["demande"]},
 }}
 
 
