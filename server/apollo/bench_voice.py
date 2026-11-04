@@ -55,6 +55,8 @@ PAUSES = [
     ("Je voudrais que tu regardes", "les courriels de ce matin."),
     ("Crée un fichier avec la liste des courses", "et ajoute le lait."),
 ]
+# Un mot bref par-dessus la voix de l'agent : il ne doit pas l'interrompre (navigateur seulement).
+COURTS = ["Mm-hm.", "Oui."]
 
 
 def corpus(lot: str) -> list:
@@ -139,6 +141,8 @@ async def _dump(lot: str) -> None:
 
     if lot == "pauses":
         out = [[await voice(x), await voice(y)] for x, y in PAUSES]
+    elif lot == "courts":
+        out = [[await voice(text)] for text in COURTS]
     else:
         out = [[await voice(text), action] for text, action in corpus(lot)]
     print(json.dumps(out))
