@@ -1610,13 +1610,39 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
 
     gave_up = [False]  # modèle jamais joint pendant cette tâche : le run arrêté finit par ce motif
 
+    async def live_events():
+        """Un tour perdu dans un redémarrage bloque la conversation pour toujours : on en prend acte, et ce message repart."""
+        nonlocal run_id
+        session = f"apollo-{conv_id}"
+        async for kind, data in hermes.run_events(agent, run_id):
+            if kind != "run.failed" or data.get("error") != hermes.LOST_TURN:
+                yield kind, data
+                continue
+            try:
+                await hermes.discard_lost_turn(agent.id, session)
+                new_id = await hermes.start_run(agent, context + prompt, session_id=session)
+            except Exception as e:
+                print(f"[tâche] tour perdu non levé sur {agent.id} : {e}", flush=True)
+                yield kind, data
+                return
+            _runs[new_id] = _runs.pop(run_id, {"agent": agent.id, "user": launched_by, "conv": conv_id})
+            run_id = new_id
+            yield "noah.relance", {}
+            async for pair in hermes.run_events(agent, run_id):
+                yield pair
+            return
+
     async def body():
         yield _sse({"type": "start", "conversation_id": conv_id, "run_id": run_id})
         reply: list[str] = []
         final: dict | None = None
         delegated: list[tuple[str, bool]] = []  # (fil, en arrière-plan) des délégations en cours, dans l'ordre
         try:
-            async for kind, data in hermes.run_events(agent, run_id):
+            async for kind, data in live_events():
+                if kind == "noah.relance":
+                    yield _sse({"type": "start", "conversation_id": conv_id, "run_id": run_id})
+                    yield _sse({"type": "activity", "label": "Le travail précédent a été coupé par un redémarrage. Il n'est pas repris."})
+                    continue
                 if (data.get("tool_name") or data.get("tool")) == "delegate_task":
                     if kind == "tool.started":
                         args = data.get("args") if isinstance(data.get("args"), dict) else {}

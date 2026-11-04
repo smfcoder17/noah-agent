@@ -145,5 +145,48 @@ async def scenario():
     assert not any(e["type"] == "activity" for e in got), got
 
 
+async def lost_turn():
+    """Un redémarrage a coupé un tour : Hermes refuse tout message dans cette conversation jusqu'à ce qu'on en prenne acte."""
+    reachable[0] = True
+    discarded: list[tuple[str, str]] = []
+
+    async def fake_discard(agent_id, session):
+        discarded.append((agent_id, session))
+
+    hermes.discard_lost_turn = fake_discard
+    conv = main._new_conversation(owner, "a", "Après le redémarrage")
+    stream = await main._run(main._agent("a"), conv, "Tu es là ?")
+    reader = asyncio.create_task(read(stream, conv))
+    await asyncio.sleep(0.05)
+    first = len(events) - 1
+    events[first].put_nowait(("run.failed", {"error": hermes.LOST_TURN}))
+    await asyncio.sleep(0.1)
+    assert discarded == [("a", f"apollo-{conv}")], discarded
+    assert len(events) == first + 2, "le message repart dans un nouveau run"
+    events[-1].put_nowait(("message.delta", {"delta": "Oui."}))
+    events[-1].put_nowait(("run.completed", {}))
+    got = await asyncio.wait_for(reader, 5)
+    starts = [e["run_id"] for e in got if e["type"] == "start"]
+    assert starts == [str(first), str(first + 1)], "l'application apprend le nouveau run, pour pouvoir l'arrêter"
+    assert any(e["type"] == "activity" and "coupé par un redémarrage" in e["label"] for e in got), got
+    assert [e for e in got if e["type"] == "done"][0]["status"] == "completed", got
+    assert not main._runs, "aucun run oublié"
+
+    # La levée échoue : le message le dit, sans boucler.
+    async def broken_discard(agent_id, session):
+        raise httpx.ConnectError("lanceur injoignable")
+
+    hermes.discard_lost_turn = broken_discard
+    conv = main._new_conversation(owner, "a", "Levée impossible")
+    stream = await main._run(main._agent("a"), conv, "Tu es là ?")
+    reader = asyncio.create_task(read(stream, conv))
+    await asyncio.sleep(0.05)
+    events[-1].put_nowait(("run.failed", {"error": hermes.LOST_TURN}))
+    got = await asyncio.wait_for(reader, 5)
+    done = [e for e in got if e["type"] == "done"][0]
+    assert done["status"] == "failed" and "redémarrage" in done["error"], got
+
+
 asyncio.run(scenario())
-print("Modèle injoignable : dit vite, tâche sans réponse arrêtée, long travail gardé, panne passée oubliée.")
+asyncio.run(lost_turn())
+print("Modèle injoignable : dit vite, tâche sans réponse arrêtée, long travail gardé, panne passée oubliée ; tour perdu levé.")

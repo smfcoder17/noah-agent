@@ -463,6 +463,13 @@ async def start_run(agent: Agent, text: str, session_id: str) -> str:
     return r.json()["run_id"]
 
 
+LOST_TURN = "unknown_execution"  # refus d'Hermes : un redémarrage a coupé un tour, et la session attend qu'on en prenne acte
+
+
+async def discard_lost_turn(agent_id: str, session_id: str) -> None:
+    await _launcher("POST", f"/agents/{agent_id}/sessions/{session_id}/discard", timeout=60)
+
+
 RUN_SILENCE = 120  # secondes sans aucun octet : conteneur figé. Hermes envoie un signe de vie toutes les 10 s, même pendant une attente
 
 

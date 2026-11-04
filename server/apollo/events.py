@@ -41,6 +41,8 @@ def friendly_error(raw: str) -> str:
         return "Le compte du fournisseur n'a plus de crédit ou a atteint sa limite."
     if "429" in text or "rate limit" in text:
         return "Le fournisseur limite les requêtes pour le moment. Réessaie dans une minute."
+    if "unknown_execution" in text:
+        return "Un redémarrage a coupé le travail précédent et cette conversation reste bloquée. Réessaie dans un instant."
     return raw or "Le travail s'est arrêté avant la fin."
 
 

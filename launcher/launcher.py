@@ -564,6 +564,19 @@ def _owner(c) -> str:
     return res.output.decode().strip() if res.exit_code == 0 else "10000:10000"
 
 
+@app.post("/agents/{agent_id}/sessions/{session}/discard", dependencies=[Depends(auth)])
+def discard_lost_turn(agent_id: str, session: str):
+    """Un redémarrage pendant un tour bloque la session jusqu'à ce qu'on prenne acte du tour perdu (il n'est pas rejoué)."""
+    if not re.fullmatch(r"apollo-[\w-]{1,80}", session):
+        raise HTTPException(400, "Session invalide")
+    c = container(check_id(agent_id))
+    res = c.exec_run([HERMES_PYTHON, "-m", "hermes_cli.main", "sessions", "discard", session, "--yes"], user=_owner(c),
+                     environment={"HOME": DATA, "HERMES_HOME": DATA}, workdir=DATA)
+    if res.exit_code != 0:
+        raise HTTPException(502, res.output.decode(errors="replace")[-300:])
+    return {"ok": True}
+
+
 @app.post("/agents/{agent_id}/admin/{action}", dependencies=[Depends(auth)])
 def admin(agent_id: str, action: str, body: dict = Body(default_factory=dict)):
     if not re.fullmatch(r"[a-z_]{2,30}", action):
