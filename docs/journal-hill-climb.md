@@ -7,8 +7,8 @@ Une entrée par tour, échecs compris. Méthode : [evaluation.md](evaluation.md)
 - **Objectif :** tenir les parcours J1 à J10 au niveau de preuve exigé.
 - **Gain minimal :** 150 ms sur le temps entendu en vocal ; 5 points sur la réussite des tâches.
 - **Arrêt :** tous les parcours tenus et le verdict humain à l'aveugle (G15.3), ou décision de la personne.
-- **Budget :** à confirmer. Le banc vocal coûte environ 0,01 $ par passage de 30 tours.
-- **Consultations du lot réservé :** 1, depuis qu'il a été réécrit par un autre modèle, hors du dépôt.
+- **Budget :** à confirmer. Le banc vocal coûte environ 0,01 $ par passage de 30 tours au compteur, qui ignore la synthèse : voir la base finale du 4 novembre.
+- **Consultations du lot réservé :** 2, depuis qu'il a été réécrit par un autre modèle, hors du dépôt. La seconde le 4 novembre, en fin de tours, score seul.
 
 ## Base du 3 novembre 2026 (banc version 2)
 
@@ -25,7 +25,7 @@ Mesure dans le vrai composant `Voice.tsx`, avec un faux micro : depuis la fin de
 
 **Côté serveur (42 tours, lot de travail).** Transcription : 760 ms. Premier octet de la voix : 594 ms. Tri juste : 97,6 %. Erreurs de mots, total sur total : 2,1 %. Coût : 0,00033 $ par tour.
 
-**Interruption.** Sur 5 essais, 3 ne coupent pas la voix. Les 2 autres la coupent en 538 ms. L'objectif est 200 ms.
+**Interruption.** (Faux : erreur du banc, voir la base du 4 novembre.) Sur 5 essais, 3 ne coupent pas la voix. Les 2 autres la coupent en 538 ms. L'objectif est 200 ms.
 
 **Bruit.** Écart entre deux lancers d'un même cas : 732 ms. Un gain de 150 ms n'est pas détectable dans ces conditions. Il faudra remesurer sur une machine au calme avant de décider d'un tour.
 
@@ -178,3 +178,40 @@ Cerveau : `deepseek-v4.1-flash:cloud`. Voix rapide : `gpt-oss:20b-cloud`, choisi
 - **Décision : GARDÉ.** Une capacité nouvelle, sans changement du chemin par défaut. G10.8 passe à la preuve 1 ; il en exige 2.
 - **Coût.** Aucun appel au fournisseur.
 - **Ce qu'on apprend.** Le test de couverture des routes (`tests/profiles`) a vu deux choses : la route d'annulation de T2 n'était pas déclarée, et un identifiant annulé perdait son propriétaire. Corrigé ici : T2 avait été gardé avec ce test rouge sur la déclaration, ma faute. **Non vérifié :** aucun vrai serveur n'a tourné, faute de modèle téléchargé. Speaches est cité d'après sa documentation (`/v1/audio/speech`, `/v1/audio/transcriptions` en multipart, licence MIT). Le streaming réel de ses formats, la latence et la qualité en français restent inconnus.
+
+## Base finale du 4 novembre 2026 (banc navigateur version 4)
+
+T1, T2, T2 ter et T4 en place, image reconstruite. Mémoire libre : 1 191 Mo au départ du lot travail, 1 023 Mo ensuite, 861 Mo au lot réservé, sous la limite demandée de 1 Go (le conteneur du navigateur de l'agent était reparti tout seul avec la reconstruction).
+
+| Mesure | Base, travail | Finale, travail | Finale, garde | Réservé (score seul) |
+|---|---|---|---|---|
+| Temps entendu, médiane | 2 634 ms | **2 435 ms** | 2 306 ms | 2 390 ms |
+| Temps entendu, p95 | 4 023 ms | **3 310 ms** | 6 534 ms | 3 510 ms |
+| Envoi du tour à l'agent, médiane | 1 373 ms | 2 273 ms | 2 267 ms | 2 269 ms |
+| Voix, de la demande au premier son | 1 232 ms | 1 221 ms | 2 905 ms | 1 206 ms |
+| Échecs | 1 sur 42 | 0 sur 42 | 0 sur 6 | 0 sur 24 |
+| Coupures, pause de 1,5 s | 8 sur 9 | **0 sur 9** | | |
+| Coupures, pause de 2 s | 6 sur 6 | **0 sur 6** | | |
+| Arrêts à tort, mots brefs | 4 sur 6 | **0 sur 5**, plus 1 essai sans voix | | |
+| Voix baissée, médiane | sans objet | 129 ms (une fois à 308 ms) | | |
+| Arrêt franc, médiane | 524 ms | 719 ms, plus 1 essai sans mesure | | |
+| Réponses préparées puis jetées | 0 | 14 sur 86, une par essai de pause ou presque | 3 sur 9 | 0 sur 24 |
+
+**Gain apparié sur le temps entendu, base contre finale, travail (41 paires) : 300 ms, intervalle de 103 à 501 ms.** Sur le lot garde (6 paires, 2 cas) : -431 ms, intervalle de -1 094 à 233 ms, sous le bruit, mais avec un p95 à 6,5 s : le « Bonjour » doublé prépare puis jette une réponse, et une reprise de modèle allonge un tour. À surveiller.
+
+**Côté serveur.** Travail : transcription 644 ms (base 697), premier octet 841 ms (base 866), tri juste 97,6 %, erreurs de mots 1,6 %, 1 échec. Garde : 822 ms, 836 ms, tri 100 %, 9,1 %. Réservé : 596 ms, 848 ms, tri **87,5 %**, erreurs de mots 1,4 %, 0 échec.
+
+**Lot réservé.** Consulté une seule fois, à la fin, score seul. Il n'a pas de base sur ce cerveau, puisqu'on ne le consulte pas pour ça : l'ancien score (2 145 ms, 3 253 ms, tri 95,8 %) était avec la voix rapide `openai/gpt-oss-120b` d'OpenRouter, et n'est pas comparable. Le temps réservé rejoint celui du lot travail : pas de signe de surapprentissage. **Le tri de 87,5 % est un point à regarder** : il vient probablement du passage à `gpt-oss:20b-cloud`, et non de ces tours. Je n'ai pas cherché à le corriger, pour ne pas optimiser sur ce lot.
+
+**Ce qui reste faux.**
+
+- **G10.1 :** 2,4 s pour une cible de 1,2 s, et 3,3 s pour une cible de 2 s au p95. Ni la 4G ni un VPS n'ont été mesurés.
+- **G10.3 :** l'arrêt franc reste à 700 ms environ. Seule la voix baissée à 10 % tient 200 ms.
+- **Essais sans voix.** Une interruption et un mot bref du passage final n'ont pas eu de voix à interrompre : leur essai a échoué avant le son, sans que le banc sache dire pourquoi. Au même moment, le journal montre la voix rapide d'Ollama indisponible 5 fois et vide 4 fois. Je les compte comme des défauts, pas comme des succès.
+- **Tours muets.** Un tour reste muet si les trois essais de voix rapide échouent. Un silence total sans aucune phrase de repli : à corriger.
+- **L'agent démarre 900 ms plus tard**, à cause de l'attente de confirmation. Non mesuré sur une vraie tâche.
+- **Une pause de plus de 2,3 s coupe encore.**
+
+**Non vérifié.** La 4G et un VPS. Un vrai micro, l'écho d'un vrai haut-parleur, qui peut faire pomper la baisse de volume ou déclencher des arrêts à tort. De vraies voix et le bruit : un vrai « mm-hm » n'est pas une voix de synthèse. Le volume sur iOS. L'attente d'une réponse retenue dans un élément audio sur téléphone. Les erreurs de mots sur des morceaux coupés à 500 ms. Un vrai serveur de voix ouvert. L'historique du banc n'a pas de réponses de l'agent.
+
+**Coût du tour complet.** Compteur : 0,13 $, 876 transcriptions. **Le compteur ignore la synthèse** : `speak_stream` enregistre un coût nul. Il y a eu 863 appels à `microsoft/mai-voice-2.1-flash`, à 0,013 $ la minute d'après le catalogue. Pour environ 5 s par appel, c'est de l'ordre de 0,9 $, estimation et non mesure. Le chiffre de « 0,00017 $ par tour » sous-estime donc le coût réel d'un facteur 5 ou plus, et G10.7 reste à mesurer. Voix rapide : Ollama, non facturée au compteur. Lot réservé : 1 consultation, 48 tours.

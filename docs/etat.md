@@ -29,7 +29,7 @@ Fichier généré par `tools/eval/score.mjs`, à ne pas modifier à la main. Un 
 | G7 Sécurité et vie privée | 0 | 3 | 5 | 9 | G7.1, G7.3 |
 | G8 Coûts et 24 h/24 | 0 | 1.7 | 6.7 | 8 | G8.1 |
 | G9 Formation | 0 | 0 | 0 | 8 | — |
-| G10 Conversation vocale | 0 | 0 | 0 | 8 | G10.1, G10.5, G10.6, G10.8 |
+| G10 Conversation vocale | 0 | 0 | 3.3 | 8 | G10.1, G10.5, G10.6, G10.8 |
 | G11 Appels et coordination | 0 | 0 | 4.2 | 8 | G11.1, G11.2, G11.4, G11.5, G11.7 |
 | G12 Profils et partage | 0 | 2.5 | 7.5 | 9 | G12.3, G12.5 |
 | G13 Outils au choix | 0 | 0 | 10 | 8 | — |
@@ -54,13 +54,13 @@ Les critères G0 à G9 sont décrits dans [grille-validation.md](grille-validati
 ### G10. Conversation vocale (seuil 8)
 
 - G10.1 [B] (exige 3, atteint 0) : Fin de parole → premier son : médiane ≤ 1,2 s, p95 ≤ 2 s, en 4G sur VPS
-- G10.2 (exige 2, atteint 0) : Une pause en pleine phrase ne déclenche pas de réponse : moins de 5 coupures pour 100 tours
-- G10.3 (exige 2, atteint 0) : Couper la parole : l'agent se tait en 200 ms au plus ; moins de 5 arrêts à tort pour 100 tours, « mm-hm » compris
+- G10.2 (exige 2, atteint 1) : Une pause en pleine phrase ne déclenche pas de réponse : moins de 5 coupures pour 100 tours
+- G10.3 (exige 2, atteint 1) : Couper la parole : l'agent se tait en 200 ms au plus ; moins de 5 arrêts à tort pour 100 tours, « mm-hm » compris
 - G10.4 (exige 2, atteint 0) : Transcription française : moins de 10 % d'erreurs de mots, sur de vraies voix et avec du bruit
 - G10.5 [B] (exige 2, atteint 0) : Réussite des tâches vocales avec outils : au moins 71 %, sur 30 scénarios jugés par 3 fournisseurs
 - G10.6 [B] (exige 2, atteint 0) : Jamais plus de 3 s de silence pendant que l'agent travaille, et aucun résultat inventé
 - G10.7 (exige 2, atteint 0) : Coût : 0,05 $ la minute au plus, compteur par appel visible
-- G10.8 [B] (exige 2, atteint 0) : Le fournisseur de voix se change sans toucher au code ; une voie entièrement open source existe
+- G10.8 [B] (exige 2, atteint 1) : Le fournisseur de voix se change sans toucher au code ; une voie entièrement open source existe
 
 ### G11. Appels et coordination (seuil 8)
 
