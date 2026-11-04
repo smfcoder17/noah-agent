@@ -25,6 +25,14 @@
 
         </activity>
 
+        <!-- Écran d'appel d'un agent : au-dessus de l'écran verrouillé, sans la conversation (voir CallActivity). -->
+        <activity
+            android:name=".CallActivity"
+            android:theme="@style/AppTheme.NoActionBar"
+            android:launchMode="singleInstance"
+            android:excludeFromRecents="true"
+            android:exported="false" />
+
         <!-- Notifications par UnifiedPush (voir NoahPush) : reçues d'un distributeur, jamais d'une autre app. -->
         <service android:name=".NoahPush" android:exported="false">
             <intent-filter>
@@ -48,6 +56,9 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Afficher les notifications de Noah (Android 13 et plus le demande à l'utilisateur). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Faire sonner l'écran d'appel quand un agent rappelle. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Dictée et mode vocal de Noah dans la fenêtre de l'app. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />

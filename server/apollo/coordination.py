@@ -13,7 +13,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from . import access, auth, db, machine, push, relay
+from . import access, auth, db, machine, precall, push, relay
 
 router = APIRouter()
 
@@ -351,6 +351,7 @@ def _ring(agent_id: str, texte: str, actions: str = "", user: int | None = None)
     push.notify(f"{_name(agent_id)} t'appelle", texte[:200], url=f"/#appel={call_id}", urgent=True, user_id=user)
     if user != owner:  # le propriétaire sait que son agent a appelé, sans lire ce qui ne lui est pas adressé
         push.notify(f"{_name(agent_id)} a rappelé {access.username(user)}", "Le compte rendu est dans sa conversation.", user_id=owner)
+    precall.prepare(agent_id, user, texte)  # au décroché, la voix sait déjà de quoi il s'agit
     _spawn(_expire_later(RING_SECONDS))
     return {"id": call_id, "etat": "sonne"}
 

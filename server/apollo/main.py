@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import access, accounts, auth, catalog, coordination, db, desktop, events, handoff, hermes, machine, mcp, media, profiles, public, push, relay, updates, watch
+from . import access, accounts, auth, catalog, coordination, db, desktop, events, handoff, hermes, machine, mcp, media, profiles, public, push, relay, updates, watch, precall
 from . import config
 from .config import WEB_DIR, forget_setup_code
 from .hermes import Agent
@@ -2268,6 +2268,24 @@ class VoiceTurn(BaseModel):
     audio_id: str | None = Field(default=None, pattern=AUDIO_ID)
 
 
+class CallPrepare(BaseModel):
+    agent_id: str
+    attendre: bool = False  # pour un banc : rend les notes une fois prêtes
+
+
+@app.post("/api/voice/prepare")
+async def voice_prepare(body: CallPrepare, user: int = Depends(auth.current_user)):
+    """Le mode vocal s'ouvre : l'agent prépare ce qu'il devra savoir sans le chercher. Ne fait pas attendre."""
+    _voice_for(user, body.agent_id)
+    if body.agent_id == NO_AGENT:
+        raise HTTPException(404, "Agent introuvable")
+    precall.prepare(body.agent_id, user)
+    if body.attendre:
+        await precall.ready(body.agent_id, user)
+        return {"ok": True, "notes": precall.known(body.agent_id, user)}
+    return {"ok": True}
+
+
 @app.post("/api/voice/reply")
 async def voice_reply(body: VoiceTurn, user: int = Depends(auth.current_user)):
     """Mode vocal : réponse orale immédiate pendant que l'agent travaille, puis résumé de son résultat."""
@@ -2284,7 +2302,8 @@ async def voice_reply(body: VoiceTurn, user: int = Depends(auth.current_user)):
         row = c.execute("SELECT name, role FROM agents WHERE id = ?", (body.agent_id,)).fetchone()
     if out and out.closed:
         return {"dire": "", "action": False, "annule": True}
-    task = asyncio.create_task(media.voice_reply(body.agent_id, row["name"], row["role"], body.text, body.history, body.mode, out))
+    task = asyncio.create_task(media.voice_reply(body.agent_id, row["name"], row["role"], body.text, body.history, body.mode, out,
+                                                 precall.known(body.agent_id, user) if body.mode == "turn" else ""))
     if out:
         out.task = task
     try:

@@ -21,7 +21,6 @@ jobs:
         with:
           distribution: microsoft
           java-version: "21"
-      - uses: android-actions/setup-android@v3
       - uses: actions/setup-node@v4
         with:
           node-version: "22"

@@ -37,14 +37,14 @@ function run([sabotage, path, old, replacement, cmd]) {
     const source = readFileSync(target, "utf8");
     if (old && source.split(old).length !== 2) return { sabotage, resultat: "cible introuvable" };
     if (old) writeFileSync(target, source.replace(old, () => replacement));
-    const r = spawnSync("docker", ["run", "--rm", "-v", `${server}:/app`, "-v", `${join(ROOT, "tests")}:/tests`, "-v", `${join(ROOT, "launcher")}:/l:ro`,
+    const r = spawnSync("docker", ["run", "--rm", "-e", "PYTHONDONTWRITEBYTECODE=1", "-v", `${server}:/app`, "-v", `${join(ROOT, "tests")}:/tests`, "-v", `${join(ROOT, "launcher")}:/l:ro`,
       "-v", `${join(ROOT, "frontend/src/App.tsx")}:/front/App.tsx:ro`, "-v", `${join(ROOT, "mobile/www/app.js")}:/mobile/app.js:ro`,
       "python:3.12-slim", "sh", "-c", cmd], { timeout: 600000 });
     // Seule une assertion compte : une panne d'installation ou de Docker ne prouve rien.
     const seen = r.status && String(r.stderr).includes("AssertionError");
     return { sabotage, resultat: seen ? "vu" : r.status ? "panne" : "NON VU" };
   } finally {
-    rmSync(tmp, { recursive: true, force: true });
+    rmSync(tmp, { recursive: true, force: true, maxRetries: 2 });
   }
 }
 

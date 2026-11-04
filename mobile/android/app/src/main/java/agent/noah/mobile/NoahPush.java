@@ -2,12 +2,15 @@ package agent.noah.mobile;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.media.AudioAttributes;
+import android.media.RingtoneManager;
 import android.os.Build;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
@@ -36,6 +39,8 @@ import org.unifiedpush.android.connector.data.PushMessage;
 public class NoahPush extends PushService {
 
     private static final String CHANNEL = "noah";
+    private static final String CALLS = "noah-appels";
+    static final String CALL_URL = "/#appel="; // même adresse que le web : le serveur la pose sur les rappels
 
     /**
      * À chaque ouverture de l'interface (comme le recommande UnifiedPush) : distributeur choisi, inscription pour la
@@ -223,10 +228,38 @@ public class NoahPush extends PushService {
         Intent open = new Intent(this, MainActivity.class).putExtra("url", url).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         // Un code par notification : sinon toucher une ancienne ouvrirait la page de la dernière reçue.
         PendingIntent tap = PendingIntent.getActivity(this, id, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        if (url != null && url.startsWith(CALL_URL)) {
+            ring(manager, id, title, text, url, tap);
+            return;
+        }
         NotificationCompat.Builder n = new NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_noah).setContentTitle(title).setContentText(text)
             .setStyle(new NotificationCompat.BigTextStyle().bigText(text)).setContentIntent(tap).setAutoCancel(true)
             .setOnlyAlertOnce(true); // le remplacement générique → contenu ne sonne pas deux fois
+        try {
+            NotificationManagerCompat.from(this).notify(id, n.build());
+        } catch (SecurityException ignored) {
+            // permission de notifier refusée par l'utilisateur
+        }
+    }
+
+    /** Un rappel sonne comme un appel. Android 14 peut refuser le plein écran à une app qui n'est pas un téléphone : il reste la sonnerie. */
+    private void ring(NotificationManager manager, int id, String title, String text, String url, PendingIntent tap) {
+        NotificationChannel channel = new NotificationChannel(CALLS, "Appels de tes agents", NotificationManager.IMPORTANCE_HIGH);
+        channel.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE),
+            new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE).build());
+        channel.enableVibration(true);
+        channel.setVibrationPattern(new long[] { 0, 800, 400, 800, 400 });
+        channel.setLockscreenVisibility(Notification.VISIBILITY_PRIVATE);
+        manager.createNotificationChannel(channel);
+        Intent screen = new Intent(this, CallActivity.class).putExtra(CallActivity.TITLE, title).putExtra(CallActivity.URL, url)
+            .putExtra(CallActivity.NOTIFICATION, id).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        PendingIntent full = PendingIntent.getActivity(this, id, screen, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        NotificationCompat.Builder n = new NotificationCompat.Builder(this, CALLS)
+            .setSmallIcon(R.drawable.ic_stat_noah).setContentTitle(title).setContentText(text)
+            .setCategory(NotificationCompat.CATEGORY_CALL).setPriority(NotificationCompat.PRIORITY_MAX)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE) // le compte rendu ne s'affiche pas sur l'écran verrouillé
+            .setContentIntent(tap).setFullScreenIntent(full, true).setAutoCancel(true).setTimeoutAfter(60000);
         try {
             NotificationManagerCompat.from(this).notify(id, n.build());
         } catch (SecurityException ignored) {
@@ -249,7 +282,7 @@ public class NoahPush extends PushService {
         return out.toString();
     }
 
-    private static String call(String method, String url, String token, String json) throws Exception {
+    static String call(String method, String url, String token, String json) throws Exception {
         return call(method, url, token, json, 15000);
     }
 
