@@ -87,3 +87,7 @@ trois phrases : salutation, demande d'action, question).
 
 - **Historique paginé** (80 derniers messages) et `content-visibility` sur les messages.
 - **Taux de cache de prompt** à relever dans `/api/usage`, puis à corriger si le modèle ne profite pas du cache.
+
+## Correction du 3 novembre 2026
+
+Le « premier son » de 754 ms ci-dessus part de la fin de la phrase transcrite. Depuis la fin de la parole, le temps entendu est de **2 277 ms en médiane** : voir [journal-hill-climb.md](journal-hill-climb.md). Le banc de référence du vocal est maintenant `python -m apollo.bench_voice`.

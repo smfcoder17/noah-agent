@@ -1,0 +1,246 @@
+{
+ "version": 2,
+ "niveaux": {
+  "0": "déclaré ou écrit, jamais exécuté",
+  "1": "test automatique avec simulations",
+  "2": "vrais conteneurs ou vrai navigateur, en local",
+  "3": "conditions réelles : VPS neuf, téléphone, 4G",
+  "4": "personne réelle, à l'aveugle"
+ },
+ "parcours": [
+  { "id": "J1", "t": "VPS Hostinger neuf : première réponse de l'agent en 10 min, sans taper une commande", "requis": 3, "preuve": 0 },
+  { "id": "J2", "t": "App de bureau installée, reliée au compte du VPS, puis conversation", "requis": 3, "preuve": 0 },
+  { "id": "J3", "t": "APK installé, QR scanné en 4G, puis conversation", "requis": 3, "preuve": 0 },
+  { "id": "J4", "t": "Version majeure publiée : installée seule à une heure calme, sans perte ; panne provoquée : retour arrière", "requis": 3, "preuve": 0 },
+  { "id": "J5", "t": "Appeler un agent depuis le téléphone, lui parler, lui couper la parole, raccrocher", "requis": 3, "preuve": 0 },
+  { "id": "J6", "t": "Appeler un agent, créer un deuxième agent, l'appeler à son tour", "requis": 3, "preuve": 0 },
+  { "id": "J7", "t": "À la voix : « demande à tel agent de faire telle tâche », et il la fait", "requis": 3, "preuve": 0 },
+  { "id": "J8", "t": "Tâche lancée à l'écrit sur l'ordinateur ; à la fin, l'agent fait sonner le téléphone éteint et donne son compte rendu", "requis": 3, "preuve": 0 },
+  { "id": "J9", "t": "Deux profils sur le VPS : chacun ses agents, aucune fuite ; un agent partagé avec des droits, puis révoqué", "requis": 3, "preuve": 0 },
+  { "id": "J10", "t": "Connecter un outil au choix en moins de 60 s, puis s'en servir à la voix", "requis": 3, "preuve": 0 }
+ ],
+ "objectifs": [
+  {
+   "id": "G0",
+   "nom": "Images publiées",
+   "seuil": 9,
+   "criteres": [
+    { "id": "G0.1", "b": 1, "requis": 3, "preuve": 0, "note": "release.yml écrit, jamais exécuté : pas de dépôt public" },
+    { "id": "G0.2", "requis": 3, "preuve": 0 },
+    { "id": "G0.3", "requis": 3, "preuve": 0 },
+    { "id": "G0.4", "requis": 3, "preuve": 0 },
+    { "id": "G0.5", "b": 1, "requis": 2, "preuve": 0 },
+    { "id": "G0.6", "requis": 1, "preuve": 0 }
+   ]
+  },
+  {
+   "id": "G1",
+   "nom": "Installation en un clic",
+   "seuil": 8,
+   "criteres": [
+    { "id": "G1.1", "requis": 3, "preuve": 0 },
+    { "id": "G1.2", "requis": 3, "preuve": 0, "b": 1 },
+    { "id": "G1.3", "b": 1, "requis": 3, "preuve": 0 },
+    { "id": "G1.4", "b": 1, "requis": 2, "preuve": 1, "test": "tests/install/setup_test.py" },
+    { "id": "G1.5", "b": 1, "requis": 2, "preuve": 1, "test": "tests/install/setup_test.py" },
+    { "id": "G1.6", "requis": 3, "preuve": 0 },
+    { "id": "G1.7", "requis": 2, "preuve": 0 },
+    { "id": "G1.8", "requis": 3, "preuve": 0, "note": "assistant parcouru en local, pas sur un VPS" }
+   ]
+  },
+  {
+   "id": "G2",
+   "nom": "Appairage",
+   "seuil": 9,
+   "criteres": [
+    { "id": "G2.1", "requis": 3, "preuve": 0, "b": 1 },
+    { "id": "G2.2", "b": 1, "requis": 1, "preuve": 0, "note": "usage unique testé ; 128 bits et expiration du QR non vérifiés" },
+    { "id": "G2.3", "b": 1, "requis": 2, "preuve": 1, "test": "tests/pairing/pairing_test.py" },
+    { "id": "G2.4", "b": 1, "requis": 1, "preuve": 0, "note": "aucun dump de la base vérifié" },
+    { "id": "G2.5", "requis": 2, "preuve": 1, "test": "tests/pairing/pairing_test.py" },
+    { "id": "G2.6", "requis": 1, "preuve": 1, "test": "tests/pairing/pairing_test.py" },
+    { "id": "G2.7", "requis": 1, "preuve": 1, "test": "tests/pairing/pairing_test.py" },
+    { "id": "G2.8", "requis": 2, "preuve": 0 }
+   ]
+  },
+  {
+   "id": "G3",
+   "nom": "App de bureau",
+   "seuil": 8,
+   "criteres": [
+    { "id": "G3.1", "b": 1, "requis": 3, "preuve": 0 },
+    { "id": "G3.2", "requis": 1, "preuve": 0, "note": "le test exige une relivraison au second sondage, le critère exige un 404 : à réconcilier" },
+    { "id": "G3.3", "b": 1, "requis": 2, "preuve": 0 },
+    { "id": "G3.4", "requis": 2, "preuve": 0 },
+    { "id": "G3.5", "requis": 2, "preuve": 1, "test": "tests/restore/inspect_test.py", "note": "archives fabriquées seulement : aucune sauvegarde locale restaurée sur un VPS" },
+    { "id": "G3.6", "requis": 2, "preuve": 0, "note": "aucun test de reconnexion de l'app de bureau" },
+    { "id": "G3.7", "requis": 2, "preuve": 0 }
+   ]
+  },
+  {
+   "id": "G4",
+   "nom": "App Android",
+   "seuil": 8,
+   "criteres": [
+    { "id": "G4.1", "requis": 2, "preuve": 0, "note": "APK construit sur le poste de développement : ni machine propre, ni installation sur Android 7" },
+    { "id": "G4.2", "requis": 1, "preuve": 0 },
+    { "id": "G4.3", "b": 1, "requis": 3, "preuve": 0 },
+    { "id": "G4.4", "b": 1, "requis": 2, "preuve": 1, "test": "tests/push/push_test.py" },
+    { "id": "G4.5", "b": 1, "requis": 3, "preuve": 0 },
+    { "id": "G4.6", "requis": 3, "preuve": 0 },
+    { "id": "G4.7", "requis": 3, "preuve": 0 },
+    { "id": "G4.8", "requis": 3, "preuve": 0 }
+   ]
+  },
+  {
+   "id": "G5",
+   "nom": "PWA",
+   "seuil": 8,
+   "criteres": [
+    { "id": "G5.1", "b": 1, "requis": 2, "preuve": 0, "note": "aucun test identifiable" },
+    { "id": "G5.2", "requis": 2, "preuve": 0 },
+    { "id": "G5.3", "requis": 3, "preuve": 1, "test": "tests/push/push_test.py" },
+    { "id": "G5.4", "requis": 3, "preuve": 0 },
+    { "id": "G5.5", "requis": 3, "preuve": 0, "note": "aucun test identifiable" },
+    { "id": "G5.6", "requis": 2, "preuve": 1, "test": "tests/pairing/pairing_test.py" }
+   ]
+  },
+  {
+   "id": "G6",
+   "nom": "Mises à jour",
+   "seuil": 9,
+   "criteres": [
+    { "id": "G6.1", "b": 1, "requis": 2, "preuve": 2, "test": "tests/updates/docker_test.sh" },
+    { "id": "G6.2", "b": 1, "requis": 2, "preuve": 2, "test": "tests/updates/docker_test.sh" },
+    { "id": "G6.3", "b": 1, "requis": 2, "preuve": 2, "test": "tests/updates/docker_test.sh" },
+    { "id": "G6.4", "requis": 1, "preuve": 1, "test": "tests/updates/logic_test.py" },
+    { "id": "G6.5", "requis": 1, "preuve": 1, "test": "tests/updates/logic_test.py" },
+    { "id": "G6.6", "requis": 1, "preuve": 1, "test": "tests/updates/logic_test.py" },
+    { "id": "G6.7", "requis": 2, "preuve": 2, "test": "tests/updates/docker_test.sh" },
+    { "id": "G6.8", "requis": 2, "preuve": 1, "test": "tests/updates/docker_test.sh", "note": "petite application et flux SSE fabriqué : le WebSocket du chat n'est pas vérifié" }
+   ]
+  },
+  {
+   "id": "G7",
+   "nom": "Sécurité et vie privée",
+   "seuil": 9,
+   "criteres": [
+    { "id": "G7.1", "b": 1, "requis": 3, "preuve": 0 },
+    { "id": "G7.2", "b": 1, "requis": 2, "preuve": 2, "test": "tests/secrets/secrets_test.py" },
+    { "id": "G7.3", "b": 1, "requis": 3, "preuve": 0 },
+    { "id": "G7.4", "requis": 2, "preuve": 1, "note": "API testée, affichage non vérifié", "test": "tests/install/setup_test.py" },
+    { "id": "G7.5", "requis": 1, "preuve": 0, "note": "aucun test identifiable" },
+    { "id": "G7.6", "requis": 1, "preuve": 1, "test": "tests/skills/guard_test.py" },
+    { "id": "G7.7", "requis": 2, "preuve": 1, "test": "tests/handoff/private_test.mjs", "note": "navigateur et serveur simulés : à refaire dans un vrai navigateur" }
+   ]
+  },
+  {
+   "id": "G8",
+   "nom": "Coûts et 24 h/24",
+   "seuil": 8,
+   "criteres": [
+    { "id": "G8.1", "b": 1, "requis": 2, "preuve": 1, "test": "tests/budget/budget_test.py" },
+    { "id": "G8.2", "requis": 2, "preuve": 1, "test": "tests/budget/budget_test.py" },
+    { "id": "G8.3", "requis": 1, "preuve": 1, "test": "tests/watch/watch_test.py" },
+    { "id": "G8.4", "requis": 3, "preuve": 0 },
+    { "id": "G8.5", "requis": 3, "preuve": 0 }
+   ]
+  },
+  {
+   "id": "G9",
+   "nom": "Formation",
+   "seuil": 8,
+   "criteres": [
+    { "id": "G9.1", "requis": 4, "preuve": 0 },
+    { "id": "G9.2", "requis": 1, "preuve": 0 },
+    { "id": "G9.3", "requis": 3, "preuve": 0 },
+    { "id": "G9.4", "requis": 1, "preuve": 0 }
+   ]
+  },
+  {
+   "id": "G10",
+   "nom": "Conversation vocale",
+   "seuil": 8,
+   "criteres": [
+    { "id": "G10.1", "t": "Fin de parole → premier son : médiane ≤ 1,2 s, p95 ≤ 2 s, en 4G sur VPS", "requis": 3, "preuve": 0, "b": 1 },
+    { "id": "G10.2", "t": "Une pause en pleine phrase ne déclenche pas de réponse : moins de 5 coupures pour 100 tours", "requis": 2, "preuve": 0 },
+    { "id": "G10.3", "t": "Couper la parole : l'agent se tait en 200 ms au plus ; moins de 5 arrêts à tort pour 100 tours, « mm-hm » compris", "requis": 2, "preuve": 0 },
+    { "id": "G10.4", "t": "Transcription française : moins de 10 % d'erreurs de mots, sur de vraies voix et avec du bruit", "requis": 2, "preuve": 0 },
+    { "id": "G10.5", "t": "Réussite des tâches vocales avec outils : au moins 71 %, sur 30 scénarios jugés par 3 fournisseurs", "requis": 2, "preuve": 0, "b": 1 },
+    { "id": "G10.6", "t": "Jamais plus de 3 s de silence pendant que l'agent travaille, et aucun résultat inventé", "requis": 2, "preuve": 0, "b": 1 },
+    { "id": "G10.7", "t": "Coût : 0,05 $ la minute au plus, compteur par appel visible", "requis": 2, "preuve": 0 },
+    { "id": "G10.8", "b": 1, "t": "Le fournisseur de voix se change sans toucher au code ; une voie entièrement open source existe", "requis": 2, "preuve": 0 }
+   ]
+  },
+  {
+   "id": "G11",
+   "nom": "Appels et coordination",
+   "seuil": 8,
+   "criteres": [
+    { "id": "G11.1", "t": "Bouton Appeler : en ligne en 2 s au plus, avec l'agent choisi", "requis": 3, "preuve": 0, "b": 1 },
+    { "id": "G11.2", "t": "Écran d'appel Android natif : écran éteint, sonnerie en 5 s au plus ; refuser laisse un compte rendu écrit", "requis": 3, "preuve": 0, "b": 1 },
+    { "id": "G11.3", "t": "L'appel survit au passage du Wi-Fi à la 4G et à l'écran verrouillé", "requis": 3, "preuve": 0 },
+    { "id": "G11.4", "t": "Outil « demander à un autre agent » avec suivi de la tâche, boucles refusées", "requis": 2, "preuve": 0, "b": 1 },
+    { "id": "G11.5", "t": "Outil « appeler l'utilisateur » : un agent ou la demande d'un autre fait sonner le téléphone", "requis": 2, "preuve": 0, "b": 1 },
+    { "id": "G11.6", "t": "Chaque appel est écrit dans la conversation de l'agent, avec les actions faites", "requis": 2, "preuve": 0 },
+    { "id": "G11.7", "t": "Une action irréversible demandée à la voix attend une confirmation explicite", "b": 1, "requis": 2, "preuve": 0 }
+   ]
+  },
+  {
+   "id": "G12",
+   "nom": "Profils et partage",
+   "seuil": 9,
+   "criteres": [
+    { "id": "G12.1", "t": "Le propriétaire crée et supprime des profils ; chacun a ses appareils, ses agents et son budget", "requis": 2, "preuve": 0 },
+    { "id": "G12.2", "b": 1, "t": "Isolation testée sur toutes les routes : un profil reçoit 403 ou 404 sur les données d'un autre", "requis": 1, "preuve": 0 },
+    { "id": "G12.3", "b": 1, "t": "Les conteneurs, fichiers, secrets et comptes d'un agent sont invisibles des autres profils", "requis": 2, "preuve": 0 },
+    { "id": "G12.4", "t": "Partage d'un agent : lecture, usage, admin ; la révocation coupe tout en 5 s", "requis": 2, "preuve": 0 },
+    { "id": "G12.5", "t": "Sur un agent partagé, la mémoire et les comptes connectés de chacun restent séparés, sauf choix explicite", "b": 1, "requis": 2, "preuve": 0 }
+   ]
+  },
+  {
+   "id": "G13",
+   "nom": "Outils au choix",
+   "seuil": 8,
+   "criteres": [
+    { "id": "G13.1", "t": "Ajouter un serveur MCP par adresse, avec OAuth, depuis l'interface, en 60 s au plus", "requis": 2, "preuve": 0 },
+    { "id": "G13.2", "t": "Droits par agent et par outil : lire, agir, demander confirmation", "requis": 2, "preuve": 0 },
+    { "id": "G13.3", "t": "Un outil connecté marche à la voix, à l'écrit et dans une routine", "requis": 2, "preuve": 0 },
+    { "id": "G13.4", "t": "La panne d'un outil est dite clairement et n'arrête pas l'agent", "requis": 2, "preuve": 0 }
+   ]
+  },
+  {
+   "id": "G14",
+   "nom": "Rapidité et légèreté",
+   "seuil": 8,
+   "criteres": [
+    { "id": "G14.1", "t": "Chat : première réaction à 800 ms au plus en médiane sur VPS ; gain jugé au-delà du bruit mesuré", "requis": 3, "preuve": 0 },
+    { "id": "G14.2", "t": "Sur KVM 2 à 8 Go, 2 agents actifs : mémoire libre d'au moins 2 Go", "requis": 3, "preuve": 0, "b": 1 },
+    { "id": "G14.3", "t": "Un navigateur ne tourne que si l'agent s'en sert, et s'éteint au repos", "requis": 2, "preuve": 0 },
+    { "id": "G14.4", "t": "Chaque dépendance et service est justifié ; un service en plus doit gagner sa place au banc", "requis": 1, "preuve": 0 },
+    { "id": "G14.5", "t": "Application : ouverture en 1 s, liste de 1 000 messages fluide, sur un Android moyen", "requis": 3, "preuve": 0 },
+    { "id": "G14.6", "t": "Première installation : 4 Go à télécharger au plus, et le navigateur seulement à son premier usage", "requis": 2, "preuve": 0 }
+   ]
+  },
+  {
+   "id": "G15",
+   "nom": "Expérience face aux références",
+   "seuil": 8,
+   "criteres": [
+    { "id": "G15.1", "t": "Grille de 20 comportements relevés sur Grok Bot, Dots, Duet et Muse, chacun avec sa source", "requis": 1, "preuve": 0 },
+    { "id": "G15.2", "t": "Comparaisons à l'aveugle de captures : préféré à au moins une référence par 3 juges sur 4 parcours", "requis": 2, "preuve": 0 },
+    { "id": "G15.3", "t": "Verdict humain à l'aveugle : au moins aussi agréable que la référence choisie pour l'appel", "requis": 4, "preuve": 0 }
+   ]
+  },
+  {
+   "id": "G16",
+   "nom": "Open source",
+   "seuil": 9,
+   "criteres": [
+    { "id": "G16.1", "b": 1, "t": "Sources publiques de tout ce qui est distribué : serveur, lanceur, bureau, Android", "requis": 3, "preuve": 0 },
+    { "id": "G16.2", "b": 1, "t": "Licence choisie par la personne et compatible avec chaque dépendance, inventaire à l'appui", "requis": 1, "preuve": 0 },
+    { "id": "G16.3", "t": "Images et APK se reconstruisent depuis les sources sur une machine propre", "requis": 2, "preuve": 0 }
+   ]
+  }
+ ]
+}

@@ -104,7 +104,7 @@ async def main() -> None:
     reps = int(sys.argv[2]) if len(sys.argv) > 2 else 2
     token, agent, conv = _setup()
     out: dict = {"etiquette": label, "date": time.strftime("%Y-%m-%d %H:%M"), "api": {}, "chat": {}, "voix": None}
-    async with httpx.AsyncClient(cookies={"apollo_session": token}, timeout=300) as c:
+    async with httpx.AsyncClient(headers={"Authorization": f"Bearer {token}"}, timeout=300) as c:
         main_conv = next((x["id"] for x in (await c.get(f"{BASE}/api/agents/{agent}/conversations")).json() if x.get("main")), None)
         for name, path in (("agents", "/api/agents"), ("conversations", f"/api/agents/{agent}/conversations"),
                            ("messages", f"/api/conversations/{main_conv}/messages"), ("page", "/")):

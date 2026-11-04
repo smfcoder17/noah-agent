@@ -1,5 +1,7 @@
 # Grille de validation de Noah Agent
 
+Le score officiel est calculé par niveau de preuve : [etat.md](etat.md) et [evaluation.md](evaluation.md). Les objectifs G10 à G15 sont décrits dans [etat.md](etat.md).
+
 ## Règles de notation
 
 - Chaque critère est binaire : il passe ou il échoue. Un critère échoué ne donne aucun point.
