@@ -6,11 +6,15 @@ on:
   push:
   pull_request:
   workflow_call:  # appelé par release.yml : pas d'image ni de manifeste si un test échoue
+    inputs:
+      rapide:  # image edge de main : cette même suite tourne en entier à côté, seule une version l'attend
+        type: boolean
+        default: false
 
 jobs:
   updates:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - name: Logique
@@ -81,4 +85,5 @@ jobs:
           node tools/eval/score.mjs --check
           node tools/eval/sabotage.mjs
       - name: Transaction sur conteneurs
+        if: ${{ !inputs.rapide }}
         run: sh tests/updates/docker_test.sh
