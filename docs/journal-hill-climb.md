@@ -55,7 +55,7 @@ Mesure dans le vrai composant `Voice.tsx`, avec un faux micro : depuis la fin de
 
 ## Base du 4 novembre 2026 (banc navigateur version 3, cerveau et voix rapide sur Ollama)
 
-Cerveau et voix rapide : `deepseek-v4.1-flash:cloud`. Transcription et synthèse : OpenRouter. Agent et navigateur arrêtés, même machine pour tous les tours. Mémoire libre : 956 Mo au départ du lot travail, donc un peu sous la limite demandée de 1 Go, puis 1,7 à 1,8 Go. Je le note plutôt que de le rejouer.
+Cerveau : `deepseek-v4.1-flash:cloud`. Voix rapide : `gpt-oss:20b-cloud`, choisie automatiquement chez Ollama. Transcription et synthèse : OpenRouter. Agent et navigateur arrêtés, même machine pour tous les tours. Mémoire libre : 956 Mo au départ du lot travail, donc un peu sous la limite demandée de 1 Go, puis 1,7 à 1,8 Go. Je le note plutôt que de le rejouer.
 
 **Banc corrigé d'abord (commit à part).** Les « 3 interruptions ratées sur 5 » venaient du banc, pas du produit : il attendait le libellé « Je t'écoute », qui s'affiche aussi pendant que la voix se prépare, et l'essai suivant partait sur la réponse du précédent. Une fois corrigé : 0 raté sur 5. L'ancien chiffre ne doit plus être cité. Le banc attend maintenant que plus rien ne soit en cours. Une coupure compte le son entendu ou le tour envoyé, et non une réponse préparée en silence. Des mots brefs par-dessus la voix sont ajoutés. Le doublon « Bonjour. Bonjour. » vient de la voix de test : le fichier contient deux fois le mot, à 1,2 s d'écart. Je ne l'ai pas changé.
 
@@ -98,3 +98,30 @@ Cerveau et voix rapide : `deepseek-v4.1-flash:cloud`. Transcription et synthèse
 - **Coût.** Environ 50 tours de banc de plus (transcription et synthèse), moins de 0,02 $ au compteur, qui ignore la synthèse (voir plus bas).
 - **Ce qu'on apprend.** La moitié du défaut supposé était le banc. Non mesuré : l'écho d'un vrai haut-parleur peut faire pomper la baisse de volume, et iOS interdit de régler le volume d'un élément audio : là, seul l'arrêt franc agit (à vérifier).
 - **Défaut vu en passant, non expliqué.** Des tours sans aucun son : le serveur rend 204 sur le flux audio, sans erreur journalisée (1 sur 42 en base, 1 sur 42 après ; 4 sur 12 puis 0 sur 6 sur le lot garde après, 0 sur 6 en base). La voix rapide seule, appelée 58 fois, n'a jamais rendu de réponse vide, et la synthèse seule a répondu 8 fois sur 8. J'ajoute un journal pour le prendre sur le fait.
+
+### T2, fin de tour
+
+- **Cause.** Le tour part dès 1,3 ou 1,4 s de silence, car attendre plus allongerait d'autant le temps entendu : la réponse ne commence à se préparer qu'à l'envoi. Une pause de 1,5 s coupe donc toujours.
+- **Hypothèse.** Séparer préparer et parler. La réponse se prépare en silence dès 500 ms de pause, le son retenu. Le tour n'est confirmé qu'à 2 s de silence après un point ou une fin ordinaire (1 s après un point d'interrogation, 2,5 s après un mot de liaison). Préparation : 500 ms de pause, 700 ms de transcription et 1 200 ms de voix, soit environ 2,4 s, plus long que l'attente de confirmation : celle-ci n'allonge donc pas le temps entendu. Si la personne reprend, on annule : requête coupée côté serveur, aucun message.
+- **Changement.** `Voice.tsx` : réponse préparée et confirmée, pause de morceau à 500 ms en mode vocal, délais de fin de tour. `media.py` et `main.py` : `POST /api/voice/cancel/<id>`, qui coupe la voix rapide et la synthèse.
+- **Doit bouger.** Coupures : de 9 sur 9 à moins de 1 sur 9. Temps entendu : gain de 200 ms environ.
+- **Peut reculer.** L'envoi du tour à l'agent : de 1,4 s à 2 s environ, donc le vrai travail démarre 600 ms plus tard. Davantage de morceaux à transcrire, donc les erreurs de mots. Coût : chaque réponse jetée paie sa synthèse et sa voix rapide.
+- **Gain prédit.** 200 ms sur le temps entendu, coupures à zéro.
+- **Premier filtre, attente à 2 s.** 6 coupures sur 9, gain 354 ms (79 à 614), mémoire libre 370 Mo au départ : à ne pas retenir. Cause des coupures : le banc annonce 1,5 s, mais le silence réel dure environ 1,9 à 2 s, avec la queue du fichier, le décodage et le silence de tête de la moitié suivante. Je ne touche pas au banc, qui reste plus sévère que son titre : l'attente passe à 2,3 s.
+- **Banc corrigé en cours de tour (commit à part, version 4).** Le banc attendait 1,5 s après la fin du fichier, silence de queue compris : la pause réelle montait au-delà de 2,4 s sur « Demande à l'autre agent ». Elle est maintenant de 1 503 ms en médiane, de la dernière syllabe à la première. Une pause de 2 s montre la marge. Base rejouée sur cette partie, code d'avant T2 : **8 sur 9 à 1,5 s, 6 sur 6 à 2 s.**
+- **Mesure.** Banc version 4, 3 répétitions, travail et garde. Attente de confirmation à 2,3 s. Mémoire libre : 1 064 Mo au départ, 945 Mo à la fin.
+- **Décision : GARDÉ.** Défaut franc corrigé, le temps entendu ne recule pas.
+
+| Critère | Base | Après |
+|---|---|---|
+| Coupures, pause de 1,5 s | 8 sur 9 | 0 sur 9 |
+| Coupures, pause de 2 s | 6 sur 6 | 0 sur 6 |
+| Temps entendu, travail, médiane | 2 634 ms | 2 588 ms, gain 59 ms, intervalle de -131 à 263 ms : gain prédit de 200 ms non tenu |
+| Temps entendu, travail, p95 | 4 023 ms | 3 901 ms |
+| Temps entendu, garde, médiane | 2 368 ms | 2 301 ms, gain 470 ms sur 4 paires, seulement 2 cas |
+| Envoi du tour à l'agent, médiane | 1 373 ms | 2 268 ms : recul attendu, le vrai travail démarre 900 ms plus tard |
+| Interruption | 524 ms, 4 sur 6 à tort | 687 ms, 0 sur 6 à tort, voix baissée en 106 ms |
+| Échecs | 1 sur 42, 0 sur 6 | 1 sur 42, 2 sur 6 |
+
+- **Coût des spéculations.** 15 réponses jetées sur 88 au lot travail, exactement une par essai de pause, aucune sur les tours sans pause. 3 sur 9 au lot garde, à cause du doublon « Bonjour ». Une réponse jetée paie sa voix rapide et sa première phrase de synthèse. `tests/voice/voice_test.py` prouve l'annulation avec simulation : requête au modèle fermée, aucun message écrit, un autre compte refusé, et une demande arrivée après l'annulation ne lance rien.
+- **Ce qu'on apprend.** Le temps entendu ne bouge presque pas, car l'attente de confirmation de 2,3 s devient la borne quand la voix est prête tôt : sur le lot garde, le son part à 2 301 ms, juste après la confirmation. Le gain possible est là. Les erreurs de mots sur des morceaux coupés à 500 ms ne sont pas mesurées : le banc du serveur transcrit des phrases entières. La cause des tours muets se précise : le journal dit 0 phrase reçue (3 fois), la synthèse n'y est donc pour rien, c'est la voix rapide qui ne dit rien.

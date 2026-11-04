@@ -620,6 +620,7 @@ class AudioStream:
         self.born = time.monotonic()
         self.ctype = "audio/mpeg"
         self.owner: int | None = None  # le compte qui l'a ouvert le premier : lui seul l'écoute ou y écrit
+        self.task: asyncio.Task | None = None  # la réponse qui l'alimente, à couper si elle est annulée
 
     def put(self, data: bytes | None) -> None:
         if not self.closed:
@@ -636,6 +637,7 @@ def _wav_header(rate: int) -> bytes:
 
 _PCM_ONLY: set[str] = set()
 _streams: dict[str, AudioStream] = {}
+_cancelled: dict[str, float] = {}
 _tasks: set[asyncio.Task] = set()
 
 
@@ -644,7 +646,25 @@ def audio_stream(sid: str) -> AudioStream:
     now = time.monotonic()
     for k in [k for k, s in _streams.items() if now - s.born > 300]:
         _streams.pop(k).closed = True
+    for k in [k for k, at in _cancelled.items() if now - at > 300]:
+        del _cancelled[k]
+    if sid in _cancelled:  # annulé avant d'être ouvert : la demande arrive après l'annulation
+        gone = AudioStream()
+        gone.closed = True
+        gone.queue.put_nowait(None)
+        return gone
     return _streams.setdefault(sid, AudioStream())
+
+
+def cancel_stream(sid: str) -> None:
+    """Réponse préparée qui ne sera pas dite : on coupe le modèle et la synthèse, le lecteur reçoit une fin."""
+    _cancelled[sid] = time.monotonic()
+    s = _streams.pop(sid, None)
+    if s:
+        s.closed = True
+        s.queue.put_nowait(None)
+        if s.task:
+            s.task.cancel()
 
 
 def drop_stream(sid: str) -> None:

@@ -2185,12 +2185,31 @@ async def voice_reply(body: VoiceTurn, user: int = Depends(auth.current_user)):
         raise
     with db.connect() as c:
         row = c.execute("SELECT name, role FROM agents WHERE id = ?", (body.agent_id,)).fetchone()
+    if out and out.closed:
+        return {"dire": "", "action": False, "annule": True}
+    task = asyncio.create_task(media.voice_reply(body.agent_id, row["name"], row["role"], body.text, body.history, body.mode, out))
+    if out:
+        out.task = task
     try:
-        return await media.voice_reply(body.agent_id, row["name"], row["role"], body.text, body.history, body.mode, out)
+        return await task
+    except asyncio.CancelledError:
+        if not task.cancelled():
+            raise
+        return {"dire": "", "action": False, "annule": True}
     except media.MediaError as e:
         raise HTTPException(400, str(e))
     except httpx.HTTPError:
         raise HTTPException(502, "La voix rapide ne répond pas.")
+
+
+@app.post("/api/voice/cancel/{audio_id}")
+async def voice_cancel(audio_id: str, user: int = Depends(auth.current_user)):
+    """La personne a repris la parole : la réponse préparée en silence est abandonnée. Rien n'a été écrit."""
+    if not re.match(AUDIO_ID, audio_id):
+        raise HTTPException(400, "Identifiant invalide")
+    _audio_for(user, audio_id)
+    media.cancel_stream(audio_id)
+    return {"ok": True}
 
 
 class MediaRequest(BaseModel):

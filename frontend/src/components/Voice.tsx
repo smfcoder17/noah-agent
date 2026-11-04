@@ -13,6 +13,8 @@ import { Button } from "./ui";
 const TICK = 50; // relevé du niveau, en ms
 const VOICE = 0.035; // niveau (RMS) au-dessus duquel on considère que quelqu'un parle
 const PAUSE = 700; // petite pause (virgule, respiration) : le morceau part à la transcription
+const TURN_PAUSE = 500; // en mode vocal : le morceau part, et la réponse se prépare en silence
+const RESUMED = 150; // parole qui annule la réponse préparée : la personne n'avait pas fini
 // Couper la parole, en deux temps : un « mm-hm » ne dure pas assez pour arrêter l'agent, mais on baisse sa voix tout de suite.
 const BARGE_LEVEL = 0.05; // niveau de voix par-dessus l'agent
 const BARGE_LOWER = 100; // parole continue qui baisse sa voix
@@ -155,11 +157,13 @@ function useTranscripts(agentId: string, onText: (text: string) => void) {
     },
     [agentId],
   );
+  /** Combien de morceaux restent à transcrire. */
+  const inFlight = useCallback(() => state.current.inflight.size, []);
   /** Attend que tout ce qui a été dit soit transcrit. */
   const settle = useCallback(async () => {
     while (state.current.inflight.size) await Promise.all([...state.current.inflight]);
   }, []);
-  return { submit, settle, pending, error, setError };
+  return { submit, settle, inFlight, pending, error, setError };
 }
 
 /** Ce qu'on lit à voix haute : le texte de la réponse, sans widgets, code ni mise en forme. */
@@ -296,6 +300,8 @@ export function VoiceModeButton({ onClick }: { onClick: () => void }) {
 const audioId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
 
 type VoiceReply = { dire: string; action: boolean };
+/** Réponse préparée en silence : on l'entend avec `speak`, ou on l'abandonne avec `drop`. */
+type Held = { text: string; speak: () => Promise<VoiceReply>; drop: () => void };
 
 /**
  * Voix de l'agent en flux : le navigateur ouvre /api/voice/audio/<id> pendant que le serveur écrit la réponse
@@ -308,11 +314,11 @@ function useSpeaker(agentId: string, onPlaying: (playing: boolean, interrupted: 
   const notify = useRef(onPlaying);
   notify.current = onPlaying;
   const play = useCallback(
-    (id: string) =>
+    (id: string, ready?: HTMLAudioElement) =>
       new Promise<void>((resolve) => {
         stop.current?.();
         current.current?.pause();
-        const a = new Audio(`/api/voice/audio/${id}`);
+        const a = ready ?? new Audio(`/api/voice/audio/${id}`);
         current.current = a;
         let heard = false;
         let over = false;
@@ -363,6 +369,35 @@ function useSpeaker(agentId: string, onPlaying: (playing: boolean, interrupted: 
     },
     [agentId, play],
   );
+  /** Prépare une réponse sans la faire entendre : le son arrive dans l'élément, qui n'est pas lancé. */
+  const hold = useCallback(
+    (text: string, history: unknown[]): Held => {
+      const id = audioId();
+      const answer = send<VoiceReply>("/api/voice/reply", { agent_id: agentId, text, history, audio_id: id });
+      answer.catch(() => {}); // lue par speak ; une réponse abandonnée n'intéresse personne
+      const element = new Audio(`/api/voice/audio/${id}`);
+      return {
+        text,
+        speak: async () => {
+          const heard = play(id, element);
+          try {
+            const r = await answer;
+            await heard;
+            return r;
+          } catch (e) {
+            current.current?.pause();
+            throw e;
+          }
+        },
+        drop: () => {
+          element.removeAttribute("src");
+          element.load();
+          send(`/api/voice/cancel/${id}`, {}).catch(() => {});
+        },
+      };
+    },
+    [agentId, play],
+  );
   const cancel = useCallback(() => {
     const a = current.current;
     if (!a) return;
@@ -376,19 +411,20 @@ function useSpeaker(agentId: string, onPlaying: (playing: boolean, interrupted: 
   const lower = useCallback((on: boolean) => {
     if (current.current) current.current.volume = on ? LOWERED : 1;
   }, []);
-  return { speak, reply, cancel, lower };
+  return { speak, reply, hold, cancel, lower };
 }
 
 /**
  * Silence qui marque la fin d'un tour, selon la fin de ce qui a été dit. Le transcripteur met souvent un point
- * à une phrase coupée (« j'ai une question. ») : seul le point d'interrogation conclut plus vite.
+ * à une phrase coupée (« j'ai une question. ») : seul le point d'interrogation conclut plus vite. Cette attente
+ * ne s'ajoute pas au temps de réponse : la réponse se prépare pendant ce temps, à partir de TURN_PAUSE.
  */
 function endOfTurnDelay(text: string) {
   const t = text.trim().toLowerCase();
   if (/\?$/.test(t)) return 1000;
-  if (/[.!…]$/.test(t)) return 1300;
+  if (/[.!…]$/.test(t)) return 2300;
   if (/(,|;|:|\b(et|mais|donc|alors|ou|parce que|que|qui|de|du|des|le|la|les|un|une|pour|avec|sur|dans|euh|ben|genre|comme|si|quand))$/.test(t)) return 2500;
-  return 1400;
+  return 2300;
 }
 
 /**
@@ -424,13 +460,15 @@ export function VoiceMode({ onClose, report, onReportRead }: {
   const micReady = useRef<Promise<void> | null>(null);
   const reportSaid = useRef<string | null>(null);
   const voiceHeard = useRef(0);
+  const held = useRef<Held | null>(null); // réponse préparée, pas encore confirmée
+  const cutting = useRef(0); // morceaux coupés, pas encore partis à la transcription
 
   const t = useTranscripts(agentId, (text) => {
     heard.current.push(text);
     setLive(heard.current.join(" "));
   });
 
-  const { speak, reply: speakReply, cancel, lower } = useSpeaker(agentId, (on, interrupted) => {
+  const { speak, reply: speakReply, hold, cancel, lower } = useSpeaker(agentId, (on, interrupted) => {
     loud.current = 0;
     gap.current = 0;
     if (on) voiceHeard.current++;
@@ -451,30 +489,36 @@ export function VoiceMode({ onClose, report, onReportRead }: {
   latest.current = messages;
   const history = () => latest.current.slice(-6).map((m) => ({ role: m.role, text: spoken(textOf(m)).slice(0, 800) }));
 
+  const priorTurns = () => [...history(), ...queue.current.map((q) => ({ role: "user", text: q.text }))];
+  const dropHeld = () => {
+    held.current?.drop();
+    held.current = null;
+  };
+
   /** La voix rapide répond tout de suite ; rend `true` si la demande demande à l'agent d'agir. */
-  const answer = async (text: string) => {
+  const answer = async (text: string, ready: Held | null) => {
     try {
-      const prior = queue.current.map((q) => ({ role: "user", text: q.text }));
-      return (await speakReply({ text, history: [...history(), ...prior] })).action;
+      if (ready) return (await ready.speak()).action;
+      return (await speakReply({ text, history: priorTurns() })).action;
     } catch {
       return true; // pas de voix rapide : on attendra le résultat de l'agent
     }
   };
 
   /** Un tour : le message part à l'agent et, en même temps, la voix rapide répond. */
-  const turn = async (text: string) => {
+  const turn = async (text: string, ready: Held | null) => {
     if (busy.current) {
       // L'agent travaille encore : la voix rapide répond quand même, et l'agent reçoit la suite dès qu'il a fini.
       const item = { text, action: true };
       queue.current.push(item);
       setNote(`Je lui transmets ensuite : « ${text.slice(0, 60)} »`);
-      item.action = await answer(text);
+      item.action = await answer(text, ready);
       return;
     }
     busy.current = true;
     started.current = false;
     say(text);
-    action.current = await answer(text);
+    action.current = await answer(text, ready);
   };
 
   /** Envoie ce qui a été dit (fin de tour détectée, ou bouton Envoyer). */
@@ -492,7 +536,11 @@ export function VoiceMode({ onClose, report, onReportRead }: {
     setLive("");
     committing.current = false;
     setSending(false);
-    if (text && alive.current) await turn(text);
+    // La réponse préparée ne vaut que pour exactement ce qui a été dit.
+    const ready = held.current?.text === text ? held.current : null;
+    if (ready) held.current = null;
+    else dropHeld();
+    if (text && alive.current) await turn(text, ready);
   };
 
   mic.onTick.current = ({ rms, speech, silence }) => {
@@ -509,13 +557,23 @@ export function VoiceMode({ onClose, report, onReportRead }: {
       else if (loud.current >= BARGE_LOWER) lower(true);
       return;
     }
+    // La personne reprend : la réponse préparée n'a plus d'objet.
+    if (held.current && speech >= RESUMED) dropHeld();
     // Petite pause : ce morceau part à la transcription, la personne peut continuer.
-    if (speech >= 250 && silence >= PAUSE) {
-      void mic.cut().then(({ blob }) => blob && t.submit(blob));
+    if (speech >= 250 && silence >= TURN_PAUSE) {
+      cutting.current++;
+      void mic.cut().then(({ blob }) => {
+        cutting.current--;
+        if (blob) t.submit(blob);
+      });
       return;
     }
-    // Fin du tour : silence assez long pour ce qui a été dit, et plus rien en train d'être dit.
     const said = heard.current.join(" ");
+    // Tout est transcrit et la personne se tait : on prépare la réponse, sans la faire entendre.
+    if (said && !held.current && !committing.current && speech < RESUMED && silence >= TURN_PAUSE && !cutting.current && !t.inFlight()) {
+      held.current = hold(said.trim(), priorTurns());
+    }
+    // Fin du tour : silence assez long pour ce qui a été dit, et plus rien en train d'être dit.
     if (!committing.current && speech < 150 && (said || t.pending) && silence >= endOfTurnDelay(said)) void commit();
   };
 
@@ -533,6 +591,7 @@ export function VoiceMode({ onClose, report, onReportRead }: {
     micReady.current = openMic();
     return () => {
       alive.current = false;
+      dropHeld();
       cancel();
       mic.close();
     };
