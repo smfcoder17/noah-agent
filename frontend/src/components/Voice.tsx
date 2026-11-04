@@ -480,7 +480,7 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
   report?: { id: string; text: string } | null;
   onReportRead?: () => void;
 }) {
-  const { agentId, agentName, say } = useContext(AgentContext);
+  const { agentId, agentName, agentColor, say } = useContext(AgentContext);
   const running = useAuiState((s) => s.thread.isRunning);
   const messages = useAuiState((s) => s.thread.messages);
   const mic = useMic();
@@ -799,10 +799,10 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
   useEffect(() => {
     const leave = () => hangUp.current();
     window.addEventListener("noah:raccrocher", leave);
-    nativeCall(true, agentName);
+    nativeCall(true, agentName, agentColor);
     return () => {
       window.removeEventListener("noah:raccrocher", leave);
-      nativeCall(false, agentName);
+      nativeCall(false, agentName, agentColor);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

@@ -13,6 +13,8 @@ import android.os.IBinder;
 import android.os.PowerManager;
 
 import androidx.core.app.NotificationCompat;
+import androidx.core.app.Person;
+import androidx.core.graphics.drawable.IconCompat;
 import androidx.core.content.ContextCompat;
 
 /**
@@ -28,8 +30,8 @@ public class CallSession extends Service {
 
     private PowerManager.WakeLock awake;
 
-    static void start(Context context, String agent) {
-        ContextCompat.startForegroundService(context, new Intent(context, CallSession.class).putExtra("agent", agent));
+    static void start(Context context, String agent, String color) {
+        ContextCompat.startForegroundService(context, new Intent(context, CallSession.class).putExtra("agent", agent).putExtra("couleur", color));
     }
 
     static void stop(Context context) {
@@ -45,13 +47,20 @@ public class CallSession extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         String agent = intent == null ? null : intent.getStringExtra("agent");
         NotificationManager manager = getSystemService(NotificationManager.class);
-        manager.createNotificationChannel(new NotificationChannel(CHANNEL, "Appel en cours", NotificationManager.IMPORTANCE_LOW));
+        NotificationChannel channel = new NotificationChannel(CHANNEL, "Appel en cours", NotificationManager.IMPORTANCE_DEFAULT);
+        channel.setSound(null, null);
+        manager.createNotificationChannel(channel);
         PendingIntent back = PendingIntent.getActivity(this, NOTIFICATION,
             new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP), PendingIntent.FLAG_IMMUTABLE);
+        // Présentée comme un appel : en tête du volet, sans son, Raccrocher visible sans rien déplier.
+        String name = agent == null ? "ton agent" : agent;
+        int color = NoahFace.colorOf(intent == null ? null : intent.getStringExtra("couleur"), name);
+        Person who = new Person.Builder().setName(name).setIcon(IconCompat.createWithBitmap(NoahFace.bitmap(this, color, 192))).build();
         Notification note = new NotificationCompat.Builder(this, CHANNEL)
-            .setSmallIcon(R.drawable.ic_stat_noah).setContentTitle("En appel avec " + (agent == null ? "ton agent" : agent))
+            .setSmallIcon(R.drawable.ic_stat_noah).setContentTitle("En appel avec " + name)
             .setContentText("Le micro reste ouvert.").setOngoing(true).setCategory(NotificationCompat.CATEGORY_CALL)
-            .setContentIntent(back).addAction(0, "Raccrocher", hangUp(this)).build();
+            .setGroup("appel-en-cours").setContentIntent(back)
+            .setStyle(NotificationCompat.CallStyle.forOngoingCall(who, hangUp(this))).build();
         try {
             if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIFICATION, note, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE);
             else startForeground(NOTIFICATION, note);

@@ -45,13 +45,17 @@ public class MainActivity extends BridgeActivity {
     /** L'appel se poursuit hors de l'application, dans une petite fenêtre au-dessus des autres. */
     void setInCall(boolean on) {
         inCall = on;
-        if (Build.VERSION.SDK_INT >= 31) runOnUiThread(() -> setPictureInPictureParams(floating(on)));
+        runOnUiThread(() -> {
+            if (Build.VERSION.SDK_INT >= 31) setPictureInPictureParams(floating(on));
+            // Raccroché depuis la fenêtre flottante : elle n'a plus de raison d'être.
+            if (!on && Build.VERSION.SDK_INT >= 26 && isInPictureInPictureMode()) moveTaskToBack(true);
+        });
     }
 
     private PictureInPictureParams floating(boolean on) {
         PictureInPictureParams.Builder params = new PictureInPictureParams.Builder().setAspectRatio(new Rational(3, 4));
         PendingIntent hang = CallSession.hangUp(this);
-        params.setActions(Collections.singletonList(new RemoteAction(Icon.createWithResource(this, R.drawable.ic_stat_noah), "Raccrocher", "Raccrocher", hang)));
+        params.setActions(Collections.singletonList(new RemoteAction(Icon.createWithResource("android", android.R.drawable.ic_menu_close_clear_cancel), "Raccrocher", "Raccrocher", hang)));
         if (Build.VERSION.SDK_INT >= 31) params.setAutoEnterEnabled(on);
         return params.build();
     }

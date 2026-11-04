@@ -19,7 +19,7 @@ public class NoahShellPlugin extends Plugin {
     @PluginMethod
     public void callState(PluginCall call) {
         boolean active = Boolean.TRUE.equals(call.getBoolean("active"));
-        if (active) CallSession.start(getContext(), call.getString("agent"));
+        if (active) CallSession.start(getContext(), call.getString("agent"), call.getString("color"));
         else CallSession.stop(getContext());
         if (getActivity() instanceof MainActivity) ((MainActivity) getActivity()).setInCall(active);
         call.resolve();

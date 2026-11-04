@@ -1,6 +1,7 @@
 package agent.noah.mobile;
 
 import android.content.Context;
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.LinearGradient;
@@ -48,6 +49,15 @@ class NoahFace extends View {
         return Color.parseColor(colors[(int) (h % colors.length)]);
     }
 
+    /** Le même visage en image, pour une notification. */
+    static Bitmap bitmap(Context context, int color, int size) {
+        NoahFace face = new NoahFace(context, color);
+        face.layout(0, 0, size, size);
+        Bitmap image = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+        face.draw(new Canvas(image));
+        return image;
+    }
+
     private static int shade(int color, float amount) {
         float keep = amount >= 0 ? 1 - amount : 1 + amount;
         int toward = amount >= 0 ? 255 : 0;
@@ -73,6 +83,7 @@ class NoahFace extends View {
         paint.setShader(null);
         paint.setColor(Color.argb(30, 0, 0, 0));
         circle(c, 32, 57, 20, 2.6f);
+        paint.setColor(Color.BLACK); // un dégradé garde l'opacité de la couleur courante : celle de l'ombre rendait le corps transparent
         paint.setShader(new RadialGradient(22, 30, 40, shade(color, 0.35f), shade(color, -0.18f), Shader.TileMode.CLAMP));
         circle(c, 8.6f, 41.5f, 6.4f, 6.4f);
         circle(c, 56, 35.5f, 6, 6);

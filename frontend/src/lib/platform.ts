@@ -18,8 +18,8 @@ export function appShell(): Shell | null {
 }
 
 /** Un appel commence ou finit : l'app Android garde le micro hors de l'application et propose sa fenêtre flottante. */
-export function nativeCall(active: boolean, agent: string) {
-  void window.Capacitor?.Plugins?.NoahShell?.callState?.({ active, agent })?.catch(() => {});
+export function nativeCall(active: boolean, agent: string, color: string) {
+  void window.Capacitor?.Plugins?.NoahShell?.callState?.({ active, agent, color })?.catch(() => {});
 }
 
 const parts = (v: string) => (v.split("-")[0].match(/\d+/g) ?? ["0"]).slice(0, 3).map(Number);

@@ -23,6 +23,9 @@ import { canFrame, useViewer } from "./Viewer";
 import { DictateButton, useDictation, VoiceMode, VoiceModeButton } from "./Voice";
 import { NoahWidget } from "./Widgets";
 
+// Sur téléphone, le focus ouvrirait le clavier à chaque conversation, et par-dessus un appel.
+const FINE_POINTER = window.matchMedia("(pointer: fine)").matches;
+
 export { AgentContext };
 
 // « MEDIA:/chemin.png » ou un chemin d'image de la machine devient une image markdown servie par Noah Agent.
@@ -345,7 +348,7 @@ function Composer({ onVoiceMode, inCall }: { onVoiceMode: () => void; inCall: bo
         <ComposerPrimitive.Input
           data-composer-input
           rows={1}
-          autoFocus
+          autoFocus={FINE_POINTER}
           placeholder={dictating ? "Parle, le texte arrive ici…" : "Écris à ton agent…"}
           className="max-h-48 min-h-9 flex-1 resize-none bg-transparent px-1 py-2 text-[15px] outline-none placeholder:text-muted-foreground"
           onKeyDown={(e) => {
