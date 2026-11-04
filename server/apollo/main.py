@@ -1842,13 +1842,19 @@ async def agent_files(agent_id: str, user: int = Depends(auth.current_user)):
     return await hermes.list_files(agent_id)
 
 
+FILE_GONE = '<!doctype html><meta charset="utf-8"><body style="font:15px system-ui;color:#666;padding:1em">Fichier indisponible : il a peut-être été déplacé ou supprimé.'
+
+
 @app.get("/api/agents/{agent_id}/files/raw/{path:path}")
-async def agent_file(agent_id: str, path: str, download: bool = False, user: int = Depends(auth.current_user)):
+async def agent_file(agent_id: str, path: str, request: Request, download: bool = False, user: int = Depends(auth.current_user)):
     """Sert un fichier de l'espace de travail. Les pages HTML (aperçu d'app) tournent dans un bac à sable :
     origine opaque, donc aucun accès à la session Noah Agent ni à son API."""
     _usable(user, agent_id)
     r = await hermes.read_file(agent_id, path)
     if r.status_code != 200:
+        # Dans un aperçu, la personne lit cette réponse : une phrase, pas du JSON.
+        if request.headers.get("sec-fetch-dest") == "iframe":
+            return Response(FILE_GONE, r.status_code, media_type="text/html; charset=utf-8")
         raise HTTPException(r.status_code, "Fichier indisponible")
     name = path.rsplit("/", 1)[-1]
     ctype = mimetypes.guess_type(name)[0] or "application/octet-stream"
