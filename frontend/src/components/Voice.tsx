@@ -5,8 +5,8 @@ import { useAui, useAuiState } from "@assistant-ui/react";
 import { AudioLines, Loader2, Mic } from "lucide-react";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { AgentContext } from "@/lib/agentContext";
-import { request, send } from "@/lib/api";
-import { nativeCall } from "@/lib/platform";
+import { ApiError, request, send } from "@/lib/api";
+import { appShell, nativeCall } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import { CallStage } from "./CallStage";
 import { Button } from "./ui";
@@ -15,6 +15,11 @@ const TICK = 50; // relevé du niveau, en ms
 const VOICE = 0.035; // niveau (RMS) au-dessus duquel on considère que quelqu'un parle
 const PAUSE = 700; // petite pause (virgule, respiration) : le morceau part à la transcription
 const TURN_PAUSE = 500; // en mode vocal : le morceau part, et la réponse se prépare en silence
+// Un appel dure des heures : aucun morceau ne doit grandir sans fin, le serveur en refuse au-delà de 20 Mo.
+const QUIET_RENEW = 30_000; // morceau sans voix depuis ce temps : on le jette et on en ouvre un autre
+const SEGMENT_MAX = 60_000; // parole ou bruit sans aucune pause : le morceau part quand même
+const NETWORK_TRIES = 9; // transcription, réseau coupé : le son attend environ une minute avant d'être perdu
+const LOST_WAIT = 600_000; // comme useAgentChat : au-delà, la réponse perdue avec le serveur n'arrivera plus
 const RESUMED = 150; // parole qui annule la réponse préparée : la personne n'avait pas fini
 // Couper la parole, en deux temps : un « mm-hm » ne dure pas assez pour arrêter l'agent, mais on baisse sa voix tout de suite.
 const BARGE_LEVEL = 0.05; // niveau de voix par-dessus l'agent
@@ -23,7 +28,7 @@ const BARGE_STOP = 600; // parole continue qui l'arrête : plus long qu'un mot b
 const BARGE_GAP = 150; // creux toléré entre deux syllabes ; au-delà, c'était un mot bref : sa voix remonte
 const LOWERED = 0.1; // volume pendant le doute
 
-type Tick = { rms: number; speech: number; silence: number };
+type Tick = { rms: number; speech: number; silence: number; age: number };
 
 /**
  * Micro ouvert en continu. `speech` : temps de voix dans le morceau en cours ; `silence` : silence continu jusqu'ici.
@@ -31,9 +36,11 @@ type Tick = { rms: number; speech: number; silence: number };
  */
 function useMic() {
   const mic = useRef<{ stream: MediaStream; ctx: AudioContext; timer: number; rec: { r: MediaRecorder; chunks: Blob[] } | null } | null>(null);
-  const seg = useRef({ speech: 0, silence: 0 });
+  const seg = useRef({ speech: 0, silence: 0, age: 0 });
   const level = useRef(0);
   const onTick = useRef<((t: Tick) => void) | null>(null);
+  const onLost = useRef<(() => void) | null>(null);
+  const opening = useRef(0);
 
   const recorder = (stream: MediaStream) => {
     const mime = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((m) => MediaRecorder.isTypeSupported(m));
@@ -46,25 +53,40 @@ function useMic() {
 
   const open = useCallback(async () => {
     if (mic.current) return;
+    const asked = ++opening.current;
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    // Raccroché, ou rouvert entre-temps, pendant que le navigateur donnait le micro : celui-ci ne sert plus.
+    if (asked !== opening.current) {
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
     const ctx = new AudioContext();
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 1024;
     ctx.createMediaStreamSource(stream).connect(analyser);
     const buf = new Uint8Array(analyser.fftSize);
-    seg.current = { speech: 0, silence: 0 };
+    seg.current = { speech: 0, silence: 0, age: 0 };
+    // Une autre application a pris le micro, ou l'appareil a disparu : sans ça, l'appel resterait sourd sans le dire.
+    stream.getAudioTracks().forEach((t) => (t.onended = () => onLost.current?.()));
+    let last = performance.now();
     const timer = window.setInterval(() => {
+      // Le vrai temps écoulé : un onglet caché ne relève plus le niveau qu'une fois par seconde.
+      const now = performance.now();
+      const dt = Math.min(now - last, 1500);
+      last = now;
+      if (ctx.state === "suspended") void ctx.resume().catch(() => {});
       analyser.getByteTimeDomainData(buf);
       let sum = 0;
       for (const v of buf) sum += ((v - 128) / 128) ** 2;
       const rms = Math.sqrt(sum / buf.length);
       level.current = Math.min(1, rms * 8);
       const s = seg.current;
+      s.age += dt;
       if (rms > VOICE) {
-        s.speech += TICK;
+        s.speech += dt;
         s.silence = 0;
-      } else s.silence += TICK;
-      onTick.current?.({ rms, speech: s.speech, silence: s.silence });
+      } else s.silence += dt;
+      onTick.current?.({ rms, speech: s.speech, silence: s.silence, age: s.age });
     }, TICK);
     mic.current = { stream, ctx, timer, rec: recorder(stream) };
   }, []);
@@ -75,7 +97,7 @@ function useMic() {
     const old = m?.rec;
     if (!m || !old) return { blob: null, speech: 0 };
     const speech = seg.current.speech;
-    seg.current = { speech: 0, silence: seg.current.silence };
+    seg.current = { speech: 0, silence: seg.current.silence, age: 0 };
     m.rec = next ? recorder(m.stream) : null;
     const done = new Promise<void>((resolve) => (old.r.onstop = () => resolve()));
     if (old.r.state !== "inactive") old.r.stop();
@@ -84,12 +106,16 @@ function useMic() {
   }, []);
 
   const close = useCallback(() => {
+    opening.current++;
     const m = mic.current;
     if (!m) return;
     mic.current = null;
     clearInterval(m.timer);
     if (m.rec && m.rec.r.state !== "inactive") m.rec.r.stop();
-    m.stream.getTracks().forEach((t) => t.stop());
+    m.stream.getTracks().forEach((t) => {
+      t.onended = null;
+      t.stop();
+    });
     m.ctx.close();
     level.current = 0;
   }, []);
@@ -100,7 +126,7 @@ function useMic() {
   }, []);
 
   useEffect(() => close, [close]);
-  return { open, cut, close, level, onTick, seg, mute };
+  return { open, cut, close, level, onTick, onLost, seg, mute };
 }
 
 async function transcribe(blob: Blob, agentId: string): Promise<string> {
@@ -126,18 +152,21 @@ function useTranscripts(agentId: string, onText: (text: string) => void) {
       const s = state.current;
       const i = s.issued++;
       setPending((n) => n + 1);
-      // Deux transcriptions à la fois au plus (au-delà, le fournisseur répond 429), et trois essais par morceau :
-      // le serveur passe déjà aux modèles de secours, ici on couvre une coupure réseau.
+      // Deux transcriptions à la fois au plus (au-delà, le fournisseur répond 429). Le serveur passe déjà aux modèles de
+      // secours : un refus de sa part a droit à trois essais, une coupure réseau attend le retour du réseau.
       const run = async () => {
         while (s.running >= 2) await new Promise((r) => setTimeout(r, 60));
         s.running++;
         try {
           for (let attempt = 0; ; attempt++) {
             try {
-              return await transcribe(blob, agentId);
+              const text = await transcribe(blob, agentId);
+              setError("");
+              return text;
             } catch (e) {
-              if (attempt >= 2) throw e;
-              await new Promise((r) => setTimeout(r, 700 * (attempt + 1)));
+              if (attempt >= (e instanceof ApiError ? 2 : NETWORK_TRIES - 1)) throw e;
+              if (attempt >= 2) setError("Réseau coupé : ce que tu as dit partira dès son retour.");
+              await new Promise((r) => setTimeout(r, Math.min(700 * (attempt + 1), 10_000)));
             }
           }
         } finally {
@@ -170,6 +199,11 @@ function useTranscripts(agentId: string, onText: (text: string) => void) {
     while (state.current.inflight.size) await Promise.all([...state.current.inflight]);
   }, []);
   return { submit, settle, inFlight, pending, error, setError };
+}
+
+/** La réponse s'est arrêtée sur une coupure : voir useAgentChat, qui recharge la conversation au retour du serveur. */
+function isCutOff(m: { content: readonly { type: string; toolName?: string; args?: unknown }[] } | undefined) {
+  return !!m?.content.some((p) => p.type === "tool-call" && p.toolName === "error" && String((p.args as { message?: unknown })?.message).startsWith("Connexion au serveur perdue"));
 }
 
 /** Ce qu'on lit à voix haute : le texte de la réponse, sans widgets, code ni mise en forme. */
@@ -472,6 +506,8 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
   const voiceHeard = useRef(0);
   const held = useRef<Held | null>(null); // réponse préparée, pas encore confirmée
   const cutting = useRef(0); // morceaux coupés, pas encore partis à la transcription
+  const cutOff = useRef<number | null>(null); // connexion perdue pendant un tour : l'agent continue, le résultat viendra au retour
+  const lastSaid = useRef(""); // le tour parti à l'agent, à renvoyer si le serveur ne l'a jamais reçu
 
   const t = useTranscripts(agentId, (text) => {
     heard.current.push(text);
@@ -527,6 +563,7 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
     }
     busy.current = true;
     started.current = false;
+    lastSaid.current = text;
     say(text);
     answering.current = answer(text, ready);
     action.current = await answering.current;
@@ -554,7 +591,13 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
     if (text && alive.current) await turn(text, ready);
   };
 
-  mic.onTick.current = ({ rms, speech, silence }) => {
+  mic.onLost.current = () => {
+    mic.close();
+    setMuted(false);
+    micReady.current = openMic();
+  };
+
+  mic.onTick.current = ({ rms, speech, silence, age }) => {
     if (playing.current) {
       // Interruption : sa voix baisse dès que la personne parle, et il se tait si elle continue. Un mot bref : elle remonte.
       if (rms > BARGE_LEVEL) {
@@ -570,8 +613,13 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
     }
     // La personne reprend : la réponse préparée n'a plus d'objet.
     if (held.current && speech >= RESUMED) dropHeld();
+    // Un long silence ne contient rien : ni à garder en mémoire, ni à envoyer entier avec la prochaine phrase.
+    if (speech < 250 && silence >= TURN_PAUSE && age >= QUIET_RENEW) {
+      void mic.cut();
+      return;
+    }
     // Petite pause : ce morceau part à la transcription, la personne peut continuer.
-    if (speech >= 250 && silence >= TURN_PAUSE) {
+    if (speech >= 250 && (silence >= TURN_PAUSE || age >= SEGMENT_MAX)) {
       cutting.current++;
       void mic.cut().then(({ blob }) => {
         cutting.current--;
@@ -646,18 +694,11 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
   }, [askedId]);
 
   // L'agent a fini : on lit le résumé de ce qu'il a fait (s'il a agi), puis la demande suivante part.
-  useEffect(() => {
-    if (!busy.current) return;
-    if (running) {
-      started.current = true;
-      return;
-    }
-    if (!started.current) return;
+  const finished = (result: string) => {
     busy.current = false;
     started.current = false;
-    const last = messages[messages.length - 1];
-    const result = last?.role === "assistant" ? textOf(last) : "";
-    (async () => {
+    cutOff.current = null;
+    void (async () => {
       // Un agent rapide finit pendant l'accusé de réception : son résultat attend la fin de la phrase, et le tri de ce tour-ci.
       if (answering.current) action.current = await answering.current;
       answering.current = null;
@@ -679,11 +720,78 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
         busy.current = true;
         started.current = false;
         action.current = waiting.some((q) => q.action);
-        say(waiting.map((q) => q.text).join("\n"));
+        lastSaid.current = waiting.map((q) => q.text).join("\n");
+        say(lastSaid.current);
       }
     })();
+  };
+
+  useEffect(() => {
+    if (!busy.current) return;
+    if (running) {
+      started.current = true;
+      return;
+    }
+    if (!started.current) return;
+    const last = messages[messages.length - 1];
+    // Connexion perdue : le tour reste ouvert, ce qui est dit d'ici là attend, et le résultat sera lu à son arrivée.
+    if (isCutOff(last)) {
+      cutOff.current = Date.now();
+      setNote(`Connexion perdue : ${agentName} continue de son côté, je te lis la suite dès son retour.`);
+      return;
+    }
+    finished(last?.role === "assistant" ? textOf(last) : "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [running]);
+
+  useEffect(() => {
+    if (cutOff.current === null) return;
+    const last = messages[messages.length - 1];
+    if (last?.role !== "assistant" || isCutOff(last)) return;
+    // Le serveur revenu n'a pas ce tour : la coupure l'a perdu avant son arrivée, il repart. Sinon, c'est sa réponse.
+    const before = messages[messages.length - 2];
+    if (before?.role === "user" && textOf(before).includes(lastSaid.current)) finished(textOf(last));
+    else {
+      cutOff.current = null;
+      started.current = false;
+      setNote("");
+      say(lastSaid.current);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages]);
+
+  // Rien ne revient jamais (serveur perdu) : l'appel ne reste pas bloqué sur ce tour.
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (cutOff.current !== null && Date.now() - cutOff.current > LOST_WAIT) {
+        setNote("");
+        finished("");
+      }
+    }, 30_000);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Dans un navigateur, l'écran qui s'éteint coupe le micro. L'application Android, elle, tient l'appel écran éteint.
+  useEffect(() => {
+    if (appShell()?.kind === "android" || !("wakeLock" in navigator)) return;
+    let lock: { release: () => Promise<void> } | null = null;
+    let over = false;
+    const take = () => {
+      if (document.visibilityState !== "visible") return;
+      void navigator.wakeLock.request("screen").then((l) => {
+        if (over) void l.release();
+        else lock = l;
+      }, () => {});
+    };
+    take();
+    document.addEventListener("visibilitychange", take);
+    return () => {
+      over = true;
+      document.removeEventListener("visibilitychange", take);
+      void lock?.release();
+    };
+  }, []);
 
   // Android garde l'appel vivant hors de l'application ; sa notification et sa fenêtre flottante peuvent raccrocher.
   const hangUp = useRef(onClose);
@@ -703,9 +811,9 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
   const [seconds, setSeconds] = useState(0);
   useEffect(() => {
     void send("/api/voice/prepare", { agent_id: agentId }).catch(() => {});
-    const timer = setInterval(() => setSeconds((n) => n + 1), 1000);
+    const begun = Date.now();
+    const timer = setInterval(() => setSeconds(Math.floor((Date.now() - begun) / 1000)), 1000);
     return () => clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentId]);
 
   const phase = error ? "error" : speaking ? "speaking" : sending ? "sending" : running || busy.current ? "waiting" : "listening";
@@ -718,7 +826,7 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
   };
   const hint = live
     ? `« ${live.slice(-90)} »`
-    : note ||
+    : note || t.error ||
       (phase === "speaking" ? "Parle pour l'interrompre." : phase === "error" ? "Vérifie l'accès au micro." : "Parle naturellement, j'envoie quand tu as fini.");
 
   return (

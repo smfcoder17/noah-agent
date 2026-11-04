@@ -110,7 +110,8 @@ export function CallStage(props: {
   const artefacts = useMemo(() => artefactsOf(during, link), [during, link]);
   const latest = artefacts[artefacts.length - 1];
   const speaking = phase === "speaking";
-  const time = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  const minutes = Math.floor(seconds / 60);
+  const time = `${minutes >= 60 ? `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, "0")}` : minutes}:${String(seconds % 60).padStart(2, "0")}`;
 
   // L'accord se donne sur sa carte, dans la conversation : la vue d'appel s'écarte pour la montrer.
   useEffect(() => {

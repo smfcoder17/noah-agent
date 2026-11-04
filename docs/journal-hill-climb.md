@@ -409,3 +409,15 @@ Demande de la personne : un appel où l'on voit le logo et le travail de l'agent
 - **Fait :** la conversation de l'appel reste ouverte quand on navigue, l'appel se réduit en barre ou s'agrandit en vue d'appel (visage, ce que fait l'agent, images et fichiers cliquables). On peut écrire pendant l'appel, couper le micro, voir son écran. Une carte d'accord réduit la vue, pour qu'on la voie. Écran de sonnerie Android : le vrai visage, à la couleur de l'agent. Android : service de premier plan « micro », fenêtre flottante, Raccrocher depuis la notification ou la fenêtre.
 - **Tenu :** `tests/real/appel_en_cours.mjs`, vrai navigateur, ordinateur et téléphone, sur le VPS avec le faux modèle. Faux micro : ce test ne prouve pas la voix.
 - **À prouver :** Android sur émulateur, micro réel écran éteint, un appel long, une vraie image produite par un vrai agent.
+
+### Un appel qui dure des heures
+
+Écrit en lisant le code, puis mesuré : le code d'avant échoue à 10 contrôles de `tests/real/appel_long.mjs`, le nouveau les passe tous.
+
+- **Long silence :** le morceau de micro n'était coupé qu'après de la parole. 16 Ko/s mesurés : la limite de 20 Mo du serveur tombait au bout de 21 min, et la phrase suivante était refusée sans le dire. Avant cette limite, tout ce silence partait à la transcription avec elle. Le morceau silencieux est maintenant jeté toutes les 30 s (100 Ko au lieu de 1 065 Ko après une minute).
+- **Parole sans pause :** un morceau part au bout d'une minute, même sans pause.
+- **Réseau coupé :** 2 s d'attente seulement, puis ce qui venait d'être dit était perdu. Le son attend maintenant environ une minute, et l'écran le dit.
+- **Coupure pendant la réponse :** le résultat revenait à l'écran sans être lu. Il est lu au retour. Si le message n'a jamais atteint le serveur, il repart, et l'ancienne réponse n'est pas relue.
+- **Micro repris par une autre application :** l'appel restait sourd sans le dire. Il en rouvre un.
+- **Écran :** il reste allumé dans un navigateur, où l'éteindre coupe le micro. Le micro demandé puis abandonné pendant qu'on raccroche est refermé.
+- **Limites :** réseau et micro perdus sont provoqués dans un vrai navigateur, sur le VPS avec le faux modèle et une transcription remplacée. Reste à prouver : vrai passage du Wi-Fi à la 4G, écran verrouillé sur téléphone, appel réellement long. Si la première phrase d'une nouvelle conversation tombe sur une coupure, l'appel ne la renvoie pas : il attend 10 min puis se libère.
