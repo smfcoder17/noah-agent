@@ -103,7 +103,7 @@ Chacune est un tour de hill climbing, jugé sur le même banc.
 | H1 | Fin de tour par le sens au lieu du seul silence (par exemple Smart Turn, ouvert) | Après T2, la confirmation attend 2,3 s : un jugement du sens permettrait de confirmer plus tôt | Seulement si la voix devient plus rapide (voir T2 bis) |
 | H2 | Transcription en flux, mot à mot | Plus d'envoi par morceaux après 700 ms de pause, et une fin de tour mieux informée | Quelques centaines de ms |
 | H3 | Transport audio continu sur 443 (WebSocket), puis WebRTC si le mobile le demande | Moins de mise en tampon qu'un élément `Audio` ; interruption immédiate | Interruption sous 200 ms |
-| H4 | Couche voix interchangeable, avec en option une session hébergée (OpenAI Realtime, Gemini Live, Grok Voice) | C'est la seule façon de comparer le speech-to-speech à notre cascade | Mesuré sur le banc |
+| H4 | Couche voix interchangeable, avec en option une session hébergée (OpenAI Realtime, Gemini Live, Grok Voice) | C'est la seule façon de comparer le speech-to-speech à notre cascade | Requête-réponse par tour mesurée le 4 novembre : ANNULÉ, sans gain sur les tâches (voir le journal). Session continue à essayer, clé OpenAI requise |
 | H5 | Annulation d'écho et distinction d'un « mm-hm » d'une vraie interruption | Distinction par la durée faite (T1) ; l'écho reste à mesurer sur un vrai haut-parleur | Moins d'arrêts à tort |
 
 **LiveKit ou Pipecat ?** LiveKit gère la salle, le WebRTC et le SIP, a un SDK Android, et est sous licence Apache-2.0, mais il ajoute un serveur et demande des ports UDP. Pipecat est une chaîne Python légère, sous licence BSD-2, sans transport propre. On commence par une chaîne légère sur le port 443, conforme à G7.1 et G14.4. LiveKit doit gagner sa place au banc en 4G.

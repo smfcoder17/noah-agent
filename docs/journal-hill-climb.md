@@ -403,3 +403,61 @@ VPS Hostinger de la personne, qui héberge d'autres applications. Noah tourne da
 - *Pas du vrai full duplex :* une requête-réponse par tour, le micro reste ouvert et l'interruption vit dans le navigateur. La fin de tour reste décidée chez nous, et le transcripteur reste nécessaire pour elle, pour l'écran et pour le repli.
 
 **Base.** La base citée de 19 sur 24 (79,2 %, sur tout le lot et non sur le travail) mesurait la branche `hc/voix-resultats`, avec son tour 3 qui n'est pas sur `main`, et sans le pré-contexte ni les changements d'appel. Elle ne vaut donc plus : je la rejoue en cascade sur la même image, voie désactivée, avant de comparer.
+
+**Décision : ANNULÉ.** La voie reste désactivée. Le code reste sur la branche `hc/voix-directe` : il est isolé, désactivé par défaut (`media_direct` vide), et les deux bases ont tourné dessus avec la voie coupée. Lot réservé non consulté, car le lot de travail ne monte pas : **0 consultation de plus, le total reste à 2.**
+
+**Ce qui est branché.** `POST /api/voice/direct` : le navigateur envoie le son du tour en WAV dès 500 ms de pause, et le modèle répond en pcm16 dans le même `AudioStream`. Il garde le pré-contexte, le fil, le budget et le compteur. Son seul outil, `confier_a_l_agent`, rend au navigateur une demande envoyée par `say` vers `/api/chat`, donc avec accords, Rita et rappels. Le résultat et l'interruption passent par le code existant. Réglage : `POST /api/media {kind: "direct", model}`, sans écran pour l'instant. Refusé si un serveur de voix est choisi, pour que le son ne parte pas à l'insu de la personne. Si une panne survient avant le premier son, le navigateur repasse en cascade pour le reste de l'appel : test simulé (`tests/voice/direct_test.py`) et filtre réel avec un modèle inexistant (400, puis réponse de la cascade dans le même appel).
+
+**Résultats.** 24 scénarios en version 3, mêmes juges, gain apparié par cas contre la moyenne des deux bases, intervalle à 95 % groupé par cas. Une série par état de voix directe.
+
+| État | Tout (24) | Travail (20) | Garde (4) | Gain sur tout, intervalle | Gain travail, intervalle | OpenRouter, série |
+|---|---|---|---|---|---|---|
+| **Cascade, base 1** | 17 (70,8 %) | 15 | 2 | | | 0,074 $ |
+| **Cascade, base 2** | 20 (83,3 %) | 18 | 2 | | | 0,072 $ |
+| `gpt-audio-mini`, demande reformulée | 16 (66,7 %) | 13 | 3 | -10,4 [-29,2 ; +8,3] | -17,5 [-37,5 ; +2,5] | non isolé, environ 0,06 $ |
+| `gpt-audio-mini`, mots répétés | 13 (54,2 %) | 11 | 2 | **-22,9 [-41,7 ; -4,2]** | -27,5 [-50 ; -5] | 0,057 $ |
+| `openai/gpt-audio`, mots répétés | 17 (70,8 %) | 15 | 2 | **-6,2 [-20,8 ; +6,2]** | -7,5 [-25 ; +7,5] | 0,215 $ |
+
+**Règle : borne basse au-dessus de zéro et gain de 5 points. Aucun état ne l'atteint.** Le meilleur, `gpt-audio`, égale la moins bonne base et n'atteint pas la meilleure. Les deux bases, sur le même code, diffèrent de 3 cas sur 24 : le bruit d'une série à l'autre est de l'ordre de ce qu'on cherche à mesurer.
+
+La base citée de 19 sur 24 n'est plus la bonne : elle mesurait `hc/voix-resultats` avec son tour 3. Le code de `main` fait 17 et 20 sur 24, soit 77,1 % en moyenne. **Sur ces deux séries, la cible de 71 % est atteinte sur le lot du dépôt, mais pas sur 30 scénarios : le lot réservé n'a pas de nouvelle mesure, et G10.5 ne change pas.**
+
+**Pourquoi `gpt-audio-mini` recule, lu dans les échecs.**
+
+- Il promet sans appeler l'outil : « je demande à Rita » en T10, T12 et T14, « je crée le fichier » en T09. Rien ne part à l'agent, et la phrase est fausse. La deuxième question de T09 reçoit alors une réponse tirée de ce fil, sans note écrite.
+- Il résume ce qu'il transmet : avec la première consigne, T10 perd « Rita » et T13 et T14 perdent le rappel. Lui demander de répéter les mots règle ces trois cas au filtre, puis la série complète montre que ce n'est pas stable (T13 devient « écris le résultat dans un fichier », T15 « Lier la fiche »).
+
+**`gpt-audio` tranche beaucoup mieux, sans gagner.**
+
+- Tout ce qui demande d'agir part à l'agent, avec les bons mots, sauf G4. « 31 » est juste en T12 sur la série, mais le filtre de T12 avait rendu « 30 et 1 » : 1 sur 2. T01 à T06, G1 et G2 sont réglés sans l'agent. T20 passe, alors qu'en cascade l'accusé promet parfois d'allumer.
+- Ses échecs : T12 (le résultat de Rita n'est pas dit : trou déjà connu), T14 et T19 (le texte final de l'agent, lu ou résumé), T17, T18 et G3 (le droit de l'outil n'est pas pris en compte, le tour 3 n'étant pas sur `main`), G4 (« j'envoie un courriel à Marie », promesse fausse). Seul G4 lui revient en propre : T17, T18 et G3 échouent dans tous les états, et T12, T14 et T19 tiennent au résultat de l'agent.
+- Il appelle presque toujours l'outil sans un mot : la personne entend l'accusé fixe « D'accord, je m'en occupe », dans la voix de la synthèse. Sur une demande impossible (T20), cette phrase promet avant de se dédire.
+
+**Premier son réel,** de la fin de la parole à « playing », dans le vrai composant, 14 tours, 1 répétition, agents arrêtés.
+
+| Mesure | Cascade | `gpt-audio-mini` |
+|---|---|---|
+| Médiane | 2 781 ms | **2 303 ms** |
+| p95 | 4 354 ms | 2 704 ms |
+| Gain apparié | | **702 ms [190 ; 1 244]** |
+| De l'envoi au premier son, médiane | 1 595 ms | 1 734 ms |
+
+Le gain dépasse les 150 ms exigés, avec moins de queue. Il ne vient pas d'un modèle plus rapide : le modèle met plutôt plus de temps à répondre, mais la requête part dès la pause, sans attendre la transcription. **La médiane de 2 303 ms est le délai de fin de tour lui-même (2,3 s) : descendre plus bas demande une autre fin de tour, pas un autre modèle.** `gpt-audio` : 2 tours seulement (3 689 et 2 303 ms, contre 2 976 et 4 477), trop peu pour conclure ; je n'ai pas payé plus.
+
+**Interruption, `gpt-audio-mini`, sur la cascade :** arrêt franc 699 ms contre 693 ms, voix baissée 100 ms contre 90 ms, 0 raté sur 5 des deux côtés. Arrêts à tort sur un mot bref : 0 sur 6 des deux côtés. Coupures, pause de 1,5 s : 0 sur 9 des deux côtés, 0 sur 6 à 2 s. Le WAV de longueur inconnue ne change rien. Le critère de coupure compte ici le son entendu et les tours envoyés, or un tour gardé par le modèle n'est pas envoyé : il est un peu moins sévère en voix directe. **Non mesuré sur `gpt-audio`.**
+
+**Coût réel, solde OpenRouter avant et après.** Par appel : cascade 0,003 $, `gpt-audio-mini` 0,0024 $, `gpt-audio` 0,009 $, transcription de la fin de tour et synthèse des résultats comprises. Le compteur de Noah suit le solde (0,215 $ contre 0,215 $ sur `gpt-audio`). Une réponse coupée en route n'a pas de coût connu : le compteur la sous-estime. Cerveau et voix rapide Ollama : compte sans prix par jeton. Total du tour sur OpenRouter : **0,70 $** sur 1 $, dont une garde qui coupait la voie à 0,89 $ et qui n'a pas servi. Haiku pour les juges : environ 0,16 $ à part, sur le compte Anthropic.
+
+**Juges.** Haiku 5.5, Kimi K3, GLM 5.3, 3 passes. Accord entre juges : alpha de 0,24 et 0,31 sur les bases, de 0,43 à 0,59 sur la voix directe. Constance : Haiku 0,81 à 0,92, Kimi 0,51 à 0,87, GLM 0,32 à 0,65. Verdicts sans citation valide : au plus 10 sur 237. Inventions glissées dans la série `gpt-audio` : vues 24 sur 24 par les trois, citées 19, 23 et 17 fois. Les juges ne voient que le son transcrit : ils ne jugent ni la qualité de la voix, ni le changement de voix entre accusé et résultat.
+
+**Ce n'est pas du vrai full duplex.** C'est une requête-réponse par tour sur chat/completions. Le micro reste ouvert et l'interruption vit dans le navigateur, comme en cascade. Le modèle n'entend rien avant que le navigateur ne décide d'une pause, il n'entend pas la personne pendant qu'il parle, et le transcripteur reste nécessaire pour la fin de tour et le repli. OpenRouter ne liste que ces deux modèles audio, tous deux sur ce mode, sans session continue. **À essayer ensuite : OpenAI Realtime,** car son modèle vient de la même famille que `gpt-audio`, le meilleur ici, et il gère lui-même la fin de tour et l'interruption. Il demande une clé OpenAI directe (pas celle d'OpenRouter), un jeton éphémère délivré par le serveur et un transport WebRTC ou WebSocket (H3). Gemini Live (clé Google) et Grok Voice (clé xAI) restent des options. Ce sera un plus gros changement que celui-ci, et je n'ai vérifié aucun de ces services dans ce tour.
+
+**Ce que le tour apprend pour la cascade.** Partir dès la pause sans attendre la transcription donne l'essentiel du gain de premier son. `gpt-audio` entend parfois mieux les nombres que le transcripteur. Ces deux pistes sont distinctes de la voix directe et n'ont pas été essayées seules.
+
+**Non vérifié.**
+
+- Une seule série par état de voix directe ; trois états essayés sur le même lot de travail, sans correction pour comparaisons multiples. Les bases sont avant et après, pas intercalées avec chaque état (ordre : base 1, mini 1, mini 2, base 2, `gpt-audio`). Les agents gardent leur mémoire entre séries.
+- Mémoire libre au plus bas : 410 à 1 017 Mo selon la série.
+- Voix de synthèse, sans bruit, sans vrai micro, sans 4G ni VPS. Personne n'a écouté le son : ni sa qualité, ni le passage d'une voix à l'autre.
+- Dans la voie directe, **un tour que le modèle garde pour lui n'est pas écrit dans la conversation.** Il ne vit que dans le fil de l'appel, et l'agent ne l'apprend pas. À corriger avant toute activation. Le réglage n'a pas d'écran.
+- Le repli du navigateur est prouvé par un filtre réel et une lecture du code en CI, pas par un test de navigateur en CI. L'application mobile n'a pas été touchée.
