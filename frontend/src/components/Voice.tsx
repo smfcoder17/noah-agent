@@ -451,6 +451,7 @@ export function VoiceMode({ onClose, report, onReportRead }: {
   const busy = useRef(false); // un tour est en cours : on attend la fin du run de l'agent
   const started = useRef(false);
   const action = useRef(false);
+  const answering = useRef<Promise<boolean> | null>(null); // la voix rapide parle encore : son tri n'est connu qu'à la fin de sa phrase
   const queue = useRef<{ text: string; action: boolean }[]>([]);
   const heard = useRef<string[]>([]); // ce que la personne a dit depuis le dernier tour envoyé
   const playing = useRef(false);
@@ -518,7 +519,8 @@ export function VoiceMode({ onClose, report, onReportRead }: {
     busy.current = true;
     started.current = false;
     say(text);
-    action.current = await answer(text, ready);
+    answering.current = answer(text, ready);
+    action.current = await answering.current;
   };
 
   /** Envoie ce qui a été dit (fin de tour détectée, ou bouton Envoyer). */
@@ -647,6 +649,9 @@ export function VoiceMode({ onClose, report, onReportRead }: {
     const last = messages[messages.length - 1];
     const result = last?.role === "assistant" ? textOf(last) : "";
     (async () => {
+      // Un agent rapide finit pendant l'accusé de réception : son résultat attend la fin de la phrase, et le tri de ce tour-ci.
+      if (answering.current) action.current = await answering.current;
+      answering.current = null;
       if (action.current && result.trim() && alive.current) {
         // Réponse déjà courte : on la lit telle quelle, sans repasser par le modèle rapide.
         const short = spoken(result);
