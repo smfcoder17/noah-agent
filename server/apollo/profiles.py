@@ -88,6 +88,14 @@ def _transfer(c: sqlite3.Connection, agent_id: str, source: int, target: int) ->
 
 @router.delete("/api/profiles/{profile_id}")
 async def delete_profile(profile_id: int, agents: str | None = None, me: int = Depends(access.owner_only)):
+    access.closing.add(profile_id)
+    try:
+        return await _delete_profile(profile_id, agents, me)
+    finally:
+        access.closing.discard(profile_id)
+
+
+async def _delete_profile(profile_id: int, agents: str | None, me: int):
     """`agents` : « transferer » (ils passent au propriétaire, avec leurs conversations, et continuent de tourner) ou
     « supprimer » (machine, fichiers et conversations effacés). Obligatoire dès que le profil a un agent."""
     row = _profile(profile_id)

@@ -46,8 +46,13 @@ def owner_of(agent_id: str) -> int | None:
     return db.agent_owner(agent_id) or db.owner_id()
 
 
+closing: set[int] = set()  # profils en cours de suppression : plus aucun droit, avant même la première attente
+
+
 def right(user: int, agent_id: str) -> str | None:
     """Le droit de ce profil sur cet agent : « proprietaire », un droit partagé, ou None s'il ne le voit pas."""
+    if user in closing:
+        return None
     with db.connect() as c:
         if not c.execute("SELECT 1 FROM agents WHERE id = ?", (agent_id,)).fetchone():
             return None

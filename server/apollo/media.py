@@ -826,7 +826,7 @@ async def speak_stream(agent_id: str, texts, out: AudioStream) -> None:
     model = None
     sent = False
     said = 0
-    chars = 0
+    spoken: dict[str, int] = {}
     try:
         _check_budget(agent_id)
         # Serveur choisi : ni modèle de secours, ni repli vers OpenRouter, la voix ne sort pas à l'insu de la personne.
@@ -856,6 +856,7 @@ async def speak_stream(agent_id: str, texts, out: AudioStream) -> None:
                         if out.closed:
                             return True
                         q.put_nowait(data)
+                spoken[m] = spoken.get(m, 0) + len(text)  # au modèle qui a parlé, pas au premier de la liste
                 return True
             return False
 
@@ -872,12 +873,11 @@ async def speak_stream(agent_id: str, texts, out: AudioStream) -> None:
                 q.put_nowait(None)
 
         async def feed() -> None:
-            nonlocal said, chars
+            nonlocal said
             async for text in texts:
                 if out.closed:
                     break
                 said += 1
-                chars += len(text)
                 q: asyncio.Queue = asyncio.Queue()
                 _background(fetch(text, q))
                 parts.put_nowait(q)
@@ -899,8 +899,8 @@ async def speak_stream(agent_id: str, texts, out: AudioStream) -> None:
         if not sent and not out.closed:
             print(f"[voix] réponse sans aucun son (modèle {model}, {said} phrase(s) reçue(s))", flush=True)
         out.put(None)
-        if model:
-            _record(agent_id, model, None if voice_server("speech") else await _speech_cost(model, chars))
+        for m, chars in spoken.items():
+            _record(agent_id, m, None if voice_server("speech") else await _speech_cost(m, chars))
 
 
 async def transcribe(agent_id: str, audio: bytes, fmt: str, language: str | None = "fr") -> str:

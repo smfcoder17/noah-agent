@@ -646,8 +646,12 @@ def restart(agent_id: str):
 
 @app.delete("/agents/{agent_id}", dependencies=[Depends(auth), Depends(_frozen)])
 def delete(agent_id: str):
-    c = container(check_id(agent_id))
-    c.remove(force=True)
+    """Se reprend après une coupure : conteneur déjà parti ou non, le navigateur et les volumes partent aussi."""
+    try:
+        container(check_id(agent_id)).remove(force=True)
+    except HTTPException as e:
+        if e.status_code != 404:
+            raise
     try:
         b = client.containers.get(BROWSER_PREFIX + agent_id)
         if b.labels.get(BROWSER_LABEL) == agent_id:

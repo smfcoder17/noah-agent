@@ -229,6 +229,10 @@ async def _finish(did: str, stream) -> None:
         async with asyncio.timeout(DEMAND_MAX):
             async for _ in stream:
                 pass
+    except TimeoutError:  # le suivi s'arrête : le travail aussi, sinon il continue d'agir et de dépenser
+        with db.connect() as c:
+            conv = c.execute("SELECT conversation_id FROM delegations WHERE id = ?", (did,)).fetchone()["conversation_id"]
+        await _h["stop_conversation"](conv)
     except Exception:  # noqa: BLE001 - le fil s'est coupé : c'est un échec à rapporter, pas une exception à laisser filer
         pass
     with db.connect() as c:

@@ -256,3 +256,7 @@ Docker dans Docker, `get.sh`, Caddy en HTTPS (`tls internal`, seule différence 
 - **Tenu :** installation en 4 s avec les images déjà là, compte par code à usage unique, premier agent en 22 s, première réponse à 26 s, liaison d'un téléphone et d'un bureau avec accord, conversation depuis chacun, redémarrage de la machine : tout revient en 6 s et l'appareil reste relié. Au repos : 350 Mo pour Caddy, le serveur, le lanceur et un agent.
 - **Défaut trouvé et corrigé :** une adresse Ollama saisie sans `/v1`, comme l'écran le propose, donnait 404 à chaque réponse. Aucun test ne le voyait : ils utilisaient l'adresse par défaut.
 - **Non prouvé :** vrai VPS, vrai certificat, temps de téléchargement, vraies apps de bureau et mobile (seule leur demande réseau est reproduite), 4G.
+
+## 2026-11-04 : deuxième audit de contrôle Codex : 4/10
+
+Sept défauts, reproduits en mémoire par l'auditeur. Corrigés : profil en suppression sans plus aucun droit dès le départ, suppression d'agent qu'on peut reprendre, demande de plus de 6 h réellement arrêtée, échec d'un accord qui retire le bon, synthèse comptée au modèle qui a parlé (test sur l'écriture dans `usage`), droits des outils recopiés à une mise à jour d'Hermes, réveil raté du navigateur non retenu. Ni la recopie à la mise à jour ni l'arrêt à 6 h n'ont de test réel : à rejouer avec `tests/updates/docker_test.sh`.

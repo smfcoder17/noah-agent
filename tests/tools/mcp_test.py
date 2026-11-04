@@ -404,7 +404,13 @@ def test_rights() -> None:
     assert not mcp._grants[(A, "libre")], "accord gardé alors qu'Hermes n'a pas la réponse"
     hermes.answer_approval = fake_answer
     # Un accord qui a expiré ne vaut plus.
-    mcp._grants[(A, "libre")] = [(time.time() - 1, mcp._shown("creer_fiche", {"titre": "Vieux"}))]
+    # Deux accords en attente de réponse : l'échec du premier ne retire pas le second.
+    mcp.approval_seen(A, "c1", "Outil « libre » : un\n{}")
+    mcp.approval_seen(A, "c2", "Outil « libre » : deux\n{}")
+    first, second = mcp.approval_answered(A, "c1", True), mcp.approval_answered(A, "c2", True)
+    mcp.approval_failed(first)
+    assert mcp._take_grant(A, "libre", "deux\n{}") and not mcp._take_grant(A, "libre", "un\n{}")
+    mcp._grants[(A, "libre")] = [(time.time() - 1, mcp._shown("creer_fiche", {"titre": "Vieux"}), "x")]
     assert call_tool("libre", "creer_fiche").get("isError")
     # Un résumé qui n'est pas celui d'un outil n'ouvre rien (une commande dangereuse approuvée, par exemple).
     mcp.approval_seen(A, "q5", "rm -rf /tmp/x")

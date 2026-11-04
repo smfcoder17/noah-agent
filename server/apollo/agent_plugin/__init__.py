@@ -249,10 +249,11 @@ def _wake_browser() -> None:
     if time.monotonic() - _browser_awake_at < 60:
         return
     try:
-        subprocess.run([sys.executable, "/opt/data/noah.py", "navigateur", "reveiller"], capture_output=True, timeout=900)
-    except (OSError, subprocess.SubprocessError):
-        return  # l'outil dira lui-même qu'il n'a pas de navigateur
-    _browser_awake_at = time.monotonic()
+        done = subprocess.run([sys.executable, "/opt/data/noah.py", "navigateur", "reveiller"], capture_output=True, timeout=900)
+        if json.loads(done.stdout).get("joignable"):
+            _browser_awake_at = time.monotonic()
+    except (OSError, ValueError, AttributeError, subprocess.SubprocessError):
+        pass  # l'outil dira lui-même qu'il n'a pas de navigateur
 
 
 def _pre_tool_call(tool_name: str = "", args: dict | None = None, **_) -> dict | None:

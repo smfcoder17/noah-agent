@@ -712,6 +712,10 @@ def _create_like(old, name: str, image: str) -> None:
                 continue  # monté depuis l'hôte : le montage suit déjà
             stream, _ = old.get_archive(path)
             new.put_archive(os.path.dirname(path), b"".join(stream))
+        if name.startswith("apollo-agent-"):  # droits des outils : hors du volume, écrits en root (voir launcher._seal_rights)
+            with contextlib.suppress(NotFound):
+                stream, _ = old.get_archive("/etc/noah")
+                new.put_archive("/etc", b"".join(stream))
     except Exception:
         # Création à moitié faite : on retire ce conteneur-ci (par son identifiant), le nom redevient libre pour le
         # retour arrière de l'appelant.

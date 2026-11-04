@@ -147,17 +147,29 @@ async def speech_is_counted() -> None:
     media._cache["speech"] = (time.time(), [{"id": "tts-test", "cost": {"value": 0.09}}])
     assert await media._speech_cost("tts-test", 900) == 0.09
     assert await media._speech_cost("tts-inconnu", 900) is None
+    # Et l'écriture : une synthèse du modèle en service apparaît dans la dépense, directe et en flux.
+    _, _, model = await media.speak("a1", "Bonjour.")
+    media._cache["speech"] = (time.time(), [{"id": model, "cost": {"value": 0.09}}])
+    def last_cost():
+        with db.connect() as c:
+            return c.execute("SELECT cost FROM usage WHERE model = ? ORDER BY id DESC LIMIT 1", (model,)).fetchone()["cost"]
+    await media.speak("a1", "x" * 900)
+    assert abs(last_cost() - 0.09) < 1e-9, "la synthèse directe n'entre pas dans la dépense"
+    with db.connect() as c:
+        c.execute("DELETE FROM usage")
+    await heard_speech()
+    assert last_cost() > 0, "la synthèse en flux n'entre pas dans la dépense"
 
 
 # Sans adresse : OpenRouter, sa clé, et le format JSON d'OpenRouter.
 assert web.get("/api/voice/server").json() == {"base_url": "", "has_key": False, "speech_model": "", "transcription_model": "", "voice": ""}
 asyncio.run(round_trip())
-asyncio.run(speech_is_counted())
 assert len(voice_calls()) == 3
 for r in voice_calls():
     assert r.url.host == "openrouter.ai" and r.headers["authorization"] == "Bearer cle-openrouter", r.url
 assert json.loads(voice_calls()[2].content)["input_audio"]["format"] == "webm"
 print("OK : sans adresse, OpenRouter reste le défaut")
+asyncio.run(speech_is_counted())
 
 # Réservé au propriétaire, adresses invalides refusées.
 assert other.post("/api/voice/server", json={"base_url": OWN}).status_code == 403

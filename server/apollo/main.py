@@ -89,7 +89,7 @@ _running_runs: set = set()  # runs suivis en arrière-plan (référence gardée 
 task_state: dict[str, str] = {}
 
 # Version du branchement des agents ; l'augmenter reconfigure tous les agents au démarrage.
-AGENT_SETUP_VERSION = "26-navigateur"  # 26 : navigateur au premier usage
+AGENT_SETUP_VERSION = "27-navigateur"  # 26 : navigateur au premier usage
 
 
 @app.on_event("startup")
@@ -1409,6 +1409,13 @@ async def _remove_agent(agent_id: str) -> None:
     provisioning.pop(agent_id, None)
 
 
+async def _stop_conversation(conv_id: str) -> None:
+    for run_id, r in list(_runs.items()):
+        if r.get("conv") == conv_id:
+            with contextlib.suppress(Exception):  # agent arrêté : plus rien à arrêter
+                await hermes.stop_run(_agent(r["agent"]), run_id)
+
+
 async def _stop_runs(user: int, agent_id: str | None = None) -> None:
     """Accès retiré : ce que ce profil a lancé s'arrête, l'agent ne continue pas à ses frais pour quelqu'un de parti."""
     media.close_streams(user)
@@ -1594,7 +1601,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
         raise HTTPException(503, "L'agent ne répond pas. Il démarre peut-être encore : réessaie dans un instant.")
 
     updates.activity()
-    _runs[run_id] = {"agent": agent.id, "user": launched_by}
+    _runs[run_id] = {"agent": agent.id, "user": launched_by, "conv": conv_id}
     if launched_by is not None and not access.allowed(launched_by, agent.id, "usage"):  # retiré pendant le démarrage d'Hermes
         task_state[conv_id] = "idle"
         with contextlib.suppress(Exception):
@@ -2425,7 +2432,7 @@ async def agent_thread(body: ThreadBody, request: Request):
 
 
 coordination.setup(run=_run, agent=_agent, new_conversation=_new_conversation, save=_save_message,
-                   main_conversation=_main_conversation, resume=_resume_agent, state=task_state)
+                   main_conversation=_main_conversation, resume=_resume_agent, state=task_state, stop_conversation=_stop_conversation)
 
 
 @app.get("/agent-api/fils/{conv_id}")

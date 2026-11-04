@@ -22,6 +22,7 @@ import json
 import re
 import socket
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
@@ -684,7 +685,7 @@ async def connections_state(agent_id: str, apps: list[dict], personal: dict) -> 
 # Le plugin de garde écrit ce début dans la demande d'accord d'Hermes ; c'est ce qui relie l'accord au serveur.
 ASKED = re.compile(r"^Outil « ([a-z0-9-]{1,31}) » : ")
 _asked: dict[tuple[str, str], tuple[str, str, float]] = {}  # (serveur, ce qui a été montré à la personne, quand)
-_grants: dict[tuple[str, str], list[tuple[float, str]]] = {}
+_grants: dict[tuple[str, str], list[tuple]] = {}  # (échéance, ce qui a été montré, identifiant)
 
 
 def _shown(tool: str, args) -> str:
@@ -704,20 +705,21 @@ def approval_seen(agent_id: str, request_id: str | None, summary: str) -> None:
         _asked[(agent_id, str(request_id))] = (m.group(1), str(summary)[m.end():], now)
 
 
-def approval_answered(agent_id: str, request_id: str, approve: bool) -> tuple[str, str] | None:
+def approval_answered(agent_id: str, request_id: str, approve: bool) -> tuple | None:
     """À appeler avant de répondre à Hermes : l'appel part dès qu'il a la réponse. Rend la clé de l'accord ouvert."""
     asked = _asked.pop((agent_id, str(request_id)), None)
     if not asked or not approve:
         return None
     key = (agent_id, asked[0])
-    _grants.setdefault(key, []).append((time.time() + GRANT_SECONDS, asked[1]))
-    return key
+    grant = (time.time() + GRANT_SECONDS, asked[1], uuid.uuid4().hex)
+    _grants.setdefault(key, []).append(grant)
+    return key, grant
 
 
-def approval_failed(key: tuple[str, str] | None) -> None:
-    """Hermes n'a pas reçu la réponse : l'accord ne sert pas."""
-    if key and _grants.get(key):
-        _grants[key].pop()
+def approval_failed(opened: tuple | None) -> None:
+    """Hermes n'a pas reçu la réponse : cet accord-là ne sert pas, celui d'un appel concurrent reste."""
+    if opened and opened[1] in _grants.get(opened[0], []):
+        _grants[opened[0]].remove(opened[1])
 
 
 def _take_grant(agent_id: str, name: str, what: str) -> bool:
