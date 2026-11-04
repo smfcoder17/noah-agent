@@ -99,7 +99,7 @@ with db.connect() as c:
         c.execute("INSERT INTO messages (conversation_id, role, text) VALUES (?, ?, ?)", (conv, role, text))
 try:
     for target in ("memory", "user"):
-        admin("memoire_ecrire", {"cible": target, "entrees": MEMORY[target] + before[target]})
+        admin("memoire_ecrire", {"cible": target, "entrees": MEMORY[target]})
     result = {"sans": run("sans préparation")}
     t = time.monotonic()
     pret = web.post("/api/voice/prepare", json={"agent_id": AGENT, "attendre": True}).json()

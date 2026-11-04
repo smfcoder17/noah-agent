@@ -8,7 +8,9 @@ curl -fsSL "$RAW/get.sh" -o /tmp/get.sh
 start=$(date +%s)
 NOAH_COMPOSE_URL="$RAW/deploy/docker-compose.traefik.yml" sh /tmp/get.sh
 echo "INSTALLATION_SECONDES=$(( $(date +%s) - start ))"
-curl -fsSL "$RAW/tests/real/faux_modele.py" -o /tmp/faux_modele.py
-docker rm -f faux-modele >/dev/null 2>&1 || true
-docker run -d --name faux-modele --network apollo-net --restart unless-stopped -v /tmp/faux_modele.py:/f.py:ro python:3.12-alpine python /f.py 11434 >/dev/null
+if ! docker start faux-modele >/dev/null 2>&1; then
+  mkdir -p /var/lib/docker/faux
+  curl -fsSL "$RAW/tests/real/faux_modele.py" -o /var/lib/docker/faux/f.py
+  docker run -d --name faux-modele --network apollo-net --restart unless-stopped -v /var/lib/docker/faux/f.py:/f.py:ro python:3.12-alpine python /f.py 11434 >/dev/null
+fi
 echo "FAUX_MODELE_PRET"

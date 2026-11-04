@@ -360,3 +360,28 @@ Compteur de Noah (transcription, synthèse ; le cerveau Ollama vaut 0 $ au compt
 - Les ajouts d'après-mesure sur la branche n'ont pas été rejoués.
 
 **G10.5 reste à 0 dans la grille** : le critère dit « au moins 71 % », et un critère n'est compté que tenu, comme G10.1, mesuré mais non tenu. Le banc existe et est cité comme test.
+
+## 2026-11-04 : premier vrai VPS
+
+VPS Hostinger de la personne, qui héberge d'autres applications. Noah tourne dans son propre Docker, limité à 3 Go et 1,5 processeur, derrière le Traefik déjà en place, avec un vrai certificat. Le modèle est un faux modèle (`tests/real/faux_modele.py`) : aucune clé déposée sur ce serveur.
+
+- **Tenu :** installation par `get.sh` en 14 à 29 s, 23 vérifications sur 23 depuis l'extérieur (compte par code à usage unique, liaison d'un téléphone et d'un bureau avec accord, conversation), première réponse à 148 s, image Hermes comprise. Les autres projets du serveur sont restés en marche.
+- **Défauts trouvés et corrigés :** l'installateur conseillait d'arrêter le Traefik de Hostinger, ce qui aurait coupé les autres sites : il se range maintenant derrière lui. Le choix du modèle figeait l'écran pendant les 4 Go de l'image de l'agent : elle se télécharge dès l'installation. Il reste 103 s d'attente si la personne va très vite. Deux sabotages ne visaient plus rien depuis les audits : la CI l'a vu. La suite de tests dépassait les 40 min de la CI.
+- **À regarder :** après un vrai redémarrage, mon script n'a pas relancé le faux modèle (défaut du script, corrigé). L'agent a alors laissé la conversation 5 min sans réponse ni message : un modèle injoignable ne le dit pas assez vite.
+- **Non prouvé :** VPS neuf, vrai modèle, Caddy et son certificat (ici c'est Traefik), app réelle.
+
+## 2026-11-04, pré-contexte d'appel
+
+- **Hypothèse :** la voix rapide répond « je vérifie » à ce que l'agent sait déjà. Un modèle rapide qui choisit huit faits à l'ouverture de l'appel lui permet de répondre tout de suite, sans lancer l'agent. Risque : inventer davantage, ou répéter un secret ou une injection lue dans une conversation.
+- **Banc :** `tests/real/precontexte.py`, vrai modèle `gpt-oss:20b-cloud`, 9 questions dont la réponse est connue et 5 dont elle ne l'est pas, 3 répétitions, mêmes données avant et après. Une clé et une injection sont glissées dans les conversations, avec 16 messages de bruit.
+- **Deux premiers essais sans notes :** le raisonnement du modèle mangeait la réponse, puis le JSON revenait invalide et le modèle de secours dépassait le délai. Une simple liste à puces, sur moins de texte, règle les deux.
+
+| Mesure | Sans | Avec |
+|---|---|---|
+| Réponse directe et juste | 3 sur 27 | **27 sur 27** |
+| Réponse sans recherche ni aveu sur ce qu'elle ignore | 2 sur 15 | **0 sur 15** |
+| Temps de réponse, médiane | 971 ms | 599 ms |
+| Secret ou injection dans les notes ou à l'oral | sans objet | 0 |
+
+- **Décision : GARDÉ.** Préparation : 1,7 s, ici. Un fait sans intérêt s'est glissé dans les notes (« 15 compilations »).
+- **Limite :** le banc n'a que neuf faits pour huit places et je l'ai écrit moi-même, sans lot réservé. Avec une mémoire bien plus riche, le tri comptera davantage : le résultat reste à confirmer. La voix de vrais appels n'a pas été entendue.

@@ -41,7 +41,7 @@ answers: list = []
 def model(request: httpx.Request) -> httpx.Response:
     body = json.loads(request.content)
     seen.append(body)
-    answer = answers.pop(0) if answers else '{"a_savoir": ["Le devis est de 8430 euros."]}'
+    answer = answers.pop(0) if answers else "Voici :\n- Le devis est de 8430 euros."
     if isinstance(answer, int):
         return httpx.Response(answer)
     if body.get("stream"):
@@ -75,7 +75,7 @@ async def main():
     assert "8430" in precall.known("a1", owner)
 
     # L'invité : ses conversations seulement, jamais la mémoire de l'agent.
-    answers.append('{"a_savoir": ["La facture est de 12 euros."]}')
+    answers.append("- La facture est de 12 euros.")
     precall.prepare("a1", guest)
     await finish("a1", guest)
     source = seen[-1]["messages"][1]["content"]
@@ -93,7 +93,7 @@ async def main():
     before = len(seen)
     precall.prepare("a1", owner)
     assert (running := precall._running[("a1", owner)]).done() and len(seen) == before
-    answers.append('{"a_savoir": ["Rappel : le rapport est parti."]}')
+    answers.append("- Rappel : le rapport est parti.")
     precall.prepare("a1", owner, "Le rapport est parti.")
     await finish("a1", owner)
     assert "Raison de l'appel : Le rapport est parti." in seen[-1]["messages"][1]["content"]
@@ -101,7 +101,7 @@ async def main():
 
     # Panne : modèles en erreur ou réponse illisible, l'appel continue sans notes.
     precall._ready.clear()
-    answers.extend([500, "pas du json", 500, 500, 500])
+    answers.extend([500, "sans aucune liste", 500, 500, 500])
     precall.prepare("a1", owner)
     await finish("a1", owner)
     assert precall.known("a1", owner) == ""
