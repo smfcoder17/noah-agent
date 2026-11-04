@@ -53,7 +53,9 @@ def upstream_client() -> httpx.AsyncClient:
 def upstream_base(provider: str, base_url: str | None = None) -> str:
     """Adresse de l'API OpenAI du fournisseur, sans « / » final. Vide si le fournisseur demande une adresse et n'en a pas."""
     if provider in OWN_URL and base_url:
-        return base_url.rstrip("/")
+        base = base_url.rstrip("/")
+        # Ollama : « http://machine:11434 » est ce qu'on saisit, et l'API compatible OpenAI est sous /v1.
+        return base + "/v1" if provider == "ollama" and not base.endswith("/v1") else base
     return UPSTREAMS.get(provider, "")
 
 

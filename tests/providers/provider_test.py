@@ -47,6 +47,7 @@ print("1. adresses : http(s) seulement, sans identifiants ni paramètres")
 
 assert relay.upstream_base("ollama") == "http://host.docker.internal:11434/v1"
 assert relay.upstream_base("ollama", "http://gpu:11434/v1/") == "http://gpu:11434/v1"
+assert relay.upstream_base("ollama", "http://gpu:11434") == "http://gpu:11434/v1", "l'adresse saisie telle quelle ne doit pas donner 404"
 assert relay.upstream_base("custom") == "", "un service sans adresse n'a pas d'adresse par défaut"
 assert relay.upstream_base("ollama-cloud", "http://piege/v1") == "https://ollama.com/v1", "Ollama Cloud n'accepte pas d'adresse"
 assert relay.upstream_base("openrouter", "http://piege/v1") == relay.UPSTREAMS["openrouter"]
