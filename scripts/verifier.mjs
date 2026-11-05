@@ -76,22 +76,22 @@ function report(r) {
 const todo = steps(`${root}/.github/workflows/tests.yml`).filter((s) => !filter || `${s.name} ${s.command}`.includes(filter));
 const queue = [...todo];
 const toRetry = [];
+const failed = [];
 await Promise.all(
   Array.from({ length: AT_ONCE }, async () => {
     while (queue.length) {
       const r = await launch(queue.shift());
       if (r.ok || AT_ONCE === 1) report(r);
       else toRetry.push(r.step);
+      if (!r.ok && AT_ONCE === 1) failed.push(r.step.name);
     }
   }),
 );
-const failed = [];
 for (const step of toRetry) {
   const r = await launch(step);
   report(r);
   if (!r.ok) failed.push(step.name);
 }
-if (AT_ONCE === 1) failed.push(...[]);
 if (!filter || filter === "interface") {
   const r = await launch({ name: "interface (npm run build)", command: "cd frontend && npm run build" });
   report(r);

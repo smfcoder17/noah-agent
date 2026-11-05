@@ -1,14 +1,22 @@
-# Construit l'APK et l'installateur de bureau depuis les sources, sur une machine propre. Une version y joint les deux.
+# Construit l'APK et l'installateur de bureau depuis les sources, sur une machine propre. Rien n'est publié ici : c'est
+# release.yml qui attache les deux à la version, une fois tout le reste prêt (un Release à moitié rempli casserait
+# releases/latest/download/ pour tout le monde).
 name: Applications
 
-# Seulement pour une version, ou à la demande : la CI est limitée.
+# À la demande (gh workflow run apps.yml), ou appelé par release.yml pour une version : la CI est limitée.
 on:
-  push:
-    tags: ["v*.*.*"]
   workflow_dispatch:
+  workflow_call:
+    secrets:
+      NOAH_APK_KEYSTORE:
+        required: false
+      NOAH_APK_KEYSTORE_PASSWORD:
+        required: false
+      NOAH_APK_KEY_ALIAS:
+        required: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   android:
@@ -23,27 +31,64 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: APK
+      - name: Numéro de version de l'étiquette
+        run: |
+          case "$GITHUB_REF" in
+            refs/tags/v*) echo "NOAH_APK_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV" ;;
+          esac
+      - name: Sources de l'app
         working-directory: mobile
         run: |
           npm ci
           npx cap sync android
-          cd android
-          chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
-      - name: Pas d'EncryptedSharedPreferences dans l'APK ni dans les dépendances résolues
+          chmod +x android/gradlew
+      # Sans les trois secrets : repli sur un APK de débogage, pour essayer le build. Jamais joint à une version
+      # (controle-publication.sh refuse une version stable sans keystore, et release.yml ne joint que l'APK signé).
+      - name: Keystore
+        id: cle
+        env:
+          NOAH_APK_KEYSTORE: ${{ secrets.NOAH_APK_KEYSTORE }}
+          NOAH_APK_KEYSTORE_PASSWORD: ${{ secrets.NOAH_APK_KEYSTORE_PASSWORD }}
+          NOAH_APK_KEY_ALIAS: ${{ secrets.NOAH_APK_KEY_ALIAS }}
+        run: |
+          if [ -n "$NOAH_APK_KEYSTORE" ] && [ -n "$NOAH_APK_KEYSTORE_PASSWORD" ] && [ -n "$NOAH_APK_KEY_ALIAS" ]; then
+            printf '%s' "$NOAH_APK_KEYSTORE" | base64 -d > "$RUNNER_TEMP/noah.keystore"
+            echo "signe=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning title=APK de débogage::Secrets NOAH_APK_KEYSTORE, NOAH_APK_KEYSTORE_PASSWORD ou NOAH_APK_KEY_ALIAS absents : APK de débogage, à ne pas distribuer (sh scripts/preparer-signatures.sh)."
+            echo "signe=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: APK signé
+        if: steps.cle.outputs.signe == 'true'
+        working-directory: mobile/android
+        env:
+          NOAH_APK_KEYSTORE_FILE: ${{ runner.temp }}/noah.keystore
+          NOAH_APK_KEYSTORE_PASSWORD: ${{ secrets.NOAH_APK_KEYSTORE_PASSWORD }}
+          NOAH_APK_KEY_ALIAS: ${{ secrets.NOAH_APK_KEY_ALIAS }}
+        run: |
+          ./gradlew assembleRelease --no-daemon
+          ./gradlew :app:dependencies --configuration releaseRuntimeClasspath --no-daemon > "$RUNNER_TEMP/dependances.txt"
+          mkdir -p "$RUNNER_TEMP/apk"
+          cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/apk/noah-agent-android.apk"
+          sh ../../tests/android/apk_signature.sh "$RUNNER_TEMP/apk/noah-agent-android.apk"
+      - name: APK de débogage
+        if: steps.cle.outputs.signe != 'true'
         working-directory: mobile/android
         run: |
+          ./gradlew assembleDebug --no-daemon
           ./gradlew :app:dependencies --configuration debugRuntimeClasspath --no-daemon > "$RUNNER_TEMP/dependances.txt"
-          sh ../../tests/android/apk_scan.sh app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/dependances.txt"
+          mkdir -p "$RUNNER_TEMP/apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/apk/noah-agent-android-debug.apk"
+      - name: Keystore retiré de la machine
+        if: always()
+        run: rm -f "$RUNNER_TEMP/noah.keystore"
+      - name: Pas d'EncryptedSharedPreferences dans l'APK ni dans les dépendances résolues
+        run: sh tests/android/apk_scan.sh "$RUNNER_TEMP"/apk/*.apk "$RUNNER_TEMP/dependances.txt"
       - uses: actions/upload-artifact@v4
         with:
           name: noah-android
-          path: mobile/android/app/build/outputs/apk/debug/*.apk
-      - uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/v')
-        with:
-          files: mobile/android/app/build/outputs/apk/debug/*.apk
+          path: ${{ runner.temp }}/apk/*.apk
+          if-no-files-found: error
 
   bureau:
     runs-on: windows-latest
@@ -55,16 +100,17 @@ jobs:
           node-version: "22"
       - name: Installateur Windows
         working-directory: desktop
+        shell: bash
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: |
           npm ci
+          case "$GITHUB_REF" in
+            refs/tags/v*) npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version ;;
+          esac
           npx electron-builder --win --x64 --publish never
       - uses: actions/upload-artifact@v4
         with:
           name: noah-bureau
-          path: desktop/dist/*.exe
-      - uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/v')
-        with:
-          files: desktop/dist/*.exe
+          path: desktop/dist/*Setup*.exe
+          if-no-files-found: error
