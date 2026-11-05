@@ -13,7 +13,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
-from . import access, auth, db, hermes, relay
+from . import access, auth, db, hermes, notifications, relay
 
 router = APIRouter()
 
@@ -128,14 +128,20 @@ def send_native(user: int, title: str, text: str) -> None:
     asyncio.get_running_loop().call_later(120, lambda r=rid: _waiting.pop(r, None))
 
 
-def notify(title: str, text: str, agent_id: str | None = None) -> None:
+def notify_user(user: int, title: str, text: str, kind: str | None = None, url: str = "/", urgent: bool = False) -> None:
+    """Sur tous les appareils de ce compte, si ce type n'est pas coupé. Personne n'attend la réponse."""
+    from . import push
+
+    if kind and not notifications.wants(user, kind):
+        return
+    push.notify(title, text, url=url, urgent=urgent, user_id=user, kind=kind)
+    send_native(user, title, text)
+
+
+def notify(title: str, text: str, agent_id: str | None = None, kind: str | None = None, url: str = "/") -> None:
     """Notification sur l'ordinateur si l'application de bureau est ouverte, et sur les appareils abonnés aux
     notifications (téléphone, navigateur) ; personne n'attend la réponse. Pour un agent : son propriétaire, et le profil
     partagé qui a lancé la tâche. Sans agent : le propriétaire de l'installation."""
-    from . import push
-
     for user in access.recipients(agent_id) if agent_id else [db.owner_id()]:
-        if user is None:
-            continue
-        push.notify(title, text, user_id=user)
-        send_native(user, title, text)
+        if user is not None:
+            notify_user(user, title, text, kind, url)

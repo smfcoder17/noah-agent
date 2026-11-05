@@ -20,7 +20,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from . import access, auth, db, desktop, mcp, media, relay
+from . import access, auth, db, desktop, mcp, media, notifications, relay
 
 router = APIRouter()
 
@@ -282,7 +282,8 @@ async def check(wid: str, save_message, main_conversation) -> dict:
             save_message(conv, "agent", text)
             pending = json.loads(db.get_setting(f"contexte_{conv}") or "[]")
             db.set_setting(f"contexte_{conv}", json.dumps((pending + [text])[-5:]))
-        desktop.notify(f"Veille « {w['name']} »", alert["resume"][:240], agent_id=w["agent_id"])
+        desktop.notify(f"Veille « {w['name']} »", alert["resume"][:240], agent_id=w["agent_id"], kind="routines",
+                       url=notifications.conversation_url(w["agent_id"]))
         with db.connect() as c:
             c.execute("UPDATE watches SET last_alert = ?, alerts = alerts + 1 WHERE id = ?", (now, wid))
         result["alerte"] = True

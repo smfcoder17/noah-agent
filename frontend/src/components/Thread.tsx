@@ -21,6 +21,7 @@ import { NoahTile, type NoahHandle } from "./Noah";
 import { cn, safeMedia } from "@/lib/utils";
 import { Button } from "./ui";
 import { canFrame, useDownload, useViewer } from "./Viewer";
+import { AttachPosition } from "./PhoneSettings";
 import { DictateButton, useDictation, VoiceMode, VoiceModeButton } from "./Voice";
 import { NoahWidget } from "./Widgets";
 
@@ -429,6 +430,7 @@ function Composer({ onVoiceMode, inCall }: { onVoiceMode: () => void; inCall: bo
             <Paperclip />
           </Button>
         </ComposerPrimitive.AddAttachment>
+        <AttachPosition />
         <ComposerPrimitive.Input
           data-composer-input
           rows={1}

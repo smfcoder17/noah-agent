@@ -8,7 +8,6 @@ import { appShell } from "@/lib/platform";
 import { GrantProof } from "./GrantProof";
 import { useProof } from "./Proof";
 import { minutes } from "./PairingTime";
-import { PushToggle } from "./PushToggle";
 import { Button, ErrorText } from "./ui";
 
 type Pairing = { adresse: string; serveur: string; code: string; expire: number };
@@ -249,7 +248,6 @@ export function PhonePairing() {
       )}
       <ErrorText>{error}</ErrorText>
       {pairs && <PendingRequests refresh={refresh} onDone={() => setRefresh((n) => n + 1)} onUsed={markUsed} />}
-      <PushToggle />
       <DeviceList refresh={refresh} />
       {shell && (
         <Button size="sm" variant="ghost" className="self-start text-danger" onClick={forget}>

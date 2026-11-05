@@ -27,7 +27,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Str
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import access, accounts, appareils, auth, catalog, coordination, courriel, db, desktop, double_verification, events, exposition, handoff, hermes, machine, mcp, media, pendant, profiles, public, push, recuperation, relay, updates, watch, precall, diagnostics
+from . import access, accounts, appareils, auth, catalog, coordination, courriel, db, desktop, double_verification, events, exposition, handoff, hermes, machine, mcp, media, notifications, pendant, profiles, public, push, recuperation, relay, updates, watch, precall, diagnostics
 from . import config
 from .config import WEB_DIR, forget_setup_code
 from .hermes import Agent
@@ -121,6 +121,7 @@ app.include_router(machine.router)
 app.include_router(mcp.router)
 app.include_router(desktop.router)
 app.include_router(push.router)
+app.include_router(notifications.router)
 app.include_router(watch.router)
 app.include_router(handoff.router)
 app.include_router(coordination.router)
@@ -140,7 +141,7 @@ _running_runs: set = set()  # runs suivis en arrière-plan (référence gardée 
 task_state: dict[str, str] = {}
 
 # Version du branchement des agents ; l'augmenter reconfigure tous les agents au démarrage.
-AGENT_SETUP_VERSION = "28-profils-partage"  # garde des profils de partage (G12.5) ; 27 : navigateur ; 26 : navigateur au premier usage
+AGENT_SETUP_VERSION = "29-appels-sur-demande"  # l'agent n'appelle plus de lui-même ; 28 : profils de partage (G12.5) ; 27 : navigateur ; 26 : navigateur au premier usage
 
 
 @app.on_event("startup")
@@ -1415,6 +1416,8 @@ def outbound_flows(user: int = Depends(access.owner_only)):
         for row in mcp.outbound(a["id"]):
             flows.append({"quoi": f"Outil « {row['nom']} » de {a['name']}", "vers": _host(row["url"]) if row["url"] else "le service de cet outil",
                           "quand": "quand l'agent s'en sert", "agent": a["id"]})
+    flows.append({"quoi": "Ta position, si tu la joins à un message depuis l'app Android", "vers": "le fournisseur de l'agent, dans le message",
+                  "quand": "seulement quand tu touches « Joindre ma position », jamais en arrière-plan"})
     flows.append({"quoi": "Sites que tes agents visitent", "vers": "les sites de la tâche",
                   "quand": "quand une tâche le demande, depuis le navigateur de l'agent"})
     flows.append({"quoi": "Vérification des mises à jour (manifeste signé)", "vers": _host(updates.MANIFEST_URL),
@@ -1546,7 +1549,7 @@ Quand l'application de bureau est ouverte, tu peux agir sur son ordinateur avec 
 un dossier ou une page, lui envoyer une notification, copier un texte dans son presse-papiers, lancer une application, exécuter une commande.
 Il confirme chaque action sensible dans une fenêtre du système : annonce ce que tu vas faire avant, en une phrase. Un refus est une
 réponse, pas une panne : ne réessaie pas la même action, propose autre chose. Pour lui montrer un fichier que tu as créé, enregistre-le
-dans son dossier de travail puis ouvre-le. Pendant une routine, termine par une notification courte quand le résultat mérite son attention.
+dans son dossier de travail puis ouvre-le. Le résultat d'une routine arrive tout seul en notification : n'en ajoute pas.
 Une commande s'exécute dans son dossier de travail : préfère une commande simple et lisible, jamais destructrice sans qu'il l'ait demandé.
 
 ## Veilles : surveiller sans travailler
@@ -1582,10 +1585,11 @@ Pour une page de connexion, ajoute `--quand-quitte <site>` (ex. `--quand-quitte 
 tout seul dès qu'il est connecté, sans bouton à cliquer. Quand une recette te confie des conditions ou des cases d'accord, fais-le toi-même.
 
 ## Rappeler l'utilisateur à la voix
-Quand une tâche est finie et que le résultat mérite qu'il l'entende tout de suite : `python3 /opt/data/noah.py rappeler "compte rendu"`.
+Par défaut, tu n'appelles pas : quand tu as fini, écris ta réponse, et il reçoit une notification normale s'il n'est pas là.
+Seulement s'il l'a demandé pour cette tâche (« appelle-moi à la fin », « fais-moi rappeler ») : `python3 /opt/data/noah.py rappeler "compte rendu"`.
 Son téléphone sonne, il entend ce compte rendu, et le texte reste dans cette conversation même s'il ne répond pas. C'est différent
 de `appeler`, qui lui demande d'agir dans le navigateur. Écris pour l'oreille : deux ou trois phrases sans chemin ni code, avec ce
-qui est fait et ce qui ne l'est pas. Ne rappelle que si on te l'a demandé ou si ça le mérite vraiment.
+qui est fait et ce qui ne l'est pas. Si la commande est refusée, c'est son réglage : le compte rendu est déjà écrit, ne réessaie pas.
 
 ## Travailler avec les autres agents
 `python3 /opt/data/noah.py agents` les liste. Pour confier une tâche : `python3 /opt/data/noah.py demander <id ou nom> "consigne complète et autonome"`,
@@ -2065,6 +2069,7 @@ async def chat(body: ChatMessage, request: Request, noah_session: str | None = C
     if not conv_id:
         conv_id = _main_conversation(agent.id, user) or _new_conversation(user, agent.id, "Conversation", main=True)
     prompt = _with_attachments(body.text, body.attachments)
+    notifications.set_hidden(conv_id, False)  # elle vient d'écrire : elle est là
     request_id = f"{user}:{body.client_id}" if body.client_id else None
     if request_id and not pendant.add(request_id, conv_id, agent.id, user, body.text, pendant.DONE):
         async def known():  # déjà reçu : rien ne repart, l'écran recharge la conversation
@@ -2108,7 +2113,7 @@ async def _queued_turn(row: dict) -> None:
     """Le tour d'une demande qui attendait. Suivi jusqu'au bout : la suivante ne part qu'après."""
     agent, user = _agent(row["agent_id"]), row["user_id"]
     try:
-        stream = await _run(agent, row["conversation_id"], row["text"], False, _speaker(user, agent.id) + machine.pop_context(row["conversation_id"]))
+        stream = await _run(agent, row["conversation_id"], row["text"], False, _speaker(user, agent.id) + machine.pop_context(row["conversation_id"]), live=False)
         pendant.settle(row["id"], pendant.DONE)  # l'agent l'a : un redémarrage ne doit plus la relancer
         async for _ in stream:
             pass
@@ -2270,10 +2275,26 @@ async def chat_while_busy(body: WhileBusy, user: int = Depends(auth.current_user
     return result
 
 
+class Looking(BaseModel):
+    visible: bool
+
+
+@app.post("/api/conversations/{conv_id}/regard")
+def conversation_looking(conv_id: str, body: Looking, user: int = Depends(auth.current_user)):
+    """L'écran passe derrière ou revient. Sur un téléphone, le flux reste ouvert sans que personne le lise : la fin de la tâche doit
+    quand même se notifier."""
+    access.conversation(user, conv_id, ecrire=True)
+    notifications.set_hidden(conv_id, not body.visible)
+    return {"ok": True}
+
+
 @app.get("/api/conversations/{conv_id}/en-cours")
-def conversation_now(conv_id: str, user: int = Depends(auth.current_user)):
-    """Ce que l'agent fait dans cette conversation et ce qui attend, même si l'écran n'a pas lancé ce travail."""
+def conversation_now(conv_id: str, suivi: bool = True, user: int = Depends(auth.current_user)):
+    """Ce que l'agent fait dans cette conversation et ce qui attend, même si l'écran n'a pas lancé ce travail. `suivi` : un
+    écran regarde cette conversation. La bulle Android relève sans la regarder : elle passe la main à la notification."""
     row = access.conversation(user, conv_id)
+    if suivi and row["user_id"] == user:
+        notifications.saw(conv_id)
     agent_id = row["agent_id"]
     busy = coordination._busy(agent_id, conv_id)
     return {"occupe": busy, "activite": task_activity.get(conv_id) if busy else None, "run_id": _conversation_run(conv_id) if busy else None,
@@ -2316,6 +2337,10 @@ def request_cancel(client_id: str, user: int = Depends(auth.current_user)):
 
 
 def _speaker(user: int, agent_id: str) -> str:
+    return _who_speaks(user, agent_id) + notifications.call_note(user)
+
+
+def _who_speaks(user: int, agent_id: str) -> str:
     """Sur un agent partagé, il sait à qui il parle. Rien pour le propriétaire tant que personne ne partage sa mémoire : le
     début du prompt reste le même, donc en cache, et son comportement ne change pas."""
     owner = access.owner_of(agent_id)
@@ -2394,9 +2419,12 @@ async def _start_run(agent: Agent, text: str, session: str) -> str:
     return await hermes.start_run(agent, text, session_id=session)
 
 
-async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, context: str = "", author: str = "user"):
+async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, context: str = "", author: str = "user",
+               live: bool = True, tell_after: float = notifications.TELL_AFTER):
     """Lance un run Hermes dans une conversation et rend le générateur SSE qui l'enregistre au fil de l'eau.
-    `context` précède le message pour l'agent seulement : l'utilisateur ne le voit pas. `author` : qui l'a écrit, à l'écran."""
+    `context` précède le message pour l'agent seulement : l'utilisateur ne le voit pas. `author` : qui l'a écrit, à l'écran.
+    `live` : le flux rendu va à un écran (sinon, personne ne le lit). `tell_after` : durée à partir de laquelle la fin se notifie."""
+    began = time.time()
     if updates.maintenance:  # le lanceur recrée les agents : une tâche lancée maintenant serait coupée
         raise HTTPException(503, "Noah installe une mise à jour (quelques minutes). Réessaie juste après.")
     task_state[conv_id] = "work"  # avant le premier await : une mise à jour qui vérifie maintenant la voit
@@ -2493,7 +2521,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
                     # Celui qui a lancé la tâche et le propriétaire de l'agent : pas les autres profils partagés.
                     for target in dict.fromkeys((_conversation_owner(conv_id), access.owner_of(agent.id))):
                         push.notify("Noah attend ton accord", str(out.get("summary") or "Une action demande ton accord."),
-                                    urgent=True, user_id=target)
+                                    urgent=True, user_id=target, kind="accord")
                 task_state[conv_id] = "approve" if out["type"] == "approval" else "work"
                 if out["type"] == "activity":
                     task_activity[conv_id] = out["label"]
@@ -2527,7 +2555,9 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
             _save_message(conv_id, "agent", text)
         elif final and final.get("error"):
             _save_message(conv_id, "error", final["error"], final.get("details"))
-
+        with contextlib.suppress(Exception):  # une notification perdue ne doit pas abîmer une tâche finie
+            _tell_turn_end(agent.id, conv_id, launched_by, final, text, time.time() - began, tell_after,
+                           live and listening[0] and not notifications.is_hidden(conv_id))
 
     # Le run est suivi jusqu'au bout même si le client part (téléphone fermé, réseau coupé) : la réponse est
     # enregistrée et l'état de la tâche reste juste (une mise à jour attend vraiment sa fin).
@@ -2594,6 +2624,26 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
                 asyncio.create_task(hermes.stop_run(agent, run_id))
 
     return stream()
+
+
+def _tell_turn_end(agent_id: str, conv_id: str, user: int | None, final: dict | None, text: str, took: float, after: float, followed: bool) -> None:
+    """Fin d'un tour : une notification normale si la personne n'est pas là pour la voir. Pas pour une tâche qu'elle a
+    arrêtée, ni pour le travail interne (fil, demande d'un autre agent : son résultat revient à l'agent qui l'a demandé),
+    ni si un rappel vient de lui donner ce compte rendu."""
+    if user is None:
+        return
+    already = notifications.take_reported(agent_id, user)
+    status = (final or {}).get("status") or "completed"
+    if already or followed or notifications.seen_recently(conv_id) or took < after or status not in ("completed", "failed"):
+        return
+    with db.connect() as c:
+        row = c.execute("SELECT a.name, c.origin FROM conversations c JOIN agents a ON a.id = c.agent_id WHERE c.id = ?", (conv_id,)).fetchone()
+    if not row or row["origin"] == "agent" or db.get_setting("onboarded") == "0":
+        return
+    title, body = row["name"], notifications.first_sentence(text)
+    if status == "failed":
+        title, body = f"{row['name']} n'a pas pu finir", notifications.first_sentence((final or {}).get("error") or text or "La tâche s'est arrêtée avant la fin.")
+    desktop.notify_user(user, title, body, "fin", notifications.conversation_url(agent_id, conv_id))
 
 
 MODEL_WATCH = 2  # secondes entre deux regards sur le relais
@@ -3472,7 +3522,9 @@ async def _resume_agent(agent_id: str, text: str, note: str = "", author: str = 
     conv_id = _main_conversation(agent_id)
     if not conv_id:
         return None
-    stream = await _run(_agent(agent_id), conv_id, text, context=machine.pop_context(conv_id) + note, author=author)
+    # Relancé par le résultat d'un autre agent : le travail a commencé bien avant ce tour, sa fin se notifie quelle que soit sa durée.
+    stream = await _run(_agent(agent_id), conv_id, text, context=machine.pop_context(conv_id) + note, author=author, live=False,
+                        tell_after=0 if author == "agent" else notifications.TELL_AFTER)
 
     async def drain():
         async for _ in stream:

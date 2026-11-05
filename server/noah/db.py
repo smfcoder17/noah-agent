@@ -118,6 +118,9 @@ def init() -> None:
                    "session TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL, payload BLOB NOT NULL, "
                    "urgent INTEGER NOT NULL DEFAULT 0, not_before REAL NOT NULL, tries INTEGER NOT NULL DEFAULT 0, "
                    "created REAL NOT NULL)")
+        # Ce que chaque compte veut recevoir : `rappels` (demande, important, jamais), `coupes` les types éteints (notifications.py).
+        db.execute("CREATE TABLE IF NOT EXISTS notification_prefs (user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, "
+                   "rappels TEXT NOT NULL DEFAULT 'demande', coupes TEXT NOT NULL DEFAULT '[]')")
         # Demandes entre agents : `chaine` liste les agents dont celle-ci descend (boucles et profondeur).
         db.execute("CREATE TABLE IF NOT EXISTS delegations (id TEXT PRIMARY KEY, de TEXT NOT NULL, vers TEXT NOT NULL, "
                    "conversation_id TEXT NOT NULL, profondeur INTEGER NOT NULL, chaine TEXT NOT NULL, "

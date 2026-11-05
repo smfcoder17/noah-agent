@@ -31,6 +31,11 @@ final class Pairing {
         prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
+    /** Réglages du téléphone, sans aucun secret (bulle, droits déjà demandés) : un fichier à part. Pairing reste seul à toucher au disque. */
+    static SharedPreferences options(Context context) {
+        return context.getSharedPreferences("noah-options", Context.MODE_PRIVATE);
+    }
+
     String server() {
         return prefs.getString("server", null);
     }

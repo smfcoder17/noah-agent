@@ -19,7 +19,7 @@ sys.path.insert(0, "/app")
 import httpx  # noqa: E402
 import uvicorn  # noqa: E402
 
-from noah import auth, coordination, db, hermes, main, media  # noqa: E402
+from noah import auth, coordination, db, hermes, main, media, push  # noqa: E402
 
 db.init()
 alice = auth.create_user("alice", os.environ.get("MOT_DE_PASSE", "motdepasse-essai"))
@@ -126,8 +126,23 @@ def silence(ms: int) -> bytes:
     return b"RIFF" + struct.pack("<I", 36 + len(data)) + b"WAVEfmt " + struct.pack("<IHHIIHH", 16, 1, 1, 8000, 8000, 1, 8) + b"data" + struct.pack("<I", len(data)) + data
 
 
+dictated: dict = {"texte": "Tu en es où ?", "recus": []}
+sent: list[dict] = []
+real_send = push.send
+
+
+async def captured_send(title, text, url="/", urgent=False, user_id=None, session=None, extra=None):
+    """Ce que le serveur enverrait à chaque appareil : lisible par le test, sans distributeur sur l'émulateur."""
+    sent.append({"titre": title, "texte": text, "url": url, "urgent": urgent, "pour": user_id, "type": (extra or {}).get("type")})
+    return await real_send(title, text, url, urgent, user_id, session, extra)
+
+
+push.send = captured_send
+
+
 async def transcribe(agent_id, data, fmt):
-    return "Tu en es où ?"
+    dictated["recus"].append({"agent": agent_id, "format": fmt, "octets": len(data), "debut": data[4:8].decode("latin-1")})
+    return dictated["texte"]
 
 
 async def speak(agent_id, text):
@@ -163,7 +178,27 @@ async def end_runs():
 
 @main.app.get("/_essai/etat")
 def state():
-    return {"steered": steered, "started": [t.splitlines()[-1] for t in started]}
+    return {"steered": steered, "started": [t.splitlines()[-1] for t in started], "dictees": dictated["recus"], "envoyes": sent}
+
+
+@main.app.post("/_essai/jeton")
+def device_token():
+    """Le jeton d'un appareil déjà accepté : l'appairage réel a ses propres preuves, ce parcours commence après."""
+    return {"jeton": auth.new_session(alice, "Émulateur", "android")}
+
+
+@main.app.post("/_essai/dictee")
+async def next_dictation(request: main.Request):
+    """Ce que la transcription simulée rendra : le son, lui, est le vrai, reçu de l'app."""
+    dictated["texte"] = (await request.json())["texte"]
+    return {"ok": True}
+
+
+@main.app.post("/_essai/seuil-notification/{seconds}")
+def tell_threshold(seconds: float):
+    """Le seuil de 30 s, raccourci : la fin de tâche se vérifie sans attendre."""
+    main._run.__defaults__ = (*main._run.__defaults__[:-1], seconds)
+    return {"ok": True}
 
 
 @main.app.post("/_essai/visage/{agent_id}")

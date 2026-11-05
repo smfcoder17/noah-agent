@@ -36,7 +36,7 @@ def upstream(request: httpx.Request) -> httpx.Response:
 
 relay._client = httpx.AsyncClient(transport=httpx.MockTransport(upstream))
 alerts = []
-push.notify = lambda title, text, url="/", urgent=False, user_id=None: alerts.append((title, urgent))
+push.notify = lambda title, text, url="/", urgent=False, user_id=None, kind=None: alerts.append((title, urgent))
 agent = TestClient(main.app, headers={"Authorization": f"Bearer {relay.token_for('a1')}"})
 other = TestClient(main.app, headers={"Authorization": f"Bearer {relay.token_for('a2')}"})
 

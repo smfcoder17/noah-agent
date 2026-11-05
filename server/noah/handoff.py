@@ -37,7 +37,7 @@ def open_call(agent_id: str, message: str, origin: str = "agent", leave_host: st
             "attente": asyncio.get_running_loop().create_future(), "attentifs": 0}
     _calls[agent_id] = call
     _ensure_keeper(agent_id)
-    desktop.notify("Noah a besoin de toi", message[:240], agent_id=agent_id)
+    desktop.notify("Noah a besoin de toi", message[:240], agent_id=agent_id, kind="accord")
     if leave_host:
         asyncio.create_task(_until_left(agent_id, call, leave_host))
     return call

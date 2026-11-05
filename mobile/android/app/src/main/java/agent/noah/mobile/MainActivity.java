@@ -369,7 +369,9 @@ public class MainActivity extends BridgeActivity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         if (server != null && token != null && bridge != null && intent.hasExtra("url")) {
-            if (inCall) { // la page qui tenait l'appel va être remplacée : personne ne pourrait plus raccrocher
+            // Une adresse /#… reste dans la même page : l'appel continue, et la page ne change que ce qu'elle montre.
+            boolean samePage = page(intent).startsWith("/#") && !page(intent).startsWith(NoahPush.CALL_URL);
+            if (inCall && !samePage) { // la page qui tenait l'appel va être remplacée : personne ne pourrait plus raccrocher
                 CallSession.stop(this);
                 setInCall(false);
             }

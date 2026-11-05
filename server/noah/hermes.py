@@ -341,7 +341,7 @@ AIDE = """Utilisation : python3 /opt/data/noah.py <commande>
                                          appelle l'utilisateur (connexion, code) et attend sa réponse ; avec
                                          --quand-quitte, l'appel se termine seul quand il a quitté ce site
   attendre <id>                          continue d'attendre la réponse à un appel « en_attente »
-  rappeler "compte rendu"                fait sonner l'utilisateur et lui lit ce compte rendu à la voix ; il reste écrit
+  rappeler "compte rendu"                seulement s'il l'a demandé : fait sonner l'utilisateur et lui lit ce compte rendu ; il reste écrit
                                          dans ta conversation, même s'il ne répond pas (6 par heure au plus)
   agents                                 liste les autres agents (id, nom, rôle)
   demander <agent> "consigne" [--rappeler]   confie une tâche à un autre agent (id ou nom) ; le résultat revient dans ta

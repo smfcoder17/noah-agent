@@ -55,7 +55,8 @@ down: set[str] = set()
 hermes.start_run = fake_start
 hermes.run_events = fake_events
 rings: list[dict] = []
-push.notify = lambda title, text, url="/", urgent=False, user_id=None, extra=None: rings.append(
+# Ce qui sonne : la notification normale de fin de tâche a ses propres tests (tests/push/preferences_test.py).
+push.notify = lambda title, text, url="/", urgent=False, user_id=None, extra=None, kind=None: None if kind == "fin" else rings.append(
     {"title": title, "text": text, "url": url, "urgent": urgent, "user": user_id})
 coordination.FREE_POLL = 0.01
 

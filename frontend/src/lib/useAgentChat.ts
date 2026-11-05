@@ -257,7 +257,8 @@ export function useAgentChat(opts: {
   const watching = isRunning || serverNow.occupe || serverNow.file.length > 0 || sending.length > 0;
   useEffect(() => {
     if (!watching) return;
-    const timer = setInterval(() => void refreshNow(), 3000);
+    // Écran caché : personne ne regarde, et le serveur le sait à ce silence (il notifie alors la fin de la tâche).
+    const timer = setInterval(() => !document.hidden && void refreshNow(), 3000);
     return () => clearInterval(timer);
   }, [watching, refreshNow]);
 

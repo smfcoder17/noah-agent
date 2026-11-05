@@ -43,6 +43,7 @@ public class NoahPush extends PushService {
 
     private static final String CHANNEL = "noah";
     private static final String CALLS = "noah-appels";
+    private static final String QUIET = "noah-taches"; // fin de tâche, routines : un son, pas de bandeau par-dessus ce que tu fais
     static final String CALL_URL = "/#appel="; // même adresse que le web : le serveur la pose sur les rappels
 
     /**
@@ -52,10 +53,6 @@ public class NoahPush extends PushService {
     static void start(Activity activity, String server, String token) {
         Pairing pairing = new Pairing(activity);
         long gen = pairing.startPush(token); // identité confirmée quand le serveur a accepté l'abonnement
-        if (Build.VERSION.SDK_INT >= 33
-            && activity.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            activity.requestPermissions(new String[] { Manifest.permission.POST_NOTIFICATIONS }, 7);
-        }
         new Thread(() -> {
             String vapid;
             try {
@@ -140,7 +137,13 @@ public class NoahPush extends PushService {
         // Le contenu la remplace ensuite (même identifiant) si la session est confirmée. Si Android arrête le processus
         // avant, il reste la version générique : rien de perdu, rien d'exposé.
         int id = new Pairing(this).nextNotificationId();
-        show(id, "Noah", "Nouvelle notification. Ouvre Noah pour la voir.", "/");
+        JSONObject generic = new JSONObject();
+        try { // le type seul, sans contenu : le remplacement ne doit pas sonner plus fort que le message
+            generic.put("type", new JSONObject(new String(message.getContent(), StandardCharsets.UTF_8)).optString("type"));
+        } catch (Exception ignored) {
+            // message mal formé : canal habituel
+        }
+        show(id, "Noah", "Nouvelle notification. Ouvre Noah pour la voir.", "/", generic);
         new Thread(() -> handle(message, id)).start();
     }
 
@@ -225,15 +228,15 @@ public class NoahPush extends PushService {
         return channel == null || channel.getImportance() != NotificationManager.IMPORTANCE_NONE;
     }
 
-    private void show(int id, String title, String text, String url) {
-        show(id, title, text, url, new JSONObject());
-    }
 
     /** `message` : le message reçu, avec le visage de l'agent quand c'est un appel (serveur plus ancien : la couleur de Noah). */
     private void show(int id, String title, String text, String url, JSONObject message) {
         NotificationManager manager = getSystemService(NotificationManager.class);
         if (manager == null) return;
         manager.createNotificationChannel(new NotificationChannel(CHANNEL, "Noah", NotificationManager.IMPORTANCE_HIGH));
+        String type = message.optString("type");
+        boolean quiet = "fin".equals(type) || "routines".equals(type);
+        if (quiet) manager.createNotificationChannel(new NotificationChannel(QUIET, "Fins de tâche et routines", NotificationManager.IMPORTANCE_DEFAULT));
         Intent open = new Intent(this, MainActivity.class).putExtra("url", url).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         // Un code par notification : sinon toucher une ancienne ouvrirait la page de la dernière reçue.
         PendingIntent tap = PendingIntent.getActivity(this, id, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
@@ -242,7 +245,7 @@ public class NoahPush extends PushService {
             ring(this, manager, id, title, text, url, color, message.optString("forme"), message.optString("detail"), tap);
             return;
         }
-        NotificationCompat.Builder n = new NotificationCompat.Builder(this, CHANNEL)
+        NotificationCompat.Builder n = new NotificationCompat.Builder(this, quiet ? QUIET : CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_noah).setContentTitle(title).setContentText(text)
             .setStyle(new NotificationCompat.BigTextStyle().bigText(text)).setContentIntent(tap).setAutoCancel(true)
             .setOnlyAlertOnce(true); // le remplacement générique → contenu ne sonne pas deux fois

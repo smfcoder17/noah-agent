@@ -320,9 +320,39 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     window.addEventListener("noah:ask", toMain);
     return () => window.removeEventListener("noah:ask", toMain);
   }, []);
+  // Ouverte par une notification ou par la bulle Android : /#agent=<id>&conversation=<id>. L'appel a sa propre adresse (Call.tsx).
+  useEffect(() => {
+    const open = () => {
+      const [, agent, conversation] = location.hash.match(/^#agent=([\w-]+)(?:&conversation=([\w-]+))?/) ?? [];
+      if (!agent) return;
+      history.replaceState(null, "", location.pathname + location.search);
+      setAgentId(agent);
+      setThreadId(conversation ?? null);
+      setSidebarOpen(false);
+      setSettings(null); // ce qu'on vient d'ouvrir ne reste pas caché derrière les réglages
+    };
+    open();
+    window.addEventListener("hashchange", open);
+    return () => window.removeEventListener("hashchange", open);
+  }, []);
   const main = conversations?.find((c) => c.main) ?? null;
+  // La notification désigne la conversation principale : ce n'est pas un fil ouvert, et Retour ne doit pas s'y arrêter.
+  useEffect(() => {
+    if (threadId && threadId === main?.id) setThreadId(null);
+  }, [threadId, main?.id]);
   const thread = conversations?.find((c) => c.id === threadId) ?? null;
   const shown = thread ?? main;
+  // L'écran passe derrière : un flux peut rester ouvert longtemps sans lecteur sur un téléphone. Le serveur notifiera la fin de la tâche.
+  const shownId = shown?.id;
+  useEffect(() => {
+    if (!shownId) return;
+    const tell = () => {
+      const body = new Blob([JSON.stringify({ visible: !document.hidden })], { type: "application/json" });
+      navigator.sendBeacon?.(`/api/conversations/${shownId}/regard`, body);
+    };
+    document.addEventListener("visibilitychange", tell);
+    return () => document.removeEventListener("visibilitychange", tell);
+  }, [shownId]);
   const liveKey = `${agent?.id}-${threadId ?? "main"}`;
 
   const refreshAgents = useCallback(async () => {

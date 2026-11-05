@@ -45,6 +45,12 @@
         </service>
         <!-- Appel en cours : micro hors de l'application, seulement pendant l'appel (voir CallSession). -->
         <service android:name=".CallSession" android:exported="false" android:foregroundServiceType="microphone" />
+        <!-- Mode flottant : démarré par la personne depuis l'app, jamais au démarrage du téléphone (voir NoahBubble). -->
+        <service android:name=".NoahBubble" android:exported="false" android:foregroundServiceType="microphone|specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Garde au-dessus des autres apps la bulle que la personne a activée pour dicter à son agent" />
+        </service>
         <receiver android:name=".BootReceiver" android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
@@ -86,4 +92,11 @@
     <!-- Dictée et mode vocal de Noah dans la fenêtre de l'app. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- Bulle du mode flottant, seulement si la personne l'active dans Réglages > Téléphone. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- « Joindre ma position » : lue au toucher, jamais en arrière-plan. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!-- Pour qu'un appel sonne écran éteint, si la personne le demande depuis Réglages > Téléphone. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 </manifest>

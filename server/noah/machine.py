@@ -12,7 +12,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from . import access, auth, db, hermes, relay
+from . import access, auth, db, desktop, hermes, notifications, relay
 from .config import LAUNCHER_URL
 from .hermes import LAUNCHER
 
@@ -136,6 +136,10 @@ async def deliver_routines(save_message, main_conversation) -> None:
                     text = f"**Routine « {r['nom']} »**\n\n{r['texte'].strip()}"
                     save_message(conv, "agent", text)
                     add_context(conv, text)
+                    owner = db.agent_owner(agent_id)  # son résultat est écrit chez lui : pas chez le profil en train de parler à l'agent
+                    if owner is not None:
+                        desktop.notify_user(owner, f"Routine « {r['nom']} »", notifications.first_sentence(r["texte"]), "routines",
+                                            notifications.conversation_url(agent_id, conv))
                 db.set_setting(key, r["quand"])
 
 

@@ -1,19 +1,231 @@
 package agent.noah.mobile;
 
+import android.Manifest;
+import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.location.Location;
+import android.location.LocationManager;
+import android.net.Uri;
 import android.os.Build;
+import android.os.CancellationSignal;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.PowerManager;
+import android.provider.Settings;
 import android.webkit.CookieManager;
 import com.getcapacitor.JSObject;
+import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 
 /**
  * Pont entre les pages et l'app : l'écran de connexion y range le serveur et la session obtenus à l'appairage ;
  * l'interface de Noah, ouverte depuis le serveur, peut demander à oublier ce serveur.
  */
-@CapacitorPlugin(name = "NoahShell")
+@CapacitorPlugin(name = "NoahShell", permissions = {
+    @Permission(alias = "micro", strings = { Manifest.permission.RECORD_AUDIO }),
+    @Permission(alias = "position", strings = { Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION }),
+    @Permission(alias = "notifications", strings = { Manifest.permission.POST_NOTIFICATIONS }),
+})
 public class NoahShellPlugin extends Plugin {
+
+    // --- Réglages > Téléphone : l'état réel de chaque droit. Rien n'est demandé ailleurs qu'à l'usage ou depuis cet écran. ---
+
+    private SharedPreferences rightsPrefs() {
+        return Pairing.options(getContext());
+    }
+
+    /** accorde, a_demander, refuse, ou bloque : Android ne montrera plus sa fenêtre, seul son écran de réglages peut changer ça. */
+    private String stateOf(String alias, String permission) {
+        if (getPermissionState(alias) == PermissionState.GRANTED) return "accorde";
+        if (!rightsPrefs().getBoolean(alias, false)) return "a_demander";
+        return getActivity() != null && getActivity().shouldShowRequestPermissionRationale(permission) ? "refuse" : "bloque";
+    }
+
+    @PluginMethod
+    public void droits(PluginCall call) {
+        Context context = getContext();
+        JSObject out = new JSObject();
+        String notifications = Build.VERSION.SDK_INT >= 33 ? stateOf("notifications", Manifest.permission.POST_NOTIFICATIONS) : "a_demander";
+        if (NoahPush.visible(context)) notifications = "accorde";
+        else if (Build.VERSION.SDK_INT < 33 || "accorde".equals(notifications)) notifications = "bloque"; // coupées dans les réglages d'Android
+        out.put("notifications", notifications);
+        out.put("micro", stateOf("micro", Manifest.permission.RECORD_AUDIO));
+        out.put("photos", "sans_droit"); // le sélecteur d'Android : Noah reçoit ce que la personne choisit, sans accès à la galerie
+        out.put("position", stateOf("position", Manifest.permission.ACCESS_FINE_LOCATION));
+        out.put("superposition", Settings.canDrawOverlays(context) ? "accorde" : "a_demander");
+        PowerManager power = context.getSystemService(PowerManager.class);
+        out.put("batterie", power != null && power.isIgnoringBatteryOptimizations(context.getPackageName()) ? "accorde" : "a_demander");
+        out.put("distributeurs", org.unifiedpush.android.connector.UnifiedPush.getDistributors(context).size());
+        out.put("inscrit", org.unifiedpush.android.connector.UnifiedPush.getAckDistributor(context) != null && new Pairing(context).pushTag() != null);
+        out.put("positionActive", rightsPrefs().getBoolean("positionActive", false) && getPermissionState("position") == PermissionState.GRANTED);
+        JSObject bulle = new JSObject();
+        bulle.put("active", NoahBubble.isRunning());
+        bulle.put("agent", NoahBubble.chosenAgent(context));
+        out.put("bulle", bulle);
+        call.resolve(out);
+    }
+
+    /** Demande le droit, ou ouvre le bon écran d'Android quand la fenêtre de demande n'existe pas (ou plus). */
+    @PluginMethod
+    public void demanderDroit(PluginCall call) {
+        String right = call.getString("droit", "");
+        Context context = getContext();
+        Uri app = Uri.parse("package:" + context.getPackageName());
+        switch (right) {
+            case "superposition":
+                openScreen(call, new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, app));
+                return;
+            case "batterie":
+                openScreen(call, new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, app));
+                return;
+            case "micro":
+            case "position":
+            case "notifications":
+                break;
+            default:
+                call.reject("Droit inconnu");
+                return;
+        }
+        String permission = "micro".equals(right) ? Manifest.permission.RECORD_AUDIO : "position".equals(right) ? Manifest.permission.ACCESS_FINE_LOCATION : Manifest.permission.POST_NOTIFICATIONS;
+        boolean runtime = !"notifications".equals(right) || Build.VERSION.SDK_INT >= 33;
+        if (!runtime || "bloque".equals(stateOf(right, permission))) {
+            Intent screen = "notifications".equals(right)
+                ? new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.getPackageName())
+                : new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, app);
+            openScreen(call, screen);
+            return;
+        }
+        rightsPrefs().edit().putBoolean(right, true).apply();
+        requestPermissionForAlias(right, call, "afterRight");
+    }
+
+    @PermissionCallback
+    private void afterRight(PluginCall call) {
+        call.resolve();
+    }
+
+    private void openScreen(PluginCall call, Intent screen) {
+        try {
+            getActivity().startActivity(screen);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Cet écran n'existe pas sur ce téléphone.");
+        }
+    }
+
+    /** « Joindre ma position » : activé ici. Retiré, le droit reste à Android ; plus rien ne le lit. */
+    @PluginMethod
+    public void positionOption(PluginCall call) {
+        rightsPrefs().edit().putBoolean("positionActive", Boolean.TRUE.equals(call.getBoolean("actif"))).apply();
+        call.resolve();
+    }
+
+    /** Une lecture, au toucher de la personne. Jamais de suivi : ni abonnement qui dure, ni arrière-plan. */
+    @PluginMethod
+    public void position(PluginCall call) {
+        if (!rightsPrefs().getBoolean("positionActive", false) || getPermissionState("position") != PermissionState.GRANTED) {
+            call.reject("La position n'est pas activée dans Réglages > Téléphone.");
+            return;
+        }
+        LocationManager locations = getContext().getSystemService(LocationManager.class);
+        String provider = bestProvider(locations);
+        if (provider == null) {
+            call.reject("La localisation est coupée sur ce téléphone.");
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= 30) {
+            CancellationSignal cancel = new CancellationSignal();
+            Handler main = new Handler(Looper.getMainLooper());
+            boolean[] done = { false };
+            Runnable giveUp = () -> {
+                if (done[0]) return;
+                done[0] = true;
+                cancel.cancel();
+                answerPosition(call, lastKnown(locations));
+            };
+            main.postDelayed(giveUp, 12_000);
+            locations.getCurrentLocation(provider, cancel, getContext().getMainExecutor(), found -> {
+                if (done[0]) return;
+                done[0] = true;
+                main.removeCallbacks(giveUp);
+                answerPosition(call, found != null ? found : lastKnown(locations));
+            });
+        } else {
+            answerPosition(call, lastKnown(locations));
+        }
+    }
+
+    private static String bestProvider(LocationManager locations) {
+        if (Build.VERSION.SDK_INT >= 31 && locations.isProviderEnabled(LocationManager.FUSED_PROVIDER)) return LocationManager.FUSED_PROVIDER;
+        if (locations.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) return LocationManager.NETWORK_PROVIDER;
+        return locations.isProviderEnabled(LocationManager.GPS_PROVIDER) ? LocationManager.GPS_PROVIDER : null;
+    }
+
+    private static Location lastKnown(LocationManager locations) {
+        Location best = null;
+        for (String provider : locations.getProviders(true)) {
+            Location one;
+            try {
+                one = locations.getLastKnownLocation(provider);
+            } catch (SecurityException e) {
+                one = null;
+            }
+            if (one != null && (best == null || one.getTime() > best.getTime())) best = one;
+        }
+        return best;
+    }
+
+    private static void answerPosition(PluginCall call, Location found) {
+        if (found == null) {
+            call.reject("Le téléphone ne trouve pas sa position pour l'instant.");
+            return;
+        }
+        JSObject out = new JSObject();
+        out.put("latitude", found.getLatitude());
+        out.put("longitude", found.getLongitude());
+        out.put("precision", found.hasAccuracy() ? found.getAccuracy() : 0);
+        call.resolve(out);
+    }
+
+    /** APK de débogage seulement : voir NoahBubble.testThreshold. */
+    @PluginMethod
+    public void bulleEssai(PluginCall call) {
+        NoahBubble.testThreshold(call.getInt("seuil", 300));
+        call.resolve();
+    }
+
+    /** Mode flottant : lancé depuis l'app ouverte, par un geste de la personne (voir NoahBubble). */
+    @PluginMethod
+    public void bulle(PluginCall call) {
+        Context context = getContext();
+        if (!Boolean.TRUE.equals(call.getBoolean("actif"))) {
+            NoahBubble.stop(context);
+            call.resolve();
+            return;
+        }
+        String agent = call.getString("agent");
+        if (agent == null) {
+            call.reject("Choisis un agent.");
+            return;
+        }
+        if (!Settings.canDrawOverlays(context)) {
+            call.reject("Autorise d'abord la superposition.");
+            return;
+        }
+        if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            call.reject("Autorise d'abord le micro.");
+            return;
+        }
+        NoahBubble.start(context, agent, call.getString("nom", ""), call.getString("couleur", ""), call.getString("forme", ""), call.getString("detail", ""));
+        call.resolve();
+    }
 
     /** Un appel commence ou finit dans la page : micro hors de l'application, fenêtre flottante en la quittant. */
     @PluginMethod
@@ -135,6 +347,13 @@ public class NoahShellPlugin extends Plugin {
         Pairing pairing = new Pairing(getContext());
         String server = pairing.server(), token = pairing.token();
         if (server != null && token != null) NoahPush.start(getActivity(), server, token);
+        // Jamais à l'ouverture de l'app : seulement quand la personne touche « Activer ».
+        if (Boolean.TRUE.equals(call.getBoolean("demander")) && Build.VERSION.SDK_INT >= 33 && getPermissionState("notifications") != PermissionState.GRANTED
+            && !"bloque".equals(stateOf("notifications", Manifest.permission.POST_NOTIFICATIONS))) {
+            rightsPrefs().edit().putBoolean("notifications", true).apply();
+            requestPermissionForAlias("notifications", call, "afterRight");
+            return;
+        }
         call.resolve();
     }
 
@@ -142,6 +361,7 @@ public class NoahShellPlugin extends Plugin {
     @PluginMethod
     public void pushForget(PluginCall call) {
         NoahPush.stop(getContext());
+        NoahBubble.stop(getContext()); // déconnecté : la bulle ne dicte plus avec le jeton de cet appareil
         call.resolve();
     }
 
@@ -162,6 +382,7 @@ public class NoahShellPlugin extends Plugin {
         Pairing pairing = new Pairing(getContext());
         pairing.forget();
         NoahPush.stop(getContext());
+        NoahBubble.stop(getContext());
         new Thread(pairing::revokeForgotten).start();
         CookieManager.getInstance().removeAllCookies(null);
         CookieManager.getInstance().flush();
