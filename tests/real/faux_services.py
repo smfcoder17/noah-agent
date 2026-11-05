@@ -18,6 +18,8 @@ import ssl
 import struct
 import threading
 import time
+import urllib.error
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from cryptography import x509
@@ -133,6 +135,9 @@ class Model(BaseHTTPRequestHandler):
         if self.path == "/_journal":
             with lock:
                 return self._json({"appels": state["appels"], "push": state["push"], "cout": state["cout"]})
+        if self.path == "/_corps":
+            with lock:
+                return self._json(state.get("corps") or {})
         if self.path == "/_abonnement":
             return self._json({"endpoint": f"https://{HOST}:8443/telephone", "p256dh": _b64(DEVICE_PUBLIC), "auth": _b64(AUTH)})
         if self.path.startswith("/page"):  # page de test du navigateur : ce qu'elle reçoit prouve quel cookie part
@@ -158,17 +163,63 @@ class Model(BaseHTTPRequestHandler):
                 state["appels"].clear()
                 state["push"].clear()
             return self._json({"ok": True})
+        if self.path == "/_latence":  # délai connu avant le premier octet : ce qui reste au-delà est notre part (tests/real/vitesse.py)
+            with lock:
+                state["latence"] = float(body.get("latence") or 0)
+                state["bloquer"] = bool(body.get("bloquer"))
+                state["jetons_reels"] = bool(body.get("jetons_reels"))
+                state["latence_resume"] = float(body.get("latence_resume") or 0)  # les appels sans outils : le résumé d'Hermes
+            return self._json({"ok": True})
+        if self.path == "/_relais":  # passe la main à un vrai fournisseur : le journal continue de tout voir. Vide : retour au faux.
+            with lock:
+                state["relais"] = body if body.get("url") else None
+            return self._json({"ok": True})
+        if self.path == "/_suite":  # les prochaines réponses du modèle, écrites à l'avance : {"outil": nom, "args": {...}} ou {"texte": "..."}
+            with lock:
+                state["suite"] = list(body.get("suite") or [])
+            return self._json({"ok": True})
         if not self.path.endswith("/chat/completions"):
             return self._json({"error": "introuvable"}, 404)
+        scripted = None
+        with lock:
+            if body.get("tools"):
+                state["corps"] = body  # le dernier tour reçu, entier : schémas des outils compris
+                if state.get("suite"):
+                    scripted = state["suite"].pop(0)
+            forward = state.get("relais")
+        if forward and not scripted:
+            return self._forward(body, forward)
         messages = body.get("messages") or []
         system = " ".join(_text(m) for m in messages if m.get("role") == "system")
+        arrived = time.time()
         with lock:
             cost = state["cout"]
-            state["appels"].append({"t": time.time(), "cout": cost, "dernier": _text(messages[-1])[-2000:] if messages else "", "systeme": system,
-                                    "tout": json.dumps(messages, ensure_ascii=False), "outils": [t["function"]["name"] for t in body.get("tools") or []]})
-        usage = {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15, "cost": cost}
+            delay = state.get("latence", 0) if body.get("tools") else max(state.get("latence", 0), state.get("latence_resume", 0))
+            hang = state.get("bloquer", False)
+            state["appels"].append({"t": arrived, "cout": cost, "dernier": _text(messages[-1])[-2000:] if messages else "", "systeme": system, "flux": bool(body.get("stream")),
+                                    "tout": json.dumps(messages, ensure_ascii=False), "outils": [t["function"]["name"] for t in body.get("tools") or []],
+                                    "octets_outils": len(json.dumps(body.get("tools") or [], ensure_ascii=False)), "octets_systeme": len(system), "octets": len(json.dumps(body, ensure_ascii=False)),
+                                    "parametres": {k: v for k, v in body.items() if k not in ("messages", "tools")}})
+        while hang:  # un fournisseur qui ne répond jamais : le tour se finit par une expiration
+            time.sleep(0.2)
+            with lock:
+                hang = state.get("bloquer", False)
+        if delay:
+            time.sleep(delay)
+        with lock:
+            real_size = state.get("jetons_reels")
+        prompt_tokens = len(json.dumps(body, ensure_ascii=False)) // 4 if real_size else 10  # Hermes résume selon ce nombre
+        usage = {"prompt_tokens": prompt_tokens, "completion_tokens": 5, "total_tokens": prompt_tokens + 5, "cost": cost}
         base = {"id": "faux", "object": "chat.completion", "created": int(time.time()), "model": MODEL}
         last = messages[-1] if messages else {}
+        if scripted and scripted.get("outil"):
+            return self._tool(body, base, usage, scripted["outil"], json.dumps(scripted.get("args") or {}))
+        if scripted:
+            if not body.get("stream"):
+                return self._json(base | {"choices": [{"index": 0, "message": {"role": "assistant", "content": scripted.get("texte", "")}, "finish_reason": "stop"}], "usage": usage})
+            self._stream(base, [{"choices": [{"index": 0, "delta": {"role": "assistant", "content": scripted.get("texte", "")}, "finish_reason": None}]},
+                                {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}], "usage": usage}])
+            return None
         call = re.search(r"^OUTIL (\w+) (.+)$", _last_user(messages), re.M)
         if call and last.get("role") == "user" and body.get("tools"):
             return self._tool(body, base, usage, call.group(1), call.group(2))
@@ -181,6 +232,66 @@ class Model(BaseHTTPRequestHandler):
             return self._json(base | {"choices": [{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}], "usage": usage})
         self._stream(base, [{"choices": [{"index": 0, "delta": {"role": "assistant", "content": text}, "finish_reason": None}]},
                             {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}], "usage": usage}])
+        return None
+
+    def _forward(self, body, forward):
+        """Vers un vrai fournisseur (clé donnée par /_relais, jamais écrite) : mesure son premier octet, garde son usage et ce qu'il répond."""
+        messages = body.get("messages") or []
+        sent = {**body, "model": forward.get("modele") or body.get("model")}
+        for key, value in (forward.get("forcer") or {}).items():
+            if value is None:
+                sent.pop(key, None)
+            else:
+                sent[key] = value
+        entry = {"t": time.time(), "flux": bool(body.get("stream")), "dernier": _text(messages[-1])[-2000:] if messages else "", "systeme": " ".join(_text(m) for m in messages if m.get("role") == "system"),
+                 "tout": json.dumps(messages, ensure_ascii=False), "outils": [t["function"]["name"] for t in body.get("tools") or []], "octets": len(json.dumps(body, ensure_ascii=False)),
+                 "octets_outils": len(json.dumps(body.get("tools") or [], ensure_ascii=False)), "octets_systeme": 0, "parametres": {k: v for k, v in sent.items() if k not in ("messages", "tools")}}
+        with lock:
+            state["appels"].append(entry)
+        req = urllib.request.Request(forward["url"].rstrip("/") + "/chat/completions", data=json.dumps(sent).encode(), method="POST",
+                                     headers={"Content-Type": "application/json", "Authorization": "Bearer " + forward.get("cle", ""), "Accept-Encoding": "identity"})
+        try:
+            upstream = urllib.request.urlopen(req, timeout=300)
+        except urllib.error.HTTPError as e:
+            data = e.read()
+            entry["erreur"] = f"{e.code} {data[:300].decode(errors='replace')}"
+            self.send_response(e.code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return None
+        self.send_response(200)
+        self.send_header("Content-Type", upstream.headers.get("Content-Type", "text/event-stream"))
+        self.send_header("Connection", "close")
+        self.end_headers()
+        text, tools = [], []
+        for line in iter(upstream.readline, b""):
+            now = time.time()
+            entry.setdefault("t_premier_octet", now)
+            self.wfile.write(line)
+            self.wfile.flush()
+            if not line.startswith(b"data:") or b"[DONE]" in line:
+                continue
+            try:
+                chunk = json.loads(line[5:])
+            except ValueError:
+                continue
+            if chunk.get("usage"):
+                entry["usage"] = chunk["usage"]
+            for choice in chunk.get("choices") or []:
+                delta = choice.get("delta") or {}
+                if delta.get("reasoning") or delta.get("reasoning_content"):
+                    entry.setdefault("t_premier_raisonnement", now)
+                if delta.get("content"):
+                    entry.setdefault("t_premier_mot", now)
+                    text.append(delta["content"])
+                for call in delta.get("tool_calls") or []:
+                    entry.setdefault("t_premier_outil", now)
+                    if (call.get("function") or {}).get("name"):
+                        tools.append(call["function"]["name"])
+        entry["texte"], entry["outils_appeles"], entry["t_fin"] = "".join(text), tools, time.time()
+        self.close_connection = True
         return None
 
     def _tool(self, body, base, usage, name, arguments):

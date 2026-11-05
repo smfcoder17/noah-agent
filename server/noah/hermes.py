@@ -235,6 +235,7 @@ def _agent_env(text: str, agent_id: str) -> str:
 # Familles qui ont besoin de marqueurs de cache explicites (style Anthropic) ; les autres
 # fournisseurs mettent en cache tout seuls tant que le début du prompt ne change pas.
 CACHE_MARKER_MODELS = re.compile(r"claude|kimi|moonshot|qwen", re.I)
+CONTEXT_LIMIT = 64000  # jetons envoyés au modèle : au-delà, le début de la conversation se résume (voir configure)
 
 
 async def configure(agent_id: str, model: dict, role: str | None = None) -> None:
@@ -274,14 +275,16 @@ async def configure(agent_id: str, model: dict, role: str | None = None) -> None
     camofox["adopt_existing_tab"] = True
     # Les commandes de l'agent démarrent dans son espace de travail, pas au milieu de sa config.
     cfg.setdefault("terminal", {})["cwd"] = "/opt/data/workspace"
-    # Contexte : Hermes garde l'historique de chaque conversation et ne reçoit que le nouveau message. Sans plafond, il
-    # attend la moitié de la fenêtre du modèle (500 000 jetons sur un modèle à 1 M) pour résumer : chaque tour renvoie
-    # alors tout l'historique. Au-delà de 200 000 jetons (~13 000 de consignes et d'outils compris), le début devient
-    # un résumé et la fin reste mot pour mot ; l'agent retrouve le détail avec session_search. Après une pause, sans
-    # message, Hermes résumerait au message suivant, avant de répondre (plusieurs secondes d'attente) : désactivé.
+    # Contexte : Hermes garde l'historique de chaque conversation et ne reçoit que le nouveau message, et il le renvoie
+    # entier à chaque tour. Le premier mot d'un simple « bonjour » suit sa taille, cache froid : 1,4 s à 16 000 jetons,
+    # 6 s à 78 000, 17 s à 262 000 (Kimi K3, docs/perf.md). Au-delà de 64 000 jetons (~17 000 de consignes et d'outils
+    # compris), le début devient un résumé et la fin reste mot pour mot, un peu plus large que par défaut (30 % du seuil) ;
+    # l'agent retrouve le détail avec session_search. Après une pause, sans message, Hermes résumerait au message
+    # suivant, avant de répondre (plusieurs secondes d'attente) : désactivé.
     compression = cfg.setdefault("compression", {})
     compression["enabled"] = True
-    compression["threshold_tokens"] = 200000
+    compression["threshold_tokens"] = CONTEXT_LIMIT
+    compression["target_ratio"] = 0.3
     compression["idle_compact_after_seconds"] = 0
     # Les routines (« chaque matin à 8 h ») suivent l'heure de l'utilisateur, pas UTC.
     tz = (await browser_identity()).get("timezone")

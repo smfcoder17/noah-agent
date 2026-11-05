@@ -88,6 +88,28 @@ trois phrases : salutation, demande d'action, question).
 - **Historique paginé** (80 derniers messages) et `content-visibility` sur les messages.
 - **Taux de cache de prompt** à relever dans `/api/usage`, puis à corriger si le modèle ne profite pas du cache.
 
+## Un message court : où passe le temps (5 novembre 2026)
+
+Bancs : `tests/real/vitesse.py` (découpe du temps, faux fournisseur à latence connue), `tests/real/vitesse_ecran.mjs` (de la touche Entrée au premier mot, dans un navigateur), `tests/real/reprise_vrai.py` (demande restée en suspens, vrais modèles). Vrais conteneurs Hermes sur la machine locale, médianes.
+
+| « bonjour » | Avant | Après |
+|---|---|---|
+| Notre part, conversation chaude (fournisseur à 0 ms) : première réaction | 169-219 ms | 210 ms, sans changement : il n'y a rien à y gagner |
+| Premier message après un redémarrage de l'agent | 2 800-5 100 ms | 224-667 ms (chauffe) |
+| Premier mot dans une longue conversation, cache froid, au pire | 16,7 s (Kimi K3), 6,1 s (DeepSeek Flash) | ~6 s (Kimi K3), ~2,8 s (DeepSeek Flash) : contexte borné à 64 000 jetons |
+| Le tour qui déclenche le résumé (résumé de 5 s) | 5 637 ms | 239 ms si la personne écrit après le résumé d'avance |
+| « hi » pendant que l'agent attend la réponse à son appel (mis à la suite) | 153,5 s | 1,0 s |
+| « hi » après une demande restée en suspens : relance ses outils | 9 fois sur 10, 6 à 136 s (DeepSeek Flash, GLM 5.3 Flash) | 0 fois sur 28, 1 à 7 s (les mêmes et GPT-OSS 120B) |
+
+Premier mot par fournisseur pour un « bonjour » en cache (8 essais alternés, 17 000 jetons envoyés), à ajouter à notre part : GPT-OSS 120B ~400 ms, GLM 5.3 Flash ~700 ms, DeepSeek Flash ~900 ms. G14.1 (800 ms) est donc à portée sur les modèles les plus rapides, pas sur tous. Dans le navigateur, la ligne « Réflexion… » s'affiche en ~30 ms, et l'écran ajoute 100 à 300 ms au premier mot.
+
+**Ce qui ne gagne rien, donc laissé tel quel :**
+- Retirer les schémas d'outils (10 000 jetons sur 17 000), en garder 14 sur 28, ou retirer la liste des compétences : dans le bruit quand le cache joue, sur les trois modèles. Le cache du préfixe fait déjà le travail. Ça reste une économie de coût possible, pas de vitesse.
+- Effort de raisonnement « low » pour tous : -66, +75 et -255 ms selon le modèle, et « none » fait écrire son raisonnement à GLM dans la réponse.
+- Réduction des vieux résultats d'outils sans modèle (`proactive_prune_tokens`) : le résumé passe avant elle, avec les 20 derniers messages protégés.
+
+**Reste à mesurer :** le même découpage sur le VPS (les limites CPU locales à 1 et 0,5 cœur ne changent rien au chemin chaud), et le cache d'une heure de Claude (`prompt_caching.cache_ttl`), faute de clé Anthropic valide dans `.env`. Un message envoyé dans les secondes qui suivent le retour de l'agent paie encore son démarrage (~10 s) : la chauffe tourne en même temps.
+
 ## Correction du 3 novembre 2026
 
 Le « premier son » de 754 ms ci-dessus part de la fin de la phrase transcrite. Depuis la fin de la parole, le temps entendu est de **2 277 ms en médiane** : voir [journal-hill-climb.md](journal-hill-climb.md). Le banc de référence du vocal est maintenant `python -m noah.bench_voice`.

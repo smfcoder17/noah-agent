@@ -27,7 +27,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Str
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import access, accounts, appareils, auth, catalog, coordination, courriel, db, desktop, double_verification, events, exposition, handoff, hermes, machine, mcp, media, pendant, profiles, public, push, recuperation, relay, updates, watch, precall, diagnostics
+from . import access, accounts, appareils, auth, catalog, coordination, courriel, db, desktop, double_verification, events, exposition, handoff, hermes, machine, mcp, media, pendant, profiles, public, push, recuperation, relay, updates, watch, precall, diagnostics, chauffe
 from . import config
 from .config import WEB_DIR, forget_setup_code
 from .hermes import Agent
@@ -140,7 +140,7 @@ _running_runs: set = set()  # runs suivis en arrière-plan (référence gardée 
 task_state: dict[str, str] = {}
 
 # Version du branchement des agents ; l'augmenter reconfigure tous les agents au démarrage.
-AGENT_SETUP_VERSION = "28-profils-partage"  # garde des profils de partage (G12.5) ; 27 : navigateur ; 26 : navigateur au premier usage
+AGENT_SETUP_VERSION = "29-reprise-contexte"  # message sans rapport et contexte borné ; 28 : garde des profils de partage (G12.5) ; 27 : navigateur ; 26 : navigateur au premier usage
 
 
 @app.on_event("startup")
@@ -166,9 +166,15 @@ async def startup() -> None:
     asyncio.create_task(_rest_browsers_loop())
     asyncio.create_task(accounts.keep_google_fresh())
     handoff.setup(_resume_agent)
+    asyncio.create_task(chauffe.run(lambda: [Agent(a["id"], a["api_key"]) for a in _agents()], _warmable))
     asyncio.create_task(_after_updates(coordination.recover))
     if db.get_setting("agent_setup") != AGENT_SETUP_VERSION and current_model():
         asyncio.create_task(_after_updates(_upgrade_agents))
+
+
+def _warmable(agent_id: str) -> bool:
+    """Un agent configuré et au repos : pas pendant une mise à jour, sa préparation ou un tour."""
+    return not updates.maintenance and agent_id not in provisioning and bool(db.get_setting(f"applied:{agent_id}")) and not relay.active.get(agent_id)
 
 
 async def _after_updates(job) -> None:
@@ -1659,6 +1665,7 @@ outputs/ et apps/ ne gardent que ce que l'utilisateur voudra retrouver : le rés
 
 ## Façon de travailler
 - Va jusqu'au bout de la tâche sans t'arrêter à mi-chemin ; découpe les tâches longues en étapes et enchaîne-les.
+- Réponds d'abord au dernier message. Une salutation ou une question sans rapport ne reprend pas une demande restée en suspens (appel sans réponse, connexion à faire, accord expiré) : réponds-y sans outil, ajoute au plus une phrase sur ce qui attend, et ne relance rien tant que la personne ne le demande pas.
 - Un message qui commence par des citations (lignes « > … ») répond à ces passages précis (extrait, tableau, image, fichier) : pars d'eux.
 - Vérifie ton résultat avant de dire que c'est fait (ouvre le fichier, relance le script, regarde la page).
 - Si tu es bloqué, dis précisément ce qui manque et ce que tu as déjà essayé.
@@ -2079,7 +2086,7 @@ async def chat(body: ChatMessage, request: Request, noah_session: str | None = C
             yield _sse({"type": "deja"})
         return StreamingResponse(known(), media_type="text/event-stream")
     try:
-        stream = await _run(agent, conv_id, prompt, body.details, _speaker(user, agent.id) + machine.pop_context(conv_id))
+        stream = await _run(agent, conv_id, prompt, body.details, _speaker(user, agent.id) + machine.pop_context(conv_id) + _left_open(agent.id, conv_id))
     except HTTPException:
         if request_id:
             pendant.forget(request_id)
@@ -2115,7 +2122,7 @@ async def _queued_turn(row: dict) -> None:
     """Le tour d'une demande qui attendait. Suivi jusqu'au bout : la suivante ne part qu'après."""
     agent, user = _agent(row["agent_id"]), row["user_id"]
     try:
-        stream = await _run(agent, row["conversation_id"], row["text"], False, _speaker(user, agent.id) + machine.pop_context(row["conversation_id"]))
+        stream = await _run(agent, row["conversation_id"], row["text"], False, _speaker(user, agent.id) + machine.pop_context(row["conversation_id"]) + _left_open(agent.id, row["conversation_id"]))
         pendant.settle(row["id"], pendant.DONE)  # l'agent l'a : un redémarrage ne doit plus la relancer
         async for _ in stream:
             pass
@@ -2263,6 +2270,7 @@ async def chat_while_busy(body: WhileBusy, user: int = Depends(auth.current_user
             kind, status = "tache", pendant.WAITING
         else:
             _save_message(conv_id, "user", text)
+            handoff.release_waiters(agent.id)  # transmise après l'outil en cours : pas après la réponse à un appel
             reply = UNSURE_STEER if outcome == STEER_UNSURE else reply or "C'est transmis : il en tient compte après ce qu'il est en train de faire."
     else:
         kind, status = "tache", pendant.WAITING
@@ -2274,6 +2282,7 @@ async def chat_while_busy(body: WhileBusy, user: int = Depends(auth.current_user
     pendant.settle(request_id, status, result)
     if status == pendant.WAITING:
         pendant.start(agent.id, conv_id)
+        handoff.release_waiters(agent.id)
     return result
 
 
@@ -2340,6 +2349,22 @@ def _speaker(user: int, agent_id: str) -> str:
     return (f"[Cette conversation est avec {who}. Tu sers plusieurs personnes : chacune a ses conversations, mais ta mémoire, "
             f"ton navigateur et tes comptes connectés sont communs. Ne répète pas à {name} ce que d'autres t'ont confié, "
             "et note en mémoire à qui appartient une préférence.]\n\n")
+
+
+def _left_open(agent_id: str, conv_id: str) -> str:
+    """Ce qui est resté en suspens, dit à l'agent avant un nouveau message de la personne. Sans ça, un « salut » repart sur l'ancienne
+    demande : l'historique se finit par un outil coupé (« vérifie l'état avant de réessayer ») et rien ne dit que c'est fini."""
+    notes = []
+    asked = db.get_setting(f"tour_ouvert:{conv_id}")
+    if asked:
+        notes.append(f"Ta demande précédente (« {asked} ») s'est arrêtée avant la fin, et plus rien n'est en cours pour elle.")
+    call = handoff.left_open(agent_id)
+    if call:
+        notes.append(call)
+    if not notes:
+        return ""
+    return ("[Note de Noah, que la personne ne voit pas. " + " ".join(notes) + " Réponds au message ci-dessous, et à lui seul : ne relance ni cette demande, "
+            "ni ses outils, ni ses appels, sauf si ce message le demande ou s'y rapporte clairement.]\n\n")
 
 
 def _new_conversation(user: int, agent_id: str, title: str, main: bool = False, origin: str = "user") -> str:
@@ -2431,6 +2456,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
         raise HTTPException(503, sentence)
 
     updates.activity()
+    db.set_setting(f"tour_ouvert:{conv_id}", " ".join(prompt.split())[:200])  # effacé à sa fin normale : un redémarrage ne perd pas l'information (voir _left_open)
     _runs[run_id] = {"agent": agent.id, "user": launched_by, "conv": conv_id, "profil": agent.profile}
     if launched_by is not None and not access.allowed(launched_by, agent.id, "usage"):  # retiré pendant le démarrage d'Hermes
         task_state[conv_id] = "idle"
@@ -2532,11 +2558,17 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
             task_state[conv_id] = "error" if final and final.get("status") == "failed" else "idle"
         else:
             task_state[conv_id] = "choice" if CHOICE_RE.search(text) else "done"
+            with db.connect() as c:
+                c.execute("DELETE FROM settings WHERE key = ?", (f"tour_ouvert:{conv_id}",))
         _model_replied(final, text, rev)
         if text:
             _save_message(conv_id, "agent", text)
         elif final and final.get("error"):
             _save_message(conv_id, "error", final["error"], final.get("details"))
+        if relay.context_size.pop(conv_id, 0) >= hermes.CONTEXT_LIMIT and not updates.maintenance:
+            compacting = asyncio.create_task(chauffe.compact(agent, f"noah-{conv_id}"))
+            _background.add(compacting)
+            compacting.add_done_callback(_background.discard)
 
 
     # Le run est suivi jusqu'au bout même si le client part (téléphone fermé, réseau coupé) : la réponse est
@@ -2554,6 +2586,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
             relay.active[agent.id].remove(conv_id)
             _runs.pop(run_id, None)
             queue.put_nowait(None)
+            pendant.wake(conv_id)
     task = asyncio.create_task(pump())
     _running_runs.add(task)
     task.add_done_callback(_running_runs.discard)

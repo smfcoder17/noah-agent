@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from . import access, auth, desktop, hermes, relay
+from . import access, auth, db, desktop, hermes, relay
 
 router = APIRouter()
 
@@ -36,6 +36,8 @@ def open_call(agent_id: str, message: str, origin: str = "agent", leave_host: st
     call = {"id": uuid.uuid4().hex[:10], "message": message, "depuis": time.time(), "origine": origin,
             "attente": asyncio.get_running_loop().create_future(), "attentifs": 0}
     _calls[agent_id] = call
+    if origin == "agent":
+        db.set_setting(_trace(agent_id), message[:200])
     _ensure_keeper(agent_id)
     desktop.notify("Noah a besoin de toi", message[:240], agent_id=agent_id)
     if leave_host:
@@ -137,6 +139,8 @@ def close_call(agent_id: str, call_id: str | None, answer: str) -> None:
         if not call["attente"].done():
             call["attente"].set_result(answer)
         _calls.pop(agent_id, None)
+        if answer in ("fait", "impossible"):
+            _forget_trace(agent_id)
         try:
             _ensure_keeper(agent_id)
         except RuntimeError:  # appelé hors de la boucle : la fenêtre privée se fermera seule
@@ -159,12 +163,50 @@ async def wait(agent_id: str, call_id: str, seconds: float) -> str:
     if not call or call["id"] != call_id:
         return _answered.get(call_id, "inconnu")
     call["attentifs"] += 1
+    interrupted = call.setdefault("autre_message", asyncio.Event())
+    answered, wrote = asyncio.ensure_future(asyncio.shield(call["attente"])), asyncio.ensure_future(interrupted.wait())
     try:
-        return await asyncio.wait_for(asyncio.shield(call["attente"]), seconds)
-    except asyncio.TimeoutError:
+        await asyncio.wait((answered, wrote), timeout=seconds, return_when=asyncio.FIRST_COMPLETED)
+        if answered.done():
+            return answered.result()
+        if wrote.done():
+            interrupted.clear()  # une fois : une attente relancée exprès attend vraiment
+            return ANOTHER_MESSAGE
         return "en_attente"
     finally:
+        answered.cancel()
+        wrote.cancel()
         call["attentifs"] -= 1
+
+
+def release_waiters(agent_id: str) -> None:
+    """La personne écrit autre chose pendant que l'agent attend sa réponse : son tour ne doit pas la retenir derrière cet appel,
+    jusqu'à une heure. L'appel reste affiché, et sa réponse relancera l'agent (voir answer)."""
+    call = _calls.get(agent_id)
+    if call and call["origine"] == "agent" and call["attentifs"]:
+        call.setdefault("autre_message", asyncio.Event()).set()
+
+
+def left_open(agent_id: str) -> str:
+    """Ce que l'agent doit savoir de son dernier appel avant un nouveau message. Un appel se perd avec un redémarrage du serveur :
+    sa trace est en base, sinon l'agent le croit encore en cours et repart l'attendre."""
+    call = current(agent_id)
+    if call and call["origine"] == "agent" and (not call["attentifs"] or not relay.active.get(agent_id)):  # aucun tour ne l'attend plus
+        return f"Ton appel à la personne (« {call['message'][:200]} ») reste affiché à son écran ; sa réponse te reviendra toute seule, sans `attendre`."
+    message = db.get_setting(_trace(agent_id)) if not call else None
+    if not message:
+        return ""
+    _forget_trace(agent_id)
+    return f"Ton appel à la personne (« {message} ») s'est terminé sans réponse de sa part, et plus rien ne l'attend."
+
+
+def _trace(agent_id: str) -> str:
+    return f"appel_ouvert:{agent_id}"
+
+
+def _forget_trace(agent_id: str) -> None:
+    with db.connect() as c:
+        c.execute("DELETE FROM settings WHERE key = ?", (_trace(agent_id),))
 
 
 def _public(call: dict | None) -> dict | None:
@@ -219,6 +261,7 @@ async def save_browser_session(agent_id: str, delay: float = 3) -> None:
 
 # Sous la limite des commandes de l'agent (180 s) : au-delà, il relance `noah.py attendre <id>`.
 AGENT_WAIT = 150
+ANOTHER_MESSAGE = "autre_message"
 
 
 class AgentCall(BaseModel):
@@ -227,6 +270,9 @@ class AgentCall(BaseModel):
 
 
 def _result(call_id: str, answer: str) -> dict:
+    if answer == ANOTHER_MESSAGE:
+        return {"reponse": "en_attente", "id": call_id,
+                "conseil": "La personne vient d'écrire autre chose. Ne relance pas `attendre` : si son message t'est arrivé, réponds-y ; sinon, termine ton tour tout de suite en une phrase, sans autre outil, et il arrivera juste après. Sa réponse à l'appel te relancera toute seule."}
     if answer == "en_attente":
         return {"reponse": "en_attente", "id": call_id,
                 "conseil": f"L'utilisateur n'a pas encore répondu. Relance `python3 /opt/data/noah.py attendre {call_id}`."}
@@ -234,7 +280,7 @@ def _result(call_id: str, answer: str) -> dict:
         return {"reponse": "fait", "conseil": "Recharge la page avant de vérifier : elle a pu changer pendant que tu attendais."}
     if answer == "impossible":
         return {"reponse": "impossible", "conseil": "L'utilisateur ne peut pas le faire maintenant : arrête-toi et demande-lui comment continuer."}
-    return {"reponse": answer, "conseil": "Cet appel n'attend plus de réponse."}
+    return {"reponse": answer, "conseil": "Cet appel est terminé, sans réponse de sa part. Ne le relance pas de toi-même : réponds à ce que la personne te dit maintenant."}
 
 
 @router.post("/agent-api/appel")

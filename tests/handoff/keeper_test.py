@@ -13,8 +13,9 @@ os.environ["NOAH_DATA_DIR"] = tempfile.mkdtemp()
 os.environ.setdefault("LAUNCHER_KEY", "x")
 os.environ.setdefault("NOAH_SECRET_KEY", "y" * 32)
 sys.path.insert(0, "/app")
-from noah import desktop, handoff  # noqa: E402
+from noah import db, desktop, handoff  # noqa: E402
 
+db.init()
 desktop.notify = lambda *a, **k: None
 sent: list[int] = []
 browser = {"until": 0, "up": True}
