@@ -3,8 +3,7 @@
 // sans sortie. Le test passe seulement si le vrai Firefox a rendu une page : /health ne prouve pas que le navigateur démarre.
 //     node tests/navigateur/hors_ligne_test.mjs                     l'image déclarée au lanceur
 //     node tests/navigateur/hors_ligne_test.mjs --sabotage=binaire    image sans binaire : le test doit échouer
-//     node tests/navigateur/hors_ligne_test.mjs --sabotage=extension  lanceur sans l'extension : le test doit échouer
-// Il faut l'image du navigateur en local (4 Go) et un accès au dépôt d'extensions pour construire le lanceur. Aucune clé.
+// Il faut l'image du navigateur en local (4 Go). Aucune clé.
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -64,8 +63,7 @@ try {
   const cle = randomBytes(24).toString("hex");
   must("run", "--rm", "--network", "none", "-v", "//var/run/docker.sock:/var/run/docker.sock", "-v", `${HERE}:/t:ro`,
     "-e", `AGENT_NETWORK=${RESEAU}`, "-e", `BROWSER_IMAGE=${image}`, "-e", "LAUNCHER_KEY=essai", "-e", "PYTHONPATH=/app", "--entrypoint", "python", LANCEUR,
-    "/t/creer_navigateur.py", AGENT, cle, randomBytes(4).toString("hex"), randomBytes(24).toString("hex"),
-    ...(SABOTAGE === "extension" ? ["--sans-extension"] : []));
+    "/t/creer_navigateur.py", AGENT, cle, randomBytes(4).toString("hex"), randomBytes(24).toString("hex"));
 
   const internal = must("network", "inspect", RESEAU, "--format", "{{.Internal}}");
   const relie = must("inspect", NOM, "--format", "{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}").trim();
@@ -89,7 +87,7 @@ try {
   check("le vrai Firefox a rendu la page", v.page_lue === true, (v.erreurs || []).join(" | ").slice(0, 400));
   check("une capture PNG sort du navigateur", v.capture_octets > 1000, `${v.capture_octets} octets`);
   check("le processus camoufox-bin tourne", principal.length > 0);
-  check("uBlock Origin est présent dès le départ", /"version":\s*"\d/.test(v.extension || ""), (v.extension || "").slice(0, 80));
+  check("aucune extension à aller chercher : uBlock est exclu", !v.extension, (v.extension || "").slice(0, 80));
 
   // 3. Aucune tentative de téléchargement : la moindre ligne de ce genre veut dire qu'un autre premier lancement dépend du réseau.
   const journal = docker("logs", "--tail", "600", NOM);

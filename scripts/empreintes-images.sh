@@ -18,5 +18,5 @@ digest() {
 echo "noah-server=ghcr.io/$OWNER/noah-server@$(digest "ghcr.io/$OWNER/noah-server:$VERSION")"
 echo "noah-launcher=ghcr.io/$OWNER/noah-launcher@$(digest "ghcr.io/$OWNER/noah-launcher:$VERSION")"
 echo "hermes=nousresearch/hermes-agent@$(digest nousresearch/hermes-agent:stable)"
-echo "navigateur=ghcr.io/jo-inc/camofox-browser@$(digest ghcr.io/jo-inc/camofox-browser:latest)"
+echo "navigateur=ghcr.io/$OWNER/noah-browser@$(digest "ghcr.io/$OWNER/noah-browser:$VERSION")"
 echo "caddy=caddy@$(digest caddy:2.10-alpine)"

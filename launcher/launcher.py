@@ -77,12 +77,12 @@ class NewAgent(BaseModel):
     dossiers: list["Folder"] = []
 
 
-BROWSER_IMAGE = os.environ.get("BROWSER_IMAGE", "ghcr.io/jo-inc/camofox-browser:latest")
+BROWSER_IMAGE = os.environ.get("BROWSER_IMAGE", "ghcr.io/smfcoder17/noah-browser:stable")
 BROWSER_PREFIX = "noah-browser-"
 BROWSER_LABEL = "noah.browser"
 # Version des réglages du navigateur ; un conteneur plus ancien est recréé (le profil reste dans son volume).
-# 11 : toutes les routes sous clé ; 10 : clé du mode privé à part ; 9 : aucune capture pendant une prise en main ; 8 : jetons hors de la config Docker
-BROWSER_VERSION = "11"
+# 12 : image Noah avec bureau, sans uBlock ; 11 : toutes les routes sous clé ; 10 : clé du mode privé à part ; 9 : aucune capture pendant une prise en main ; 8 : jetons hors de la config Docker
+BROWSER_VERSION = "12"
 
 
 def _frozen(agent_id: str):
@@ -193,6 +193,8 @@ def _ensure_browser(agent_id: str, body: BrowserKeys, image: str | None = None, 
             "CAMOFOX_PROFILE_DIR": "/data/profiles",
             "CAMOFOX_COOKIES_DIR": "/data/cookies",
             "CAMOFOX_CRASH_REPORT_ENABLED": "false",
+            # Avec uBlock, sur 2 cœurs, des onglets expiraient à 30 s pendant que l'extension travaillait, avec ou sans bureau.
+            "CAMOFOX_DISABLE_DEFAULT_ADDONS": "1",
             "ENABLE_VNC": "1",
             "VNC_RESOLUTION": "1920x1080",  # taille de la fenêtre Camoufox : rien n'est coupé à l'écran
             "VNC_BIND": "0.0.0.0",
@@ -230,10 +232,7 @@ def _ensure_browser(agent_id: str, body: BrowserKeys, image: str | None = None, 
         cfg = tar.extractfile(tar.getmembers()[0]).read()
     if b"NOAH :" not in cfg:
         cfg += (here / "autoconfig.js").read_bytes()
-    # L'extension déjà là : sans elle, Camoufox la télécharge au premier lancement et ne démarre pas sans réseau (G0.5).
-    addons = here / "addons"
-    files = {f"addons/{p.relative_to(addons).as_posix()}": p.read_bytes() for p in addons.rglob("*") if p.is_file()}
-    c.put_archive(os.path.dirname(CAMOUFOX_CFG), _tar({os.path.basename(CAMOUFOX_CFG): cfg, **files}))
+    c.put_archive(os.path.dirname(CAMOUFOX_CFG), _tar({os.path.basename(CAMOUFOX_CFG): cfg}))
     if start:
         c.start()
     return {"host": name, "created": True}

@@ -2489,7 +2489,7 @@ async def _browser_diagnosis(agent_id: str) -> dict:
     elif not screen:
         advice = "Le navigateur tourne mais son écran partagé est coupé. Lance « navigateur redemarrer »."
     elif not health.get("activeTabs"):
-        advice = "Aucune page ouverte : l'écran reste noir tant que rien n'est affiché. « navigateur reveiller » ouvre une page."
+        advice = "Aucune page ouverte : l'écran montre le bureau. « navigateur reveiller » ouvre une page."
     else:
         advice = "Tout fonctionne."
     return {"joignable": True, "navigateur_allume": running, "ecran_actif": screen,

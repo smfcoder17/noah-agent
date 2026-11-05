@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Application
+Name=Éditeur
+Exec=mousepad
+Icon=/home/bureau/.local/share/noah/editeur.png

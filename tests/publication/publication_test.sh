@@ -69,7 +69,7 @@ cat >refs.txt <<EOF
 noah-server=ghcr.io/smfcoder17/noah-server@$D
 noah-launcher=ghcr.io/smfcoder17/noah-launcher@$D
 hermes=nousresearch/hermes-agent@$D
-navigateur=ghcr.io/jo-inc/camofox-browser@$D
+navigateur=ghcr.io/smfcoder17/noah-browser@$D
 caddy=caddy@$D
 EOF
 printf 'Ce qui change\n[migration]\n' >notes.md
@@ -100,7 +100,7 @@ refuse "signature sans clé" "NOAH_RELEASE_KEY absente" env -u NOAH_RELEASE_KEY 
 # --- Le compose joint à la version ----------------------------------------------------------------------------------
 sh "$REPO/scripts/compose-version.sh" smfcoder17 refs.txt "$REPO/deploy/docker-compose.yml" >compose.yml
 grep -q "noah-server@$D" compose.yml || fail "serveur non épinglé"
-grep -q "BROWSER_IMAGE: ghcr.io/jo-inc/camofox-browser@$D" compose.yml || fail "navigateur non épinglé"
+grep -q "BROWSER_IMAGE: ghcr.io/smfcoder17/noah-browser@$D" compose.yml || fail "navigateur non épinglé"
 if grep -E "image: .*:(stable|latest|2\.10)" compose.yml; then fail "image non épinglée"; fi
 python3 -c "import yaml; yaml.safe_load(open('compose.yml', encoding='utf-8'))"
 ok "compose : toutes les images par empreinte"

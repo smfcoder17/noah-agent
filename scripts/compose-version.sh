@@ -24,7 +24,7 @@ OUT=$(sed \
   -e "s#ghcr.io/$OWNER/noah-launcher:stable#$LAUNCHER#" \
   -e "s#caddy:2.10-alpine#$CADDY#" \
   -e "s#nousresearch/hermes-agent:stable#$HERMES#" \
-  -e "s#ghcr.io/jo-inc/camofox-browser:latest#$BROWSER#" \
+  -e "s#ghcr.io/$OWNER/noah-browser:stable#$BROWSER#" \
   "$SOURCE")
 if echo "$OUT" | grep -nE "image: [^@]+$|_IMAGE: [^@]+$" >&2; then
   echo "image non épinglée" >&2

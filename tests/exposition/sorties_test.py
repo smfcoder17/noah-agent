@@ -60,7 +60,6 @@ KNOWN = {
     "openrouter.ai": "fournisseur", "api.openai.com": "fournisseur", "api.anthropic.com": "fournisseur",
     "generativelanguage.googleapis.com": "fournisseur", "ollama.com": "fournisseur",
     # Grille : manifeste et registre des mises à jour
-    "addons.mozilla.org": "construction de l'image du lanceur seulement (fetch_ublock.py), jamais au lancement",
     "github.com": "mises à jour", "raw.githubusercontent.com": "installation (get.sh)", "get.docker.com": "installation (get.sh)",
     # Déclarés dans /api/flux, hors de la liste de la grille
     "ipinfo.io": "hors grille", "api.ipify.org": "hors grille", "ifconfig.me": "hors grille", "icanhazip.com": "hors grille",

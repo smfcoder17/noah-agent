@@ -50,8 +50,8 @@ Généré par `node tools/eval/licences.mjs`. Noah Agent est sous PolyForm Nonco
 | dépendances Gradle de l'APK | non inventoriées ici : à lire dans le rapport Gradle |
 | nousresearch/hermes-agent | MIT (à confirmer sur son dépôt) |
 | ghcr.io/jo-inc/camofox-browser | à confirmer sur son dépôt, Camoufox et Firefox sont sous MPL-2.0 |
+| Openbox, tint2, PCManFM, Mousepad (bureau de l'agent, dans l'image noah-browser) | GPL-2.0-or-later (tint2 GPL-2.0-only), programmes séparés non liés au code de Noah ; sources : paquets Debian trixie |
 | caddy | Apache-2.0 |
-| uBlock Origin 1.75.4 (extension du navigateur, dans l'image du lanceur) | GPL-3.0-only, programme séparé non lié au code de Noah ; sources : github.com/gorhill/uBlock |
 
 ## À regarder de près
 
