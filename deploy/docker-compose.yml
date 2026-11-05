@@ -1,15 +1,19 @@
-# Noah Agent sur un VPS, sans rien configurer : ce seul fichier suffit.
+# Noah Agent sur un VPS : ce seul fichier suffit, aucune variable n'est obligatoire.
 #
 #   - Hostinger : VPS > Docker Manager > Compose > « Compose from URL », colle
-#     https://github.com/smfcoder17/noah-agent/releases/latest/download/docker-compose.yml, puis Deploy.
+#     https://github.com/smfcoder17/noah-agent/releases/latest/download/docker-compose.yml, nomme le projet noah, puis Deploy.
 # La copie jointe à chaque version a toutes ses images épinglées par empreinte (celles du manifeste signé) ;
 # ce fichier-ci, dans le dépôt, suit les étiquettes.
-#   - Ailleurs : curl -fsSL https://raw.githubusercontent.com/smfcoder17/noah-agent/main/get.sh | sh
+#   - Ailleurs : curl -fsSL https://raw.githubusercontent.com/smfcoder17/noah-agent/main/get.sh | NOAH_DOMAIN=noah.exemple.com sh
 #
-# Au premier démarrage, le serveur tire ses secrets au hasard (volume noah-secrets), trouve l'adresse publique du VPS
-# et Caddy obtient un certificat HTTPS pour <ip-en-tirets>.sslip.io. Le lien de création du compte, avec son code
-# d'installation, s'affiche dans les journaux du service « server » (Docker Manager > Logs).
-# Avec ton propre domaine (qui pointe déjà vers ce VPS) : NOAH_DOMAIN=noah.exemple.com dans le fichier .env à côté.
+# Adresse. Conseillé : un sous-domaine qui pointe déjà vers ce VPS, NOAH_DOMAIN=noah.exemple.com dans le fichier .env à
+# côté (Hostinger : remplace la valeur de NOAH_DOMAIN ci-dessous dans le YAML Editor). En secours, sans rien régler :
+# <ip-en-tirets>.sslip.io, où l'IP se lit dans l'adresse. Un sous-domaine ne cache pas le serveur, le DNS mène à l'IP ;
+# seul un relais comme Cloudflare la cache vraiment (docs/installation.md).
+#
+# Au premier démarrage, le serveur tire ses secrets au hasard (volume noah-secrets) et trouve l'adresse publique du VPS ;
+# Caddy obtient le certificat HTTPS à la première visite. Le lien de création du compte, avec son code d'installation,
+# s'affiche dans les journaux du service « server » (Docker Manager > View logs).
 # Même nom de projet et mêmes volumes que l'installation par install.sh : les sauvegardes servent aux deux.
 name: noah
 
