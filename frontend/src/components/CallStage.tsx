@@ -16,6 +16,17 @@ const IMAGE = /\.(png|jpe?g|webp|gif|svg|avif)(\?|$)/i;
 export type Artefact = { kind: "image" | "file"; url: string; title: string };
 type Message = { role: string; content: readonly { type: string; text?: string; toolName?: string; args?: { label?: string } }[] };
 
+/** Ces adresses viennent du texte du modèle : une carte ne s'ouvre que sur du http(s), et un fichier que sur l'API de Noah. */
+function usable(url: string, kind: Artefact["kind"]) {
+  try {
+    const u = new URL(url, location.href);
+    if (u.protocol !== "https:" && u.protocol !== "http:") return false;
+    return kind === "image" ? !!safeMedia(url) : u.origin === location.origin && /^\/api\/agents\/[^/]+\/files\/raw\//.test(u.pathname);
+  } catch {
+    return false;
+  }
+}
+
 /** Ce que l'agent a produit dans ces messages, le plus récent en dernier. `link` rend cliquables les chemins de fichiers. */
 export function artefactsOf(messages: readonly Message[], link: (text: string) => string): Artefact[] {
   const found = new Map<string, Artefact>();
@@ -24,8 +35,8 @@ export function artefactsOf(messages: readonly Message[], link: (text: string) =
     for (const p of m.content) {
       if (p.type !== "text" || !p.text) continue;
       for (const [, bang, title, url] of link(p.text).matchAll(/(!?)\[([^\]]*)\]\(([^)\s]+)\)/g)) {
-        if (bang || IMAGE.test(url)) found.set(url, { kind: "image", url, title: title || "Image" });
-        else if (url.includes("/files/raw/")) found.set(url, { kind: "file", url, title: title || "Fichier" });
+        const kind = bang || IMAGE.test(url) ? "image" : "file";
+        if (usable(url, kind)) found.set(url, { kind, url, title: title || (kind === "image" ? "Image" : "Fichier") });
       }
     }
   }

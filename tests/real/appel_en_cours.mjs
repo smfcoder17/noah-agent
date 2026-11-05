@@ -68,6 +68,26 @@ for (const [label, viewport] of [["ordinateur", { width: 1280, height: 800 }], [
   await page.getByRole("button", { name: new RegExp(process.env.NOAH_AGENT || "Noah") }).first().click();
   await page.waitForTimeout(800);
   check(`${label} : au retour, la conversation est là`, await page.getByText("Voilà le graphe").first().isVisible());
+  // Une réponse en route pendant un aller-retour entre agents n'est pas perdue.
+  const RUN = Date.now() % 100000;
+  await page.route(/\/api\/chat/, async (route) => {
+    await new Promise((r) => setTimeout(r, 5000));
+    await route.continue();
+  }, { times: 1 });
+  await box.fill(`Réponds seulement : Aller-retour ${RUN}`);
+  await box.press("Enter");
+  await openSidebar();
+  await other.click();
+  await page.waitForTimeout(800);
+  await openSidebar();
+  await page.getByRole("button", { name: new RegExp(process.env.NOAH_AGENT || "Noah") }).first().click();
+  check(`${label} : la réponse en route arrive quand même`, await page.getByText(`Aller-retour ${RUN}`).nth(1).waitFor({ timeout: 30000 }).then(() => true, () => false));
+
+  // Une adresse venue du modèle ne s'exécute pas.
+  await box.fill(`Réponds seulement : [Piege ${RUN}](javascript:document.title='PIEGE'//files/raw/x)`);
+  await box.press("Enter");
+  await page.waitForTimeout(6000);
+  check(`${label} : pas de carte pour un lien javascript`, !(await call.getByRole("button", { name: new RegExp(`Piege ${RUN}`) }).count()));
   await call.getByRole("button", { name: "Couper le micro" }).click();
   check(`${label} : le micro se coupe`, await call.getByRole("button", { name: "Rétablir le micro" }).isVisible());
   await call.getByRole("button", { name: "Raccrocher" }).click();

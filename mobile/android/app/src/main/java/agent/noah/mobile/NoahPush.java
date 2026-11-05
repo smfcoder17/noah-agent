@@ -11,6 +11,7 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.media.AudioAttributes;
 import android.media.RingtoneManager;
+import android.net.Uri;
 import android.os.Build;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
@@ -260,8 +261,8 @@ public class NoahPush extends PushService {
         int flags = PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT;
         PendingIntent full = PendingIntent.getActivity(context, id, screen, flags);
         // Écran allumé, Android n'ouvre pas le plein écran : c'est ce bandeau qui répond ou refuse.
-        PendingIntent answer = PendingIntent.getActivity(context, id + 1, new Intent(screen).putExtra(CallActivity.CHOICE, CallActivity.ANSWERED), flags);
-        PendingIntent decline = PendingIntent.getActivity(context, id + 2, new Intent(screen).putExtra(CallActivity.CHOICE, CallActivity.DECLINED), flags);
+        PendingIntent answer = PendingIntent.getActivity(context, id + 1, new Intent(screen).setData(Uri.parse("noah-appel:" + id + "/" + CallActivity.ANSWERED)).putExtra(CallActivity.CHOICE, CallActivity.ANSWERED), flags);
+        PendingIntent decline = PendingIntent.getActivity(context, id + 2, new Intent(screen).setData(Uri.parse("noah-appel:" + id + "/" + CallActivity.DECLINED)).putExtra(CallActivity.CHOICE, CallActivity.DECLINED), flags);
         Person who = new Person.Builder().setName(title).setIcon(IconCompat.createWithBitmap(NoahFace.bitmap(context, color, 192))).build();
         NotificationCompat.Builder n = new NotificationCompat.Builder(context, CALLS)
             .setSmallIcon(R.drawable.ic_stat_noah).setContentTitle(title).setContentText(text)

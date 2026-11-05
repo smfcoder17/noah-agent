@@ -104,8 +104,9 @@ down = true;
 const before = pieces.length;
 await say(1000);
 check("réseau coupé : c'est dit à l'écran", await call.getByText(/Réseau coupé/).waitFor({ timeout: 15000 }).then(() => true, () => false));
+await page.waitForTimeout(40_000); // plus long que ce qu'attendait la version d'avant
 down = false;
-check("au retour, ce qui a été dit part", await until(() => pieces.length > before, 20), `${attempts} essais`);
+check("au retour, ce qui a été dit part", await until(() => pieces.length > before, 30), `${attempts} essais`);
 check("l'avertissement disparaît", await call.getByText(/Réseau coupé/).waitFor({ state: "hidden", timeout: 5000 }).then(() => true, () => false));
 await page.waitForTimeout(6000);
 
@@ -141,15 +142,31 @@ await page.waitForTimeout(3000);
 
 // Le micro disparaît (une autre application l'a pris) : l'appel en rouvre un, sans erreur.
 const mics = await page.evaluate(() => window.__mics);
-await page.evaluate(() => {
+const beforeLoss = pieces.length;
+await page.evaluate(() => (window.__voice = 1));
+await page.waitForTimeout(800);
+const loseMic = () => page.evaluate(() => {
+  window.__voice = 0;
   const t = window.__tracks[window.__tracks.length - 1];
   t.stop();
   t.dispatchEvent(new Event("ended"));
 });
+await loseMic();
 check("micro perdu : l'appel en rouvre un", await until(() => page.evaluate((m) => window.__mics > m, mics), 5));
+check("et la phrase en cours part quand même", await until(() => pieces.length > beforeLoss, 10), `${pieces.length - beforeLoss} morceau(x)`);
+await page.waitForTimeout(6000);
 const pieceCount = pieces.length;
 await say(1000);
 check("et il entend de nouveau", await until(() => pieces.length > pieceCount, 15));
+await page.waitForTimeout(6000);
+
+// Micro coupé par la personne : un micro rouvert reste coupé.
+const openMics = await page.evaluate(() => window.__mics);
+await call.getByRole("button", { name: "Couper le micro" }).click();
+await loseMic();
+await until(() => page.evaluate((m) => window.__mics > m, openMics), 5);
+check("micro coupé : il le reste après réouverture", await until(() => page.evaluate(() => window.__tracks[window.__tracks.length - 1].enabled === false), 3) && await call.getByRole("button", { name: "Rétablir le micro" }).isVisible());
+await call.getByRole("button", { name: "Rétablir le micro" }).click();
 
 check("l'écran reste allumé dans un navigateur", (await page.evaluate(() => window.__locks)) >= 1 || !(await page.evaluate(() => "wakeLock" in navigator)));
 check("aucune erreur dans la page", errors.length === 0, errors.join(" | ").slice(0, 300));

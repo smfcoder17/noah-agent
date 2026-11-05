@@ -220,7 +220,9 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   }, []);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [agentId, setAgentId] = useState<string | null>(null);
-  const [conversations, setConversations] = useState<Conversation[] | null>(null);
+  // Liste associée à son agent : au retour sur un agent, celle du précédent ne doit pas lui donner une autre conversation.
+  const [listed, setListed] = useState<{ agent: string | null; list: Conversation[] | null }>({ agent: null, list: null });
+  const conversations = listed.agent === agentId ? listed.list : agentId ? conversationsCache.get(agentId) ?? null : null;
   // Fil ouvert à la place de la conversation principale (null = conversation principale).
   const [threadId, setThreadId] = useState<string | null>(null);
   const [model, setModel] = useState<CurrentModel>(null);
@@ -263,11 +265,11 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     setUsage(u as Usage | null);
   }, []);
   const refreshConversations = useCallback(async () => {
-    if (!agentId) return setConversations([]);
+    if (!agentId) return setListed({ agent: null, list: [] });
     const list = await get<Conversation[]>(`/api/agents/${agentId}/conversations`).catch(() => null);
     if (list) {
       conversationsCache.set(agentId, list);
-      setConversations((cur) => same(cur, list));
+      setListed((cur) => ({ agent: agentId, list: same(cur.agent === agentId ? cur.list : null, list) }));
     }
   }, [agentId]);
 
@@ -277,8 +279,6 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     return every(4000, refreshAgents);
   }, [refreshAgents, refreshModel]);
   useEffect(() => {
-    // Liste déjà vue : affichée tout de suite, rafraîchie derrière (pas d'écran « Chargement… »).
-    setConversations(agentId ? conversationsCache.get(agentId) ?? null : null);
     refreshConversations();
     return every(4000, refreshConversations);
   }, [agentId, refreshConversations]);
@@ -419,7 +419,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
           <div id={CALL_SLOT} />
           {agent && canAdmin(agent) && <HandoffBanner agentId={agent.id} onOpenScreen={() => setPanel("computer")} />}
           <div className="min-h-0 flex-1">
-            {inCall && inCall.chatKey !== liveKey && <div key={inCall.chatKey} hidden><AgentChat {...inCall} /></div>}
+            {inCall && (inCall.chatKey !== liveKey || !conversations) && <div key={inCall.chatKey} hidden><AgentChat {...inCall} /></div>}
             {agent && conversations ? (
               <div key={liveKey} className="h-full">
                 <AgentChat

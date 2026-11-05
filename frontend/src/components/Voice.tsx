@@ -18,7 +18,6 @@ const TURN_PAUSE = 500; // en mode vocal : le morceau part, et la réponse se pr
 // Un appel dure des heures : aucun morceau ne doit grandir sans fin, le serveur en refuse au-delà de 20 Mo.
 const QUIET_RENEW = 30_000; // morceau sans voix depuis ce temps : on le jette et on en ouvre un autre
 const SEGMENT_MAX = 60_000; // parole ou bruit sans aucune pause : le morceau part quand même
-const NETWORK_TRIES = 9; // transcription, réseau coupé : le son attend environ une minute avant d'être perdu
 const LOST_WAIT = 600_000; // comme useAgentChat : au-delà, la réponse perdue avec le serveur n'arrivera plus
 const RESUMED = 150; // parole qui annule la réponse préparée : la personne n'avait pas fini
 // Couper la parole, en deux temps : un « mm-hm » ne dure pas assez pour arrêter l'agent, mais on baisse sa voix tout de suite.
@@ -41,6 +40,7 @@ function useMic() {
   const onTick = useRef<((t: Tick) => void) | null>(null);
   const onLost = useRef<(() => void) | null>(null);
   const opening = useRef(0);
+  const silenced = useRef(false); // micro coupé par la personne : vaut aussi pour un micro rouvert
 
   const recorder = (stream: MediaStream) => {
     const mime = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((m) => MediaRecorder.isTypeSupported(m));
@@ -67,7 +67,10 @@ function useMic() {
     const buf = new Uint8Array(analyser.fftSize);
     seg.current = { speech: 0, silence: 0, age: 0 };
     // Une autre application a pris le micro, ou l'appareil a disparu : sans ça, l'appel resterait sourd sans le dire.
-    stream.getAudioTracks().forEach((t) => (t.onended = () => onLost.current?.()));
+    stream.getAudioTracks().forEach((t) => {
+      t.enabled = !silenced.current;
+      t.onended = () => onLost.current?.();
+    });
     let last = performance.now();
     const timer = window.setInterval(() => {
       // Le vrai temps écoulé : un onglet caché ne relève plus le niveau qu'une fois par seconde.
@@ -99,9 +102,13 @@ function useMic() {
     const speech = seg.current.speech;
     seg.current = { speech: 0, silence: seg.current.silence, age: 0 };
     m.rec = next ? recorder(m.stream) : null;
-    const done = new Promise<void>((resolve) => (old.r.onstop = () => resolve()));
-    if (old.r.state !== "inactive") old.r.stop();
-    await done;
+    if (old.r.state === "inactive") {
+      await new Promise((r) => setTimeout(r, 100)); // arrêté avec son micro : son dernier morceau arrive
+    } else {
+      const done = new Promise<void>((resolve) => (old.r.onstop = () => resolve()));
+      old.r.stop();
+      await done;
+    }
     return { blob: old.chunks.length ? new Blob(old.chunks, { type: old.r.mimeType }) : null, speech };
   }, []);
 
@@ -122,6 +129,7 @@ function useMic() {
 
   /** Micro coupé : la piste reste ouverte et le silence ne coûte rien. */
   const mute = useCallback((off: boolean) => {
+    silenced.current = off;
     mic.current?.stream.getAudioTracks().forEach((t) => (t.enabled = !off));
   }, []);
 
@@ -146,6 +154,13 @@ function useTranscripts(agentId: string, onText: (text: string) => void) {
   const [error, setError] = useState("");
   const emit = useRef(onText);
   emit.current = onText;
+  const live = useRef(true);
+  useEffect(() => {
+    live.current = true;
+    return () => {
+      live.current = false;
+    };
+  }, []);
 
   const submit = useCallback(
     (blob: Blob) => {
@@ -153,7 +168,7 @@ function useTranscripts(agentId: string, onText: (text: string) => void) {
       const i = s.issued++;
       setPending((n) => n + 1);
       // Deux transcriptions à la fois au plus (au-delà, le fournisseur répond 429). Le serveur passe déjà aux modèles de
-      // secours : un refus de sa part a droit à trois essais, une coupure réseau attend le retour du réseau.
+      // secours : un refus de sa part a droit à trois essais. Réseau coupé ou serveur qui redémarre : le son attend leur retour.
       const run = async () => {
         while (s.running >= 2) await new Promise((r) => setTimeout(r, 60));
         s.running++;
@@ -164,7 +179,8 @@ function useTranscripts(agentId: string, onText: (text: string) => void) {
               setError("");
               return text;
             } catch (e) {
-              if (attempt >= (e instanceof ApiError ? 2 : NETWORK_TRIES - 1)) throw e;
+              const refused = e instanceof ApiError && e.status < 500;
+              if (!live.current || (refused && attempt >= 2)) throw e;
               if (attempt >= 2) setError("Réseau coupé : ce que tu as dit partira dès son retour.");
               await new Promise((r) => setTimeout(r, Math.min(700 * (attempt + 1), 10_000)));
             }
@@ -512,6 +528,9 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
   const cutting = useRef(0); // morceaux coupés, pas encore partis à la transcription
   const cutOff = useRef<number | null>(null); // connexion perdue pendant un tour : l'agent continue, le résultat viendra au retour
   const lastSaid = useRef(""); // le tour parti à l'agent, à renvoyer si le serveur ne l'a jamais reçu
+  const alikeBefore = useRef(0); // combien de messages disaient déjà la même chose : « Continue » peut se répéter
+  const runningNow = useRef(running);
+  runningNow.current = running;
 
   const t = useTranscripts(agentId, (text) => {
     heard.current.push(text);
@@ -540,6 +559,12 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
   const history = () => latest.current.slice(-6).map((m) => ({ role: m.role, text: spoken(textOf(m)).slice(0, 800) }));
 
   const priorTurns = () => [...history(), ...queue.current.map((q) => ({ role: "user", text: q.text }))];
+  const alike = (text: string) => latest.current.filter((m) => m.role === "user" && textOf(m).includes(text)).length;
+  const sendTurn = (text: string) => {
+    lastSaid.current = text;
+    alikeBefore.current = alike(text);
+    say(text);
+  };
   const dropHeld = () => {
     held.current?.drop();
     held.current = null;
@@ -557,8 +582,14 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
 
   /** Un tour : le message part à l'agent et, en même temps, la voix rapide répond. */
   const turn = async (text: string, ready: Held | null) => {
-    if (busy.current) {
-      // L'agent travaille encore : la voix rapide répond quand même, et l'agent reçoit la suite dès qu'il a fini.
+    if (busy.current || runningNow.current) {
+      // L'agent travaille encore, parti de la voix ou du clavier : la voix rapide répond quand même, et il reçoit la suite dès qu'il a fini.
+      if (!busy.current) {
+        busy.current = true;
+        started.current = true;
+        action.current = false;
+        lastSaid.current = "";
+      }
       const item = { text, action: true };
       queue.current.push(item);
       setNote(`Je lui transmets ensuite : « ${text.slice(0, 60)} »`);
@@ -567,8 +598,7 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
     }
     busy.current = true;
     started.current = false;
-    lastSaid.current = text;
-    say(text);
+    sendTurn(text);
     answering.current = answer(text, ready);
     action.current = await answering.current;
   };
@@ -596,9 +626,12 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
   };
 
   mic.onLost.current = () => {
-    mic.close();
-    setMuted(false);
-    micReady.current = openMic();
+    // Ce qui venait d'être dit part quand même : seul le micro a changé.
+    void mic.cut(false).then(({ blob, speech }) => {
+      mic.close();
+      if (blob && speech >= 150) t.submit(blob);
+      if (alive.current) micReady.current = openMic();
+    });
   };
 
   mic.onTick.current = ({ rms, speech, silence, age }) => {
@@ -644,6 +677,7 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
     setError("");
     try {
       await mic.open();
+      if (alive.current) nativeCall(true, agentName, agentColor); // Android refuse ce service tant que le micro n'est pas accordé
     } catch {
       setError("Micro refusé ou indisponible.");
     }
@@ -724,10 +758,22 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
         busy.current = true;
         started.current = false;
         action.current = waiting.some((q) => q.action);
-        lastSaid.current = waiting.map((q) => q.text).join("\n");
-        say(lastSaid.current);
+        sendTurn(waiting.map((q) => q.text).join("\n"));
       }
     })();
+  };
+
+  const conclude = (last: (typeof messages)[number] | undefined) => {
+    // Un échec se dit : sinon l'appel resterait sur « Je t'écoute », comme si le travail se faisait.
+    const failure = failureOf(last);
+    if (failure) finished(`${agentName} n'a pas pu répondre. ${failure}`, true);
+    else finished(last?.role === "assistant" ? textOf(last) : "");
+  };
+  const resend = () => {
+    cutOff.current = null;
+    started.current = false;
+    setNote("");
+    sendTurn(lastSaid.current);
   };
 
   useEffect(() => {
@@ -742,12 +788,19 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
     if (isCutOff(last)) {
       cutOff.current = Date.now();
       setNote(`Connexion perdue : ${agentName} continue de son côté, je te lis la suite dès son retour.`);
+      // Première phrase d'une conversation : aucun historique à relire, elle repart dès que le serveur répond.
+      if (messages.length <= 2 && lastSaid.current) {
+        const retry = setInterval(() => {
+          if (!alive.current || cutOff.current === null) return clearInterval(retry);
+          void request("/api/status").then(() => {
+            clearInterval(retry);
+            if (alive.current && cutOff.current !== null && isCutOff(latest.current[latest.current.length - 1])) resend();
+          }, () => {});
+        }, 4000);
+      }
       return;
     }
-    // Un échec se dit : sinon l'appel resterait sur « Je t'écoute », comme si le travail se faisait.
-    const failure = failureOf(last);
-    if (failure) finished(`${agentName} n'a pas pu répondre. ${failure}`, true);
-    else finished(last?.role === "assistant" ? textOf(last) : "");
+    conclude(last);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [running]);
 
@@ -756,14 +809,8 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
     const last = messages[messages.length - 1];
     if (last?.role !== "assistant" || isCutOff(last)) return;
     // Le serveur revenu n'a pas ce tour : la coupure l'a perdu avant son arrivée, il repart. Sinon, c'est sa réponse.
-    const before = messages[messages.length - 2];
-    if (before?.role === "user" && textOf(before).includes(lastSaid.current)) finished(textOf(last));
-    else {
-      cutOff.current = null;
-      started.current = false;
-      setNote("");
-      say(lastSaid.current);
-    }
+    if (!lastSaid.current || alike(lastSaid.current) > alikeBefore.current) conclude(last);
+    else resend();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages]);
 
@@ -806,7 +853,6 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
   useEffect(() => {
     const leave = () => hangUp.current();
     window.addEventListener("noah:raccrocher", leave);
-    nativeCall(true, agentName, agentColor);
     return () => {
       window.removeEventListener("noah:raccrocher", leave);
       nativeCall(false, agentName, agentColor);

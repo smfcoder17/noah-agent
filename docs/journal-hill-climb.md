@@ -519,3 +519,24 @@ APK de la CI, relié au VPS, faux modèle, sans son.
 - **Tenu :** le travail de l'agent se voit dans l'appel à 19,5 s. Une question posée pendant le travail a sa réponse parlée en 7 s (« Rome »), puis part à l'agent. L'image de 2 048 px arrive dans l'appel à 49 s et s'ouvre d'un clic.
 - **Défaut trouvé parce que l'agent était arrêté :** l'appel restait sur « Je t'écoute » alors que la demande avait échoué. L'appel dit maintenant que l'agent n'a pas pu répondre. Testé par `appel_long.mjs`, avec un refus simulé.
 - **Limites :** personne n'a écouté le son, faux micro. Le nom de l'image est affiché tel quel, long et peu lisible.
+
+### Audit Codex du mode d'appel
+
+Audit indépendant sur `f59e736..8de90fc`, sans mes conclusions. 11 défauts annoncés, relus dans le code et corrigés. `appel_long.mjs` et `appel_en_cours.mjs` passent sur le code corrigé, sur le VPS avec le faux modèle.
+
+| Défaut | Correction | Preuve |
+|---|---|---|
+| Lien `javascript:` présenté comme artefact, exécuté au clic | Carte seulement pour du http(s), et un fichier seulement sur l'API de Noah | Navigateur |
+| Retour sur un agent en appel : il recevait la conversation du précédent, et sa réponse en route était perdue | La liste des conversations est associée à son agent | Navigateur |
+| Parler pendant une tâche écrite au clavier bloquait la voix | Le tour attend la fin de ce travail | Lecture du code |
+| Plus de 25 s de réseau coupé : son perdu | Le son attend le retour du réseau | Navigateur, 40 s |
+| Micro perdu : phrase en cours perdue | Elle part avant la réouverture | Navigateur |
+| « Continue » répété après une coupure : ancienne réponse relue | On compte les messages identiques | Lecture du code |
+| Première phrase d'une conversation perdue | Elle repart quand le serveur répond ; un doublon reste possible si la coupure tombe juste après son arrivée | Lecture du code |
+| Micro actif alors que l'écran le dit coupé | Le choix vaut pour tout micro rouvert | Navigateur |
+| Service Android refusé avant l'accord du micro | Il démarre après l'ouverture du micro | Lecture du code |
+| Panne survenue pendant une coupure, non dite | Même traitement que sans coupure | Lecture du code |
+| Page Android remplacée : service et notification restaient | Le service s'arrête avant le remplacement | Lecture du code |
+| Deux appels entrants : boutons échangés | Chaque bouton a son identité | Lecture du code |
+
+« Lecture du code » veut dire qu'aucun test n'a provoqué ce cas.
