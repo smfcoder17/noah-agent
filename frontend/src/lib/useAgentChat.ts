@@ -141,6 +141,12 @@ export function useAgentChat(opts: {
 
   useEffect(() => {
     if (conversationId && conversationId === ownConversation.current) return;
+    // L'envoi en cours vient de créer cette conversation, et la liste la montre avant son événement « start » (Hermes lent à
+    // démarrer), ou pas encore après : c'est la même, il ne faut surtout pas le couper.
+    if (runRef.current.abort && (!conversationId || !ownConversation.current)) {
+      if (conversationId) ownConversation.current = conversationId;
+      return;
+    }
     ownConversation.current = conversationId;
     runRef.current.abort?.abort();
     setRunning(false);

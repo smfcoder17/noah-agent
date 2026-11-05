@@ -444,7 +444,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
                   agent={agent}
                   readOnly={!canTalk(agent) || !!shown?.de}
                   main={!threadId}
-                  conversationId={shown?.id ?? null}
+                  conversationId={shown?.id ?? (inCall?.chatKey === liveKey ? inCall.conversationId : null)}
                   updatedAt={shown?.updated_at}
                   details={details}
                   onConversationCreated={refreshConversations}
@@ -545,6 +545,16 @@ type ChatProps = {
 function AgentChat(props: ChatProps) {
   const quotes = useQuoteState();
   const takeQuotes = quotes.take;
+  const self = useRef(props);
+  self.current = props;
+  // Quand on navigue, l'appel continue avec ces props gardées : elles doivent suivre sa conversation, souvent créée après le début
+  // de l'appel. Sinon, sa conversation vide reviendrait : flux coupé, écran effacé.
+  const followConversation = useCallback(
+    (id: string | null) =>
+      self.current.onCallChange((cur) => (cur?.chatKey === self.current.chatKey && cur.conversationId !== id ? { ...cur, conversationId: id } : cur)),
+    [],
+  );
+  useEffect(() => followConversation(props.conversationId), [followConversation, props.conversationId]);
   const { runtime, whileBusy } = useAgentChat({
     agentId: props.agent.id,
     ...props,
@@ -552,13 +562,15 @@ function AgentChat(props: ChatProps) {
       clearShare(); // le partage part avec ce message
       return takeQuotes();
     }, [takeQuotes]),
+    onConversationCreated: useCallback((id: string) => {
+      followConversation(id); // même si l'appel est déjà caché : la liste affichée est alors celle d'un autre agent
+      self.current.onConversationCreated();
+    }, [followConversation]),
   });
   const say = useCallback(
     (text: string) => runtime.thread.append({ role: "user", content: [{ type: "text", text }] }),
     [runtime],
   );
-  const self = useRef(props);
-  self.current = props;
   const onCall = useCallback(
     (on: boolean) =>
       self.current.onCallChange((cur) => (on ? self.current : cur?.chatKey === self.current.chatKey ? null : cur)),
