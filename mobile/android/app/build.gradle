@@ -1,5 +1,33 @@
 apply plugin: 'com.android.application'
 
+// Version : NOAH_APK_VERSION=1.2.3 (posé par la CI d'une étiquette). versionCode toujours croissant (1 002 003) :
+// Android refuse de remplacer une app par un numéro plus petit.
+def noahVersion = System.getenv("NOAH_APK_VERSION") ?: "0.1.0"
+def noahNumbers = noahVersion =~ /^(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.-]+)?$/
+if (!noahNumbers.matches()) {
+    throw new GradleException("NOAH_APK_VERSION invalide : ${noahVersion}")
+}
+def noahVersionCode = noahNumbers.group(1).toInteger() * 1000000 + noahNumbers.group(2).toInteger() * 1000 + noahNumbers.group(3).toInteger()
+
+// Signature d'une version : le keystore reste hors du dépôt, la CI le pose depuis les secrets GitHub (voir apps.yml et
+// scripts/preparer-signatures.sh). Sans ces variables, assembleDebug marche comme avant et assembleRelease donne un APK
+// non signé (app-release-unsigned.apk), qu'Android n'installe pas : une version publique n'a jamais la clé de débogage.
+def noahKeystore = System.getenv("NOAH_APK_KEYSTORE_FILE") ?: ""
+def noahKeystorePassword = System.getenv("NOAH_APK_KEYSTORE_PASSWORD") ?: ""
+def noahKeyAlias = System.getenv("NOAH_APK_KEY_ALIAS") ?: ""
+def noahSigned = noahKeystore && noahKeystorePassword && noahKeyAlias
+if ((noahKeystore || noahKeystorePassword || noahKeyAlias) && !noahSigned) {
+    throw new GradleException("Signature incomplète : il faut NOAH_APK_KEYSTORE_FILE, NOAH_APK_KEYSTORE_PASSWORD et NOAH_APK_KEY_ALIAS, ou aucun des trois")
+}
+if (noahSigned && !file(noahKeystore).isFile()) {
+    throw new GradleException("Keystore introuvable : ${noahKeystore}")
+}
+gradle.taskGraph.whenReady { graph ->
+    if (!noahSigned && graph.allTasks.any { it.name == "assembleRelease" }) {
+        logger.warn("Pas de NOAH_APK_KEYSTORE_FILE : APK de version NON SIGNÉ (app-release-unsigned.apk), Android ne l'installera pas. Pour essayer sur un appareil : assembleDebug.")
+    }
+}
+
 android {
     buildFeatures {
         buildConfig true
@@ -10,8 +38,8 @@ android {
         applicationId "agent.noah.mobile"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "0.1.0"
+        versionCode noahVersionCode
+        versionName noahVersion
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -19,8 +47,21 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        if (noahSigned) {
+            release {
+                storeFile file(noahKeystore)
+                storePassword noahKeystorePassword
+                keyAlias noahKeyAlias
+                keyPassword noahKeystorePassword  // PKCS12 : un seul mot de passe
+            }
+        }
+    }
     buildTypes {
         release {
+            if (noahSigned) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
