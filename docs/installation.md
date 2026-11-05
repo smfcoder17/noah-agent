@@ -210,7 +210,7 @@ L'application fermée reste dans la zone de notification, pour que les routines 
 | Ce que tu vois | Quoi faire |
 |---|---|
 | Le déploiement échoue sur le port 80 ou 443 | Un autre service les tient : [Derrière un Traefik](#derrière-un-traefik) |
-| `manifest unknown` ou `denied` en téléchargeant les images | Aucune version publiée pour l'instant, ou images encore privées. Rien à corriger de ton côté |
+| `manifest unknown` ou `denied` en téléchargeant les images | Images introuvables pour cette version, ou encore privées. Rien à corriger de ton côté |
 | Le navigateur refuse le certificat de ton domaine | Le nom ne pointe pas vers le serveur, ou un pare-feu de l'hébergeur ferme les ports 80 et 443. En attendant, `<ip-en-tirets>.sslip.io` répond |
 | Plus de lien de création dans les journaux | Le compte existe déjà : les journaux affichent seulement « Noah est prêt » |
 | Un agent « Hors ligne » | Le bouton Redémarrer en haut de sa conversation. Il repart avec ses données |

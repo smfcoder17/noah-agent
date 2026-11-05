@@ -20,7 +20,7 @@
 | **Serveur** | [docker-compose.yml](https://github.com/smfcoder17/noah-agent/releases/latest/download/docker-compose.yml) | Le fichier à déployer sur ton VPS. C'est par lui que tout commence. |
 | **iPhone, Mac, Linux** | Rien à télécharger | Ouvre l'adresse de ton Noah dans le navigateur. Sur iPhone, ajoute-la à l'écran d'accueil. |
 
-> **Aujourd'hui, aucune version n'est publiée : ces trois liens ne répondent pas encore.** Seule l'[installation sur ton ordinateur](#bâtir-depuis-les-sources) marche pour l'instant. Noah est jeune : ce guide n'a pas encore été suivi sur un VPS neuf ni sur un vrai téléphone. [L'état réel, parcours par parcours](docs/etat.md).
+> Noah est jeune : ce guide n'a pas encore été suivi de bout en bout sur un VPS neuf ni sur un vrai téléphone. [L'état réel, parcours par parcours](docs/etat.md).
 
 Les applications ne font rien sans un serveur Noah : elles s'y relient. L'installateur Windows n'est pas signé, Windows peut donc afficher un avertissement au premier lancement. L'interface est en français.
 
