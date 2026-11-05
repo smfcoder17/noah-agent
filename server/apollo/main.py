@@ -1580,6 +1580,54 @@ async def chat(body: ChatMessage, request: Request, apollo_session: str | None =
                              media_type="text/event-stream")
 
 
+AFTER_WAIT = 3600  # une demande en attente abandonne au bout d'une heure, et le dit
+AFTER_POLL = 2
+_after_turns: set[asyncio.Task] = set()
+
+
+class LaterMessage(BaseModel):
+    agent_id: str
+    text: str = Field(min_length=1, max_length=20000)
+    conversation_id: str | None = None
+
+
+async def _after_turn(agent: Agent, conv_id: str, text: str, user: int) -> None:
+    deadline = time.monotonic() + AFTER_WAIT
+    while (coordination._busy(agent.id, conv_id) or updates.maintenance) and time.monotonic() < deadline:
+        await asyncio.sleep(AFTER_POLL)
+    if coordination._busy(agent.id, conv_id) or updates.maintenance:
+        _save_message(conv_id, "user", text)
+        _save_message(conv_id, "error", "Cette demande n'a pas pu partir : l'agent était encore occupé au bout d'une heure. Renvoie-la si besoin.",
+                      _error_details(agent, "Demande faite en appel, toujours en attente après une heure."))
+        return
+    try:
+        async for _ in await _run(agent, conv_id, text, False, _speaker(user, agent.id) + machine.pop_context(conv_id)):
+            pass
+    except HTTPException:  # _run a déjà écrit le message et son échec
+        pass
+    except Exception as e:  # noqa: BLE001
+        diagnostics.failure("demande après l'appel", e, agent.id)
+
+
+@app.post("/api/chat/ensuite")
+async def chat_after(body: LaterMessage, user: int = Depends(auth.current_user)):
+    """Une demande faite en appel pendant que l'agent travaille, puis raccroché : le serveur la garde jusqu'à ce qu'il ait
+    fini. Sur le téléphone, l'écran peut se fermer juste après : ça ne peut pas rester du côté de l'application."""
+    agent = _usable(user, body.agent_id)
+    conv_id = body.conversation_id
+    with db.connect() as c:
+        if conv_id and not c.execute(
+            "SELECT 1 FROM conversations WHERE id = ? AND user_id = ? AND agent_id = ?", (conv_id, user, agent.id)
+        ).fetchone():
+            raise HTTPException(404, "Conversation introuvable")
+    if not conv_id:
+        conv_id = _main_conversation(agent.id, user) or _new_conversation(user, agent.id, "Conversation", main=True)
+    task = asyncio.create_task(_after_turn(agent, conv_id, body.text, user))
+    _after_turns.add(task)
+    task.add_done_callback(_after_turns.discard)
+    return {"ok": True}
+
+
 def _speaker(user: int, agent_id: str) -> str:
     """Sur un agent partagé, il sait à qui il parle. Rien sur un agent qui n'a qu'un utilisateur : le début du prompt
     reste le même, donc en cache, et son comportement ne change pas."""

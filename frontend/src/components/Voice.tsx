@@ -504,7 +504,7 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
   report?: { id: string; text: string } | null;
   onReportRead?: () => void;
 }) {
-  const { agentId, agentName, agentColor, say } = useContext(AgentContext);
+  const { agentId, agentName, agentColor, conversationId, say } = useContext(AgentContext);
   const running = useAuiState((s) => s.thread.isRunning);
   const messages = useAuiState((s) => s.thread.messages);
   const mic = useMic();
@@ -689,11 +689,26 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
     }
   };
 
+  // On raccroche, ou la page se ferme, pendant que l'agent travaille : « Je lui transmets ensuite » reste vrai. Le serveur garde
+  // ces demandes jusqu'à ce qu'il ait fini. Ce que la voix rapide a classé comme simple échange n'a pas à le relancer.
+  const leaveRequests = () => {
+    const waiting = queue.current.splice(0).filter((q) => q.action);
+    if (!waiting.length) return;
+    void request("/api/chat/ensuite", {
+      method: "POST",
+      keepalive: true,
+      body: JSON.stringify({ agent_id: agentId, conversation_id: conversationId, text: waiting.map((q) => q.text).join("\n") }),
+    }).catch(() => {});
+  };
+
   useEffect(() => {
     alive.current = true;
     micReady.current = openMic();
+    window.addEventListener("pagehide", leaveRequests);
     return () => {
       alive.current = false;
+      window.removeEventListener("pagehide", leaveRequests);
+      leaveRequests();
       dropHeld();
       cancel();
       mic.close();

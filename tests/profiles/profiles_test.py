@@ -408,6 +408,7 @@ OPEN_ROUTES = {
     ("POST", "/api/models"): "Un profil ne lit que le fournisseur en service, sans adresse ni clé à lui (vérifié par test_secrets).",
     ("GET", "/api/usage"): "Filtrée par profil (vérifié par test_lists).",
     ("GET", "/api/model"): "Le nom du cerveau, sans clé ni adresse pour un profil (vérifié par test_secrets).",
+    ("POST", "/api/chat/ensuite"): "Mêmes droits que /api/chat : agent utilisable et conversation à ce compte (ensuite_test).",
     ("GET", "/api/voice/ready"): "Une raison de refus, sans clé ni adresse ; un profil ne lit qu'une phrase générale (cle_refusee_test).",
     ("GET", "/api/agents"): "Filtrée par droit (vérifié par test_lists).",
     ("POST", "/api/agents"): "L'agent créé est à ce compte (vérifié par test_budget).",

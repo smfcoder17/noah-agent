@@ -579,12 +579,13 @@ function AgentChat(props: ChatProps) {
       agentId: id,
       agentName: name,
       agentColor: color,
+      conversationId: props.conversationId,
       hint: role ? role.slice(0, 180) : "Pose une question, confie une tâche ou envoie un fichier.",
       readOnly,
       canWatch: canAdmin(props.agent),
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [say, id, name, color, role, readOnly, canAdmin(props.agent)],
+    [say, id, name, color, role, readOnly, props.conversationId, canAdmin(props.agent)],
   );
   return (
     <AssistantRuntimeProvider runtime={runtime}>
