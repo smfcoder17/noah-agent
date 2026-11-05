@@ -5,7 +5,7 @@ import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AgentContext } from "@/lib/agentContext";
 import { cn, safeMedia } from "@/lib/utils";
-import { NoahTile } from "./Noah";
+import { NoahTile, type NoahHandle, type NoahState } from "./Noah";
 import { Button } from "./ui";
 import { canFrame, useDownload, useViewer } from "./Viewer";
 
@@ -15,6 +15,7 @@ const IMAGE = /\.(png|jpe?g|webp|gif|svg|avif)(\?|$)/i;
 const DATA_IMAGE = /^data:image\/(png|jpe?g|webp|gif|avif)[;,]/i; // ni SVG ni text/html : rien qui puisse porter un script
 
 export type Artefact = { kind: "image" | "file"; url: string; title: string };
+type Level = { current: number };
 type Message = { role: string; content: readonly { type: string; text?: string; toolName?: string; args?: { label?: string } }[] };
 
 /** Ces adresses viennent du texte du modèle : une carte ne s'ouvre que sur du http(s) ou une image intégrée, et un fichier que sur l'API de Noah. */
@@ -68,12 +69,29 @@ function useFloating() {
   return small;
 }
 
-function Face({ speaking, className }: { speaking: boolean; className: string }) {
-  const { agentColor, agentShape, agentDetail } = useContext(AgentContext);
+/** Ce que l'appel dit de l'agent, traduit en état du visage. */
+function faceState(phase: string): NoahState {
+  if (phase === "speaking") return "speaking";
+  if (phase === "listening") return "listening";
+  if (phase === "sending" || phase === "waiting") return "thinking";
+  return "idle";
+}
+
+function Face({ phase, needsYou, micLevel, voiceLevel, className }: { phase: string; needsYou: boolean; micLevel?: Level; voiceLevel?: Level; className: string }) {
+  const { agentId, agentColor, agentShape, agentDetail } = useContext(AgentContext);
+  const speaking = phase === "speaking";
+  const face = useRef<NoahHandle>(null);
+  // L'agent attend ton accord : il se dresse et te regarde. Une erreur l'affaisse un moment.
+  useEffect(() => {
+    if (needsYou) face.current?.react("attention");
+  }, [needsYou]);
+  useEffect(() => {
+    if (phase === "error") face.current?.react("sad");
+  }, [phase]);
   return (
     <span className={cn("relative grid shrink-0 place-items-center", speaking && "noah-call-waves")}>
       {speaking && [0, 1, 2].map((i) => <span key={i} aria-hidden="true" className="noah-call-wave" style={{ animationDelay: `${i * 0.8}s`, background: agentColor }} />)}
-      <NoahTile color={agentColor} shape={agentShape} detail={agentDetail} state={speaking ? "speaking" : "idle"} className={cn("relative", className)} />
+      <NoahTile handle={face} color={agentColor} shape={agentShape} detail={agentDetail} seed={agentId || undefined} state={faceState(phase)} micLevel={micLevel} voiceLevel={voiceLevel} className={cn("relative", className)} />
     </span>
   );
 }
@@ -107,6 +125,9 @@ export function CallStage(props: {
   needsYou: boolean;
   muted: boolean;
   level: React.ReactNode;
+  /** Niveau du micro et de la voix de l'agent, de 0 à 1 : à passer depuis Voice.tsx pour que le visage réagisse au vrai son. */
+  micLevel?: Level;
+  voiceLevel?: Level;
   messages: readonly Message[];
   link: (text: string) => string;
   extra: React.ReactNode;
@@ -114,7 +135,8 @@ export function CallStage(props: {
   onInterrupt: () => void;
   onHangUp: () => void;
 }) {
-  const { phase, status, hint, seconds, busy, needsYou, muted, level, messages, link, extra, onMute, onInterrupt, onHangUp } = props;
+  const { phase, status, hint, seconds, busy, needsYou, muted, level, micLevel, voiceLevel, messages, link, extra, onMute, onInterrupt, onHangUp } = props;
+  const faceProps = { phase, needsYou, micLevel: muted ? undefined : micLevel, voiceLevel };
   const { agentName, canWatch } = useContext(AgentContext);
   const [big, setBig] = useState(true);
   const floating = useFloating();
@@ -151,7 +173,7 @@ export function CallStage(props: {
   if (floating) {
     view = (
       <div role="region" aria-label="Appel vocal" className="fixed inset-0 z-[70] flex flex-col items-center justify-center gap-2 bg-background">
-        <Face speaking={speaking} className="size-20" />
+        <Face {...faceProps} className="size-20" />
         <p className="text-xs tabular-nums text-muted-foreground">{time}</p>
       </div>
     );
@@ -165,7 +187,7 @@ export function CallStage(props: {
         </div>
         <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-5 px-4 py-4 md:flex-row md:items-stretch">
           <div className="flex flex-col items-center justify-center gap-4 text-center md:flex-1">
-            <div className="py-12"><Face speaking={speaking} className={latest ? "size-24" : "size-36"} /></div>
+            <div className="py-12"><Face {...faceProps} className={latest ? "size-24" : "size-36"} /></div>
             <p className={cn("text-lg font-semibold", phase === "error" && "text-warn")} aria-live="polite">{status}</p>
             <p className="line-clamp-2 max-w-md text-sm text-muted-foreground">{hint}</p>
             {phase !== "error" && !speaking && <span className="text-accent">{level}</span>}
@@ -202,7 +224,7 @@ export function CallStage(props: {
     view = (
       <div role="region" aria-label="Appel vocal" className="flex items-center gap-3 border-b border-accent/40 bg-accent-soft/40 px-3 py-2">
         <button type="button" onClick={() => setBig(true)} aria-label="Agrandir l'appel" className="flex min-w-0 flex-1 items-center gap-3 text-left">
-          <Face speaking={speaking} className="size-10" />
+          <Face {...faceProps} className="size-10" />
           <span className="min-w-0 flex-1">
             <span className="block text-xs tabular-nums text-muted-foreground">En appel avec {agentName} · {time}</span>
             <span className={cn("block truncate text-sm font-semibold", phase === "error" && "text-warn")} aria-live="polite">{status}</span>

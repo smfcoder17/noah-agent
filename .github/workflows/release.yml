@@ -1,30 +1,64 @@
-# Publie les images de Noah Agent sur GHCR : un VPS les télécharge au lieu de les compiler.
-# Étiquette v1.2.3 → images 1.2.3, 1.2 et stable ; chaque commit sur main → image edge (canal « en avance »).
-# Une seule fois après la première publication : GitHub > Packages > noah-server et noah-launcher > Package settings
-# > Change visibility > Public (sinon un VPS ne peut pas les télécharger sans se connecter).
-name: Images
+# Publie une version complète de Noah Agent en une étiquette annotée (son message devient la note de version) :
+#   git tag -a v1.2.3 -m "Ce qui change" && git push origin v1.2.3
+#
+#   controle   clés présentes et cohérentes, sinon rien ne part (scripts/controle-publication.sh)
+#   (la suite entière se joue avant, en local : node scripts/verifier.mjs. La CI est payée à la minute, elle construit et publie.)
+#   image      images GHCR multi-architecture : 1.2.3 et 1.2
+#   apps       APK signé et installateur Windows (apps.yml)
+#   publier    empreintes, compose épinglé, manifeste signé, Release en brouillon, étiquette stable, puis Release publié
+#
+# Tout attend tout : releases/latest/download/, que lisent les serveurs déjà installés, get.sh et Hostinger, ne change
+# qu'une fois le Release complet, et :stable ne bouge que si tout le reste a réussi. Relancer le même run ou
+# « gh workflow run release.yml --ref v1.2.3 » reprend sans dégât.
+#
+# v1.2.3-rc1 : même chemin, images 1.2.3-rc1, Release marqué préversion ; ni :stable, ni manifeste, ni « latest ».
+# Sans étiquette (gh workflow run release.yml, depuis main) : image edge seulement.
+#
+# Les clés : sh scripts/preparer-signatures.sh. Les paquets GHCR noah-server et noah-launcher sont déjà publics.
+name: Publication
 
-# Seulement pour une version, ou pour déployer à la demande (gh workflow run release.yml) : la CI est limitée.
 on:
   push:
     tags: ["v*.*.*"]
   workflow_dispatch:
 
 permissions:
-  contents: write
-  packages: write
-  id-token: write
-  attestations: write
+  contents: read
 
 jobs:
-  tests:
-    uses: ./.github/workflows/tests.yml
-    with:
-      rapide: ${{ github.ref == 'refs/heads/main' }}
+  controle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.controle.outputs.version }}
+      stable: ${{ steps.controle.outputs.stable }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: microsoft
+          java-version: "21"
+      - run: pip install --quiet cryptography==44.0.0
+      - id: controle
+        env:
+          NOAH_RELEASE_KEY: ${{ secrets.NOAH_RELEASE_KEY }}
+          NOAH_UPDATE_KEY: ${{ vars.NOAH_UPDATE_KEY }}
+          NOAH_APK_KEYSTORE: ${{ secrets.NOAH_APK_KEYSTORE }}
+          NOAH_APK_KEYSTORE_PASSWORD: ${{ secrets.NOAH_APK_KEYSTORE_PASSWORD }}
+          NOAH_APK_KEY_ALIAS: ${{ secrets.NOAH_APK_KEY_ALIAS }}
+        run: sh scripts/controle-publication.sh
 
   image:
-    needs: tests
+    needs: controle
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
     strategy:
       matrix:
         include:
@@ -47,10 +81,10 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository_owner }}/${{ matrix.name }}
+          flavor: latest=false
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=stable,enable=${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-') }}
             type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
           labels: |
             org.opencontainers.image.title=${{ matrix.name }}
@@ -74,52 +108,107 @@ jobs:
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
 
-  # Manifeste signé de la version : les serveurs déjà installés le lisent et se mettent à jour pendant leur créneau
-  # calme. Il fige aussi les dépendances (Hermes, navigateur, Caddy) par empreinte : elles n'arrivent chez les
-  # utilisateurs qu'avec une version de Noah, jamais d'elles-mêmes.
-  manifest:
-    needs: image
-    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-')
+  apps:
+    needs: controle
+    if: needs.controle.outputs.version != ''
+    permissions:
+      contents: read
+    uses: ./.github/workflows/apps.yml
+    secrets:
+      NOAH_APK_KEYSTORE: ${{ secrets.NOAH_APK_KEYSTORE }}
+      NOAH_APK_KEYSTORE_PASSWORD: ${{ secrets.NOAH_APK_KEYSTORE_PASSWORD }}
+      NOAH_APK_KEY_ALIAS: ${{ secrets.NOAH_APK_KEY_ALIAS }}
+
+  # Le seul endroit qui écrit le Release. Le manifeste signé fige toutes les images par empreinte, y compris les
+  # dépendances (Hermes, navigateur, Caddy) : elles n'arrivent chez les utilisateurs qu'avec une version de Noah.
+  publier:
+    needs: [controle, image, apps]
+    if: needs.controle.outputs.version != ''
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      packages: write
+    env:
+      VERSION: ${{ needs.controle.outputs.version }}
+      STABLE: ${{ needs.controle.outputs.stable }}
+      OWNER: ${{ github.repository_owner }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - run: git fetch --force --tags
+      - run: git fetch --force --tags  # checkout remplace une étiquette annotée par une simple : le message serait perdu
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: noah-*
+          path: apps
       - name: Empreintes des images
-        id: refs
         run: |
-          set -e
-          digest() { docker buildx imagetools inspect "$1" --format '{{json .Manifest}}' | jq -r .digest; }
-          v="${GITHUB_REF_NAME#v}"
-          owner=$(echo "${{ github.repository_owner }}" | tr A-Z a-z)
-          {
-            echo "noah-server=ghcr.io/$owner/noah-server@$(digest ghcr.io/$owner/noah-server:$v)"
-            echo "noah-launcher=ghcr.io/$owner/noah-launcher@$(digest ghcr.io/$owner/noah-launcher:$v)"
-            echo "hermes=nousresearch/hermes-agent@$(digest nousresearch/hermes-agent:stable)"
-            echo "navigateur=ghcr.io/jo-inc/camofox-browser@$(digest ghcr.io/jo-inc/camofox-browser:latest)"
-            echo "caddy=caddy@$(digest caddy:2.10-alpine)"
-          } > refs.txt
+          sh scripts/empreintes-images.sh "$OWNER" "$VERSION" > refs.txt
           cat refs.txt
-      - name: Signature
+      - name: Compose épinglé
+        run: |
+          mkdir dist
+          sh scripts/compose-version.sh "$OWNER" refs.txt deploy/docker-compose.yml > dist/docker-compose.yml
+          docker compose -f dist/docker-compose.yml config -q
+      - name: Manifeste signé
+        if: needs.controle.outputs.stable == 'true'
         env:
           NOAH_RELEASE_KEY: ${{ secrets.NOAH_RELEASE_KEY }}
         run: |
           pip install --quiet cryptography==44.0.0
-          git for-each-ref "refs/tags/${GITHUB_REF_NAME}" --format="%(contents)" > notes.md  # message de l'étiquette ; « [migration] » s'il change les données
-          python scripts/release-manifest.py signer "${GITHUB_REF_NAME#v}" notes.md $(cat refs.txt)
-      - name: Compose épinglé
+          git for-each-ref "refs/tags/${GITHUB_REF_NAME}" --format="%(contents)" > notes.md  # « [migration] » s'il change les données
+          cd dist
+          python ../scripts/release-manifest.py signer "$VERSION" ../notes.md $(cat ../refs.txt)
+      - name: Applications jointes
         run: |
-          # Le compose de la version : chaque image remplacée par son empreinte (celle du manifeste signé).
-          set -e
-          ref() { sed -n "s/^$1=//p" refs.txt; }
-          owner=$(echo "${{ github.repository_owner }}" | tr A-Z a-z)
-          sed -e "s#ghcr.io/$owner/noah-server:stable#$(ref noah-server)#"               -e "s#ghcr.io/$owner/noah-launcher:stable#$(ref noah-launcher)#"               -e "s#caddy:2.10-alpine#$(ref caddy)#"               -e "s#nousresearch/hermes-agent:stable#$(ref hermes)#"               -e "s#ghcr.io/jo-inc/camofox-browser:latest#$(ref navigateur)#"               deploy/docker-compose.yml > docker-compose.yml
-          if grep -nE "image: [^@]+$|_IMAGE: [^@]+$" docker-compose.yml; then echo "image non épinglée" >&2; exit 1; fi
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            manifest.json
-            manifest.json.sig
-            docker-compose.yml
+          # Seul l'APK signé est joint : celui de débogage demanderait de désinstaller l'app à chaque version.
+          if [ -f apps/noah-android/noah-agent-android.apk ]; then
+            cp apps/noah-android/noah-agent-android.apk dist/
+          elif [ "$STABLE" = true ]; then
+            echo "::error::Pas d'APK signé pour une version stable."
+            exit 1
+          else
+            echo "::warning::Préversion sans APK signé : aucun APK joint."
+          fi
+          n=$(ls apps/noah-bureau/*Setup*.exe | wc -l)
+          [ "$n" = 1 ] || { echo "::error::$n installateurs Windows au lieu d'un seul."; exit 1; }
+          cp apps/noah-bureau/*Setup*.exe dist/noah-agent-windows-setup.exe
+          if [ "$STABLE" = true ]; then
+            for f in docker-compose.yml manifest.json manifest.json.sig noah-agent-android.apk noah-agent-windows-setup.exe; do
+              [ -s "dist/$f" ] || { echo "::error::$f manque au Release."; exit 1; }
+            done
+          fi
+          ls -l dist
+      - name: Release en brouillon
+        run: |
+          git for-each-ref "refs/tags/${GITHUB_REF_NAME}" --format="%(contents)" > notes.md
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* --draft --verify-tag --title "Noah Agent $VERSION" --notes-file notes.md
+          fi
+      - name: Étiquette stable, seulement maintenant
+        if: needs.controle.outputs.stable == 'true'
+        run: |
+          owner=$(echo "$OWNER" | tr 'A-Z' 'a-z')
+          for image in noah-server noah-launcher; do
+            docker buildx imagetools create -t "ghcr.io/$owner/$image:stable" "ghcr.io/$owner/$image:$VERSION"
+          done
+      - name: Release publié
+        run: |
+          if [ "$STABLE" = true ]; then
+            gh release edit "$GITHUB_REF_NAME" --draft=false --latest
+          else
+            gh release edit "$GITHUB_REF_NAME" --draft=false --prerelease
+          fi

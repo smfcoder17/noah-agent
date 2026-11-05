@@ -234,8 +234,7 @@ public class MainActivity extends BridgeActivity {
             // Avant Android 10, le dossier public demande une permission : le dossier de l'app n'en demande aucune.
             if (android.os.Build.VERSION.SDK_INT >= 29) request.setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, name);
             else request.setDestinationInExternalFilesDir(this, android.os.Environment.DIRECTORY_DOWNLOADS, name);
-            String cookie = CookieManager.getInstance().getCookie(url);
-            if (cookie != null) request.addRequestHeader("Cookie", cookie);
+            if (windowSession != null) request.addRequestHeader("Cookie", "noah_session=" + windowSession);
             getSystemService(android.app.DownloadManager.class).enqueue(request);
             android.widget.Toast.makeText(this, "Téléchargement de " + name, android.widget.Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
@@ -265,11 +264,14 @@ public class MainActivity extends BridgeActivity {
         });
     }
 
+    private volatile String windowSession; // en mémoire seulement, pour les téléchargements
+
     private void putInCookie(Pairing.Window window) {
         CookieManager cookies = CookieManager.getInstance();
         if (Pairing.Window.OPEN.equals(window.state)) {
             String secure = server.startsWith("https://") ? "; Secure" : ""; // http : version de débogage seulement
             cookies.setCookie(server, "noah_session=" + window.token + "; Path=/" + secure + "; HttpOnly; SameSite=Lax");
+            windowSession = window.token;
         } else if (Pairing.Window.REFUSED.equals(window.state)) {
             cookies.removeAllCookies(null); // l'appareil n'est plus relié : l'interface le dira
         }

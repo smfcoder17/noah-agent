@@ -1,6 +1,7 @@
 # Noah Agent derrière un Traefik déjà en place (celui du Docker Manager de Hostinger, par exemple) : Traefik garde les
 # ports 80 et 443 et le certificat, les autres sites du serveur ne bougent pas. get.sh choisit ce fichier tout seul.
-# NOAH_DOMAIN doit pointer vers ce serveur. Variables facultatives :
+# NOAH_DOMAIN doit pointer vers ce serveur. Traefik doit partager un réseau avec Noah : docker network connect noah-net <traefik>.
+# Variables facultatives :
 #   NOAH_TRAEFIK_RESOLVER=letsencrypt    nom du résolveur de certificats de ton Traefik
 #   NOAH_PUBLISH=127.0.0.1:8088          port local où publier le serveur, utile à un Traefik qui ne lit pas Docker
 name: noah
