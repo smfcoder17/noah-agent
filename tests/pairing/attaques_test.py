@@ -371,7 +371,7 @@ b = claim(linked, link, appareil="Tablette de Bruno", type="android").json()
 bob_web.post(f"/api/pairing/flow/{only_pending(bob_web)['id']}/autoriser", json={"verification": b["verification"]})
 tok = linked.post("/api/pairing/flow/poll", json={"sondage": b["sondage"]}).json()["token"]
 mine = httpx.Client(base_url=BASE, headers={"Authorization": f"Bearer {tok}", "X-Forwarded-For": addr()}, timeout=20)
-check(mine.get("/api/me").json() == {"id": bruno, "username": "bruno", "role": "member"}, "session limitée au compte qui a accepté, rôle du compte")
+check(mine.get("/api/me").json() == {"id": bruno, "username": "bruno", "role": "member", "mot_de_passe_a_changer": False}, "session limitée au compte qui a accepté, rôle du compte")
 check(mine.get("/api/agents/secret/conversations").status_code in (403, 404), "un agent d'Alice reste fermé à un compte invité relié par QR")
 check(mine.get("/api/profiles").status_code == 403, "pas d'administration pour un compte invité relié par QR")
 names = [x["nom"] for x in bob_web.get("/api/devices").json()["appareils"]]

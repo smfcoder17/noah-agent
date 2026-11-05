@@ -13,7 +13,8 @@
 #
 # Au premier démarrage, le serveur tire ses secrets au hasard (volume noah-secrets) et trouve l'adresse publique du VPS ;
 # Caddy obtient le certificat HTTPS à la première visite. Le lien de création du compte, avec son code d'installation,
-# s'affiche dans les journaux du service « server » (Docker Manager > View logs).
+# s'affiche dans les journaux du service « server » (Docker Manager > View logs), sauf si NOAH_ADMIN_USER et NOAH_ADMIN_PASSWORD
+# ont créé le compte.
 # Même nom de projet et mêmes volumes que l'installation par install.sh : les sauvegardes servent aux deux.
 name: noah
 
@@ -25,6 +26,10 @@ services:
     environment:
       NOAH_DOMAIN: ${NOAH_DOMAIN:-auto}
       NOAH_SETUP_CODE: auto
+      # Facultatif : le premier compte, choisi au déploiement (mot de passe de 12 caractères au moins, à changer à la première connexion).
+      # Lu seulement s'il n'y a aucun compte : changer ces valeurs ensuite ne touche à rien. Vides : le lien à code d'installation.
+      NOAH_ADMIN_USER: ${NOAH_ADMIN_USER:-}
+      NOAH_ADMIN_PASSWORD: ${NOAH_ADMIN_PASSWORD:-}
       LAUNCHER_URL: http://launcher:9000
       # Notifications Android par un ntfy auto-hébergé : son adresse (ex. ntfy.exemple.org). ntfy.sh marche sans rien.
       NOAH_PUSH_HOSTS: ${NOAH_PUSH_HOSTS:-}

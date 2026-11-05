@@ -385,6 +385,11 @@ WHITELIST = {
     ("PATCH", "/api/profiles/{profile_id}"): "Réservé au rôle owner (vérifié par OWNER_ROUTES).",
     ("DELETE", "/api/profiles/{profile_id}"): "Réservé au rôle owner (vérifié par OWNER_ROUTES et test_profiles).",
     ("POST", "/api/profiles/{profile_id}/double-verification/couper"): "Réservé au rôle owner, avec sa preuve (OWNER_ROUTES et double_verification_test).",
+    ("GET", "/api/profiles/{profile_id}/appareils"): "Réservé au rôle owner (OWNER_WITH_ID et comptes_test).",
+    ("DELETE", "/api/profiles/{profile_id}/appareils/{device}"): "Réservé au rôle owner, avec sa preuve ; l'appareil doit être à ce profil (OWNER_WITH_ID et comptes_test).",
+    ("POST", "/api/profiles/{profile_id}/mot-de-passe"): "Réservé au rôle owner, avec sa preuve (OWNER_WITH_ID et comptes_test).",
+    ("POST", "/api/me/alertes-appareils/{alert_id}/moi"): "Filtré par compte : l'alerte d'un autre rend 404 (comptes_test).",
+    ("POST", "/api/me/alertes-appareils/{alert_id}/pas-moi"): "Filtré par compte : l'alerte d'un autre rend 404 (comptes_test).",
 }
 
 # Routes sans identifiant : la configuration globale, refusée à un profil…
@@ -411,9 +416,16 @@ OWNER_ROUTES = {
     ("POST", "/api/profiles"): {"username": "nouveau-essai", "password": "motdepasse-n", "motdepasse": "motdepasse-a"},
     ("GET", "/api/mcp/reseaux"): None,
     ("PUT", "/api/mcp/reseaux"): {"reseaux": []},
+    ("GET", "/api/courriel/smtp"): None,
+    ("PUT", "/api/courriel/smtp"): {"hote": "localhost", "port": 587, "expediteur": "noah@exemple.test", "tls": "starttls", "motdepasse": "motdepasse-a"},
+    ("DELETE", "/api/courriel/smtp"): None,
+    ("POST", "/api/courriel/essai"): {"adresse": "essai@exemple.test"},
 }
 OWNER_WITH_ID = {("PATCH", "/api/profiles/{profile_id}"): {"budget": None}, ("DELETE", "/api/profiles/{profile_id}"): None,
-                 ("POST", "/api/profiles/{profile_id}/double-verification/couper"): {"motdepasse": "x"}}
+                 ("POST", "/api/profiles/{profile_id}/double-verification/couper"): {"motdepasse": "x"},
+                 ("GET", "/api/profiles/{profile_id}/appareils"): None,
+                 ("DELETE", "/api/profiles/{profile_id}/appareils/{device}"): {"motdepasse": "motdepasse-d"},
+                 ("POST", "/api/profiles/{profile_id}/mot-de-passe"): {"nouveau": "nouveau-motdepasse", "motdepasse": "motdepasse-d"}}
 # … et les routes ouvertes, chacune avec la raison pour laquelle elle ne montre rien d'un autre.
 OPEN_ROUTES = {
     ("GET", "/api/status"): "Publique : l'écran à montrer, rien d'autre pour un inconnu une fois le compte créé (tests/exposition/public_test.py).",
@@ -434,7 +446,12 @@ OPEN_ROUTES = {
     ("GET", "/api/devices"): "Appareils de ce compte (filtre par user_id).",
     ("DELETE", "/api/devices/self"): "Sa propre session.",
     ("POST", "/api/devices/self/fenetre"): "Session de fenêtre de son propre appareil, par son jeton (tests/android/jeton_test.py).",
-    ("POST", "/api/devices/others/revoke"): "Autres sessions de ce compte.",
+    ("POST", "/api/devices/others/revoke"): "Autres sessions de ce compte, avec sa preuve (comptes_test).",
+    ("GET", "/api/me/courriel"): "L'adresse de ce compte (comptes_test).",
+    ("POST", "/api/me/courriel"): "L'adresse de ce compte, avec sa preuve (comptes_test).",
+    ("DELETE", "/api/me/courriel"): "L'adresse de ce compte, avec sa preuve (comptes_test).",
+    ("POST", "/api/me/courriel/activer"): "Le code envoyé à cette session pour ce compte (comptes_test).",
+    ("GET", "/api/me/alertes-appareils"): "Les alertes de ce compte, sauf la sienne (comptes_test).",
     ("GET", "/api/me"): "Ce compte.",
     ("POST", "/api/me/password"): "Ce compte, avec son mot de passe actuel.",
     ("GET", "/api/me/double-verification"): "Ce compte : active ou non, nombre de codes de secours (double_verification_test).",
@@ -569,7 +586,7 @@ def test_owner_routes() -> None:
     with db.connect() as c:
         c.execute("DELETE FROM users WHERE username = 'nouveau-essai'")
     for (method, path), body in OWNER_WITH_ID.items():
-        url = path.replace("{profile_id}", str(ZED))
+        url = path.replace("{profile_id}", str(ZED)).replace("{device}", "nimporte")
         r = WEB["ada"].request(method, url, **({"json": body} if body is not None else {}))
         assert r.status_code == 403 and auth.check_password("zed", "motdepasse-z") == ZED, f"{method} {path} : {r.status_code}"
     # Un profil ne se sert pas du serveur pour essayer une adresse ou une clé.

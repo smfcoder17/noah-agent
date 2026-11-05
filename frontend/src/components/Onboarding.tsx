@@ -109,12 +109,16 @@ function CodeStep({ code, setCode, onNext }: { code: string; setCode: (c: string
       <Card>
         <h2 className="text-lg font-semibold">Code d'installation</h2>
         <p className="text-sm text-muted-foreground">
-          Il est affiché à la fin de l'installation sur le serveur. Il prouve que c'est bien toi qui as installé Noah, et non
-          le premier visiteur de cette adresse.
+          Il prouve que c'est bien toi qui as installé Noah, et non le premier visiteur de cette adresse. Le lien de fin
+          d'installation le contient déjà : si tu es arrivé ici sans lui, le code se lit sur le serveur.
         </p>
+        <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
+          <li><b className="text-foreground">Avec un terminal :</b> <code className="whitespace-nowrap rounded bg-muted px-1 py-0.5 text-xs">docker logs noah-server</code>, ligne « Code d'installation ».</li>
+          <li><b className="text-foreground">Sur Hostinger :</b> Docker Manager → Projects, menu ⋮ du projet → View logs.</li>
+        </ul>
         <Label>
           Code
-          <Input id="installation" required autoComplete="one-time-code" placeholder="ABCD-EFGH" value={code} onChange={(e) => setCode(e.target.value)} />
+          <Input id="installation" required autoComplete="one-time-code" placeholder="BCDFGHJKLMNP" value={code} onChange={(e) => setCode(e.target.value)} />
         </Label>
         <ErrorText>{error}</ErrorText>
         <Button type="submit" size="lg" disabled={busy}>Continuer</Button>

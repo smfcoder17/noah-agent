@@ -1,9 +1,10 @@
-// Réglages > Appareils : la double vérification de ce compte. Activer demande le mot de passe, puis un premier code ; les codes
+// Réglages > Sécurité : la double vérification de ce compte. Activer demande le mot de passe, puis un premier code ; les codes
 // de secours ne se montrent qu'une fois. Couper demande le mot de passe et un code (server/noah/double_verification.py).
 import { Check, Copy, ShieldCheck } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { get, send } from "@/lib/api";
 import { QR } from "./PhonePairing";
+import { useProof } from "./Proof";
 import { Button, ErrorText, Input, Label } from "./ui";
 
 type Status = { active: boolean; secours: number };
@@ -123,13 +124,14 @@ function CutForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => voi
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const { withProof, proofDialog } = useProof();
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setError("");
     try {
-      await send("/api/me/double-verification/couper", { motdepasse: password, code });
-      onDone();
+      if (await withProof("/api/me/double-verification/couper", { motdepasse: password, code })) onDone();
+      else setBusy(false);
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);
@@ -146,6 +148,7 @@ function CutForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => voi
         <Button type="submit" variant="danger" disabled={busy}>Désactiver</Button>
         <Button type="button" variant="ghost" onClick={onCancel}>Annuler</Button>
       </div>
+      {proofDialog}
     </form>
   );
 }

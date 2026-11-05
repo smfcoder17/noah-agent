@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { send } from "@/lib/api";
 import { appShell } from "@/lib/platform";
+import { useProof } from "./Proof";
 import { Button, ErrorText, Input, Label } from "./ui";
 
 const box = "flex w-full max-w-sm flex-col gap-4 rounded-2xl border border-border bg-surface p-7 shadow-sm";
 
 /**
- * Mot de passe oublié, sans courriel : le propriétaire prouve qu'il a la main sur le serveur en y lisant un code.
+ * Mot de passe oublié : le propriétaire prouve qu'il a la main sur le serveur en y lisant un code.
  * Le bouton écrit le code dans les journaux du serveur, jamais dans la réponse (server/noah/recuperation.py).
  */
 function ForgotPassword({ onBack, onChanged }: { onBack: () => void; onChanged: (username: string) => void }) {
@@ -15,6 +16,7 @@ function ForgotPassword({ onBack, onChanged }: { onBack: () => void; onChanged: 
   const [password, setPassword] = useState("");
   const [again, setAgain] = useState("");
   const [cutDouble, setCutDouble] = useState(false);
+  const [cutMail, setCutMail] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -34,7 +36,7 @@ function ForgotPassword({ onBack, onChanged }: { onBack: () => void; onChanged: 
     setBusy(true);
     setError("");
     try {
-      const r = await send<{ username: string }>("/api/recuperation", { code: code.trim(), password, couper_double: cutDouble });
+      const r = await send<{ username: string }>("/api/recuperation", { code: code.trim(), password, couper_double: cutDouble, couper_courriel: cutMail });
       onChanged(r.username);
     } catch (err) {
       setError((err as Error).message);
@@ -46,8 +48,8 @@ function ForgotPassword({ onBack, onChanged }: { onBack: () => void; onChanged: 
     <form onSubmit={submit} className={`${box} max-w-md`}>
       <h1 className="text-xl font-semibold">Mot de passe oublié</h1>
       <p className="text-sm text-muted-foreground">
-        Noah n'envoie pas de courriel. Pour prouver que ce serveur est à toi, tu lis un code sur le serveur lui-même. Il sert une
-        seule fois, pendant 15 minutes. Cette page change le mot de passe du propriétaire.
+        Pour prouver que ce serveur est à toi, tu lis un code sur le serveur lui-même. Il sert une seule fois, pendant 15 minutes.
+        Cette page change le mot de passe du propriétaire. Un profil qui a oublié le sien demande au propriétaire : Réglages → Profils.
       </p>
 
       <div className="flex flex-col gap-2 text-sm">
@@ -90,6 +92,10 @@ function ForgotPassword({ onBack, onChanged }: { onBack: () => void; onChanged: 
             peut le faire ; le journal du serveur le note.
           </span>
         </label>
+        <label className="flex items-start gap-2 text-muted-foreground">
+          <input id="cut-mail" type="checkbox" className="mt-1" checked={cutMail} onChange={(e) => setCutMail(e.target.checked)} />
+          <span>Les courriels de confirmation n'arrivent plus : ne plus demander de code reçu par courriel. Chacun pourra réactiver son adresse. Le journal du serveur le note.</span>
+        </label>
       </div>
 
       <ErrorText>{error}</ErrorText>
@@ -98,6 +104,57 @@ function ForgotPassword({ onBack, onChanged }: { onBack: () => void; onChanged: 
         <Button type="submit" disabled={busy}>Changer le mot de passe</Button>
       </div>
     </form>
+  );
+}
+
+/** Mot de passe temporaire (premier compte choisi au déploiement, réinitialisation) : rien d'autre ne répond avant ce changement. */
+export function TemporaryPassword({ onDone, onLogout }: { onDone: () => void; onLogout: () => void }) {
+  const [actuel, setActuel] = useState("");
+  const [nouveau, setNouveau] = useState("");
+  const [again, setAgain] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const { withProof, proofDialog } = useProof();
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (nouveau !== again) return setError("Les deux mots de passe ne sont pas identiques.");
+    setBusy(true);
+    setError("");
+    try {
+      if (await withProof("/api/me/password", { actuel, nouveau })) return onDone();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+    setBusy(false);
+  };
+  return (
+    <div className="grid min-h-full place-items-center px-4 py-10">
+      <form onSubmit={submit} className={box}>
+        <img src="/assets/icon.svg" alt="" className="size-11" />
+        <div className="flex flex-col gap-1">
+          <h1 className="text-xl font-semibold">Choisis ton mot de passe</h1>
+          <p className="text-sm text-muted-foreground">Celui que tu viens d'utiliser est temporaire. Remplace-le pour continuer : tu seras seul à connaître le nouveau.</p>
+        </div>
+        <Label>
+          Mot de passe temporaire
+          <Input id="temporary-password" type="password" autoComplete="current-password" required value={actuel} onChange={(e) => setActuel(e.target.value)} />
+        </Label>
+        <Label>
+          Nouveau mot de passe
+          <Input id="new-password" type="password" autoComplete="new-password" required minLength={8} value={nouveau} onChange={(e) => setNouveau(e.target.value)} />
+        </Label>
+        <Label>
+          Encore une fois
+          <Input id="new-password-again" type="password" autoComplete="new-password" required minLength={8} value={again} onChange={(e) => setAgain(e.target.value)} />
+        </Label>
+        <ErrorText>{error}</ErrorText>
+        <Button type="submit" size="lg" disabled={busy}>Enregistrer et continuer</Button>
+        <button type="button" className="self-center text-sm text-muted-foreground underline underline-offset-2 hover:text-foreground" onClick={onLogout}>
+          Se déconnecter
+        </button>
+        {proofDialog}
+      </form>
+    </div>
   );
 }
 

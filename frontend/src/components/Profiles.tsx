@@ -1,8 +1,10 @@
-// Réglages > Profils : le propriétaire crée, plafonne et supprime les profils de ce serveur. Le serveur reste seul juge.
-import { Loader2, Trash2, UserPlus } from "lucide-react";
+// Réglages > Profils : le propriétaire crée, plafonne et supprime les profils de ce serveur, réinitialise un mot de passe, voit et
+// coupe les appareils de chacun. Écrit pour marcher à largeur de téléphone. Le serveur reste seul juge.
+import { Globe, KeyRound, Laptop, Loader2, MonitorSmartphone, Smartphone, Trash2, UserPlus } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { del, get, send } from "@/lib/api";
+import { get, send } from "@/lib/api";
 import { money } from "@/lib/utils";
+import { useProof } from "./Proof";
 import { Button, ErrorText, Input, Label } from "./ui";
 
 type Profile = {
@@ -15,6 +17,10 @@ type Profile = {
   appareils: number;
   double: boolean;
 };
+type Device = { id: string; nom: string; type: string; depuis: string | null; vu: string | null; ip: string; actuel: boolean };
+
+const ICONS: Record<string, typeof Globe> = { web: Globe, desktop: Laptop, android: Smartphone, ios: Smartphone };
+const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" }) : "");
 
 export function Profiles() {
   const [list, setList] = useState<Profile[] | null>(null);
@@ -39,21 +45,104 @@ export function Profiles() {
   );
 }
 
+/** Les appareils d'un profil : nom, adresse, dates. Couper l'un d'eux demande ta preuve. */
+function ProfileDevices({ profile, onChanged }: { profile: Profile; onChanged: () => void }) {
+  const [list, setList] = useState<Device[] | null>(null);
+  const [error, setError] = useState("");
+  const { withProof, proofDialog } = useProof();
+  const load = useCallback(() => get<{ appareils: Device[] }>(`/api/profiles/${profile.id}/appareils`).then((r) => setList(r.appareils)).catch((e) => setError((e as Error).message)), [profile.id]);
+  useEffect(() => {
+    load();
+  }, [load]);
+  const revoke = async (d: Device) => {
+    setError("");
+    try {
+      if (await withProof(`/api/profiles/${profile.id}/appareils/${d.id}`, {}, "DELETE")) {
+        load();
+        onChanged();
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+  return (
+    <div className="flex flex-col gap-1.5">
+      {list && !list.length && <p className="text-xs text-muted-foreground">Aucun appareil connecté.</p>}
+      {list?.map((d) => {
+        const Icon = ICONS[d.type] ?? Globe;
+        return (
+          <div key={d.id} className="flex items-center gap-2.5 rounded-lg border border-border px-3 py-2" data-appareil={d.nom}>
+            <Icon className="size-4 shrink-0 text-muted-foreground" />
+            <div className="min-w-0 flex-1">
+              <p className="break-words text-sm">{d.nom || "Appareil"}{d.actuel && <span className="ml-2 text-xs text-ok">cet appareil</span>}</p>
+              <p className="break-words text-xs text-muted-foreground">{[d.ip, d.depuis && `relié le ${day(d.depuis)}`, d.vu && `vu le ${day(d.vu)}`].filter(Boolean).join(" · ")}</p>
+            </div>
+            {!d.actuel && <Button size="sm" variant="ghost" aria-label={`Déconnecter ${d.nom || "cet appareil"}`} onClick={() => revoke(d)}><Trash2 /></Button>}
+          </div>
+        );
+      })}
+      <ErrorText>{error}</ErrorText>
+      {proofDialog}
+    </div>
+  );
+}
+
+/** Mot de passe oublié d'un profil : un temporaire, à lui transmettre ; il le remplacera à sa connexion. */
+function ResetPassword({ profile, onDone, onCancel }: { profile: Profile; onDone: () => void; onCancel: () => void }) {
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const { withProof, proofDialog } = useProof();
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      if (await withProof(`/api/profiles/${profile.id}/mot-de-passe`, { nouveau: password })) return onDone();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+    setBusy(false);
+  };
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-2 rounded-xl bg-warn-soft p-3 text-sm">
+      <p>{profile.username} a oublié son mot de passe ? Choisis-en un temporaire et transmets-le lui toi-même. Toutes ses sessions se ferment, et il devra le remplacer à sa prochaine connexion.</p>
+      <Label>
+        Mot de passe temporaire
+        <Input id={`reset-${profile.id}`} required type="password" minLength={8} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+      </Label>
+      <ErrorText>{error}</ErrorText>
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" type="submit" variant="danger" disabled={busy}>Réinitialiser son mot de passe</Button>
+        <Button size="sm" type="button" variant="ghost" onClick={onCancel}>Annuler</Button>
+      </div>
+      {proofDialog}
+    </form>
+  );
+}
+
 function ProfileRow({ profile: p, onChanged, onError }: { profile: Profile; onChanged: () => void; onError: (m: string) => void }) {
   const [budget, setBudget] = useState(p.budget != null ? String(p.budget) : "");
-  const [deleting, setDeleting] = useState(false);
+  const [open, setOpen] = useState<"" | "appareils" | "mot-de-passe" | "supprimer">("");
+  const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [cutting, setCutting] = useState(false);
   const [myPassword, setMyPassword] = useState("");
   const [myCode, setMyCode] = useState("");
   const [cutError, setCutError] = useState("");
+  const { withProof, proofDialog } = useProof();
+  const toggle = (what: typeof open) => {
+    setNotice("");
+    setOpen(open === what ? "" : what);
+  };
   const cutDouble = async (e: React.FormEvent) => {
     e.preventDefault();
     setCutError("");
     try {
-      await send(`/api/profiles/${p.id}/double-verification/couper`, { motdepasse: myPassword, code: myCode });
-      setCutting(false);
-      onChanged();
+      if (await withProof(`/api/profiles/${p.id}/double-verification/couper`, { motdepasse: myPassword, code: myCode })) {
+        setCutting(false);
+        onChanged();
+      }
     } catch (err) {
       setCutError((err as Error).message);
       setMyCode("");
@@ -71,20 +160,19 @@ function ProfileRow({ profile: p, onChanged, onError }: { profile: Profile; onCh
   const remove = async (agents?: "transferer" | "supprimer") => {
     setBusy(true);
     try {
-      await del(`/api/profiles/${p.id}${agents ? `?agents=${agents}` : ""}`);
-      onChanged();
+      if (await withProof(`/api/profiles/${p.id}${agents ? `?agents=${agents}` : ""}`, {}, "DELETE")) onChanged();
     } catch (e) {
       onError((e as Error).message);
-      setBusy(false);
     }
+    setBusy(false);
   };
   const names = p.agents.map((a) => a.name).join(", ");
   return (
-    <li className="flex flex-col gap-2 rounded-2xl border border-border p-4">
+    <li className="flex flex-col gap-2 rounded-2xl border border-border p-4" data-profil={p.username}>
       <div className="flex flex-wrap items-center gap-3">
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold">{p.username}{p.role === "owner" && <span className="ml-2 text-xs font-medium text-muted-foreground">propriétaire</span>}</p>
-          <p className="text-xs text-muted-foreground">
+        <div className="min-w-48 flex-1">
+          <p className="break-words text-sm font-semibold">{p.username}{p.role === "owner" && <span className="ml-2 text-xs font-medium text-muted-foreground">propriétaire</span>}</p>
+          <p className="break-words text-xs text-muted-foreground">
             {p.agents.length ? `${p.agents.length} agent${p.agents.length > 1 ? "s" : ""} : ${names}` : "Aucun agent"} · {p.appareils} appareil{p.appareils > 1 ? "s" : ""} · {money(p.depense)} $ ce mois-ci
           </p>
         </div>
@@ -92,10 +180,25 @@ function ProfileRow({ profile: p, onChanged, onError }: { profile: Profile; onCh
           Plafond du mois ($)
           <Input type="number" min={0} step={1} placeholder="Aucun" className="h-8 w-24" value={budget} onChange={(e) => setBudget(e.target.value)} onBlur={saveBudget} />
         </Label>
+      </div>
+      <div className="flex flex-wrap gap-1">
+        <Button size="sm" variant={open === "appareils" ? "outline" : "ghost"} aria-expanded={open === "appareils"} onClick={() => toggle("appareils")}><MonitorSmartphone />Appareils</Button>
         {p.role !== "owner" && (
-          <Button variant="ghost" size="icon-sm" aria-label={`Supprimer le profil ${p.username}`} title="Supprimer ce profil" onClick={() => setDeleting(!deleting)}><Trash2 /></Button>
+          <>
+            <Button size="sm" variant={open === "mot-de-passe" ? "outline" : "ghost"} aria-expanded={open === "mot-de-passe"} onClick={() => toggle("mot-de-passe")}><KeyRound />Mot de passe</Button>
+            <Button size="sm" variant={open === "supprimer" ? "outline" : "ghost"} className="text-danger" aria-expanded={open === "supprimer"} aria-label={`Supprimer le profil ${p.username}`} onClick={() => toggle("supprimer")}><Trash2 />Supprimer</Button>
+          </>
         )}
       </div>
+      {notice && <p role="status" className="text-sm text-ok">{notice}</p>}
+      {open === "appareils" && <ProfileDevices profile={p} onChanged={onChanged} />}
+      {open === "mot-de-passe" && (
+        <ResetPassword profile={p} onCancel={() => setOpen("")} onDone={() => {
+          setOpen("");
+          setNotice(`Mot de passe réinitialisé. ${p.username} est déconnecté de tous ses appareils et devra choisir le sien à sa prochaine connexion.`);
+          onChanged();
+        }} />
+      )}
       {p.double && p.role !== "owner" && (cutting ? (
         <form onSubmit={cutDouble} className="flex flex-col gap-2 rounded-xl bg-warn-soft p-3 text-sm">
           <p>{p.username} a perdu son téléphone et ses codes de secours ? Confirme avec ton mot de passe, et ton code si tu as une double vérification. Laisse-le vide sinon.</p>
@@ -114,7 +217,7 @@ function ProfileRow({ profile: p, onChanged, onError }: { profile: Profile; onCh
           Double vérification activée. Couper ?
         </button>
       ))}
-      {deleting && (
+      {open === "supprimer" && (
         <div className="flex flex-col gap-2 rounded-xl bg-warn-soft p-3 text-sm">
           <p>
             Supprimer {p.username} coupe tout de suite ses sessions et ses appareils, et efface ses conversations sur les agents qu'on lui avait partagés.
@@ -129,10 +232,11 @@ function ProfileRow({ profile: p, onChanged, onError }: { profile: Profile; onCh
             ) : (
               <Button size="sm" variant="danger" disabled={busy} onClick={() => remove()}>Supprimer ce profil</Button>
             )}
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setDeleting(false)}>Annuler</Button>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setOpen("")}>Annuler</Button>
           </div>
         </div>
       )}
+      {proofDialog}
     </li>
   );
 }
@@ -143,21 +247,20 @@ function NewProfile({ onCreated }: { onCreated: () => void }) {
   const [budget, setBudget] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [proof, setProof] = useState<{ asked: boolean; motdepasse: string; code: string }>({ asked: false, motdepasse: "", code: "" });
+  const { withProof, proofDialog } = useProof();
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setError("");
     try {
-      await send("/api/profiles", { username: username.trim(), password, budget: budget === "" ? null : Number(budget), motdepasse: proof.motdepasse, code: proof.code });
-      setUsername("");
-      setPassword("");
-      setBudget("");
-      setProof({ asked: false, motdepasse: "", code: "" });
-      onCreated();
+      if (await withProof("/api/profiles", { username: username.trim(), password, budget: budget === "" ? null : Number(budget) })) {
+        setUsername("");
+        setPassword("");
+        setBudget("");
+        onCreated();
+      }
     } catch (err) {
       setError((err as Error).message);
-      if ((err as { status?: number }).status === 428) setProof((p) => ({ ...p, asked: true }));
     }
     setBusy(false);
   };
@@ -169,15 +272,10 @@ function NewProfile({ onCreated }: { onCreated: () => void }) {
         <Label>Mot de passe initial<Input required type="password" minLength={8} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} /></Label>
         <Label>Plafond du mois ($)<Input type="number" min={0} step={1} placeholder="Aucun" value={budget} onChange={(e) => setBudget(e.target.value)} /></Label>
       </div>
-      <p className="text-xs text-muted-foreground">Transmets-lui ce mot de passe toi-même : il le remplacera dans Réglages &gt; Appareils.</p>
-      {proof.asked && (
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Label>Ton mot de passe<Input required type="password" autoComplete="current-password" value={proof.motdepasse} onChange={(e) => setProof({ ...proof, motdepasse: e.target.value })} /></Label>
-          <Label>Code de double vérification, si activée<Input inputMode="numeric" autoComplete="one-time-code" value={proof.code} onChange={(e) => setProof({ ...proof, code: e.target.value })} /></Label>
-        </div>
-      )}
+      <p className="text-xs text-muted-foreground">Transmets-lui ce mot de passe toi-même : il le remplacera dans Réglages &gt; Sécurité.</p>
       <ErrorText>{error}</ErrorText>
       <Button type="submit" className="self-start" disabled={busy}><UserPlus />Créer le profil</Button>
+      {proofDialog}
     </form>
   );
 }
@@ -187,19 +285,22 @@ export function MyPassword() {
   const [actuel, setActuel] = useState("");
   const [nouveau, setNouveau] = useState("");
   const [state, setState] = useState<{ ok?: boolean; error?: string }>({});
+  const { withProof, proofDialog } = useProof();
   const change = async (e: React.FormEvent) => {
     e.preventDefault();
+    setState({});
     try {
-      await send("/api/me/password", { actuel, nouveau });
-      setActuel("");
-      setNouveau("");
-      setState({ ok: true });
+      if (await withProof("/api/me/password", { actuel, nouveau })) {
+        setActuel("");
+        setNouveau("");
+        setState({ ok: true });
+      }
     } catch (err) {
       setState({ error: (err as Error).message });
     }
   };
   return (
-    <form onSubmit={change} className="mt-4 flex flex-col gap-3 rounded-2xl border border-border p-4">
+    <form onSubmit={change} className="flex flex-col gap-3 rounded-2xl border border-border p-4">
       <p className="text-sm font-semibold">Changer mon mot de passe</p>
       <div className="grid gap-3 sm:grid-cols-2">
         <Label>Mot de passe actuel<Input required type="password" autoComplete="current-password" value={actuel} onChange={(e) => setActuel(e.target.value)} /></Label>
@@ -208,6 +309,7 @@ export function MyPassword() {
       <ErrorText>{state.error}</ErrorText>
       {state.ok && <p className="text-sm text-ok">Mot de passe changé. Tes autres appareils sont déconnectés.</p>}
       <Button type="submit" variant="outline" className="self-start">Changer</Button>
+      {proofDialog}
     </form>
   );
 }

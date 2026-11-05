@@ -117,14 +117,16 @@ Noah n'envoie rien à ses développeurs. Il n'a aucune télémétrie. Réglages 
 | Pays et fuseau du serveur | ipinfo.io | Une seule fois, évitable avec `NOAH_LOCALE` et `NOAH_TIMEZONE` |
 | Ce que tu autorises sur ton compte Google | googleapis.com | Si tu connectes Google à un agent |
 | Ce que l'agent envoie à un outil | Les outils que tu ajoutes. | Quand il s'en sert |
+| Tes codes de confirmation et tes alertes de connexion | Ton serveur de courriel, si tu en règles un | Quand tu confirmes une action ou qu'un nouvel appareil se connecte |
 
 Chacun de ces services voit l'IP de ton serveur. Un test vérifie le serveur de Noah contre cette liste : [sorties_test.py](tests/exposition/sorties_test.py). Il ne voit pas ce que font les conteneurs des agents (Hermes), de leurs navigateurs et de Caddy. La mesure sur 24 h depuis un vrai VPS reste à faire.
 
 ### Comment tu restes le seul à entrer
 
-- **Le compte.** Il se crée avec le code à usage unique du lien, puis ce code est effacé. Il n'y a pas d'inscription publique : toi seul peux ajouter un profil.
-- **La connexion.** En HTTPS, avec 10 essais ratés au plus par réseau toutes les 10 minutes. Tu peux ajouter une double vérification, un code à 6 chiffres donné par une application sur ton téléphone : [activer](docs/installation.md#la-double-vérification).
-- **Les appareils.** Un QR code ou un code court sert une fois et expire en 10 minutes. Il ne suffit pas : tu acceptes sur un appareil déjà relié, avec le nombre à 3 chiffres. Accepter demande aussi ton mot de passe, sauf depuis un navigateur où tu viens de le saisir (moins de 15 minutes) : un téléphone volé ne relie pas un autre appareil. Réglages > Appareils les liste, et tu peux en retirer un.
+- **Le compte.** Il se crée avec le code à usage unique du lien, puis ce code est effacé, ou au déploiement avec [`NOAH_ADMIN_USER` et `NOAH_ADMIN_PASSWORD`](docs/installation.md#choisir-son-compte-au-déploiement), un mot de passe à changer à la première connexion. Il n'y a pas d'inscription publique : toi seul peux ajouter un profil.
+- **Les profils.** Depuis Réglages > Profils, sur l'ordinateur comme sur le téléphone, tu crées, réinitialises ou supprimes un profil, et tu vois et coupes ses appareils ; chaque geste demande ton mot de passe.
+- **La connexion.** En HTTPS, avec 10 essais ratés au plus par réseau toutes les 10 minutes. Tu peux ajouter une double vérification, un code à 6 chiffres donné par une application sur ton téléphone : [activer](docs/installation.md#la-double-vérification). Tu peux aussi faire confirmer les actions critiques par un [code reçu par courriel](docs/installation.md#le-code-reçu-par-courriel).
+- **Les appareils.** Un QR code ou un code court sert une fois et expire en 10 minutes. Il ne suffit pas : tu acceptes sur un appareil déjà relié, avec le nombre à 3 chiffres. Accepter demande aussi ton mot de passe, sauf depuis un navigateur où tu viens de le saisir (moins de 15 minutes) : un téléphone volé ne relie pas un autre appareil. Réglages > Appareils les liste, et tu peux en retirer un ; un jeton volé ne le peut pas, car déconnecter un autre appareil demande ton mot de passe. Un nouvel appareil se signale sur les autres, avec « C'est moi » et « [Ce n'est pas moi](docs/installation.md#nouvel-appareil-sur-ton-compte) », qui le coupe aussitôt.
 - **Le réseau.** Seul Caddy publie des ports, le 80 et le 443. Le serveur, le lanceur, les agents et leurs navigateurs n'en publient aucun ([exposition_test.py](tests/exposition/exposition_test.py) lit les fichiers et les appels à Docker ; le scan depuis Internet reste à faire).
 - **Les mises à jour.** Le serveur n'installe une version que si son manifeste porte la bonne signature, et chaque image y est fixée par empreinte.
 

@@ -7,7 +7,9 @@ Il sert une fois, 15 minutes. La base n'en garde que l'empreinte, dans `settings
 processus, et un redémarrage ne doit pas changer les règles. Le changement ferme toutes les sessions du serveur.
 
 Qui a la main sur le serveur peut aussi couper la double vérification du propriétaire (téléphone perdu), si la demande le dit :
-l'écran le dit, et le journal le garde.
+l'écran le dit, et le journal le garde. De même pour le courriel de confirmation, si l'envoi est en panne :
+
+    docker exec noah-server python -m noah.recuperation --couper-courriel
 """
 import json
 import logging
@@ -16,7 +18,7 @@ import sys
 import threading
 import time
 
-from . import auth, db
+from . import auth, courriel, db
 from .config import _new_setup_code
 
 SECONDS = 15 * 60
@@ -129,7 +131,7 @@ def change_password(given: str, password: str, network: str, cut_double: bool = 
         if not row:
             return None
         c.execute("DELETE FROM settings WHERE key = ?", (_KEY,))
-        c.execute("UPDATE users SET pw_hash = ? WHERE id = ?", (pw_hash, row["id"]))
+        c.execute("UPDATE users SET pw_hash = ?, a_changer = 0 WHERE id = ?", (pw_hash, row["id"]))
         if cut_double:
             c.execute("DELETE FROM double_verification WHERE user_id = ?", (row["id"],))
         else:
@@ -143,7 +145,22 @@ def change_password(given: str, password: str, network: str, cut_double: bool = 
     return row["username"]
 
 
+def _server_journal(message: str) -> None:
+    """Depuis la commande : dans les journaux du service `server` aussi (sortie du processus principal du conteneur)."""
+    log.warning(message)
+    try:
+        with open("/proc/1/fd/1", "a", encoding="utf-8") as journal:
+            journal.write(message + "\n")
+    except OSError:
+        pass
+
+
 def main() -> int:
+    if "--couper-courriel" in sys.argv[1:]:
+        count = courriel.cut_all()
+        _server_journal(f"Courriel de confirmation coupé depuis le serveur (python -m noah.recuperation) : {count} adresse(s) désactivée(s).")
+        print(f"\nCourriel de confirmation coupé : {count} adresse(s) désactivée(s). Chacun peut réactiver la sienne dans Réglages > Sécurité.\n")
+        return 0
     if not owner():
         print("Aucun compte sur ce serveur : rien à récupérer. Crée le compte avec le code d'installation.")
         return 1
