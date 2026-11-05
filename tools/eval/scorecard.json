@@ -9,7 +9,7 @@
  },
  "parcours": [
   { "id": "J1", "t": "VPS Hostinger neuf : première réponse de l'agent en 10 min, sans taper une commande", "requis": 3, "preuve": 2, "test": "tests/real/vps_repetition.py" },
-  { "id": "J2", "t": "App de bureau installée, reliée au compte du VPS, puis conversation", "requis": 3, "preuve": 0 },
+  { "id": "J2", "t": "App de bureau installée, reliée au compte du VPS, puis conversation", "requis": 3, "preuve": 2, "test": "tests/real/bureau_vps.mjs", "note": "programme de win-unpacked sous Windows, serveur local avec Hermes simulé : installateur non exécuté, ni VPS, ni Linux, ni macOS" },
   { "id": "J3", "t": "APK installé, QR scanné en 4G, puis conversation", "requis": 3, "preuve": 2, "note": "APK de la CI sur émulateur, relié au vrai VPS par adresse et code : ni vrai téléphone, ni QR, ni 4G" },
   { "id": "J4", "t": "Version majeure publiée : installée seule à une heure calme, sans perte ; panne provoquée : retour arrière", "requis": 3, "preuve": 0 },
   { "id": "J5", "t": "Appeler un agent depuis le téléphone, lui parler, lui couper la parole, raccrocher", "requis": 3, "preuve": 0 },
@@ -68,12 +68,12 @@
    "nom": "App de bureau",
    "seuil": 8,
    "criteres": [
-    { "id": "G3.1", "b": 1, "requis": 3, "preuve": 0 },
+    { "id": "G3.1", "b": 1, "requis": 3, "preuve": 2, "test": "tests/real/bureau_vps.mjs", "note": "serveur local : trafic capturé à l'entrée du serveur, pas sur un VPS" },
     { "id": "G3.2", "requis": 1, "preuve": 0, "note": "le test exige une relivraison au second sondage, le critère exige un 404 : à réconcilier" },
-    { "id": "G3.3", "b": 1, "requis": 2, "preuve": 0 },
+    { "id": "G3.3", "b": 1, "requis": 2, "preuve": 2, "test": "tests/real/bureau_vps.mjs", "note": "Windows seulement (DPAPI) ; Trousseau macOS et libsecret non vérifiés" },
     { "id": "G3.4", "requis": 2, "preuve": 0 },
     { "id": "G3.5", "requis": 2, "preuve": 1, "test": "tests/restore/inspect_test.py", "note": "archives fabriquées seulement : aucune sauvegarde locale restaurée sur un VPS" },
-    { "id": "G3.6", "requis": 2, "preuve": 0, "note": "aucun test de reconnexion de l'app de bureau" },
+    { "id": "G3.6", "requis": 2, "preuve": 2, "test": "tests/real/bureau_vps.mjs", "note": "conteneur coupé puis relancé, trois cas sous 30 s ; coupure seule du flux, sans arrêt du serveur, non jouée" },
     { "id": "G3.7", "requis": 2, "preuve": 0 }
    ]
   },

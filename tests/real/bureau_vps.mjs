@@ -186,9 +186,10 @@ try {
     const seenAll = await traffic();
     check("mot de passe du compte absent de tout le trafic", seenAll.length > 50 && !seenAll.some((r) => r.mdp), `${seenAll.length} requêtes`);
     check("aucune connexion par mot de passe", !seenAll.some((r) => r.p === "/api/login"));
-    const windowed = seenAll.filter((r) => /Electron\//.test(r.ua));
+    // Seules les routes /api/ posent un cookie. Le service worker, lui, peut garder l'ancien nom pour la page et ses fichiers.
+    const windowed = seenAll.filter((r) => /Electron\//.test(r.ua) && r.p.startsWith("/api/"));
     const plain = windowed.filter((r) => !/NoahApp\/\S+ Desktop$/.test(r.ua));
-    check("la fenêtre s'annonce comme l'app", windowed.length > 0 && plain.length === 0, `${windowed.length} requêtes ; sans l'annonce : ${[...new Set(plain.map((r) => `${r.m} ${r.p}`))].join(", ").slice(0, 400)}`);
+    check("la fenêtre s'annonce comme l'app sur les routes /api/", windowed.length > 0 && plain.length === 0, `${windowed.length} requêtes ; sans l'annonce : ${[...new Set(plain.map((r) => `${r.m} ${r.p}`))].join(", ").slice(0, 400)}`);
   }
 
   // G3.6 : le serveur coupe et revient. L'app reprend seule en moins de 30 s, sans redemander la liaison, sans qu'on touche à rien.
