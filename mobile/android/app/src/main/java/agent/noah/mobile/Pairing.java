@@ -275,7 +275,8 @@ final class Pairing {
         return done;
     }
 
-    private static SecretKey key() throws Exception {
+    /** Un fil à la fois : générer sur un alias existant remplace la clé, et ce qui a été chiffré avant serait perdu. */
+    private static synchronized SecretKey key() throws Exception {
         KeyStore store = KeyStore.getInstance("AndroidKeyStore");
         store.load(null);
         if (store.containsAlias(KEY_ALIAS)) {
