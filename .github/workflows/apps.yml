@@ -1,11 +1,10 @@
 # Construit l'APK et l'installateur de bureau depuis les sources, sur une machine propre. Une version y joint les deux.
 name: Applications
 
+# Seulement pour une version, ou à la demande : la CI est limitée.
 on:
   push:
-    branches: [main]
     tags: ["v*.*.*"]
-  pull_request:
   workflow_dispatch:
 
 permissions:

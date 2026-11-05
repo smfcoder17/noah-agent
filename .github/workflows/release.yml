@@ -4,10 +4,10 @@
 # > Change visibility > Public (sinon un VPS ne peut pas les télécharger sans se connecter).
 name: Images
 
+# Seulement pour une version, ou pour déployer à la demande (gh workflow run release.yml) : la CI est limitée.
 on:
   push:
     tags: ["v*.*.*"]
-    branches: [main]
   workflow_dispatch:
 
 permissions:

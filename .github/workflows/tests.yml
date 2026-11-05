@@ -2,9 +2,9 @@
 # (retour arrière avec les données, coupure brutale, relais du lanceur). Une version ne part pas si l'un échoue.
 name: Tests
 
+# Pas de lancement à chaque envoi : la CI est limitée. En local : sh scripts/verifier.sh
 on:
-  push:
-  pull_request:
+  workflow_dispatch:
   workflow_call:  # appelé par release.yml : pas d'image ni de manifeste si un test échoue
     inputs:
       rapide:  # image edge de main : cette même suite tourne en entier à côté, seule une version l'attend
@@ -46,6 +46,12 @@ jobs:
       - name: Erreurs lisibles, détails, jamais de silence
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/coordination/erreurs_test.py"
+      - name: "Lanceur sur un petit VPS"
+        run: |
+          docker run --rm -v "$PWD/launcher:/launcher:ro" -v "$PWD/tests:/tests:ro" python:3.12-slim sh -c "pip install -q fastapi pydantic httpx && python /tests/agents/petit_vps_test.py"
+      - name: "Aperçu : une app charge ses fichiers sans sortir de son dossier"
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/agents/apercu_test.py"
       - name: "Appel : une demande en attente survit au raccroché"
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/voice/ensuite_test.py"

@@ -7,6 +7,9 @@ import mimetypes
 import re
 import secrets
 import threading
+import base64
+import hmac
+import posixpath
 import time
 import unicodedata
 import uuid
@@ -1189,6 +1192,15 @@ Ta conversation avec l'utilisateur est unique et continue. Pour un travail long 
 ouvre un fil : `python3 /opt/data/noah.py fil "Titre court" "consigne complète et autonome"`. Il tourne à part et l'utilisateur le voit dans Détails.
 Suis-le avec `python3 /opt/data/noah.py fil-etat <id>` et rapporte le résultat ici.
 
+## Tes fichiers
+outputs/ et apps/ ne gardent que ce que l'utilisateur voudra retrouver : le résultat final et ce qui sert encore.
+- Fais tes essais, tes téléchargements intermédiaires et tes conversions dans /tmp/travail, pas dans outputs/.
+- Une seule version de chaque résultat : pas de copie dans un autre format sans qu'on te le demande. Si `noah.py image` a déjà enregistré l'image, garde ce fichier.
+- Avant de répondre, supprime ce que tu as créé dans cette tâche et qui ne sert plus : essais, versions écartées, fichiers ratés.
+- Ne supprime jamais sans accord un fichier donné par l'utilisateur ou déjà livré dans une réponse précédente.
+- Une application a son dossier dans apps/ ; ses images et ses données y restent et s'appellent en chemins relatifs (assets/lion.jpg), jamais en /opt/data/… : l'aperçu ne lit que ce dossier.
+- Si `noah.py image` échoue, dis son message tel quel. Ne passe pas par un autre service d'images en ligne sans le dire : la demande de l'utilisateur partirait chez un tiers.
+
 ## Façon de travailler
 - Va jusqu'au bout de la tâche sans t'arrêter à mi-chemin ; découpe les tâches longues en étapes et enchaîne-les.
 - Un message qui commence par des citations (lignes « > … ») répond à ces passages précis (extrait, tableau, image, fichier) : pars d'eux.
@@ -1964,6 +1976,57 @@ async def agent_file(agent_id: str, path: str, request: Request, download: bool 
     return Response(r.content, media_type=ctype, headers=headers)
 
 
+PREVIEW_SECONDS = 86400
+WORKSPACE = "/opt/data/workspace/"
+
+
+def _preview_signature(body: str) -> str:
+    return hmac.new(config.SECRET_KEY.encode(), f"apercu:{body}".encode(), hashlib.sha256).hexdigest()
+
+
+class PreviewAsk(BaseModel):
+    path: str = Field(min_length=1, max_length=1000)
+
+
+@app.post("/api/agents/{agent_id}/apercu")
+def preview_link(agent_id: str, body: PreviewAsk, user: int = Depends(auth.current_user)):
+    """Le lien d'une page montrée dans son bac à sable. Son origine est opaque : le navigateur n'y envoie aucun cookie, donc
+    ses images et ses données en chemins relatifs échouaient. Ce lien vaut pour son dossier seulement, et il suit les droits.
+    Une page à la racine ou dans outputs/ ne voit pas tout : à la racine, elle-même ; dans outputs/, ce dossier de livrables."""
+    _usable(user, agent_id)
+    path = posixpath.normpath(body.path.removeprefix(WORKSPACE))
+    if path.startswith(("/", "..")) or path == ".":
+        raise HTTPException(400, "Chemin hors de l'espace de travail")
+    folder, name = posixpath.split(path)
+    token = base64.urlsafe_b64encode(json.dumps([agent_id, user, folder or path, bool(folder), int(time.time()) + PREVIEW_SECONDS]).encode()).decode().rstrip("=")
+    return {"url": f"/api/apercu/{token}.{_preview_signature(token)}/{quote(name)}"}
+
+
+@app.get("/api/apercu/{token}/{path:path}")
+async def preview_file(token: str, path: str, request: Request):
+    body, _, signature = token.partition(".")
+    if not hmac.compare_digest(signature, _preview_signature(body)):
+        raise HTTPException(403, "Lien d'aperçu invalide")
+    agent_id, user, scope, is_folder, expires = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
+    if time.time() > expires or not access.allowed(user, agent_id, "usage"):
+        raise HTTPException(403, "Lien d'aperçu expiré")
+    wanted = posixpath.normpath(posixpath.join(scope, path) if is_folder else path)
+    if not (wanted.startswith(scope + "/") if is_folder else wanted == scope):
+        raise HTTPException(403, "Hors du dossier de cet aperçu")
+    r = await hermes.read_file(agent_id, wanted)
+    if r.status_code != 200:
+        if request.headers.get("sec-fetch-dest") == "iframe":
+            return Response(FILE_GONE, r.status_code, media_type="text/html; charset=utf-8")
+        raise HTTPException(r.status_code, "Fichier indisponible")
+    return Response(r.content, media_type=mimetypes.guess_type(wanted)[0] or "application/octet-stream", headers={
+        "Content-Security-Policy": "sandbox allow-scripts allow-forms allow-popups allow-modals",
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "no-referrer",  # le lien ne part pas vers les sites que la page appelle
+        "Access-Control-Allow-Origin": "*",  # fetch depuis l'origine opaque ; aucun cookie n'est lu ici
+        "Cache-Control": "private, no-cache",
+    })
+
+
 @app.post("/api/agents/{agent_id}/upload")
 async def agent_upload(agent_id: str, name: str, request: Request, user: int = Depends(auth.current_user)):
     _usable(user, agent_id)
@@ -2107,7 +2170,14 @@ async def _browser_wake(agent_id: str, may_restart: bool = True, started: bool =
     except httpx.HTTPError:  # conteneur arrêté au repos, ou jamais créé : c'est ici qu'il démarre, avec ses réglages à jour
         if started:
             return await _browser_diagnosis(agent_id)
-        await hermes.ensure_browser(agent_id)
+        try:
+            await hermes.ensure_browser(agent_id)
+        except httpx.HTTPError as e:
+            detail = e.response.text[:400] if isinstance(e, httpx.HTTPStatusError) else str(e)
+            diagnostics.record("démarrage du navigateur", detail, agent_id)
+            return {**await _browser_diagnosis(agent_id),
+                    "conseil": "Le navigateur n'a pas pu démarrer. Le détail est dans Réglages > Diagnostic : donne-le à l'utilisateur, ne réessaie pas en boucle.",
+                    "erreur": diagnostics.mask(detail)}
         for _ in range(60):
             if (await _browser_diagnosis(agent_id))["joignable"]:
                 return await _browser_wake(agent_id, may_restart, started=True)

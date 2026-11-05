@@ -5,6 +5,7 @@ et construit lui-même chaque conteneur à partir d'une image fixe, sans montage
 privilège. Le serveur Noah Agent n'a donc jamais accès au socket Docker.
 """
 import base64
+import functools
 import io
 import json
 import os
@@ -20,6 +21,7 @@ import restore
 import updater
 from docker.errors import NotFound
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 
@@ -112,16 +114,38 @@ def _ensure_image(name: str) -> None:
         client.images.pull(name)
 
 
-def _prefetch_agent_image() -> None:
-    """Sur un VPS neuf, l'image de l'agent pèse 4 Go : la prendre tout de suite, pendant que la personne crée son compte,
-    plutôt qu'au moment où elle choisit son modèle, où l'écran resterait figé plusieurs minutes."""
+def _prefetch_images() -> None:
+    """Sur un VPS neuf, chaque image pèse 4 Go : les prendre tout de suite, pendant que la personne crée son compte. Sinon
+    l'écran reste figé quand elle choisit son modèle, et l'agent quand il ouvre son navigateur pour la première fois."""
+    for image in (IMAGE, updater.pinned("navigateur", BROWSER_IMAGE)):
+        try:
+            _ensure_image(image)
+        except Exception as e:  # noqa: BLE001 - réseau coupé : le premier usage réessaiera et dira l'erreur
+            print(f"[lanceur] image {image} non préchargée : {e}", flush=True)
+
+
+threading.Thread(target=_prefetch_images, daemon=True).start()
+
+
+@functools.lru_cache(maxsize=1)
+def _cores() -> int | None:
+    return client.info().get("NCPU")
+
+
+def _cpus(wanted: int) -> int:
+    """Limite de CPU pour Docker, qui refuse une valeur au-dessus des cœurs de la machine : sur un VPS à 2 cœurs, un
+    navigateur limité à 4 ne démarrait jamais."""
     try:
-        _ensure_image(IMAGE)
-    except Exception as e:  # noqa: BLE001 - réseau coupé : la création de l'agent réessaiera et dira l'erreur
-        print(f"[lanceur] image de l'agent non préchargée : {e}", flush=True)
+        return min(wanted, _cores() or wanted) * 1_000_000_000
+    except Exception:  # noqa: BLE001 - Docker occupé : la limite voulue, il dira s'il la refuse
+        return wanted * 1_000_000_000
 
 
-threading.Thread(target=_prefetch_agent_image, daemon=True).start()
+@app.exception_handler(docker.errors.APIError)
+async def docker_refused(request: Request, error: Exception):
+    """Sans ça, le serveur ne reçoit qu'« Internal Server Error » et ne peut rien dire de plus."""
+    print(f"[lanceur] Docker a refusé {request.url.path} : {error}", flush=True)
+    return JSONResponse({"detail": f"Docker a refusé : {error}"}, status_code=502)
 
 _browser_lock = threading.Lock()  # deux appels simultanés recréaient le même conteneur (conflit Docker)
 
@@ -187,7 +211,7 @@ def _ensure_browser(agent_id: str, body: BrowserKeys, image: str | None = None, 
         # Firefox sans carte graphique dessine tout au processeur : avec 2 cœurs, la console Google Cloud mettait 10 à
         # 30 s par clic et l'écran partagé ramait. Un onglet de cette console dépasse à lui seul 1,8 Go.
         mem_limit="4g",
-        nano_cpus=4_000_000_000,
+        nano_cpus=_cpus(4),
         shm_size="1g",
         security_opt=["no-new-privileges"],
     )
@@ -447,7 +471,7 @@ def _run_agent(agent_id: str, api_key: str, folders: list[Folder]):
         extra_hosts={"host.docker.internal": "host-gateway"},
         restart_policy={"Name": "unless-stopped"},
         mem_limit="4g",
-        nano_cpus=2_000_000_000,
+        nano_cpus=_cpus(2),
         security_opt=["no-new-privileges"],
         cap_drop=["NET_RAW", "SYS_ADMIN", "MKNOD"],
     )

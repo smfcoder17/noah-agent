@@ -274,5 +274,18 @@ export const mediaUrl = (agentId: string, path: string) =>
   `/api/agents/${agentId}/media?path=${encodeURIComponent(path)}`;
 
 /** Fichier de l'espace de travail ; accepte un chemin relatif ou complet (/opt/data/workspace/...). */
+/** Lien d'une page montrée dans son bac à sable : elle y charge ses images et ses données, sans cookie. */
+const previewLinks = new Map<string, Promise<string>>();
+export const previewUrl = (agentId: string, path: string): Promise<string> => {
+  const key = `${agentId}|${path}`;
+  let link = previewLinks.get(key);
+  if (!link) {
+    link = send<{ url: string }>(`/api/agents/${agentId}/apercu`, { path }).then((r) => r.url);
+    link.catch(() => previewLinks.delete(key));
+    previewLinks.set(key, link);
+  }
+  return link;
+};
+
 export const rawFileUrl = (agentId: string, path: string) =>
   `/api/agents/${agentId}/files/raw/${path.replace(/^\/opt\/data\/workspace\//, "").split("/").map(encodeURIComponent).join("/")}`;

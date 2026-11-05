@@ -264,6 +264,7 @@ ROUTES = {
     ("DELETE", "/api/conversations/{conv_id}"): "auteur",
     ("POST", "/api/conversations/{conv_id}/partage"): "auteur",
     ("POST", "/api/chat"): "usage",
+    ("POST", "/api/agents/{agent_id}/apercu"): "usage",
     ("POST", "/api/agents/{agent_id}/runs/{run_id}/approval"): "usage",
     ("POST", "/api/agents/{agent_id}/runs/{run_id}/stop"): "usage",
     ("GET", "/api/agents/{agent_id}/media"): "usage",
@@ -321,6 +322,7 @@ FILL = {"agent_id": A, "conv_id": CA, "run_id": RUN, "routine_id": "routine-1", 
         "rid": RID, "user_id": str(ZED), "path:path": "index.html"}
 BODIES = {
     "/api/chat": lambda: {"agent_id": A, "text": "bonjour"},
+    "/api/agents/{agent_id}/apercu": lambda: {"path": "apps/x/index.html"},
     "/api/agents/{agent_id}/plafond": lambda: {"daily": 1},
     "/api/agents/{agent_id}/model": lambda: {"model": None},
     "/api/agents/{agent_id}/look": lambda: {"color": "#112233"},
@@ -351,6 +353,7 @@ QUERIES = {"/api/agents/{agent_id}/media": {"path": "/x.png"}, "/api/agents/{age
 
 # Routes avec un identifiant qui n'appartient à aucun agent. Chacune a sa raison et, quand c'est possible, sa vérification.
 WHITELIST = {
+    ("GET", "/api/apercu/{token}/{path:path}"): "Sans session : le lien signé porte le compte, le dossier et l'expiration, et suit les droits (apercu_test).",
     ("POST", "/api/chat/ensuite"): "Mêmes droits que /api/chat : agent utilisable et conversation à ce compte (ensuite_test).",
     ("GET", "/api/pairing/flow/{public}"): "Demande d'appairage : identifiant aléatoire ; le premier compte qui la voit en devient le seul titulaire (vérifié par test_personal et pairing_test).",
     ("POST", "/api/pairing/flow/{public}/{decision}"): "Même titulaire exigé pour accepter ou refuser ; le nombre à recopier protège le reste (pairing_test).",

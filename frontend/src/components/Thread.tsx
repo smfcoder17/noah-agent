@@ -453,7 +453,7 @@ export function Thread({ report, onReportRead, onCall }: { report: { id: string;
     <ThreadPrimitive.Root className="flex h-full min-h-0 flex-col">
       <SelectionReply />
       <ComposerPrimitive.AttachmentDropzone className="flex min-h-0 flex-1 flex-col data-[dragging=true]:bg-accent-soft/40">
-        <ThreadPrimitive.Viewport className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4">
+        <ThreadPrimitive.Viewport className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 [container-type:inline-size]">
           <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col pt-6">
             <ThreadPrimitive.Empty>
               <div className="m-auto flex max-w-md flex-col items-center gap-2 text-center">

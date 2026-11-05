@@ -3,8 +3,8 @@
 import type { SyntaxHighlighterProps } from "@assistant-ui/react-markdown";
 import { useAuiState } from "@assistant-ui/react";
 import { Check, Download, ExternalLink, FileText, Maximize2, Reply } from "lucide-react";
-import { useContext, useMemo, useState } from "react";
-import { mediaUrl, rawFileUrl } from "@/lib/api";
+import { useContext, useEffect, useMemo, useState } from "react";
+import { mediaUrl, previewUrl, rawFileUrl } from "@/lib/api";
 import { cn, safeMedia } from "@/lib/utils";
 import { AgentContext } from "@/lib/agentContext";
 import { useQuotes, widgetQuote } from "@/lib/quotes";
@@ -25,9 +25,11 @@ const SERIES = ["#2a47c9", "#0f766e", "#b4541a", "#7c3aed"];
 
 const fmt = (n: number) => new Intl.NumberFormat("fr-FR", { notation: Math.abs(n) >= 10000 ? "compact" : "standard", maximumFractionDigits: 1 }).format(n);
 
-function Frame({ title, note, actions, children, className }: { title?: string; note?: string; actions?: React.ReactNode; children: React.ReactNode; className?: string }) {
+const PAGE_WIDTH = "min(calc(100cqw - 2.5rem), 60rem)";
+
+function Frame({ title, note, actions, children, className, style }: { style?: React.CSSProperties; title?: string; note?: string; actions?: React.ReactNode; children: React.ReactNode; className?: string }) {
   return (
-    <section className={cn("my-3 overflow-hidden rounded-2xl border border-border bg-surface", className)}>
+    <section style={style} className={cn("my-3 overflow-hidden rounded-2xl border border-border bg-surface", className)}>
       {(title || actions) && (
         <header className="flex items-center justify-between gap-3 border-b border-border/60 px-4 py-3">
           <div className="min-w-0">
@@ -211,7 +213,17 @@ function Preview({ spec }: { spec: PreviewSpec }) {
   const name = path.split("/").pop() || "fichier";
   // Une app est un dossier : son nom parle plus que « index.html ».
   const title = spec.title || (/^index.html?$/i.test(name) ? path.split("/").slice(-2)[0] : name);
-  const url = rawFileUrl(agentId, path);
+  const raw = rawFileUrl(agentId, path);
+  const page = /\.html?$/i.test(path);
+  const [link, setLink] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    if (page) previewUrl(agentId, path).then((u) => live && setLink(u), () => live && setLink(raw));
+    return () => {
+      live = false;
+    };
+  }, [agentId, path, page, raw]);
+  const url = page ? link ?? raw : raw;
   const image = isImagePath(path);
   const frame = !image && canFrame(path);
   const open = () => (image ? view({ kind: "image", src: mediaUrl(agentId, path), title }) : view({ kind: "file", url, title }));
@@ -219,6 +231,8 @@ function Preview({ spec }: { spec: PreviewSpec }) {
     <Frame
       title={title}
       note={spec.note ?? name}
+      // Une application a besoin de place : elle déborde de la colonne de lecture quand la fenêtre le permet.
+      style={page ? { width: PAGE_WIDTH, marginLeft: `calc((100% - ${PAGE_WIDTH}) / 2)` } : undefined}
       actions={
         <div className="flex shrink-0 gap-1">
           {(image || frame) && (
@@ -230,7 +244,7 @@ function Preview({ spec }: { spec: PreviewSpec }) {
             </Button>
           )}
           <Button size="icon-sm" variant="ghost" asChild>
-            <a href={`${url}?download=1`} aria-label={`Télécharger ${name}`}><Download /></a>
+            <a href={`${raw}?download=1`} aria-label={`Télécharger ${name}`}><Download /></a>
           </Button>
         </div>
       }
@@ -245,13 +259,15 @@ function Preview({ spec }: { spec: PreviewSpec }) {
         <button type="button" onClick={open} className="block w-full cursor-zoom-in bg-muted">
           <img src={mediaUrl(agentId, path)} alt={title} loading="lazy" className="mx-auto max-h-96 object-contain" />
         </button>
+      ) : frame && page && !link ? (
+        <div className="h-[560px] bg-muted" />
       ) : frame ? (
         <iframe
           src={url}
           title={title}
           loading="lazy"
           sandbox="allow-scripts allow-forms allow-popups allow-modals"
-          className={cn("block w-full border-0 bg-white", /\.html?$/i.test(path) ? "h-[420px]" : "h-80")}
+          className={cn("block w-full border-0 bg-white", page ? "h-[560px]" : "h-80")}
         />
       ) : (
         <a href={`${url}?download=1`} className="flex items-center gap-3 px-4 py-4 text-sm no-underline hover:bg-muted">
