@@ -69,7 +69,7 @@ public class CallWatch extends Service {
         long pause = 5000;
         while (running) {
             Pairing pairing = new Pairing(this);
-            String server = pairing.server(), token = pairing.session();
+            String server = pairing.server(), token = pairing.token();
             if (server == null || token == null) break;
             try {
                 String known = URLEncoder.encode(String.join(",", ringing.keySet()), "UTF-8");

@@ -4,7 +4,6 @@ import android.content.Context;
 import android.content.MemoryPreferences;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
-import android.webkit.CookieManager;
 import com.sun.net.httpserver.HttpServer;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
@@ -24,6 +23,7 @@ import javax.crypto.SecretKey;
 public final class PairingKeystoreTest {
     private static final String TOKEN = "jeton-appareil-TEMOIN-abcdefghijklmnopqrstuvwxyz-0123";
     private static final String WINDOW = "jeton-fenetre-TEMOIN-ZYXWVUTSRQPONMLKJIHGFEDCBA-9876";
+    private static int answerCode = 200;
     private static final String SERVER = "https://noah.example.org";
 
     public static void main(String[] args) throws Exception {
@@ -35,6 +35,7 @@ public final class PairingKeystoreTest {
         copiedFiles();
         revocationQueue();
         concurrentFirstKey();
+        windowExchange();
         System.out.println("keystore : tout est vert");
     }
 
@@ -79,7 +80,7 @@ public final class PairingKeystoreTest {
         pairing.queueRevocation(SERVER, TOKEN);
         pairing.queueUnsubscribe(SERVER, TOKEN, "https://ntfy.sh/upAbc");
         ok(leaks(disk(context)).isEmpty(), "après la file : " + leaks(disk(context)));
-        pairing.forget(WINDOW);
+        pairing.forget();
         ok(leaks(disk(context)).isEmpty(), "après forget : " + leaks(disk(context)));
         String queue = disk(context).getString("a_revoquer", "");
         ok(queue.length() > 200, "la file devrait contenir les sessions à révoquer : " + queue);
@@ -142,10 +143,8 @@ public final class PairingKeystoreTest {
         pairing.startPush(TOKEN);
         ok(TOKEN.equals(pairing.token()), "le jeton devrait se relire sur ce téléphone");
         FauxKeystore.KEYS.clear(); // la clé ne sort pas du téléphone
-        CookieManager.cookies = null;
         ok(pairing.token() == null, "jeton lu sans la clé du Keystore");
         ok(pairing.pushToken() == null, "jeton d'abonnement lu sans la clé du Keystore");
-        ok(pairing.session() == null, "session lue sans la clé du Keystore");
         ok(SERVER.equals(pairing.server()), "l'adresse du serveur reste connue : il faudra relier l'app");
         System.out.println("5. fichiers copiés sans la clé du Keystore : ni jeton, ni abonnement, ni session");
     }
@@ -165,11 +164,9 @@ public final class PairingKeystoreTest {
             Context context = new Context();
             Pairing pairing = new Pairing(context);
             pairing.save(local, TOKEN);
-            pairing.forget(WINDOW);
+            pairing.forget();
             pairing.revokeForgotten();
-            ok(heard.size() == 2, "révocations reçues : " + heard);
-            ok(heard.contains("DELETE /api/devices/self Bearer " + TOKEN), "session de l'appairage non révoquée : " + heard);
-            ok(heard.contains("DELETE /api/devices/self Bearer " + WINDOW), "session de la fenêtre non révoquée : " + heard);
+            ok(heard.equals(List.of("DELETE /api/devices/self Bearer " + TOKEN)), "révocations reçues : " + heard);
             ok(disk(context).getString("a_revoquer", "").equals("[]"), "file non vidée : " + disk(context).getString("a_revoquer", ""));
 
             heard.clear();
@@ -218,5 +215,50 @@ public final class PairingKeystoreTest {
             }
         }
         System.out.println("7. première clé demandée par 8 fils à la fois : une seule clé, aucun jeton perdu");
+    }
+
+    /**
+     * 8. L'échange : le jeton d'appareil part en en-tête et rien de ce qui revient n'est rangé. Seul un 401 dit que l'appareil
+     * n'est plus relié : réseau coupé ou panne, la fenêtre attend sans redemander l'appairage.
+     */
+    private static void windowExchange() throws Exception {
+        FauxKeystore.KEYS.clear();
+        List<String> heard = new CopyOnWriteArrayList<>();
+        HttpServer http = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        http.createContext("/", exchange -> {
+            heard.add(exchange.getRequestMethod() + " " + exchange.getRequestURI().getPath() + " " + exchange.getRequestHeaders().getFirst("Authorization"));
+            byte[] body = ("{\"jeton\":\"" + WINDOW + "\",\"duree\":7200.0}").getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(answerCode, answerCode == 200 ? body.length : -1);
+            if (answerCode == 200) exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        http.start();
+        String local = "http://127.0.0.1:" + http.getAddress().getPort();
+        try {
+            Context context = new Context();
+            Pairing pairing = new Pairing(context);
+            pairing.save(local, TOKEN);
+            Pairing.Window window = pairing.openWindow();
+            ok(window.state.equals(Pairing.Window.OPEN) && WINDOW.equals(window.token), "échange : " + window.state + " " + window.token);
+            ok(heard.equals(List.of("POST /api/devices/self/fenetre Bearer " + TOKEN)), "reçu : " + heard);
+            ok(leaks(disk(context)).isEmpty(), "après l'échange : " + leaks(disk(context)));
+            ok(TOKEN.equals(pairing.token()), "l'échange a remplacé le jeton d'appareil");
+            for (int[] expected : new int[][] { { 401, 0 }, { 404, 1 }, { 403, 2 }, { 500, 2 }, { 502, 2 }, { 503, 2 } }) {
+                answerCode = expected[0];
+                String[] states = { Pairing.Window.REFUSED, Pairing.Window.SERVER_TOO_OLD, Pairing.Window.UNREACHABLE };
+                window = pairing.openWindow();
+                ok(window.state.equals(states[expected[1]]) && window.token == null, "HTTP " + answerCode + " : " + window.state);
+                ok(TOKEN.equals(pairing.token()), "HTTP " + answerCode + " : jeton d'appareil perdu");
+            }
+            answerCode = 200;
+            http.stop(0);
+            window = pairing.openWindow();
+            ok(window.state.equals(Pairing.Window.UNREACHABLE), "serveur coupé : " + window.state);
+            pairing.forget();
+            ok(pairing.openWindow().state.equals(Pairing.Window.REFUSED), "serveur oublié : l'échange n'a plus rien à dire");
+        } finally {
+            http.stop(0);
+        }
+        System.out.println("8. échange : jeton d'appareil en en-tête, rien de rangé ; 401 refuse, panne ou réseau coupé attendent");
     }
 }

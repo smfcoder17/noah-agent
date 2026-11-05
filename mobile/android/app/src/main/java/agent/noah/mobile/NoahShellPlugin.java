@@ -55,6 +55,23 @@ public class NoahShellPlugin extends Plugin {
     }
 
 
+    /**
+     * La session de la fenêtre a été refusée : l'interface demande à l'app d'en rouvrir une avant de conclure quoi que ce
+     * soit. Rend seulement l'état (ok, refuse, injoignable, ancien) : la session va directement dans le cookie HttpOnly.
+     */
+    @PluginMethod
+    public void renewSession(PluginCall call) {
+        if (!(getActivity() instanceof MainActivity)) {
+            call.reject("Fenêtre fermée");
+            return;
+        }
+        ((MainActivity) getActivity()).renewWindow(state -> {
+            JSObject out = new JSObject();
+            out.put("etat", state);
+            call.resolve(out);
+        });
+    }
+
     /** Notifications : un distributeur UnifiedPush est-il installé, et l'app est-elle inscrite chez lui ? */
     @PluginMethod
     public void pushStatus(PluginCall call) {
@@ -75,7 +92,7 @@ public class NoahShellPlugin extends Plugin {
     @PluginMethod
     public void pushSetup(PluginCall call) {
         Pairing pairing = new Pairing(getContext());
-        String server = pairing.server(), token = Pairing.windowToken(server);
+        String server = pairing.server(), token = pairing.token();
         if (server != null && token != null) NoahPush.start(getActivity(), server, token);
         call.resolve();
     }
@@ -102,7 +119,7 @@ public class NoahShellPlugin extends Plugin {
     @PluginMethod
     public void forget(PluginCall call) {
         Pairing pairing = new Pairing(getContext());
-        pairing.forget(Pairing.windowToken(pairing.server()));
+        pairing.forget();
         NoahPush.stop(getContext());
         new Thread(pairing::revokeForgotten).start();
         CookieManager.getInstance().removeAllCookies(null);

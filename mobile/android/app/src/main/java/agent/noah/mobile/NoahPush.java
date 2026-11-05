@@ -46,8 +46,8 @@ public class NoahPush extends PushService {
     static final String CALL_URL = "/#appel="; // même adresse que le web : le serveur la pose sur les rappels
 
     /**
-     * À chaque ouverture de l'interface (comme le recommande UnifiedPush) : distributeur choisi, inscription pour la
-     * session ouverte dans la fenêtre. Le contenu des messages ne s'affichera que pour elle.
+     * À chaque ouverture de l'interface (comme le recommande UnifiedPush) : distributeur choisi, inscription pour le
+     * jeton d'appareil, qui survit à la fenêtre. Le contenu des messages ne s'affichera que pour lui.
      */
     static void start(Activity activity, String server, String token) {
         Pairing pairing = new Pairing(activity);

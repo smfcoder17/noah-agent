@@ -9,8 +9,11 @@ public class JSONArray {
     public JSONArray() {}
 
     public JSONArray(String text) {
-        Reader in = new Reader(text);
-        items.addAll(((JSONArray) in.value()).items);
+        items.addAll(((JSONArray) parse(text)).items);
+    }
+
+    static Object parse(String text) {
+        return new Reader(text).value();
     }
 
     public JSONArray put(Object value) {
@@ -76,6 +79,11 @@ public class JSONArray {
                 }
                 i++;
                 return o;
+            }
+            if (Character.isDigit(c)) {
+                int start = i;
+                while (Character.isDigit(s.charAt(i)) || s.charAt(i) == '.') i++;
+                return s.substring(start, i);
             }
             if (c != '"') throw new IllegalArgumentException("JSON : " + s);
             StringBuilder out = new StringBuilder();

@@ -18,7 +18,8 @@ import org.json.JSONObject;
 
 /**
  * Le serveur auquel l'app est reliée et sa session. Le jeton est chiffré (AES-GCM) avec une clé du Keystore Android,
- * qui ne sort jamais du téléphone : une copie des fichiers de l'app ne suffit pas à se connecter.
+ * qui ne sort jamais du téléphone : une copie des fichiers de l'app ne suffit pas à se connecter. Il ne va jamais dans la
+ * WebView, qui écrit ses cookies en clair sur le disque : elle reçoit une session de fenêtre, courte (openWindow).
  */
 final class Pairing {
 
@@ -65,24 +66,64 @@ final class Pairing {
         return Base64.encodeToString(all, Base64.NO_WRAP);
     }
 
+    /** Réponse du serveur à un échange : "ok" avec un jeton, ou ce que la fenêtre doit faire sans lui. */
+    static final class Window {
+        static final String OPEN = "ok", REFUSED = "refuse", UNREACHABLE = "injoignable", SERVER_TOO_OLD = "ancien";
+        final String state, token;
+
+        Window(String state, String token) {
+            this.state = state;
+            this.token = token;
+        }
+    }
+
+    /**
+     * Échange le jeton d'appareil contre la session de la fenêtre. Réseau : hors du fil de l'interface. Seul un 401 veut
+     * dire que l'appareil n'est plus relié : réseau coupé ou serveur en panne, la fenêtre attend, sans redemander l'appairage.
+     */
+    Window openWindow() {
+        String server = server(), device = token();
+        if (server == null || device == null) return new Window(Window.REFUSED, null);
+        HttpURLConnection http = null;
+        try {
+            http = (HttpURLConnection) new URL(server + "/api/devices/self/fenetre").openConnection();
+            http.setRequestMethod("POST");
+            http.setRequestProperty("Authorization", "Bearer " + device);
+            http.setConnectTimeout(5000);
+            http.setReadTimeout(8000);
+            http.setDoOutput(true);
+            http.getOutputStream().close();
+            int code = http.getResponseCode();
+            if (code == 401) return new Window(Window.REFUSED, null);
+            if (code == 404) return new Window(Window.SERVER_TOO_OLD, null);
+            if (code != 200) return new Window(Window.UNREACHABLE, null);
+            java.io.ByteArrayOutputStream all = new java.io.ByteArrayOutputStream();
+            try (java.io.InputStream in = http.getInputStream()) {
+                byte[] buf = new byte[1024];
+                for (int n; (n = in.read(buf)) > 0; ) all.write(buf, 0, n);
+            }
+            return new Window(Window.OPEN, new JSONObject(all.toString("UTF-8")).getString("jeton"));
+        } catch (Exception e) {
+            return new Window(Window.UNREACHABLE, null);
+        } finally {
+            if (http != null) http.disconnect();
+        }
+    }
+
     /**
      * Oublie ce serveur. La session est mise de côté (toujours chiffrée) pour être révoquée là-bas : sans ça, elle
-     * resterait valable sur le serveur alors que l'utilisateur croit avoir déconnecté le téléphone.
+     * resterait valable sur le serveur alors que l'utilisateur croit avoir déconnecté le téléphone. Sa session de fenêtre
+     * tombe avec elle.
      */
-    void forget(String windowToken) {
+    void forget() {
         synchronized (Pairing.class) {
             String server = server(), sealed = prefs.getString("token", null);
             JSONArray queue = pending();
             if (server != null && sealed != null) {
                 try {
                     queue.put(new JSONObject().put("server", server).put("token", sealed));
-                    // La fenêtre peut utiliser une autre session (déconnexion puis reconnexion dans l'interface) :
-                    // elle est révoquée aussi.
-                    if (windowToken != null && !windowToken.equals(open(sealed))) {
-                        queue.put(new JSONObject().put("server", server).put("token", seal(windowToken)));
-                    }
                 } catch (Exception ignored) {
-                    // JSON en mémoire, chiffrement par la clé du Keystore : rien à faire de plus si ça échoue
+                    // JSON en mémoire : rien à faire de plus si ça échoue
                 }
             }
             int ids = prefs.getInt("notif_id", 0); // gardé : un nouvel appairage ne remplace pas d'anciennes notifications
@@ -90,29 +131,6 @@ final class Pairing {
             prefs.edit().clear().putString("a_revoquer", queue.toString()).putInt("notif_id", ids)
                 .putLong("push_gen", gen).commit();
         }
-    }
-
-    /** La session de ce téléphone, celle de la fenêtre d'abord, pour parler au serveur quand la fenêtre est fermée. */
-    String session() {
-        String window = windowToken(server());
-        if (window != null) return window;
-        try {
-            String sealed = prefs.getString("token", null);
-            return sealed == null ? null : open(sealed);
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    /** Session réellement utilisée par la fenêtre (cookie apollo_session), ou null. */
-    static String windowToken(String server) {
-        String all = server == null ? null : android.webkit.CookieManager.getInstance().getCookie(server);
-        if (all == null) return null;
-        for (String part : all.split(";")) {
-            String p = part.trim();
-            if (p.startsWith("apollo_session=")) return p.substring("apollo_session=".length());
-        }
-        return null;
     }
 
     /** Session à révoquer plus tard (réseau absent) : rejoint la même file chiffrée que l'oubli du serveur. */
