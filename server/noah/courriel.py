@@ -269,6 +269,22 @@ def notify_device(user: int, name: str, ip: str, known_network: bool, when: str)
         log.warning("Alerte de nouvel appareil non envoyée par courriel pour le compte n°%d : %s.", user, e.why)
 
 
+def notify_reset(user: int, when: str) -> None:
+    """Le propriétaire vient de réinitialiser ce mot de passe : la personne le sait, même si elle n'attendait rien."""
+    if not active(user):
+        return
+    reserved = _reserve(user, "alerte", ALERTS_PER_HOUR)
+    if reserved is None:
+        return
+    try:
+        _deliver(_row(user)["adresse"], "Noah : ton mot de passe a été réinitialisé",
+                 f"Le propriétaire de ce serveur Noah Agent a réinitialisé ton mot de passe.\n\nDate : {when}\n\n"
+                 "Si tu ne le lui as pas demandé, parles-en avec cette personne : avec ce mot de passe temporaire, on peut entrer sur ton compte.\n")
+    except SendFailed as e:
+        _give_back(user, "alerte", reserved)
+        log.warning("Alerte de réinitialisation non envoyée par courriel pour le compte n°%d : %s.", user, e.why)
+
+
 # --- Routes ---------------------------------------------------------------------------------------------------------------
 
 def _session_of(request: Request) -> str:

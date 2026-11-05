@@ -78,11 +78,11 @@ function ForgotPassword({ onBack, onChanged }: { onBack: () => void; onChanged: 
         </Label>
         <Label>
           Nouveau mot de passe
-          <Input id="new-password" type="password" autoComplete="new-password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} />
+          <Input id="new-password" type="password" autoComplete="new-password" required minLength={12} value={password} onChange={(e) => setPassword(e.target.value)} />
         </Label>
         <Label>
           Encore une fois
-          <Input id="new-password-again" type="password" autoComplete="new-password" required minLength={8} value={again} onChange={(e) => setAgain(e.target.value)} />
+          <Input id="new-password-again" type="password" autoComplete="new-password" required minLength={12} value={again} onChange={(e) => setAgain(e.target.value)} />
         </Label>
         <p className="text-muted-foreground">Toutes les sessions du serveur seront fermées, sur tous les appareils et tous les profils. Il faudra relier tes applications de nouveau. Tes agents continuent de tourner.</p>
         <label className="flex items-start gap-2 text-muted-foreground">
@@ -141,11 +141,11 @@ export function TemporaryPassword({ onDone, onLogout }: { onDone: () => void; on
         </Label>
         <Label>
           Nouveau mot de passe
-          <Input id="new-password" type="password" autoComplete="new-password" required minLength={8} value={nouveau} onChange={(e) => setNouveau(e.target.value)} />
+          <Input id="new-password" type="password" autoComplete="new-password" required minLength={12} value={nouveau} onChange={(e) => setNouveau(e.target.value)} />
         </Label>
         <Label>
           Encore une fois
-          <Input id="new-password-again" type="password" autoComplete="new-password" required minLength={8} value={again} onChange={(e) => setAgain(e.target.value)} />
+          <Input id="new-password-again" type="password" autoComplete="new-password" required minLength={12} value={again} onChange={(e) => setAgain(e.target.value)} />
         </Label>
         <ErrorText>{error}</ErrorText>
         <Button type="submit" size="lg" disabled={busy}>Enregistrer et continuer</Button>

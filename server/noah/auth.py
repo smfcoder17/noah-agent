@@ -18,6 +18,7 @@ SEEN_EVERY = timedelta(minutes=5)
 # Session de fenêtre : ce que la WebView de l'app reçoit à la place du jeton d'appareil, qu'elle écrirait en clair sur le
 # disque (Cookies, même sans durée de vie). 2 h sans usage, et 24 h au plus : une copie du fichier, même utilisée sans arrêt,
 # finit par tomber. L'app en demande une nouvelle à chaque ouverture, sans bruit ; ce délai ne se voit donc jamais.
+PASSWORD_MIN = 12  # pour tout mot de passe neuf ; la connexion accepte encore les anciens
 WINDOW_IDLE = timedelta(hours=2)
 WINDOW_LONGEST = timedelta(hours=24)
 # Un navigateur où le mot de passe vient d'être saisi peut accorder un nouvel appareil sans le redemander. Rien d'autre n'a

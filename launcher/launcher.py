@@ -397,8 +397,10 @@ def list_agents():
 # le partage est coupé : un serveur compromis ne peut pas demander à monter le disque entier.
 SHARE_ROOTS = [r.strip() for r in os.environ.get("NOAH_SHARE_ROOTS", "").split(";") if r.strip()]
 FOLDER_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
-# Jamais partagés, même sous une racine autorisée : clés, identifiants, données des applications.
-SENSITIVE = re.compile(r"(^|/)(\.ssh|\.gnupg|\.aws|\.azure|\.docker|\.kube|\.config|appdata|library/keychains)(/|$)", re.I)
+# Jamais partagés, même sous une racine autorisée : clés, identifiants, données des applications, et ce que l'ordinateur
+# exécute de lui-même à l'ouverture d'une session.
+SENSITIVE = re.compile(r"(^|/)(\.ssh|\.gnupg|\.aws|\.azure|\.docker|\.kube|\.config|\.local|appdata|library/keychains|library/launchagents|"
+                       r"\.bashrc|\.bash_profile|\.bash_login|\.profile|\.zshrc|\.zprofile|\.zshenv|\.gitconfig|\.netrc|\.npmrc|\.pypirc)(/|$)", re.I)
 
 
 class Folder(BaseModel):
@@ -414,17 +416,22 @@ def _norm(path: str) -> str:
     return path.strip().replace("\\", "/").rstrip("/")
 
 
+def _same_or_under(path: str, root: str) -> tuple[bool, bool]:
+    """(identique à la racine, sous la racine). C:\\… : chemins insensibles à la casse."""
+    p, r = _norm(path), _norm(root)
+    a, b = (p.lower(), r.lower()) if re.match(r"^[A-Za-z]:", r) else (p, r)
+    return a == b, a.startswith(b + "/")
+
+
 def _shareable(path: str) -> bool:
     p = _norm(path)
     if not p or ".." in p.split("/") or SENSITIVE.search(p):
         return False
-    for root in SHARE_ROOTS:
-        r = _norm(root)
-        windows = re.match(r"^[A-Za-z]:", r) is not None  # C:\… : chemins insensibles à la casse
-        a, b = (p.lower(), r.lower()) if windows else (p, r)
-        if a == b or a.startswith(b + "/"):
-            return True
-    return False
+    return any(any(_same_or_under(p, root)) for root in SHARE_ROOTS)
+
+
+def _is_root(path: str) -> bool:
+    return any(_same_or_under(path, root)[0] for root in SHARE_ROOTS)
 
 
 def _check_folders(folders: list[Folder]) -> list[Folder]:
@@ -437,6 +444,8 @@ def _check_folders(folders: list[Folder]) -> list[Folder]:
             raise HTTPException(400, f"Nom de dossier invalide : {f.nom}")
         if not _shareable(f.chemin):
             raise HTTPException(403, f"Dossier non autorisé : {f.chemin}")
+        if f.ecriture and _is_root(f.chemin):  # le dossier personnel en écriture : l'agent y poserait de quoi s'exécuter hors de sa machine
+            raise HTTPException(403, f"Écriture refusée sur tout {f.chemin} : choisis un sous-dossier, ou partage-le en lecture.")
     return folders
 
 
@@ -502,7 +511,6 @@ def _run_agent(agent_id: str, api_key: str, folders: list[Folder]):
         },
         volumes=volumes,
         network=NETWORK,
-        extra_hosts={"host.docker.internal": "host-gateway"},
         restart_policy={"Name": "unless-stopped"},
         mem_limit="4g",
         nano_cpus=_cpus(2),
