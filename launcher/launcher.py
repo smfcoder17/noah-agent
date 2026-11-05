@@ -41,7 +41,7 @@ def _shared_key() -> str:
 
 
 KEY = _shared_key()
-IMAGE = os.environ.get("AGENT_IMAGE", "nousresearch/hermes-agent:stable")
+IMAGE = os.environ.get("AGENT_IMAGE", "nousresearch/hermes-agent@sha256:9c5561579f3ffdf333401797094ac3a743738d6c25d40f4331c7bf77b694238d")
 NETWORK = os.environ["AGENT_NETWORK"]
 PREFIX = "noah-agent-"
 LABEL = "noah.agent"

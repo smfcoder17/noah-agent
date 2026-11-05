@@ -45,7 +45,8 @@ services:
     container_name: noah-launcher
     restart: unless-stopped
     environment:
-      AGENT_IMAGE: nousresearch/hermes-agent:stable
+      # Hermes figé : la version que les tests font tourner. On la change seulement après avoir rejoué la suite dessus.
+      AGENT_IMAGE: nousresearch/hermes-agent@sha256:9c5561579f3ffdf333401797094ac3a743738d6c25d40f4331c7bf77b694238d
       BROWSER_IMAGE: ghcr.io/smfcoder17/noah-browser:stable
       AGENT_NETWORK: noah-net
     volumes:
@@ -119,7 +120,14 @@ configs:
         }
       }
       http:// {
-        redir https://{host}{uri} permanent
+        # Le lien « Open » de Hostinger mène à http://<IP> : l'IP seule n'a pas de certificat, on part vers son nom sslip.io.
+        @ip header_regexp ip Host ^([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)(:[0-9]+)?$
+        handle @ip {
+          redir https://{re.ip.1}-{re.ip.2}-{re.ip.3}-{re.ip.4}.sslip.io/ 302
+        }
+        handle {
+          redir https://{host}{uri} permanent
+        }
       }
 
 networks:
@@ -128,8 +136,12 @@ networks:
 
 volumes:
   noah-updates:
+    name: noah_noah-updates
   noah-backups:
+    name: noah_noah-backups
   noah-data:
+    name: noah_noah-data
   noah-secrets:
+    name: noah_noah-secrets
   caddy-data:
   caddy-config:

@@ -9,7 +9,7 @@ PREFIX=noah-essai-steer
 NET=$PREFIX-net
 KEY=cle-essai-steer-$RANDOM
 SERVER_IMAGE=ghcr.io/smfcoder17/noah-server:edge
-HERMES_IMAGE=nousresearch/hermes-agent:stable
+HERMES_IMAGE=nousresearch/hermes-agent@sha256:9c5561579f3ffdf333401797094ac3a743738d6c25d40f4331c7bf77b694238d
 
 clean() {
   docker rm -f "$PREFIX-faux" "$PREFIX-agent" "$PREFIX-essai" >/dev/null 2>&1

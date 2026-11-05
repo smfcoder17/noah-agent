@@ -37,7 +37,7 @@ ensure NOAH_PORT 8080
 ensure NOAH_BIND 127.0.0.1
 
 echo "Téléchargement de l'image des agents (une seule fois, quelques minutes)…"
-docker pull -q nousresearch/hermes-agent:stable
+docker pull -q nousresearch/hermes-agent@sha256:9c5561579f3ffdf333401797094ac3a743738d6c25d40f4331c7bf77b694238d
 docker compose up -d --build
 
 port=$(grep '^NOAH_PORT=' .env | cut -d= -f2)

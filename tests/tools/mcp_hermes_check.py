@@ -7,7 +7,7 @@ un vrai tour de modèle, la gateway qui tourne, /v1/runs de bout en bout. Trop l
 
     MSYS_NO_PATHCONV=1 docker run --rm --memory=1g --entrypoint /opt/hermes/.venv/bin/python \
       -v "$PWD/server/noah/agent_plugin:/plugin:ro" -v "$PWD/tests/tools:/check:ro" \
-      nousresearch/hermes-agent:stable /check/mcp_hermes_check.py
+      nousresearch/hermes-agent@sha256:9c5561579f3ffdf333401797094ac3a743738d6c25d40f4331c7bf77b694238d /check/mcp_hermes_check.py
 """
 import json
 import os

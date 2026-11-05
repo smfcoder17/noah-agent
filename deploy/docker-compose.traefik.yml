@@ -40,7 +40,8 @@ services:
     container_name: noah-launcher
     restart: unless-stopped
     environment:
-      AGENT_IMAGE: nousresearch/hermes-agent:stable
+      # Hermes figé : la version que les tests font tourner. On la change seulement après avoir rejoué la suite dessus.
+      AGENT_IMAGE: nousresearch/hermes-agent@sha256:9c5561579f3ffdf333401797094ac3a743738d6c25d40f4331c7bf77b694238d
       BROWSER_IMAGE: ghcr.io/smfcoder17/noah-browser:stable
       AGENT_NETWORK: noah-net
     volumes:
@@ -55,6 +56,10 @@ networks:
 
 volumes:
   noah-updates:
+    name: noah_noah-updates
   noah-backups:
+    name: noah_noah-backups
   noah-data:
+    name: noah_noah-data
   noah-secrets:
+    name: noah_noah-secrets

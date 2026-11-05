@@ -34,7 +34,7 @@ services:
     restart: unless-stopped
     environment:
       LAUNCHER_KEY: ${LAUNCHER_KEY}
-      AGENT_IMAGE: nousresearch/hermes-agent:stable
+      AGENT_IMAGE: nousresearch/hermes-agent@sha256:9c5561579f3ffdf333401797094ac3a743738d6c25d40f4331c7bf77b694238d
       AGENT_NETWORK: noah-net
       # Dossiers de l'ordinateur que l'utilisateur peut partager avec ses agents (racines séparées par « ; »).
       # Vide : partage coupé (cas d'un VPS). L'application de bureau le remplit avec le dossier personnel.

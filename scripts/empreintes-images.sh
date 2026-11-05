@@ -17,6 +17,11 @@ digest() {
 
 echo "noah-server=ghcr.io/$OWNER/noah-server@$(digest "ghcr.io/$OWNER/noah-server:$VERSION")"
 echo "noah-launcher=ghcr.io/$OWNER/noah-launcher@$(digest "ghcr.io/$OWNER/noah-launcher:$VERSION")"
-echo "hermes=nousresearch/hermes-agent@$(digest nousresearch/hermes-agent:stable)"
+# Hermes : la version figée dans le dépôt, celle que la suite de tests fait tourner. Jamais le canal du jour (docs/installation.md).
+hermes=$(sed -n 's/^ *AGENT_IMAGE: //p' deploy/docker-compose.yml)
+case "$hermes" in
+  nousresearch/hermes-agent@sha256:*) echo "hermes=$hermes" ;;
+  *) echo "deploy/docker-compose.yml : Hermes n'est pas figé par empreinte ($hermes)" >&2; exit 1 ;;
+esac
 echo "navigateur=ghcr.io/$OWNER/noah-browser@$(digest "ghcr.io/$OWNER/noah-browser:$VERSION")"
 echo "caddy=caddy@$(digest caddy:2.10-alpine)"

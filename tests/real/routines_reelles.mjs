@@ -154,7 +154,7 @@ async function up() {
   docker("network", "create", NET);
   docker("run", "-d", "--name", `${P}-faux`, "--network", NET, "-e", `FAUX_NOM=${P}-faux`, "-e", "FAUX_PETIT=1", "-p", process.platform === "linux" ? `${FAUX_PORT}:11500` : `127.0.0.1:${FAUX_PORT}:11500`, // sous Linux, la passerelle de Docker ne joint pas 127.0.0.1
     "-v", `${ROOT}/tests/real:/t:ro`, "-v", `${P}-ca:/ca`, SERVER_IMAGE, "python", "/t/faux_services.py");
-  docker("run", "-d", "--name", `${P}-launcher`, "--network", NET, "-e", `LAUNCHER_KEY=${LAUNCHER_KEY}`, "-e", "AGENT_IMAGE=nousresearch/hermes-agent:stable",
+  docker("run", "-d", "--name", `${P}-launcher`, "--network", NET, "-e", `LAUNCHER_KEY=${LAUNCHER_KEY}`, "-e", "AGENT_IMAGE=nousresearch/hermes-agent@sha256:9c5561579f3ffdf333401797094ac3a743738d6c25d40f4331c7bf77b694238d",
     "-e", `AGENT_NETWORK=${NET}`, "-v", "/var/run/docker.sock:/var/run/docker.sock", "-v", `${ROOT}/launcher:/app`, LAUNCHER_IMAGE);
   docker("run", "-d", "--name", `${P}-server`, "--network", NET, "--network-alias", "noah-server", "-p", `127.0.0.1:${PORT}:8080`,
     "--add-host", "host.docker.internal:host-gateway",

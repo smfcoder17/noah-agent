@@ -21,7 +21,7 @@ from pathlib import Path
 import updater
 
 client = updater.client
-AGENT_IMAGE = os.environ.get("AGENT_IMAGE", "nousresearch/hermes-agent:stable")
+AGENT_IMAGE = os.environ.get("AGENT_IMAGE", "nousresearch/hermes-agent@sha256:9c5561579f3ffdf333401797094ac3a743738d6c25d40f4331c7bf77b694238d")
 VOLUME = re.compile(r"^(noah_noah-data|noah_noah-secrets|noah-agent-[a-z0-9-]+|noah-browser-[a-z0-9-]+)$")
 WORK = Path(tempfile.gettempdir()) / "noah-restauration"
 CHECKED = "noah-restauration-verification"

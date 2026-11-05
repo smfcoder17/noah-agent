@@ -3,7 +3,7 @@
 reconnexion. Ce que cela ne prouve pas : un tour de modèle ni la gateway. Trop lourd pour la CI (image de 4 Go) : à la main.
 
     MSYS_NO_PATHCONV=1 docker run --rm --memory=1g --entrypoint /opt/hermes/.venv/bin/python \
-      -v "$PWD/tests/tools:/check:ro" nousresearch/hermes-agent:stable /check/mcp_hermes_liste.py
+      -v "$PWD/tests/tools:/check:ro" nousresearch/hermes-agent@sha256:9c5561579f3ffdf333401797094ac3a743738d6c25d40f4331c7bf77b694238d /check/mcp_hermes_liste.py
 """
 import json
 import os

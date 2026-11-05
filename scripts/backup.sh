@@ -52,7 +52,7 @@ with tarfile.open(out, "w:gz") as tar:
                     tar.addfile(info, f)
             db.close()
 '
-image=$(docker image inspect nousresearch/hermes-agent:stable >/dev/null 2>&1 && echo nousresearch/hermes-agent:stable || echo python:3.12-alpine)
+image=$(docker image inspect nousresearch/hermes-agent@sha256:9c5561579f3ffdf333401797094ac3a743738d6c25d40f4331c7bf77b694238d >/dev/null 2>&1 && echo nousresearch/hermes-agent@sha256:9c5561579f3ffdf333401797094ac3a743738d6c25d40f4331c7bf77b694238d || echo python:3.12-alpine)
 for v in $volumes; do
   # Conteneur jetable, sans arrêter les agents.
   docker run --rm --user root --entrypoint python -v "$v:/v" -v "$here/$dir:/b" "$image" -c "$SNAPSHOT" "/b/$v.tar.gz"
