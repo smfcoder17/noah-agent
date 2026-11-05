@@ -281,6 +281,7 @@ ROUTES = {
     ("GET", "/api/agents/{agent_id}/conversations"): "lecture",
     ("POST", "/api/conversations/{conv_id}/archive"): "auteur",
     ("GET", "/api/conversations/{conv_id}/messages"): "auteur",
+    ("GET", "/api/conversations/{conv_id}/en-cours"): "auteur",
     ("DELETE", "/api/conversations/{conv_id}"): "auteur",
     ("POST", "/api/conversations/{conv_id}/partage"): "auteur",
     ("POST", "/api/chat"): "usage",
