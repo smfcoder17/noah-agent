@@ -491,3 +491,23 @@ Le gain dépasse les 150 ms exigés, avec moins de queue. Il ne vient pas d'un m
 - Voix de synthèse, sans bruit, sans vrai micro, sans 4G ni VPS. Personne n'a écouté le son : ni sa qualité, ni le passage d'une voix à l'autre.
 - Dans la voie directe, **un tour que le modèle garde pour lui n'est pas écrit dans la conversation.** Il ne vit que dans le fil de l'appel, et l'agent ne l'apprend pas. À corriger avant toute activation. Le réglage n'a pas d'écran.
 - Le repli du navigateur est prouvé par un filtre réel et une lecture du code en CI, pas par un test de navigateur en CI. L'application mobile n'a pas été touchée.
+
+## 2026-11-04, l'appel en mode Android, vu sur émulateur
+
+APK de la CI, relié au VPS, faux modèle, sans son.
+
+- **Tenu :**
+  - écran éteint : sonnerie en 4 à 10 s, vrai visage de l'agent, décroché en un geste ;
+  - écran allumé : bandeau avec Répondre et Refuser, les deux essayés ;
+  - refus écrit dans la conversation (« Appel refusé »), décroché écrit (« Appel pris ») ;
+  - sortie de l'application : fenêtre flottante avec visage et durée, retour dans l'application sur le même appel ;
+  - Raccrocher, depuis la notification comme depuis l'appel : service d'appel arrêté, micro relâché, fenêtre fermée.
+- **Page vivante, mesurée :** `tests/real/appel_android_vivant.mjs`, 20 relevés de micro par seconde en fenêtre flottante et pendant 30 s d'écran éteint.
+- **Défauts trouvés en regardant les captures, corrigés :**
+  - corps du visage presque transparent à la sonnerie (l'opacité d'une ombre restait sur le dégradé) ;
+  - clavier ouvert par-dessus l'appel (focus automatique sur téléphone) ;
+  - Raccrocher caché sous un chevron dans « Silencieux » : c'est maintenant une notification d'appel ;
+  - bandeau sans boutons quand l'écran est allumé ;
+  - bouton Répondre coupé par son animation.
+- **Non prouvé :** vrai son (`-no-audio`), vrai téléphone, Doze sur plusieurs heures, 4G. La fenêtre flottante a son bouton Raccrocher, pas essayé : c'est le bouton de la notification qui l'a été.
+- **Vu pendant l'essai :** un premier redémarrage du conteneur d'essai sur le VPS est resté 6 min sans rien démarrer, le second a marché en 55 s. Cause non cherchée : c'est le conteneur d'essai, pas une installation réelle.
