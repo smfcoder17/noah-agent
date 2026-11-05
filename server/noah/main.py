@@ -24,7 +24,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import access, accounts, auth, catalog, coordination, db, desktop, events, handoff, hermes, machine, mcp, media, pendant, profiles, public, push, relay, updates, watch, precall, diagnostics
+from . import access, accounts, auth, catalog, coordination, db, desktop, events, handoff, hermes, machine, mcp, media, pendant, profiles, public, push, recuperation, relay, updates, watch, precall, diagnostics
 from . import config
 from .config import WEB_DIR, forget_setup_code
 from .hermes import Agent
@@ -280,14 +280,17 @@ def _ip(request: Request) -> str:
     return request.client.host if request.client else ""
 
 
-def _app_window(request: Request) -> bool:
-    return bool(re.search(r"\bNoahApp/\S+ Android$", request.headers.get("user-agent", "")))
+def _app_window(request: Request) -> str:
+    """« Android » ou « Desktop » si la requête vient de la fenêtre d'une app (son navigateur intégré), sinon une chaîne vide.
+    L'app de bureau ne s'annonce ainsi que reliée à un serveur : en local, son compte n'a pas de jeton rangé pour renouveler."""
+    found = re.search(r"\bNoahApp/\S+ (Android|Desktop)$", request.headers.get("user-agent", ""))
+    return found.group(1) if found else ""
 
 
 def _session_cookie(request: Request, response: Response, token: str) -> None:
-    """Navigateur : la session elle-même, 30 jours. Fenêtre de l'app Android : une session de fenêtre, car la WebView écrit
-    tous ses cookies en clair sur le disque, même sans durée de vie. Derrière Caddy (VPS), la requête arrive en HTTPS : le
-    cookie ne doit jamais repartir en clair."""
+    """Navigateur : la session elle-même, 30 jours. Fenêtre d'une app : une session de fenêtre, sans durée de vie, car la
+    WebView d'Android écrit tous ses cookies en clair sur le disque, et Chromium fait de même au bureau avec un cookie qui a une
+    durée de vie. Derrière Caddy (VPS), la requête arrive en HTTPS : le cookie ne doit jamais repartir en clair."""
     secure = request.url.scheme == "https"
     if _app_window(request):
         response.set_cookie(auth.COOKIE, auth.new_window(token), httponly=True, samesite="lax", secure=secure)
@@ -296,10 +299,10 @@ def _session_cookie(request: Request, response: Response, token: str) -> None:
 
 
 def _login_response(request: Request, response: Response, user_id: int, device: str = "", platform: str = "web") -> dict:
-    # Mot de passe saisi dans la fenêtre de l'app Android : une session de téléphone, pas de navigateur.
+    # Mot de passe saisi dans la fenêtre d'une app : une session de téléphone ou d'ordinateur, pas de navigateur.
     in_app = platform == "web" and _app_window(request)
     if in_app:
-        platform = "android"
+        platform = in_app.lower()
     token = auth.new_session(user_id, device or _device_name(request), platform if platform in PLATFORMS else "web",
                              _ip(request), request.headers.get("x-noah-version", ""))
     # Apps (bureau, mobile) : jeton dans la réponse seulement, qu'elles rangent chiffré ; un cookie y resterait en clair.
@@ -723,6 +726,42 @@ def login(body: Credentials, request: Request, response: Response):
         raise HTTPException(401, "Nom d'utilisateur ou mot de passe incorrect")
     _failed_logins.pop(ip, None)
     return _login_response(request, response, user_id)
+
+
+@app.post("/api/recuperation/code")
+def recovery_code(request: Request):
+    """« Mot de passe oublié » : le code part dans les journaux du serveur, jamais dans la réponse. Ouvert à tous : seul qui a
+    la main sur le serveur le lit."""
+    if not recuperation.owner():
+        raise HTTPException(410, "Aucun compte sur ce serveur : crée-le avec le code d'installation.")
+    code = recuperation.issue(replace=False)
+    if code:
+        recuperation.announce(code, _ip(request))
+    return {"ok": True, "expire": recuperation.SECONDS}
+
+
+class RecoveryReset(BaseModel):
+    code: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=8, max_length=256)
+
+
+@app.post("/api/recuperation")
+def recovery_reset(body: RecoveryReset, request: Request, response: Response):
+    network = _network(_ip(request)) or "?"
+    try:
+        username = recuperation.change_password(body.code, body.password, network)
+    except recuperation.TooManyTries:
+        raise HTTPException(429, "Trop d'essais. Réessaie dans quelques minutes.")
+    if not username:
+        raise HTTPException(400, "Ce code est faux, a expiré ou a déjà servi. Crée un nouveau code.")
+    with _pairing_lock:  # plus aucune session : un QR affiché ou une demande en cours ne doit pas survivre
+        _pairing.clear()
+        _flows.clear()
+    _failed_logins.pop(network, None)  # ses essais d'avant ne l'empêchent pas d'utiliser le nouveau mot de passe
+    response.delete_cookie(auth.COOKIE)
+    recuperation.log.warning("Mot de passe du propriétaire changé par code de récupération depuis l'adresse %s : "
+                             "toutes les sessions sont fermées.", _ip(request) or "inconnue")
+    return {"ok": True, "username": username}
 
 
 @app.post("/api/logout")
