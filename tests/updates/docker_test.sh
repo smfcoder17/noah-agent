@@ -16,8 +16,10 @@ cleanup() {
     noahtest-agent-b-data >/dev/null 2>&1 || true
   docker network rm noahtest-net >/dev/null 2>&1 || true
 }
+# Noms et port fixes : deux passages en même temps se détruiraient l'un l'autre. Le second attend (30 min au plus, puis prend la main).
+for _ in $(seq 180); do docker network create noahtest-verrou >/dev/null 2>&1 && break; sleep 10; done
 cleanup
-trap cleanup EXIT
+trap 'cleanup; docker network rm noahtest-verrou >/dev/null 2>&1 || true' EXIT
 docker network create noahtest-net >/dev/null
 docker volume create --driver local --opt type=tmpfs --opt device=tmpfs --opt o=size=64k noahtest-tiny >/dev/null
 docker run -d --rm --name noahtest-registry -p 5055:5000 registry:2 >/dev/null
