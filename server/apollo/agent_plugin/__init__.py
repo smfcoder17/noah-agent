@@ -305,6 +305,14 @@ def _guest_command_ok(command: str) -> bool:
     return len(words) >= 3 and words[0] == "python3" and words[1] == f"{DATA}/noah.py" and words[2] in GUEST_NOAH
 
 
+_PATCH_TARGET = re.compile(r"^\s*\*{3}\s*(?:(?:update|delete|add)\s+file|move\s+to)\s*:\s*(.+?)\s*$", re.I | re.M)
+
+
+def _patch_targets(args: dict) -> list[str]:
+    """Les fichiers qu'un patch V4A touche vraiment : ils sont dans ses en-têtes, pas dans son argument « path »."""
+    return _PATCH_TARGET.findall(str(args.get("patch") or ""))
+
+
 def check_guest(tool_name: str, args: dict, home: str) -> str | None:
     """Raison du refus d'un outil dans le profil d'une personne avec qui l'agent est partagé, ou None."""
     if tool_name.startswith("browser_") or tool_name in GUEST_TOOLS and tool_name != "vision_analyze":
@@ -322,7 +330,7 @@ def check_guest(tool_name: str, args: dict, home: str) -> str | None:
         path = args.get("path") if "path" in args else "." if tool_name == "search_files" else ""
         if tool_name == "search_files" and path == ".":
             return None  # le terminal et ses fichiers partent du dossier de travail
-        if _guest_path_ok(str(path or ""), home):
+        if _guest_path_ok(str(path or ""), home) and all(_guest_path_ok(t, home) for t in _patch_targets(args)):
             return None
     else:
         return f"Noah refuse : l'outil « {tool_name} » n'est pas ouvert à cette personne sur cet agent. Dis-le simplement."
@@ -336,7 +344,8 @@ def check_owner(tool_name: str, args: dict) -> str | None:
         hit = GUEST_ROOT.rstrip("/") in str(args.get("command", "")) or re.search(r"(^|[\s'\"/])\.\./profiles\b", str(args.get("command", "")))
     elif tool_name in GUEST_FILES or tool_name == "vision_analyze":
         path = str(args.get("path") or args.get("image_url") or "")
-        hit = not path.startswith(("http://", "https://")) and os.path.realpath(os.path.join(WORKSPACE, path)).startswith(GUEST_ROOT)
+        hit = any(not p.startswith(("http://", "https://")) and os.path.realpath(os.path.join(WORKSPACE, p)).startswith(GUEST_ROOT)
+                  for p in [path, *_patch_targets(args)])
     else:
         return None
     return ("Noah refuse : ce dossier tient la mémoire privée des personnes avec qui cet agent est partagé." if hit else None)

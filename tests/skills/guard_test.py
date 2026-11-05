@@ -109,6 +109,13 @@ for path in ("/opt/data/memories/MEMORY.md", "/opt/data/.env", "/opt/data/config
     assert refused_for_guest("read_file", path=path), f"lisible par une personne invitée : {path!r}"
     assert refused_for_guest("write_file", path=path, content="x"), f"écrit par une personne invitée : {path!r}"
 assert refused_for_guest("patch", mode="patch", patch="*** Update File: /opt/data/.env") and refused_for_guest("search_files", pattern="x", path="/opt/data")
+# Un chemin anodin dans « path » ne couvre pas ceux du corps : la vraie cible d'un patch est dans ses en-têtes.
+for header in ("*** Update File: /opt/data/memories/MEMORY.md", "*** Delete File: /opt/data/google_token.json", "*** Add File: /opt/data/.env",
+               "  ***  update file:  ../memories/MEMORY.md", "*** Update File: outputs/x.txt\n*** Move to: /opt/data/SOUL.md",
+               "*** Update File: outputs/x.txt\n*** Delete File: /opt/data/state.db"):
+    assert refused_for_guest("patch", mode="patch", path="n.txt", patch=f"*** Begin Patch\n{header}\n@@\n+x\n*** End Patch"), f"patch accepté : {header}"
+assert not refused_for_guest("patch", mode="patch", path="n.txt", patch="*** Begin Patch\n*** Update File: outputs/n.txt\n@@\n+x\n*** End Patch"), "un patch dans le dossier commun passe"
+assert not refused_for_guest("patch", mode="replace", path="n.txt", old_string="a", new_string="b"), "un remplacement simple dans le dossier commun passe"
 assert refused_for_guest("vision_analyze", image_url="/opt/data/browser_screenshots/x.png")
 for tool in ("execute_code", "process", "cronjob", "delegate_task", "send_message", "skill_manage", "ha_call_service", "mcp__notion__search", "outil_tout_neuf"):
     assert refused_for_guest(tool), f"outil ouvert à une personne invitée : {tool}"

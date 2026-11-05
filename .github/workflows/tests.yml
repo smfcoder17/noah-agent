@@ -2,7 +2,7 @@
 # (retour arrière avec les données, coupure brutale, relais du lanceur). Une version ne part pas si l'un échoue.
 name: Tests
 
-# Pas de lancement à chaque envoi : la CI est limitée. En local : sh scripts/verifier.sh
+# Pas de lancement à chaque envoi : la CI est limitée. En local : node scripts/verifier.mjs
 on:
   workflow_dispatch:
   workflow_call:  # appelé par release.yml : pas d'image ni de manifeste si un test échoue
