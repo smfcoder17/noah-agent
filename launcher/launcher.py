@@ -320,9 +320,9 @@ def list_files(agent_id: str):
 READ_NO_LINK = r"""
 import os, stat, sys
 root, rel, limit = sys.argv[1], sys.argv[2], int(sys.argv[3])
-fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
 parts = [p for p in rel.split("/") if p]
 try:
+    fd = os.open(root.rstrip("/"), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     for part in parts[:-1]:
         fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
     fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)

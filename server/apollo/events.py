@@ -8,6 +8,7 @@
 Le détail brut (appels d'outils, arguments) n'est envoyé que si l'interface demande le mode détails.
 """
 import re
+from urllib.parse import urlsplit
 
 from .diagnostics import mask
 
@@ -22,8 +23,12 @@ def _name(path: object) -> str:
 
 
 def _site(url: object) -> str:
-    match = re.match(r"(?:[a-z+]+://)?(?:www\.)?([^/?#\s]+)", str(url or ""), re.I)
-    return match.group(1) if match else ""
+    text = str(url or "").strip()
+    try:  # le nom d'hôte seul : une adresse peut porter un identifiant et un mot de passe
+        host = urlsplit(text if "://" in text else f"//{text}").hostname or ""
+    except ValueError:
+        return ""
+    return host.removeprefix("www.")
 
 
 def _quoted(text: object, limit: int = 60) -> str:
@@ -35,6 +40,27 @@ def _noah_tool(words: list[str]) -> str:
     action = words[2] if len(words) > 2 else ""
     return {"image": "Crée une image", "video": "Crée une vidéo", "son": "Crée un son", "installer": "Installe un logiciel", "fil": "Ouvre un fil de travail",
             "rappeler": "Te rappelle", "appeler": "Te rappelle"}.get(action, "Utilise ses outils")
+
+
+# Une commande inconnue peut porter un secret n'importe où : on ne cite que son programme, et ce qu'on sait sans risque être un
+# nom de script ou une sous-commande d'un outil connu. Jamais ses options ni ses autres arguments.
+_RUNNERS = {"npm", "pnpm", "yarn", "bun", "npx", "docker", "make", "cargo", "go", "uv", "pytest", "kubectl", "gh", "node", "python", "python3", "bash", "sh"}
+_SCRIPT = re.compile(r"^[\w./-]+\.(?:py|sh|js|mjs|cjs|ts|rb|pl)$")
+_SUBCOMMAND = re.compile(r"^[a-z][a-z-]{1,20}$")
+
+
+def _program_label(first: str, rest: list[str]) -> str:
+    if not re.fullmatch(r"[\w.+-]{1,30}", first):
+        return "Lance une commande"
+    said = [first]
+    next_word = rest[0] if rest else ""
+    if first in _RUNNERS and _SCRIPT.match(next_word):
+        said.append(next_word.rsplit("/", 1)[-1])
+    elif first in _RUNNERS and _SUBCOMMAND.match(next_word):
+        said.append(next_word)
+        if next_word in ("run", "exec", "test") and len(rest) > 1 and _SUBCOMMAND.match(rest[1]):
+            said.append(rest[1])
+    return "Lance : " + " ".join(said)
 
 
 def _command_label(command: str) -> str:
@@ -63,7 +89,7 @@ def _command_label(command: str) -> str:
         return f"Télécharge depuis {site}" if site else "Télécharge un fichier"
     if first == "ffmpeg":
         return "Traite une vidéo ou un son"
-    return f"Lance : {_quoted(command, 60)}"
+    return _program_label(first, words[1:])
 
 
 def tool_label(name: str, args: dict | None = None, preview: str | None = None) -> str | None:
@@ -110,8 +136,7 @@ def tool_label(name: str, args: dict | None = None, preview: str | None = None) 
     if name.startswith("mcp_") or "__" in name:
         parts = [p for p in re.split(r"_+", name.removeprefix("mcp_")) if p]
         return f"Utilise {parts[0]}" if parts else "Utilise une app connectée"
-    preview = _quoted(preview, LABEL_MAX - 2)
-    return preview or f"Utilise l'outil {name.replace('_', ' ')}"
+    return f"Utilise l'outil {name.replace('_', ' ')}"  # pas son aperçu : il recopie ses arguments
 
 
 # Les phrases écrites par Noah lui-même (relais, budget) sont déjà faites pour la personne.

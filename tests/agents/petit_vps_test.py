@@ -104,5 +104,11 @@ assert run("apps/jeu/lien.txt")[0] == 45, "lien en dernier"
 assert run("tube")[0] == 45, "pas un fichier"
 assert run("absent.txt")[0] == 44 and run("apps/absent/x")[0] == 44
 assert run("gros.bin")[0] == 46
+linked = base / "racine-lien"
+linked.symlink_to(base)
+r = subprocess.run([sys.executable, "-c", launcher.READ_NO_LINK, str(linked), "google_token.json", "1000"], capture_output=True, timeout=10)
+assert r.returncode == 45 and b"SECRET" not in r.stdout, "une racine remplacée par un lien"
+r = subprocess.run([sys.executable, "-c", launcher.READ_NO_LINK, str(work) + "/", "apps/jeu/index.html", "1000"], capture_output=True, timeout=10)
+assert r.returncode == 0 and r.stdout == b"page", "une racine écrite avec une barre finale"
 print("4. lecture : aucun lien suivi, ni fichier spécial ; trop lourd et absent reconnus")
 print("OK")

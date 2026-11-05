@@ -219,6 +219,25 @@ async def everything():
     finished()
     print("12. occupé trop longtemps : la demande et l'échec restent écrits")
 
+    # 12 bis. Au démarrage, rien ne part avant de savoir si une mise à jour est ouverte.
+    from apollo import updates
+
+    was = len(started)
+    assert pendant.add("1:apres-maj", conv, "a1", alice, "Pas pendant la mise à jour")
+
+    async def follow():
+        updates.maintenance = True
+
+    updates._follow = follow
+    pendant._drains.clear()
+    await main._resume_requests()
+    await asyncio.sleep(0.15)
+    assert len(started) == was, "elle est partie pendant la mise à jour"
+    updates.maintenance = False
+    await drained()
+    assert started[-1].endswith("Pas pendant la mise à jour"), started[-1]
+    print("12 bis. redémarrage en pleine mise à jour : la file attend")
+
     # 13. Droits de /api/chat.
     for user, agent, conversation in ((bruno, "a1", conv), (alice, "absent", conv), (alice, "a1", "autre")):
         try:
@@ -262,6 +281,18 @@ assert said("mcp_notion_search", query="x") == "Utilise notion"
 leak = said("terminal", command="deploy --token=sk-or-v1-abcdefghijklmnop")
 assert "abcdefghijklmnop" not in leak, leak
 assert said("terminal") and said("web_extract") and said("browser_click"), "sans argument : une phrase quand même"
+for secret, command in (("VerySecret123", "deploy --password VerySecret123"), ("VerySecret123", "curl https://alice:VerySecret123@example.com/report"),
+                        ("hunter2", "mysql -u root -phunter2"), ("hunter2", "deploy hunter2"), ("hunter2", "npm run hunter2"), ("hunter2", "python3 -c hunter2")):
+    line = said("terminal", command=command)
+    assert secret not in line, (command, line)
+    assert "alice" not in line, line
+assert said("terminal", command="curl https://alice:x@example.com/report") == "Télécharge depuis example.com"
+assert said("browser_navigate", url="https://bob:pw@www.exemple.fr/x") == "Ouvre exemple.fr"
+assert said("terminal", command="npm run build --flag") == "Lance : npm run build"
+assert said("terminal", command="python3 /tmp/travail/calcul.py --key zzz") == "Lance : python3 calcul.py"
+assert said("terminal", command="deploy --x") == "Lance : deploy"
+leak = events.translate("tool.started", {"tool": "outil_inconnu", "preview": "--password VerySecret123"}, False)["label"]
+assert "VerySecret" not in leak, leak
 assert "Travaille sur ta demande" not in {said(t) for t in ("web_search", "read_file", "terminal", "memory", "un_outil_inconnu")}
 print("15. activité : ce qu'il fait vraiment, jamais de secret")
 print("OK")

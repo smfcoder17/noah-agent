@@ -704,12 +704,12 @@ async def triage(agent_id: str, name: str, role: str, text: str, history: list[d
             if r.status_code != 200:
                 raise _fail(r)
             answer = r.json()
+            _record(agent_id, model, (answer.get("usage") or {}).get("cost"))  # avant de le lire : illisible, il reste facturé
             content = answer["choices"][0]["message"]["content"]
             data = json.loads(content[content.find("{"): content.rfind("}") + 1])
             kind = data.get("type")
             if kind not in ("question", "precision", "tache") or (kind == "question" and not str(data.get("reponse", "")).strip()):
                 raise MediaError("Tri illisible.")
-            _record(agent_id, model, (answer.get("usage") or {}).get("cost"))
             return {"type": kind, "reponse": str(data.get("reponse", "")).strip()[:1500]}
         except (httpx.HTTPError, MediaError, ValueError, KeyError, IndexError, TypeError, AttributeError) as e:
             if i == len(fallbacks) - 1:

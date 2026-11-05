@@ -116,7 +116,7 @@ async def startup() -> None:
     asyncio.create_task(updates.run(task_state))
     asyncio.create_task(push.run_queue())
     _migrate_threads()
-    pendant.resume()
+    asyncio.create_task(_resume_requests())
     asyncio.create_task(_after_updates(_refresh_browsers))
     asyncio.create_task(machine.deliver_routines(_save_message, _main_conversation))
     watch.init()
@@ -1673,6 +1673,13 @@ pendant.setup(
     run_turn=_queued_turn,
     expired=_queued_expired,
 )
+
+
+async def _resume_requests() -> None:
+    """Au démarrage : d'abord savoir si une mise à jour est ouverte, sinon une demande partirait pour être coupée par elle."""
+    with contextlib.suppress(Exception):
+        await updates._follow()
+    pendant.resume()
 
 
 def _own_conversation(user: int, agent: Agent, conv_id: str | None) -> str:
