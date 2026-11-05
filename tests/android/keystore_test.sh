@@ -36,7 +36,8 @@ echo "2. seul Pairing écrit sur le disque, rien n'est journalisé, ni sauvegard
 # Le jeton d'appareil ne va jamais dans la WebView, et plus rien ne lit le cookie à sa place.
 COOKIES=$(grep -n 'noah_session=' "$J/MainActivity.java")
 echo "$COOKIES" | grep -q 'window\.token' || fail "cookie de la fenêtre introuvable : ce contrôle ne regarde rien"
-if echo "$COOKIES" | grep -qv 'window\.token'; then fail "autre chose que la session de fenêtre mis en cookie : $COOKIES"; fi
+if echo "$COOKIES" | grep -v 'windowSession' | grep -qv 'window\.token'; then fail "autre chose que la session de fenêtre mis en cookie : $COOKIES"; fi
+grep -q 'windowSession = window\.token' "$J/MainActivity.java" || fail "windowSession ne vient plus de la session de fenêtre"
 if grep -rnE 'windowToken|getCookie|\.session\(\)' "$A/app/src/main/java"; then fail "le cookie est relu : fenêtre fermée, seul le jeton chiffré compte"; fi
 echo "2 bis. la fenêtre ne reçoit que sa session courte, et plus rien ne relit le cookie"
 
