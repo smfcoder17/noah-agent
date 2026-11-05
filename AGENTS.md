@@ -139,7 +139,7 @@ Conseil si elle n'a pas de clé : Ollama Cloud est le plus simple sur un VPS. Ol
 Ces gestes sont les siens ; guide-la. Chacun passe par un accord qu'elle donne elle-même, avec un nombre à 3 chiffres à recopier.
 
 - **Bureau :** installateur Windows sur `https://github.com/smfcoder17/noah-agent/releases/latest`. « Sur mon serveur », l'adresse en `https://`, « Relier ». Dans le navigateur, « Autoriser cet appareil », puis le nombre dans l'application.
-- **Android :** `app-debug.apk` sur la même page. Sur l'ordinateur, Réglages > Appareils > « Relier un appareil ». Dans l'app, « Scanner le QR code ». Le nombre s'affiche sur le téléphone : elle le recopie sur l'ordinateur, puis « Autoriser ».
+- **Android :** `noah-agent-android.apk` sur la même page. Sur l'ordinateur, Réglages > Appareils > « Relier un appareil ». Dans l'app, « Scanner le QR code ». Le nombre s'affiche sur le téléphone : elle le recopie sur l'ordinateur, puis « Autoriser ».
 - **iPhone ou autre :** l'adresse HTTPS dans le navigateur, puis « Ajouter à l'écran d'accueil ».
 
 Pas de fichier sur la page des versions : signale-le, cette étape attendra.

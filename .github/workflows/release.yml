@@ -193,10 +193,14 @@ jobs:
       - name: Release en brouillon
         run: |
           git for-each-ref "refs/tags/${GITHUB_REF_NAME}" --format="%(contents)" > notes.md
+          grep -vix '\[migration\]' notes.md > changements.md || true
+          sed -e "s/{{VERSION}}/$VERSION/g; s/{{TAG}}/$GITHUB_REF_NAME/g" -e "/{{CHANGEMENTS}}/{r changements.md" -e "d}" docs/note-de-version.md > note.md
+          [ -f dist/noah-agent-android.apk ] || sed -i '/noah-agent-android.apk/d' note.md
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+            gh release edit "$GITHUB_REF_NAME" --notes-file note.md
           else
-            gh release create "$GITHUB_REF_NAME" dist/* --draft --verify-tag --title "Noah Agent $VERSION" --notes-file notes.md
+            gh release create "$GITHUB_REF_NAME" dist/* --draft --verify-tag --title "Noah Agent $VERSION" --notes-file note.md
           fi
       - name: Étiquette stable, seulement maintenant
         if: needs.controle.outputs.stable == 'true'

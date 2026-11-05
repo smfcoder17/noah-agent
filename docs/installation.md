@@ -136,7 +136,7 @@ La réponse rapide à l'oral suit le fournisseur du cerveau.
 
 Réglages > Appareils > « Relier un appareil » affiche un QR code et un code court, valables 10 minutes. Le QR code n'apparaît que sur une page en HTTPS. Sur un VPS, c'est déjà le cas. Sur ton ordinateur, `tailscale serve 8080` donne une telle adresse à tes appareils Tailscale.
 
-- **Android :** installe l'APK (`app-debug.apk` sur la [page des versions](https://github.com/smfcoder17/noah-agent/releases/latest)), puis « Scanner le QR code ». L'app affiche un nombre à 3 chiffres : recopie-le sur l'ordinateur, puis clique sur « Autoriser ». Sans appareil photo, « Saisir l'adresse et le code ».
+- **Android :** installe l'APK (`noah-agent-android.apk` sur la [page des versions](https://github.com/smfcoder17/noah-agent/releases/latest)), puis « Scanner le QR code ». L'app affiche un nombre à 3 chiffres : recopie-le sur l'ordinateur, puis clique sur « Autoriser ». Sans appareil photo, « Saisir l'adresse et le code ».
 - **iPhone ou autre :** scanne le QR code avec l'appareil photo, ou ouvre l'adresse HTTPS de ton VPS, puis « Ajouter à l'écran d'accueil ».
 
 Pour construire l'APK toi-même (Node 22, JDK 21, SDK Android) : `cd mobile && npm ci && npx cap sync android`, puis `./gradlew assembleDebug` dans `mobile/android`. Il arrive dans `app/build/outputs/apk/debug/`. C'est une version de débogage : Android demandera d'autoriser l'installation hors du Play Store.

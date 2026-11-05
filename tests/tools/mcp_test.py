@@ -620,6 +620,10 @@ def test_access() -> None:
     done = len(libre.calls)
     assert call_tool("glisse", "creer_fiche", agent=agent_b).get("isError") and len(libre.calls) == done
     assert alice.post(f"{TOOLS}/test", json=body(LIBRE_URL)).status_code == 200, "le propriétaire y entre toujours"
+    # Ce qui sort du serveur : l'outil branché y figure, chez son propriétaire seulement, jamais son jeton.
+    assert bruno.get("/api/flux").status_code == 403
+    sortie = [f for f in alice.get("/api/flux").json()["flux"] if f["quoi"].startswith("Outil ")]
+    assert sortie and all(f["vers"] and "jeton" not in str(f) and "glisse" not in f["quoi"] for f in sortie), sortie
     print("7. accès : 404 pour un autre profil, 403 sous le droit admin, sans rien toucher ; le relais refuse l'agent d'un autre")
 
 

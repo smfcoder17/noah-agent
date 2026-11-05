@@ -1039,6 +1039,12 @@ def outbound_flows(user: int = Depends(access.owner_only)):
     # catalog.price_index : liste publique des modèles et de leurs prix, quel que soit le fournisseur choisi.
     flows.append({"quoi": "Catalogue public des modèles et de leurs prix (rien de toi n'est envoyé)", "vers": _host(catalog.OPENROUTER_MODELS),
                   "quand": "quand tu choisis un modèle, et au plus une fois par heure pour estimer les coûts"})
+    for a in _agents():  # les outils branchés (MCP) : chacun reçoit ce que l'agent lui transmet
+        if access.right(user, a["id"]) != "proprietaire":
+            continue
+        for row in mcp.outbound(a["id"]):
+            flows.append({"quoi": f"Outil « {row['nom']} » de {a['name']}", "vers": _host(row["url"]) if row["url"] else "le service de cet outil",
+                          "quand": "quand l'agent s'en sert", "agent": a["id"]})
     flows.append({"quoi": "Sites que tes agents visitent", "vers": "les sites de la tâche",
                   "quand": "quand une tâche le demande, depuis le navigateur de l'agent"})
     flows.append({"quoi": "Vérification des mises à jour (manifeste signé)", "vers": _host(updates.MANIFEST_URL),

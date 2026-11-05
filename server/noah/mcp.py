@@ -370,6 +370,11 @@ def _rows(agent_id: str) -> list:
         return c.execute("SELECT * FROM mcp_tools WHERE agent_id = ? ORDER BY created_at, nom", (agent_id,)).fetchall()
 
 
+def outbound(agent_id: str) -> list[dict]:
+    """Les outils branchés sur cet agent et leur adresse, pour la liste de ce qui sort du serveur. Jamais le jeton."""
+    return [{"nom": r["nom"], "url": r["url"]} for r in _rows(agent_id)]
+
+
 def _token(row) -> str | None:
     return db.unseal(row["jeton"]) if row["jeton"] else None
 

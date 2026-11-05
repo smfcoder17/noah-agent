@@ -103,7 +103,7 @@ Sur ton serveur, dans des volumes Docker : ton compte et l'historique, les clés
 
 ### Ce qui sort du serveur
 
-Noah n'envoie rien à ses développeurs. Il n'a aucune télémétrie. Réglages > Confidentialité affiche la liste réelle chez toi, sauf les outils que tu branches (dernière ligne).
+Noah n'envoie rien à ses développeurs. Il n'a aucune télémétrie. Réglages > Confidentialité affiche la liste réelle chez toi.
 
 | Quoi | Vers où | Quand |
 |---|---|---|
@@ -116,7 +116,7 @@ Noah n'envoie rien à ses développeurs. Il n'a aucune télémétrie. Réglages 
 | Rien de toi : l'IP et le certificat du serveur | api.ipify.org (ifconfig.me, icanhazip.com en secours), Let's Encrypt | Au démarrage, puis tous les deux mois environ |
 | Pays et fuseau du serveur | ipinfo.io | Une seule fois, évitable avec `NOAH_LOCALE` et `NOAH_TIMEZONE` |
 | Ce que tu autorises sur ton compte Google | googleapis.com | Si tu connectes Google à un agent |
-| Ce que l'agent envoie à un outil | Les outils que tu ajoutes. **Absents de la liste affichée :** vois Détails > Connexions de chaque agent | Quand il s'en sert |
+| Ce que l'agent envoie à un outil | Les outils que tu ajoutes. | Quand il s'en sert |
 
 Chacun de ces services voit l'IP de ton serveur. Un test vérifie le serveur de Noah contre cette liste : [sorties_test.py](tests/exposition/sorties_test.py). Il ne voit pas ce que font les conteneurs des agents (Hermes), de leurs navigateurs et de Caddy. La mesure sur 24 h depuis un vrai VPS reste à faire.
 
