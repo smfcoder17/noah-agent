@@ -370,6 +370,8 @@ export function VoiceModeButton({ onClick }: { onClick: () => void }) {
 const audioId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
 
 type VoiceReply = { dire: string; action: boolean };
+/** Dit pendant que l'agent travaille. `sorting` : le serveur est en train de dire si c'est une précision pour le travail en cours. */
+type Waiting = { text: string; action: boolean; id: string; sorting?: Promise<void> };
 /** Réponse préparée en silence : on l'entend avec `speak`, ou on l'abandonne avec `drop`. */
 type Held = { text: string; speak: () => Promise<VoiceReply>; drop: () => void };
 
@@ -524,7 +526,7 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
   const started = useRef(false);
   const action = useRef(false);
   const answering = useRef<Promise<boolean> | null>(null); // la voix rapide parle encore : son tri n'est connu qu'à la fin de sa phrase
-  const queue = useRef<{ text: string; action: boolean }[]>([]);
+  const queue = useRef<Waiting[]>([]);
   const heard = useRef<string[]>([]); // ce que la personne a dit depuis le dernier tour envoyé
   const playing = useRef(false);
   const loud = useRef(0);
@@ -537,6 +539,7 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
   const cutting = useRef(0); // morceaux coupés, pas encore partis à la transcription
   const cutOff = useRef<number | null>(null); // connexion perdue pendant un tour : l'agent continue, le résultat viendra au retour
   const lastSaid = useRef(""); // le tour parti à l'agent, à renvoyer si le serveur ne l'a jamais reçu
+  const lastId = useRef(""); // son identifiant : renvoyé, le serveur le reconnaît s'il l'avait reçu
   const alikeBefore = useRef(0); // combien de messages disaient déjà la même chose : « Continue » peut se répéter
   const runningNow = useRef(running);
   runningNow.current = running;
@@ -571,8 +574,9 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
   const alike = (text: string) => latest.current.filter((m) => m.role === "user" && textOf(m).includes(text)).length;
   const sendTurn = (text: string) => {
     lastSaid.current = text;
+    lastId.current = audioId();
     alikeBefore.current = alike(text);
-    say(text);
+    say(text, lastId.current);
   };
   const dropHeld = () => {
     held.current?.drop();
@@ -589,6 +593,22 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
     }
   };
 
+  /** Une précision n'attend pas la fin de ce qu'elle corrige. Le serveur trie comme pour un message écrit ; une demande à la suite
+   * reste ici, où l'appel lira son résultat. Même identifiant à chaque essai : une seule précision. */
+  const sortOut = async (item: Waiting) => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt) await new Promise((r) => setTimeout(r, 1500));
+      const body = { agent_id: agentId, conversation_id: conversationId, client_id: item.id, text: item.text, garder: true };
+      const sorted = await send<{ type: string }>("/api/chat/pendant", body).catch(() => null);
+      if (!sorted) continue;
+      if (sorted.type !== "tache") {
+        queue.current = queue.current.filter((q) => q !== item);
+        setNote(`C'est transmis : « ${item.text.slice(0, 60)} »`);
+      }
+      return;
+    }
+  };
+
   /** Un tour : le message part à l'agent et, en même temps, la voix rapide répond. */
   const turn = async (text: string, ready: Held | null) => {
     if (busy.current || runningNow.current) {
@@ -599,10 +619,11 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
         action.current = false;
         lastSaid.current = "";
       }
-      const item = { text, action: true };
+      const item: Waiting = { text, action: true, id: audioId() };
       queue.current.push(item);
       setNote(`Je lui transmets ensuite : « ${text.slice(0, 60)} »`);
       item.action = await answer(text, ready);
+      if (item.action && runningNow.current && queue.current.includes(item)) item.sorting = sortOut(item);
       return;
     }
     busy.current = true;
@@ -704,7 +725,7 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
     void request("/api/chat/ensuite", {
       method: "POST",
       keepalive: true,
-      body: JSON.stringify({ agent_id: agentId, conversation_id: conversationId, client_id: crypto.randomUUID(), text: waiting.map((q) => q.text).join("\n") }),
+      body: JSON.stringify({ agent_id: agentId, conversation_id: conversationId, client_id: audioId(), text: waiting.map((q) => q.text).join("\n") }),
     }).catch(() => {});
   };
 
@@ -781,6 +802,8 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
       if (!alive.current) return;
       setNote(failed ? result : "");
       // Ce qui a été dit pendant qu'il travaillait part en un seul message ; la voix rapide y a déjà répondu.
+      await Promise.all(queue.current.map((q) => q.sorting)); // une précision déjà transmise ne repart pas
+      if (!alive.current) return;
       const waiting = queue.current.splice(0);
       if (waiting.length && alive.current) {
         busy.current = true;
@@ -798,10 +821,11 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
     else finished(last?.role === "assistant" ? textOf(last) : "");
   };
   const resend = () => {
+    if (runningNow.current) return; // il travaille : le serveur a reçu ce tour, sa réponse arrivera par le rechargement
     cutOff.current = null;
     started.current = false;
     setNote("");
-    sendTurn(lastSaid.current);
+    say(lastSaid.current, lastId.current);
   };
 
   useEffect(() => {
@@ -828,6 +852,8 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
       }
       return;
     }
+    // Coupure en cours : sa réponse arrive par le rechargement, l'effet suivant la lira ; ici, ce fil n'est pas encore à jour.
+    if (cutOff.current !== null) return;
     conclude(last);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [running]);

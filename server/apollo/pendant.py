@@ -34,6 +34,12 @@ def add(request_id: str, conv: str, agent_id: str, user: int, text: str, status:
         ).rowcount == 1
 
 
+def forget(request_id: str) -> None:
+    """Cet envoi n'a rien lancé : le même identifiant peut revenir."""
+    with db.connect() as c:
+        c.execute("DELETE FROM pending_requests WHERE id = ?", (request_id,))
+
+
 def get(request_id: str) -> dict | None:
     with db.connect() as c:
         row = c.execute("SELECT * FROM pending_requests WHERE id = ?", (request_id,)).fetchone()

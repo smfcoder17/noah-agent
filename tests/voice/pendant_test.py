@@ -245,6 +245,69 @@ async def everything():
     assert prepared == ["p2"], prepared
     print("14. profil invité : préparé une seule fois")
 
+    # 14 bis. Un tour d'appel renvoyé après une coupure : un seul travail, même si le premier envoi était arrivé.
+    finished()
+    await drained()
+
+    async def turn(client_id, text="Une seule fois"):
+        http = main.Request({"type": "http", "headers": []})
+        response = await main.chat(main.ChatMessage(agent_id="a1", text=text, conversation_id=conv, client_id=client_id), http, None, user=alice)
+        return "".join([chunk async for chunk in response.body_iterator])
+
+    times = lambda text: (sum(s.endswith(text) for s in started), rows().count(("user", text)))  # noqa: E731
+    first = await turn("tour-appel-1")
+    assert '"start"' in first and "Fait :" in first, first
+    assert times("Une seule fois") == (1, 1), times("Une seule fois")
+    again = await turn("tour-appel-1")
+    assert '"deja"' in again and conv in again, again
+    assert times("Une seule fois") == (1, 1), times("Une seule fois")
+    print("14 bis. /api/chat : le même identifiant ne relance rien, et l'écran sait qu'il faut recharger")
+
+    # Le même tour peut aussi revenir par la route du travail en cours, si l'agent travaille à ce moment-là.
+    working()
+    known = await say("Une seule fois", client_id="tour-appel-1")
+    assert known["type"] == "tache" and not pending(), (known, pending())
+    finished()
+    assert times("Une seule fois") == (1, 1), times("Une seule fois")
+    print("14 ter. un tour déjà reçu ne revient pas par /api/chat/pendant")
+
+    # Un envoi qui n'a rien lancé ne bloque pas son identifiant : renvoyé, il part.
+    real_start = hermes.start_run
+
+    async def down(agent, text, session_id):
+        raise httpx.ConnectError("agent arrêté")
+
+    hermes.start_run = down
+    try:
+        await turn("tour-appel-2", "Après la panne")
+        raise AssertionError("l'échec de démarrage doit se dire")
+    except main.HTTPException as e:
+        assert e.status_code == 503, e.status_code
+    hermes.start_run = real_start
+    assert '"deja"' not in await turn("tour-appel-2", "Après la panne")
+    assert sum(s.endswith("Après la panne") for s in started) == 1, started
+    print("14 quater. un envoi qui n'a rien lancé peut repartir")
+
+    # 14 quinquies. L'appel garde ses demandes à la suite (il en lit le résultat) : seule une précision part au travail.
+    async def from_call(text, client_id):
+        return await main.chat_while_busy(main.WhileBusy(agent_id="a1", text=text, conversation_id=conv, client_id=client_id, garder=True), user=alice)
+
+    working()
+    steered.clear()
+    next_triage = {"type": "tache", "reponse": ""}
+    kept = await from_call("Fais aussi un résumé", "appel-tache-1")
+    assert kept["type"] == "tache" and not pending() and pendant.get(f"{alice}:appel-tache-1") is None, (kept, pending())
+    await main.chat_after(main.LaterMessage(agent_id="a1", text="Fais aussi un résumé", conversation_id=conv, client_id="appel-tache-1"), user=alice)
+    assert pending() == ["Fais aussi un résumé"], "raccroché ensuite : le même identifiant doit encore pouvoir partir"
+    assert pendant.take(f"{alice}:appel-tache-1")
+    next_triage = {"type": "precision", "reponse": ""}
+    sent = await from_call("Plutôt en anglais", "appel-precision-1")
+    assert sent["type"] == "precision" and [t for _, t in steered] == ["Plutôt en anglais"], (sent, steered)
+    assert (await from_call("Plutôt en anglais", "appel-precision-1"))["type"] == "precision"
+    assert [t for _, t in steered] == ["Plutôt en anglais"], "une retransmission ne repasse pas la précision"
+    finished()
+    print("14 quinquies. depuis l'appel : la précision part, une fois ; la demande à la suite reste à l'appel")
+
 
 asyncio.run(everything())
 

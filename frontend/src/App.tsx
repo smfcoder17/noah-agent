@@ -568,7 +568,7 @@ function AgentChat(props: ChatProps) {
     }, [followConversation]),
   });
   const say = useCallback(
-    (text: string) => runtime.thread.append({ role: "user", content: [{ type: "text", text }] }),
+    (text: string, clientId?: string) => runtime.thread.append({ role: "user", content: [{ type: "text", text }], metadata: { custom: { clientId } } }),
     [runtime],
   );
   const onCall = useCallback(

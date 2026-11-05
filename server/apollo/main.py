@@ -1604,6 +1604,7 @@ class ChatMessage(BaseModel):
     details: bool = False
     # Chemins rendus par /upload, dans l'espace de travail de l'agent.
     attachments: list[str] = Field(default_factory=list, max_length=20)
+    client_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{8,64}$")  # un tour d'appel renvoyé après une coupure : un seul travail
 
 
 @app.post("/api/chat")
@@ -1622,7 +1623,18 @@ async def chat(body: ChatMessage, request: Request, apollo_session: str | None =
     prompt = body.text
     if attachments:
         prompt += "\n\nFichiers joints par l'utilisateur :\n" + "\n".join(f"- {p}" for p in attachments)
-    stream = await _run(agent, conv_id, prompt, body.details, _speaker(user, agent.id) + machine.pop_context(conv_id))
+    request_id = f"{user}:{body.client_id}" if body.client_id else None
+    if request_id and not pendant.add(request_id, conv_id, agent.id, user, body.text, pendant.DONE):
+        async def known():  # déjà reçu : rien ne repart, l'écran recharge la conversation
+            yield _sse({"type": "start", "conversation_id": conv_id, "run_id": _conversation_run(conv_id) or ""})
+            yield _sse({"type": "deja"})
+        return StreamingResponse(known(), media_type="text/event-stream")
+    try:
+        stream = await _run(agent, conv_id, prompt, body.details, _speaker(user, agent.id) + machine.pop_context(conv_id))
+    except HTTPException:
+        if request_id:
+            pendant.forget(request_id)
+        raise
     return StreamingResponse(auth.revocable(stream, auth.request_token(request, apollo_session),
                                             allowed=lambda: access.allowed(user, agent.id, "usage")),
                              media_type="text/event-stream")
@@ -1646,6 +1658,7 @@ class WhileBusy(BaseModel):
     client_id: str = Field(pattern=CLIENT_ID)
     conversation_id: str | None = None
     choix: str | None = Field(default=None, pattern="^(precision|tache)$")  # la personne a choisi elle-même : pas de tri
+    garder: bool = False  # l'appel vocal garde ses demandes à la suite : il en lit le résultat
 
 
 async def _queued_turn(row: dict) -> None:
@@ -1750,6 +1763,9 @@ async def chat_while_busy(body: WhileBusy, user: int = Depends(auth.current_user
     else:
         kind, status = "tache", pendant.WAITING
     result = {"type": kind, "reponse": reply, "conversation_id": conv_id}
+    if status == pendant.WAITING and body.garder:
+        pendant.forget(request_id)
+        return result
     pendant.settle(request_id, status, result)
     if status == pendant.WAITING:
         pendant.start(agent.id, conv_id)

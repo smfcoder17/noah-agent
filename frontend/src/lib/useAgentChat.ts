@@ -244,8 +244,7 @@ export function useAgentChat(opts: {
   }, []);
 
   const sendWhileBusy = useCallback(
-    async (text: string) => {
-      const clientId = uid("c");
+    async (text: string, clientId = uid("c")) => {
       setSending((s) => [...s, text]);
       let result: { type: string; reponse?: string } | null = null;
       // Même identifiant à chaque essai : le serveur n'en fera qu'une demande.
@@ -298,7 +297,8 @@ export function useAgentChat(opts: {
       const attachments = (message.attachments ?? []).map((a) => a.id).filter((id) => id.startsWith("/opt/data/"));
       if (!typed) return;
       const text = (takeQuotes.current?.() ?? "") + typed;
-      if (running.current || serverBusy.current) return sendWhileBusy(text); // un message demandé par l'interface en plein travail
+      const clientId = message.metadata?.custom?.clientId as string | undefined; // l'appel renvoie un tour sous le même identifiant
+      if (running.current || serverBusy.current) return sendWhileBusy(text, clientId); // un message demandé par l'interface en plein travail
       const userMsg: ChatMessage = {
         id: uid("u"),
         role: "user",
@@ -330,7 +330,7 @@ export function useAgentChat(opts: {
       };
       try {
         await streamChat(
-          { agent_id: agentId, text, conversation_id: ownConversation.current, attachments, details },
+          { agent_id: agentId, text, conversation_id: ownConversation.current, attachments, details, client_id: clientId },
           (ev) => {
             if (ev.type === "start") {
               runRef.current.runId = ev.run_id;
@@ -340,6 +340,7 @@ export function useAgentChat(opts: {
               }
               return;
             }
+            if (ev.type === "deja") throw new StreamLost(); // retransmission d'un tour déjà reçu : sa réponse se recharge, comme après une coupure
             queue(ev);
           },
           abort.signal,
