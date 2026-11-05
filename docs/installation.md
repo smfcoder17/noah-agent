@@ -35,7 +35,7 @@ Un VPS Ubuntu ou Debian, 4 Go de mémoire au moins, ports 80 et 443 libres. Comp
 VPS > Manage > Docker Manager > Compose > « Compose from URL ».
 
 - **URL :** `https://github.com/smfcoder17/noah-agent/releases/latest/download/docker-compose.yml`
-- **Nom du projet :** `noah`, exactement. Le fichier fixe ce nom (`name: noah`), et les sauvegardes cherchent les volumes `noah_noah-*`.
+- **Nom du projet :** `noah`, de préférence. Un autre nom marche aussi : les volumes gardent leur nom `noah_noah-*`, celui que les sauvegardes cherchent.
 
 Puis Deploy. Le menu du projet (⋮) > View logs affiche le lien de création du compte, dans les lignes du service `server`.
 

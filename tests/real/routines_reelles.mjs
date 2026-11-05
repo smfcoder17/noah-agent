@@ -289,6 +289,16 @@ with db.connect() as c:
   check("   la relecture répond et ne retire rien toute seule", review.status === 200 && (await api("GET", `/api/agents/${agent}/memory`)).json.memory.length === 1, review.text.slice(0, 300));
   const flows = (await api("GET", "/api/flux")).json?.flux || [];
   check("5. /api/flux déclare le modèle de décision", flows.some((f) => f.quoi === "Modèle de décision" && f.detail === "faux-petit"));
+
+  // 6. Ce que l'agent ouvre est ce que l'écran Ordinateur montre : le vrai outil d'Hermes, dans le navigateur partagé.
+  // Vu sur le premier VPS : une version d'Hermes sans Camofox naviguait dans un Chromium invisible, et l'écran restait vide.
+  await api("POST", `/api/agents/${agent}/browser/wake`, {});
+  const opened = await say(`OUTIL browser_navigate ${JSON.stringify({ url: "https://example.com/" })}`);
+  const tabsOnScreen = docker("exec", `noah-browser-${agent}`, "sh", "-c",
+    `. /noah.env; node -e 'fetch("http://localhost:9377/tabs?userId=noah",{headers:{authorization:"Bearer "+process.env.CAMOFOX_ACCESS_KEY}}).then(r=>r.text()).then(console.log)'`);
+  check("6. la page ouverte par l'agent est dans le navigateur de l'écran Ordinateur", tabsOnScreen.includes("example.com"), `${opened.output.slice(0, 120)} | ${tabsOnScreen.slice(0, 200)}`);
+  const screen = (await api("GET", `/api/agents/${agent}/screen-status`)).json;
+  check("   et l'écran est allumé", screen.awake && screen.running, JSON.stringify(screen));
   const logs = docker("logs", `${P}-server`, "--tail", "3000");
   check("   aucune clé dans le journal du serveur", !logs.includes(PROVIDER_KEY));
 }

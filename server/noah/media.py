@@ -129,8 +129,9 @@ async def _speech_cost(model: str, chars: int) -> float | None:
 
 def _fail(r: httpx.Response) -> MediaError:
     try:
-        msg = r.json().get("error", {}).get("message") or r.text
-    except ValueError:
+        error = r.json().get("error", {})
+        msg = (error.get("message") if isinstance(error, dict) else error) or r.text
+    except (ValueError, AttributeError):  # pas du JSON, ou une liste : le texte brut
         msg = r.text
     # Un serveur peut répéter la clé reçue dans son erreur, et l'erreur part chez un profil qui n'a pas à la connaître.
     sent = r.request.headers.get("authorization", "").removeprefix("Bearer ").strip()
@@ -880,9 +881,25 @@ class _DireReader:
         return "".join(out)
 
 
+# Le modèle qui vient de parler à cet agent, et quand : une voix de secours reste la voix de l'appel, sans revenir en arrière
+# entre deux réponses. Quinze minutes de silence, et on repart du modèle choisi.
+_LAST_VOICE: dict[str, tuple[str, float]] = {}
+_VOICE_KEPT = 900
+
+
+def _keep_voice(agent_id: str, candidates: list[str]) -> list[str]:
+    last = _LAST_VOICE.get(agent_id)
+    if not last or time.monotonic() - last[1] > _VOICE_KEPT or last[0] not in candidates:
+        return candidates
+    return [last[0], *[m for m in candidates if m != last[0]]]
+
+
 async def speak_stream(agent_id: str, texts, out: AudioStream) -> None:
     """Synthèse phrase par phrase dans `out`, en MP3. La phrase suivante est demandée dès qu'elle est connue,
-    pendant que la précédente est lue : pas de blanc entre deux phrases."""
+    pendant que la précédente est lue : pas de blanc entre deux phrases.
+
+    Une seule voix par réponse. Le secours ne joue qu'avant le premier son : la première phrase décide du modèle, les
+    suivantes s'y tiennent. Une phrase perdue s'entend moins qu'une voix qui change, et le texte reste écrit."""
     model = None
     sent = False
     said = 0
@@ -892,13 +909,15 @@ async def speak_stream(agent_id: str, texts, out: AudioStream) -> None:
         # Serveur choisi : ni modèle de secours, ni repli vers OpenRouter, la voix ne sort pas à l'insu de la personne.
         own = voice_server("speech")
         base, headers = own[:2] if own else (BASE, _headers())
-        candidates = [own[2]] if own else await backups("speech", 2)
+        candidates = [own[2]] if own else _keep_voice(agent_id, await backups("speech", 2))
         model = candidates[0]
+        chosen: asyncio.Future = asyncio.get_running_loop().create_future()  # le modèle du premier son de cette réponse
         voices = {model: db.get_setting("voice_name") or None} if own else {m: await voice_for(m) for m in candidates}
         parts: asyncio.Queue = asyncio.Queue()
+        heard: set[int] = set()  # les phrases dont un son est déjà parti
 
         async def attempt(m: str, text: str, q: asyncio.Queue) -> bool:
-            """Une synthèse ; rend False si ce modèle refuse (le suivant prend le relais)."""
+            """Une synthèse ; rend False si ce modèle refuse sans avoir rien dit."""
             voice = voices[m]
             for fmt in ("pcm",) if m in _PCM_ONLY else ("mp3", "pcm"):
                 body = {"model": m, "input": text[:4000], "response_format": fmt, **({"voice": voice} if voice else {})}
@@ -915,21 +934,32 @@ async def speak_stream(agent_id: str, texts, out: AudioStream) -> None:
                     async for data in r.aiter_bytes():
                         if out.closed:
                             return True
+                        if not chosen.done():
+                            chosen.set_result(m)
+                        heard.add(id(q))
                         q.put_nowait(data)
                 spoken[m] = spoken.get(m, 0) + len(text)  # au modèle qui a parlé, pas au premier de la liste
                 return True
             return False
 
-        async def fetch(text: str, q: asyncio.Queue) -> None:
+        async def fetch(text: str, q: asyncio.Queue, first: bool) -> None:
             try:
-                # Le modèle choisi deux fois (refus passager), puis les modèles de secours.
-                for m in [candidates[0], *candidates]:
+                if first:  # le modèle choisi deux fois (refus passager), puis les modèles de secours
+                    tries = [candidates[0], *candidates]
+                else:  # la voix de cette réponse, rien d'autre
+                    m = await chosen
+                    tries = [m, m, m] if m else []
+                for m in tries:
                     try:
                         if await attempt(m, text, q):
                             return
                     except httpx.HTTPError as e:
                         print(f"[voix] {m} injoignable : {e}", flush=True)
+                    if id(q) in heard:  # coupé en pleine phrase : ni la fin dans une autre voix, ni la phrase répétée
+                        return
             finally:
+                if first and not chosen.done():
+                    chosen.set_result(None)
                 q.put_nowait(None)
 
         async def feed() -> None:
@@ -939,7 +969,7 @@ async def speak_stream(agent_id: str, texts, out: AudioStream) -> None:
                     break
                 said += 1
                 q: asyncio.Queue = asyncio.Queue()
-                _background(fetch(text, q))
+                _background(fetch(text, q, said == 1))
                 parts.put_nowait(q)
             parts.put_nowait(None)
 
@@ -959,6 +989,8 @@ async def speak_stream(agent_id: str, texts, out: AudioStream) -> None:
         if not sent and not out.closed:
             print(f"[voix] réponse sans aucun son (modèle {model}, {said} phrase(s) reçue(s))", flush=True)
         out.put(None)
+        if spoken:
+            _LAST_VOICE[agent_id] = (next(iter(spoken)), time.monotonic())
         for m, chars in spoken.items():
             _record(agent_id, m, None if voice_server("speech") else await _speech_cost(m, chars))
 
