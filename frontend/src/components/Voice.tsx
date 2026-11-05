@@ -19,6 +19,8 @@ const TURN_PAUSE = 500; // en mode vocal : le morceau part, et la réponse se pr
 const QUIET_RENEW = 30_000; // morceau sans voix depuis ce temps : on le jette et on en ouvre un autre
 const SEGMENT_MAX = 60_000; // parole ou bruit sans aucune pause : le morceau part quand même
 const LOST_WAIT = 600_000; // comme useAgentChat : au-delà, la réponse perdue avec le serveur n'arrivera plus
+const TRIES_ERROR = 3; // un morceau que le serveur n'arrive pas à traiter (500) : insister ne l'arrangera pas
+const TRIES_ABSENT = 40; // réseau coupé ou serveur qui redémarre (502, 503, 504) : environ 5 minutes pour revenir
 const RESUMED = 150; // parole qui annule la réponse préparée : la personne n'avait pas fini
 // Couper la parole, en deux temps : un « mm-hm » ne dure pas assez pour arrêter l'agent, mais on baisse sa voix tout de suite.
 const BARGE_LEVEL = 0.05; // niveau de voix par-dessus l'agent
@@ -171,20 +173,23 @@ function useTranscripts(agentId: string, onText: (text: string) => void) {
       setPending((n) => n + 1);
       // Deux transcriptions à la fois au plus (au-delà, le fournisseur répond 429). Le serveur passe déjà aux modèles de
       // secours : son refus est définitif et il dit pourquoi. Réseau coupé ou serveur qui redémarre : le son attend leur retour.
+      // Toujours un nombre d'essais borné : ce morceau retient ceux qui le suivent, un tour ne part qu'une fois tout transcrit.
       const run = async () => {
         while (s.running >= 2) await new Promise((r) => setTimeout(r, 60));
         s.running++;
         try {
-          for (let attempt = 0; ; attempt++) {
+          for (let attempt = 1; ; attempt++) {
             try {
               const text = await transcribe(blob, agentId);
               setError("");
               return text;
             } catch (e) {
-              const refused = e instanceof ApiError && e.status < 500; // réessayer ne changera rien
-              if (!live.current || refused) throw e;
-              if (attempt >= 2) setError("Réseau coupé : ce que tu as dit partira dès son retour.");
-              await new Promise((r) => setTimeout(r, Math.min(700 * (attempt + 1), 10_000)));
+              const status = e instanceof ApiError ? e.status : 0;
+              const refused = status > 0 && status < 500; // réessayer ne changera rien
+              const absent = !status || status === 502 || status === 503 || status === 504;
+              if (!live.current || refused || attempt >= (absent ? TRIES_ABSENT : TRIES_ERROR)) throw e;
+              if (absent && attempt >= 3) setError("Réseau coupé : ce que tu as dit partira dès son retour.");
+              await new Promise((r) => setTimeout(r, Math.min(700 * attempt, 10_000)));
             }
           }
         } finally {
@@ -193,7 +198,7 @@ function useTranscripts(agentId: string, onText: (text: string) => void) {
       };
       const p = run()
         .catch((e) => {
-          setError(e instanceof ApiError ? e.message : "Un passage n'a pas pu être transcrit. Le reste est bien là.");
+          setError(e instanceof ApiError && e.status < 500 ? e.message : "Un passage n'a pas pu être transcrit. Le reste est bien là.");
           return "";
         })
         .then((text) => {
