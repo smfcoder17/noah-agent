@@ -225,19 +225,22 @@ function Detail({ args }: ToolCallMessagePartProps) {
 /** Sous une réponse rapide : le tri peut se tromper, un clic la transmet quand même à l'agent. */
 function SendAside({ args }: { args: { id: string } }) {
   const busy = useContext(WhileBusyContext);
-  const [sent, setSent] = useState(false);
-  if (!busy.active && !sent) return null;
+  const [said, setSaid] = useState("");
   return (
     <div className="not-prose mt-1 text-xs text-muted-foreground">
-      {sent ? (
-        "Transmis à l'agent."
-      ) : (
+      {said || (
         <button
           type="button"
           className="underline underline-offset-2 hover:text-foreground"
           onClick={() => {
-            setSent(true);
-            busy.now(args.id);
+            setSaid("Envoi…");
+            busy.now(args.id).then(
+              (type) =>
+                setSaid(
+                  type === "precision" ? "Transmis à l'agent." : type === "tache" ? "Il a fini : c'est mis à la suite." : type === "incertain" ? "Transmission non confirmée : regarde sa réponse." : "Déjà transmis.",
+                ),
+              () => setSaid("Pas transmis : le serveur ne répond pas."),
+            );
           }}
         >
           Le transmettre aussi à l'agent
@@ -400,10 +403,12 @@ function Composer({ onVoiceMode, inCall }: { onVoiceMode: () => void; inCall: bo
   const aui = useAui();
   const sendWhileBusy = () => {
     const composer = aui.thread().composer();
-    const text = composer.getState().text.trim();
+    const state = composer.getState();
+    const text = state.text.trim();
     if (!text) return;
-    composer.setText("");
-    busy.send(text);
+    const files = state.attachments.map((a) => a.file).filter((f): f is File => !!f);
+    void composer.reset();
+    busy.send(text, files);
   };
   return (
     <>
@@ -479,15 +484,23 @@ function WhileBusyPanel() {
   return (
     <div className="mb-2 flex w-full flex-col gap-1 text-xs text-muted-foreground">
       {busy.activity && <div className="truncate px-1">{busy.activity}…</div>}
-      {busy.sending.map((text, i) => (
-        <div key={i} className="truncate rounded-lg border border-border bg-surface px-2 py-1.5">Envoi : {text}</div>
+      {busy.sending.map((item) => (
+        <div key={item.id} className="flex items-center gap-2 rounded-lg border border-border bg-surface px-2 py-1.5">
+          <span className="shrink-0">{item.late ? "Réception à vérifier" : "Envoi"}</span>
+          <span className="min-w-0 flex-1 truncate">{item.text}</span>
+          {item.late && (
+            <button type="button" className="shrink-0 underline underline-offset-2 hover:text-foreground" onClick={() => busy.giveUp(item.id)}>
+              Abandonner
+            </button>
+          )}
+        </div>
       ))}
       {busy.waiting.map((item) => (
         <div key={item.id} className="flex items-center gap-2 rounded-lg border border-border bg-surface px-2 py-1">
           <span className="shrink-0">À la suite</span>
           <span className="min-w-0 flex-1 truncate text-foreground">{item.text}</span>
           {busy.active && (
-            <button type="button" className="shrink-0 underline underline-offset-2 hover:text-foreground" onClick={() => busy.now(item.id)}>
+            <button type="button" className="shrink-0 underline underline-offset-2 hover:text-foreground" onClick={() => void busy.now(item.id).catch(() => {})}>
               Maintenant
             </button>
           )}

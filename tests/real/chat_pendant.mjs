@@ -68,6 +68,22 @@ await page.locator("div", { hasText: /^À la suiteEt une demande à retirer/ }).
 await page.getByText("Et une demande à retirer").waitFor({ state: "detached" });
 check(true, "une demande se retire");
 
+// 5 bis. La réponse du serveur se perd : le message ne se dit pas perdu, repart sous le même identifiant, et ne compte qu'une fois.
+let lost = 0;
+await page.route("**/api/chat/pendant", async (route) => {
+  if (lost++ === 0) {
+    await route.fetch();
+    await route.abort();
+  } else await route.continue();
+});
+await type("Une demande ACCORD");
+for (let i = 0; i < 80 && lost < 2; i++) await page.waitForTimeout(100);
+await page.locator("div", { hasText: /^À la suiteUne demande ACCORD/ }).first().waitFor({ timeout: 10000 });
+await page.unroute("**/api/chat/pendant");
+check(lost >= 2, "la réponse perdue a provoqué un nouvel essai");
+check((await page.getByText("Une demande ACCORD").count()) === 1, "une seule fois à l'écran, sans doublon");
+check((await page.getByText("pas parti").count()) === 0, "pas de fausse annonce de perte");
+
 // 6. Recharger en plein travail : rien n'est perdu, et l'écran sait que ça travaille.
 await page.reload();
 await input.waitFor({ timeout: 20000 });
@@ -86,6 +102,17 @@ await page.waitForTimeout(3500);
 await server("/_essai/finir", "POST");
 await sees("Fini : Fais aussi un résumé", 15000);
 await page.screenshot({ path: `${OUT}/6-suite.png` });
+
+// 7 bis. Un travail de la file demande un accord : aucun flux ici, le bouton s'affiche quand même et débloque.
+await page.reload();
+await input.waitFor({ timeout: 20000 });
+await sees("Supprimer le dossier ?", 15000);
+await page.screenshot({ path: `${OUT}/6-accord.png` });
+await page.getByRole("button", { name: "Autoriser" }).click();
+await sees("Lit apres-accord.txt", 10000);
+check(true, "un accord se donne sans le flux, et le travail reprend");
+await server("/_essai/finir", "POST");
+await sees("Fini : Une demande ACCORD", 15000);
 
 // 8. Tout est calme : on écrit normalement, et la conversation est dans l'ordre.
 await page.waitForFunction(() => !document.querySelector('[aria-label="Arrêter"]'), null, { timeout: 15000 });

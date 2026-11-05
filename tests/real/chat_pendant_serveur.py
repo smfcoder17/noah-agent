@@ -42,8 +42,20 @@ async def run_events(agent, run_id):
     yield "tool.started", {"tool": "read_file", "args": {"path": "/opt/data/workspace/rapport.pdf"}}
     await asyncio.sleep(0.5)
     yield "tool.started", {"tool": "web_search", "args": {"query": "prix du cuivre"}}
+    if "ACCORD" in started[n - 1]:
+        accord.clear()
+        yield "approval.request", {"request_id": "demande-1", "execution_generation": 1, "description": "Supprimer le dossier ?"}
+        await accord.wait()
+        yield "tool.started", {"tool": "read_file", "args": {"path": "apres-accord.txt"}}
     await finish[run_id].wait()
     yield "run.completed", {"output": "Fini : " + started[n - 1].splitlines()[-1]}  # sans le contexte ajouté pour l'agent
+
+
+accord = asyncio.Event()
+
+
+async def answer_approval(agent, run_id, request_id, generation, approve):
+    accord.set()
 
 
 async def steer_run(agent, run_id, text):
@@ -67,6 +79,7 @@ async def stop_run(agent, run_id):
 
 
 hermes.start_run, hermes.run_events, hermes.steer_run, hermes.stop_run, hermes.health = start_run, run_events, steer_run, stop_run, healthy
+hermes.answer_approval = answer_approval
 media.triage = triage
 
 

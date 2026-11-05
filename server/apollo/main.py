@@ -1607,6 +1607,11 @@ class ChatMessage(BaseModel):
     client_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{8,64}$")  # un tour d'appel renvoyé après une coupure : un seul travail
 
 
+def _with_attachments(text: str, paths: list[str]) -> str:
+    kept = [p for p in paths if p.startswith("/opt/data/workspace/uploads/")]
+    return text + ("\n\nFichiers joints par l'utilisateur :\n" + "\n".join(f"- {p}" for p in kept) if kept else "")
+
+
 @app.post("/api/chat")
 async def chat(body: ChatMessage, request: Request, apollo_session: str | None = Cookie(None),
                user: int = Depends(auth.current_user)):
@@ -1619,10 +1624,7 @@ async def chat(body: ChatMessage, request: Request, apollo_session: str | None =
             raise HTTPException(404, "Conversation introuvable")
     if not conv_id:
         conv_id = _main_conversation(agent.id, user) or _new_conversation(user, agent.id, "Conversation", main=True)
-    attachments = [p for p in body.attachments if p.startswith("/opt/data/workspace/uploads/")]
-    prompt = body.text
-    if attachments:
-        prompt += "\n\nFichiers joints par l'utilisateur :\n" + "\n".join(f"- {p}" for p in attachments)
+    prompt = _with_attachments(body.text, body.attachments)
     request_id = f"{user}:{body.client_id}" if body.client_id else None
     if request_id and not pendant.add(request_id, conv_id, agent.id, user, body.text, pendant.DONE):
         async def known():  # déjà reçu : rien ne repart, l'écran recharge la conversation
@@ -1659,18 +1661,37 @@ class WhileBusy(BaseModel):
     conversation_id: str | None = None
     choix: str | None = Field(default=None, pattern="^(precision|tache)$")  # la personne a choisi elle-même : pas de tri
     garder: bool = False  # l'appel vocal garde ses demandes à la suite : il en lit le résultat
+    attachments: list[str] = Field(default_factory=list, max_length=20)
 
 
 async def _queued_turn(row: dict) -> None:
     """Le tour d'une demande qui attendait. Suivi jusqu'au bout : la suivante ne part qu'après."""
     agent, user = _agent(row["agent_id"]), row["user_id"]
     try:
-        async for _ in await _run(agent, row["conversation_id"], row["text"], False, _speaker(user, agent.id) + machine.pop_context(row["conversation_id"])):
+        stream = await _run(agent, row["conversation_id"], row["text"], False, _speaker(user, agent.id) + machine.pop_context(row["conversation_id"]))
+        pendant.settle(row["id"], pendant.DONE)  # l'agent l'a : un redémarrage ne doit plus la relancer
+        async for _ in stream:
             pass
     except HTTPException:  # _run a déjà écrit le message et son échec
         pass
     except Exception as e:  # noqa: BLE001
         diagnostics.failure("demande en attente", e, agent.id)
+    finally:
+        pendant.move(row["id"], (pendant.RUNNING,), pendant.DONE)
+
+
+def _queued_requeued(row: dict) -> None:
+    """Redémarrage entre la prise et l'arrivée chez l'agent : son message écrit en premier sera réécrit à son départ."""
+    with db.connect() as c:
+        last = c.execute("SELECT id, role, text FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT 1", (row["conversation_id"],)).fetchone()
+        if last and last["role"] == "user" and last["text"] == row["text"]:
+            c.execute("DELETE FROM messages WHERE id = ?", (last["id"],))
+
+
+def _queued_unsure(row: dict) -> None:
+    if not (row["result"] and json.loads(row["result"]).get("type") == "question"):  # une question est déjà écrite
+        _save_message(row["conversation_id"], "user", row["text"])
+    _save_message(row["conversation_id"], "agent", UNSURE_STEER)
 
 
 def _queued_expired(row: dict) -> None:
@@ -1685,6 +1706,8 @@ pendant.setup(
     allowed=lambda user, agent_id: access.allowed(user, agent_id, "usage"),
     run_turn=_queued_turn,
     expired=_queued_expired,
+    requeued=_queued_requeued,
+    unsure=_queued_unsure,
 )
 
 
@@ -1719,17 +1742,28 @@ def _conversation_run(conv_id: str) -> str | None:
     return next((run_id for run_id, r in reversed(_runs.items()) if r["conv"] == conv_id), None)
 
 
-async def _steer(agent: Agent, conv_id: str, text: str) -> bool:
-    """Transmet au run en cours. False s'il n'y en a plus : à la personne de ne rien perdre, donc à la file."""
+STEER_OK, STEER_REFUSED, STEER_UNSURE = "ok", "refuse", "incertain"
+UNSURE_STEER = "Je ne sais pas si l'agent a reçu ce message : la transmission a été coupée. Regarde sa réponse, et renvoie-le si besoin."
+
+
+async def _steer(agent: Agent, conv_id: str, user: int, text: str) -> str:
+    """Transmet au run en cours. Refusé (rien n'est arrivé) : à la file. Incertain (la réponse s'est perdue) : on ne le rejoue pas, on le dit."""
     run_id = _conversation_run(conv_id)
-    if not run_id:
-        return False
+    run = _runs.get(run_id or "")
+    if not run:
+        return STEER_REFUSED
+    profile = access.guest_profile(user) if access.separated(user, agent.id) else None
+    if run.get("user") != user or (run.get("profil") or None) != profile:  # droits changés depuis son départ : ce run n'est plus le sien
+        return STEER_REFUSED
     try:
-        await hermes.steer_run(replace(agent, profile=_runs[run_id].get("profil")), run_id, text)
-    except (httpx.HTTPError, KeyError) as e:
+        await hermes.steer_run(replace(agent, profile=profile), run_id, text)
+    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.HTTPStatusError) as e:
         diagnostics.record("précision pendant le travail", f"{type(e).__name__}: {e}", agent.id)
-        return False
-    return True
+        return STEER_REFUSED
+    except httpx.HTTPError as e:
+        diagnostics.record("précision pendant le travail, réponse perdue", f"{type(e).__name__}: {e}", agent.id)
+        return STEER_UNSURE
+    return STEER_OK
 
 
 def _recent_turns(conv_id: str) -> list[dict]:
@@ -1745,8 +1779,9 @@ async def chat_while_busy(body: WhileBusy, user: int = Depends(auth.current_user
     agent = _usable(user, body.agent_id)
     conv_id = _own_conversation(user, agent, body.conversation_id)
     request_id = f"{user}:{body.client_id}"
-    if not pendant.add(request_id, conv_id, agent.id, user, body.text, pendant.TRI):
-        return pendant.known_result(request_id) or {"type": "tache", "reponse": ""}
+    text = _with_attachments(body.text, body.attachments)
+    if not pendant.add(request_id, conv_id, agent.id, user, text, pendant.TRI):
+        return pendant.known_result(request_id) or {"type": "tache", "reponse": "", "conversation_id": conv_id}
     kind, reply = body.choix, ""
     if not coordination._busy(agent.id, conv_id):
         kind = "tache"  # il vient de finir : elle part tout de suite
@@ -1754,19 +1789,28 @@ async def chat_while_busy(body: WhileBusy, user: int = Depends(auth.current_user
         with db.connect() as c:
             row = c.execute("SELECT name, role FROM agents WHERE id = ?", (agent.id,)).fetchone()
         try:
-            found = await media.triage(agent.id, row["name"], row["role"], body.text, _recent_turns(conv_id), task_activity.get(conv_id, ""))
+            found = await media.triage(agent.id, row["name"], row["role"], text, _recent_turns(conv_id), task_activity.get(conv_id, ""))
             kind, reply = found["type"], found["reponse"]
         except media.MediaError as e:
             diagnostics.record("tri pendant le travail", str(e), agent.id)
             kind = "tache"
+        if not access.allowed(user, agent.id, "usage"):  # le tri prend du temps : l'accès a pu être retiré entre-temps
+            pendant.settle(request_id, pendant.CANCELLED)
+            raise HTTPException(404, "Agent introuvable")
     status = pendant.DONE
     if kind == "question":
-        _save_message(conv_id, "user", body.text)
+        status = pendant.ANSWERED
+        _save_message(conv_id, "user", text)
         _save_message(conv_id, "agent", reply)
-        machine.add_context(conv_id, f"[Pendant ton travail, la personne a demandé : « {body.text[:1000]} ». Il lui a été répondu : « {reply} ».]\n\n")
-    elif kind == "precision" and await _steer(agent, conv_id, body.text):
-        _save_message(conv_id, "user", body.text)
-        reply = reply or "C'est transmis : il en tient compte après ce qu'il est en train de faire."
+        machine.add_context(conv_id, f"[Pendant ton travail, la personne a demandé : « {text[:1000]} ». Il lui a été répondu : « {reply} ».]\n\n")
+    elif kind == "precision":
+        pendant.move(request_id, (pendant.TRI,), pendant.SENDING)  # à partir d'ici, un redémarrage ne la rejoue plus
+        outcome = await _steer(agent, conv_id, user, text)
+        if outcome == STEER_REFUSED:
+            kind, status = "tache", pendant.WAITING
+        else:
+            _save_message(conv_id, "user", text)
+            reply = UNSURE_STEER if outcome == STEER_UNSURE else reply or "C'est transmis : il en tient compte après ce qu'il est en train de faire."
     else:
         kind, status = "tache", pendant.WAITING
     result = {"type": kind, "reponse": reply, "conversation_id": conv_id}
@@ -1782,10 +1826,13 @@ async def chat_while_busy(body: WhileBusy, user: int = Depends(auth.current_user
 @app.get("/api/conversations/{conv_id}/en-cours")
 def conversation_now(conv_id: str, user: int = Depends(auth.current_user)):
     """Ce que l'agent fait dans cette conversation et ce qui attend, même si l'écran n'a pas lancé ce travail."""
-    agent_id = access.conversation(user, conv_id)["agent_id"]
+    row = access.conversation(user, conv_id)
+    agent_id = row["agent_id"]
     busy = coordination._busy(agent_id, conv_id)
     return {"occupe": busy, "activite": task_activity.get(conv_id) if busy else None, "run_id": _conversation_run(conv_id) if busy else None,
-            "file": [{"id": r["id"].split(":", 1)[1], "text": r["text"]} for r in pendant.waiting(conv_id)]}
+            "file": [{"id": r["id"].split(":", 1)[1], "text": r["text"]} for r in pendant.waiting(conv_id)],
+            # Un accord demandé par un travail qu'aucun écran ne suit : sans ça, personne ne peut le donner et la file reste bloquée.
+            "accord": task_approval.get(conv_id) if busy and row["user_id"] == user else None}
 
 
 def _own_request(user: int, client_id: str) -> tuple[str, dict]:
@@ -1802,24 +1849,23 @@ async def request_now(client_id: str, user: int = Depends(auth.current_user)):
     """Corrige le tri : une demande à la suite, ou une question qui a eu sa réponse, part maintenant vers le travail en cours."""
     request_id, row = _own_request(user, client_id)
     agent, conv_id = _agent(row["agent_id"]), row["conversation_id"]
-    if row["status"] not in (pendant.WAITING, pendant.DONE):
-        raise HTTPException(404, "Demande introuvable")
-    if row["status"] == pendant.WAITING and not pendant.take(request_id):
-        return {"type": "tache"}
-    if await _steer(agent, conv_id, row["text"]):
-        if row["status"] == pendant.WAITING:
-            _save_message(conv_id, "user", row["text"])
-        return {"type": "precision"}
-    if row["status"] == pendant.WAITING:  # plus de travail en cours : elle reprend sa place et part
+    if not pendant.move(request_id, (pendant.WAITING, pendant.ANSWERED), pendant.SENDING):  # déjà partie, retirée, ou deux clics
+        return {"type": "deja"}
+    outcome = await _steer(agent, conv_id, user, row["text"])
+    if outcome == STEER_REFUSED:  # plus de travail en cours : elle part à son tour, y compris une question qu'on veut transmettre
         pendant.settle(request_id, pendant.WAITING)
         pendant.start(agent.id, conv_id)
-    return {"type": "tache"}
+        return {"type": "tache"}
+    if row["status"] == pendant.WAITING:
+        _save_message(conv_id, "user", row["text"])
+    pendant.settle(request_id, pendant.DONE)
+    return {"type": "precision" if outcome == STEER_OK else "incertain"}
 
 
 @app.delete("/api/chat/file/{client_id}")
 def request_cancel(client_id: str, user: int = Depends(auth.current_user)):
     request_id, _ = _own_request(user, client_id)
-    return {"ok": pendant.take(request_id)}
+    return {"ok": pendant.move(request_id, (pendant.WAITING,), pendant.CANCELLED)}
 
 
 def _speaker(user: int, agent_id: str) -> str:
@@ -1887,6 +1933,7 @@ async def _guest_agent(agent: Agent, user: int | None) -> Agent:
 
 _guest_locks: dict[str, asyncio.Lock] = {}
 task_activity: dict[str, str] = {}  # la dernière ligne de travail de chaque conversation, pour un écran qui arrive en cours de route
+task_approval: dict[str, dict] = {}  # l'accord attendu, pour le même écran
 
 
 async def _start_run(agent: Agent, text: str, session: str) -> str:
@@ -2003,6 +2050,10 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
                 task_state[conv_id] = "approve" if out["type"] == "approval" else "work"
                 if out["type"] == "activity":
                     task_activity[conv_id] = out["label"]
+                if out["type"] == "approval":
+                    task_approval[conv_id] = {"summary": out.get("summary"), "request_id": out.get("request_id"), "generation": out.get("generation"), "run_id": run_id}
+                else:
+                    task_approval.pop(conv_id, None)
                 if out["type"] == "message":
                     reply.append(out["text"])
                 yield _sse(out)
@@ -2145,6 +2196,7 @@ async def approval(agent_id: str, run_id: str, body: ApprovalAnswer, user: int =
     except Exception:
         mcp.approval_failed(grant)
         raise
+    task_approval.pop((_runs.get(run_id) or {}).get("conv"), None)
     return {"ok": True}
 
 

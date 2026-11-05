@@ -75,9 +75,13 @@ def pending():
     return [r["text"] for r in pendant.waiting(conv)]
 
 
-async def say(text, user=alice, client_id=None, conversation=conv, agent="a1", choix=None):
+async def say(text, user=alice, client_id=None, conversation=conv, agent="a1", choix=None, attachments=()):
     counter[0] += 1
-    return await main.chat_while_busy(main.WhileBusy(agent_id=agent, text=text, conversation_id=conversation, client_id=client_id or f"essai-{counter[0]:04d}", choix=choix), user=user)
+    return await main.chat_while_busy(main.WhileBusy(agent_id=agent, text=text, conversation_id=conversation, client_id=client_id or f"essai-{counter[0]:04d}", choix=choix, attachments=list(attachments)), user=user)
+
+
+def pending_id(text):
+    return next(r["id"].split(":", 1)[1] for r in pendant.waiting(conv) if r["text"] == text)
 
 
 async def drained():
@@ -218,6 +222,121 @@ async def everything():
     assert rows()[-2] == ("user", "Trop tard") and rows()[-1][0] == "error", rows()[-2:]
     finished()
     print("12. occupé trop longtemps : la demande et l'échec restent écrits")
+
+    # 12 ter. Revue Codex : chaque scénario de perte, de doublon ou de droit.
+    # La demande prise, mais pas encore chez l'agent, repart après un redémarrage, sans doubler son message.
+    was = len(started)
+    assert pendant.add("1:prise", conv, "a1", alice, "Prise puis coupure")
+    assert pendant.take("1:prise")
+    main._save_message(conv, "user", "Prise puis coupure")
+    pendant._drains.clear()
+    pendant.resume()
+    await drained()
+    assert started[-1].endswith("Prise puis coupure") and len(started) == was + 1, started[was:]
+    assert rows().count(("user", "Prise puis coupure")) == 1, "son message est doublé"
+    assert pendant.get("1:prise")["status"] == pendant.DONE
+
+    # Réponse de Hermes perdue : la précision ne repart pas à la suite, et la personne le sait.
+    working()
+    next_triage = {"type": "precision", "reponse": "Je lui passe."}
+
+    async def lost_answer(agent, run_id, text):
+        steered.append((run_id, text))
+        raise httpx.ReadTimeout("réponse perdue")
+
+    hermes.steer_run = lost_answer
+    was_steered = len(steered)
+    r = await say("Précision sans réponse")
+    hermes.steer_run = steer_run
+    assert r["type"] == "precision" and "ne sais pas" in r["reponse"], r
+    assert len(steered) == was_steered + 1 and "Précision sans réponse" not in pending(), pending()
+
+    # Redémarrage pendant la transmission : elle n'est pas rejouée, et c'est dit.
+    assert pendant.add("1:coupee", conv, "a1", alice, "Transmission coupée", pendant.SENDING)
+    pendant._drains.clear()
+    pendant.resume()
+    assert "Transmission coupée" not in pending() and rows()[-2:] == [("user", "Transmission coupée"), ("agent", main.UNSURE_STEER)], rows()[-2:]
+
+    # Accès retiré pendant le tri : rien n'est transmis.
+    gate = asyncio.Event()
+
+    async def slow_triage(*a):
+        await gate.wait()
+        return {"type": "precision", "reponse": "x"}
+
+    media.triage = slow_triage
+    allowed_before = access.allowed
+    was_steered = len(steered)
+    task = asyncio.create_task(say("Pendant le retrait", client_id="retrait-01"))
+    await asyncio.sleep(0.02)
+    main.access.allowed = lambda user, agent, droit="usage": False
+    gate.set()
+    try:
+        await task
+    except main.HTTPException as e:
+        assert e.status_code == 404
+    else:
+        raise AssertionError("transmise après le retrait de l'accès")
+    main.access.allowed = allowed_before
+    assert len(steered) == was_steered and pendant.get(f"{alice}:retrait-01")["status"] == pendant.CANCELLED
+    media.triage = triage
+
+    # Droits changés depuis le départ du run : la précision attend et repartira avec les bons droits.
+    was_steered = len(steered)
+    main._runs["run-en-cours"]["profil"] = "autre-profil"
+    r = await say("Après le changement de droits")
+    main._runs["run-en-cours"]["profil"] = None
+    assert r["type"] == "tache" and len(steered) == was_steered and "Après le changement de droits" in pending(), r
+    main.request_cancel(pending_id("Après le changement de droits"), user=alice)
+
+    # Retirée, elle ne ressuscite pas ; deux clics « maintenant » ne font qu'une transmission.
+    await say("Retirée puis maintenant", client_id="retiree-01", choix="tache")
+    assert main.request_cancel("retiree-01", user=alice)["ok"]
+    was_steered = len(steered)
+    assert (await main.request_now("retiree-01", user=alice))["type"] == "deja" and len(steered) == was_steered
+    await say("Deux clics", client_id="deux-clics", choix="tache")
+    first, second = await asyncio.gather(main.request_now("deux-clics", user=alice), main.request_now("deux-clics", user=alice))
+    assert sorted((first["type"], second["type"])) == ["deja", "precision"] and len(steered) == was_steered + 1, (first, second)
+
+    # Une question, transmise deux fois de suite : une seule. Et après la fin du run, elle part à la suite.
+    next_triage = {"type": "question", "reponse": "Réponse."}
+    await say("Question à transmettre", client_id="question-01")
+    was_steered = len(steered)
+    assert (await main.request_now("question-01", user=alice))["type"] == "precision"
+    assert (await main.request_now("question-01", user=alice))["type"] == "deja" and len(steered) == was_steered + 1
+    await say("Question après la fin", client_id="question-02")
+    finished()
+    was = len(started)
+    assert (await main.request_now("question-02", user=alice))["type"] == "tache"
+    await drained()
+    assert started[-1].endswith("Question après la fin") and len(started) == was + 1, started[was:]
+
+    # L'ordre : une demande encore au tri retient les suivantes.
+    working()
+    assert pendant.add("1:premiere", conv, "a1", alice, "Première", pendant.TRI)
+    assert pendant.add("1:seconde", conv, "a1", alice, "Seconde")
+    finished()
+    pendant.start("a1", conv)
+    was = len(started)
+    await asyncio.sleep(0.1)
+    assert len(started) == was, "la seconde est passée devant"
+    pendant.settle("1:premiere", pendant.WAITING)
+    await drained()
+    assert [s.splitlines()[-1] for s in started[was:]] == ["Première", "Seconde"], started[was:]
+
+    # Un accord attendu se voit sans le flux, et seulement chez l'auteur.
+    working()
+    main.task_approval[conv] = {"summary": "Supprimer ?", "request_id": "r1", "generation": 1, "run_id": "run-en-cours"}
+    assert main.conversation_now(conv, user=alice)["accord"]["request_id"] == "r1"
+    main.task_approval.pop(conv)
+    finished()
+
+    # Pièces jointes : même traitement que /api/chat.
+    await say("Avec un fichier", client_id="fichier-01", choix="tache", attachments=["/opt/data/workspace/uploads/a.pdf", "/opt/data/.env"])
+    row = pendant.get(f"{alice}:fichier-01")
+    assert "uploads/a.pdf" in row["text"] and ".env" not in row["text"], row["text"]
+    await drained()
+    print("12 ter. perte, doublon, droits, ordre, accord, pièces jointes : tenus")
 
     # 12 bis. Au démarrage, rien ne part avant de savoir si une mise à jour est ouverte.
     from apollo import updates

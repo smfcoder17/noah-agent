@@ -7,7 +7,7 @@ import {
   useExternalStoreRuntime,
 } from "@assistant-ui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { type ChatEvent, get, send, type StoredMessage, request, StreamLost, streamChat, uploadFile } from "./api";
+import { ApiError, type ChatEvent, get, send, type StoredMessage, request, StreamLost, streamChat, uploadFile } from "./api";
 
 type TextPart = { type: "text"; text: string };
 type ToolPart = { type: "tool-call"; toolCallId: string; toolName: string; args: Record<string, unknown>; result?: unknown };
@@ -94,13 +94,37 @@ export type WhileBusyApi = {
   /** Travail lancé sans ce flux (une demande qui attendait, un autre écran) : sa ligne s'affiche près de la saisie. */
   activity: string | null;
   waiting: { id: string; text: string }[];
-  sending: string[];
-  send: (text: string) => void;
-  now: (id: string) => void;
+  sending: { id: string; text: string; late: boolean }[];
+  send: (text: string, files?: File[]) => void;
+  /** Rend ce que le serveur a fait : « precision », « tache », « deja » ou « incertain ». */
+  now: (id: string) => Promise<string>;
   cancel: (id: string) => void;
+  giveUp: (id: string) => void;
 };
-type Now = { occupe: boolean; activite: string | null; run_id: string | null; file: { id: string; text: string }[] };
-const IDLE: Now = { occupe: false, activite: null, run_id: null, file: [] };
+type Approval = { summary: string; request_id: string; generation: number; run_id: string };
+type Now = { occupe: boolean; activite: string | null; run_id: string | null; file: { id: string; text: string }[]; accord: Approval | null };
+const IDLE: Now = { occupe: false, activite: null, run_id: null, file: [], accord: null };
+
+// Boîte d'envoi : un message reste ici, avec son identifiant, tant que le serveur n'a pas répondu. Une réponse perdue ne fait donc ni
+// perte ni doublon : le même envoi repart, y compris après un rechargement, et le serveur le reconnaît.
+type Outgoing = { id: string; text: string; agent: string; conv: string | null; files: string[] };
+const OUTBOX = "noah-envois";
+const readOutbox = (): Outgoing[] => {
+  try {
+    return JSON.parse(localStorage.getItem(OUTBOX) || "[]");
+  } catch {
+    return [];
+  }
+};
+const writeOutbox = (items: Outgoing[]) => {
+  try {
+    localStorage.setItem(OUTBOX, JSON.stringify(items));
+  } catch {
+    /* navigation privée : l'envoi reste en mémoire le temps de la page */
+  }
+};
+const delivering = new Set<string>();
+const LATE_AFTER = 3;
 
 // Fonction stable : si elle changeait à chaque rendu, assistant-ui viderait son cache et reconvertirait tout le fil
 // à chaque image du flux, au lieu du seul message qui change.
@@ -205,9 +229,10 @@ export function useAgentChat(opts: {
 
   // --- Pendant le travail : la saisie reste ouverte, et ce qui attend se voit. ---
   const [serverNow, setServerNow] = useState<Now>(IDLE);
-  const [sending, setSending] = useState<string[]>([]);
+  const [sending, setSending] = useState<WhileBusyApi["sending"]>([]);
+  const givenUp = useRef(new Set<string>());
   const serverBusy = useRef(false);
-  serverBusy.current = serverNow.occupe;
+  serverBusy.current = serverNow.occupe || serverNow.file.length > 0; // une file non vide : le nouveau message passe derrière
   const serverRun = useRef<string | null>(null);
   serverRun.current = serverNow.run_id;
 
@@ -243,36 +268,62 @@ export function useAgentChat(opts: {
     });
   }, []);
 
-  const sendWhileBusy = useCallback(
-    async (text: string, clientId = uid("c")) => {
-      setSending((s) => [...s, text]);
+  const deliver = useCallback(
+    async (item: Outgoing) => {
+      if (delivering.has(item.id)) return;
+      delivering.add(item.id);
+      setSending((s) => (s.some((x) => x.id === item.id) ? s : [...s, { id: item.id, text: item.text, late: false }]));
       let result: { type: string; reponse?: string } | null = null;
-      // Même identifiant à chaque essai : le serveur n'en fera qu'une demande.
-      for (let attempt = 0; attempt < 3 && !result; attempt++) {
-        if (attempt) await new Promise((r) => setTimeout(r, 1500));
-        result = await send<{ type: string; reponse?: string }>("/api/chat/pendant", {
-          agent_id: agentId,
-          conversation_id: ownConversation.current,
-          client_id: clientId,
-          text,
-        }).catch(() => null);
+      let refused = "";
+      for (let attempt = 0; !result && !refused && !givenUp.current.has(item.id); attempt++) {
+        if (attempt) await new Promise((r) => setTimeout(r, 3000));
+        try {
+          result = await send<{ type: string; reponse?: string }>("/api/chat/pendant", {
+            agent_id: item.agent,
+            conversation_id: item.conv,
+            client_id: item.id,
+            text: item.text,
+            attachments: item.files,
+          });
+        } catch (e) {
+          if (e instanceof ApiError && e.status < 500) refused = e.message;
+          else if (attempt + 1 >= LATE_AFTER) setSending((s) => s.map((x) => (x.id === item.id ? { ...x, late: true } : x)));
+        }
       }
-      setSending((s) => s.filter((t) => t !== text));
-      const user: ChatMessage = { id: uid("u"), role: "user", content: [{ type: "text", text }] };
-      if (!result) {
-        addBeforeRunning([
-          user,
-          { id: uid("r"), role: "assistant", content: [{ type: "tool-call", toolCallId: uid("e"), toolName: "error", args: { message: "Ce message n'est pas parti : le serveur ne répond pas. Renvoie-le dans un instant.", detail: "" }, result: true }] },
-        ]);
-      } else if (result.type !== "tache") {
-        const parts: Part[] = result.reponse ? [{ type: "text", text: result.reponse }] : [];
-        if (result.type === "question") parts.push({ type: "tool-call", toolCallId: uid("s"), toolName: "send_aside", args: { id: clientId } });
-        addBeforeRunning(parts.length ? [user, { id: uid("r"), role: "assistant", content: parts }] : [user]);
+      delivering.delete(item.id);
+      writeOutbox(readOutbox().filter((x) => x.id !== item.id));
+      setSending((s) => s.filter((x) => x.id !== item.id));
+      if (ownConversation.current === item.conv) {
+        const user: ChatMessage = { id: uid("u"), role: "user", content: [{ type: "text", text: item.text }] };
+        if (refused) {
+          addBeforeRunning([
+            user,
+            { id: uid("r"), role: "assistant", content: [{ type: "tool-call", toolCallId: uid("e"), toolName: "error", args: { message: refused, detail: "" }, result: true }] },
+          ]);
+        } else if (result && result.type !== "tache") {
+          const parts: Part[] = result.reponse ? [{ type: "text", text: result.reponse }] : [];
+          if (result.type === "question") parts.push({ type: "tool-call", toolCallId: uid("s"), toolName: "send_aside", args: { id: item.id } });
+          addBeforeRunning(parts.length ? [user, { id: uid("r"), role: "assistant", content: parts }] : [user]);
+        }
       }
       void refreshNow();
     },
-    [agentId, addBeforeRunning, refreshNow],
+    [addBeforeRunning, refreshNow],
   );
+
+  const sendWhileBusy = useCallback(
+    async (text: string, clientId = uid("c"), files: string[] = []) => {
+      const item: Outgoing = { id: clientId, text, agent: agentId, conv: ownConversation.current, files };
+      writeOutbox([...readOutbox(), item]);
+      await deliver(item);
+    },
+    [agentId, deliver],
+  );
+
+  // Ce qui n'avait pas eu de réponse avant un rechargement repart, sous le même identifiant.
+  useEffect(() => {
+    for (const item of readOutbox()) if (item.agent === agentId && item.conv === conversationId) void deliver(item);
+  }, [agentId, conversationId, deliver]);
 
   const whileBusy = useMemo<WhileBusyApi>(
     () => ({
@@ -280,11 +331,33 @@ export function useAgentChat(opts: {
       activity: !isRunning && serverNow.occupe ? serverNow.activite || "Travaille sur ta demande" : null,
       waiting: serverNow.file,
       sending,
-      send: (text) => void sendWhileBusy(text),
-      now: (id) => void send(`/api/chat/file/${id}/maintenant`, {}).catch(() => {}).then(refreshNow),
+      send: (text, files = []) =>
+        void (async () => {
+          const full = (takeQuotes.current?.() ?? "") + text;
+          let paths: string[] = [];
+          try {
+            paths = await Promise.all(files.map((f) => uploadFile(agentId, f)));
+          } catch (e) {
+            addBeforeRunning([
+              { id: uid("r"), role: "assistant", content: [{ type: "tool-call", toolCallId: uid("e"), toolName: "error", args: { message: `Les fichiers joints ne sont pas partis : ${(e as Error).message}`, detail: "" }, result: true }] },
+            ]);
+            return;
+          }
+          await sendWhileBusy(full, undefined, paths);
+        })(),
+      now: async (id) => {
+        const { type } = await send<{ type: string }>(`/api/chat/file/${id}/maintenant`, {});
+        void refreshNow();
+        return type;
+      },
       cancel: (id) => void request(`/api/chat/file/${id}`, { method: "DELETE" }).catch(() => {}).then(refreshNow),
+      giveUp: (id) => {
+        givenUp.current.add(id);
+        writeOutbox(readOutbox().filter((x) => x.id !== id));
+        setSending((s) => s.filter((x) => x.id !== id));
+      },
     }),
-    [isRunning, serverNow, sending, sendWhileBusy, refreshNow],
+    [agentId, isRunning, serverNow, sending, sendWhileBusy, refreshNow, addBeforeRunning],
   );
 
   const onNew = useCallback(
@@ -298,7 +371,7 @@ export function useAgentChat(opts: {
       if (!typed) return;
       const text = (takeQuotes.current?.() ?? "") + typed;
       const clientId = message.metadata?.custom?.clientId as string | undefined; // l'appel renvoie un tour sous le même identifiant
-      if (running.current || serverBusy.current) return sendWhileBusy(text, clientId); // un message demandé par l'interface en plein travail
+      if (running.current || serverBusy.current) return sendWhileBusy(text, clientId, attachments); // un message demandé par l'interface en plein travail
       const userMsg: ChatMessage = {
         id: uid("u"),
         role: "user",
@@ -375,6 +448,7 @@ export function useAgentChat(opts: {
 
   // Les approbations renvoient leur réponse ici, une fois transmise à l'agent.
   const onAddToolResult = useCallback((o: { messageId: string; toolCallId: string; result: unknown }) => {
+    if (o.messageId.startsWith("accord-")) return setServerNow((s) => ({ ...s, accord: null }));
     setMessages((all) =>
       all.map((m) =>
         m.id !== o.messageId
@@ -407,8 +481,25 @@ export function useAgentChat(opts: {
     [agentId],
   );
 
+  // Un accord demandé par un travail que cet écran ne suit pas : il s'affiche quand même, et se donne de la même façon.
+  const pendingApproval = !isRunning ? serverNow.accord : null;
+  const shown = useMemo<ChatMessage[]>(
+    () =>
+      pendingApproval
+        ? [
+            ...messages,
+            {
+              id: `accord-${pendingApproval.request_id}`,
+              role: "assistant",
+              content: [{ type: "tool-call", toolCallId: `a-${pendingApproval.request_id}`, toolName: "approval", args: { ...pendingApproval } }],
+            },
+          ]
+        : messages,
+    [messages, pendingApproval],
+  );
+
   const runtime = useExternalStoreRuntime<ChatMessage>({
-    messages,
+    messages: shown,
     isRunning: isRunning || serverNow.occupe,
     onNew,
     onCancel,
