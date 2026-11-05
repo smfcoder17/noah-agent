@@ -1,7 +1,7 @@
 // Noah Agent, application de bureau : relie l'ordinateur à Noah, sur un serveur (VPS) ou démarré ici avec Docker,
 // ouvre son interface dans une fenêtre,
 // reste dans la zone de notification pour que les routines continuent, et donne le vrai sélecteur de dossier.
-const { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, safeStorage, session, shell, Tray } = require("electron");
+const { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, safeStorage, session, shell, Tray } = require("electron");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -92,6 +92,7 @@ async function boot() {
     }
     return openRemote(config.server);
   }
+  announceWindow(false);
   try {
     home = await noahHome();
     // Premier lancement : on autorise le partage du dossier personnel ; le lanceur doit alors être relancé.
@@ -104,8 +105,23 @@ async function boot() {
   }
 }
 
+/**
+ * Reliée à un serveur, la fenêtre s'annonce comme celle de l'app (mêmes mots que l'app Android). Une session ouverte par la
+ * page elle-même (lien de QR ouvert ici, compte créé ici) reçoit alors une session de fenêtre, sans durée de vie : jamais
+ * le cookie de 30 jours d'un navigateur, que Chromium écrirait en clair dans le profil. En local, rien ne change : le compte
+ * n'a pas de jeton rangé pour renouveler une session courte, et sa session ne sert que sur cet ordinateur.
+ */
+function announceWindow(remote) {
+  plainAgent ??= session.defaultSession.getUserAgent();
+  const agent = remote ? `${plainAgent} NoahApp/${app.getVersion()} Desktop` : plainAgent;
+  session.defaultSession.setUserAgent(agent); // service worker
+  win?.webContents.setUserAgent(agent); // la fenêtre garde sinon celui qu'elle avait à sa création
+}
+let plainAgent = null;
+
 /** Noah sur un serveur : la fenêtre ouvre son adresse ; la session (cookie) a été posée à l'appairage. */
 async function openRemote(server) {
+  announceWindow(true);
   const generation = pairingGeneration;
   const token = storedToken(); // capturé avec son serveur, avant toute attente
   const stale = () => generation !== pairingGeneration || readConfig().server !== server;
@@ -434,16 +450,24 @@ async function forgetOnce({ revoke = true } = {}, asked, askedToken) {
 }
 
 function createWindow() {
+  const saved = readConfig().fenetre || {};
   win = new BrowserWindow({
-    width: 1200,
-    height: 820,
+    width: saved.largeur || 1200,
+    height: saved.hauteur || 820,
     minWidth: 380,
     minHeight: 500,
     title: "Noah Agent",
     icon: path.join(__dirname, "icon.png"),
     autoHideMenuBar: true,
+    show: false, // montrée une fois peinte : pas d'éclair blanc au lancement, en thème sombre surtout
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#1c1a18" : "#faf8f5",
     webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
+  if (saved.agrandie) win.maximize();
+  win.once("ready-to-show", () => win.show());
+  // Le titre de la barre reste le nom de l'app, quoi que dise la page ouverte.
+  win.on("page-title-updated", (e) => e.preventDefault());
+  win.webContents.on("context-menu", contextMenu);
   // Requêtes (images comprises) vers l'hôte du serveur sur un autre port : bloquées. Le cookie de session ne
   // distingue pas les ports (RFC 6265 §8.5) ; il ne doit partir que vers l'adresse exacte du serveur.
   session.defaultSession.webRequest.onBeforeRequest((details, done) => {
@@ -484,10 +508,17 @@ function createWindow() {
     if (url.endsWith("#retry")) boot();
   });
   // Fermer la fenêtre la cache : Noah continue (routines, fils de travail). Quitter depuis la zone de notification.
+  // La taille retrouvée au prochain lancement ; pas la position, qui pourrait tomber sur un écran débranché depuis.
   win.on("close", (e) => {
+    const { width, height } = win.getNormalBounds();
+    writeConfig({ fenetre: { largeur: width, hauteur: height, agrandie: win.isMaximized() } });
     if (!quitting) {
       e.preventDefault();
       win.hide();
+      if (!readConfig().bulle_vue && process.platform === "win32") {
+        writeConfig({ bulle_vue: true }); // une seule fois : ça surprend la première fois, plus ensuite
+        tray?.displayBalloon({ iconType: "info", title: "Noah Agent reste ouvert", content: "Tes routines continuent. Pour quitter : clic droit sur cette icône, Quitter." });
+      }
     }
   });
   boot();
@@ -495,9 +526,15 @@ function createWindow() {
 
 function show() {
   if (!win) return createWindow();
+  if (win.isMinimized()) win.restore();
   win.show();
   win.focus();
 }
+
+const quit = () => {
+  quitting = true;
+  app.quit();
+};
 
 function createTray() {
   const icon = nativeImage.createFromPath(path.join(__dirname, "icon.png")).resize({ width: 16, height: 16 });
@@ -505,13 +542,60 @@ function createTray() {
   tray.setToolTip("Noah Agent");
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: "Ouvrir Noah", click: show },
+      { label: "Ouvrir Noah Agent", click: show },
       { label: "Changer de serveur…", click: changeServer },
       { type: "separator" },
-      { label: "Quitter", click: () => { quitting = true; app.quit(); } },
+      { label: "Quitter", click: quit },
     ]),
   );
   tray.on("click", show);
+}
+
+/** Menu de l'app, en français (Alt l'affiche sous Windows). Celui d'Electron est en anglais et ouvre les outils de développement. */
+function createMenu() {
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    ...(process.platform === "darwin" ? [{ label: "Noah Agent", submenu: [{ role: "hide", label: "Masquer Noah Agent" }, { type: "separator" }, { label: "Quitter Noah Agent", accelerator: "Cmd+Q", click: quit }] }] : []),
+    { label: "Fichier", submenu: [
+      { label: "Changer de serveur…", click: changeServer },
+      { type: "separator" },
+      { role: "close", label: "Fermer la fenêtre" },
+      ...(process.platform === "darwin" ? [] : [{ label: "Quitter", click: quit }]),
+    ] },
+    { label: "Édition", submenu: [
+      { role: "undo", label: "Annuler" },
+      { role: "redo", label: "Rétablir" },
+      { type: "separator" },
+      { role: "cut", label: "Couper" },
+      { role: "copy", label: "Copier" },
+      { role: "paste", label: "Coller" },
+      { role: "selectAll", label: "Tout sélectionner" },
+    ] },
+    { label: "Affichage", submenu: [
+      { role: "reload", label: "Recharger" },
+      { type: "separator" },
+      { role: "zoomIn", label: "Agrandir" },
+      { role: "zoomOut", label: "Réduire" },
+      { role: "resetZoom", label: "Taille normale" },
+      { type: "separator" },
+      { role: "togglefullscreen", label: "Plein écran" },
+    ] },
+  ]));
+}
+
+/** Clic droit : sans ce menu, une fenêtre Electron n'en a aucun, pas même Copier et Coller. */
+function contextMenu(_e, params) {
+  const items = [];
+  for (const word of params.dictionarySuggestions) items.push({ label: word, click: () => win.webContents.replaceMisspelling(word) });
+  if (items.length) items.push({ type: "separator" });
+  if (params.linkURL && /^https?:/.test(params.linkURL)) items.push({ label: "Copier le lien", click: () => clipboard.writeText(params.linkURL) }, { type: "separator" });
+  if (params.isEditable) {
+    items.push({ role: "cut", label: "Couper", enabled: params.editFlags.canCut }, { role: "copy", label: "Copier", enabled: params.editFlags.canCopy },
+      { role: "paste", label: "Coller", enabled: params.editFlags.canPaste }, { role: "selectAll", label: "Tout sélectionner" });
+  } else if (params.selectionText) {
+    items.push({ role: "copy", label: "Copier" });
+  }
+  while (items.at(-1)?.type === "separator") items.pop();
+  if (items.length) Menu.buildFromTemplate(items).popup({ window: win });
 }
 
 // Écran du premier lancement (fichier local de l'app, jamais une page du serveur).
@@ -553,7 +637,10 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on("second-instance", show);
+  // Sous Windows, le nom sur les notifications et le groupe dans la barre des tâches (sinon « electron.app.Noah Agent »).
+  app.setAppUserModelId("agent.noah.desktop");
   app.whenReady().then(() => {
+    createMenu();
     // Micro (dictée, mode vocal) : accordé à l'interface de Noah, refusé à toute autre page.
     session.defaultSession.setPermissionRequestHandler((wc, permission, done) => {
       done(permission === "media" && !!origin && sameOrigin(wc.getURL()));

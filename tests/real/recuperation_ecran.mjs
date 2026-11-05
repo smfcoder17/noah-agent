@@ -65,6 +65,8 @@ await browser.close();
 // La commande dans le vrai conteneur, puis retour au mot de passe de départ pour les essais suivants.
 const printed = execFileSync("docker", ["exec", "-w", "/app", CT, "python", "-m", "noah.recuperation"], { encoding: "utf8" }).match(CODE);
 check(printed?.length === 1, "docker exec … python -m noah.recuperation affiche un code");
-const reset = await fetch(`${BASE}/api/recuperation`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: printed[0], password: "motdepasse-essai" }) });
+const post = () => fetch(`${BASE}/api/recuperation`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: printed[0], password: "motdepasse-essai" }) });
+// Connexion réutilisée que le serveur vient de fermer (5 s sans rien) : la requête n'est pas partie, on la renvoie.
+const reset = await post().catch(post);
 check(reset.status === 200 && (await login("motdepasse-essai")).status === 200, "son code change le mot de passe sur le serveur qui tourne");
 console.log("OK");
