@@ -36,8 +36,24 @@ export const setClientVersion = (v: string) => {
   clientVersion = v;
 };
 
+// App Android : la fenêtre n'a qu'une session courte, rouverte avec le jeton d'appareil que l'app garde chiffré. Un 401 n'y
+// veut donc rien dire tant que l'app n'a pas essayé : rien de plus qu'une session expirée pendant l'absence, le plus souvent.
+// Une demande à la fois : toutes les requêtes refusées en même temps attendent la même réponse.
+let renewing: Promise<string> | null = null;
+function renewWindow(): Promise<string> | null {
+  const app = window.Capacitor?.Plugins?.NoahShell;
+  if (!app?.renewSession) return null;
+  renewing ??= app.renewSession()
+    .then((r) => (r as { etat: string }).etat)
+    .catch(() => "injoignable")
+    .finally(() => {
+      renewing = null;
+    });
+  return renewing;
+}
+
 export async function request(path: string, init: RequestInit = {}): Promise<Response> {
-  const res = await fetch(path, {
+  const call = () => fetch(path, {
     ...init,
     credentials: "same-origin",
     // Fuseau de l'utilisateur : le serveur (souvent un VPS en UTC) installe les mises à jour pendant sa nuit à lui.
@@ -48,11 +64,19 @@ export async function request(path: string, init: RequestInit = {}): Promise<Res
       ...(init.headers || {}),
     },
   });
+  let res = await call();
+  const guarded = !/^\/api\/(login|setup|pairing|status)/.test(path);
+  if (res.status === 401 && guarded) {
+    const state = await renewWindow();
+    if (state === "ok") res = await call();
+    // Serveur injoignable pendant l'échange : l'appareil n'est peut-être pas refusé, surtout ne pas le déconnecter.
+    else if (state && state !== "refuse") throw new ApiError("Le serveur ne répond pas.", 503);
+  }
   if (res.status === 426) window.dispatchEvent(new Event("noah:outdated"));
   // 200 seulement : un sondage en attente (202) n'a créé aucune session.
   if (res.status === 200 && /^\/api\/(login|setup\/account|pairing\/flow\/poll)/.test(path)) bumpAuthEpoch();
   // Session révoquée ou expirée pendant l'usage : l'interface revient à l'écran de connexion (ou de reliaison).
-  if (res.status === 401 && !/^\/api\/(login|setup|pairing|status)/.test(path)) window.dispatchEvent(new Event("noah:unauthorized"));
+  if (res.status === 401 && guarded) window.dispatchEvent(new Event("noah:unauthorized"));
   if (!res.ok) {
     let message = `Erreur ${res.status}`;
     try {

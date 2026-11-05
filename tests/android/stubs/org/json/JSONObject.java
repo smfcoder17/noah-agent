@@ -7,6 +7,17 @@ import java.util.Map;
 public class JSONObject {
     final Map<String, Object> values = new LinkedHashMap<>();
 
+    public JSONObject() {}
+
+    public JSONObject(String text) {
+        values.putAll(((JSONObject) JSONArray.parse(text)).values);
+    }
+
+    public String getString(String key) throws Exception {
+        if (!values.containsKey(key)) throw new Exception("clé absente : " + key);
+        return values.get(key).toString();
+    }
+
     public JSONObject put(String key, Object value) {
         values.put(key, value);
         return this;

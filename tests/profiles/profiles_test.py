@@ -429,6 +429,7 @@ OPEN_ROUTES = {
     ("POST", "/api/logout"): "Sa propre session.",
     ("GET", "/api/devices"): "Appareils de ce compte (filtre par user_id).",
     ("DELETE", "/api/devices/self"): "Sa propre session.",
+    ("POST", "/api/devices/self/fenetre"): "Session de fenêtre de son propre appareil, par son jeton (tests/android/jeton_test.py).",
     ("POST", "/api/devices/others/revoke"): "Autres sessions de ce compte.",
     ("GET", "/api/me"): "Ce compte.",
     ("POST", "/api/me/password"): "Ce compte, avec son mot de passe actuel.",

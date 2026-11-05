@@ -40,7 +40,8 @@ async def internal_error(request: Request, error: Exception):
     return JSONResponse({"detail": "Erreur interne de Noah Agent. Détails dans Réglages > Diagnostic."}, status_code=500)
 
 UNSAFE = {"POST", "PUT", "PATCH", "DELETE"}
-MAINTENANCE_OK = ("/api/updates", "/api/login", "/api/logout")
+# L'échange de la fenêtre aussi : perdu avec l'instantané, l'app en redemande un ; refusé, le téléphone ne s'ouvrirait plus.
+MAINTENANCE_OK = ("/api/updates", "/api/login", "/api/logout", "/api/devices/self/fenetre")
 # Compatibilité des apps (bureau, téléphone) : le serveur sert la version N-1. En dessous de MIN_CLIENT_VERSION, il
 # répond 426 avec un message lisible (« mets à jour ») plutôt qu'une erreur incompréhensible plus loin.
 API_VERSION = 1
@@ -279,21 +280,31 @@ def _ip(request: Request) -> str:
     return request.client.host if request.client else ""
 
 
+def _app_window(request: Request) -> bool:
+    return bool(re.search(r"\bNoahApp/\S+ Android$", request.headers.get("user-agent", "")))
+
+
+def _session_cookie(request: Request, response: Response, token: str) -> None:
+    """Navigateur : la session elle-même, 30 jours. Fenêtre de l'app Android : une session de fenêtre, car la WebView écrit
+    tous ses cookies en clair sur le disque, même sans durée de vie. Derrière Caddy (VPS), la requête arrive en HTTPS : le
+    cookie ne doit jamais repartir en clair."""
+    secure = request.url.scheme == "https"
+    if _app_window(request):
+        response.set_cookie(auth.COOKIE, auth.new_window(token), httponly=True, samesite="lax", secure=secure)
+    else:
+        response.set_cookie(auth.COOKIE, token, httponly=True, samesite="lax", max_age=30 * 86400, secure=secure)
+
+
 def _login_response(request: Request, response: Response, user_id: int, device: str = "", platform: str = "web") -> dict:
-    # Mot de passe saisi dans la fenêtre de l'app Android : une session de téléphone, pas de navigateur. Un cookie qui dure
-    # y serait écrit en clair sur le disque (la session d'appairage, elle, y est chiffrée par le Keystore).
-    app_window = platform == "web" and bool(re.search(r"\bNoahApp/\S+ Android$", request.headers.get("user-agent", "")))
-    if app_window:
+    # Mot de passe saisi dans la fenêtre de l'app Android : une session de téléphone, pas de navigateur.
+    in_app = platform == "web" and _app_window(request)
+    if in_app:
         platform = "android"
     token = auth.new_session(user_id, device or _device_name(request), platform if platform in PLATFORMS else "web",
                              _ip(request), request.headers.get("x-noah-version", ""))
-    # Navigateur : cookie. Derrière Caddy (VPS), la requête arrive en HTTPS : il ne doit jamais repartir en clair.
     # Apps (bureau, mobile) : jeton dans la réponse seulement, qu'elles rangent chiffré ; un cookie y resterait en clair.
-    if app_window:
-        response.set_cookie(auth.COOKIE, token, httponly=True, samesite="lax", secure=request.url.scheme == "https")
-    elif platform == "web" or platform not in PLATFORMS:
-        response.set_cookie(auth.COOKIE, token, httponly=True, samesite="lax", max_age=30 * 86400,
-                            secure=request.url.scheme == "https")
+    if in_app or platform == "web" or platform not in PLATFORMS:
+        _session_cookie(request, response, token)
     return {"token": token}
 
 
@@ -381,7 +392,7 @@ def _new_flow(request: Request, appareil: str, kind: str, owner: int | None, def
 
 
 @app.post("/api/pairing")
-def pairing_start(request: Request, user: int = Depends(auth.current_user)):
+def pairing_start(request: Request, user: int = Depends(auth.full_session)):
     _purge()
     _drop_pending(user)  # « Nouveau code » : le précédent et ses demandes en attente ne servent plus
     link, short = secrets.token_urlsafe(24), _short_code()  # 192 bits pour le lien
@@ -394,14 +405,14 @@ def pairing_start(request: Request, user: int = Depends(auth.current_user)):
 
 
 @app.delete("/api/pairing")
-def pairing_cancel(user: int = Depends(auth.current_user)):
+def pairing_cancel(user: int = Depends(auth.full_session)):
     """Annule le lien, le code affichés et les demandes en attente (panneau fermé, code montré par erreur)."""
     _drop_pending(user)
     return {"ok": True}
 
 
 @app.get("/api/pairing/pending")
-def pairing_pending(user: int = Depends(auth.current_user)):
+def pairing_pending(user: int = Depends(auth.full_session)):
     """Appareils qui ont utilisé le QR code ou le code court et attendent l'accord de l'utilisateur."""
     _purge()
     return {"demandes": [{"id": public, "appareil": f["appareil"], "type": f["type"], "ip": f["ip"]}
@@ -474,7 +485,7 @@ def flow_start(body: FlowStart, request: Request):
 
 
 @app.get("/api/pairing/flow/{public}")
-def flow_info(public: str, request: Request, user: int = Depends(auth.current_user)):
+def flow_info(public: str, request: Request, user: int = Depends(auth.full_session)):
     with _pairing_lock:
         flow = _flows.get(public)
         if not flow or flow["expire"] < time.time() or flow["user"] or flow.get("proprietaire") not in (None, user):
@@ -493,7 +504,7 @@ class Decision(BaseModel):
 
 @app.post("/api/pairing/flow/{public}/{decision}")
 def flow_decide(public: str, decision: str, request: Request, body: Decision | None = None,
-                apollo_session: str | None = Cookie(None), user: int = Depends(auth.current_user)):
+                apollo_session: str | None = Cookie(None), user: int = Depends(auth.full_session)):
     flow = _flows.get(public)
     if not flow or flow["expire"] < time.time() or flow["user"] or flow.get("proprietaire") not in (None, user):
         raise HTTPException(404, "Cette demande a expiré ou a déjà été traitée.")
@@ -575,8 +586,7 @@ def flow_poll(body: FlowPoll, request: Request, response: Response):
         if public not in _flows:
             raise HTTPException(410, "Demande expirée, refusée ou déjà servie")
     if flow["type"] == "web":  # navigateur du téléphone (QR scanné par l'appareil photo) : cookie
-        response.set_cookie(auth.COOKIE, token, httponly=True, samesite="lax", max_age=30 * 86400,
-                            secure=request.url.scheme == "https")
+        _session_cookie(request, response, token)
     return {"token": token}
 
 
@@ -736,6 +746,17 @@ def forget_this_device(request: Request, apollo_session: str | None = Cookie(Non
     if token:
         auth.drop_session(token)
     return {"ok": True}
+
+
+@app.post("/api/devices/self/fenetre")
+def open_window(request: Request, _: int = Depends(auth.current_user)):
+    """L'app échange son jeton d'appareil contre la session que sa fenêtre mettra en cookie. Par en-tête seulement, avec
+    une vraie session : ni un cookie, ni une session de fenêtre n'en obtiennent une autre."""
+    header = request.headers.get("authorization", "")
+    token = auth.new_window(header[7:]) if header.lower().startswith("bearer ") else None
+    if not token:
+        raise HTTPException(403, auth.WINDOW_REFUSED)
+    return {"jeton": token, "duree": auth.WINDOW_IDLE.total_seconds()}
 
 
 @app.post("/api/devices/others/revoke")

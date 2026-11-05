@@ -31,6 +31,8 @@ public class MainActivity extends BridgeActivity {
 
     private String server;
     private String token;
+    private final java.util.List<java.util.function.Consumer<String>> renewing = new java.util.ArrayList<>(); // fil de l'interface
+    private String retryPage = "/";
     private ConnectivityManager.NetworkCallback onNetwork;
     private final Handler later = new Handler(Looper.getMainLooper());
     private Runnable retry;
@@ -113,7 +115,7 @@ public class MainActivity extends BridgeActivity {
 
     /** Notifications pas encore actives (première ouverture hors ligne, serveur injoignable) : inscription reprise. */
     private void resumePush(Pairing pairing) {
-        String s = pairing.server(), t = Pairing.windowToken(s);
+        String s = pairing.server(), t = pairing.token();
         startCallWatch(pairing);
         // Seulement si tout est prêt sauf le serveur : pas de demande de permission ni de choix de distributeur
         // répétés toutes les 5 minutes.
@@ -129,9 +131,9 @@ public class MainActivity extends BridgeActivity {
         new Thread(() -> {
             if (Boolean.FALSE.equals(NoahPush.serverHasUs(pairing)) && pairing.clearPushIf(gen, tag)) {
                 runOnUiThread(() -> {
-                    // Toujours le même serveur et la même session ouverte dans la fenêtre : sinon un nouvel
-                    // appairage s'inscrit de lui-même, cette ancienne relance n'a plus rien à faire.
-                    if (isDestroyed() || !s.equals(pairing.server()) || !t.equals(Pairing.windowToken(s))) return;
+                    // Toujours le même serveur et le même jeton d'appareil : sinon un nouvel appairage s'inscrit de
+                    // lui-même, cette ancienne relance n'a plus rien à faire.
+                    if (isDestroyed() || !s.equals(pairing.server()) || !t.equals(pairing.token())) return;
                     NoahPush.start(this, s, t);
                 });
             }
@@ -152,12 +154,11 @@ public class MainActivity extends BridgeActivity {
     protected void load() {
         super.load();
         if (server == null || token == null) return;
-        // Cookie de session, posé après la création du pont : Capacitor efface les cookies de session à ce moment-là.
-        // Non persistant, il disparaît avec l'app ; le jeton ne vit sur le disque que chiffré (Pairing).
-        String secure = server.startsWith("https://") ? "; Secure" : ""; // http : version de débogage seulement
+        // Le jeton d'appareil ne va jamais dans la WebView : elle écrit ses cookies en clair sur le disque (Cookies), même
+        // sans durée de vie. Rien d'une version précédente n'y reste non plus : la fenêtre n'a pas d'autre cookie.
         CookieManager cookies = CookieManager.getInstance();
         cookies.setAcceptCookie(true);
-        cookies.setCookie(server, "apollo_session=" + token + "; Path=/" + secure + "; HttpOnly; SameSite=Lax");
+        cookies.removeAllCookies(null);
         cookies.flush();
         // Liens vers une autre origine (même hôte sur un autre port compris) : ouverts dans le navigateur, jamais dans
         // cette fenêtre. Le cookie de session ne distingue pas les ports (RFC 6265 §8.5) : il ne doit partir que vers
@@ -170,7 +171,7 @@ public class MainActivity extends BridgeActivity {
                 super.onReceivedError(view, request, error);
                 if (!request.isForMainFrame()) return;
                 // Serveur coupé ou réseau perdu : page d'attente, puis nouvel essai toutes les 5 s (G3.6), sans
-                // redemander l'appairage (le cookie de session reste posé).
+                // redemander l'appairage (le nouvel essai rouvre la session de la fenêtre).
                 view.loadDataWithBaseURL(null, OFFLINE, "text/html", "utf-8", null);
                 later.removeCallbacks(reload);
                 later.postDelayed(reload, 5000);
@@ -215,15 +216,73 @@ public class MainActivity extends BridgeActivity {
             }
         });
         bridge.getWebView().stopLoading();
-        bridge.getWebView().loadUrl(server + page(getIntent()));
+        openPage(page(getIntent()));
+    }
+
+    /**
+     * Rouvre la session de la fenêtre avec le jeton d'appareil et la met en cookie, sans bruit. `done` reçoit l'état
+     * (Pairing.Window) sur le fil de l'interface. Un échange à la fois : ouverture, retour au premier plan et interface
+     * qui demande en même temps partagent le même. Réseau coupé : le cookie en place ne bouge pas.
+     */
+    void renewWindow(java.util.function.Consumer<String> done) {
+        runOnUiThread(() -> {
+            renewing.add(done);
+            if (renewing.size() > 1) return;
+            Pairing pairing = new Pairing(this);
+            new Thread(() -> {
+                Pairing.Window window = pairing.openWindow();
+                runOnUiThread(() -> {
+                    if (!isDestroyed() && server != null && server.equals(pairing.server())) putInCookie(window);
+                    java.util.List<java.util.function.Consumer<String>> waiting = new java.util.ArrayList<>(renewing);
+                    renewing.clear();
+                    for (java.util.function.Consumer<String> each : waiting) each.accept(window.state);
+                });
+            }).start();
+        });
+    }
+
+    private void putInCookie(Pairing.Window window) {
+        CookieManager cookies = CookieManager.getInstance();
+        if (Pairing.Window.OPEN.equals(window.state)) {
+            String secure = server.startsWith("https://") ? "; Secure" : ""; // http : version de débogage seulement
+            cookies.setCookie(server, "apollo_session=" + window.token + "; Path=/" + secure + "; HttpOnly; SameSite=Lax");
+        } else if (Pairing.Window.REFUSED.equals(window.state)) {
+            cookies.removeAllCookies(null); // l'appareil n'est plus relié : l'interface le dira
+        }
+        cookies.flush();
+    }
+
+    /** La page ne s'ouvre qu'une fois la session prête. Injoignable : page d'attente, jamais de demande d'appairage. */
+    private void openPage(String path) {
+        later.removeCallbacks(reload);
+        renewWindow(state -> {
+            if (isDestroyed() || bridge == null) return;
+            if (Pairing.Window.OPEN.equals(state) || Pairing.Window.REFUSED.equals(state)) {
+                retryPage = "/";
+                bridge.getWebView().loadUrl(server + path);
+                return;
+            }
+            retryPage = path;
+            String page = Pairing.Window.SERVER_TOO_OLD.equals(state) ? TOO_OLD : OFFLINE;
+            bridge.getWebView().loadDataWithBaseURL(null, page, "text/html", "utf-8", null);
+            later.postDelayed(reload, 5000);
+        });
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        // Retour au premier plan : la session a pu expirer pendant l'absence (au lancement, l'échange est déjà parti).
+        if (server != null && token != null && bridge != null) renewWindow(state -> { });
     }
 
     private static final String OFFLINE = "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'>"
         + "<body style='margin:0;height:100vh;display:grid;place-items:center;font:16px sans-serif;background:#EEF1F4;color:#333'>"
         + "<div style='text-align:center;padding:24px'><h2>Noah Agent</h2><p>Ton serveur ne répond pas.<br>"
         + "Reconnexion automatique…</p></div>";
+    private static final String TOO_OLD = OFFLINE.replace("Ton serveur ne répond pas.", "Ton serveur doit être mis à jour pour cette version de l'app.");
     private final Runnable reload = () -> {
-        if (bridge != null && server != null) bridge.getWebView().loadUrl(server + "/");
+        if (bridge != null && server != null) openPage(retryPage);
     };
 
     /** schéma://hôte:port, port explicite (443/80 par défaut) : deux ports du même hôte sont deux origines. */
@@ -247,7 +306,7 @@ public class MainActivity extends BridgeActivity {
                 CallSession.stop(this);
                 setInCall(false);
             }
-            bridge.getWebView().loadUrl(server + page(intent));
+            openPage(page(intent));
         }
     }
 }
