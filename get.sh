@@ -15,6 +15,9 @@
 # Relancer la commande met Noah Agent à jour sans toucher aux données ni aux secrets.
 set -eu
 
+# Par curl | sh, le script arrive par l'entrée standard : tout est lu avant de commencer, aucune commande ne peut en avaler la suite.
+main() {
+
 RAW="https://raw.githubusercontent.com/smfcoder17/noah-agent/main"
 # Compose de la dernière version, images épinglées par empreinte ; à défaut, celui du dépôt.
 RELEASE_COMPOSE="https://github.com/smfcoder17/noah-agent/releases/latest/download/docker-compose.yml"
@@ -162,3 +165,6 @@ case "$url" in
     say "curl -fsSL $RAW/get.sh | NOAH_DOMAIN=noah.exemple.com sh"
     ;;
 esac
+}
+
+main "$@"
