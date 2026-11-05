@@ -409,7 +409,20 @@ function useSpeaker(agentId: string, onPlaying: (playing: boolean, interrupted: 
           notify.current(true, false);
         };
         a.onended = () => end(false);
-        a.onerror = () => end(false);
+        // Une session de fenêtre expirée refuse ce son, alors que la requête qui l'a demandé vient de la renouveler : un seul nouvel essai.
+        let retried = false;
+        a.onerror = () => {
+          if (retried || heard || over) return end(false);
+          retried = true;
+          void request("/api/me")
+            .catch(() => {})
+            .then(() => {
+              if (over) return;
+              a.src = `/api/voice/audio/${id}`;
+              a.load();
+              a.play().catch(() => end(false));
+            });
+        };
         a.onpause = () => end(!a.ended);
         a.play().catch(() => end(false));
       }),
@@ -722,11 +735,14 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
   const leaveRequests = () => {
     const waiting = queue.current.splice(0).filter((q) => q.action);
     if (!waiting.length) return;
-    void request("/api/chat/ensuite", {
-      method: "POST",
-      keepalive: true,
-      body: JSON.stringify({ agent_id: agentId, conversation_id: conversationId, client_id: audioId(), text: waiting.map((q) => q.text).join("\n") }),
-    }).catch(() => {});
+    // Son identifiant à chacune : si son tri est encore en vol, le serveur la reconnaît et ne la fait pas partir deux fois.
+    for (const q of waiting) {
+      void request("/api/chat/ensuite", {
+        method: "POST",
+        keepalive: true,
+        body: JSON.stringify({ agent_id: agentId, conversation_id: conversationId, client_id: q.id, text: q.text }),
+      }).catch(() => {});
+    }
   };
 
   useEffect(() => {

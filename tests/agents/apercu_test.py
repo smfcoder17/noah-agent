@@ -88,6 +88,9 @@ assert anonymous.get(root).status_code == 200
 assert anonymous.get(root.rsplit("/", 1)[0] + "/notes.txt").status_code == 403
 print("3. une page à la racine ne voit qu'elle-même")
 
+assert "attachment" in anonymous.get(entry + "?download=1").headers.get("content-disposition", ""), "le téléchargement depuis l'aperçu"
+assert "content-disposition" not in anonymous.get(entry).headers
+
 # 3 bis. Dans un dossier commun, une page ne lit que ce qu'elle cite : pas les autres livrables.
 report = link("outputs/rapport.html").json()["url"]
 near = report.rsplit("/", 1)[0]
