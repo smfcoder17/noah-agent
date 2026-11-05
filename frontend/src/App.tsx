@@ -7,6 +7,7 @@ import { CallScreen, type CallReport } from "@/components/Call";
 import { CALL_SLOT } from "@/components/CallStage";
 import { Onboarding } from "@/components/Onboarding";
 import { DeviceApproval, keepApprovalRequest } from "@/components/DeviceApproval";
+import { NewDeviceAlert } from "@/components/NewDeviceAlert";
 import { HandoffBanner } from "@/components/Handoff";
 import { AgentFace, agentColor } from "@/components/Noah";
 import type { PanelTab } from "@/components/SidePanel";
@@ -29,11 +30,11 @@ const AgentDialog = lazy(() => import("@/components/AgentDialog").then((m) => ({
 const SidePanel = lazy(() => import("@/components/SidePanel").then((m) => ({ default: m.SidePanel })));
 const SettingsDialog = lazy(() => import("@/components/Settings").then((m) => ({ default: m.SettingsDialog })));
 
-type Screen = "loading" | "onboarding" | "login" | "app" | "error" | "pairing" | "update";
+type Screen = "loading" | "onboarding" | "login" | "app" | "error" | "pairing" | "linked" | "update";
 const WAITING = "noah:appairage";
 
 /** Téléphone qui a scanné le QR code : il attend que l'utilisateur l'accepte sur l'appareil où le code est affiché. */
-async function waitForApproval(sondage: string, expire: number) {
+async function waitForApproval(sondage: string, expire: number): Promise<string> {
   const until = Date.now() + expire * 1000;
   while (Date.now() < until) {
     await new Promise((ok) => setTimeout(ok, 2000));
@@ -41,8 +42,8 @@ async function waitForApproval(sondage: string, expire: number) {
       // 20 s au plus par sondage : une réponse qui ne vient jamais n'empêche pas de revenir vérifier l'échéance.
       const r = (await (await request("/api/pairing/flow/poll", {
         method: "POST", body: JSON.stringify({ sondage }), signal: AbortSignal.timeout(20000),
-      })).json()) as { token?: string }; // 202 : en attente
-      if (r.token) return; // la session arrive aussi en cookie
+      })).json()) as { token?: string; compte?: string }; // 202 : en attente
+      if (r.token) return r.compte ?? ""; // la session arrive aussi en cookie
     } catch (e) {
       if (e instanceof ApiError && e.status === 410) throw new Error("Demande refusée ou expirée. Scanne un nouveau code.");
     }
@@ -72,6 +73,7 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>("loading");
   const [error, setError] = useState("");
   const [verification, setVerification] = useState("");
+  const [linkedTo, setLinkedTo] = useState("");
   const [status, setStatus] = useState<Status | null>(null);
 
   const boot = useCallback(async () => {
@@ -107,7 +109,9 @@ export default function App() {
         setVerification(waiting.verification);
         setScreen("pairing");
         try {
-          await waitForApproval(waiting.sondage, (waiting.until - Date.now()) / 1000);
+          // Pas d'entrée directe : la personne voit à quel compte ce navigateur vient d'être relié, et peut en sortir.
+          setLinkedTo(await waitForApproval(waiting.sondage, (waiting.until - Date.now()) / 1000));
+          return setScreen("linked");
         } catch (e) {
           setError((e as Error).message);
           return;
@@ -195,9 +199,27 @@ export default function App() {
           <>
             <p className="text-sm text-muted-foreground">Sur l'appareil où le code est affiché, accepte ce téléphone et saisis :</p>
             <p className="font-mono text-5xl font-semibold tracking-widest">{verification}</p>
-            <p className="text-xs text-muted-foreground">Ce nombre prouve que c'est bien toi qui as scanné le code.</p>
+            <p className="text-xs text-muted-foreground">Ce nombre prouve que c'est bien toi qui as scanné le code. Ne le donne à personne. Si tu n'as pas affiché ce code toi-même, ferme cette page : rien ne se passera.</p>
           </>
         )}
+      </div>
+    );
+  if (screen === "linked")
+    return (
+      <div className="mx-auto flex max-w-sm flex-col items-center gap-4 p-10 text-center">
+        <h1 className="text-xl font-semibold">Ce navigateur est relié</h1>
+        <p className="text-sm">Il est maintenant connecté au compte <b>{linkedTo}</b>.</p>
+        <Button onClick={() => { setScreen("loading"); boot(); }}>Continuer</Button>
+        <button
+          type="button"
+          className="text-sm text-danger underline"
+          onClick={() => {
+            setScreen("loading");
+            send("/api/logout", {}).catch(() => {}).finally(boot);
+          }}
+        >
+          Ce n'est pas mon compte : me déconnecter
+        </button>
       </div>
     );
   if (screen === "update")
@@ -338,6 +360,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   return (
     <ViewerProvider>
       <DeviceApproval />
+      <NewDeviceAlert />
       <CallScreen
         agents={agents}
         onOpen={(r) => {

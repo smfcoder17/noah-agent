@@ -5,13 +5,14 @@ import { Globe, Laptop, Loader2, Smartphone, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, del, get, send } from "@/lib/api";
 import { appShell } from "@/lib/platform";
+import { minutes } from "./PairingTime";
 import { PushToggle } from "./PushToggle";
 import { Button, ErrorText } from "./ui";
 
 type Pairing = { adresse: string; serveur: string; code: string; expire: number };
 type Device = { id: string; nom: string; type: string; depuis: string | null; vu: string | null; ip: string; version: string; actuel: boolean };
 
-type Pending = { id: string; appareil: string; type: string; ip: string };
+type Pending = { id: string; appareil: string; type: string; ip: string; age: number; expire: number; autre_reseau: boolean };
 
 const ICONS: Record<string, typeof Globe> = { web: Globe, desktop: Laptop, android: Smartphone, ios: Smartphone };
 const KINDS: Record<string, string> = { web: "navigateur", desktop: "app de bureau", android: "Android", ios: "iPhone" };
@@ -21,13 +22,16 @@ function since(iso: string | null) {
 }
 
 /** Appareils qui ont saisi le code court : rien n'est accordé tant que l'utilisateur n'a pas vu qui demande. */
-function PendingRequests({ refresh, onDone }: { refresh: number; onDone: () => void }) {
+function PendingRequests({ refresh, onDone, onUsed }: { refresh: number; onDone: () => void; onUsed: () => void }) {
   const [list, setList] = useState<Pending[]>([]);
   const [codes, setCodes] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   useEffect(() => {
-    get<{ demandes: Pending[] }>("/api/pairing/pending").then((r) => setList(r.demandes)).catch(() => {});
-  }, [refresh]);
+    get<{ demandes: Pending[] }>("/api/pairing/pending").then((r) => {
+      setList(r.demandes);
+      if (r.demandes.length) onUsed();
+    }).catch(() => {});
+  }, [refresh, onUsed]);
   const decide = async (p: Pending, decision: "autoriser" | "refuser") => {
     try {
       setError("");
@@ -43,7 +47,7 @@ function PendingRequests({ refresh, onDone }: { refresh: number; onDone: () => v
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-warn bg-warn-soft p-3">
       <p className="text-sm font-semibold">Un appareil a utilisé ton code</p>
-      <p className="text-xs text-muted-foreground">Recopie le nombre qu'il affiche pour l'autoriser.</p>
+      <p className="text-xs text-muted-foreground">Il n'a encore accès à rien. Si c'est ton appareil et que tu l'as sous les yeux, recopie le nombre qu'il affiche. Sinon, refuse.</p>
       {list.map((p) => {
         const Icon = ICONS[p.type] ?? Globe;
         return (
@@ -51,7 +55,8 @@ function PendingRequests({ refresh, onDone }: { refresh: number; onDone: () => v
             <Icon className="size-4 shrink-0" />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm">{p.appareil || "Appareil"}</p>
-              <p className="text-xs text-muted-foreground">{[KINDS[p.type] ?? p.type, p.ip].filter(Boolean).join(" · ")}</p>
+              <p className="text-xs text-muted-foreground">{[KINDS[p.type] ?? p.type, p.ip, `demande faite ${minutes(p.age)}`].filter(Boolean).join(" · ")}</p>
+              {p.autre_reseau && <p className="text-xs text-warn">Ne vient pas du même réseau que cet écran.</p>}
             </div>
             <input
               inputMode="numeric" autoComplete="off" maxLength={3} placeholder="000" aria-label="Nombre affiché sur l'appareil"
@@ -63,7 +68,7 @@ function PendingRequests({ refresh, onDone }: { refresh: number; onDone: () => v
           </div>
         );
       })}
-      <p className="text-xs text-muted-foreground">Si ce n'est pas toi, refuse : sans ton accord, le code ne donne accès à rien.</p>
+      <p className="text-xs text-muted-foreground">Le nom, c'est l'appareil qui le donne : il ne prouve rien. Sans ton accord, le code ne donne accès à rien.</p>
       <ErrorText>{error}</ErrorText>
     </div>
   );
@@ -148,6 +153,8 @@ export function PhonePairing() {
     if (confirm("Oublier ce serveur ? Cette app sera déconnectée et sa session révoquée ; il faudra la relier de nouveau.")) shell?.forget();
   };
   const [pairing, setPairing] = useState<Pairing | null>(null);
+  const [used, setUsed] = useState(false); // quelqu'un a déjà utilisé ce code : il ne marche plus, on ne le laisse pas à l'écran
+  const markUsed = useCallback(() => setUsed(true), []);
   const [left, setLeft] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -162,6 +169,7 @@ export function PhonePairing() {
       const p = await send<Pairing>("/api/pairing", {});
       setPairing(p);
       setLeft(p.expire);
+      setUsed(false);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -194,7 +202,7 @@ export function PhonePairing() {
           ? "Pour relier un téléphone, scanne le QR code avec l'app Noah ou l'appareil photo. Pour l'app de bureau ou un autre appareil, saisis l'adresse et le code court, puis autorise l'appareil ici. Le code sert une seule fois ; le laisser expirer ne déconnecte aucun appareil déjà relié."
           : "Pour relier un autre appareil, ouvre Réglages → Appareils dans un navigateur où tu es connecté."}
       </p>
-      {!pairs ? null : pairing && left > 0 ? (
+      {!pairs ? null : pairing && left > 0 && !used ? (
         <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-start">
           {secure && <QR text={pairing.adresse} />}
           <div className="flex min-w-0 flex-col gap-2 text-sm">
@@ -223,11 +231,11 @@ export function PhonePairing() {
       ) : (
         <Button className="self-start" onClick={create} disabled={busy}>
           {busy ? <Loader2 className="animate-spin" /> : <Smartphone />}
-          {pairing ? "Le code a expiré : en afficher un autre" : "Relier un appareil"}
+          {used ? "Ce code a servi : en afficher un autre" : pairing ? "Le code a expiré : en afficher un autre" : "Relier un appareil"}
         </Button>
       )}
       <ErrorText>{error}</ErrorText>
-      {pairs && <PendingRequests refresh={refresh} onDone={() => setRefresh((n) => n + 1)} />}
+      {pairs && <PendingRequests refresh={refresh} onDone={() => setRefresh((n) => n + 1)} onUsed={markUsed} />}
       <PushToggle />
       <DeviceList refresh={refresh} />
       {shell && (

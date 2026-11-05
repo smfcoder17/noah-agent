@@ -4,6 +4,7 @@ import { Laptop, Loader2, Smartphone } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ApiError, get, send } from "@/lib/api";
 import { Button, ErrorText } from "./ui";
+import { minutes } from "./PairingTime";
 
 const KEY = "noah:autoriser";
 
@@ -20,7 +21,7 @@ export function keepApprovalRequest() {
   history.replaceState(null, "", location.pathname + location.search);
 }
 
-type Request = { appareil: string; type: string; ip: string; autre_reseau: boolean; verification: string | null };
+type Request = { appareil: string; type: string; ip: string; autre_reseau: boolean; verification: string | null; age: number; expire: number };
 
 export function DeviceApproval() {
   const [id] = useState(() => {
@@ -73,6 +74,7 @@ export function DeviceApproval() {
             {req?.verification ? (
               <p className="text-sm">
                 Saisis maintenant ce nombre dans l'app : <b className="font-mono text-2xl tracking-widest">{req.verification}</b>
+                <span className="mt-1 block text-xs text-muted-foreground">Ne le donne à personne, même si on te le demande au nom de Noah.</span>
               </p>
             ) : (
               <p className="text-sm text-muted-foreground">Tu peux revenir dans l'app : elle s'ouvre toute seule. Cet onglet peut être fermé.</p>
@@ -88,6 +90,7 @@ export function DeviceApproval() {
             <p className="text-sm">
               <b>{req.appareil}</b> demande à se connecter à ton compte Noah{req.ip ? <> depuis l'adresse <span className="font-mono">{req.ip}</span></> : null}.
             </p>
+            <p className="text-xs text-muted-foreground">Demande faite {minutes(req.age)}, valable encore {minutes(req.expire, true)}. Ce nom, c'est l'appareil qui le donne : il ne prouve rien.</p>
             {req.autre_reseau && (
               <p className="rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn">
                 Cette demande ne vient pas du même réseau que toi. Si tu n'as pas l'appareil en main, refuse.
@@ -96,6 +99,7 @@ export function DeviceApproval() {
             {req.verification ? (
               <p className="text-sm">
                 Après avoir autorisé, saisis ce nombre dans l'app : <b className="font-mono text-2xl tracking-widest">{req.verification}</b>
+                <span className="mt-1 block text-xs text-muted-foreground">Ne le donne à personne, même si on te le demande au nom de Noah.</span>
               </p>
             ) : (
             <label className="flex flex-col gap-1 text-sm">
