@@ -351,6 +351,7 @@ QUERIES = {"/api/agents/{agent_id}/media": {"path": "/x.png"}, "/api/agents/{age
 
 # Routes avec un identifiant qui n'appartient à aucun agent. Chacune a sa raison et, quand c'est possible, sa vérification.
 WHITELIST = {
+    ("POST", "/api/chat/ensuite"): "Mêmes droits que /api/chat : agent utilisable et conversation à ce compte (ensuite_test).",
     ("GET", "/api/pairing/flow/{public}"): "Demande d'appairage : identifiant aléatoire ; le premier compte qui la voit en devient le seul titulaire (vérifié par test_personal et pairing_test).",
     ("POST", "/api/pairing/flow/{public}/{decision}"): "Même titulaire exigé pour accepter ou refuser ; le nombre à recopier protège le reste (pairing_test).",
     ("DELETE", "/api/devices/{device_id}"): "Filtré par compte dans auth.revoke_device : un appareil d'un autre compte rend 404 (vérifié par test_personal).",
@@ -408,7 +409,6 @@ OPEN_ROUTES = {
     ("POST", "/api/models"): "Un profil ne lit que le fournisseur en service, sans adresse ni clé à lui (vérifié par test_secrets).",
     ("GET", "/api/usage"): "Filtrée par profil (vérifié par test_lists).",
     ("GET", "/api/model"): "Le nom du cerveau, sans clé ni adresse pour un profil (vérifié par test_secrets).",
-    ("POST", "/api/chat/ensuite"): "Mêmes droits que /api/chat : agent utilisable et conversation à ce compte (ensuite_test).",
     ("GET", "/api/voice/ready"): "Une raison de refus, sans clé ni adresse ; un profil ne lit qu'une phrase générale (cle_refusee_test).",
     ("GET", "/api/agents"): "Filtrée par droit (vérifié par test_lists).",
     ("POST", "/api/agents"): "L'agent créé est à ce compte (vérifié par test_budget).",

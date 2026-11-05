@@ -37,6 +37,18 @@ jobs:
       - name: Fournisseurs (Ollama, Ollama Cloud, service compatible OpenAI)
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c             "pip install -q -r /app/requirements.txt && python /tests/providers/provider_test.py"
+      - name: Relais : flux compressé par le fournisseur
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/providers/flux_compresse_test.py"
+      - name: Clé refusée à l'enregistrement, vraie raison sur la voix
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/providers/cle_refusee_test.py"
+      - name: Erreurs lisibles, détails, jamais de silence
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/coordination/erreurs_test.py"
+      - name: Appel : une demande en attente survit au raccroché
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/voice/ensuite_test.py"
       - name: Veilles sans appel au modèle quand la page ne bouge pas
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \
