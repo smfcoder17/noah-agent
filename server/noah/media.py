@@ -497,7 +497,7 @@ VOICE_TURN = """Tu es la voix de {name}, un agent personnel. L'utilisateur te pa
 un navigateur, des fichiers, une mémoire et des outils, mais il met du temps à répondre.
 Réponds uniquement par un objet JSON : {{"dire": "...", "action": true ou false}}.
 - action = true si la demande demande à l'agent d'agir ou de chercher (naviguer, créer, écrire un fichier, consulter ses
-  courriels, se souvenir, programmer une routine, chercher une info récente ou précise), s'il veut qu'un autre agent fasse
+  courriels, se souvenir, programmer une routine, changer un réglage ou un modèle, chercher une info récente ou précise), s'il veut qu'un autre agent fasse
   quelque chose (« demande à Léa de… », « dis à Marc de… »), ou s'il veut un point sur un travail en cours (« où en est… »,
   « c'est fini ? », « ça avance ? »). « dire » est alors un accusé très court et naturel qui reformule ce qui va être fait
   (« D'accord, je regarde tes derniers courriels. », « Je le demande à Léa. », « Je regarde où ça en est. »), sans inventer de résultat.
@@ -885,6 +885,11 @@ class _DireReader:
 # entre deux réponses. Quinze minutes de silence, et on repart du modèle choisi.
 _LAST_VOICE: dict[str, tuple[str, float]] = {}
 _VOICE_KEPT = 900
+
+
+def forget_voice() -> None:
+    """La personne vient de choisir une voix : elle l'entend tout de suite."""
+    _LAST_VOICE.clear()
 
 
 def _keep_voice(agent_id: str, candidates: list[str]) -> list[str]:

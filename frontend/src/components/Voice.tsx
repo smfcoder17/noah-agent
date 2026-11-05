@@ -506,10 +506,10 @@ function useSpeaker(agentId: string, onPlaying: (playing: boolean, interrupted: 
  */
 function endOfTurnDelay(text: string) {
   const t = text.trim().toLowerCase();
-  if (/\?$/.test(t)) return 1000;
-  if (/[.!…]$/.test(t)) return 2300;
-  if (/(,|;|:|\b(et|mais|donc|alors|ou|parce que|que|qui|de|du|des|le|la|les|un|une|pour|avec|sur|dans|euh|ben|genre|comme|si|quand))$/.test(t)) return 2500;
-  return 2300;
+  if (/\?$/.test(t)) return 800;
+  if (/[.!…]$/.test(t)) return 1600;
+  if (/(,|;|:|\b(et|mais|donc|alors|ou|parce que|que|qui|de|du|des|le|la|les|un|une|pour|avec|sur|dans|euh|ben|genre|comme|si|quand))$/.test(t)) return 2300;
+  return 1900;
 }
 
 /**

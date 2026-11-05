@@ -290,6 +290,10 @@ with db.connect() as c:
   const flows = (await api("GET", "/api/flux")).json?.flux || [];
   check("5. /api/flux déclare le modèle de décision", flows.some((f) => f.quoi === "Modèle de décision" && f.detail === "faux-petit"));
 
+  // 5 bis. L'outil des réglages, dans la vraie machine de l'agent.
+  const settingsSay = await say(`OUTIL terminal ${JSON.stringify({ command: "python3 /opt/data/noah.py reglages" })}`);
+  check("   l'agent lit ses réglages par noah.py", settingsSay.output.includes("disponible"), settingsSay.output.slice(0, 300));
+
   // 6. Ce que l'agent ouvre est ce que l'écran Ordinateur montre : le vrai outil d'Hermes, dans le navigateur partagé.
   // Vu sur le premier VPS : une version d'Hermes sans Camofox naviguait dans un Chromium invisible, et l'écran restait vide.
   await api("POST", `/api/agents/${agent}/browser/wake`, {});

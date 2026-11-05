@@ -354,6 +354,8 @@ URL = "http://noah-server:8080/agent-api"
 TOKEN = "__TOKEN__"
 AIDE = """Utilisation : python3 /opt/data/noah.py <commande>
   etat                         diagnostic (navigateur, écran, budget) avec un conseil
+  reglages [type]              réglages non sensibles ; avec un type (image, video, musique, voix-modele, dictee, voix) : les choix possibles
+  regler <type> <valeur>       change un réglage (type ci-dessus, ou gouts) ; auto revient au choix automatique
   navigateur reveiller         rallume le navigateur et son écran
   navigateur redemarrer        redémarre le navigateur (écran noir, figé, injoignable) ; profil et cookies gardés
   fil "Titre" "consigne"       ouvre un fil de travail parallèle, visible par l'utilisateur dans Détails
@@ -413,7 +415,7 @@ def call(method, path, body=None):
 def media(kind, args):
     opts, words, i = {}, [], 0
     while i < len(args):
-        if args[i] in ("--format", "--duree", "--contexte") and i + 1 < len(args):
+        if args[i] in ("--format", "--duree", "--contexte", "--modele") and i + 1 < len(args):
             opts[args[i][2:]] = args[i + 1]
             i += 2
         elif args[i] == "--generer":
@@ -430,6 +432,10 @@ if a[:1] in (["image"], ["video"], ["musique"], ["voix"]) and len(a) >= 2:
     out = media(a[0], a[1:])
 elif a[:1] == ["etat"]:
     out = call("GET", "/etat")
+elif a[:1] == ["reglages"]:
+    out = call("GET", "/reglages" + ("?type=" + a[1] if len(a) > 1 else ""))
+elif a[:1] == ["regler"] and len(a) >= 3:
+    out = call("POST", "/reglages", {"type": a[1], "valeur": " ".join(a[2:])})
 elif a[:2] == ["navigateur", "reveiller"]:
     out = call("POST", "/navigateur/reveiller")
 elif a[:2] == ["navigateur", "redemarrer"]:
