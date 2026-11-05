@@ -295,7 +295,7 @@ with db.connect() as c:
   await api("POST", `/api/agents/${agent}/browser/wake`, {});
   const opened = await say(`OUTIL browser_navigate ${JSON.stringify({ url: "https://example.com/" })}`);
   const tabsOnScreen = docker("exec", `noah-browser-${agent}`, "sh", "-c",
-    `. /noah.env; node -e 'fetch("http://localhost:9377/tabs?userId=noah",{headers:{authorization:"Bearer "+process.env.CAMOFOX_ACCESS_KEY}}).then(r=>r.text()).then(console.log)'`);
+    `set -a; . /noah.env; set +a; node -e 'fetch("http://localhost:9377/tabs?userId=noah",{headers:{authorization:"Bearer "+process.env.CAMOFOX_ACCESS_KEY}}).then(r=>r.text()).then(console.log)'`);
   check("6. la page ouverte par l'agent est dans le navigateur de l'écran Ordinateur", tabsOnScreen.includes("example.com"), `${opened.output.slice(0, 120)} | ${tabsOnScreen.slice(0, 200)}`);
   const screen = (await api("GET", `/api/agents/${agent}/screen-status`)).json;
   check("   et l'écran est allumé", screen.awake && screen.running, JSON.stringify(screen));
