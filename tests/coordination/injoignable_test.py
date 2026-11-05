@@ -11,14 +11,14 @@ import sys
 import tempfile
 import time
 
-os.environ["APOLLO_DATA_DIR"] = tempfile.mkdtemp()
+os.environ["NOAH_DATA_DIR"] = tempfile.mkdtemp()
 os.environ.setdefault("LAUNCHER_KEY", "x")
-os.environ.setdefault("APOLLO_SECRET_KEY", "y" * 32)
+os.environ.setdefault("NOAH_SECRET_KEY", "y" * 32)
 sys.path.insert(0, "/app")
 import httpx  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from apollo import auth, db, hermes, main, relay  # noqa: E402
+from noah import auth, db, hermes, main, relay  # noqa: E402
 
 db.init()
 owner = auth.create_user("alice", "motdepasse-a")
@@ -161,7 +161,7 @@ async def lost_turn():
     first = len(events) - 1
     events[first].put_nowait(("run.failed", {"error": hermes.LOST_TURN}))
     await asyncio.sleep(0.1)
-    assert discarded == [("a", f"apollo-{conv}")], discarded
+    assert discarded == [("a", f"noah-{conv}")], discarded
     assert len(events) == first + 2, "le message repart dans un nouveau run"
     events[-1].put_nowait(("message.delta", {"delta": "Oui."}))
     events[-1].put_nowait(("run.completed", {}))

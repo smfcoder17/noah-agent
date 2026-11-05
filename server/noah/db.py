@@ -189,7 +189,7 @@ def _add_columns(db, table: str, wanted: dict[str, str]) -> None:
 
 @contextmanager
 def connect():
-    db = sqlite3.connect(DATA_DIR / "apollo.db")
+    db = sqlite3.connect(DATA_DIR / "noah.db")
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA foreign_keys = ON")
     db.execute("PRAGMA synchronous = NORMAL")

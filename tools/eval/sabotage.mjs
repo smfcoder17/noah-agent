@@ -17,27 +17,27 @@ const PENDANT = PIP + "python /tests/voice/pendant_test.py";
 const APERCU = PIP + "python /tests/agents/apercu_test.py";
 
 const SABOTAGES = [
-  ["Plafond de dépense ignoré", "apollo/relay.py", "if cap is not None and day_cost(agent_id) >= cap:", "if False:", BUDGET],
-  ["Heures non retirées des pages surveillées", "apollo/watch.py", String.raw`text = _STAMP.sub(r"\1", _VOLATILE.sub(" ", text))`, "pass", WATCH],
-  ["Téléchargement puis exécution autorisés", "apollo/agent_plugin/__init__.py", 'DOWNLOADER = r"(?:curl|wget|iwr|invoke-webrequest|fetch)"', 'DOWNLOADER = r"(?:zzzz)"', GUARD],
-  ["Session d'appairage qui n'expire plus", "apollo/auth.py", "UNCLAIMED = timedelta(minutes=10)", "UNCLAIMED = timedelta(days=3650)", PAIRING],
-  ["Outil : adresse jugée sans la résolution DNS", "apollo/mcp.py", "_judge(ipaddress.ip_address(a), scheme)", "pass", MCP],
-  ["Outil : jeton en clair en base", "apollo/mcp.py", "db.seal(token) if token else None", "token", MCP],
-  ["Outil : « confirmer » laisse passer sans accord", "apollo/mcp.py", 'if _take_grant(row["agent_id"], name, _shown(tool, args if args is not None else {})):', "if True:", MCP],
-  ["Outil : un accord sert plusieurs fois", "apollo/mcp.py", "left.remove(match)", "pass", MCP],
-  ["Outil : garde qui accepte par défaut", "apollo/agent_plugin/__init__.py", 'droit = rights.get(server, "confirmer")', 'droit = rights.get(server, "agir")', MCP],
-  ["Outil : une panne casse le tour de l'agent", "apollo/mcp.py", 'return _tool_error(msg_id, _outage_text(name, erreur.rstrip(".")))', 'raise HTTPException(502, "panne")', MCP],
-  ["Pendant le travail : même envoi compté deux fois", "apollo/pendant.py", "INSERT OR IGNORE INTO pending_requests", "INSERT OR REPLACE INTO pending_requests", PENDANT],
-  ["Pendant le travail : la file part par-dessus le travail", "apollo/pendant.py", 'elif _h["busy"](agent_id, conv) or _h["paused"]():', "elif False:", PENDANT],
-  ["Pendant le travail : accès retiré, la demande part quand même", "apollo/pendant.py", 'if not _h["allowed"](row["user_id"], agent_id):', "if False:", PENDANT],
-  ["Pendant le travail : une demande perdue au redémarrage", "apollo/pendant.py", 'c.execute("UPDATE pending_requests SET status = ? WHERE status = ?", (WAITING, TRI))', "pass", PENDANT],
-  ["Pendant le travail : une demande retirée peut encore partir", "apollo/main.py", 'if not pendant.move(request_id, (pendant.WAITING, pendant.ANSWERED), pendant.SENDING):', 'if not pendant.move(request_id, (pendant.WAITING, pendant.ANSWERED, pendant.CANCELLED, pendant.DONE), pendant.SENDING):', PENDANT],
-  ["Pendant le travail : réponse perdue, la précision repart", "apollo/main.py", "return STEER_UNSURE", "return STEER_REFUSED", PENDANT],
-  ["Pendant le travail : droit retiré pendant le tri", "apollo/main.py", 'if not access.allowed(user, agent.id, "usage"):  # le tri prend du temps', 'if False:  # le tri prend du temps', PENDANT],
-  ["Activité : une clé affichée dans la ligne de travail", "apollo/events.py", "label = mask(label)[:LABEL_MAX] if label else label", "pass", PENDANT],
-  ["Aperçu : une page voit tout le dossier commun", "apollo/main.py", "own_folder = bool(folder) and folder not in PREVIEW_SHARED_FOLDERS", "own_folder = bool(folder)", APERCU],
-  ["Garde : un déplacement de patch ignoré", "apollo/agent_plugin/__init__.py", "targets += [move.group(1).strip(), move.group(2).strip()]", "pass", GUARD],
-  ["Outil : ajout sans contrôle d'accès", "apollo/mcp.py", 'access.access(user, agent_id, "admin")\n    _scope(agent_id)\n    token = _clean_token(body)', "_scope(agent_id)\n    token = _clean_token(body)", MCP],
+  ["Plafond de dépense ignoré", "noah/relay.py", "if cap is not None and day_cost(agent_id) >= cap:", "if False:", BUDGET],
+  ["Heures non retirées des pages surveillées", "noah/watch.py", String.raw`text = _STAMP.sub(r"\1", _VOLATILE.sub(" ", text))`, "pass", WATCH],
+  ["Téléchargement puis exécution autorisés", "noah/agent_plugin/__init__.py", 'DOWNLOADER = r"(?:curl|wget|iwr|invoke-webrequest|fetch)"', 'DOWNLOADER = r"(?:zzzz)"', GUARD],
+  ["Session d'appairage qui n'expire plus", "noah/auth.py", "UNCLAIMED = timedelta(minutes=10)", "UNCLAIMED = timedelta(days=3650)", PAIRING],
+  ["Outil : adresse jugée sans la résolution DNS", "noah/mcp.py", "_judge(ipaddress.ip_address(a), scheme)", "pass", MCP],
+  ["Outil : jeton en clair en base", "noah/mcp.py", "db.seal(token) if token else None", "token", MCP],
+  ["Outil : « confirmer » laisse passer sans accord", "noah/mcp.py", 'if _take_grant(row["agent_id"], name, _shown(tool, args if args is not None else {})):', "if True:", MCP],
+  ["Outil : un accord sert plusieurs fois", "noah/mcp.py", "left.remove(match)", "pass", MCP],
+  ["Outil : garde qui accepte par défaut", "noah/agent_plugin/__init__.py", 'droit = rights.get(server, "confirmer")', 'droit = rights.get(server, "agir")', MCP],
+  ["Outil : une panne casse le tour de l'agent", "noah/mcp.py", 'return _tool_error(msg_id, _outage_text(name, erreur.rstrip(".")))', 'raise HTTPException(502, "panne")', MCP],
+  ["Pendant le travail : même envoi compté deux fois", "noah/pendant.py", "INSERT OR IGNORE INTO pending_requests", "INSERT OR REPLACE INTO pending_requests", PENDANT],
+  ["Pendant le travail : la file part par-dessus le travail", "noah/pendant.py", 'elif _h["busy"](agent_id, conv) or _h["paused"]():', "elif False:", PENDANT],
+  ["Pendant le travail : accès retiré, la demande part quand même", "noah/pendant.py", 'if not _h["allowed"](row["user_id"], agent_id):', "if False:", PENDANT],
+  ["Pendant le travail : une demande perdue au redémarrage", "noah/pendant.py", 'c.execute("UPDATE pending_requests SET status = ? WHERE status = ?", (WAITING, TRI))', "pass", PENDANT],
+  ["Pendant le travail : une demande retirée peut encore partir", "noah/main.py", 'if not pendant.move(request_id, (pendant.WAITING, pendant.ANSWERED), pendant.SENDING):', 'if not pendant.move(request_id, (pendant.WAITING, pendant.ANSWERED, pendant.CANCELLED, pendant.DONE), pendant.SENDING):', PENDANT],
+  ["Pendant le travail : réponse perdue, la précision repart", "noah/main.py", "return STEER_UNSURE", "return STEER_REFUSED", PENDANT],
+  ["Pendant le travail : droit retiré pendant le tri", "noah/main.py", 'if not access.allowed(user, agent.id, "usage"):  # le tri prend du temps', 'if False:  # le tri prend du temps', PENDANT],
+  ["Activité : une clé affichée dans la ligne de travail", "noah/events.py", "label = mask(label)[:LABEL_MAX] if label else label", "pass", PENDANT],
+  ["Aperçu : une page voit tout le dossier commun", "noah/main.py", "own_folder = bool(folder) and folder not in PREVIEW_SHARED_FOLDERS", "own_folder = bool(folder)", APERCU],
+  ["Garde : un déplacement de patch ignoré", "noah/agent_plugin/__init__.py", "targets += [move.group(1).strip(), move.group(2).strip()]", "pass", GUARD],
+  ["Outil : ajout sans contrôle d'accès", "noah/mcp.py", 'access.access(user, agent_id, "admin")\n    _scope(agent_id)\n    token = _clean_token(body)', "_scope(agent_id)\n    token = _clean_token(body)", MCP],
 ];
 
 function run([sabotage, path, old, replacement, cmd]) {
@@ -61,7 +61,7 @@ function run([sabotage, path, old, replacement, cmd]) {
 }
 
 // Témoin : la même chaîne sans défaut doit rester verte, sinon un « vu » ne prouve rien.
-const TEMOINS = [...new Set(SABOTAGES.map((s) => s[4]))].map((cmd) => run(["témoin", "apollo/auth.py", "", "", cmd]));
+const TEMOINS = [...new Set(SABOTAGES.map((s) => s[4]))].map((cmd) => run(["témoin", "noah/auth.py", "", "", cmd]));
 if (TEMOINS.some((t) => t.resultat !== "NON VU")) {
   console.error("Un témoin échoue sans sabotage : les résultats ne valent rien.");
   process.exit(2);

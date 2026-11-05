@@ -10,14 +10,14 @@ import os
 import sys
 import tempfile
 
-os.environ["APOLLO_DATA_DIR"] = tempfile.mkdtemp()
+os.environ["NOAH_DATA_DIR"] = tempfile.mkdtemp()
 os.environ.setdefault("LAUNCHER_KEY", "x")
-os.environ.setdefault("APOLLO_SECRET_KEY", "y" * 32)
+os.environ.setdefault("NOAH_SECRET_KEY", "y" * 32)
 sys.path.insert(0, "/app")
 import httpx  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
 
-from apollo import catalog, db, main, relay  # noqa: E402
+from noah import catalog, db, main, relay  # noqa: E402
 
 db.init()
 seen: list[httpx.Request] = []

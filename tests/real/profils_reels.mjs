@@ -2,7 +2,7 @@
 // aucune clé, aucune donnée de l'utilisateur. Chaque vérification regarde ce qui est arrivé (requête reçue par le modèle, message
 // déchiffré par le téléphone, sortie de la commande dans la machine), jamais ce que l'interface en dit.
 //   MSYS_NO_PATHCONV=1 node tests/real/profils_reels.mjs [--local] [--neuf] [--garder] [g123] [g81] [g125]
-// --local : monte server/apollo et launcher/ (sinon le code figé des images). --garder : laisse la pile en place, pour rejouer vite.
+// --local : monte server/noah et launcher/ (sinon le code figé des images). --garder : laisse la pile en place, pour rejouer vite.
 // --neuf : efface d'abord ce qu'un passage --garder a laissé.
 // Les conteneurs d'essai sont effacés à la fin ; le volume de l'installation de l'utilisateur n'est jamais monté.
 import { execFileSync } from "node:child_process";
@@ -23,10 +23,10 @@ const LAUNCHER_KEY = "essai-lanceur-0123456789abcdef0123456789abcdef";
 const PROVIDER_KEY = "CLE-FOURNISSEUR-ESSAI-7f3a";
 const PASSWORD = "motdepasse-essai";
 const STACK_ENV = {
-  ...process.env, APOLLO_SECRET_KEY: SECRET_KEY, LAUNCHER_KEY, APOLLO_PORT: String(PORT), APOLLO_BIND: "127.0.0.1",
-  ...(LOCAL ? { NOAH_ESSAI_CODE_SERVEUR: "./server/apollo", NOAH_ESSAI_CIBLE_SERVEUR: "/app/apollo", NOAH_ESSAI_CODE_LANCEUR: "./launcher", NOAH_ESSAI_CIBLE_LANCEUR: "/app" } : {}),
+  ...process.env, NOAH_SECRET_KEY: SECRET_KEY, LAUNCHER_KEY, NOAH_PORT: String(PORT), NOAH_BIND: "127.0.0.1",
+  ...(LOCAL ? { NOAH_ESSAI_CODE_SERVEUR: "./server/noah", NOAH_ESSAI_CIBLE_SERVEUR: "/app/noah", NOAH_ESSAI_CODE_LANCEUR: "./launcher", NOAH_ESSAI_CIBLE_LANCEUR: "/app" } : {}),
 };
-const COMPOSE = ["compose", "-p", "apollo", "-f", "docker-compose.yml", "-f", "tests/real/compose.essai.yml"];
+const COMPOSE = ["compose", "-p", "noah", "-f", "docker-compose.yml", "-f", "tests/real/compose.essai.yml"];
 
 const docker = (...a) => execFileSync("docker", a, { maxBuffer: 1 << 26, env: STACK_ENV, stdio: ["ignore", "pipe", "pipe"] }).toString();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -98,9 +98,9 @@ const say = async (token, agent, text, { seconds = 180, conversation, approve = 
 };
 
 const faux = async (method, path, body) => (await fetch(FAUX + path, { method, body: body === undefined ? undefined : JSON.stringify(body) })).json();
-const inServer = (code) => docker("exec", "-w", "/app", "-e", "PYTHONPATH=/app", "apollo-server", "python", "-c", code).trim();
+const inServer = (code) => docker("exec", "-w", "/app", "-e", "PYTHONPATH=/app", "noah-server", "python", "-c", code).trim();
 const secretsOf = (agent) => JSON.parse(inServer(`import json
-from apollo import db, hermes, relay
+from noah import db, hermes, relay
 with db.connect() as c:
     key = c.execute("SELECT api_key FROM agents WHERE id = ?", (${JSON.stringify(agent)},)).fetchone()["api_key"]
 b = hermes.browser_secrets(${JSON.stringify(agent)})
@@ -109,7 +109,7 @@ print(json.dumps({"api": key, "relais": relay.token_for(${JSON.stringify(agent)}
 /** Une commande dans la machine d'un agent, sous l'utilisateur de l'agent : ce qu'un outil terminal peut faire. */
 const inAgent = (agent, ...command) => {
   try {
-    return { code: 0, out: docker("exec", "-u", "10000", "-e", "HOME=/opt/data", `apollo-agent-${agent}`, ...command) };
+    return { code: 0, out: docker("exec", "-u", "10000", "-e", "HOME=/opt/data", `noah-agent-${agent}`, ...command) };
   } catch (e) {
     return { code: e.status ?? 1, out: `${e.stdout || ""}${e.stderr || ""}` };
   }
@@ -165,8 +165,8 @@ async function up() {
     const model = await api(stack.tokens.alice, "POST", "/api/model", { provider: "custom", base_url: "http://noah-faux:11500/v1", model: "faux-modele", api_key: PROVIDER_KEY });
     if (model.status !== 200) throw new Error(`modèle : ${model.text}`);
     // Sinon, au prochain démarrage du serveur (pile gardée), il remet ses agents à jour et les redémarre en plein essai.
-    inServer(`from apollo import db
-from apollo.main import AGENT_SETUP_VERSION
+    inServer(`from noah import db
+from noah.main import AGENT_SETUP_VERSION
 db.set_setting("agent_setup", AGENT_SETUP_VERSION)`);
   }
   await api(stack.tokens.alice, "POST", "/api/setup/done");
@@ -211,7 +211,7 @@ async function down() {
     } catch {}
   }
   docker(...COMPOSE, "down", "--timeout", "5");
-  for (const v of ["apollo_noah-essai-data", "apollo_noah-essai-ca", "apollo_noah-essai-vide"]) {
+  for (const v of ["noah_noah-essai-data", "noah_noah-essai-ca", "noah_noah-essai-vide"]) {
     try { docker("volume", "rm", v); } catch {}
   }
 }
@@ -247,9 +247,9 @@ async function g123() {
   check("la liste des agents de bruno ne nomme ni l'agent ni la machine d'alice", !list.text.includes(A) && list.json.length === 1, list.text);
 
   // 2. Dans la vraie machine de bruno : le conteneur lui-même.
-  const inspect = JSON.parse(docker("inspect", `apollo-agent-${B}`))[0];
+  const inspect = JSON.parse(docker("inspect", `noah-agent-${B}`))[0];
   const mounts = inspect.Mounts.map((m) => m.Name || m.Source);
-  check("la machine de bruno ne monte que son volume, ni socket Docker ni volume d'alice", mounts.length === 1 && mounts[0] === `apollo-agent-${B}`, mounts.join(", "));
+  check("la machine de bruno ne monte que son volume, ni socket Docker ni volume d'alice", mounts.length === 1 && mounts[0] === `noah-agent-${B}`, mounts.join(", "));
   check("la machine de bruno n'est pas privilégiée", inspect.HostConfig.Privileged === false && inspect.HostConfig.SecurityOpt?.includes("no-new-privileges"));
   const seen = inAgent(B, "sh", "-c", `ls /var/run/docker.sock 2>&1; grep -rl -e ${mark} /opt/data /tmp /etc/noah 2>/dev/null; true`).out;
   check("aucune trace des données d'alice dans la machine de bruno", !seen.includes(mark) && /No such file|cannot access/.test(seen), seen);
@@ -265,7 +265,7 @@ async function g123() {
   check("l'agent de bruno, par son propre outil, ne trouve rien", /\\n0\\nfin-de-recherche/.test(viaAgent.output) && !viaAgent.output.includes(mark), viaAgent.output);
 
   // 3. Par le réseau Docker, depuis la machine de bruno, avec et sans sa clé.
-  const hermesA = `http://apollo-agent-${A}:8642`;
+  const hermesA = `http://noah-agent-${A}:8642`;
   const probes = [];
   for (const key of [null, secretsB.api]) {
     for (const [m, path] of [["GET", "/api/sessions"], ["GET", "/v1/models"], ["GET", "/api/jobs"], ["POST", "/v1/runs"], ["GET", "/v1/skills"]]) {
@@ -297,7 +297,7 @@ print(json.dumps(json.load(urllib.request.urlopen("http://launcher:9000/openapi.
   note(`description du lanceur lisible sans clé par une machine d'agent : ${openapi.status}`);
 
   // Le serveur : le jeton de relais de bruno n'ouvre ni les routes d'un profil ni les données d'alice.
-  const server = "http://apollo-server:8080";
+  const server = "http://noah-server:8080";
   const conv = wrote.conversation;
   const serverCalls = [
     { url: `${server}/api/agents`, h: bearer(secretsB.relais) },
@@ -317,14 +317,14 @@ print(json.dumps(json.load(urllib.request.urlopen("http://launcher:9000/openapi.
   const cookie = `COOKIE-ALICE-${Date.now().toString(36)}`;
   const imported = await api(alice, "POST", `/api/agents/${A}/browser/cookies`, { cookies: JSON.stringify([{ name: "session_alice", value: cookie, domain: "noah-faux", path: "/" }]) });
   check("témoin : alice connecte un compte dans son navigateur", imported.status === 200, imported.text);
-  const browser = `http://apollo-browser-${A}:9377`;
+  const browser = `http://noah-browser-${A}:9377`;
   const page = "http://noah-faux:11500/page";
   const steal = (key) => {
-    const opened = probe(B, [{ url: `${browser}/tabs`, m: "POST", h: bearer(key), t: 60, corps: { userId: "apollo", sessionKey: "apollo", url: page } }])[0];
+    const opened = probe(B, [{ url: `${browser}/tabs`, m: "POST", h: bearer(key), t: 60, corps: { userId: "noah", sessionKey: "noah", url: page } }])[0];
     let tab = null;
     try { tab = JSON.parse(opened.corps).tabId; } catch {}
-    const list = probe(B, [{ url: `${browser}/tabs?userId=apollo`, h: bearer(key) }])[0];
-    const snap = tab ? probe(B, [{ url: `${browser}/tabs/${tab}/snapshot?userId=apollo`, h: bearer(key), t: 30 }])[0] : { status: 0, corps: "" };
+    const list = probe(B, [{ url: `${browser}/tabs?userId=noah`, h: bearer(key) }])[0];
+    const snap = tab ? probe(B, [{ url: `${browser}/tabs/${tab}/snapshot?userId=noah`, h: bearer(key), t: 30 }])[0] : { status: 0, corps: "" };
     return { opened, list, snap, stolen: JSON.stringify(snap).includes(cookie) };
   };
   const stranger = steal(null);
@@ -332,7 +332,7 @@ print(json.dumps(json.load(urllib.request.urlopen("http://launcher:9000/openapi.
   check("sans clé, la machine de bruno ne pilote pas le navigateur d'alice", stranger.opened.status === 401 || stranger.opened.status === 403, `ouverture ${stranger.opened.status} ; cookie volé : ${stranger.stolen}`);
   check("avec sa clé à lui non plus", withOwn.opened.status === 401 || withOwn.opened.status === 403, `ouverture ${withOwn.opened.status} ; cookie volé : ${withOwn.stolen}`);
   check("le cookie d'alice ne sort pas vers la machine de bruno", !stranger.stolen && !withOwn.stolen);
-  for (const [path, label] of [[`/tabs?userId=apollo`, "liste des onglets"], [`/sessions/apollo/storage_state`, "cookies enregistrés"], [`/vnc/status`, "état de l'écran"]]) {
+  for (const [path, label] of [[`/tabs?userId=noah`, "liste des onglets"], [`/sessions/noah/storage_state`, "cookies enregistrés"], [`/vnc/status`, "état de l'écran"]]) {
     const r = probe(B, [{ url: browser + path }])[0];
     check(`navigateur d'alice, ${label} : refusé sans clé`, r.status === 401 || r.status === 403, `${r.status} ${(r.corps || "").slice(0, 120)}`);
   }
@@ -340,7 +340,7 @@ print(json.dumps(json.load(urllib.request.urlopen("http://launcher:9000/openapi.
   check("témoin : avec la clé d'alice le cookie est bien lisible (le test sait voir un vol)", legit.stolen, JSON.stringify(legit.snap).slice(0, 300));
   const agentOwn = await say(alice, A, `OUTIL browser_navigate ${JSON.stringify({ url: page })}`, { seconds: 120 });
   check("l'agent d'alice se sert toujours de son navigateur", agentOwn.output.includes(cookie) || /session_alice/.test(agentOwn.output), agentOwn.output || JSON.stringify(agentOwn.final));
-  const screen = probe(B, [{ rfb: `apollo-browser-${A}` }])[0];
+  const screen = probe(B, [{ rfb: `noah-browser-${A}` }])[0];
   check("l'écran VNC d'alice exige un mot de passe, ou n'est pas joignable", screen.erreur !== undefined || (screen.types?.length && !screen.types.includes(1)), JSON.stringify(screen));
 
   // 5. Tout ce qui écoute dans les machines d'alice, lu dans le noyau : rien d'autre que ce qui vient d'être vérifié.
@@ -348,13 +348,13 @@ print(json.dumps(json.load(urllib.request.urlopen("http://launcher:9000/openapi.
     const tables = docker("exec", container, "cat", "/proc/net/tcp", "/proc/net/tcp6");
     return [...new Set(tables.split("\n").map((l) => l.trim().split(/\s+/)).filter((f) => f[3] === "0A" && !/^(0100007F|0{24}01000000|0B00007F)/.test(f[1])).map((f) => parseInt(f[1].split(":")[1], 16)))].sort((a, b) => a - b);
   };
-  for (const [container, expected] of [[`apollo-agent-${A}`, [8642]], [`apollo-browser-${A}`, [6080, 9377]]]) {
+  for (const [container, expected] of [[`noah-agent-${A}`, [8642]], [`noah-browser-${A}`, [6080, 9377]]]) {
     const open = ports(container);
     const unknown = open.filter((p) => !expected.includes(p));
     const reachable = unknown.length ? probe(B, unknown.map((p) => ({ url: `http://${container}:${p}/` }))) : [];
     check(`${container.replace(A, "alice")} : seuls ${expected.join(", ")} écoutent sur le réseau`, !unknown.length, `${open.join(", ")} ; ${JSON.stringify(reachable).slice(0, 300)}`);
   }
-  const novnc = probe(B, [{ url: `http://apollo-browser-${A}:6080/vnc.html` }])[0];
+  const novnc = probe(B, [{ url: `http://noah-browser-${A}:6080/vnc.html` }])[0];
   note(`page noVNC d'alice vue de la machine de bruno : ${novnc.status ?? novnc.erreur} ; sa connexion demande le mot de passe VNC, propre à l'agent`);
 }
 
@@ -434,7 +434,7 @@ async function g81() {
   check("au plafond, plus aucun appel n'atteint le modèle", after === before, `${before} puis ${after}`);
   check("au plafond, un nouveau message reçoit la même raison", /Plafond du jour/.test(again.error || again.output || ""), again.error || again.output || JSON.stringify(again.final));
   note(`réponse au plafond en ${again.ms} ms`);
-  const relayed = docker("exec", "apollo-server", "python", "-c", `import urllib.request, urllib.error, json
+  const relayed = docker("exec", "noah-server", "python", "-c", `import urllib.request, urllib.error, json
 req = urllib.request.Request("http://localhost:8080/relay/v1/chat/completions", data=json.dumps({"model": "m", "messages": []}).encode(), headers={"Authorization": "Bearer ${secretsOf(A).relais}", "Content-Type": "application/json"})
 try:
     print(urllib.request.urlopen(req).status)
@@ -542,7 +542,7 @@ async function g125() {
   check("sans le cookie d'alice", !umaBrowser.output.includes(cookie), umaBrowser.output);
   const aliceBrowser = await say(alice, A, `OUTIL browser_navigate ${JSON.stringify({ url: page })}`, { seconds: 120 });
   check("témoin : le navigateur d'alice envoie bien son cookie", aliceBrowser.output.includes(cookie), aliceBrowser.output);
-  const conf = docker("exec", "-u", "10000", `apollo-agent-${A}`, "sh", "-c", "ls /opt/data/profiles; for d in /opt/data/profiles/*; do grep -c mcp_servers $d/config.yaml; ls $d | grep -c google_token; cut -d= -f1 $d/.env | tr '\\n' ' '; done").toString();
+  const conf = docker("exec", "-u", "10000", `noah-agent-${A}`, "sh", "-c", "ls /opt/data/profiles; for d in /opt/data/profiles/*; do grep -c mcp_servers $d/config.yaml; ls $d | grep -c google_token; cut -d= -f1 $d/.env | tr '\\n' ' '; done").toString();
   note(`profils dans la machine : ${conf.replace(/\n/g, " | ")}`);
   const googleUma = await api(uma, "GET", `/api/agents/${A}/google`);
   check("uma n'ouvre pas les comptes par l'API (droit admin requis)", googleUma.status === 403, googleUma.status);

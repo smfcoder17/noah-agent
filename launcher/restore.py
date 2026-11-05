@@ -22,7 +22,7 @@ import updater
 
 client = updater.client
 AGENT_IMAGE = os.environ.get("AGENT_IMAGE", "nousresearch/hermes-agent:stable")
-VOLUME = re.compile(r"^(apollo_apollo-data|apollo_noah-secrets|apollo-agent-[a-z0-9-]+|apollo-browser-[a-z0-9-]+)$")
+VOLUME = re.compile(r"^(noah_noah-data|noah_noah-secrets|noah-agent-[a-z0-9-]+|noah-browser-[a-z0-9-]+)$")
 WORK = Path(tempfile.gettempdir()) / "noah-restauration"
 CHECKED = "noah-restauration-verification"
 
@@ -61,7 +61,7 @@ def inspect(path: Path) -> dict[str, tarfile.TarInfo]:
                 found[name] = m
             else:
                 raise ValueError(f"Élément inattendu dans l'archive : {m.name}")
-    if "apollo_apollo-data.tar.gz" not in found:
+    if "noah_noah-data.tar.gz" not in found:
         raise ValueError("Ce n'est pas une sauvegarde de Noah Agent : les données du serveur manquent.")
     return found
 
@@ -70,13 +70,13 @@ def _secret_key(tar: tarfile.TarFile, found: dict) -> str:
     """Clé qui déchiffre les secrets de la sauvegarde : .env (mode local) ou volume des secrets (VPS)."""
     if "env" in found:
         for line in tar.extractfile(found["env"]).read().decode().splitlines():
-            if line.startswith("APOLLO_SECRET_KEY="):
+            if line.startswith("NOAH_SECRET_KEY="):
                 return line.split("=", 1)[1].strip()
-    if "apollo_noah-secrets.tar.gz" in found:
-        with tarfile.open(fileobj=tar.extractfile(found["apollo_noah-secrets.tar.gz"]), mode="r:gz") as inner:
+    if "noah_noah-secrets.tar.gz" in found:
+        with tarfile.open(fileobj=tar.extractfile(found["noah_noah-secrets.tar.gz"]), mode="r:gz") as inner:
             for m in inner.getmembers():
                 if m.name.lstrip("./") == "noah.json":
-                    return json.loads(inner.extractfile(m).read())["APOLLO_SECRET_KEY"]
+                    return json.loads(inner.extractfile(m).read())["NOAH_SECRET_KEY"]
     raise ValueError("La clé de la sauvegarde manque (ni .env ni volume des secrets) : ses données sont illisibles.")
 
 
@@ -126,8 +126,8 @@ import glob, json, os, sqlite3, sys
 out = {"bases": {}, "agents": [], "dossiers": []}
 for p in glob.glob("/v/*.db"):
     out["bases"][os.path.basename(p)] = sqlite3.connect(p).execute("PRAGMA integrity_check").fetchone()[0]
-if os.path.exists("/v/apollo.db"):
-    c = sqlite3.connect("/v/apollo.db")
+if os.path.exists("/v/noah.db"):
+    c = sqlite3.connect("/v/noah.db")
     out["agents"] = [r[0] for r in c.execute("SELECT id FROM agents")]
     # Secrets chiffrés (Fernet) : le lanceur vérifie que la clé de la sauvegarde les a signés.
     out["chiffres"] = [r[0] for r in c.execute("SELECT value FROM settings WHERE value LIKE 'gAAAAA%' LIMIT 50")]
@@ -215,7 +215,7 @@ def _preflight(tar: tarfile.TarFile, found: dict) -> None:
     # jusqu'à la fin), plus deux copies de la plus grosse archive intérieure (_fill la pose sur le lanceur, puis dans le
     # conteneur qui la décompresse), plus 2 % pour les en-têtes tar et les blocs du système de fichiers.
     biggest = max((m.size for n, m in found.items() if n in sizes), default=0)
-    peak = int((total + sizes.get("apollo_apollo-data.tar.gz", 0) + 2 * biggest) * 1.02)
+    peak = int((total + sizes.get("noah_noah-data.tar.gz", 0) + 2 * biggest) * 1.02)
     free = shutil.disk_usage("/").free
     if peak + MARGIN > free:
         raise ValueError(f"Pas assez de place : la restauration a besoin de {peak >> 20} Mo au plus fort, "
@@ -282,11 +282,11 @@ def run(path: Path, labels: tuple[str, str]) -> None:
             _preflight(tar, found)
             key = _secret_key(tar, found)
             # Données du serveur vérifiées à part d'abord : une base abîmée ne remplace jamais rien ici.
-            _fill(CHECKED, tar.extractfile(found["apollo_apollo-data.tar.gz"]))
+            _fill(CHECKED, tar.extractfile(found["noah_noah-data.tar.gz"]))
             checked = _integrity(CHECKED)
             _check_key(key, checked.get("chiffres", []))  # avant tout remplacement : une mauvaise clé ne casse rien
             agents = checked["agents"]
-            missing = [a for a in agents if f"apollo-agent-{a}.tar.gz" not in found]
+            missing = [a for a in agents if f"noah-agent-{a}.tar.gz" not in found]
             if missing:
                 raise ValueError(f"La sauvegarde ne contient pas la machine de : {', '.join(missing)}.")
 
@@ -294,12 +294,12 @@ def run(path: Path, labels: tuple[str, str]) -> None:
             for label in labels:
                 for c in client.containers.list(all=True, filters={"label": label}):
                     c.remove(force=True)
-            machines = sorted(n for n in found if n.startswith(("apollo-agent-", "apollo-browser-")))
+            machines = sorted(n for n in found if n.startswith(("noah-agent-", "noah-browser-")))
             for i, name in enumerate(machines, 1):
                 volume = name[: -len(".tar.gz")]
                 step(f"Machines des agents : {i} sur {len(machines)}…")
                 _fill(volume, tar.extractfile(found[name]))
-                if volume.startswith("apollo-agent-") and "state.db" not in _integrity(volume)["bases"]:
+                if volume.startswith("noah-agent-") and "state.db" not in _integrity(volume)["bases"]:
                     raise ValueError(f"La mémoire de l'agent manque dans la sauvegarde ({volume}).")
 
             step("Compte, conversations et réglages…")
@@ -307,7 +307,7 @@ def run(path: Path, labels: tuple[str, str]) -> None:
             # La clé de la sauvegarde déchiffre ses secrets ; la clé du lanceur reste celle de ce serveur, et le code
             # d'installation n'a plus lieu d'être (le compte revient avec la sauvegarde).
             current = json.loads(updater.read_text(server, "/secrets/noah.json")[0])
-            current["APOLLO_SECRET_KEY"] = key
+            current["NOAH_SECRET_KEY"] = key
             current.pop("NOAH_SETUP_CODE", None)
             buf = io.BytesIO()
             raw = json.dumps(current).encode()
@@ -316,7 +316,7 @@ def run(path: Path, labels: tuple[str, str]) -> None:
                 info.size, info.mode = len(raw), 0o600
                 t.addfile(info, io.BytesIO(raw))
             server.put_archive("/secrets", buf.getvalue())
-            _fill(data_volume, tar.extractfile(found["apollo_apollo-data.tar.gz"]))
+            _fill(data_volume, tar.extractfile(found["noah_noah-data.tar.gz"]))
             folders = _integrity(data_volume, detach=True)["dossiers"]
 
         step("Redémarrage du serveur…")
@@ -326,7 +326,7 @@ def run(path: Path, labels: tuple[str, str]) -> None:
         server.start()
         if not _server_up():
             raise RuntimeError("Le serveur ne démarre pas correctement avec la sauvegarde (compte ou clés illisibles) : "
-                               "regarde ses journaux (docker logs apollo-server).")
+                               "regarde ses journaux (docker logs noah-server).")
         if folders:
             state["avertissement"] = ("Dossiers partagés de l'ancien ordinateur détachés (à reconnecter dans Détails → "
                                       f"Dossiers) pour : {', '.join(folders)}.")

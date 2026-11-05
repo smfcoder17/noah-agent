@@ -5,7 +5,7 @@ trait (le schéma de ClawHavoc), sans gêner le travail normal de l'agent.
 """
 import sys
 
-sys.path.insert(0, "/app/apollo/agent_plugin")
+sys.path.insert(0, "/app/noah/agent_plugin")
 from __init__ import _pre_tool_call, check  # noqa: E402
 
 refused = [

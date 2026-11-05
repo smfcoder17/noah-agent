@@ -1,7 +1,7 @@
 """Un agent figé, qui ne ferme pas la connexion et n'envoie plus rien, ne garde pas une tâche ouverte pour toujours.
 
 Vrai flux HTTP sur une vraie socket : le faux Hermes n'envoie ses signes de vie que tant qu'on le lui dit.
-    docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" -w /app apollo-server python /tests/coordination/silence_test.py
+    docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" -w /app noah-server python /tests/coordination/silence_test.py
 """
 import asyncio
 import os
@@ -9,12 +9,12 @@ import sys
 import tempfile
 import time
 
-os.environ.setdefault("APOLLO_DATA_DIR", tempfile.mkdtemp())
+os.environ.setdefault("NOAH_DATA_DIR", tempfile.mkdtemp())
 sys.path.insert(0, "/app")
 
 import httpx  # noqa: E402
 
-from apollo import hermes  # noqa: E402
+from noah import hermes  # noqa: E402
 
 alive = {"signs": 3}
 

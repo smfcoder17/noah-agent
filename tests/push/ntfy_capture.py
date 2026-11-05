@@ -48,9 +48,9 @@ def b64(data: bytes) -> str:
 
 
 def send() -> None:
-    os.environ["APOLLO_DATA_DIR"] = tempfile.mkdtemp()
+    os.environ["NOAH_DATA_DIR"] = tempfile.mkdtemp()
     os.environ.setdefault("LAUNCHER_KEY", "x")
-    os.environ.setdefault("APOLLO_SECRET_KEY", "y" * 32)
+    os.environ.setdefault("NOAH_SECRET_KEY", "y" * 32)
     os.environ["NOAH_PUSH_HOSTS"] = HOST  # ntfy auto-hébergé, comme le réglerait l'administrateur
     os.environ["SSL_CERT_FILE"] = "/certs/cert.pem"
     sys.path.insert(0, "/app")
@@ -60,7 +60,7 @@ def send() -> None:
     from cryptography.hazmat.primitives.asymmetric import ec
     from fastapi.testclient import TestClient
 
-    from apollo import auth, db, desktop, main, push
+    from noah import auth, db, desktop, main, push
 
     db.init()
     base = f"https://{HOST}"

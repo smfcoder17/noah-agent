@@ -1,6 +1,6 @@
 """Mesure la réactivité de Noah Agent, du point de vue de l'utilisateur.
 
-Usage, dans le conteneur du serveur : python -m apollo.bench [étiquette] [répétitions]
+Usage, dans le conteneur du serveur : python -m noah.bench [étiquette] [répétitions]
 Les messages partent dans un fil archivé « Mesure de vitesse » : la conversation principale reste propre.
 Chaque mesure de chat coûte un petit appel au modèle de l'agent.
 

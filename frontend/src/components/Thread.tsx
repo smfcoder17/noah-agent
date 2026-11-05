@@ -60,7 +60,7 @@ function linkPaths(text: string, agentId: string) {
 }
 
 const widget = { SyntaxHighlighter: NoahWidget, CodeHeader: () => null };
-const WIDGET_LANGUAGES = { noah: widget, apollo: widget };
+const WIDGET_LANGUAGES = { noah: widget, noah: widget };
 const PLUGINS = [remarkGfm];
 const SMOOTH = { drainMs: 100, minCommitMs: 50 };
 

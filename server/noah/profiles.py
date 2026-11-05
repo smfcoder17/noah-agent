@@ -139,13 +139,13 @@ class NewPassword(BaseModel):
 
 
 @router.post("/api/me/password")
-def change_password(body: NewPassword, request: Request, apollo_session: str | None = Cookie(None),
+def change_password(body: NewPassword, request: Request, noah_session: str | None = Cookie(None),
                     user: int = Depends(auth.current_user)):
     """Le mot de passe d'un profil est choisi au départ par le propriétaire : son titulaire le remplace ici. 400 et non
     401 quand il se trompe : sa session reste bonne. Les autres appareils du compte sont déconnectés."""
     if auth.check_password(access.username(user), body.actuel) != user:
         raise HTTPException(400, "Mot de passe actuel incorrect.")
-    auth.set_password(user, body.nouveau, keep=auth.session_key(auth.request_token(request, apollo_session)))
+    auth.set_password(user, body.nouveau, keep=auth.session_key(auth.request_token(request, noah_session)))
     return {"ok": True}
 
 

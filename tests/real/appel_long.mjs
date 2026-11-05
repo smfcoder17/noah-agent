@@ -22,7 +22,7 @@ const until = async (fn, seconds) => {
 
 const browser = await chromium.launch({ channel: "chrome", headless: true, args: ["--autoplay-policy=no-user-gesture-required", "--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"] });
 const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
-await context.addCookies([{ name: "apollo_session", value: process.env.NOAH_TOKEN, url: BASE }]);
+await context.addCookies([{ name: "noah_session", value: process.env.NOAH_TOKEN, url: BASE }]);
 const page = await context.newPage();
 const errors = [];
 page.on("pageerror", (e) => errors.push(String(e)));

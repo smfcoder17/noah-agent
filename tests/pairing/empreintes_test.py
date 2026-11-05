@@ -16,15 +16,15 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 DATA = Path(tempfile.mkdtemp())
-os.environ["APOLLO_DATA_DIR"] = str(DATA)
+os.environ["NOAH_DATA_DIR"] = str(DATA)
 os.environ.setdefault("LAUNCHER_KEY", "x")
-os.environ.setdefault("APOLLO_SECRET_KEY", "y" * 32)
+os.environ.setdefault("NOAH_SECRET_KEY", "y" * 32)
 sys.path.insert(0, "/app")
 from cryptography.hazmat.primitives import serialization  # noqa: E402
 from cryptography.hazmat.primitives.asymmetric import ec  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from apollo import auth, db, main  # noqa: E402
+from noah import auth, db, main  # noqa: E402
 
 db.init()
 alice = auth.create_user("alice", "motdepasse-a")
@@ -122,9 +122,9 @@ now = datetime.now(timezone.utc)
 with db.connect() as c:
     c.execute("INSERT INTO sessions (token, user_id, expires_at, device, platform) VALUES (?, ?, ?, 'Ancien', 'web')",
               (legacy, alice, (now + timedelta(days=5)).isoformat()))
-with sqlite3.connect(DATA / "apollo.db") as c:
+with sqlite3.connect(DATA / "noah.db") as c:
     c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-assert legacy.encode() in (DATA / "apollo.db").read_bytes(), "le contrôle ne verrait pas un jeton en clair sur le disque"
+assert legacy.encode() in (DATA / "noah.db").read_bytes(), "le contrôle ne verrait pas un jeton en clair sur le disque"
 auth.hash_old_sessions()
 with db.connect() as c:
     pass  # dernière connexion fermée : SQLite reverse le journal WAL dans le fichier
@@ -135,11 +135,11 @@ all_tokens = {**secrets_seen, **live}
 assert all(all_tokens.values()) and len(set(all_tokens.values())) == len(all_tokens), "jeton vide ou répété : le contrôle ne vaut rien"
 
 # 1. Le dump SQL de toute la base, et les octets bruts de tous les fichiers du dossier de données.
-with sqlite3.connect(DATA / "apollo.db") as c:
+with sqlite3.connect(DATA / "noah.db") as c:
     dump = "\n".join(c.iterdump())
     tables = sorted(r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type = 'table'"))
 files = {p.name: p.read_bytes() for p in DATA.rglob("*") if p.is_file()}
-assert "apollo.db" in files and len(dump) > 5000, "dump vide : le contrôle ne regarde rien"
+assert "noah.db" in files and len(dump) > 5000, "dump vide : le contrôle ne regarde rien"
 for name, value in all_tokens.items():
     assert value not in dump, f"{name} en clair dans le dump SQL"
     for fname, content in files.items():
@@ -148,7 +148,7 @@ print(f"1. {len(all_tokens)} jetons cherchés dans le dump SQL ({len(dump)} cara
       f"{', '.join(sorted(files))} : aucun en clair")
 
 # 2. Ce qui est en base est bien l'empreinte SHA-256 de chaque jeton d'appareil, et rien d'autre.
-with sqlite3.connect(DATA / "apollo.db") as c:
+with sqlite3.connect(DATA / "noah.db") as c:
     stored = {r[0] for r in c.execute("SELECT token FROM sessions")}
 expected = {sha256(t) for t in live.values()}
 assert stored == expected, f"sessions en base : {len(stored)}, attendues : {len(expected)}"
@@ -158,7 +158,7 @@ assert auth.digest("abc") == hashlib.sha256(b"abc").hexdigest(), "ce n'est pas d
 print(f"2. table sessions : exactement les {len(expected)} empreintes SHA-256 attendues")
 
 # 3. Les colonnes qui désignent une session (notifications) gardent l'empreinte, pas le jeton.
-with sqlite3.connect(DATA / "apollo.db") as c:
+with sqlite3.connect(DATA / "noah.db") as c:
     for table in ("push_subscriptions", "push_queue"):
         values = [r[0] for r in c.execute(f"SELECT session FROM {table}")]
         assert values == [sha256(live["android (QR)"])], f"{table}.session : {values}"

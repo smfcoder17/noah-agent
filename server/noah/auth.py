@@ -8,7 +8,7 @@ from fastapi import Cookie, Depends, HTTPException, Request, Response
 from . import db
 from .config import SESSION_DAYS
 
-COOKIE = "apollo_session"
+COOKIE = "noah_session"
 # Une session sert tant que l'appareil sert : chaque usage la prolonge (comme les apps compagnons de Home Assistant).
 # Une session qu'on ne revoit pas pendant SESSION_DAYS expire ; l'utilisateur en révoque une dans Réglages > Appareils.
 RENEW_AFTER = timedelta(days=1)
@@ -165,9 +165,9 @@ def request_token(request: Request, cookie: str | None) -> str | None:
     return header[7:] if header.lower().startswith("bearer ") else cookie
 
 
-def current_user(request: Request, apollo_session: str | None = Cookie(None), response: Response = None) -> int:
+def current_user(request: Request, noah_session: str | None = Cookie(None), response: Response = None) -> int:
     """Dépendance FastAPI : cookie pour le web, en-tête Bearer pour les apps mobile et desktop."""
-    token = request_token(request, apollo_session)
+    token = request_token(request, noah_session)
     if not token:
         raise HTTPException(401, "Connexion requise")
     key = digest(token)
@@ -191,7 +191,7 @@ def current_user(request: Request, apollo_session: str | None = Cookie(None), re
                 # Le cookie du navigateur suit la session : sans ça, il expirerait au bout de 30 jours d'usage quotidien
                 # alors que la session, elle, est prolongée. Pas celui des apps : au bureau, un cookie sans expiration n'est
                 # pas écrit sur le disque ; sous Android, la fenêtre n'a qu'une session de fenêtre (voir WINDOW_IDLE).
-                if response is not None and token == apollo_session and row["platform"] == "web":
+                if response is not None and token == noah_session and row["platform"] == "web":
                     response.set_cookie(COOKIE, token, httponly=True, samesite="lax", max_age=SESSION_DAYS * 86400,
                                         secure=request.url.scheme == "https")
             ip = request.client.host if request.client else ""
@@ -200,10 +200,10 @@ def current_user(request: Request, apollo_session: str | None = Cookie(None), re
     return row["user_id"]
 
 
-def full_session(request: Request, apollo_session: str | None = Cookie(None), user: int = Depends(current_user)) -> int:
+def full_session(request: Request, noah_session: str | None = Cookie(None), user: int = Depends(current_user)) -> int:
     """Pour ce qui donne un accès durable (appairer un appareil, créer un compte) : une copie du cookie de la fenêtre doit
     mourir avec elle, sans avoir pu se fabriquer un autre accès."""
-    if is_window(request_token(request, apollo_session)):
+    if is_window(request_token(request, noah_session)):
         raise HTTPException(403, WINDOW_REFUSED)
     return user
 

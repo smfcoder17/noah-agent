@@ -12,13 +12,13 @@ const [label = "mesure", reps = "3", lot = "travail"] = process.argv.slice(2);
 const BASE = process.env.NOAH_URL || "http://localhost:8080";
 const parts = new Set((process.env.NOAH_PARTIES || "tours,interruptions,courts,pauses").split(","));
 const { chromium } = createRequire(import.meta.url)(process.env.NOAH_PLAYWRIGHT || "playwright");
-const exec = (code) => execFileSync("docker", ["exec", "apollo-server", "python", "-c", code], { maxBuffer: 1 << 28 }).toString();
-const corpus = (name) => JSON.parse(execFileSync("docker", ["exec", "apollo-server", "python", "-m", "apollo.bench_voice", "corpus", name], { maxBuffer: 1 << 28 }).toString());
+const exec = (code) => execFileSync("docker", ["exec", "noah-server", "python", "-c", code], { maxBuffer: 1 << 28 }).toString();
+const corpus = (name) => JSON.parse(execFileSync("docker", ["exec", "noah-server", "python", "-m", "noah.bench_voice", "corpus", name], { maxBuffer: 1 << 28 }).toString());
 
-const token = exec(`from apollo import auth, db
+const token = exec(`from noah import auth, db
 with db.connect() as c: u = c.execute("SELECT id FROM users ORDER BY id LIMIT 1").fetchone()["id"]
 print(auth.new_session(u, "Banc vocal"))`).trim();
-const drop = () => exec(`from apollo import auth; auth.drop_session(${JSON.stringify(token)})`);
+const drop = () => exec(`from noah import auth; auth.drop_session(${JSON.stringify(token)})`);
 
 const percentile = (values, q) => [...values].sort((a, b) => a - b)[Math.min(values.length - 1, Math.round(q * (values.length - 1)))];
 const median = (values) => percentile(values, 0.5);
@@ -26,7 +26,7 @@ const median = (values) => percentile(values, 0.5);
 const browser = await chromium.launch({ channel: "chrome", headless: true, args: ["--autoplay-policy=no-user-gesture-required"] });
 try {
   const context = await browser.newContext();
-  await context.addCookies([{ name: "apollo_session", value: token, url: BASE }]);
+  await context.addCookies([{ name: "noah_session", value: token, url: BASE }]);
   const page = await context.newPage();
   await page.route("**/api/chat", (route) => route.fulfill({ status: 200, contentType: "text/event-stream", body: 'data: {"type":"done"}\n\n' }));
   await page.addInitScript(() => {

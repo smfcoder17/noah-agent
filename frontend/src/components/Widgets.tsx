@@ -1,4 +1,4 @@
-// Widgets que l'agent affiche dans le fil : un bloc ```noah (ou l'ancien ```apollo) contenant un objet JSON.
+// Widgets que l'agent affiche dans le fil : un bloc ```noah (ou l'ancien ```noah) contenant un objet JSON.
 // Graphique, tableau, grille d'éléments, question à choix. Le JSON invalide retombe en bloc de code.
 import type { SyntaxHighlighterProps } from "@assistant-ui/react-markdown";
 import { useAuiState } from "@assistant-ui/react";

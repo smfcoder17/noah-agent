@@ -19,14 +19,14 @@ process.env.MSYS_NO_PATHCONV = "1";
 const { chromium } = createRequire(import.meta.url)(process.env.NOAH_PLAYWRIGHT);
 const BASE = "http://localhost:8080";
 const docker = (...args) => execFileSync("docker", args, { maxBuffer: 1 << 28 }).toString();
-const py = (code) => docker("exec", "-w", "/app", "-e", "PYTHONPATH=/app", "apollo-server", "python", "-c", code).trim();
+const py = (code) => docker("exec", "-w", "/app", "-e", "PYTHONPATH=/app", "noah-server", "python", "-c", code).trim();
 const q = (sql, ...args) => JSON.parse(py(`import json
-from apollo import db
+from noah import db
 with db.connect() as c: print(json.dumps([dict(r) for r in c.execute(${JSON.stringify(sql)}, ${JSON.stringify(args).replace(/^\[/, "(").replace(/\]$/, args.length ? ",)" : ")")})]))`));
 
 let scenarios;
 if (RESERVE) {
-  scenarios = JSON.parse(docker("exec", "apollo-server", "cat", "/data/bench-voix/taches-reserve.json")).scenarios;
+  scenarios = JSON.parse(docker("exec", "noah-server", "cat", "/data/bench-voix/taches-reserve.json")).scenarios;
 } else {
   const all = JSON.parse(readFileSync(join(HERE, "taches_vocales.json"), "utf8")).scenarios;
   scenarios = which === "tout" ? all : ["travail", "garde"].includes(which) ? all.filter((s) => s.lot === which) : all.filter((s) => which.split(",").includes(s.id));
@@ -38,18 +38,18 @@ const MCP = "noah-mcp-essai";
 const TOOL = "outil-192-168-65-254";
 const startTool = () => {
   try { docker("rm", "-f", MCP); } catch {}
-  docker("run", "-d", "--name", MCP, "-p", "127.0.0.1:9911:9911", "-v", resolve(HERE, "../tools") + ":/t:ro", "-w", "/t", "apollo-server", "python", "-c",
+  docker("run", "-d", "--name", MCP, "-p", "127.0.0.1:9911:9911", "-v", resolve(HERE, "../tools") + ":/t:ro", "-w", "/t", "noah-server", "python", "-c",
     "import json, mcp_server, os, time\ns = mcp_server.Server(port=9911, session=False, fiches={'12': 'Fiche 12 : bail de la rue Verte, loyer de 840 euros.', '47': 'Fiche 47 : commande de trois cartons, livraison lundi matin.'}).start()\nwhile True:\n    open('/tmp/c.tmp', 'w').write(json.dumps([{'nom': c[0], 'args': c[1], 'reponse': s.fiches.get(str(c[1].get('id')), 'Fiche introuvable.') if c[0] == 'lire_fiche' else 'fait'} for c in s.calls]))\n    os.replace('/tmp/c.tmp', '/tmp/calls.json')\n    time.sleep(0.3)");
 };
 const toolCalls = () => {
   try { return JSON.parse(docker("exec", MCP, "cat", "/tmp/calls.json")); } catch { return []; }
 };
-const token = py(`from apollo import auth, db
+const token = py(`from noah import auth, db
 print(auth.new_session(db.owner_id(), "Banc des tâches vocales"))`);
 const agents = Object.fromEntries(q("SELECT id, name FROM agents").map((a) => [a.name, a.id]));
 
 const speak = (text) => py(`import asyncio, base64
-from apollo import bench_voice
+from noah import bench_voice
 print(base64.b64encode(asyncio.run(bench_voice._fixture(${JSON.stringify(agents.Noah)}, ${JSON.stringify(text)}))[0]).decode())`);
 
 /** La synthèse ajoute parfois une suite inventée après la phrase : on ne dit au micro qu'une voix relue une fois, sinon on la refait. */
@@ -58,7 +58,7 @@ function prepare(text) {
   const path = `/data/bench-voix/${name}`;
   for (let attempt = 0; attempt < 4; attempt++) {
     const heard = py(`import asyncio, pathlib
-from apollo import bench_voice, media
+from noah import bench_voice, media
 async def run():
     ok = pathlib.Path(${JSON.stringify(path + ".relue")})
     if ok.exists():
@@ -172,7 +172,7 @@ const INIT = () => {
 const sleep = (s) => new Promise((r) => setTimeout(r, s * 1000));
 const browser = await chromium.launch({ channel: "chrome", headless: true, args: ["--autoplay-policy=no-user-gesture-required", "--use-fake-ui-for-media-stream"] });
 const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, permissions: ["microphone"] });
-await context.addCookies([{ name: "apollo_session", value: token, url: BASE }]);
+await context.addCookies([{ name: "noah_session", value: token, url: BASE }]);
 const page = await context.newPage();
 await page.addInitScript(INIT);
 
@@ -241,7 +241,7 @@ async function play(scn) {
   const state = { expecting: false, vu: false };
   let conv = mainConv(agent);
   if (!conv) conv = py(`import uuid
-from apollo import db
+from noah import db
 v = uuid.uuid4().hex
 with db.connect() as c: c.execute("INSERT INTO conversations (id, user_id, agent_id, title, main, origin) VALUES (?, ?, ?, ?, 1, ?)", (v, db.owner_id(), ${JSON.stringify(agent)}, "Conversation", "user"))
 print(v)`);
@@ -359,21 +359,21 @@ console.log(`mémoire libre : ${out.memoire_libre_mo[0]} Mo`);
 try {
   // Les lignes de rappel des essais précédents : limite de 6 par heure et par agent.
   py(`import time
-from apollo import db
+from noah import db
 with db.connect() as c: c.execute("DELETE FROM voice_calls WHERE created_at > ?", (time.time() - 3700,))`);
   // Une conversation neuve par série : une série ne lit pas les réponses de la précédente.
   if (process.env.TACHES_CONV_NEUVE && mainConv(agents.Noah)) {
     out.ancienne_conversation = mainConv(agents.Noah);
-    py(`from apollo import db
+    py(`from noah import db
 with db.connect() as c: c.execute("UPDATE conversations SET main = 0, archived = 1 WHERE id = ?", (${JSON.stringify(out.ancienne_conversation)},))`);
   }
   // Les fichiers écrits par la série précédente : un agent qui retrouve son fichier ne le récrit pas, et le banc ne verrait rien.
-  const leftovers = docker("exec", "apollo-server", "sh", "-c", "cat /data/bench-voix/taches-fichiers.txt 2>/dev/null; true").split(/\r?\n/).filter(Boolean);
+  const leftovers = docker("exec", "noah-server", "sh", "-c", "cat /data/bench-voix/taches-fichiers.txt 2>/dev/null; true").split(/\r?\n/).filter(Boolean);
   for (const line of leftovers) {
     const [name, path] = line.split(/\t/);
-    try { docker("exec", `apollo-agent-${agents[name]}`, "rm", "-f", `/opt/data/workspace/${path}`); } catch {}
+    try { docker("exec", `noah-agent-${agents[name]}`, "rm", "-f", `/opt/data/workspace/${path}`); } catch {}
   }
-  docker("exec", "apollo-server", "sh", "-c", "rm -f /data/bench-voix/taches-fichiers.txt");
+  docker("exec", "noah-server", "sh", "-c", "rm -f /data/bench-voix/taches-fichiers.txt");
   if (scenarios.some((s) => s.droit_outil)) startTool();
   await page.goto(BASE);
   await page.waitForTimeout(1000);
@@ -391,7 +391,7 @@ with db.connect() as c: c.execute("UPDATE conversations SET main = 0, archived =
     log(i + 1, `${scn.id} ${scn.plan.find((p) => p.dire).dire}`);
     const obs = await play(scn);
     out.appels.push({ ...obs, scenario: RESERVE ? undefined : scn.id });
-    if (obs.fichiers.length) execFileSync("docker", ["exec", "-i", "apollo-server", "sh", "-c", "cat >> /data/bench-voix/taches-fichiers.txt"], { input: obs.fichiers.map((f) => `${f.agent}\t${f.chemin}\n`).join("") });
+    if (obs.fichiers.length) execFileSync("docker", ["exec", "-i", "noah-server", "sh", "-c", "cat >> /data/bench-voix/taches-fichiers.txt"], { input: obs.fichiers.map((f) => `${f.agent}\t${f.chemin}\n`).join("") });
     if (!RESERVE) {
       console.log(`  ${obs.duree} s | envoyé : ${(obs.envoyes || []).join(" / ")}`);
       console.log(`  entendu : ${(obs.paroles || []).filter((p) => p.joue).map((p) => `[${p.source}] ${p.texte}`).join(" ").slice(0, 400)}`);
@@ -405,7 +405,7 @@ with db.connect() as c: c.execute("UPDATE conversations SET main = 0, archived =
 } finally {
   await browser.close().catch(() => {});
   py(`import httpx
-from apollo import auth, db
+from noah import auth, db
 t = ${JSON.stringify(token)}
 w = httpx.Client(base_url="http://localhost:8080", headers={"Authorization": "Bearer " + t}, timeout=60)
 w.post("/api/agents/${agents.Noah}/connections/tools/${TOOL}/remove", json={})
@@ -414,7 +414,7 @@ auth.drop_session(t)`);
   try { docker("rm", "-f", MCP); } catch {}
 }
 if (RESERVE) {
-  execFileSync("docker", ["exec", "-i", "apollo-server", "sh", "-c", `cat > /data/bench-voix/taches-reserve-obs-${label}.json`], { input: JSON.stringify(out) });
+  execFileSync("docker", ["exec", "-i", "noah-server", "sh", "-c", `cat > /data/bench-voix/taches-reserve-obs-${label}.json`], { input: JSON.stringify(out) });
   console.log(`${out.appels.length} appels joués, observations gardées sur le serveur`);
 } else {
   mkdirSync(outDir, { recursive: true });

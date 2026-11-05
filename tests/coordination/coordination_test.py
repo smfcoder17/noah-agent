@@ -14,13 +14,13 @@ import tempfile
 import threading
 import time
 
-os.environ["APOLLO_DATA_DIR"] = tempfile.mkdtemp()
+os.environ["NOAH_DATA_DIR"] = tempfile.mkdtemp()
 os.environ.setdefault("LAUNCHER_KEY", "x")
-os.environ.setdefault("APOLLO_SECRET_KEY", "y" * 32)
+os.environ.setdefault("NOAH_SECRET_KEY", "y" * 32)
 sys.path.insert(0, "/app")
 import httpx  # noqa: E402
 
-from apollo import auth, coordination, db, hermes, main, media, push, relay  # noqa: E402
+from noah import auth, coordination, db, hermes, main, media, push, relay  # noqa: E402
 
 db.init()
 owner = auth.create_user("alice", "motdepasse-a")
@@ -38,7 +38,7 @@ runs: list[dict] = []
 async def fake_start(agent, text, session_id):
     if agent.id in down:
         raise httpx.ConnectError("arrêté")
-    runs.append({"agent": agent.id, "text": text, "conv": session_id.removeprefix("apollo-"), "events": asyncio.Queue()})
+    runs.append({"agent": agent.id, "text": text, "conv": session_id.removeprefix("noah-"), "events": asyncio.Queue()})
     return str(len(runs) - 1)
 
 
@@ -603,7 +603,7 @@ def test_cli():
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     script = os.path.join(tempfile.mkdtemp(), "noah.py")
-    source = hermes.AGENT_TOOL.replace("__TOKEN__", "jeton").replace("http://apollo-server:8080/agent-api", f"http://127.0.0.1:{server.server_port}/agent-api")
+    source = hermes.AGENT_TOOL.replace("__TOKEN__", "jeton").replace("http://noah-server:8080/agent-api", f"http://127.0.0.1:{server.server_port}/agent-api")
     with open(script, "w", encoding="utf-8") as f:
         f.write(source)
 

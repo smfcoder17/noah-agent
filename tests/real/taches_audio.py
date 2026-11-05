@@ -5,8 +5,8 @@ qu'ils reçoivent et rendent une réponse fixe. Cette preuve est donc plus faibl
 vrai fichier, et le temps d'exécution d'un vrai agent ne compte pas. Rend des observations au format de taches_vocales.mjs,
 à passer aux mêmes juges.
 
-    docker cp tests/real/taches_audio.py apollo-server:/tmp/ ; docker cp tests/real/taches_vocales.json apollo-server:/tmp/
-    docker exec -w /app -e PYTHONPATH=/app apollo-server python /tmp/taches_audio.py openai/gpt-audio-mini [T04,T07] > obs.json
+    docker cp tests/real/taches_audio.py noah-server:/tmp/ ; docker cp tests/real/taches_vocales.json noah-server:/tmp/
+    docker exec -w /app -e PYTHONPATH=/app noah-server python /tmp/taches_audio.py openai/gpt-audio-mini [T04,T07] > obs.json
 """
 import asyncio
 import base64
@@ -17,8 +17,8 @@ import time
 
 import httpx
 
-from apollo import media
-from apollo.config import DATA_DIR
+from noah import media
+from noah.config import DATA_DIR
 
 MODEL = sys.argv[1] if len(sys.argv) > 1 else "openai/gpt-audio-mini"
 ONLY = set(sys.argv[2].split(",")) if len(sys.argv) > 2 else None

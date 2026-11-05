@@ -9,9 +9,9 @@ import sys
 import tempfile
 from pathlib import Path
 
-os.environ["APOLLO_DATA_DIR"] = tempfile.mkdtemp()
+os.environ["NOAH_DATA_DIR"] = tempfile.mkdtemp()
 os.environ.setdefault("LAUNCHER_KEY", "x")
-os.environ.setdefault("APOLLO_SECRET_KEY", "y" * 32)
+os.environ.setdefault("NOAH_SECRET_KEY", "y" * 32)
 sys.path.insert(0, "/app")
 import httpx  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -29,7 +29,7 @@ class Sandbox(httpx.AsyncClient):
 
 httpx.AsyncClient = Sandbox
 
-from apollo import auth, coordination, db, hermes, main  # noqa: E402
+from noah import auth, coordination, db, hermes, main  # noqa: E402
 
 
 async def nothing(*a, **k):
@@ -40,7 +40,7 @@ hermes.configure = hermes.recreate_container = hermes.restart = nothing
 
 # --- 0. Une base d'avant l'apparence reçoit les colonnes sans rien perdre --------------------------------------------------
 old = Path(tempfile.mkdtemp())
-raw = sqlite3.connect(old / "apollo.db")
+raw = sqlite3.connect(old / "noah.db")
 raw.executescript("""
 CREATE TABLE agents (id TEXT PRIMARY KEY, name TEXT NOT NULL, role TEXT NOT NULL DEFAULT '', api_key TEXT NOT NULL, color TEXT NOT NULL DEFAULT '',
   pinned INTEGER NOT NULL DEFAULT 0, created_at TEXT DEFAULT CURRENT_TIMESTAMP);

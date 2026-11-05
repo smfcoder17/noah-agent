@@ -15,9 +15,9 @@ import sys
 import tempfile
 import urllib.parse
 
-os.environ["APOLLO_DATA_DIR"] = tempfile.mkdtemp()
+os.environ["NOAH_DATA_DIR"] = tempfile.mkdtemp()
 os.environ.setdefault("LAUNCHER_KEY", "x")
-os.environ.setdefault("APOLLO_SECRET_KEY", "y" * 32)
+os.environ.setdefault("NOAH_SECRET_KEY", "y" * 32)
 sys.path.insert(0, "/app")
 import http_ece  # noqa: E402
 import httpx  # noqa: E402
@@ -25,7 +25,7 @@ from cryptography.hazmat.primitives import serialization  # noqa: E402
 from cryptography.hazmat.primitives.asymmetric import ec  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from apollo import auth, db, desktop, main, push  # noqa: E402
+from noah import auth, db, desktop, main, push  # noqa: E402
 
 db.init()
 TITLE, TEXT, CALL = "TITRE-PRIVE-G44", "TEXTE-PRIVE-G44 ton dossier medical", "APPEL-PRIVE-G44"
@@ -154,8 +154,8 @@ print("3. chiffré différent à chaque envoi, illisible pour un autre appareil"
 
 # 4. Aucune autre route vers un tiers : hors de push.py, les abonnements sont supprimés ou comptés, jamais utilisés pour
 # envoyer ; le seul envoi de push.py passe par encrypt().
-apollo = pathlib.Path(main.__file__).parent
-for path in apollo.glob("*.py"):
+noah = pathlib.Path(main.__file__).parent
+for path in noah.glob("*.py"):
     if path.name in ("push.py", "db.py"):
         continue
     source = path.read_text(encoding="utf-8")
@@ -164,7 +164,7 @@ for path in apollo.glob("*.py"):
             assert "DELETE FROM" in line or "SELECT p.endpoint FROM" in line, f"{path.name} : {line.strip()}"
     assert "ntfy" not in source.lower() and "fcm.googleapis" not in source, f"{path.name} parle à un service de push"
     assert "p256dh" not in source, f"{path.name} lit les clés d'un abonnement"
-source = (apollo / "push.py").read_text(encoding="utf-8")
+source = (noah / "push.py").read_text(encoding="utf-8")
 posts = re.findall(r"client\.post\(.*\)", source)
 assert len(posts) == 1 and "content=encrypt(payload" in posts[0], posts
 assert not re.findall(r"(?<!router)\.(?:post|put|patch|request|stream)\(", source.replace("client.post(", "")), "autre envoi réseau dans push.py"

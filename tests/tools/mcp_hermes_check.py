@@ -6,7 +6,7 @@ validation (fermée sans personne), refuse en routine, et une panne reste un ré
 un vrai tour de modèle, la gateway qui tourne, /v1/runs de bout en bout. Trop lourd pour la CI (image de 4 Go) : à la main.
 
     MSYS_NO_PATHCONV=1 docker run --rm --memory=1g --entrypoint /opt/hermes/.venv/bin/python \
-      -v "$PWD/server/apollo/agent_plugin:/plugin:ro" -v "$PWD/tests/tools:/check:ro" \
+      -v "$PWD/server/noah/agent_plugin:/plugin:ro" -v "$PWD/tests/tools:/check:ro" \
       nousresearch/hermes-agent:stable /check/mcp_hermes_check.py
 """
 import json

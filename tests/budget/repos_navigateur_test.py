@@ -1,20 +1,20 @@
 """Un navigateur éteint s'arrête après un délai ; jamais pendant qu'il sert, ni pendant une tâche de l'agent.
 
-    docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" -w /app apollo-server python /tests/budget/repos_navigateur_test.py
+    docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" -w /app noah-server python /tests/budget/repos_navigateur_test.py
 """
 import asyncio
 import os
 import sys
 import tempfile
 
-os.environ.setdefault("APOLLO_DATA_DIR", tempfile.mkdtemp())
-os.environ.setdefault("APOLLO_SECRET_KEY", "x" * 64)
+os.environ.setdefault("NOAH_DATA_DIR", tempfile.mkdtemp())
+os.environ.setdefault("NOAH_SECRET_KEY", "x" * 64)
 os.environ.setdefault("LAUNCHER_KEY", "k")
 sys.path.insert(0, "/app")
 
 import httpx  # noqa: E402
 
-from apollo import hermes, main, relay  # noqa: E402
+from noah import hermes, main, relay  # noqa: E402
 
 stopped, health = [], {}
 

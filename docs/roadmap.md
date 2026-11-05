@@ -9,7 +9,7 @@ et il prend l'initiative. Une première version tourne sur un VPS ; l'applicatio
 - Widgets, aperçus de fichiers, visionneuse, création d'images, vidéos, musique et voix.
 - Dictée et mode vocal. Une voix rapide (Gemini Flash Lite) répond en ~2,5 s pendant que l'agent travaille, puis résume son résultat.
 - Navigateur : délais allongés, écran 1920x1080, onglet partagé avec l'agent, réveil et redémarrage, diagnostic `noah.py etat`.
-- Empreinte du navigateur alignée sur la connexion (langue et fuseau déduits de l'IP, ou `APOLLO_LOCALE` / `APOLLO_TIMEZONE`).
+- Empreinte du navigateur alignée sur la connexion (langue et fuseau déduits de l'IP, ou `NOAH_LOCALE` / `NOAH_TIMEZONE`).
 - Import d'une session (cookies) pour les sites qui bloquent la connexion automatisée (X, Google, banques).
 
 ## Phase 1 — L'ordinateur de l'agent
@@ -26,7 +26,7 @@ et il prend l'initiative. Une première version tourne sur un VPS ; l'applicatio
 - Un modèle de décision rapide lit la demande, les préférences et la mémoire de l'utilisateur (prioritaires), et choisit :
   SVG ou code (logo simple, icône, schéma, graphique), dessin par programme, ou modèle de génération ; puis le modèle
   selon le style, le texte dans l'image, le photoréalisme, le coût et la difficulté.
-- Base de décision versionnée (`server/apollo/routing/*.json`) : forces de chaque modèle, cas types, exemples annotés,
+- Base de décision versionnée (`server/noah/routing/*.json`) : forces de chaque modèle, cas types, exemples annotés,
   avec tests de non-régression (une demande → le choix attendu).
 - Même logique pour vidéo, musique, voix, et pour le cerveau (tâche simple → modèle rapide, tâche difficile → modèle fort).
 
@@ -60,5 +60,5 @@ et il prend l'initiative. Une première version tourne sur un VPS ; l'applicatio
 ## Phase 7 — Déploiement
 
 - VPS : HTTPS automatique (Caddy), nom de domaine, sauvegardes, mises à jour, installation en une commande.
-- Renommer l'interne (`apollo-*` → `noah-*`, volumes) avec migration des données.
+- Renommer l'interne (`noah-*` → `noah-*`, volumes) avec migration des données.
 - Puis : application mobile (même API, notifications).

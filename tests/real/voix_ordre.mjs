@@ -11,13 +11,13 @@ const BASE = "http://localhost:8080";
 const OUT = resolve(process.argv[2] || "captures");
 mkdirSync(OUT, { recursive: true });
 process.env.MSYS_NO_PATHCONV = "1";
-const py = (code) => execFileSync("docker", ["exec", "-w", "/app", "-e", "PYTHONPATH=/app", "apollo-server", "python", "-c", code], { maxBuffer: 1 << 28 }).toString().trim();
-const count = (sql) => Number(py(`from apollo import db
+const py = (code) => execFileSync("docker", ["exec", "-w", "/app", "-e", "PYTHONPATH=/app", "noah-server", "python", "-c", code], { maxBuffer: 1 << 28 }).toString().trim();
+const count = (sql) => Number(py(`from noah import db
 with db.connect() as c: print(c.execute(${JSON.stringify(sql)}).fetchone()[0])`));
 const speak = (agent, text) => py(`import asyncio, base64
-from apollo import media
+from noah import media
 print(base64.b64encode(asyncio.run(media.speak(${JSON.stringify(agent)}, ${JSON.stringify(text)}))[0]).decode())`);
-const token = py(`from apollo import auth, db
+const token = py(`from noah import auth, db
 print(auth.new_session(db.owner_id(), "Parcours voix"))`);
 
 const results = [];
@@ -38,7 +38,7 @@ const until = async (fn, seconds) => {
 const docker = (...args) => execFileSync("docker", args, { maxBuffer: 1 << 26 }).toString();
 const MCP = "noah-mcp-essai";
 try { docker("rm", "-f", MCP); } catch {}
-docker("run", "-d", "--name", MCP, "-p", "127.0.0.1:9911:9911", "-v", resolve("tests/tools") + ":/t:ro", "-w", "/t", "apollo-server", "python", "-c",
+docker("run", "-d", "--name", MCP, "-p", "127.0.0.1:9911:9911", "-v", resolve("tests/tools") + ":/t:ro", "-w", "/t", "noah-server", "python", "-c",
   "import json, mcp_server, time\ns = mcp_server.Server(port=9911, session=False).start()\nwhile True:\n    open('/tmp/calls.json', 'w').write(json.dumps([c[0] for c in s.calls]))\n    time.sleep(0.5)");
 const toolCalls = () => JSON.parse(docker("exec", MCP, "cat", "/tmp/calls.json"));
 const TOOL = "outil-192-168-65-254";
@@ -48,7 +48,7 @@ let openPage, agentId;
 const browser = await chromium.launch({ channel: "chrome", headless: true, args: ["--autoplay-policy=no-user-gesture-required", "--use-fake-ui-for-media-stream"] });
 try {
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, permissions: ["microphone"] });
-  await context.addCookies([{ name: "apollo_session", value: token, url: BASE }]);
+  await context.addCookies([{ name: "noah_session", value: token, url: BASE }]);
   const page = await context.newPage();
   await page.addInitScript(() => {
     const ctx = new AudioContext();
@@ -80,7 +80,7 @@ try {
   await page.reload();
   await page.waitForTimeout(1500);
   await page.getByRole("button", { name: /^Noah/ }).first().click();
-  const agent = py(`from apollo import db
+  const agent = py(`from noah import db
 with db.connect() as c: print(c.execute("SELECT id FROM agents WHERE name = 'Noah'").fetchone()[0])`);
   openPage = page;
   agentId = agent;
@@ -100,7 +100,7 @@ with db.connect() as c: print(c.execute("SELECT id FROM agents WHERE name = 'Noa
   check("J7 : à la voix, la demande part chez Rita", sent !== null, `${sent} s`);
   const done = sent !== null && await until(() => count("SELECT etat = 'fini' FROM delegations ORDER BY created_at DESC LIMIT 1") === 1, 150);
   check("J7 : Rita a fini", done !== false && done !== null, `${done} s`);
-  console.log("consigne :", py(`from apollo import db
+  console.log("consigne :", py(`from noah import db
 with db.connect() as c: print(c.execute("SELECT consigne FROM delegations ORDER BY created_at DESC LIMIT 1").fetchone()[0][:200])`));
   check("La voix a parlé pendant ce temps", (await page.evaluate(() => window.__played)) > 0, String(await page.evaluate(() => window.__played)));
   await page.screenshot({ path: `${OUT}/20-voix-demande.png` });
@@ -140,7 +140,7 @@ with db.connect() as c: print(c.execute("SELECT consigne FROM delegations ORDER 
   }
   try { docker("rm", "-f", MCP); } catch {}
   await browser.close();
-  py(`from apollo import auth
+  py(`from noah import auth
 auth.drop_session(${JSON.stringify(token)})`);
 }
 console.log(`${results.filter(Boolean).length} tenus, ${results.filter((r) => !r).length} ratés`);

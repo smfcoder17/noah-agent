@@ -8,13 +8,13 @@ import os
 import sys
 import tempfile
 
-os.environ["APOLLO_DATA_DIR"] = tempfile.mkdtemp()
+os.environ["NOAH_DATA_DIR"] = tempfile.mkdtemp()
 os.environ.setdefault("LAUNCHER_KEY", "x")
-os.environ.setdefault("APOLLO_SECRET_KEY", "y" * 32)
+os.environ.setdefault("NOAH_SECRET_KEY", "y" * 32)
 sys.path.insert(0, "/app")
 import httpx  # noqa: E402
 
-from apollo import auth, db, hermes, main, pendant  # noqa: E402
+from noah import auth, db, hermes, main, pendant  # noqa: E402
 
 db.init()
 alice = auth.create_user("alice", "motdepasse-a")

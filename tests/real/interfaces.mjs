@@ -1,6 +1,6 @@
 // Vrai navigateur sur la vraie application, avec de vrais agents et un vrai modèle : profils, partage, outil au choix, droits
 // de l'outil, panne de l'outil, sonnerie d'un rappel. Écrit ses captures dans le dossier donné et remet tout en ordre à la fin.
-// Il faut les agents « Noah » et « Rita » démarrés (tests/real/parcours_agents.py crée Rita), et l'image apollo-server.
+// Il faut les agents « Noah » et « Rita » démarrés (tests/real/parcours_agents.py crée Rita), et l'image noah-server.
 //   NOAH_PLAYWRIGHT=<chemin de playwright> node tests/real/interfaces.mjs <dossier>
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
@@ -14,8 +14,8 @@ mkdirSync(OUT, { recursive: true });
 process.env.MSYS_NO_PATHCONV = "1";
 
 const docker = (...args) => execFileSync("docker", args, { maxBuffer: 1 << 26 }).toString();
-const py = (code) => docker("exec", "-w", "/app", "-e", "PYTHONPATH=/app", "apollo-server", "python", "-c", code).trim();
-const token = py(`from apollo import auth, db
+const py = (code) => docker("exec", "-w", "/app", "-e", "PYTHONPATH=/app", "noah-server", "python", "-c", code).trim();
+const token = py(`from noah import auth, db
 print(auth.new_session(db.owner_id(), "Parcours interfaces"))`);
 const PROFILE = "essai-bruno";
 const PASSWORD = "essai-" + Math.random().toString(36).slice(2, 12);
@@ -26,7 +26,7 @@ const MCP = "noah-mcp-essai";
 const MCP_URL = "http://192.168.65.254:9911/mcp";
 const startTool = () => {
   try { docker("rm", "-f", MCP); } catch {}
-  docker("run", "-d", "--name", MCP, "-p", "127.0.0.1:9911:9911", "-v", resolve("tests/tools") + ":/t:ro", "-w", "/t", "apollo-server", "python", "-c",
+  docker("run", "-d", "--name", MCP, "-p", "127.0.0.1:9911:9911", "-v", resolve("tests/tools") + ":/t:ro", "-w", "/t", "noah-server", "python", "-c",
     "import json, mcp_server, time\ns = mcp_server.Server(port=9911, session=False).start()\nwhile True:\n    open('/tmp/calls.json', 'w').write(json.dumps([c[0] for c in s.calls]))\n    time.sleep(0.5)");
 };
 const toolCalls = () => JSON.parse(docker("exec", MCP, "cat", "/tmp/calls.json"));
@@ -94,7 +94,7 @@ let page, noah, rita, toolName;
 try {
   startTool();
   const owner = await browser.newContext({ viewport: { width: 1280, height: 800 }, permissions: ["microphone"] });
-  await owner.addCookies([{ name: "apollo_session", value: token, url: BASE }]);
+  await owner.addCookies([{ name: "noah_session", value: token, url: BASE }]);
   page = await owner.newPage();
   watch(page, "propriétaire");
   await page.addInitScript(() => {
@@ -221,15 +221,15 @@ try {
     const setRight = (droit) => api(page, "PUT", `/api/agents/${noah}/connections/tools/${toolName}/droit`, { droit });
 
     // Le jeton d'un agent, sorti de sa machine, ne sert à rien depuis dehors.
-    const leaked = py(`from apollo import relay
+    const leaked = py(`from noah import relay
 print(relay.token_for(${JSON.stringify(noah)}))`);
     const outside = await fetch(BASE + "/agent-api/agents", { headers: { Authorization: "Bearer " + leaked } });
     check("Le jeton d'un agent est refusé depuis dehors", outside.status === 403, String(outside.status));
 
     // L'agent ne peut pas se donner un droit : son utilisateur n'écrit pas ce fichier, et le parent n'est pas à lui.
-    const forged = () => { try { docker("exec", "-u", "hermes", "apollo-agent-" + noah, "sh", "-c", `echo '{"${toolName}":"agir"}' > /etc/noah/mcp-droits.json`); return true; } catch { return false; } };
+    const forged = () => { try { docker("exec", "-u", "hermes", "noah-agent-" + noah, "sh", "-c", `echo '{"${toolName}":"agir"}' > /etc/noah/mcp-droits.json`); return true; } catch { return false; } };
     check("L'agent ne peut pas réécrire ses droits", !forged());
-    check("Ses droits sont bien ceux de Noah", JSON.parse(docker("exec", "apollo-agent-" + noah, "cat", "/etc/noah/mcp-droits.json"))[toolName] === "confirmer");
+    check("Ses droits sont bien ceux de Noah", JSON.parse(docker("exec", "noah-agent-" + noah, "cat", "/etc/noah/mcp-droits.json"))[toolName] === "confirmer");
 
     // Confirmer : l'appel attend, et un refus n'arrive jamais au serveur.
     let calls = toolCalls().length;
@@ -275,7 +275,7 @@ print(relay.token_for(${JSON.stringify(noah)}))`);
   await step("Un vrai rappel fait sonner l'écran", async () => {
     await page.reload();
     await page.waitForTimeout(1500);
-    console.log("rappel :", docker("exec", "apollo-agent-" + noah, "python3", "/opt/data/noah.py", "rappeler", "Le rapport est prêt : tout est en ordre.").replace(/\s+/g, " ").slice(0, 120));
+    console.log("rappel :", docker("exec", "noah-agent-" + noah, "python3", "/opt/data/noah.py", "rappeler", "Le rapport est prêt : tout est en ordre.").replace(/\s+/g, " ").slice(0, 120));
     const t0 = Date.now();
     const heard = await page.evaluate(() => window.__played);
     const ring = page.getByRole("button", { name: "Répondre", exact: true });
@@ -297,7 +297,7 @@ print(relay.token_for(${JSON.stringify(noah)}))`);
   }
   await browser.close();
   try { docker("rm", "-f", MCP); } catch {}
-  py(`from apollo import auth
+  py(`from noah import auth
 auth.drop_session(${JSON.stringify(token)})`);
 }
 console.log("\nErreurs de page :", problems.length ? problems.join("\n") : "aucune");

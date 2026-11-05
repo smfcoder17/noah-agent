@@ -2,10 +2,10 @@
 # Ajouté à docker-compose.yml ; le chemin relatif part du dossier de docker-compose.yml. Voir tests/real/profils_reels.mjs.
 services:
   server:
-    image: ${NOAH_ESSAI_SERVEUR:-apollo-server:latest}
+    image: ${NOAH_ESSAI_SERVEUR:-noah-server:latest}
     environment:
-      APOLLO_LOCALE: fr-FR
-      APOLLO_TIMEZONE: Europe/Paris
+      NOAH_LOCALE: fr-FR
+      NOAH_TIMEZONE: Europe/Paris
       NOAH_PUSH_HOSTS: noah-faux
       SSL_CERT_FILE: /ca/ca.pem
     volumes:
@@ -14,11 +14,11 @@ services:
       - ${NOAH_ESSAI_CODE_SERVEUR:-noah-essai-vide}:${NOAH_ESSAI_CIBLE_SERVEUR:-/tmp/vide}
     depends_on: [faux]
   launcher:
-    image: ${NOAH_ESSAI_LANCEUR:-apollo-launcher:latest}
+    image: ${NOAH_ESSAI_LANCEUR:-noah-launcher:latest}
     volumes:
       - ${NOAH_ESSAI_CODE_LANCEUR:-noah-essai-vide}:${NOAH_ESSAI_CIBLE_LANCEUR:-/tmp/vide}
   faux:
-    image: ${NOAH_ESSAI_SERVEUR:-apollo-server:latest}
+    image: ${NOAH_ESSAI_SERVEUR:-noah-server:latest}
     container_name: noah-faux
     command: ["python", "/t/faux_services.py"]
     ports:
@@ -26,7 +26,7 @@ services:
     volumes:
       - ./tests/real:/t:ro
       - noah-essai-ca:/ca
-    networks: [apollo]
+    networks: [noah]
 
 volumes:
   noah-essai-data:

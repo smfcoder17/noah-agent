@@ -38,7 +38,7 @@ const until = async (test, ms) => {
 
 const browser = await chromium.launch({ channel: "chrome", headless: true, args: ["--autoplay-policy=no-user-gesture-required", "--use-fake-ui-for-media-stream"] });
 const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, permissions: ["microphone"] });
-await context.addCookies([{ name: "apollo_session", value: TOKEN, url: BASE }]);
+await context.addCookies([{ name: "noah_session", value: TOKEN, url: BASE }]);
 const page = await context.newPage();
 const t0 = Date.now();
 const log = (...a) => console.log(`[${((Date.now() - t0) / 1000).toFixed(1)} s]`, ...a);

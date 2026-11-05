@@ -11,13 +11,13 @@ const BASE = "http://localhost:8080";
 const OUT = resolve(process.argv[2] || "captures");
 mkdirSync(OUT, { recursive: true });
 process.env.MSYS_NO_PATHCONV = "1";
-const py = (code) => execFileSync("docker", ["exec", "-w", "/app", "-e", "PYTHONPATH=/app", "apollo-server", "python", "-c", code], { maxBuffer: 1 << 28 }).toString().trim();
+const py = (code) => execFileSync("docker", ["exec", "-w", "/app", "-e", "PYTHONPATH=/app", "noah-server", "python", "-c", code], { maxBuffer: 1 << 28 }).toString().trim();
 const speak = (agent, text) => py(`import asyncio, base64
-from apollo import media
+from noah import media
 print(base64.b64encode(asyncio.run(media.speak(${JSON.stringify(agent)}, ${JSON.stringify(text)}))[0]).decode())`);
-const token = py(`from apollo import auth, db
+const token = py(`from noah import auth, db
 print(auth.new_session(db.owner_id(), "Appel vrai"))`);
-const agent = py(`from apollo import db
+const agent = py(`from noah import db
 with db.connect() as c: print(c.execute("SELECT id FROM agents WHERE name = 'Noah'").fetchone()[0])`);
 const bad = [];
 const check = (name, ok, detail = "") => {
@@ -28,7 +28,7 @@ const seconds = (t0) => ((Date.now() - t0) / 1000).toFixed(1);
 
 const browser = await chromium.launch({ channel: "chrome", headless: true, args: ["--autoplay-policy=no-user-gesture-required", "--use-fake-ui-for-media-stream"] });
 const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, permissions: ["microphone"] });
-await context.addCookies([{ name: "apollo_session", value: token, url: BASE }]);
+await context.addCookies([{ name: "noah_session", value: token, url: BASE }]);
 const page = await context.newPage();
 const errors = [];
 page.on("pageerror", (e) => errors.push(String(e)));

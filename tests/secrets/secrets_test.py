@@ -2,7 +2,7 @@
 Docker Manager de Hostinger), et l'API de l'agent comme le navigateur refusent toujours qui n'a pas le jeton.
 
 À lancer dans le conteneur du lanceur (il a le socket Docker et la clé) :
-    docker cp tests/secrets/secrets_test.py apollo-launcher:/tmp/ && docker exec apollo-launcher python /tmp/secrets_test.py
+    docker cp tests/secrets/secrets_test.py noah-launcher:/tmp/ && docker exec noah-launcher python /tmp/secrets_test.py
 """
 import json
 import os
@@ -48,7 +48,7 @@ def wait_up(url: str, token: str | None) -> int:
 
 try:
     assert call("POST", f"http://localhost:9000/agents/{agent_id}", {"api_key": api_key}) == 200
-    agent = f"apollo-agent-{agent_id}"
+    agent = f"noah-agent-{agent_id}"
     assert not leaked(agent), f"jeton dans la config Docker de l'agent : {leaked(agent)}"
     url = f"http://{agent}:8642/v1/models"
     assert wait_up(url, api_key) == 200, "l'agent refuse son propre jeton"
@@ -57,7 +57,7 @@ try:
 
     body = {"api_key": browser_key, "vnc_password": vnc, "locale": "fr-FR", "timezone": "Europe/Paris"}
     assert call("POST", f"http://localhost:9000/agents/{agent_id}/browser", body) == 200
-    browser = f"apollo-browser-{agent_id}"
+    browser = f"noah-browser-{agent_id}"
     assert not leaked(browser), f"jeton dans la config Docker du navigateur : {leaked(browser)}"
     wait_up(f"http://{browser}:9377/health", None)
     # Import de cookies : la route que Camoufox protège par CAMOFOX_API_KEY (lu du fichier au démarrage).
@@ -76,7 +76,7 @@ try:
     import updater
     c = client.containers.get(agent)
     c.stop(timeout=30)
-    legacy = client.containers.create(c.image.id, command="gateway run", name=agent + "-avant", labels={"apollo.agent": agent_id},
+    legacy = client.containers.create(c.image.id, command="gateway run", name=agent + "-avant", labels={"noah.agent": agent_id},
                                       environment={"API_SERVER_ENABLED": "true", "API_SERVER_HOST": "0.0.0.0", "API_SERVER_KEY": api_key},
                                       volumes={agent: {"bind": "/opt/data", "mode": "rw"}}, network=c.attrs["HostConfig"]["NetworkMode"])
     c.remove(force=True)
@@ -92,8 +92,8 @@ try:
     # Un nouveau conteneur qui ne répond pas : lui seul est supprimé, l'original revient sous son nom et redémarre.
     import launcher as L  # noqa: E402
     img = client.containers.get(agent).image.id
-    mig = f"apollo-agent-{agent_id}-mig"
-    orig = client.containers.create(img, entrypoint=["sleep", "3600"], name=mig, labels={"apollo.agent": agent_id + "-mig"},
+    mig = f"noah-agent-{agent_id}-mig"
+    orig = client.containers.create(img, entrypoint=["sleep", "3600"], name=mig, labels={"noah.agent": agent_id + "-mig"},
                                     environment={"API_SERVER_KEY": api_key}, volumes={mig: {"bind": "/opt/data", "mode": "rw"}})
     orig.start()
     stale = client.containers.create(img, entrypoint=["sleep", "3600"], name=mig + "-ancien")
@@ -123,13 +123,13 @@ try:
     print("secrets hors de la config Docker : tout est vert")
 finally:
     call("DELETE", f"http://localhost:9000/agents/{agent_id}")
-    for name in (f"apollo-agent-{agent_id}", f"apollo-agent-{agent_id}-avant", f"apollo-browser-{agent_id}",
-                 f"apollo-agent-{agent_id}-mig", f"apollo-agent-{agent_id}-mig-ancien"):
+    for name in (f"noah-agent-{agent_id}", f"noah-agent-{agent_id}-avant", f"noah-browser-{agent_id}",
+                 f"noah-agent-{agent_id}-mig", f"noah-agent-{agent_id}-mig-ancien"):
         try:
             client.containers.get(name).remove(force=True)
         except docker.errors.NotFound:
             pass
-    for v in (f"apollo-agent-{agent_id}", f"apollo-browser-{agent_id}", f"apollo-agent-{agent_id}-mig"):
+    for v in (f"noah-agent-{agent_id}", f"noah-browser-{agent_id}", f"noah-agent-{agent_id}-mig"):
         try:
             client.volumes.get(v).remove(force=True)
         except docker.errors.NotFound:

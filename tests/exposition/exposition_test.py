@@ -53,7 +53,7 @@ assert not any(ports.values()), f"service publié en plus de Caddy : {ports}"
 assert {"server", "launcher", "caddy"} <= set(vps), "le fichier a changé de forme : le contrôle ne regarde plus les bons services"
 for name, s in vps.items():
     assert s.get("network_mode") is None, f"{name} sur le réseau de l'hôte"
-    assert s.get("networks") == ["apollo"], f"{name} hors du réseau interne : {s.get('networks')}"
+    assert s.get("networks") == ["noah"], f"{name} hors du réseau interne : {s.get('networks')}"
 print("1. deploy/docker-compose.yml : seul Caddy publie, 80/tcp, 443/tcp et 443/udp ; aucun réseau de l'hôte")
 
 # 2. Autres manières d'installer : rien sur une adresse publique sans le demander.
@@ -84,7 +84,7 @@ docker.errors.NotFound = type("NotFound", (Exception,), {})
 docker.errors.APIError = type("APIError", (Exception,), {})
 docker.errors.ImageNotFound = type("ImageNotFound", (Exception,), {})
 sys.modules.update({"docker": docker, "docker.errors": docker.errors, "docker.types": docker.types})
-os.environ.update({"LAUNCHER_KEY": "x", "AGENT_NETWORK": "apollo-net", "NOAH_UPDATE_STATE": str(Path(tempfile.mkdtemp()) / "updates.json"),
+os.environ.update({"LAUNCHER_KEY": "x", "AGENT_NETWORK": "noah-net", "NOAH_UPDATE_STATE": str(Path(tempfile.mkdtemp()) / "updates.json"),
                    "NOAH_SECRETS_FILE": str(Path(tempfile.mkdtemp()) / "noah.json")})
 sys.path.insert(0, str(REPO / "launcher"))
 start = threading.Thread.start
@@ -110,7 +110,7 @@ def created() -> dict:
 launcher._run_agent("essai", "k", [])
 agent = created()
 assert not PUBLISHING & set(agent), f"agent : {PUBLISHING & set(agent)}"
-assert agent["network"] == "apollo-net" and agent["name"] == "apollo-agent-essai", agent
+assert agent["network"] == "noah-net" and agent["name"] == "noah-agent-essai", agent
 assert agent["environment"]["API_SERVER_HOST"] == "0.0.0.0", "le contrôle attend une écoute sur le réseau interne"
 client.containers.create.reset_mock()
 launcher.container = lambda agent_id: None  # le navigateur vérifie d'abord que l'agent existe
@@ -126,9 +126,9 @@ except Created:
     pass
 browser = created()
 assert not PUBLISHING & set(browser), f"navigateur : {PUBLISHING & set(browser)}"
-assert browser["network"] == "apollo-net", browser
+assert browser["network"] == "noah-net", browser
 assert browser["environment"]["CAMOFOX_CRASH_REPORT_ENABLED"] == "false", "rapports de plantage du navigateur activés"
-print("5. agent et navigateur créés par le lanceur : réseau apollo-net, aucun port publié")
+print("5. agent et navigateur créés par le lanceur : réseau noah-net, aucun port publié")
 
 # 6. Tous les appels Docker du lanceur, même ceux que ce test ne déclenche pas : aucun ne publie de port.
 found = []
@@ -144,22 +144,22 @@ print(f"6. appels Docker du lanceur lus un par un : aucun ne publie de port ({le
 # 7. Recréation à la mise à jour : elle garde ce que le conteneur avait, sans rien publier de plus.
 old = MagicMock()
 old.id = "abcdef012345"
-old.attrs = {"Config": {"Env": [], "ExposedPorts": {"8642/tcp": {}}, "Labels": {}}, "HostConfig": {"NetworkMode": "apollo-net", "PortBindings": None},
-             "NetworkSettings": {"Networks": {"apollo-net": {"Aliases": []}}}, "Mounts": []}
+old.attrs = {"Config": {"Env": [], "ExposedPorts": {"8642/tcp": {}}, "Labels": {}}, "HostConfig": {"NetworkMode": "noah-net", "PortBindings": None},
+             "NetworkSettings": {"Networks": {"noah-net": {"Aliases": []}}}, "Mounts": []}
 old.image.attrs = {"Config": {}}
 old.get_archive.side_effect = docker.errors.NotFound()  # pas de droits d'outils à recopier
 updater._get = lambda name: None
 client.api.create_container.return_value = {"Id": "nouveau"}
 client.containers.get.side_effect = None
-updater._create_like(old, "apollo-agent-essai", "image")
+updater._create_like(old, "noah-agent-essai", "image")
 kw = client.api.create_container.call_args.kwargs
 assert not kw["host_config"].get("PortBindings") and not kw["host_config"].get("PublishAllPorts"), kw["host_config"]
 print("7. agent recréé par une mise à jour : toujours aucun port publié")
 
 # 8. Par les routes : personne sans session ne fait parler le serveur à Hermes, au navigateur ou au lanceur.
-os.environ["APOLLO_DATA_DIR"] = tempfile.mkdtemp()
+os.environ["NOAH_DATA_DIR"] = tempfile.mkdtemp()
 os.environ["LAUNCHER_URL"] = "http://launcher:9000"
-os.environ.setdefault("APOLLO_SECRET_KEY", "y" * 32)
+os.environ.setdefault("NOAH_SECRET_KEY", "y" * 32)
 sys.path.insert(0, str(REPO / "server"))
 import httpx  # noqa: E402
 from fastapi.routing import APIRoute  # noqa: E402
@@ -183,7 +183,7 @@ def record(self, request):
 httpx.AsyncHTTPTransport.handle_async_request = record_async
 httpx.HTTPTransport.handle_request = record
 
-from apollo import auth, db, main  # noqa: E402
+from noah import auth, db, main  # noqa: E402
 
 db.init()
 owner = auth.create_user("alice", "motdepasse-a")
@@ -213,7 +213,7 @@ for route in main.app.routes:
         r = anon.request(method, path, json={})
         statuses[f"{method} {path}"] = r.status_code
         tried += 1
-internal = {r for r in reached if r[2] == "launcher" or r[2].startswith("apollo-")}
+internal = {r for r in reached if r[2] == "launcher" or r[2].startswith("noah-")}
 # Seule exception : l'avancement d'une restauration, lu par la page d'installation avant qu'un compte existe. Le serveur y
 # parle au lanceur avec sa propre clé, sur une seule lecture, et ne rend que quatre champs.
 ALLOWED = {("GET", "/api/setup/restore", "launcher", "GET /restore")}

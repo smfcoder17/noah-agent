@@ -24,7 +24,7 @@ class Agent:
 
     @property
     def url(self) -> str:
-        return f"http://apollo-agent-{self.id}:8642" + (f"/p/{self.profile}" if self.profile else "")
+        return f"http://noah-agent-{self.id}:8642" + (f"/p/{self.profile}" if self.profile else "")
 
     @property
     def headers(self) -> dict:
@@ -114,7 +114,7 @@ def private_key(agent_id: str) -> str:
 
 
 def browser_host(agent_id: str) -> str:
-    return f"apollo-browser-{agent_id}"
+    return f"noah-browser-{agent_id}"
 
 
 async def stop_browser(agent_id: str) -> None:
@@ -126,7 +126,7 @@ async def restart_browser(agent_id: str) -> None:
 
 
 # Identité Camoufox partagée par l'agent et l'écran : l'onglet que l'utilisateur voit est celui de l'agent.
-BROWSER_USER = "apollo"
+BROWSER_USER = "noah"
 
 
 async def browser_call(agent_id: str, method: str, path: str, timeout: float = 5, key: str | None = None, **kw) -> dict:
@@ -147,7 +147,7 @@ LOCALES = {"FR": "fr-FR", "BE": "fr-BE", "CH": "fr-CH", "LU": "fr-LU", "MA": "fr
 
 
 async def browser_identity() -> dict:
-    """Langue et fuseau du navigateur : ceux de .env (APOLLO_LOCALE / APOLLO_TIMEZONE), sinon déduits
+    """Langue et fuseau du navigateur : ceux de .env (NOAH_LOCALE / NOAH_TIMEZONE), sinon déduits
     une fois de l'adresse IP publique du serveur (la même que voient les sites)."""
     from . import db
     from .config import BROWSER_LOCALE, BROWSER_TIMEZONE
@@ -159,8 +159,8 @@ async def browser_identity() -> dict:
         return json.loads(saved)
     try:
         # Une seule fois, en HTTPS (ipinfo.io, sans compte) : pays, région et fuseau de l'adresse du serveur, pour
-        # que le navigateur de l'agent ressemble à un visiteur de cet endroit. Fixer APOLLO_LOCALE et
-        # APOLLO_TIMEZONE évite cet appel.
+        # que le navigateur de l'agent ressemble à un visiteur de cet endroit. Fixer NOAH_LOCALE et
+        # NOAH_TIMEZONE évite cet appel.
         async with httpx.AsyncClient(timeout=5) as c:
             geo = (await c.get("https://ipinfo.io/json")).json()
     except (httpx.HTTPError, ValueError):
@@ -258,7 +258,7 @@ async def configure(agent_id: str, model: dict, role: str | None = None) -> None
     }
     # Déclare le relais comme route connue pour activer le cache de prompt quand le modèle en a besoin.
     cfg["custom_providers"] = [{
-        "name": "apollo",
+        "name": "noah",
         "base_url": RELAY_URL,
         "api_key": token_for(agent_id),
         "models": {model_id: {"prompt_caching": bool(CACHE_MARKER_MODELS.search(model_id))}},
@@ -320,7 +320,7 @@ import sys
 import urllib.error
 import urllib.request
 
-URL = "http://apollo-server:8080/agent-api"
+URL = "http://noah-server:8080/agent-api"
 TOKEN = "__TOKEN__"
 AIDE = """Utilisation : python3 /opt/data/noah.py <commande>
   etat                         diagnostic (navigateur, écran, budget) avec un conseil

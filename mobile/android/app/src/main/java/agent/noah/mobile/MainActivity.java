@@ -269,7 +269,7 @@ public class MainActivity extends BridgeActivity {
         CookieManager cookies = CookieManager.getInstance();
         if (Pairing.Window.OPEN.equals(window.state)) {
             String secure = server.startsWith("https://") ? "; Secure" : ""; // http : version de débogage seulement
-            cookies.setCookie(server, "apollo_session=" + window.token + "; Path=/" + secure + "; HttpOnly; SameSite=Lax");
+            cookies.setCookie(server, "noah_session=" + window.token + "; Path=/" + secure + "; HttpOnly; SameSite=Lax");
         } else if (Pairing.Window.REFUSED.equals(window.state)) {
             cookies.removeAllCookies(null); // l'appareil n'est plus relié : l'interface le dira
         }

@@ -17,7 +17,7 @@ const BIN = "/root/.cache/camoufox/camoufox-bin";
 const SABOTAGE = (process.argv.find((a) => a.startsWith("--sabotage=")) || "").split("=")[1] || "";
 const SUFFIXE = randomBytes(3).toString("hex");
 const AGENT = `g05${SUFFIXE}`;
-const NOM = `apollo-browser-${AGENT}`;
+const NOM = `noah-browser-${AGENT}`;
 const RESEAU = `noah-g05-${SUFFIXE}`;
 const LANCEUR = `noah-launcher:g05-${SUFFIXE}`;
 

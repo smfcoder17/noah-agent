@@ -1,4 +1,4 @@
-"""Manifeste signé d'une version de Noah Agent (lu toutes les heures par chaque serveur : server/apollo/updates.py).
+"""Manifeste signé d'une version de Noah Agent (lu toutes les heures par chaque serveur : server/noah/updates.py).
 
 Une seule fois, sur ton ordinateur (la clé privée ne va jamais dans le dépôt) :
     python scripts/release-manifest.py cle

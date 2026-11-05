@@ -59,7 +59,7 @@ try {
   check("le flux ouvre le navigateur sur le serveur", opened.startsWith(BASE), opened.slice(0, 60));
   const browser = await chromium.launch({ channel: "chrome", headless: true });
   const context = await browser.newContext({ viewport: { width: 900, height: 700 } });
-  await context.addCookies([{ name: "apollo_session", value: TOKEN, url: BASE }]);
+  await context.addCookies([{ name: "noah_session", value: TOKEN, url: BASE }]);
   const web = await context.newPage();
   await web.goto(opened);
   const accept = web.getByRole("button", { name: /Autoriser/ }).first();
@@ -123,7 +123,7 @@ try {
   await page.screenshot({ path: `${DIR}/bureau-reouverte.png` });
 
   // G3.3 : le jeton de cet appareil, lu dans l'app, n'est écrit en clair nulle part dans son profil.
-  const cookie = await app.evaluate(async ({ session }, url) => (await session.defaultSession.cookies.get({ url, name: "apollo_session" }))[0]?.value, BASE);
+  const cookie = await app.evaluate(async ({ session }, url) => (await session.defaultSession.cookies.get({ url, name: "noah_session" }))[0]?.value, BASE);
   check("l'app a bien un jeton d'appareil", !!cookie && cookie !== TOKEN);
   const config = JSON.parse(readFileSync(`${DIR}/profil/config.json`, "utf8"));
   check("il est chiffré dans ses réglages", typeof config.jeton === "string" && !Buffer.from(config.jeton, "base64").includes(cookie));

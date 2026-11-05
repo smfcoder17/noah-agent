@@ -44,8 +44,8 @@ docker compose version >/dev/null 2>&1 || fail "Docker Compose est absent. Insta
 
 # Une installation faite avec install.sh (dépôt cloné) garde ses clés dans son .env : la reprendre ici en tirerait
 # d'autres et ses données deviendraient illisibles. On s'arrête plutôt.
-if docker ps -a --format '{{.Names}}' | grep -q '^apollo-server$'; then
-  owner=$(docker inspect apollo-server --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' 2>/dev/null || true)
+if docker ps -a --format '{{.Names}}' | grep -q '^noah-server$'; then
+  owner=$(docker inspect noah-server --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' 2>/dev/null || true)
   if [ -n "$owner" ] && [ "$owner" != "$DIR" ]; then
     fail "Noah Agent est déjà installé dans $owner (avec install.sh). Mets-le à jour depuis ce dossier :
   cd $owner && git pull && sh install.sh"
@@ -64,7 +64,7 @@ port_holder() {
   fi
 }
 # Un Traefik tient déjà les ports (Docker Manager de Hostinger) : Noah se range derrière lui, les autres sites ne bougent pas.
-if ! docker ps --format '{{.Names}}' | grep -q '^apollo-caddy$'; then
+if ! docker ps --format '{{.Names}}' | grep -q '^noah-caddy$'; then
   for port in 80 443; do
     holder=$(port_holder "$port")
     [ -n "$holder" ] || continue

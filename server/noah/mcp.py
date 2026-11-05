@@ -48,14 +48,14 @@ NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,30}")
 TOKEN = re.compile(r"[\x21-\x7e]{8,4096}")
 SECRET_PARAM = re.compile(r"(token|secret|passw(or)?d|pwd|api[_-]?key|apikey|auth|key|sig|signature)$", re.I)
 RESERVED = {"noah", "hermes", "relay"}
-AGENT_URL = "http://apollo-server:8080/agent-api/mcp"
+AGENT_URL = "http://noah-server:8080/agent-api/mcp"
 
 # Toujours refusés : métadonnées du cloud et adresses de lien local, y compris leurs équivalents hors 169.254.0.0/16.
 METADATA = tuple(ipaddress.ip_network(n) for n in (
     "169.254.0.0/16", "fe80::/10", "fd00:ec2::254/128", "100.100.100.200/32", "168.63.129.16/32", "192.0.0.192/32"))
 # Acceptés seulement si le propriétaire a accepté le réseau : un serveur chez soi, un NAS, un réseau Tailscale.
 PRIVATE = tuple(ipaddress.ip_network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "fc00::/7"))
-INTERNAL_NAMES = re.compile(r"(^|\.)(localhost|internal|local|localdomain|docker)$|^apollo-|^host\.docker\.", re.I)
+INTERNAL_NAMES = re.compile(r"(^|\.)(localhost|internal|local|localdomain|docker)$|^noah-|^host\.docker\.", re.I)
 
 
 # Le réseau privé accepté est celui du propriétaire de l'installation : les agents des autres profils n'y entrent pas.

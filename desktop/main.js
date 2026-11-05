@@ -122,7 +122,7 @@ async function openRemote(server) {
   if (token) await useToken(server, token);
   if (stale()) {
     // Serveur oublié pendant la pose du cookie : on le retire, rien de l'ancien serveur ne se rouvre.
-    await session.defaultSession.cookies.remove(server, "apollo_session").catch(() => {});
+    await session.defaultSession.cookies.remove(server, "noah_session").catch(() => {});
     return;
   }
   origin = new URL(server).origin;
@@ -180,7 +180,7 @@ function secureStorage() {
 /** Cookie de session de la fenêtre, sans date d'expiration : Chromium ne l'écrit pas sur le disque. */
 async function useToken(server, token) {
   await session.defaultSession.cookies.set({
-    url: server, name: "apollo_session", value: token, httpOnly: true, secure: server.startsWith("https:"), sameSite: "lax",
+    url: server, name: "noah_session", value: token, httpOnly: true, secure: server.startsWith("https:"), sameSite: "lax",
   });
 }
 
@@ -414,7 +414,7 @@ async function forgetOnce({ revoke = true } = {}, asked, askedToken) {
   if (server) {
     // La fenêtre peut utiliser une autre session que celle rangée par l'app (déconnexion puis reconnexion dans
     // l'interface) : on révoque les deux.
-    const cookie = (await session.defaultSession.cookies.get({ url: server, name: "apollo_session" }).catch(() => []))[0]?.value;
+    const cookie = (await session.defaultSession.cookies.get({ url: server, name: "noah_session" }).catch(() => []))[0]?.value;
     const tokens = [...new Set([token, cookie].filter(Boolean))];
     // Notifications et marqueur de session de la page : rien de l'ancien compte ne reste lisible ici.
     await win?.webContents.executeJavaScript(
@@ -422,7 +422,7 @@ async function forgetOnce({ revoke = true } = {}, asked, askedToken) {
     ).catch(() => {});
     await session.defaultSession.clearStorageData({ origin: server, storages: ["cachestorage", "serviceworkers"] }).catch(() => {});
     for (const t of revoke ? tokens : []) await revokeOrQueue(server, t); // sans réponse : gardée pour plus tard
-    await session.defaultSession.cookies.remove(server, "apollo_session");
+    await session.defaultSession.cookies.remove(server, "noah_session");
   }
   // Un nouvel appairage a pu se terminer pendant les révocations : sa configuration n'est pas celle qu'on oublie.
   const now = readConfig();

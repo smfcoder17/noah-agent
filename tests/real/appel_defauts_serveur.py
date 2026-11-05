@@ -1,7 +1,7 @@
 """Le vrai serveur et la vraie interface, avec Hermes et le tri simulés : pour éprouver l'appel vocal dans un navigateur, sans clé.
 La voix elle-même (transcription, réponse rapide, son) est simulée côté navigateur. Voir appel_defauts.mjs.
 
-    docker run --rm --name noah-essai-appel-defauts -p 127.0.0.1:8097:8097 -e APOLLO_WEB_DIR=/web -v noah-pip-cache:/root/.cache/pip \
+    docker run --rm --name noah-essai-appel-defauts -p 127.0.0.1:8097:8097 -e NOAH_WEB_DIR=/web -v noah-pip-cache:/root/.cache/pip \
       -v "$PWD/server:/app" -v "$PWD/tests:/tests" -v "$PWD/frontend/dist:/web" python:3.12-slim sh -c \
       "pip install -q -r /app/requirements.txt uvicorn && python /tests/real/appel_defauts_serveur.py"
 """
@@ -10,14 +10,14 @@ import os
 import sys
 import tempfile
 
-os.environ["APOLLO_DATA_DIR"] = tempfile.mkdtemp()
+os.environ["NOAH_DATA_DIR"] = tempfile.mkdtemp()
 os.environ.setdefault("LAUNCHER_KEY", "x")
-os.environ.setdefault("APOLLO_SECRET_KEY", "y" * 32)
+os.environ.setdefault("NOAH_SECRET_KEY", "y" * 32)
 sys.path.insert(0, "/app")
 import httpx  # noqa: E402
 import uvicorn  # noqa: E402
 
-from apollo import auth, db, hermes, main, media  # noqa: E402
+from noah import auth, db, hermes, main, media  # noqa: E402
 
 db.init()
 alice = auth.create_user("alice", "motdepasse-essai")

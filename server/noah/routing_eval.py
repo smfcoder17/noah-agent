@@ -1,6 +1,6 @@
 """Évalue le routeur « Automatique » sur les cas de référence (routing/cases.json).
 
-Usage, dans le conteneur du serveur : python -m apollo.routing_eval [image|video|music]
+Usage, dans le conteneur du serveur : python -m noah.routing_eval [image|video|music]
 Chaque cas coûte un appel au modèle rapide (une fraction de centime).
 """
 import asyncio

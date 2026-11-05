@@ -41,8 +41,8 @@ Les parcours J1 à J10 de [etat.md](etat.md) sont la promesse. Une version publi
 ### 3. Mesures par le code
 
 - **Vocal, ressenti :** `node tools/eval/voice_browser.mjs <étiquette> <répétitions> <lot>`. Il passe par le vrai composant : temps entendu depuis la fin de la parole, interruption, mots brefs, coupures à tort, réponses préparées puis jetées.
-- **Vocal, serveur :** `python -m apollo.bench_voice <étiquette> <répétitions> <lot>`. Il mesure la transcription, le premier octet, le tri entre action et conversation, les erreurs de mots et le coût.
-- **Chat et interface :** `python -m apollo.bench`.
+- **Vocal, serveur :** `python -m noah.bench_voice <étiquette> <répétitions> <lot>`. Il mesure la transcription, le premier octet, le tri entre action et conversation, les erreurs de mots et le coût.
+- **Chat et interface :** `python -m noah.bench`.
 - **Sensibilité des tests :** `node tools/eval/sabotage.mjs` abîme le code exprès, un défaut à la fois, avec un témoin sans défaut.
 - **Calculs :** `node tools/eval/stats.mjs` donne le gain apparié avec son intervalle, le bruit, l'accord entre juges et le classement.
 

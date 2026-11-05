@@ -8,13 +8,13 @@ import os
 import sys
 import tempfile
 
-os.environ["APOLLO_DATA_DIR"] = tempfile.mkdtemp()
+os.environ["NOAH_DATA_DIR"] = tempfile.mkdtemp()
 os.environ.setdefault("LAUNCHER_KEY", "x")
-os.environ.setdefault("APOLLO_SECRET_KEY", "y" * 32)
+os.environ.setdefault("NOAH_SECRET_KEY", "y" * 32)
 sys.path.insert(0, "/app")
 import httpx  # noqa: E402
 
-from apollo import access, auth, db, events, hermes, main, media, pendant  # noqa: E402
+from noah import access, auth, db, events, hermes, main, media, pendant  # noqa: E402
 
 db.init()
 alice = auth.create_user("alice", "motdepasse-a")
@@ -339,7 +339,7 @@ async def everything():
     print("12 ter. perte, doublon, droits, ordre, accord, pièces jointes : tenus")
 
     # 12 bis. Au démarrage, rien ne part avant de savoir si une mise à jour est ouverte.
-    from apollo import updates
+    from noah import updates
 
     was = len(started)
     assert pendant.add("1:apres-maj", conv, "a1", alice, "Pas pendant la mise à jour")

@@ -18,7 +18,7 @@ const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAFUlEQVR
 const browser = await chromium.launch({ channel: "chrome", headless: true, args: ["--autoplay-policy=no-user-gesture-required", "--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"] });
 for (const [label, viewport] of [["ordinateur", { width: 1280, height: 800 }], ["telephone", { width: 390, height: 844 }]]) {
   const context = await browser.newContext({ viewport });
-  await context.addCookies([{ name: "apollo_session", value: process.env.NOAH_TOKEN, url: BASE }]);
+  await context.addCookies([{ name: "noah_session", value: process.env.NOAH_TOKEN, url: BASE }]);
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));

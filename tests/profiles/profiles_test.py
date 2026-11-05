@@ -19,9 +19,9 @@ import typing
 import uuid
 from pathlib import Path
 
-os.environ["APOLLO_DATA_DIR"] = tempfile.mkdtemp()
+os.environ["NOAH_DATA_DIR"] = tempfile.mkdtemp()
 os.environ.setdefault("LAUNCHER_KEY", "x")
-os.environ.setdefault("APOLLO_SECRET_KEY", "y" * 32)
+os.environ.setdefault("NOAH_SECRET_KEY", "y" * 32)
 sys.path.insert(0, "/app")
 import bcrypt  # noqa: E402
 import httpx  # noqa: E402
@@ -52,7 +52,7 @@ class Sandbox(httpx.AsyncClient):
 
 httpx.AsyncClient = Sandbox
 
-from apollo import access, auth, db, desktop, handoff, hermes, machine, main, media, profiles, push, relay, updates, watch  # noqa: E402, F401
+from noah import access, auth, db, desktop, handoff, hermes, machine, main, media, profiles, push, relay, updates, watch  # noqa: E402, F401
 
 app = main.app
 OLD_DIR = db.DATA_DIR
@@ -76,7 +76,7 @@ CREATE TABLE messages (id INTEGER PRIMARY KEY, conversation_id TEXT NOT NULL REF
 def test_migration() -> None:
     old = Path(tempfile.mkdtemp())
     pw = bcrypt.hashpw(b"ancien-mot-de-passe", bcrypt.gensalt(4))
-    raw = sqlite3.connect(old / "apollo.db")
+    raw = sqlite3.connect(old / "noah.db")
     raw.executescript(OLD_SCHEMA)
     raw.execute("INSERT INTO users (id, username, pw_hash) VALUES (7, 'ancien', ?)", (pw,))
     raw.execute("INSERT INTO users (id, username, pw_hash) VALUES (9, 'second', ?)", (pw,))
@@ -364,7 +364,7 @@ BODIES = {
     "/api/agents/{agent_id}/connections/tools": lambda: {"url": "https://93.184.216.34/mcp", "nom": "essai"},
     "/api/agents/{agent_id}/connections/tools/{name}/droit": lambda: {"droit": "agir"},
     "/api/agents/{agent_id}/folders": lambda: {"dossiers": []},
-    "/api/agents/{agent_id}/google/connect": lambda: {"permissions": [next(iter(__import__("apollo.accounts").accounts.PERMS))]},
+    "/api/agents/{agent_id}/google/connect": lambda: {"permissions": [next(iter(__import__("noah.accounts").accounts.PERMS))]},
     "/api/agents/{agent_id}/watches": lambda: {"nom": "n", "url": "https://example.org"},
     "/api/agents/{agent_id}/appel/{call_id}": lambda: {"reponse": "impossible"},
     "/api/agents/{agent_id}/shares": lambda: {"utilisateur": "zed", "droit": "lecture", "compris": True},
@@ -1038,7 +1038,7 @@ def test_secrets() -> None:
     # Les dossiers de l'ordinateur et les identifiants Google sont au propriétaire de l'installation.
     touched.clear()
     assert bruno.put(f"/api/agents/{B}/folders", json={"dossiers": [{"chemin": "/home/alice"}]}).status_code == 403 and not touched
-    assert bruno.post(f"/api/agents/{B}/google/connect", json={"permissions": [next(iter(__import__("apollo.accounts").accounts.PERMS))]}).status_code == 403
+    assert bruno.post(f"/api/agents/{B}/google/connect", json={"permissions": [next(iter(__import__("noah.accounts").accounts.PERMS))]}).status_code == 403
     google = {"client_id": "1-a.apps.googleusercontent.com", "client_secret": "volé-volé"}
     assert agent_b.post("/agent-api/google/identifiants", json=google).status_code == 403
     assert "volé" not in (db.get_setting("google_client") or "")

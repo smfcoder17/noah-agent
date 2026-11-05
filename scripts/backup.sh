@@ -19,7 +19,7 @@ stamp=$(date +%Y%m%d-%H%M)
 dir="backups/noah-$stamp"
 mkdir -p "$dir"
 
-volumes=$(docker volume ls -q | grep -E '^(apollo_apollo-data|apollo_noah-secrets|apollo-agent-.+|apollo-browser-.+)' || true)
+volumes=$(docker volume ls -q | grep -E '^(noah_noah-data|noah_noah-secrets|noah-agent-.+|noah-browser-.+)' || true)
 [ -n "$volumes" ] || { echo "Aucun volume Noah Agent trouvé." >&2; exit 1; }
 
 # Bases SQLite copiées par l'API de sauvegarde de SQLite (instantané cohérent, même pendant que les agents écrivent) ;

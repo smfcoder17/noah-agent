@@ -8,14 +8,14 @@ import os
 import sys
 import tempfile
 
-os.environ["APOLLO_DATA_DIR"] = tempfile.mkdtemp()
+os.environ["NOAH_DATA_DIR"] = tempfile.mkdtemp()
 os.environ.setdefault("LAUNCHER_KEY", "x")
-os.environ.setdefault("APOLLO_SECRET_KEY", "y" * 32)
+os.environ.setdefault("NOAH_SECRET_KEY", "y" * 32)
 sys.path.insert(0, "/app")
 import httpx  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from apollo import auth, db, main, push, relay  # noqa: E402
+from noah import auth, db, main, push, relay  # noqa: E402
 
 db.init()
 user = auth.create_user("alice", "motdepasse-a")
@@ -115,7 +115,7 @@ print("6. appel compté pour la tâche en cours à son départ, pas à sa répon
 # 7. Jours au fuseau de l'utilisateur, avec le décalage de chaque date (heure d'été).
 from zoneinfo import ZoneInfo  # noqa: E402
 
-from apollo import updates  # noqa: E402
+from noah import updates  # noqa: E402
 
 updates.local_zone = lambda: ZoneInfo("America/Toronto")
 assert relay.local_day("2026-11-01 04:30:00") == "2026-11-01"   # 00:30, encore à UTC−4
@@ -126,7 +126,7 @@ print("7. jour de chaque dépense avec le décalage de sa date (changement d'heu
 # 8. Le plafond vaut pour tout ce qu'un agent dépense, pas seulement le relais : image, voix, transcription, tri d'une veille.
 import asyncio  # noqa: E402
 
-from apollo import media, precall, watch  # noqa: E402
+from noah import media, precall, watch  # noqa: E402
 
 db.set_setting("media_api_key", "cle-openrouter", secret=True)
 assert relay.day_refusal("a1"), "a1 est au plafond depuis l'étape 3"

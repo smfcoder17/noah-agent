@@ -1,7 +1,7 @@
 """G14.3, vrai agent et vrai navigateur : rien ne tourne avant le premier usage, et il démarre seul quand l'agent navigue.
 
-Noah démarré, son navigateur arrêté (docker stop apollo-browser-<agent>) :
-    docker cp tests/real/navigateur.py apollo-server:/tmp/ && docker exec -w /app -e PYTHONPATH=/app apollo-server python /tmp/navigateur.py
+Noah démarré, son navigateur arrêté (docker stop noah-browser-<agent>) :
+    docker cp tests/real/navigateur.py noah-server:/tmp/ && docker exec -w /app -e PYTHONPATH=/app noah-server python /tmp/navigateur.py
 """
 import json
 import sys
@@ -9,7 +9,7 @@ import time
 
 import httpx
 
-from apollo import auth, db, hermes
+from noah import auth, db, hermes
 
 web = httpx.Client(base_url="http://localhost:8080", headers={"Authorization": "Bearer " + auth.new_session(db.owner_id())}, timeout=300)
 noah = [a for a in web.get("/api/agents").json() if a["name"] == "Noah"][0]["id"]

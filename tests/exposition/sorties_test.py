@@ -25,10 +25,10 @@ from pathlib import Path
 REPO = Path(os.environ.get("NOAH_REPO", "/repo"))
 STRICT = "--strict" in sys.argv
 SECRET_FILE = Path(tempfile.mkdtemp()) / "noah.json"
-os.environ.update({"APOLLO_DATA_DIR": tempfile.mkdtemp(), "NOAH_DOMAIN": "auto", "LAUNCHER_KEY": "x", "APOLLO_SECRET_KEY": "y" * 32,
+os.environ.update({"NOAH_DATA_DIR": tempfile.mkdtemp(), "NOAH_DOMAIN": "auto", "LAUNCHER_KEY": "x", "NOAH_SECRET_KEY": "y" * 32,
                    "NOAH_SECRETS_FILE": str(SECRET_FILE), "LAUNCHER_URL": "http://launcher:9000"})
-os.environ.pop("APOLLO_LOCALE", None)
-os.environ.pop("APOLLO_TIMEZONE", None)
+os.environ.pop("NOAH_LOCALE", None)
+os.environ.pop("NOAH_TIMEZONE", None)
 sys.path.insert(0, str(REPO / "server"))
 
 # --- 1. Lecture : aucun paquet de télémétrie, et chaque adresse écrite dans le code a une raison d'être ---------------
@@ -72,7 +72,7 @@ KNOWN = {
     "speaches.ai": "lien montré",
     "noah.exemple.com.evil.net": "exemple", "docs.docker.com": "lien montré", "host.docker.internal": "machine elle-même",
 }
-SOURCES = [*(REPO / "server/apollo").rglob("*.py"), *(REPO / "launcher").rglob("*.py"), *(REPO / "launcher").rglob("*.js"),
+SOURCES = [*(REPO / "server/noah").rglob("*.py"), *(REPO / "launcher").rglob("*.py"), *(REPO / "launcher").rglob("*.js"),
            *(REPO / "frontend/src").rglob("*.ts*"), REPO / "frontend/index.html", *(REPO / "mobile/www").glob("*.*"),
            *(REPO / "desktop").glob("*.js"), *(REPO / "desktop").glob("*.html"), REPO / "get.sh", REPO / "install.sh"]
 HOST = re.compile(r"(?:https?|wss?)://([a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+)")
@@ -157,7 +157,7 @@ socket.socket.connect = guarded_connect
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from apollo import auth, catalog, db, hermes, main, public, push, relay, updates  # noqa: E402
+from noah import auth, catalog, db, hermes, main, public, push, relay, updates  # noqa: E402
 
 # Pas d'écriture hors du dossier de test : l'état des mises à jour vit aussi dans les données.
 db.init()
@@ -186,7 +186,7 @@ with TestClient(main.app, headers={"Authorization": f"Bearer {session}"}) as web
     while real_time() < real_sleep_wall:
         time.sleep(0.5)
     idle = list(REQUESTS)
-    idle_external = sorted({r["host"] for r in idle} - {"launcher"} - {h for h in {r["host"] for r in idle} if h.startswith("apollo-")})
+    idle_external = sorted({r["host"] for r in idle} - {"launcher"} - {h for h in {r["host"] for r in idle} if h.startswith("noah-")})
     manifests = [r for r in idle if r["url"] == updates.MANIFEST_URL]
     print(f"3. 24 h simulées au repos : {len(idle)} requêtes, vers l'extérieur {idle_external} ; manifeste lu {len(manifests)} fois")
     assert public.domains(), "le service d'adresse publique n'a pas répondu : la boucle de démarrage n'a pas tourné"
@@ -211,7 +211,7 @@ with TestClient(main.app, headers={"Authorization": f"Bearer {session}"}) as web
 asyncio.sleep, time.time = real_sleep, real_time
 
 # --- 5. Verdict ------------------------------------------------------------------------------------------------------------
-INTERNAL = re.compile(r"^(launcher|apollo-.*|host\.docker\.internal)$")
+INTERNAL = re.compile(r"^(launcher|noah-.*|host\.docker\.internal)$")
 external = [r for r in REQUESTS if not INTERNAL.match(r["host"])]
 hosts = sorted({r["host"] for r in external})
 assert {"api.anthropic.com", "github.com", "fcm.googleapis.com"} <= set(hosts), f"capture incomplète : le contrôle ne voit pas le trafic ({hosts})"
@@ -257,7 +257,7 @@ GRID = {"api.anthropic.com", "github.com", "fcm.googleapis.com"}
 gaps = sorted(set(hosts) - GRID)
 KNOWN_GAPS = {
     "openrouter.ai": "catalogue public des prix, au plus une fois par heure, même si le fournisseur choisi est un autre (estimation des coûts et plafonds)",
-    "ipinfo.io": "une seule fois : pays et fuseau du navigateur des agents (APOLLO_LOCALE et APOLLO_TIMEZONE l'évitent)",
+    "ipinfo.io": "une seule fois : pays et fuseau du navigateur des agents (NOAH_LOCALE et NOAH_TIMEZONE l'évitent)",
     "api.ipify.org": "au démarrage : adresse publique pour le nom sslip.io",
 }
 assert set(gaps) == set(KNOWN_GAPS), f"écarts à la grille changés : observés {gaps}, connus {sorted(KNOWN_GAPS)}"

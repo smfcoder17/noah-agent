@@ -11,12 +11,12 @@
 # d'installation, s'affiche dans les journaux du service « server » (Docker Manager > Logs).
 # Avec ton propre domaine (qui pointe déjà vers ce VPS) : NOAH_DOMAIN=noah.exemple.com dans le fichier .env à côté.
 # Même nom de projet et mêmes volumes que l'installation par install.sh : les sauvegardes servent aux deux.
-name: apollo
+name: noah
 
 services:
   server:
     image: ghcr.io/smfcoder17/noah-server:stable
-    container_name: apollo-server
+    container_name: noah-server
     restart: unless-stopped
     environment:
       NOAH_DOMAIN: ${NOAH_DOMAIN:-auto}
@@ -25,31 +25,31 @@ services:
       # Notifications Android par un ntfy auto-hébergé : son adresse (ex. ntfy.exemple.org). ntfy.sh marche sans rien.
       NOAH_PUSH_HOSTS: ${NOAH_PUSH_HOSTS:-}
     volumes:
-      - apollo-data:/data
+      - noah-data:/data
       - noah-secrets:/secrets
-    networks: [apollo]
+    networks: [noah]
     depends_on: [launcher]
 
   # Seul service qui parle à Docker (accès complet à l'hôte : il crée un conteneur isolé par agent). Jamais exposé.
   launcher:
     image: ghcr.io/smfcoder17/noah-launcher:stable
-    container_name: apollo-launcher
+    container_name: noah-launcher
     restart: unless-stopped
     environment:
       AGENT_IMAGE: nousresearch/hermes-agent:stable
       BROWSER_IMAGE: ghcr.io/jo-inc/camofox-browser:latest
-      AGENT_NETWORK: apollo-net
+      AGENT_NETWORK: noah-net
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       # État des mises à jour (versions en service, versions bloquées après un échec).
       - noah-updates:/state
       - noah-secrets:/secrets:ro
-    networks: [apollo]
+    networks: [noah]
 
   # HTTPS automatique. Les certificats ne sont demandés que pour les noms que le serveur reconnaît (/api/tls-ask).
   caddy:
     image: caddy:2.10-alpine
-    container_name: apollo-caddy
+    container_name: noah-caddy
     restart: unless-stopped
     ports:
       - "80:80"
@@ -61,7 +61,7 @@ services:
     volumes:
       - caddy-data:/data
       - caddy-config:/config
-    networks: [apollo]
+    networks: [noah]
     depends_on: [server]
 
 configs:
@@ -108,13 +108,13 @@ configs:
       }
 
 networks:
-  apollo:
-    name: apollo-net
+  noah:
+    name: noah-net
 
 volumes:
   noah-updates:
   noah-backups:
-  apollo-data:
+  noah-data:
   noah-secrets:
   caddy-data:
   caddy-config:

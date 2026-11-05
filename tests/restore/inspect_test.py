@@ -42,18 +42,18 @@ def refused(path: Path, why: str) -> None:
 
 
 D = "noah-20261102-0300/"
-good = archive("ok.tar", {D + "apollo_apollo-data.tar.gz": b"x", D + "apollo-agent-noah-1a2b.tar.gz": b"x",
-                          D + "apollo-browser-noah-1a2b.tar.gz": b"x", D + "env": b"APOLLO_SECRET_KEY=k\n"})
-assert set(restore.inspect(good)) == {"apollo_apollo-data.tar.gz", "apollo-agent-noah-1a2b.tar.gz",
-                                      "apollo-browser-noah-1a2b.tar.gz", "env"}
+good = archive("ok.tar", {D + "noah_noah-data.tar.gz": b"x", D + "noah-agent-noah-1a2b.tar.gz": b"x",
+                          D + "noah-browser-noah-1a2b.tar.gz": b"x", D + "env": b"NOAH_SECRET_KEY=k\n"})
+assert set(restore.inspect(good)) == {"noah_noah-data.tar.gz", "noah-agent-noah-1a2b.tar.gz",
+                                      "noah-browser-noah-1a2b.tar.gz", "env"}
 print("1. sauvegarde de backup.sh : acceptée")
 
-refused(archive("trav.tar", {D + "apollo_apollo-data.tar.gz": b"x", "noah/../../etc/cron.d/x": b"x"}), "chemin ..")
-refused(archive("abs.tar", {D + "apollo_apollo-data.tar.gz": b"x", "/etc/x": b"x"}), "chemin absolu")
-refused(archive("link.tar", {D + "apollo_apollo-data.tar.gz": b"x"}, symlink=D + "env"), "lien symbolique")
-refused(archive("vol.tar", {D + "apollo_apollo-data.tar.gz": b"x", D + "apollo-caddy-data.tar.gz": b"x"}), "volume inconnu")
-refused(archive("deep.tar", {D + "apollo_apollo-data.tar.gz": b"x", D + "a/b.tar.gz": b"x"}), "sous-dossier")
-refused(archive("nodata.tar", {D + "apollo-agent-noah.tar.gz": b"x"}), "données du serveur absentes")
+refused(archive("trav.tar", {D + "noah_noah-data.tar.gz": b"x", "noah/../../etc/cron.d/x": b"x"}), "chemin ..")
+refused(archive("abs.tar", {D + "noah_noah-data.tar.gz": b"x", "/etc/x": b"x"}), "chemin absolu")
+refused(archive("link.tar", {D + "noah_noah-data.tar.gz": b"x"}, symlink=D + "env"), "lien symbolique")
+refused(archive("vol.tar", {D + "noah_noah-data.tar.gz": b"x", D + "noah-caddy-data.tar.gz": b"x"}), "volume inconnu")
+refused(archive("deep.tar", {D + "noah_noah-data.tar.gz": b"x", D + "a/b.tar.gz": b"x"}), "sous-dossier")
+refused(archive("nodata.tar", {D + "noah-agent-noah.tar.gz": b"x"}), "données du serveur absentes")
 print("2. chemins .. ou absolus, liens, volumes inconnus, sous-dossiers, données absentes : archive refusée")
 
 # 3. Avant tout : chaque archive intérieure se lit, et ce qu'elle déposera tient sur le disque (bombe de décompression).
@@ -73,8 +73,8 @@ def inner(files: dict[str, int]) -> bytes:
     return gzip.compress(raw.getvalue())
 
 
-bomb = archive("bomb.tar", {D + "apollo_apollo-data.tar.gz": inner({"apollo.db": 1000}),
-                            D + "apollo-agent-x.tar.gz": inner({"zeros": 20 << 20})})
+bomb = archive("bomb.tar", {D + "noah_noah-data.tar.gz": inner({"noah.db": 1000}),
+                            D + "noah-agent-x.tar.gz": inner({"zeros": 20 << 20})})
 Usage = namedtuple("Usage", "total used free")
 shutil.disk_usage = lambda _: Usage(0, 0, (2 << 30) + (10 << 20))  # 2 Go de marge + 10 Mo libres
 with tarfile.open(bomb) as tar:
@@ -86,7 +86,7 @@ with tarfile.open(bomb) as tar:
 shutil.disk_usage = lambda _: Usage(0, 0, 100 << 30)
 with tarfile.open(bomb) as tar:
     restore._preflight(tar, restore.inspect(bomb))
-broken = archive("broken.tar", {D + "apollo_apollo-data.tar.gz": inner({"apollo.db": 1000})[:-20]})
+broken = archive("broken.tar", {D + "noah_noah-data.tar.gz": inner({"noah.db": 1000})[:-20]})
 with tarfile.open(broken) as tar:
     try:
         restore._preflight(tar, restore.inspect(broken))
@@ -96,8 +96,8 @@ with tarfile.open(broken) as tar:
 print("3. 20 Mo à déposer pour 10 Mo libres : refusé avant tout ; archive intérieure tronquée : refusée")
 
 # 4. Codex : la copie de vérification des données du serveur occupe le disque en même temps que les volumes restaurés.
-two = archive("two.tar", {D + "apollo_apollo-data.tar.gz": inner({"apollo.db": 6 << 20}),
-                          D + "apollo-agent-x.tar.gz": inner({"state.db": 1 << 20})})
+two = archive("two.tar", {D + "noah_noah-data.tar.gz": inner({"noah.db": 6 << 20}),
+                          D + "noah-agent-x.tar.gz": inner({"state.db": 1 << 20})})
 shutil.disk_usage = lambda _: Usage(0, 0, (2 << 30) + (9 << 20))  # 7 Mo à restaurer, 9 Mo libres : 13 Mo au plus fort
 with tarfile.open(two) as tar:
     try:
@@ -111,7 +111,7 @@ print("4. place disque : la copie de vérification des données compte (13 Mo au
 def raw(n: int) -> bytes:
     data = io.BytesIO()
     with tarfile.open(fileobj=data, mode="w") as t:
-        info = tarfile.TarInfo("apollo.db")
+        info = tarfile.TarInfo("noah.db")
         info.size = n
         t.addfile(info, io.BytesIO(os.urandom(n)))
     return gzip.compress(data.getvalue())
@@ -119,7 +119,7 @@ def raw(n: int) -> bytes:
 
 import os  # noqa: E402
 
-dense = archive("dense.tar", {D + "apollo_apollo-data.tar.gz": raw(3 << 20)})
+dense = archive("dense.tar", {D + "noah_noah-data.tar.gz": raw(3 << 20)})
 shutil.disk_usage = lambda _: Usage(0, 0, (2 << 30) + (10 << 20))  # 3 + 3 + 2 × 3 Mo au plus fort : 12 Mo
 with tarfile.open(dense) as tar:
     try:

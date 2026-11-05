@@ -46,7 +46,7 @@ except ImportError:  # conteneur jetable des sauvegardes : pas besoin de Docker
 
 client = docker.from_env() if docker and not os.environ.get("NOAH_TOOL") else None
 STATE = Path(os.environ.get("NOAH_UPDATE_STATE", "/state/updates.json"))
-BACKUP_VOLUME = os.environ.get("NOAH_BACKUP_VOLUME", "apollo_noah-backups")
+BACKUP_VOLUME = os.environ.get("NOAH_BACKUP_VOLUME", "noah_noah-backups")
 PUBLIC_KEY = os.environ.get("NOAH_UPDATE_KEY", "")
 OBSERVE = int(os.environ.get("NOAH_UPDATE_OBSERVE", "300"))
 HEALTH = int(os.environ.get("NOAH_UPDATE_HEALTH", "120"))
@@ -59,9 +59,9 @@ MAX_TRIES = 3  # échecs sans faute de l'image (disque plein, registre…) : au-
 REF = re.compile(r"[a-z0-9./_:-]+@sha256:[0-9a-f]{64}")
 _lock = threading.Lock()
 
-SERVER, CADDY = "apollo-server", "apollo-caddy"
-LAUNCHER = os.environ.get("NOAH_LAUNCHER_NAME", "apollo-launcher")
-RELAY = os.environ.get("NOAH_RELAY_NAME", "apollo-launcher-relais")
+SERVER, CADDY = "noah-server", "noah-caddy"
+LAUNCHER = os.environ.get("NOAH_LAUNCHER_NAME", "noah-launcher")
+RELAY = os.environ.get("NOAH_RELAY_NAME", "noah-launcher-relais")
 IS_RELAY = os.environ.get("NOAH_IS_RELAY") == "1"
 ORDER = ["hermes", "navigateur", "caddy", "noah-server"]
 STEPS = ["arret", "sauve", "renomme", "cree", "demarre", "sain"]
@@ -189,9 +189,9 @@ def pinned(component: str, default: str) -> str:
 
 
 def _component(name: str) -> str | None:
-    if name.startswith("apollo-agent-"):
+    if name.startswith("noah-agent-"):
         return "hermes"
-    if name.startswith("apollo-browser-"):
+    if name.startswith("noah-browser-"):
         return "navigateur"
     return {CADDY: "caddy", SERVER: "noah-server", LAUNCHER: "noah-launcher"}.get(name)
 
@@ -227,8 +227,8 @@ def verify_manifest(raw: bytes, signature: str) -> dict:
 
 def components() -> dict[str, list[str]]:
     """Composant -> conteneurs (dans l'ordre où les mettre à jour)."""
-    agents = sorted(c.name for c in client.containers.list(all=True, filters={"label": "apollo.agent"}))
-    browsers = sorted(c.name for c in client.containers.list(all=True, filters={"label": "apollo.browser"}))
+    agents = sorted(c.name for c in client.containers.list(all=True, filters={"label": "noah.agent"}))
+    browsers = sorted(c.name for c in client.containers.list(all=True, filters={"label": "noah.browser"}))
     out = {"hermes": [n for n in agents if not n.endswith("-ancien")],
            "navigateur": [n for n in browsers if not n.endswith("-ancien")]}
     for name in (CADDY, SERVER, LAUNCHER):
@@ -513,9 +513,9 @@ def _health_url(name: str) -> str | None:
         return f"http://{name}:9000/health"
     if name == CADDY:
         return f"http://{CADDY}:80/"  # Caddy répond (redirection vers HTTPS) : il a bien sa configuration
-    if name.startswith("apollo-agent-"):
+    if name.startswith("noah-agent-"):
         return f"http://{name}:8642/health"
-    if name.startswith("apollo-browser-"):
+    if name.startswith("noah-browser-"):
         return f"http://{name}:9377/health"
     return None
 
@@ -666,7 +666,7 @@ def put_env(c, path: str, values: dict[str, str], uid: int = 0, gid: int = 0) ->
 
 
 # Conteneurs d'avant ce changement : le jeton passe de leur config au fichier quand ils sont recréés (mise à jour).
-ENV_TO_FILE = {"apollo.agent": ("/opt/data/.env", ("API_SERVER_KEY",))}
+ENV_TO_FILE = {"noah.agent": ("/opt/data/.env", ("API_SERVER_KEY",))}
 
 
 def _create_like(old, name: str, image: str) -> None:
@@ -712,7 +712,7 @@ def _create_like(old, name: str, image: str) -> None:
                 continue  # monté depuis l'hôte : le montage suit déjà
             stream, _ = old.get_archive(path)
             new.put_archive(os.path.dirname(path), b"".join(stream))
-        if name.startswith("apollo-agent-"):  # droits des outils : hors du volume, écrits en root (voir launcher._seal_rights)
+        if name.startswith("noah-agent-"):  # droits des outils : hors du volume, écrits en root (voir launcher._seal_rights)
             with contextlib.suppress(NotFound):
                 stream, _ = old.get_archive("/etc/noah")
                 new.put_archive("/etc", b"".join(stream))
@@ -1125,7 +1125,7 @@ def _start_relay(image: str) -> None:
     et décide pour toute la transaction. Il redémarre seul après une coupure (always) et se désactive à la fin."""
     me = client.containers.get(LAUNCHER)
     state_volume = next((m["Name"] for m in me.attrs.get("Mounts", []) if m.get("Destination") == str(STATE.parent)), None)
-    network = next(iter(me.attrs["NetworkSettings"]["Networks"]), "apollo-net")
+    network = next(iter(me.attrs["NetworkSettings"]["Networks"]), "noah-net")
     old = _get(RELAY)
     if old:
         old.remove(force=True)

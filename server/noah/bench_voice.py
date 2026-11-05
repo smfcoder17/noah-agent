@@ -1,6 +1,6 @@
 """Banc du mode vocal : ce qu'on entend depuis la fin de la parole, et non depuis la fin de la transcription.
 
-Usage, dans le conteneur du serveur : python -m apollo.bench_voice <étiquette> <répétitions> [travail|reserve|garde]
+Usage, dans le conteneur du serveur : python -m noah.bench_voice <étiquette> <répétitions> [travail|reserve|garde]
 Le lot réservé vit hors du dépôt (/data/bench-voix/reserve.json), écrit par un autre modèle, et ne rend que son score.
 
 Ce banc mesure le serveur seul : transcription, premier octet de la voix, tri, erreurs de mots, coût. Le temps entendu

@@ -11,9 +11,9 @@ import tempfile
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-os.environ["APOLLO_DATA_DIR"] = tempfile.mkdtemp()
+os.environ["NOAH_DATA_DIR"] = tempfile.mkdtemp()
 os.environ.setdefault("LAUNCHER_KEY", "x")
-os.environ.setdefault("APOLLO_SECRET_KEY", "y" * 32)
+os.environ.setdefault("NOAH_SECRET_KEY", "y" * 32)
 from cryptography.hazmat.primitives import serialization  # noqa: E402
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
 
@@ -22,7 +22,7 @@ os.environ["NOAH_UPDATE_KEY"] = base64.b64encode(
     PRIV.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode()
 os.environ["NOAH_VERSION"] = "1.2.0"
 sys.path.insert(0, "/app")
-from apollo import updates as u  # noqa: E402
+from noah import updates as u  # noqa: E402
 
 D, E = "sha256:" + "a" * 64, "sha256:" + "b" * 64
 
@@ -104,7 +104,7 @@ import asyncio  # noqa: E402
 import time  # noqa: E402
 
 import httpx  # noqa: E402
-from apollo import db  # noqa: E402
+from noah import db  # noqa: E402
 
 # Trois semaines d'usage de 8 h à 23 h à Toronto, comptées par activity() (VPS en UTC) : créneau à 3 h, heure de Toronto.
 u._patch({"fuseau": "America/Toronto", "activite": [0] * 24, "heure": "auto"})
@@ -188,7 +188,7 @@ print("check() : majeure annoncée 7 jours, Ignorer jusqu'à la suivante, ancien
 # _follow : la notification dit ce qui s'est vraiment passé.
 cases = [({"ok": True, "version": "2.0.2", "composants": {"noah-server": "fait"}}, "Noah est à jour"),
          ({"ok": False, "erreur": "x ne répondait plus", "composants": {"retour_arriere": True}, "non_restaures": []}, "Mise à jour annulée"),
-         ({"ok": False, "erreur": "x ne répondait plus", "composants": {"retour_arriere": True}, "non_restaures": ["apollo-agent-a"]}, "à vérifier"),
+         ({"ok": False, "erreur": "x ne répondait plus", "composants": {"retour_arriere": True}, "non_restaures": ["noah-agent-a"]}, "à vérifier"),
          ({"ok": True, "composants": {"noah-launcher": "en_cours"}}, None)]
 for i, (report, title) in enumerate(cases):
     told.clear()

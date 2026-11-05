@@ -1,41 +1,41 @@
-name: apollo
+name: noah
 
 services:
-  # Interface web + API Apollo : le seul service exposé.
+  # Interface web + API Noah : le seul service exposé.
   server:
     build:
       context: .
       dockerfile: server/Dockerfile
-    container_name: apollo-server
+    container_name: noah-server
     restart: unless-stopped
     ports:
       # 127.0.0.1 par défaut. Pour un autre appareil, donne à Noah une adresse HTTPS (README, « Depuis ton téléphone »).
-      - "${APOLLO_BIND:-127.0.0.1}:${APOLLO_PORT:-8080}:8080"
+      - "${NOAH_BIND:-127.0.0.1}:${NOAH_PORT:-8080}:8080"
     environment:
-      APOLLO_SECRET_KEY: ${APOLLO_SECRET_KEY}
-      APOLLO_LOCALE: ${APOLLO_LOCALE:-}
-      APOLLO_TIMEZONE: ${APOLLO_TIMEZONE:-}
+      NOAH_SECRET_KEY: ${NOAH_SECRET_KEY}
+      NOAH_LOCALE: ${NOAH_LOCALE:-}
+      NOAH_TIMEZONE: ${NOAH_TIMEZONE:-}
       LAUNCHER_URL: http://launcher:9000
       NOAH_SETUP_CODE: ${NOAH_SETUP_CODE:-}
       LAUNCHER_KEY: ${LAUNCHER_KEY}
     volumes:
-      - apollo-data:/data
+      - noah-data:/data
     # Le relais de modèle joint Ollama sur la machine hôte.
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    networks: [apollo]
+    networks: [noah]
     depends_on: [launcher]
 
   # Seul service qui parle à Docker. Crée un conteneur Hermes isolé par agent.
   # Jamais exposé : joignable uniquement par le serveur, avec sa clé.
   launcher:
     build: launcher
-    container_name: apollo-launcher
+    container_name: noah-launcher
     restart: unless-stopped
     environment:
       LAUNCHER_KEY: ${LAUNCHER_KEY}
       AGENT_IMAGE: nousresearch/hermes-agent:stable
-      AGENT_NETWORK: apollo-net
+      AGENT_NETWORK: noah-net
       # Dossiers de l'ordinateur que l'utilisateur peut partager avec ses agents (racines séparées par « ; »).
       # Vide : partage coupé (cas d'un VPS). L'application de bureau le remplit avec le dossier personnel.
       NOAH_SHARE_ROOTS: ${NOAH_SHARE_ROOTS:-}
@@ -43,13 +43,13 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       # État des mises à jour (versions en service, versions bloquées après un échec).
       - noah-updates:/state
-    networks: [apollo]
+    networks: [noah]
 
 networks:
-  apollo:
-    name: apollo-net
+  noah:
+    name: noah-net
 
 volumes:
   noah-updates:
   noah-backups:
-  apollo-data:
+  noah-data:

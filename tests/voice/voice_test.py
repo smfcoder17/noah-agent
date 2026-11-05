@@ -11,15 +11,15 @@ import sys
 import tempfile
 import time
 
-os.environ["APOLLO_DATA_DIR"] = tempfile.mkdtemp()
+os.environ["NOAH_DATA_DIR"] = tempfile.mkdtemp()
 os.environ.setdefault("LAUNCHER_KEY", "x")
-os.environ.setdefault("APOLLO_SECRET_KEY", "y" * 32)
+os.environ.setdefault("NOAH_SECRET_KEY", "y" * 32)
 sys.path.insert(0, "/app")
 import httpx  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from apollo import auth, db, main, media, relay  # noqa: E402
+from noah import auth, db, main, media, relay  # noqa: E402
 
 db.init()
 user = auth.create_user("alice", "motdepasse-a")

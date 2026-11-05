@@ -61,7 +61,7 @@ async function reachable(url) {
  */
 async function start(home, step, restart = false) {
   const env = readEnv(home);
-  const url = `http://127.0.0.1:${env.APOLLO_PORT || 8080}`;
+  const url = `http://127.0.0.1:${env.NOAH_PORT || 8080}`;
   if (!restart && (await reachable(url))) return url;
   step("Vérification de Docker…");
   if (!(await dockerReady())) {

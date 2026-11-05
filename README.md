@@ -93,12 +93,12 @@ est coupé.
 
 | Service | Rôle |
 |---|---|
-| `apollo-server` | API, comptes, traduction des événements d'Hermes, interface web. Seul port exposé. |
-| `apollo-launcher` | Seul service qui parle à Docker. Crée un conteneur par agent à partir d'une image fixe, sans privilège ni montage de l'hôte. |
-| `apollo-agent-*` | Un conteneur Hermes par agent, avec son volume (mémoire, fichiers). Jamais exposé. |
+| `noah-server` | API, comptes, traduction des événements d'Hermes, interface web. Seul port exposé. |
+| `noah-launcher` | Seul service qui parle à Docker. Crée un conteneur par agent à partir d'une image fixe, sans privilège ni montage de l'hôte. |
+| `noah-agent-*` | Un conteneur Hermes par agent, avec son volume (mémoire, fichiers). Jamais exposé. |
 
-Les données sont dans les volumes Docker `apollo_apollo-data` (compte, clé chiffrée, historique)
-et `apollo-agent-*` (un par agent). `sh scripts/reset.sh` efface tout.
+Les données sont dans les volumes Docker `noah_noah-data` (compte, clé chiffrée, historique)
+et `noah-agent-*` (un par agent). `sh scripts/reset.sh` efface tout.
 
 ### Le socket Docker
 
@@ -139,7 +139,7 @@ puis ouvre http://localhost:5173 (l'API et l'écran noVNC sont relayés vers le 
 
 ## Relais de modèle et budget
 
-Les agents n'ont jamais la clé du fournisseur. Ils appellent `apollo-server` (`/relay/v1`, compatible OpenAI)
+Les agents n'ont jamais la clé du fournisseur. Ils appellent `noah-server` (`/relay/v1`, compatible OpenAI)
 avec un jeton propre à chacun ; le serveur ajoute la clé, transmet la requête et enregistre les jetons
 et le coût de chaque appel (exact avec OpenRouter, estimé avec les prix publics chez les grands fournisseurs, estimé
 au catalogue pour la synthèse vocale). Ollama et un serveur compatible OpenAI comptent 0 $ : Noah n'a pas leur tarif,
@@ -149,7 +149,7 @@ de la colonne de gauche.
 ## Navigateur et écran de l'agent
 
 Chaque agent a son navigateur [Camoufox](https://camoufox.com) (Firefox anti-détection), dans un conteneur
-`apollo-browser-*` basé sur [camofox-browser](https://github.com/jo-inc/camofox-browser), que Hermes pilote
+`noah-browser-*` basé sur [camofox-browser](https://github.com/jo-inc/camofox-browser), que Hermes pilote
 nativement (`CAMOFOX_URL`). Le profil (cookies, sessions connectées) est gardé dans un volume.
 
 Le bouton « Ordinateur » ouvre l'écran du navigateur en direct (noVNC, relayé par le serveur derrière ta

@@ -73,7 +73,7 @@ def first_install() -> None:
     password = secrets.token_urlsafe(12)
     account = web.post("/api/setup/account", json={"username": "moi", "password": password, "installation": os.environ["NOAH_CODE"]})
     check("Compte créé avec le code", account.status_code == 200, account.text[:120])
-    token = account.json().get("token") or web.cookies.get("apollo_session")
+    token = account.json().get("token") or web.cookies.get("noah_session")
     owner = client(token)
     again = client().post("/api/setup/account", json={"username": "autre", "password": "x" * 12, "installation": os.environ["NOAH_CODE"]})
     check("Le code ne sert qu'une fois", again.status_code in (400, 403, 409, 410), str(again.status_code))

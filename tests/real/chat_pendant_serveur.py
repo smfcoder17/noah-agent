@@ -1,7 +1,7 @@
 """Le vrai serveur et la vraie interface, avec Hermes et le modèle rapide simulés : pour éprouver le chat pendant le travail dans un
 navigateur, sans clé. La transmission à un vrai Hermes a sa preuve à part (steer_vrai.sh). Voir chat_pendant.mjs.
 
-    docker run --rm -p 127.0.0.1:8099:8099 -e APOLLO_WEB_DIR=/web -v "$PWD/server:/app" -v "$PWD/tests:/tests" -v "$PWD/frontend/dist:/web" \
+    docker run --rm -p 127.0.0.1:8099:8099 -e NOAH_WEB_DIR=/web -v "$PWD/server:/app" -v "$PWD/tests:/tests" -v "$PWD/frontend/dist:/web" \
       python:3.12-slim sh -c "pip install -q -r /app/requirements.txt uvicorn && python /tests/real/chat_pendant_serveur.py"
 """
 import asyncio
@@ -9,13 +9,13 @@ import os
 import sys
 import tempfile
 
-os.environ["APOLLO_DATA_DIR"] = tempfile.mkdtemp()
+os.environ["NOAH_DATA_DIR"] = tempfile.mkdtemp()
 os.environ.setdefault("LAUNCHER_KEY", "x")
-os.environ.setdefault("APOLLO_SECRET_KEY", "y" * 32)
+os.environ.setdefault("NOAH_SECRET_KEY", "y" * 32)
 sys.path.insert(0, "/app")
 import uvicorn  # noqa: E402
 
-from apollo import auth, db, hermes, main, media  # noqa: E402
+from noah import auth, db, hermes, main, media  # noqa: E402
 
 db.init()
 alice = auth.create_user("alice", os.environ.get("MOT_DE_PASSE", "motdepasse-essai"))

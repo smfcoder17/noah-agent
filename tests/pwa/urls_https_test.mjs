@@ -21,9 +21,9 @@ const HTTP_IP = /http:\/\/(?:\d{1,3}(?:\.\d{1,3}){3}|<[^>\s]*(?:ip|adresse)[^>\s
 const HORS_CHAMP = /^(tests\/|docs\/(references|grille-validation|journal-hill-climb|etat)\.md$|LICENSE$|.*package-lock\.json$|mobile\/android\/)/;
 // Adresses de la boucle locale qui ne servent jamais d'adresse de Noah à un autre appareil.
 const INTERNES = [
-  ["desktop/noah.js", "http://127.0.0.1:${env.APOLLO_PORT", "la fenêtre de l'app de bureau charge Noah en local, sans barre d'adresse"],
+  ["desktop/noah.js", "http://127.0.0.1:${env.NOAH_PORT", "la fenêtre de l'app de bureau charge Noah en local, sans barre d'adresse"],
   ["get.sh", "urlopen('http://127.0.0.1:8080/api/status')", "question posée au serveur depuis son conteneur, jamais affichée"],
-  ["server/apollo/accounts.py", 'REDIRECT = "http://127.0.0.1:1/"', "retour OAuth de Google, jamais ouvert"],
+  ["server/noah/accounts.py", 'REDIRECT = "http://127.0.0.1:1/"', "retour OAuth de Google, jamais ouvert"],
   ["frontend/src/components/AgentPowers.tsx", 'placeholder="http://127.0.0.1:…/callback', "retour OAuth d'un outil, à recopier"],
 ];
 

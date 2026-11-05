@@ -1,5 +1,5 @@
 {
-  "_note": "Cas de référence du routeur. methode attendue ; tags = au moins une de ces forces doit appartenir au modèle choisi (si methode = generation). Lancer : python -m apollo.routing_eval dans le conteneur du serveur.",
+  "_note": "Cas de référence du routeur. methode attendue ; tags = au moins une de ces forces doit appartenir au modèle choisi (si methode = generation). Lancer : python -m noah.routing_eval dans le conteneur du serveur.",
   "image": [
     {"demande": "Fais-moi un logo SVG pour mon entreprise Bleu Café : une tasse simple et le nom", "methode": "svg"},
     {"demande": "Une petite image d'une banane jaune sur un fond bleu", "methode": "svg"},

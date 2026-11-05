@@ -1,6 +1,6 @@
 # Réactivité de Noah Agent
 
-Mesure : `docker exec apollo-server python -m apollo.bench <étiquette> <répétitions>`. Les résultats
+Mesure : `docker exec noah-server python -m noah.bench <étiquette> <répétitions>`. Les résultats
 s'ajoutent à `/data/bench.jsonl` dans le volume du serveur. Médianes en millisecondes, machine locale,
 cerveau DeepSeek V4.1 Flash via OpenRouter.
 
@@ -90,4 +90,4 @@ trois phrases : salutation, demande d'action, question).
 
 ## Correction du 3 novembre 2026
 
-Le « premier son » de 754 ms ci-dessus part de la fin de la phrase transcrite. Depuis la fin de la parole, le temps entendu est de **2 277 ms en médiane** : voir [journal-hill-climb.md](journal-hill-climb.md). Le banc de référence du vocal est maintenant `python -m apollo.bench_voice`.
+Le « premier son » de 754 ms ci-dessus part de la fin de la phrase transcrite. Depuis la fin de la parole, le temps entendu est de **2 277 ms en médiane** : voir [journal-hill-climb.md](journal-hill-climb.md). Le banc de référence du vocal est maintenant `python -m noah.bench_voice`.

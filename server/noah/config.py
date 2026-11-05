@@ -4,12 +4,12 @@ import secrets
 import time
 from pathlib import Path
 
-DATA_DIR = Path(os.environ.get("APOLLO_DATA_DIR", "/data"))
+DATA_DIR = Path(os.environ.get("NOAH_DATA_DIR", "/data"))
 # Secrets partagés avec le lanceur. Installation par install.sh : ils viennent de .env. Installation sans aucune
 # variable (« Compose from URL » de Hostinger, docker-compose.yml public) : le premier service qui démarre les tire
 # au hasard et les écrit dans le volume commun ; ils ne changent plus ensuite.
 SECRETS_FILE = Path(os.environ.get("NOAH_SECRETS_FILE", "/secrets/noah.json"))
-_SHARED = ("LAUNCHER_KEY", "APOLLO_SECRET_KEY", "NOAH_SETUP_CODE")
+_SHARED = ("LAUNCHER_KEY", "NOAH_SECRET_KEY", "NOAH_SETUP_CODE")
 
 
 def _new_setup_code() -> str:
@@ -43,12 +43,12 @@ def shared_secret(name: str, optional: bool = False) -> str:
 
 LAUNCHER_URL = os.environ.get("LAUNCHER_URL", "http://launcher:9000")
 LAUNCHER_KEY = shared_secret("LAUNCHER_KEY")
-SECRET_KEY = shared_secret("APOLLO_SECRET_KEY")
-WEB_DIR = Path(os.environ.get("APOLLO_WEB_DIR", "/app/web"))
+SECRET_KEY = shared_secret("NOAH_SECRET_KEY")
+WEB_DIR = Path(os.environ.get("NOAH_WEB_DIR", "/app/web"))
 SESSION_DAYS = 30
 # Langue et fuseau du navigateur des agents ; vides = déduits de l'adresse IP publique.
-BROWSER_LOCALE = os.environ.get("APOLLO_LOCALE", "")
-BROWSER_TIMEZONE = os.environ.get("APOLLO_TIMEZONE", "")
+BROWSER_LOCALE = os.environ.get("NOAH_LOCALE", "")
+BROWSER_TIMEZONE = os.environ.get("NOAH_TIMEZONE", "")
 # Code affiché à la fin de l'installation sur un VPS : sans lui, personne ne peut créer le compte administrateur
 # (sinon le premier visiteur de l'adresse publique le prendrait). Vide sur un ordinateur personnel ; « auto » : tiré
 # au premier démarrage et écrit dans les journaux du serveur.

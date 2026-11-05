@@ -504,7 +504,7 @@ class Decision(BaseModel):
 
 @app.post("/api/pairing/flow/{public}/{decision}")
 def flow_decide(public: str, decision: str, request: Request, body: Decision | None = None,
-                apollo_session: str | None = Cookie(None), user: int = Depends(auth.full_session)):
+                noah_session: str | None = Cookie(None), user: int = Depends(auth.full_session)):
     flow = _flows.get(public)
     if not flow or flow["expire"] < time.time() or flow["user"] or flow.get("proprietaire") not in (None, user):
         raise HTTPException(404, "Cette demande a expiré ou a déjà été traitée.")
@@ -534,7 +534,7 @@ def flow_decide(public: str, decision: str, request: Request, body: Decision | N
             raise HTTPException(403, "Ce nombre ne correspond pas à celui affiché sur l'appareil. Par prudence, la "
                                      "demande est annulée : recommence depuis l'appareil.")
         flow["user"] = user
-        flow["par"] = auth.digest(auth.request_token(request, apollo_session) or "")  # session qui a accepté
+        flow["par"] = auth.digest(auth.request_token(request, noah_session) or "")  # session qui a accepté
     return {"ok": True}
 
 
@@ -726,8 +726,8 @@ def login(body: Credentials, request: Request, response: Response):
 
 
 @app.post("/api/logout")
-def logout(request: Request, response: Response, apollo_session: str | None = Cookie(None)):
-    token = auth.request_token(request, apollo_session)
+def logout(request: Request, response: Response, noah_session: str | None = Cookie(None)):
+    token = auth.request_token(request, noah_session)
     if token:
         auth.drop_session(token)
     response.delete_cookie(auth.COOKIE)
@@ -735,14 +735,14 @@ def logout(request: Request, response: Response, apollo_session: str | None = Co
 
 
 @app.get("/api/devices")
-def devices(request: Request, apollo_session: str | None = Cookie(None), user: int = Depends(auth.current_user)):
-    return {"appareils": auth.devices(user, auth.request_token(request, apollo_session))}
+def devices(request: Request, noah_session: str | None = Cookie(None), user: int = Depends(auth.current_user)):
+    return {"appareils": auth.devices(user, auth.request_token(request, noah_session))}
 
 
 @app.delete("/api/devices/self")
-def forget_this_device(request: Request, apollo_session: str | None = Cookie(None)):
+def forget_this_device(request: Request, noah_session: str | None = Cookie(None)):
     """« Oublier ce serveur » dans une app : sa session disparaît du serveur (sans erreur si elle n'existe déjà plus)."""
-    token = auth.request_token(request, apollo_session)
+    token = auth.request_token(request, noah_session)
     if token:
         auth.drop_session(token)
     return {"ok": True}
@@ -760,8 +760,8 @@ def open_window(request: Request, _: int = Depends(auth.current_user)):
 
 
 @app.post("/api/devices/others/revoke")
-def revoke_other_devices(request: Request, apollo_session: str | None = Cookie(None), user: int = Depends(auth.current_user)):
-    return {"deconnectes": auth.revoke_others(user, auth.request_token(request, apollo_session) or "")}
+def revoke_other_devices(request: Request, noah_session: str | None = Cookie(None), user: int = Depends(auth.current_user)):
+    return {"deconnectes": auth.revoke_others(user, auth.request_token(request, noah_session) or "")}
 
 
 @app.delete("/api/devices/{device_id}")
@@ -1014,7 +1014,7 @@ def outbound_flows(user: int = Depends(access.owner_only)):
                       "quand": "à chaque notification"})
     if not (config.BROWSER_LOCALE and config.BROWSER_TIMEZONE):
         flows.append({"quoi": "Pays et fuseau de l'adresse du serveur, pour le navigateur des agents", "vers": "ipinfo.io",
-                      "quand": "une seule fois (APOLLO_LOCALE et APOLLO_TIMEZONE l'évitent)"})
+                      "quand": "une seule fois (NOAH_LOCALE et NOAH_TIMEZONE l'évitent)"})
     if config.PUBLIC_DOMAIN:  # public.setup : adresse IP publique (noms sslip.io et nip.io), avec ou sans domaine à soi
         flows.append({"quoi": "Certificat HTTPS", "vers": "acme-v02.api.letsencrypt.org", "quand": "tous les deux mois environ"})
         flows.append({"quoi": "Adresse IP publique du serveur (noms sslip.io et nip.io)",
@@ -1634,7 +1634,7 @@ def _with_attachments(text: str, paths: list[str]) -> str:
 
 
 @app.post("/api/chat")
-async def chat(body: ChatMessage, request: Request, apollo_session: str | None = Cookie(None),
+async def chat(body: ChatMessage, request: Request, noah_session: str | None = Cookie(None),
                user: int = Depends(auth.current_user)):
     agent = _usable(user, body.agent_id)
     conv_id = body.conversation_id
@@ -1658,7 +1658,7 @@ async def chat(body: ChatMessage, request: Request, apollo_session: str | None =
         if request_id:
             pendant.forget(request_id)
         raise
-    return StreamingResponse(auth.revocable(stream, auth.request_token(request, apollo_session),
+    return StreamingResponse(auth.revocable(stream, auth.request_token(request, noah_session),
                                             allowed=lambda: access.allowed(user, agent.id, "usage")),
                              media_type="text/event-stream")
 
@@ -1987,7 +1987,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
         raise HTTPException(404, "Agent introuvable")
     try:
         agent = await _guest_agent(agent, launched_by)
-        run_id = await _start_run(agent, context + prompt, f"apollo-{conv_id}")
+        run_id = await _start_run(agent, context + prompt, f"noah-{conv_id}")
     except Exception as e:
         task_state[conv_id] = "error"
         sentence = "L'agent ne répond pas. Il redémarre peut-être, par exemple après un changement de modèle : réessaie dans un instant."
@@ -2007,7 +2007,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
     async def live_events():
         """Un tour perdu dans un redémarrage bloque la conversation pour toujours : on en prend acte, et ce message repart."""
         nonlocal run_id
-        session = f"apollo-{conv_id}"
+        session = f"noah-{conv_id}"
         async for kind, data in hermes.run_events(agent, run_id):
             if kind != "run.failed" or data.get("error") != hermes.LOST_TURN:
                 yield kind, data
@@ -2199,7 +2199,7 @@ def _close_delegation(thread: str, result, failed: bool) -> None:
     task_state[thread] = "error" if failed else "done"
 
 
-CHOICE_RE = re.compile(r"```(?:noah|apollo)\s*\{[^`]*\"type\"\s*:\s*\"choice\"", re.S)
+CHOICE_RE = re.compile(r"```(?:noah|noah)\s*\{[^`]*\"type\"\s*:\s*\"choice\"", re.S)
 
 
 class ApprovalAnswer(BaseModel):

@@ -3,12 +3,12 @@
 # NOAH_DOMAIN doit pointer vers ce serveur. Variables facultatives :
 #   NOAH_TRAEFIK_RESOLVER=letsencrypt    nom du résolveur de certificats de ton Traefik
 #   NOAH_PUBLISH=127.0.0.1:8088          port local où publier le serveur, utile à un Traefik qui ne lit pas Docker
-name: apollo
+name: noah
 
 services:
   server:
     image: ghcr.io/smfcoder17/noah-server:${NOAH_TAG:-stable}
-    container_name: apollo-server
+    container_name: noah-server
     restart: unless-stopped
     environment:
       NOAH_DOMAIN: ${NOAH_DOMAIN:?NOAH_DOMAIN est obligatoire derrière Traefik}
@@ -24,32 +24,32 @@ services:
       traefik.http.routers.noah.tls.certresolver: ${NOAH_TRAEFIK_RESOLVER:-letsencrypt}
       traefik.http.services.noah.loadbalancer.server.port: "8080"
     volumes:
-      - apollo-data:/data
+      - noah-data:/data
       - noah-secrets:/secrets
-    networks: [apollo]
+    networks: [noah]
     depends_on: [launcher]
 
   # Seul service qui parle à Docker (il crée un conteneur isolé par agent). Jamais exposé.
   launcher:
     image: ghcr.io/smfcoder17/noah-launcher:${NOAH_TAG:-stable}
-    container_name: apollo-launcher
+    container_name: noah-launcher
     restart: unless-stopped
     environment:
       AGENT_IMAGE: nousresearch/hermes-agent:stable
       BROWSER_IMAGE: ghcr.io/jo-inc/camofox-browser:latest
-      AGENT_NETWORK: apollo-net
+      AGENT_NETWORK: noah-net
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - noah-updates:/state
       - noah-secrets:/secrets:ro
-    networks: [apollo]
+    networks: [noah]
 
 networks:
-  apollo:
-    name: apollo-net
+  noah:
+    name: noah-net
 
 volumes:
   noah-updates:
   noah-backups:
-  apollo-data:
+  noah-data:
   noah-secrets:

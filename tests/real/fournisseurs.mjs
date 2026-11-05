@@ -39,7 +39,7 @@ const browser = await chromium.launch({
   args: ["--autoplay-policy=no-user-gesture-required", "--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"],
 });
 const context = await browser.newContext({ viewport: { width: 1280, height: 860 }, permissions: ["microphone"] });
-await context.addCookies([{ name: "apollo_session", value: TOKEN, url: BASE }]);
+await context.addCookies([{ name: "noah_session", value: TOKEN, url: BASE }]);
 const page = await context.newPage();
 const pageErrors = [];
 page.on("pageerror", (e) => pageErrors.push(e.message));

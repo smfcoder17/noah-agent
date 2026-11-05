@@ -35,7 +35,7 @@ UPSTREAMS = {
 # Ces fournisseurs acceptent une adresse choisie par l'utilisateur. Aucun prix connu : leur coût reste à 0.
 OWN_URL = {"ollama", "custom"}
 # URL que les agents utilisent, sur le réseau Docker interne.
-RELAY_URL = "http://apollo-server:8080/relay/v1"
+RELAY_URL = "http://noah-server:8080/relay/v1"
 
 
 # Un seul client pour tous les appels au fournisseur : la connexion TLS reste ouverte d'un appel à l'autre
@@ -329,7 +329,7 @@ def _upstream_headers(provider: str, api_key: str | None) -> dict:
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     if provider == "openrouter":
-        headers["HTTP-Referer"] = "https://github.com/apollo-agents"
+        headers["HTTP-Referer"] = "https://github.com/smfcoder17"
         headers["X-Title"] = "Noah Agent"
     return headers
 

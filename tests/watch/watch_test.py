@@ -8,15 +8,15 @@ import os
 import sys
 import tempfile
 
-os.environ["APOLLO_DATA_DIR"] = tempfile.mkdtemp()
+os.environ["NOAH_DATA_DIR"] = tempfile.mkdtemp()
 os.environ.setdefault("LAUNCHER_KEY", "x")
-os.environ.setdefault("APOLLO_SECRET_KEY", "y" * 32)
+os.environ.setdefault("NOAH_SECRET_KEY", "y" * 32)
 sys.path.insert(0, "/app")
 import json  # noqa: E402
 
 import httpx  # noqa: E402
 
-from apollo import db, desktop, media, relay, watch  # noqa: E402
+from noah import db, desktop, media, relay, watch  # noqa: E402
 
 db.init()
 watch.init()

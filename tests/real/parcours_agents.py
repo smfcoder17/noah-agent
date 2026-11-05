@@ -1,7 +1,7 @@
 """Parcours réels J6, J7 et J8, à l'écrit : de vrais conteneurs Hermes, un vrai modèle, aucune simulation.
 
 Dans le conteneur du serveur (agents démarrés, un modèle choisi) :
-    docker cp tests/real/parcours_agents.py apollo-server:/tmp/ && docker exec -w /app -e PYTHONPATH=/app apollo-server python /tmp/parcours_agents.py
+    docker cp tests/real/parcours_agents.py noah-server:/tmp/ && docker exec -w /app -e PYTHONPATH=/app noah-server python /tmp/parcours_agents.py
 Rien ne dit à l'agent quelle commande employer : on vérifie ce que le modèle fait à partir d'une phrase d'utilisateur.
 """
 import json
@@ -11,7 +11,7 @@ import uuid
 
 import httpx
 
-from apollo import auth, db
+from noah import auth, db
 
 BASE = "http://localhost:8080"
 web = httpx.Client(base_url=BASE, headers={"Authorization": "Bearer " + auth.new_session(db.owner_id())}, timeout=180)

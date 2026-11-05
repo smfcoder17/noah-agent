@@ -27,7 +27,7 @@ function readNode(root, lock) {
   return [...found].filter(([name]) => !dev.has(name)).sort();
 }
 
-const python = JSON.parse(execFileSync("docker", ["run", "--rm", "apollo-server", "python", "-c",
+const python = JSON.parse(execFileSync("docker", ["run", "--rm", "noah-server", "python", "-c",
   "import json, importlib.metadata as m\nout = []\nfor d in m.distributions():\n    a = d.metadata\n    c = [x.split(' :: ')[-1] for x in (a.get_all('Classifier') or []) if x.startswith('License')]\n    out.append([a['Name'], a.get('License-Expression') or ' / '.join(c) or (a.get('License') or 'UNKNOWN')[:40]])\nprint(json.dumps(sorted(out, key=lambda x: x[0].lower())))"]).toString());
 
 const groups = [

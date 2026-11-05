@@ -42,8 +42,8 @@ def _shared_key() -> str:
 KEY = _shared_key()
 IMAGE = os.environ.get("AGENT_IMAGE", "nousresearch/hermes-agent:stable")
 NETWORK = os.environ["AGENT_NETWORK"]
-PREFIX = "apollo-agent-"
-LABEL = "apollo.agent"
+PREFIX = "noah-agent-"
+LABEL = "noah.agent"
 DATA = "/opt/data"
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
 
@@ -78,8 +78,8 @@ class NewAgent(BaseModel):
 
 
 BROWSER_IMAGE = os.environ.get("BROWSER_IMAGE", "ghcr.io/jo-inc/camofox-browser:latest")
-BROWSER_PREFIX = "apollo-browser-"
-BROWSER_LABEL = "apollo.browser"
+BROWSER_PREFIX = "noah-browser-"
+BROWSER_LABEL = "noah.browser"
 # Version des réglages du navigateur ; un conteneur plus ancien est recréé (le profil reste dans son volume).
 # 11 : toutes les routes sous clé ; 10 : clé du mode privé à part ; 9 : aucune capture pendant une prise en main ; 8 : jetons hors de la config Docker
 BROWSER_VERSION = "11"
@@ -168,7 +168,7 @@ def _ensure_browser(agent_id: str, body: BrowserKeys, image: str | None = None, 
     version = f"{BROWSER_VERSION}:{body.locale}:{body.timezone}"
     try:
         c = client.containers.get(name)
-        if c.labels.get("apollo.browser.version") == version:
+        if c.labels.get("noah.browser.version") == version:
             if c.status != "running":
                 c.start()
             return {"host": name, "created": False}
@@ -183,7 +183,7 @@ def _ensure_browser(agent_id: str, body: BrowserKeys, image: str | None = None, 
         image,
         name=name,
         hostname=name,
-        labels={BROWSER_LABEL: agent_id, "apollo.browser.version": version},
+        labels={BROWSER_LABEL: agent_id, "noah.browser.version": version},
         # Les jetons sont lus d'un fichier au démarrage, puis la commande de l'image est lancée telle quelle.
         entrypoint=["/bin/sh", "-c", f'set -a; . {SECRETS_FILE}; set +a; exec "$@"', "noah"],
         command=(image_cfg.get("Entrypoint") or []) + (image_cfg.get("Cmd") or []),
@@ -585,7 +585,7 @@ def media(agent_id: str, path: str):
 FORGET_PROMPTS = """
 import sqlite3
 c = sqlite3.connect('/opt/data/state.db', timeout=30)
-n = c.execute("UPDATE sessions SET system_prompt = NULL, system_prompt_hash = NULL WHERE id LIKE 'apollo-%'").rowcount
+n = c.execute("UPDATE sessions SET system_prompt = NULL, system_prompt_hash = NULL WHERE id LIKE 'noah-%'").rowcount
 c.commit()
 print(n)
 """
@@ -618,7 +618,7 @@ def _owner(c) -> str:
 @app.post("/agents/{agent_id}/sessions/{session}/discard", dependencies=[Depends(auth)])
 def discard_lost_turn(agent_id: str, session: str, profil: str = ""):
     """Un redémarrage pendant un tour bloque la session jusqu'à ce qu'on prenne acte du tour perdu (il n'est pas rejoué)."""
-    if not re.fullmatch(r"apollo-[\w-]{1,80}", session) or (profil and not re.fullmatch(r"u\d+[0-9a-f]{8}", profil)):
+    if not re.fullmatch(r"noah-[\w-]{1,80}", session) or (profil and not re.fullmatch(r"u\d+[0-9a-f]{8}", profil)):
         raise HTTPException(400, "Session invalide")
     c = container(check_id(agent_id))
     home = f"{DATA}/profiles/{profil}" if profil else DATA
@@ -762,7 +762,7 @@ def _recreate_browser(name: str, image: str, start: bool = True) -> None:
     env = dict(e.split("=", 1) for e in old.attrs["Config"]["Env"] if "=" in e)
     env.update(updater.env_values((updater.read_text(old, SECRETS_FILE) or ("",))[0]))
     agent_id = old.labels[BROWSER_LABEL]
-    _, locale, timezone = (old.labels.get("apollo.browser.version", "") + "::").split(":")[:3]
+    _, locale, timezone = (old.labels.get("noah.browser.version", "") + "::").split(":")[:3]
     body = BrowserKeys(api_key=env["CAMOFOX_API_KEY"], vnc_password=env["VNC_PASSWORD"],
                        private_key=env.get("NOAH_PRIVATE_KEY", ""), locale=locale, timezone=timezone)
     _ensure_browser(agent_id, body, image, start)

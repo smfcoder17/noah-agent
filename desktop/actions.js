@@ -110,7 +110,7 @@ function listen(getOrigin) {
   const loop = async () => {
     while (!stopped) {
       const origin = getOrigin();
-      const cookie = origin && (await session.defaultSession.cookies.get({ url: origin, name: "apollo_session" }))[0];
+      const cookie = origin && (await session.defaultSession.cookies.get({ url: origin, name: "noah_session" }))[0];
       if (!cookie) {
         await new Promise((r) => setTimeout(r, 3000)); // pas encore connecté à Noah
         continue;

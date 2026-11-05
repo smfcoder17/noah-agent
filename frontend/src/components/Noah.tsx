@@ -13,7 +13,7 @@ export const NOAH_COLORS = [
   { hex: "#64748b", name: "Ardoise" },
 ];
 
-/** Les noms sont ceux que le serveur accepte (server/apollo/main.py, AgentLook) et que lit l'app Android. « » : l'origine. */
+/** Les noms sont ceux que le serveur accepte (server/noah/main.py, AgentLook) et que lit l'app Android. « » : l'origine. */
 export const NOAH_SHAPES = [
   { id: "gomme", name: "Gomme" },
   { id: "bulle", name: "Bulle" },

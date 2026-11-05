@@ -11,15 +11,15 @@ import sys
 import tempfile
 from datetime import datetime, timedelta, timezone
 
-os.environ["APOLLO_DATA_DIR"] = tempfile.mkdtemp()
+os.environ["NOAH_DATA_DIR"] = tempfile.mkdtemp()
 os.environ.setdefault("LAUNCHER_KEY", "x")
-os.environ.setdefault("APOLLO_SECRET_KEY", "y" * 32)
+os.environ.setdefault("NOAH_SECRET_KEY", "y" * 32)
 sys.path.insert(0, "/app")
 from cryptography.hazmat.primitives.asymmetric import ec  # noqa: E402
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from apollo import auth, db, main, push, updates  # noqa: E402
+from noah import auth, db, main, push, updates  # noqa: E402
 
 db.init()
 auth.create_user("alice", "motdepasse-a")
@@ -47,7 +47,7 @@ def lasting(cookie: str) -> bool:
 
 # Témoin : un navigateur garde son cookie 30 jours, le contrôle sait donc voir une durée de vie.
 token, cookie = login(CHROME)
-assert cookie.startswith("apollo_session=") and lasting(cookie), cookie
+assert cookie.startswith("noah_session=") and lasting(cookie), cookie
 assert platform(token) == "web"
 token, cookie = login(DESKTOP_LIKE)
 assert lasting(cookie) and platform(token) == "web", cookie
@@ -55,7 +55,7 @@ print("1. navigateur : cookie de 30 jours, session « web » (témoin)")
 
 # Reconnexion dans la fenêtre de l'app (déconnexion puis mot de passe dans l'interface).
 token, cookie = login(APP)
-assert cookie.startswith("apollo_session="), f"la fenêtre de l'app doit rester connectée : {cookie!r}"
+assert cookie.startswith("noah_session="), f"la fenêtre de l'app doit rester connectée : {cookie!r}"
 assert not lasting(cookie), f"cookie écrit en clair sur le disque du téléphone : {cookie}"
 assert "httponly" in cookie.lower(), cookie
 assert platform(token) == "android", platform(token)

@@ -12,13 +12,13 @@ import tempfile
 
 data, vault = tempfile.mkdtemp(), tempfile.mkdtemp()
 # Comme deploy/docker-compose.yml : aucune variable à saisir, tout est « auto ».
-ENV = {"APOLLO_DATA_DIR": data, "NOAH_SECRETS_FILE": f"{vault}/noah.json", "NOAH_SETUP_CODE": "auto",
-       "LAUNCHER_KEY": "auto", "APOLLO_SECRET_KEY": "auto"}
+ENV = {"NOAH_DATA_DIR": data, "NOAH_SECRETS_FILE": f"{vault}/noah.json", "NOAH_SETUP_CODE": "auto",
+       "LAUNCHER_KEY": "auto", "NOAH_SECRET_KEY": "auto"}
 os.environ.update(ENV)
 sys.path.insert(0, "/app")
 from fastapi.testclient import TestClient  # noqa: E402
 
-from apollo import auth, config, db, main  # noqa: E402
+from noah import auth, config, db, main  # noqa: E402
 
 db.init()
 code = json.load(open(f"{vault}/noah.json"))["NOAH_SETUP_CODE"]
@@ -57,7 +57,7 @@ print("2 bis. assistant : code vérifié d'abord (403 faux, 200 bon), toujours v
 # 3. Le bon code (tirets et minuscules tolérés) crée le propriétaire ; ensuite 410 et le code est effacé.
 owner = TestClient(main.app, headers={"X-Test-Ip": "10.2.0.1", "Origin": "http://testserver"})
 r = owner.post("/api/setup/account", json={**account, "installation": f"{code[:4].lower()}-{code[4:]}"})
-assert r.status_code == 200 and "apollo_session" in r.headers.get("set-cookie", ""), r.text
+assert r.status_code == 200 and "noah_session" in r.headers.get("set-cookie", ""), r.text
 assert client().post("/api/setup/account", json={**account, "installation": code}).status_code == 410
 assert "NOAH_SETUP_CODE" not in json.load(open(f"{vault}/noah.json")), "code d'installation encore dans les secrets"
 assert client().get("/api/status").json()["setup_code"] is False
@@ -125,7 +125,7 @@ token = auth.new_session(auth.check_password("franck", "motdepasse-long"), "PC",
 restart = subprocess.run([sys.executable, "-c", f"""
 import json, sys
 sys.path.insert(0, "/app")
-from apollo import auth, config
+from noah import auth, config
 print(json.dumps({{"launcher": config.LAUNCHER_KEY, "secret": config.SECRET_KEY, "setup": config.SETUP_CODE,
                    "valid": auth.still_valid({token!r})}}))
 """], env={**os.environ, **ENV}, capture_output=True, text=True)

@@ -3,7 +3,7 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
-// En dev (`npm run dev`), l'API et l'écran noVNC sont relayés vers le serveur Apollo qui tourne dans Docker.
+// En dev (`npm run dev`), l'API et l'écran noVNC sont relayés vers le serveur Noah qui tourne dans Docker.
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: { alias: { "@": path.resolve(__dirname, "src") } },

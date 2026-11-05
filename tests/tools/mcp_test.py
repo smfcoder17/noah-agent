@@ -26,9 +26,9 @@ from pathlib import Path
 
 DATA = Path(tempfile.mkdtemp())
 RIGHTS_FILE = Path("/tmp/noah-droits/mcp-droits.json")  # le lanceur l'écrit en root : ici, le même contenu que lui
-os.environ["APOLLO_DATA_DIR"] = str(DATA)
+os.environ["NOAH_DATA_DIR"] = str(DATA)
 os.environ.setdefault("LAUNCHER_KEY", "x")
-os.environ.setdefault("APOLLO_SECRET_KEY", "y" * 32)
+os.environ.setdefault("NOAH_SECRET_KEY", "y" * 32)
 os.environ["NOAH_MCP_DROITS"] = str(RIGHTS_FILE)
 sys.path.insert(0, "/app")
 sys.path.insert(0, "/tests/tools")
@@ -49,7 +49,7 @@ import httpx  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from mcp_server import Server  # noqa: E402
 
-from apollo import access, auth, db, hermes, machine, main, mcp, relay  # noqa: E402
+from noah import access, auth, db, hermes, machine, main, mcp, relay  # noqa: E402
 
 JETON = "jeton-tres-secret-0123456789"
 own_ip = socket.gethostbyname(socket.gethostname())
@@ -146,7 +146,7 @@ machine.admin = real_admin
 mcp.machine.admin = real_admin
 
 # Le plugin de garde, tel qu'il est posé dans l'agent.
-spec = importlib.util.spec_from_file_location("noah_garde", "/app/apollo/agent_plugin/__init__.py")
+spec = importlib.util.spec_from_file_location("noah_garde", "/app/noah/agent_plugin/__init__.py")
 garde = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(garde)
 
@@ -219,7 +219,7 @@ def test_addresses() -> None:
         "https://mappee.example.org/mcp": "métadonnées",
         "https://interne.example.org/mcp": "réseau interne",
         "https://10.99.0.5/mcp": "réseau interne",
-        "https://apollo-server:8080/mcp": "réseau interne",
+        "https://noah-server:8080/mcp": "réseau interne",
         "https://launcher/mcp": "réseau interne",
         "https://localhost/mcp": "réseau interne",
         "https://host.docker.internal/mcp": "réseau interne",

@@ -74,7 +74,7 @@ Aucune vidéo n'a été regardée en continu ni écoutée. Pour les dix, j'ai ou
   - [S] Dots : à la demande, le bot résume les travaux récents et propose par quoi commencer, [rM_paQG09K4 à 2:08](https://www.youtube.com/watch?v=rM_paQG09K4&t=128s).
   - [S] Désaccord sur Duet : pas d'appel vocal sur la version web, [JU0lX7y2Au0 à 2:05](https://www.youtube.com/watch?v=JU0lX7y2Au0&t=125s). La [doc Duet](https://support.claude.com/en/articles/17631495-get-started-with-claude-duet) parle de message vocal, pas d'appel. Non tranché.
 - **Vérifier dans Noah.** Vrai navigateur : compter les gestes et le temps entre le clic et le micro ouvert ; dire « salut » et noter si la première réplique s'appuie sur la mémoire de l'agent.
-- **État : partiel.** Le bouton est là ([Thread.tsx:360](../frontend/src/components/Thread.tsx#L360), [Voice.tsx:289-295](../frontend/src/components/Voice.tsx#L289)). À l'ouverture, « Je t'écoute… » s'affiche et l'agent se tait, sauf pour un rappel pris ([Voice.tsx:676](../frontend/src/components/Voice.tsx#L676), [601-616](../frontend/src/components/Voice.tsx#L601)). La première réplique vient de la voix rapide, qui ne reçoit que les 6 derniers messages et le rôle ([Voice.tsx:490](../frontend/src/components/Voice.tsx#L490), [media.py:474-486](../server/apollo/media.py#L474)).
+- **État : partiel.** Le bouton est là ([Thread.tsx:360](../frontend/src/components/Thread.tsx#L360), [Voice.tsx:289-295](../frontend/src/components/Voice.tsx#L289)). À l'ouverture, « Je t'écoute… » s'affiche et l'agent se tait, sauf pour un rappel pris ([Voice.tsx:676](../frontend/src/components/Voice.tsx#L676), [601-616](../frontend/src/components/Voice.tsx#L601)). La première réplique vient de la voix rapide, qui ne reçoit que les 6 derniers messages et le rôle ([Voice.tsx:490](../frontend/src/components/Voice.tsx#L490), [media.py:474-486](../server/noah/media.py#L474)).
 
 #### C2. Contrôles pendant l'appel
 
@@ -124,8 +124,8 @@ Aucune vidéo n'a été regardée en continu ni écoutée. Pour les dix, j'ai ou
   - [S] Dots : le bot annonce le plan puis lance la production, [rM_paQG09K4 à 4:24](https://www.youtube.com/watch?v=rM_paQG09K4&t=264s) ; l'auteur décrit la voix qui répond pendant que le travail tourne, [6:33](https://www.youtube.com/watch?v=rM_paQG09K4&t=393s).
   - [D] Muse : le mode vocal avance des tâches pendant qu'on parle, [Connect 2026](https://www.meta.com/blog/meta-connect-2026-everything-we-announced/).
   - [D] Hermes : GPT-Live délègue le travail à l'agent, [voix](https://hermes-agent.nousresearch.com/docs/user-guide/features/voice-mode).
-- **Vérifier dans Noah.** Banc existant (`server/apollo/bench_voice.py`) : délai avant le premier son, accusés sans résultat inventé.
-- **État : tenu (code).** Voix rapide et agent en parallèle ([Voice.tsx:509-522](../frontend/src/components/Voice.tsx#L509), [media.py:474-481](../server/apollo/media.py#L474)).
+- **Vérifier dans Noah.** Banc existant (`server/noah/bench_voice.py`) : délai avant le premier son, accusés sans résultat inventé.
+- **État : tenu (code).** Voix rapide et agent en parallèle ([Voice.tsx:509-522](../frontend/src/components/Voice.tsx#L509), [media.py:474-481](../server/noah/media.py#L474)).
 
 ### Pendant le travail
 
@@ -138,7 +138,7 @@ Aucune vidéo n'a été regardée en continu ni écoutée. Pour les dix, j'ai ou
   - [S] Avis inverse d'un autre testeur de Dots : rien n'indique toujours qu'il travaille, [DdSRXsKkHOg à 2:35](https://www.youtube.com/watch?v=DdSRXsKkHOg&t=155s).
   - Limite : le son n'a pas été écouté, et je n'ai pas de source sur un bruit d'attente chez Grok Bot, Duet ou Muse.
 - **Vérifier dans Noah.** Appel de 3 minutes sur une tâche longue : mesurer les silences de plus de 10 s et ce qui les rompt ; vérifier que chaque phrase correspond à une étape réelle de l'agent.
-- **État : absent.** Après l'accusé, plus rien jusqu'au résumé final ([Voice.tsx:637-659](../frontend/src/components/Voice.tsx#L637)). Le texte « s'en occupe » n'est qu'à l'écran ([Voice.tsx:679](../frontend/src/components/Voice.tsx#L679)). La voix rapide n'a pas le droit de parler de l'état du travail ([media.py:482-483](../server/apollo/media.py#L482)), et je n'ai trouvé ni son d'attente ni suivi d'étapes à l'oral.
+- **État : absent.** Après l'accusé, plus rien jusqu'au résumé final ([Voice.tsx:637-659](../frontend/src/components/Voice.tsx#L637)). Le texte « s'en occupe » n'est qu'à l'écran ([Voice.tsx:679](../frontend/src/components/Voice.tsx#L679)). La voix rapide n'a pas le droit de parler de l'état du travail ([media.py:482-483](../server/noah/media.py#L482)), et je n'ai trouvé ni son d'attente ni suivi d'étapes à l'oral.
 
 #### C8. Ce qu'on voit pendant qu'un outil travaille
 
@@ -161,7 +161,7 @@ Aucune vidéo n'a été regardée en continu ni écoutée. Pour les dix, j'ai ou
   - [S] Dots : il corrige après coup un état mal rapporté, [rM_paQG09K4 à 28:52](https://www.youtube.com/watch?v=rM_paQG09K4&t=1732s).
   - [D] Dots : l'activité montre progression, fichiers et résultats, [tâches](https://learn.chatgpt.com/codex/dots/tasks-and-memory).
 - **Vérifier dans Noah.** Vrais conteneurs : pendant une tâche de 2 minutes, demander « où ça en est » ; mesurer le délai d'une réponse fondée, et contrôler qu'aucun faux « c'est fini » n'est dit.
-- **État : partiel.** Noah ne ment pas : la voix rapide reformule sans donner d'état ([media.py:480-483](../server/apollo/media.py#L480)). Mais la question attend la fin du travail en cours avant d'arriver à l'agent ([Voice.tsx:510-516](../frontend/src/components/Voice.tsx#L510), [662-669](../frontend/src/components/Voice.tsx#L662)).
+- **État : partiel.** Noah ne ment pas : la voix rapide reformule sans donner d'état ([media.py:480-483](../server/noah/media.py#L480)). Mais la question attend la fin du travail en cours avant d'arriver à l'agent ([Voice.tsx:510-516](../frontend/src/components/Voice.tsx#L510), [662-669](../frontend/src/components/Voice.tsx#L662)).
 
 #### C10. Corriger le travail en cours
 
@@ -183,7 +183,7 @@ Aucune vidéo n'a été regardée en continu ni écoutée. Pour les dix, j'ai ou
   - [D] Dots : Activité et Programmé, [contrôles](https://learn.chatgpt.com/codex/dots/controls).
   - [D] Grok Bot : historique des routines, les 20 dernières exécutions, [routines](https://docs.x.ai/grok-bot/skills-routines-and-automations).
 - **Vérifier dans Noah.** Vrai navigateur : après une tâche avec un accord, retrouver les étapes et l'accord dans l'interface, une heure et une semaine plus tard.
-- **État : absent.** La ligne d'activité est remplacée puis retirée ([Thread.tsx:124](../frontend/src/components/Thread.tsx#L124)). Aucun composant ne porte « journal » ou « audit ». Le serveur note les accords vus ([main.py:1634](../server/apollo/main.py#L1634)), je n'ai pas trouvé d'écran qui les montre. Le panneau de coût ne remplace pas ce journal ([SidePanel.tsx:147](../frontend/src/components/SidePanel.tsx#L147)).
+- **État : absent.** La ligne d'activité est remplacée puis retirée ([Thread.tsx:124](../frontend/src/components/Thread.tsx#L124)). Aucun composant ne porte « journal » ou « audit ». Le serveur note les accords vus ([main.py:1634](../server/noah/main.py#L1634)), je n'ai pas trouvé d'écran qui les montre. Le panneau de coût ne remplace pas ce journal ([SidePanel.tsx:147](../frontend/src/components/SidePanel.tsx#L147)).
 
 ### Confirmation
 
@@ -196,7 +196,7 @@ Aucune vidéo n'a été regardée en continu ni écoutée. Pour les dix, j'ai ou
   - [D] Grok Bot : opération, entrées et trois choix, [sécurité](https://docs.x.ai/grok-bot/security).
   - [S] Duet : une tâche propose d'envoyer 27 relances et attend le oui, [onchw06kP7Y à 5:38](https://www.youtube.com/watch?v=onchw06kP7Y&t=338s) ; l'image à 5:45 est floutée.
 - **Vérifier dans Noah.** Vrai navigateur et notification sur téléphone : déclencher un envoi de courriel, lire la carte ; un inconnu comprend-il la cible et l'effet sans ouvrir autre chose.
-- **État : partiel.** Carte et boutons sont là, avec une notification urgente ([Thread.tsx:135-165](../frontend/src/components/Thread.tsx#L135), [main.py:1638](../server/apollo/main.py#L1638)). Le contenu reste un résumé libre, sans champs fixes pour la cible et le montant, ni lien vers le détail.
+- **État : partiel.** Carte et boutons sont là, avec une notification urgente ([Thread.tsx:135-165](../frontend/src/components/Thread.tsx#L135), [main.py:1638](../server/noah/main.py#L1638)). Le contenu reste un résumé libre, sans champs fixes pour la cible et le montant, ni lien vers le détail.
 
 #### C13. Confirmation pendant la voix : à l'écran, jamais à l'oral
 
@@ -229,7 +229,7 @@ Aucune vidéo n'a été regardée en continu ni écoutée. Pour les dix, j'ai ou
   - [D] Grok Bot : routines, calendrier ou déclencheur, résultat dans le chat, [routines](https://docs.x.ai/grok-bot/skills-routines-and-automations).
   - [V] Muse : rappel proposé pendant la création d'un objectif, avec un choix à toucher, [2UwemqPkJSQ à 26:45](https://www.youtube.com/watch?v=2UwemqPkJSQ&t=1605s).
 - **Vérifier dans Noah.** Vrais conteneurs : dicter une routine en appel ; vérifier ce qui est dit, l'horaire enregistré et la première exécution.
-- **État : partiel.** Routines par la conversation ou par formulaire, prochaine exécution affichée ([AgentPowers.tsx:108-148](../frontend/src/components/AgentPowers.tsx#L108), [125](../frontend/src/components/AgentPowers.tsx#L125)), et la voix sait qu'il s'agit d'une action ([media.py:477-478](../server/apollo/media.py#L477)). Rien n'impose que la confirmation orale donne l'horaire et la première exécution.
+- **État : partiel.** Routines par la conversation ou par formulaire, prochaine exécution affichée ([AgentPowers.tsx:108-148](../frontend/src/components/AgentPowers.tsx#L108), [125](../frontend/src/components/AgentPowers.tsx#L125)), et la voix sait qu'il s'agit d'une action ([media.py:477-478](../server/noah/media.py#L477)). Rien n'impose que la confirmation orale donne l'horaire et la première exécution.
 
 #### C16. Comment il rappelle
 
@@ -241,7 +241,7 @@ Aucune vidéo n'a été regardée en continu ni écoutée. Pour les dix, j'ai ou
   - [D] Grok Bot : notification pour un résultat, une question ou un accord, [mobile](https://docs.x.ai/grok-bot/mobile).
   - [S] Muse : réglage de fréquence du réveil de l'agent, [q_PKk3MiR9Y à 15:11](https://www.youtube.com/watch?v=q_PKk3MiR9Y&t=911s).
 - **Vérifier dans Noah.** Téléphone réel, 4G, app fermée : déclenchement, délai de sonnerie, Répondre, Refuser, manqué ; le compte rendu reste écrit dans chaque cas.
-- **État : tenu (code).** Sonnerie, écran plein, notification urgente, limite de 6 par heure, 60 s avant « manqué », texte gardé ([Call.tsx:15-54](../frontend/src/components/Call.tsx#L15), [158-195](../frontend/src/components/Call.tsx#L158), [coordination.py:334-355](../server/apollo/coordination.py#L334), [NoahPush.java:262](../mobile/android/app/src/main/java/agent/noah/mobile/NoahPush.java#L262)). Ce n'est pas un avantage prouvé : rien n'a été essayé sur un vrai téléphone dans ce relevé, et personne n'a jugé si ce rappel plaît.
+- **État : tenu (code).** Sonnerie, écran plein, notification urgente, limite de 6 par heure, 60 s avant « manqué », texte gardé ([Call.tsx:15-54](../frontend/src/components/Call.tsx#L15), [158-195](../frontend/src/components/Call.tsx#L158), [coordination.py:334-355](../server/noah/coordination.py#L334), [NoahPush.java:262](../mobile/android/app/src/main/java/agent/noah/mobile/NoahPush.java#L262)). Ce n'est pas un avantage prouvé : rien n'a été essayé sur un vrai téléphone dans ce relevé, et personne n'a jugé si ce rappel plaît.
 
 #### C17. Heures calmes et fréquence des alertes
 
@@ -252,7 +252,7 @@ Aucune vidéo n'a été regardée en continu ni écoutée. Pour les dix, j'ai ou
   - [D] Dots : pour une tâche planifiée, il n'écrit que si un délai est en danger ou si une décision manque, [tâches](https://learn.chatgpt.com/codex/dots/tasks-and-memory).
   - [D] Grok Bot : interrupteur de notifications par Bot, [discussion](https://docs.x.ai/grok-bot/chat-and-collaboration).
 - **Vérifier dans Noah.** Test simulé puis téléphone : régler une plage calme, déclencher un rappel et une alerte, vérifier ce qui passe et ce qui attend.
-- **État : absent.** Recherche de « quiet », « heures calmes », « silencieux » sans résultat dans `frontend/src` et `server`. On peut seulement couper tout par appareil ([PushToggle.tsx:47-68](../frontend/src/components/PushToggle.tsx#L47)), et les rappels sont limités à 6 par heure ([coordination.py:24](../server/apollo/coordination.py#L24)).
+- **État : absent.** Recherche de « quiet », « heures calmes », « silencieux » sans résultat dans `frontend/src` et `server`. On peut seulement couper tout par appareil ([PushToggle.tsx:47-68](../frontend/src/components/PushToggle.tsx#L47)), et les rappels sont limités à 6 par heure ([coordination.py:24](../server/noah/coordination.py#L24)).
 
 ### Appareils
 

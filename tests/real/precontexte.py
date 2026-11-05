@@ -1,6 +1,6 @@
 """Mesure du pré-contexte d'appel sur le vrai modèle rapide, dans le conteneur du serveur :
 
-    docker cp tests/real/precontexte.py apollo-server:/tmp/ && docker exec -w /app -e PYTHONPATH=/app apollo-server python /tmp/precontexte.py <agent> [repetitions]
+    docker cp tests/real/precontexte.py noah-server:/tmp/ && docker exec -w /app -e PYTHONPATH=/app noah-server python /tmp/precontexte.py <agent> [repetitions]
 
 La voix doit répondre tout de suite à ce que l'agent sait déjà, et ne rien inventer sur ce qu'il ne sait pas.
 Compare deux états du même serveur : sans préparation, puis avec. Écrit dans la vraie mémoire de l'agent de test, puis la remet.
@@ -14,7 +14,7 @@ import uuid
 
 import httpx
 
-from apollo import auth, db
+from noah import auth, db
 
 AGENT = sys.argv[1]
 REPEAT = int(sys.argv[2]) if len(sys.argv) > 2 else 3
@@ -56,7 +56,7 @@ ADMITS = re.compile(r"ne sais pas|n'ai pas|ne l'ai pas|je regarde|je vérifie|je
 
 
 def admin(action, body=None):
-    from apollo.machine import admin as call
+    from noah.machine import admin as call
     import asyncio
     return asyncio.run(call(AGENT, action, body))
 

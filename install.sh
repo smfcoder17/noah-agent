@@ -32,13 +32,13 @@ ensure() {
 }
 touch .env
 ensure LAUNCHER_KEY "$(random)"
-ensure APOLLO_SECRET_KEY "$(random)"
-ensure APOLLO_PORT 8080
-ensure APOLLO_BIND 127.0.0.1
+ensure NOAH_SECRET_KEY "$(random)"
+ensure NOAH_PORT 8080
+ensure NOAH_BIND 127.0.0.1
 
 echo "Téléchargement de l'image des agents (une seule fois, quelques minutes)…"
 docker pull -q nousresearch/hermes-agent:stable
 docker compose up -d --build
 
-port=$(grep '^APOLLO_PORT=' .env | cut -d= -f2)
+port=$(grep '^NOAH_PORT=' .env | cut -d= -f2)
 echo "✓ Noah Agent démarre. Ouvre http://localhost:${port:-8080} pour créer ton compte."

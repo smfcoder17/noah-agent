@@ -73,7 +73,7 @@ try {
   must("network", "create", RESEAU);
   must("run", "-d", "--name", SERVEUR, "--network", RESEAU, "--network-alias", "server", "-p", `${P_DIRECT}:8080`,
     "-e", `NOAH_DOMAIN=${DOMAINE}`, "-e", "NOAH_SETUP_CODE=auto", "-e", "PYTHONDONTWRITEBYTECODE=1",
-    "-v", `${join(ROOT, "server/apollo")}:/app/apollo:ro`, "-v", `${join(ROOT, "frontend/dist")}:/app/web:ro`, IMAGE);
+    "-v", `${join(ROOT, "server/noah")}:/app/noah:ro`, "-v", `${join(ROOT, "frontend/dist")}:/app/web:ro`, IMAGE);
   const cf = join(tmp, "Caddyfile");
   writeFileSync(cf, caddyfile());
   must("run", "-d", "--name", CADDY, "--network", RESEAU, "-p", `${P_HTTP}:80`, "-p", `${P_HTTPS}:443`, "-v", `${cf}:/etc/caddy/Caddyfile:ro`, "caddy:2.10-alpine");
@@ -117,7 +117,7 @@ try {
   }, [NOM, MOT, lien[1]]);
   check("le compte se crée par ce lien", cree === 200, String(cree));
   // L'essai du modèle n'est pas le sujet ici : on passe la fin de l'assistant.
-  must("exec", SERVEUR, "python", "-c", "from apollo import db; db.set_setting('onboarded', '1')");
+  must("exec", SERVEUR, "python", "-c", "from noah import db; db.set_setting('onboarded', '1')");
   await page.goto(`https://${DOMAINE}/`, { waitUntil: "domcontentloaded" });
 
   // 4. HTTPS : QR code et adresse, tous deux en HTTPS. Le QR est comparé à celui de l'adresse attendue, module par module.

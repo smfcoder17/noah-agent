@@ -25,8 +25,8 @@ if [ -f "$src/env" ]; then
   cp "$src/env" .env
 fi
 
-docker ps -aq --filter label=apollo.agent | xargs -r docker rm -f
-docker ps -aq --filter label=apollo.browser | xargs -r docker rm -f
+docker ps -aq --filter label=noah.agent | xargs -r docker rm -f
+docker ps -aq --filter label=noah.browser | xargs -r docker rm -f
 docker compose down
 
 for f in "$src"/*.tar.gz; do

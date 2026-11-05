@@ -260,7 +260,7 @@ if (mode === "noter") {
   writeFileSync(a2, JSON.stringify({ audit: out, usage, cout_juges_dollars: money(), details: judged }, null, 1));
   console.log(JSON.stringify({ audit: out, usage, cout_juges_dollars: money() }, null, 1));
 } else if (mode === "reserve") {
-  const cat = (name) => execFileSync("docker", ["exec", "apollo-server", "cat", `/data/bench-voix/${name}`], { maxBuffer: 1 << 28 }).toString();
+  const cat = (name) => execFileSync("docker", ["exec", "noah-server", "cat", `/data/bench-voix/${name}`], { maxBuffer: 1 << 28 }).toString();
   const data = JSON.parse(cat(`taches-reserve-obs-${a1}.json`));
   const lot = JSON.parse(cat("taches-reserve.json")).scenarios;
   const items = data.appels.filter((o) => heardText(o)).map((obs) => ({ key: obs.id, scn: lot.find((s) => s.id === obs.id), obs, spoken: heard(obs).map((p) => p.texte.trim()).join("\n") }));
@@ -268,8 +268,8 @@ if (mode === "noter") {
   const rows = score(lot, data, judged);
   const head = { etiquette: a1, ...rate(rows), cout_juges_dollars: money() };
   const line = JSON.stringify({ ...head, date: new Date().toISOString() });
-  execFileSync("docker", ["exec", "-i", "apollo-server", "sh", "-c", "cat >> /data/bench-voix/taches-reserve-consultations.jsonl"], { input: line + "\n" });
-  execFileSync("docker", ["exec", "-i", "apollo-server", "sh", "-c", `cat > /data/bench-voix/taches-reserve-score-${a1}.json`], { input: JSON.stringify({ rows, judged }) });
+  execFileSync("docker", ["exec", "-i", "noah-server", "sh", "-c", "cat >> /data/bench-voix/taches-reserve-consultations.jsonl"], { input: line + "\n" });
+  execFileSync("docker", ["exec", "-i", "noah-server", "sh", "-c", `cat > /data/bench-voix/taches-reserve-score-${a1}.json`], { input: JSON.stringify({ rows, judged }) });
   const count = cat("taches-reserve-consultations.jsonl").trim().split("\n").length;
   console.log(JSON.stringify({ ...head, consultations: count, code_tenu: rows.filter((r) => r.code_ok).length }));
 } else {
