@@ -118,6 +118,8 @@ $("scan").onclick = async () => {
     const result = await scanner.scanBarcode({ hint: 0, scanInstructions: "Vise le QR code de Réglages → Appareils" });
     const link = parseLink(result.ScanResult || "");
     if (!link || !origin(link.server)) return say("Ce QR code ne vient pas de Noah (Réglages → Appareils → « Relier un appareil »).");
+    // Un QR peut mener n'importe où : la personne voit à quel serveur elle se relie avant que l'app ne le contacte.
+    if (!window.confirm(`Relier ce téléphone au serveur ${new URL(link.server).host} ?\n\nContinue seulement si c'est bien ton Noah.`)) return;
     await claim(link.server, link.code);
   } catch (e) {
     if (!String(e && e.message).match(/cancel/i)) say("Le scanner n'a pas pu s'ouvrir. Saisis l'adresse et le code à la place.");
