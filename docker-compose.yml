@@ -9,7 +9,7 @@ services:
     container_name: noah-server
     restart: unless-stopped
     ports:
-      # 127.0.0.1 par défaut. Pour un autre appareil, donne à Noah une adresse HTTPS (README, « Depuis ton téléphone »).
+      # 127.0.0.1 par défaut. Pour un autre appareil, donne à Noah une adresse HTTPS (README, « Relier le téléphone »).
       - "${NOAH_BIND:-127.0.0.1}:${NOAH_PORT:-8080}:8080"
     environment:
       NOAH_SECRET_KEY: ${NOAH_SECRET_KEY}

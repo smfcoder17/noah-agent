@@ -81,9 +81,11 @@ await Promise.all(
   Array.from({ length: AT_ONCE }, async () => {
     while (queue.length) {
       const r = await launch(queue.shift());
-      if (r.ok || AT_ONCE === 1) report(r);
-      else toRetry.push(r.step);
-      if (!r.ok && AT_ONCE === 1) failed.push(r.step.name);
+      if (r.ok) report(r);
+      else if (AT_ONCE === 1) {
+        report(r);
+        failed.push(r.step.name);
+      } else toRetry.push(r.step);
     }
   }),
 );

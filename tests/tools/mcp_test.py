@@ -700,7 +700,7 @@ def test_everywhere() -> None:
     assert r.status_code == 200 and started and started[0]["agent"] == A, r.text
     voice = Path("/front/Voice.tsx")
     if voice.exists():
-        assert "say(text)" in voice.read_text(encoding="utf-8"), "la voix doit passer par le fil de la conversation"
+        assert "say(text" in voice.read_text(encoding="utf-8"), "la voix doit passer par le fil de la conversation"
     # Le même relais quel que soit l'appelant : la requête ne dit pas d'où elle vient, et une demande de routine passe pareil.
     set_right("libre", "agir")
     assert not call_tool("libre", "lire_fiche").get("isError")

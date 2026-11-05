@@ -338,6 +338,26 @@ async def everything():
     await drained()
     print("12 ter. perte, doublon, droits, ordre, accord, pièces jointes : tenus")
 
+    # Raccroché pendant le tri : même identifiant, une seule demande, et le serveur la garde si elle finit à la suite.
+    working()
+    gate = asyncio.Event()
+
+    async def slow_tache(*a):
+        await gate.wait()
+        return {"type": "tache", "reponse": ""}
+
+    media.triage = slow_tache
+    task = asyncio.create_task(main.chat_while_busy(main.WhileBusy(agent_id="a1", text="Raccroché", conversation_id=conv, client_id="raccroche-1", garder=True), user=alice))
+    await asyncio.sleep(0.02)
+    await main.chat_after(main.LaterMessage(agent_id="a1", text="Raccroché", conversation_id=conv, client_id="raccroche-1"), user=alice)
+    gate.set()
+    await task
+    media.triage = triage
+    assert pending().count("Raccroché") == 1, pending()
+    main.request_cancel("raccroche-1", user=alice)
+    finished()
+    print("12 quater. raccroché pendant le tri : une seule demande, gardée")
+
     # 12 bis. Au démarrage, rien ne part avant de savoir si une mise à jour est ouverte.
     from noah import updates
 

@@ -1739,6 +1739,9 @@ async def _resume_requests() -> None:
     pendant.resume()
 
 
+_hung_up: set[str] = set()
+
+
 def _own_conversation(user: int, agent: Agent, conv_id: str | None) -> str:
     with db.connect() as c:
         if conv_id and not c.execute(
@@ -1754,8 +1757,11 @@ async def chat_after(body: LaterMessage, user: int = Depends(auth.current_user))
     fini. Sur le téléphone, l'écran peut se fermer juste après : ça ne peut pas rester du côté de l'application."""
     agent = _usable(user, body.agent_id)
     conv_id = _own_conversation(user, agent, body.conversation_id)
-    if pendant.add(f"{user}:{body.client_id or uuid.uuid4().hex}", conv_id, agent.id, user, body.text):
+    request_id = f"{user}:{body.client_id or uuid.uuid4().hex}"
+    if pendant.add(request_id, conv_id, agent.id, user, body.text):
         pendant.start(agent.id, conv_id)
+    else:  # raccroché pendant son tri : si elle finit à la suite, c'est le serveur qui la garde, l'appel n'est plus là
+        _hung_up.add(request_id)
     return {"ok": True}
 
 
@@ -1835,9 +1841,10 @@ async def chat_while_busy(body: WhileBusy, user: int = Depends(auth.current_user
     else:
         kind, status = "tache", pendant.WAITING
     result = {"type": kind, "reponse": reply, "conversation_id": conv_id}
-    if status == pendant.WAITING and body.garder:
+    if status == pendant.WAITING and body.garder and request_id not in _hung_up:
         pendant.forget(request_id)
         return result
+    _hung_up.discard(request_id)
     pendant.settle(request_id, status, result)
     if status == pendant.WAITING:
         pendant.start(agent.id, conv_id)
@@ -2332,7 +2339,7 @@ async def preview_link(agent_id: str, body: PreviewAsk, user: int = Depends(auth
 
 
 @app.get("/api/apercu/{token}/{path:path}")
-async def preview_file(token: str, path: str, request: Request):
+async def preview_file(token: str, path: str, request: Request, download: bool = False):
     body, _, signature = token.partition(".")
     if not hmac.compare_digest(signature, _preview_signature(body)):
         raise HTTPException(403, "Lien d'aperçu invalide")
@@ -2358,6 +2365,7 @@ async def preview_file(token: str, path: str, request: Request):
         "Referrer-Policy": "no-referrer",  # le lien ne part pas vers les sites que la page appelle
         "Access-Control-Allow-Origin": "*",  # fetch depuis l'origine opaque ; aucun cookie n'est lu ici
         "Cache-Control": "private, no-cache",
+        **({"Content-Disposition": f"attachment; filename*=UTF-8''{quote(posixpath.basename(wanted))}"} if download else {}),
     })
 
 
