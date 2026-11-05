@@ -123,14 +123,14 @@ Chacun de ces services voit l'IP de ton serveur. Un test vérifie le serveur de 
 ### Comment tu restes le seul à entrer
 
 - **Le compte.** Il se crée avec le code à usage unique du lien, puis ce code est effacé. Il n'y a pas d'inscription publique : toi seul peux ajouter un profil.
-- **La connexion.** En HTTPS, avec 10 essais ratés au plus par réseau toutes les 10 minutes.
-- **Les appareils.** Un QR code ou un code court sert une fois et expire en 10 minutes. Il ne suffit pas : tu acceptes sur un appareil déjà relié, avec le nombre à 3 chiffres. Réglages > Appareils les liste, et tu peux en retirer un.
+- **La connexion.** En HTTPS, avec 10 essais ratés au plus par réseau toutes les 10 minutes. Tu peux ajouter une double vérification, un code à 6 chiffres donné par une application sur ton téléphone : [activer](docs/installation.md#la-double-vérification).
+- **Les appareils.** Un QR code ou un code court sert une fois et expire en 10 minutes. Il ne suffit pas : tu acceptes sur un appareil déjà relié, avec le nombre à 3 chiffres. Accepter demande aussi ton mot de passe, sauf depuis un navigateur où tu viens de le saisir (moins de 15 minutes) : un téléphone volé ne relie pas un autre appareil. Réglages > Appareils les liste, et tu peux en retirer un.
 - **Le réseau.** Seul Caddy publie des ports, le 80 et le 443. Le serveur, le lanceur, les agents et leurs navigateurs n'en publient aucun ([exposition_test.py](tests/exposition/exposition_test.py) lit les fichiers et les appels à Docker ; le scan depuis Internet reste à faire).
 - **Les mises à jour.** Le serveur n'installe une version que si son manifeste porte la bonne signature, et chaque image y est fixée par empreinte.
 
 ### Ce que Noah ne protège pas
 
-- **Pas de double authentification, ni de récupération du mot de passe par courriel.** Choisis un mot de passe long.
+- **Pas de récupération du mot de passe par courriel.** Choisis un mot de passe long. Qui a la main sur le serveur peut changer le mot de passe du propriétaire et couper sa double vérification.
 - **Un agent peut être trompé.** Une page ou un message piégé peut lui donner de fausses consignes, et il agit avec ce que tu lui as confié. Pour un outil branché, « Demander confirmation » est le droit par défaut. Il arrête le modèle, mais pas toujours un agent déjà détourné : [les limites](docs/installation.md#les-limites-à-connaître). Donne à chaque agent le moins d'accès possible.
 - **Le lanceur a l'équivalent d'un accès root à la machine,** car il crée les conteneurs des agents par Docker. Il n'est pas exposé et chaque appel exige sa clé : [le détail](docs/installation.md#le-socket-docker).
 - **Un sous-domaine ne cache pas ton serveur :** le DNS mène à l'IP. [Cacher l'IP](docs/installation.md#cacher-lip-du-serveur).

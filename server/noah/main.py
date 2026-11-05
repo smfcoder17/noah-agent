@@ -17,6 +17,7 @@ import uuid
 from dataclasses import replace
 from urllib.parse import quote, urlencode, urlsplit
 
+import anyio.from_thread
 import bcrypt
 import httpx
 import websockets
@@ -25,7 +26,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Str
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import access, accounts, auth, catalog, coordination, db, desktop, events, exposition, handoff, hermes, machine, mcp, media, pendant, profiles, public, push, recuperation, relay, updates, watch, precall, diagnostics
+from . import access, accounts, auth, catalog, coordination, db, desktop, double_verification, events, exposition, handoff, hermes, machine, mcp, media, pendant, profiles, public, push, recuperation, relay, updates, watch, precall, diagnostics
 from . import config
 from .config import WEB_DIR, forget_setup_code
 from .hermes import Agent
@@ -341,7 +342,7 @@ def _login_response(request: Request, response: Response, user_id: int, device: 
     if in_app:
         platform = in_app.lower()
     token = auth.new_session(user_id, device or _device_name(request), platform if platform in PLATFORMS else "web",
-                             _ip(request), request.headers.get("x-noah-version", ""))
+                             _ip(request), request.headers.get("x-noah-version", ""), proven=platform == "web")
     # Apps (bureau, mobile) : jeton dans la réponse seulement, qu'elles rangent chiffré ; un cookie y resterait en clair.
     if in_app or platform == "web" or platform not in PLATFORMS:
         _session_cookie(request, response, token)
@@ -481,9 +482,10 @@ def pairing_pending(request: Request, user: int = Depends(auth.full_session)):
     """Appareils qui ont utilisé le QR code ou le code court de cet écran et attendent son accord."""
     _purge()
     session = _session_of(request)
+    proof = _proof_needed(user, session)
     with _pairing_lock:
-        return {"demandes": [{"id": public, "appareil": f["appareil"], "type": f["type"], "ip": f["ip"], **_ages(f, request)}
-                             for public, f in _flows.items() if f.get("origine") == session and not f["user"]]}
+        return {**proof, "demandes": [{"id": public, "appareil": f["appareil"], "type": f["type"], "ip": f["ip"], **_ages(f, request)}
+                                      for public, f in _flows.items() if f.get("origine") == session and not f["user"]]}
 
 
 class PairingCode(BaseModel):
@@ -586,7 +588,7 @@ def flow_info(public: str, request: Request, user: int = Depends(auth.full_sessi
         # envoie le lien à quelqu'un d'autre n'obtient rien.
         flow["proprietaire"] = user
     return {"appareil": flow["appareil"], "type": flow["type"], "ip": flow["ip"], **_ages(flow, request),
-            "verification": flow["verif"] if flow["sens"] == "app" else None}
+            **_proof_needed(user, _session_of(request)), "verification": flow["verif"] if flow["sens"] == "app" else None}
 
 
 def _same_number(given: str, number: str) -> bool:
@@ -595,6 +597,8 @@ def _same_number(given: str, number: str) -> bool:
 
 class Decision(BaseModel):
     verification: str = Field(default="", max_length=4)
+    motdepasse: str = Field(default="", max_length=256)  # seulement si la session n'a pas de preuve récente
+    code: str = Field(default="", max_length=32)
 
 
 @app.post("/api/pairing/flow/{public}/{decision}")
@@ -612,6 +616,12 @@ def flow_decide(public: str, decision: str, request: Request, body: Decision | N
         return {"ok": True}
     if decision != "autoriser":
         raise HTTPException(400, "Décision inconnue")
+    # Avant le nombre : sans la preuve, un jeton d'appareil volé n'apprend rien, et n'annule pas la demande de la personne.
+    if not auth.proven_recently(session):
+        if not body or not body.motdepasse:
+            raise HTTPException(428, "Confirme ton mot de passe pour relier cet appareil.")
+        _prove(request, user, body.motdepasse, body.code)
+        auth.mark_proven(session)
     if flow["sens"] == "app":
         recent = [t for t in _number_failures.get(user, []) if time.time() - t < NUMBER_WINDOW]
         if len(recent) >= NUMBER_TRIES:
@@ -826,8 +836,12 @@ LOGIN_ACCOUNT_TRIES = 30
 _decoy_hash: bytes | None = None
 
 
+class Login(Credentials):
+    code: str = Field(default="", max_length=32)  # double vérification : code de l'application ou code de secours
+
+
 @app.post("/api/login")
-def login(body: Credentials, request: Request, response: Response, background: BackgroundTasks):
+def login(body: Login, request: Request, response: Response, background: BackgroundTasks):
     if not _from_noah(request):  # connexion forcée : la victime se retrouverait sur le compte de l'attaquant
         raise HTTPException(403, "Requête refusée : elle ne vient pas de Noah.")
     ip, name = _network(_ip(request)) or "?", body.username.strip().lower()
@@ -835,13 +849,127 @@ def login(body: Credentials, request: Request, response: Response, background: B
     user_id = _check_password_evenly(body.username, body.password)
     if user_id is None:
         raise HTTPException(401, "Nom d'utilisateur ou mot de passe incorrect")
-    # Seul cet essai est rendu : se connecter à son propre compte ne remet pas à zéro les essais faits sur un autre.
-    with _login_lock:
-        for store, key in ((_failed_logins, ip), (_account_failures, name)):
-            if now in store.get(key, []):
-                store[key].remove(now)
+    # Le code n'est regardé qu'après le bon mot de passe : un inconnu n'entame pas le plafond du compte, et n'apprend pas que
+    # ce compte a une double vérification. Un code faux garde son essai réservé, comme un mot de passe faux.
+    if double_verification.active(user_id):
+        if not body.code.strip():
+            _give_back_login(ip, name, now)
+            response.status_code = 202  # aucune session : l'écran demande le code et renvoie le tout
+            return {"code_requis": True}
+        if not _code_ok(user_id, body.code):
+            raise HTTPException(401, "Ce code est faux ou a déjà servi. Attends le suivant, ou utilise un code de secours.")
+    _give_back_login(ip, name, now)
     background.add_task(_alert_new_device, user_id, _device_name(request), _ip(request))
     return _login_response(request, response, user_id)
+
+
+def _give_back_login(ip: str, name: str, reserved: float) -> None:
+    """Seul cet essai est rendu : se connecter à son propre compte ne remet pas à zéro les essais faits sur un autre."""
+    with _login_lock:
+        for store, key in ((_failed_logins, ip), (_account_failures, name)):
+            if reserved in store.get(key, []):
+                store[key].remove(reserved)
+
+
+async def _alert_stolen_password(user: int) -> None:
+    try:
+        await push.send("Quelqu'un connaît ton mot de passe",
+                        "Plusieurs codes de double vérification faux viennent d'être essayés. Change ton mot de passe dans Réglages → Appareils.",
+                        urgent=True, user_id=user)
+    except Exception as e:
+        print(f"[appareils] alerte de codes faux non envoyée : {e}", flush=True)
+
+
+def _code_ok(user: int, code: str) -> bool:
+    try:
+        if double_verification.check(user, code):
+            return True
+    except double_verification.TooManyTries:
+        raise HTTPException(429, "Trop de codes faux. Réessaie dans une demi-heure.")
+    if double_verification.blocked(user):  # ce code faux vient d'atteindre le plafond ; les suivants ne reviennent pas ici
+        recuperation.log.warning("Trop de codes de double vérification faux pour le compte n°%d, avec le bon mot de passe.", user)
+        anyio.from_thread.run(_alert_stolen_password, user)  # tout de suite : une réponse d'erreur n'exécute pas les tâches de fond
+    return False
+
+
+WRONG_PROOF = "Mot de passe ou code incorrect."
+
+
+def _prove(request: Request, user: int, password: str, code: str) -> None:
+    """Une session valable, peut-être volée, confirme le mot de passe et le code s'il y en a un. 400 et non 401 : sa session
+    reste bonne. Mêmes limites que la connexion, sans la dispense d'une adresse connue : le voleur du jeton s'en servirait."""
+    username = access.username(user)
+    ip, name = _network(_ip(request)) or "?", username.strip().lower()
+    reserved = _reserve_login(ip, name, False)
+    if auth.check_password(username, password) != user:
+        raise HTTPException(400, WRONG_PROOF)
+    if double_verification.active(user) and (not code.strip() or not _code_ok(user, code)):
+        raise HTTPException(400, WRONG_PROOF)
+    _give_back_login(ip, name, reserved)
+
+
+def _proof_needed(user: int, session: str) -> dict:
+    """Ce que l'écran d'accord doit demander avant d'accorder un nouvel appareil."""
+    needed = not auth.proven_recently(session)
+    return {"preuve_requise": needed, "code_requis": needed and double_verification.active(user)}
+
+
+class DoublePassword(BaseModel):
+    motdepasse: str = Field(min_length=1, max_length=256)
+
+
+class DoubleCode(BaseModel):
+    code: str = Field(min_length=1, max_length=32)
+
+
+class DoubleProof(DoublePassword):
+    code: str = Field(default="", max_length=32)
+
+
+@app.get("/api/me/double-verification")
+def double_status(user: int = Depends(auth.current_user)):
+    return double_verification.status(user)
+
+
+@app.post("/api/me/double-verification/preparer")
+def double_prepare(body: DoublePassword, request: Request, user: int = Depends(auth.current_user)):
+    """Le mot de passe d'abord : un jeton volé ne doit pas pouvoir enfermer la personne dehors avec son propre secret."""
+    if double_verification.active(user):
+        raise HTTPException(409, "La double vérification est déjà activée sur ce compte.")
+    _prove(request, user, body.motdepasse, "")
+    return double_verification.prepare(user, access.username(user))
+
+
+@app.post("/api/me/double-verification/confirmer")
+def double_confirm(body: DoubleCode, user: int = Depends(auth.current_user)):
+    try:
+        codes = double_verification.confirm(user, body.code)
+    except double_verification.TooManyTries:
+        raise HTTPException(429, "Trop de codes faux. Réessaie dans une demi-heure.")
+    if not codes:
+        raise HTTPException(400, "Ce code est faux. Vérifie l'heure de ton téléphone, ou attends le code suivant.")
+    return {"secours": codes}
+
+
+@app.post("/api/me/double-verification/couper")
+def double_cut(body: DoubleProof, request: Request, user: int = Depends(auth.current_user)):
+    if not double_verification.active(user):
+        raise HTTPException(409, "La double vérification n'est pas activée sur ce compte.")
+    _prove(request, user, body.motdepasse, body.code)
+    double_verification.remove(user)
+    recuperation.log.warning("Double vérification coupée par le titulaire du compte n°%d, depuis l'adresse %s.", user, _ip(request) or "inconnue")
+    return {"ok": True}
+
+
+@app.post("/api/profiles/{profile_id}/double-verification/couper")
+def double_cut_profile(profile_id: int, body: DoubleProof, request: Request,
+                       user: int = Depends(access.owner_only)):
+    """Un profil a perdu son téléphone et ses codes : seul le propriétaire peut l'aider, avec sa propre preuve."""
+    _prove(request, user, body.motdepasse, body.code)
+    if not double_verification.remove(profile_id):
+        raise HTTPException(404, "Ce profil n'a pas de double vérification.")
+    recuperation.log.warning("Double vérification du compte n°%d coupée par le propriétaire, depuis l'adresse %s.", profile_id, _ip(request) or "inconnue")
+    return {"ok": True}
 
 
 @app.post("/api/recuperation/code")
@@ -859,13 +987,14 @@ def recovery_code(request: Request):
 class RecoveryReset(BaseModel):
     code: str = Field(min_length=1, max_length=64)
     password: str = Field(min_length=8, max_length=256)
+    couper_double: bool = False  # téléphone perdu aussi : qui a la main sur le serveur peut la couper
 
 
 @app.post("/api/recuperation")
 def recovery_reset(body: RecoveryReset, request: Request, response: Response):
     network = _network(_ip(request)) or "?"
     try:
-        username = recuperation.change_password(body.code, body.password, network)
+        username = recuperation.change_password(body.code, body.password, network, body.couper_double)
     except recuperation.TooManyTries:
         raise HTTPException(429, "Trop d'essais. Réessaie dans quelques minutes.")
     if not username:
@@ -879,6 +1008,9 @@ def recovery_reset(body: RecoveryReset, request: Request, response: Response):
     response.delete_cookie(auth.COOKIE)
     recuperation.log.warning("Mot de passe du propriétaire changé par code de récupération depuis l'adresse %s : "
                              "toutes les sessions sont fermées.", _ip(request) or "inconnue")
+    if body.couper_double:
+        recuperation.log.warning("Double vérification du propriétaire coupée par code de récupération depuis l'adresse %s.",
+                                 _ip(request) or "inconnue")
     return {"ok": True, "username": username}
 
 

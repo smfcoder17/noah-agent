@@ -93,6 +93,13 @@ def init() -> None:
         # Chaque session est un appareil (navigateur, app de bureau, téléphone), listé et révocable dans Réglages.
         _add_columns(db, "sessions", {"device": "TEXT NOT NULL DEFAULT ''", "platform": "TEXT NOT NULL DEFAULT 'web'",
                                       "created_at": "TEXT", "last_seen": "TEXT", "last_ip": "TEXT", "version": "TEXT"})
+        # Quand le mot de passe de cette session a été vérifié pour la dernière fois (voir auth.proven_recently).
+        _add_columns(db, "sessions", {"mdp_a": "REAL"})
+        # Double vérification : `secret` scellé, `secours` les empreintes des codes de secours, `dernier_pas` le dernier code
+        # consommé, `essais` les dates des codes faux récents (double_verification.py).
+        db.execute("CREATE TABLE IF NOT EXISTS double_verification (user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, "
+                   "secret TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 0, dernier_pas INTEGER NOT NULL DEFAULT 0, "
+                   "secours TEXT NOT NULL DEFAULT '[]', essais TEXT NOT NULL DEFAULT '[]')")
         # main = la conversation unique avec l'agent ; les autres sont des fils (ouverts par l'agent ou anciens).
         _add_columns(db, "conversations", {
             "main": "INTEGER NOT NULL DEFAULT 0",

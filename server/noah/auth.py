@@ -1,5 +1,6 @@
 import hashlib
 import secrets
+import time
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -19,6 +20,9 @@ SEEN_EVERY = timedelta(minutes=5)
 # finit par tomber. L'app en demande une nouvelle à chaque ouverture, sans bruit ; ce délai ne se voit donc jamais.
 WINDOW_IDLE = timedelta(hours=2)
 WINDOW_LONGEST = timedelta(hours=24)
+# Un navigateur où le mot de passe vient d'être saisi peut accorder un nouvel appareil sans le redemander. Rien d'autre n'a
+# cette dispense : une session d'appareil vit des mois, et son jeton volé ne doit pas pouvoir se fabriquer un autre accès.
+PROOF_SECONDS = 15 * 60
 WINDOW_REFUSED = "Pas depuis l'app : pour cette action, ouvre Noah dans un navigateur où tu es connecté."
 
 
@@ -74,17 +78,31 @@ def check_password(username: str, password: str) -> int | None:
     return None
 
 
-def new_session(user_id: int, device: str = "", platform: str = "web", ip: str = "", version: str = "") -> str:
+def new_session(user_id: int, device: str = "", platform: str = "web", ip: str = "", version: str = "",
+                proven: bool = False) -> str:
+    """`proven` : ouverte par le mot de passe, à l'instant."""
     token = secrets.token_urlsafe(32)
     now = datetime.now(timezone.utc)
     with db.connect() as c:
         c.execute(
-            "INSERT INTO sessions (token, user_id, expires_at, device, platform, created_at, last_seen, last_ip, version) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO sessions (token, user_id, expires_at, device, platform, created_at, last_seen, last_ip, version, mdp_a) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (digest(token), user_id, (now + timedelta(days=SESSION_DAYS)).isoformat(), device[:80], platform[:20],
-             now.isoformat(), now.isoformat(), ip[:64], version[:20]),
+             now.isoformat(), now.isoformat(), ip[:64], version[:20], time.time() if proven else None),
         )
     return token
+
+
+def proven_recently(key: str) -> bool:
+    """Session de navigateur (empreinte `key`) dont le mot de passe a été vérifié il y a moins de PROOF_SECONDS."""
+    with db.connect() as c:
+        row = c.execute("SELECT platform, mdp_a FROM sessions WHERE token = ?", (key,)).fetchone()
+    return bool(row and row["platform"] == "web" and row["mdp_a"] and time.time() - row["mdp_a"] < PROOF_SECONDS)
+
+
+def mark_proven(key: str) -> None:
+    with db.connect() as c:
+        c.execute("UPDATE sessions SET mdp_a = ? WHERE token = ? AND platform = 'web'", (time.time(), key))
 
 
 def new_session_if_alive(parent: str, user_id: int, device: str = "", platform: str = "web", ip: str = "",

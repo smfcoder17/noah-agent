@@ -5,6 +5,7 @@ import { Globe, Laptop, Loader2, Smartphone, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, del, get, send } from "@/lib/api";
 import { appShell } from "@/lib/platform";
+import { GrantProof } from "./GrantProof";
 import { minutes } from "./PairingTime";
 import { PushToggle } from "./PushToggle";
 import { Button, ErrorText } from "./ui";
@@ -26,19 +27,27 @@ function PendingRequests({ refresh, onDone, onUsed }: { refresh: number; onDone:
   const [list, setList] = useState<Pending[]>([]);
   const [codes, setCodes] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
+  const [proof, setProof] = useState({ preuve_requise: false, code_requis: false });
+  const [password, setPassword] = useState("");
+  const [secondCode, setSecondCode] = useState("");
   useEffect(() => {
-    get<{ demandes: Pending[] }>("/api/pairing/pending").then((r) => {
+    get<{ demandes: Pending[]; preuve_requise: boolean; code_requis: boolean }>("/api/pairing/pending").then((r) => {
       setList(r.demandes);
+      setProof({ preuve_requise: r.preuve_requise, code_requis: r.code_requis });
       if (r.demandes.length) onUsed();
     }).catch(() => {});
   }, [refresh, onUsed]);
+  const proven = !proof.preuve_requise || (password !== "" && (!proof.code_requis || secondCode !== ""));
   const decide = async (p: Pending, decision: "autoriser" | "refuser") => {
     try {
       setError("");
-      await send(`/api/pairing/flow/${p.id}/${decision}`, { verification: codes[p.id] ?? "" });
+      await send(`/api/pairing/flow/${p.id}/${decision}`, { verification: codes[p.id] ?? "", motdepasse: password, code: secondCode });
       setList((l) => l.filter((x) => x.id !== p.id));
+      setPassword("");
+      setSecondCode("");
       onDone();
     } catch (e) {
+      setSecondCode(""); // un code ne sert qu'une fois : le suivant, s'il faut recommencer
       setError((e as Error).message);
       if (e instanceof ApiError && e.status === 403) setList((l) => l.filter((x) => x.id !== p.id));
     }
@@ -48,6 +57,7 @@ function PendingRequests({ refresh, onDone, onUsed }: { refresh: number; onDone:
     <div className="flex flex-col gap-2 rounded-lg border border-warn bg-warn-soft p-3">
       <p className="text-sm font-semibold">Un appareil a utilisé ton code</p>
       <p className="text-xs text-muted-foreground">Il n'a encore accès à rien. Si c'est ton appareil et que tu l'as sous les yeux, recopie le nombre qu'il affiche. Sinon, refuse.</p>
+      {proof.preuve_requise && <GrantProof password={password} code={secondCode} needCode={proof.code_requis} onPassword={setPassword} onCode={setSecondCode} />}
       {list.map((p) => {
         const Icon = ICONS[p.type] ?? Globe;
         return (
@@ -63,7 +73,7 @@ function PendingRequests({ refresh, onDone, onUsed }: { refresh: number; onDone:
               value={codes[p.id] ?? ""} onChange={(e) => setCodes((c) => ({ ...c, [p.id]: e.target.value.replace(/\D/g, "") }))}
               className="w-14 rounded-lg border border-border bg-background px-2 py-1 text-center font-mono"
             />
-            <Button size="sm" onClick={() => decide(p, "autoriser")} disabled={(codes[p.id] ?? "").length !== 3}>Autoriser</Button>
+            <Button size="sm" onClick={() => decide(p, "autoriser")} disabled={(codes[p.id] ?? "").length !== 3 || !proven}>Autoriser</Button>
             <Button size="sm" variant="ghost" onClick={() => decide(p, "refuser")}>Refuser</Button>
           </div>
         );
@@ -135,7 +145,7 @@ function DeviceList({ refresh }: { refresh: number }) {
   );
 }
 
-function QR({ text }: { text: string }) {
+export function QR({ text }: { text: string }) {
   const svg = useMemo(() => {
     const qr = qrcode(0, "M");
     qr.addData(text);
@@ -143,7 +153,7 @@ function QR({ text }: { text: string }) {
     return qr.createSvgTag({ cellSize: 6, margin: 2, scalable: true });
   }, [text]);
   // Fond blanc même en thème sombre : les appareils photo lisent mal un QR code inversé.
-  return <div className="size-56 rounded-xl bg-white p-2 [&>svg]:size-full" dangerouslySetInnerHTML={{ __html: svg }} />;
+  return <div className="size-56 shrink-0 rounded-xl bg-white p-2 [&>svg]:size-full" dangerouslySetInnerHTML={{ __html: svg }} />;
 }
 
 export function PhonePairing() {

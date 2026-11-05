@@ -13,6 +13,7 @@ type Profile = {
   depense: number;
   agents: { id: string; name: string }[];
   appareils: number;
+  double: boolean;
 };
 
 export function Profiles() {
@@ -42,6 +43,22 @@ function ProfileRow({ profile: p, onChanged, onError }: { profile: Profile; onCh
   const [budget, setBudget] = useState(p.budget != null ? String(p.budget) : "");
   const [deleting, setDeleting] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [cutting, setCutting] = useState(false);
+  const [myPassword, setMyPassword] = useState("");
+  const [myCode, setMyCode] = useState("");
+  const [cutError, setCutError] = useState("");
+  const cutDouble = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCutError("");
+    try {
+      await send(`/api/profiles/${p.id}/double-verification/couper`, { motdepasse: myPassword, code: myCode });
+      setCutting(false);
+      onChanged();
+    } catch (err) {
+      setCutError((err as Error).message);
+      setMyCode("");
+    }
+  };
   const saveBudget = async () => {
     if (budget === (p.budget != null ? String(p.budget) : "")) return;
     try {
@@ -79,6 +96,24 @@ function ProfileRow({ profile: p, onChanged, onError }: { profile: Profile; onCh
           <Button variant="ghost" size="icon-sm" aria-label={`Supprimer le profil ${p.username}`} title="Supprimer ce profil" onClick={() => setDeleting(!deleting)}><Trash2 /></Button>
         )}
       </div>
+      {p.double && p.role !== "owner" && (cutting ? (
+        <form onSubmit={cutDouble} className="flex flex-col gap-2 rounded-xl bg-warn-soft p-3 text-sm">
+          <p>{p.username} a perdu son téléphone et ses codes de secours ? Confirme avec ton mot de passe, et ton code si tu as une double vérification. Laisse-le vide sinon.</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Label>Ton mot de passe<Input required type="password" autoComplete="current-password" value={myPassword} onChange={(e) => setMyPassword(e.target.value)} /></Label>
+            <Label>Ton code<Input autoComplete="one-time-code" maxLength={32} className="font-mono" value={myCode} onChange={(e) => setMyCode(e.target.value)} /></Label>
+          </div>
+          <ErrorText>{cutError}</ErrorText>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" type="submit" variant="danger">Couper sa double vérification</Button>
+            <Button size="sm" type="button" variant="ghost" onClick={() => setCutting(false)}>Annuler</Button>
+          </div>
+        </form>
+      ) : (
+        <button type="button" className="self-start text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground" onClick={() => setCutting(true)}>
+          Double vérification activée. Couper ?
+        </button>
+      ))}
       {deleting && (
         <div className="flex flex-col gap-2 rounded-xl bg-warn-soft p-3 text-sm">
           <p>

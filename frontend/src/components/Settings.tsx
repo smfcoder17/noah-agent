@@ -4,6 +4,7 @@ import { Check, Loader2, Play } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { get, request, send } from "@/lib/api";
 import { noahPaused, setNoahPaused } from "@/lib/noahFace";
+import { DoubleVerification } from "./DoubleVerification";
 import { ModelPicker } from "./ModelPicker";
 import { PhonePairing } from "./PhonePairing";
 import { MyPassword, Profiles } from "./Profiles";
@@ -71,6 +72,7 @@ export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainS
             </TabsContent>
             <TabsContent value="phone">
               <PhonePairing />
+              <DoubleVerification />
               <MyPassword />
               <FaceMotion />
             </TabsContent>

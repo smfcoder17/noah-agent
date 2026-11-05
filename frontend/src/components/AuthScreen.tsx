@@ -14,6 +14,7 @@ function ForgotPassword({ onBack, onChanged }: { onBack: () => void; onChanged: 
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
   const [again, setAgain] = useState("");
+  const [cutDouble, setCutDouble] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -33,7 +34,7 @@ function ForgotPassword({ onBack, onChanged }: { onBack: () => void; onChanged: 
     setBusy(true);
     setError("");
     try {
-      const r = await send<{ username: string }>("/api/recuperation", { code: code.trim(), password });
+      const r = await send<{ username: string }>("/api/recuperation", { code: code.trim(), password, couper_double: cutDouble });
       onChanged(r.username);
     } catch (err) {
       setError((err as Error).message);
@@ -82,6 +83,13 @@ function ForgotPassword({ onBack, onChanged }: { onBack: () => void; onChanged: 
           <Input id="new-password-again" type="password" autoComplete="new-password" required minLength={8} value={again} onChange={(e) => setAgain(e.target.value)} />
         </Label>
         <p className="text-muted-foreground">Toutes les sessions du serveur seront fermées, sur tous les appareils et tous les profils. Il faudra relier tes applications de nouveau. Tes agents continuent de tourner.</p>
+        <label className="flex items-start gap-2 text-muted-foreground">
+          <input id="cut-double" type="checkbox" className="mt-1" checked={cutDouble} onChange={(e) => setCutDouble(e.target.checked)} />
+          <span>
+            J'ai aussi perdu mon téléphone et mes codes de secours : couper la double vérification du propriétaire. Qui a la main sur le serveur
+            peut le faire ; le journal du serveur le note.
+          </span>
+        </label>
       </div>
 
       <ErrorText>{error}</ErrorText>
@@ -101,16 +109,24 @@ export function AuthScreen({ onDone }: { onDone: () => void }) {
   const [busy, setBusy] = useState(false);
   const [forgot, setForgot] = useState(false);
   const [changed, setChanged] = useState(false);
+  const [needCode, setNeedCode] = useState(false);
+  const [code, setCode] = useState("");
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setError("");
     try {
-      await send("/api/login", { username: username.trim(), password });
+      const r = await send<{ code_requis?: boolean }>("/api/login", { username: username.trim(), password, code });
+      if (r.code_requis) {
+        setNeedCode(true);
+        setBusy(false);
+        return;
+      }
       onDone();
     } catch (err) {
       setError((err as Error).message);
+      setCode(""); // un code ne sert qu'une fois : le suivant
       setBusy(false);
     }
   };
@@ -145,6 +161,30 @@ export function AuthScreen({ onDone }: { onDone: () => void }) {
             setForgot(false);
           }}
         />
+      </div>
+    );
+
+  if (needCode)
+    return (
+      <div className="grid min-h-full place-items-center px-4 py-10">
+        <form onSubmit={submit} className={box}>
+          <img src="/assets/icon.svg" alt="" className="size-11" />
+          <div className="flex flex-col gap-1">
+            <h1 className="text-xl font-semibold">Double vérification</h1>
+            <p className="text-sm text-muted-foreground">Ouvre ton application de codes et saisis le code à 6 chiffres de Noah.</p>
+          </div>
+          <Label>
+            Code
+            <Input id="login-code" required autoFocus autoComplete="one-time-code" maxLength={32} className="font-mono tracking-widest" value={code} onChange={(e) => setCode(e.target.value)} />
+          </Label>
+          <p className="text-xs text-muted-foreground">Téléphone perdu ? Saisis un de tes codes de secours (BCDF-GHJK-LMNP), il sert une seule fois.</p>
+          <ErrorText>{error}</ErrorText>
+          <Button type="submit" size="lg" disabled={busy}>Valider</Button>
+          <button type="button" className="self-center text-sm text-muted-foreground underline underline-offset-2 hover:text-foreground" onClick={() => { setNeedCode(false); setCode(""); setPassword(""); setError(""); }}>
+            Retour
+          </button>
+          <p className="text-xs text-muted-foreground">Plus aucun code ? Le propriétaire du serveur la coupe par « Mot de passe oublié ». Pour un profil, le propriétaire la coupe dans Réglages → Profils.</p>
+        </form>
       </div>
     );
 

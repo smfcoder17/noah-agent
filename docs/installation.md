@@ -110,6 +110,19 @@ Noah n'envoie pas de courriel : qui a la main sur le serveur peut changer le mot
 
 Toutes les sessions du serveur se ferment après le changement : relie de nouveau tes applications. Trop d'essais faux bloquent l'adresse quelques minutes (5 en 10 min), et 20 essais faux annulent le code.
 
+La double vérification du propriétaire reste active, sauf si tu coches la case de cette page. Qui a la main sur le serveur peut donc aussi la couper, et le journal du service `server` le note.
+
+## La double vérification
+
+En plus du mot de passe, Noah peut demander un code à 6 chiffres donné par une application sur ton téléphone (Google Authenticator, Aegis, 1Password…). Chaque compte l'active pour lui-même : propriétaire comme profil.
+
+- **Activer :** Réglages > Appareils > « Activer la double vérification ». Noah demande ton mot de passe, affiche un QR code et sa clé en clair, puis attend un premier code. Il montre ensuite 8 codes de secours, une seule fois : note-les ailleurs que sur ce téléphone.
+- **Se connecter :** après le mot de passe, saisis le code de l'application, ou un code de secours si tu n'as plus ton téléphone. Un même code ne sert qu'une fois.
+- **Tes applications reliées :** elles gardent leur accès et ne demandent aucun code à l'usage.
+- **Codes faux :** 5 codes faux en 30 minutes bloquent le compte pendant ce délai, quelle que soit l'adresse, et tes appareils abonnés aux notifications sont prévenus. Seul qui a le bon mot de passe atteint cette limite : si cela arrive sans toi, change-le.
+- **Désactiver :** même endroit, avec ton mot de passe et un code. Changer de mot de passe ne la coupe pas.
+- **Plus de téléphone ni de code de secours :** le propriétaire passe par [Mot de passe oublié](#mot-de-passe-oublié). Pour un profil, le propriétaire la coupe dans Réglages > Profils.
+
 ## Choisir le modèle
 
 Réglages > Cerveau, un seul choix pour tous tes agents.
@@ -140,6 +153,8 @@ Réglages > Appareils > « Relier un appareil » affiche un QR code et un code c
 - **iPhone ou autre :** scanne le QR code avec l'appareil photo, ou ouvre l'adresse HTTPS de ton VPS, puis « Ajouter à l'écran d'accueil ».
 
 Pour construire l'APK toi-même (Node 22, JDK 21, SDK Android) : `cd mobile && npm ci && npx cap sync android`, puis `./gradlew assembleDebug` dans `mobile/android`. Il arrive dans `app/build/outputs/apk/debug/`. C'est une version de débogage : Android demandera d'autoriser l'installation hors du Play Store.
+
+Accepter un nouvel appareil demande ton mot de passe, et ton code si la double vérification est active. Seul un navigateur où tu as saisi ton mot de passe il y a moins de 15 minutes en est dispensé : un jeton d'appareil volé ne peut pas en relier un autre.
 
 Accepte les notifications : c'est par elles qu'un agent te rappelle.
 

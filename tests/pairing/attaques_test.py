@@ -411,6 +411,99 @@ for kind in ("desktop", "android"):
     r = pc.post("/api/pairing/flow/poll", json={"sondage": b["sondage"]})
     check(r.status_code == 200 and "set-cookie" not in r.headers and r.json()["token"], f"{kind} : session en réponse seulement, jamais en cookie")
 
+print("== 9. Jeton d'appareil volé : il affiche un QR, mais n'accorde rien sans le mot de passe")
+fresh()
+main._account_failures.clear()
+stolen = auth.new_session(alice, "Téléphone d'Alice", "android")
+thief_app = httpx.Client(base_url=BASE, headers={"Authorization": f"Bearer {stolen}", "X-Forwarded-For": addr()}, timeout=20)
+before = session_count()
+link, _ = qr(thief_app)
+second = device()
+b = claim(second, link, appareil="Second téléphone du voleur", type="android").json()
+pending = thief_app.get("/api/pairing/pending").json()
+fid = pending["demandes"][0]["id"]
+check(pending["preuve_requise"] is True and pending["code_requis"] is False, "l'écran d'accord annonce qu'il faut la preuve", pending)
+r = thief_app.post(f"/api/pairing/flow/{fid}/autoriser", json={"verification": b["verification"]})
+check(r.status_code == 428, "bon nombre, sans mot de passe : refusé", r.text)
+check(fid in main._flows and second.post("/api/pairing/flow/poll", json={"sondage": b["sondage"]}).status_code == 202 and session_count() == before,
+      "le nouvel appareil attend toujours, aucune session créée")
+r = thief_app.post(f"/api/pairing/flow/{fid}/autoriser", json={"verification": b["verification"], "motdepasse": "mauvais-mdp"})
+check(r.status_code == 400 and second.post("/api/pairing/flow/poll", json={"sondage": b["sondage"]}).status_code == 202, "bon nombre, mauvais mot de passe : refusé", r.text)
+tries = [thief_app.post(f"/api/pairing/flow/{fid}/autoriser", json={"verification": b["verification"], "motdepasse": f"essai-{n:04d}"}).status_code for n in range(12)]
+check(tries[-1] == 429, "mot de passe forcé à travers l'accord : borné par les limites de connexion, même depuis une adresse connue", tries)
+fresh()
+main._account_failures.clear()
+link, _ = qr(thief_app)
+second = device()
+b = claim(second, link, appareil="Second téléphone", type="android").json()
+fid = thief_app.get("/api/pairing/pending").json()["demandes"][0]["id"]
+r = thief_app.post(f"/api/pairing/flow/{fid}/autoriser", json={"verification": b["verification"], "motdepasse": "motdepasse-a"})
+check(r.status_code == 200 and second.post("/api/pairing/flow/poll", json={"sondage": b["sondage"]}).status_code == 200, "avec le mot de passe : l'accord passe", r.text)
+link, _ = qr(thief_app)
+b = claim(device(), link, appareil="Troisième", type="android").json()
+pending = thief_app.get("/api/pairing/pending").json()
+check(pending["preuve_requise"] is True, "une session d'app ne garde pas de dispense : la preuve revaut à chaque fois", pending)
+
+fresh()
+old_web = alice_session()
+with db.connect() as c:
+    c.execute("UPDATE sessions SET mdp_a = ? WHERE token = ?", (time.time() - auth.PROOF_SECONDS - 1, auth.digest(old_web.cookies.get(auth.COOKIE))))
+link, _ = qr(old_web)
+b = claim(device(), link, appareil="Tablette", type="android").json()
+pending = old_web.get("/api/pairing/pending").json()
+check(pending["preuve_requise"] is True, "navigateur connecté depuis plus de 15 minutes : la preuve est demandée", pending)
+fid = pending["demandes"][0]["id"]
+check(old_web.post(f"/api/pairing/flow/{fid}/autoriser", json={"verification": b["verification"]}).status_code == 428, "et exigée")
+check(old_web.post(f"/api/pairing/flow/{fid}/autoriser", json={"verification": b["verification"], "motdepasse": "motdepasse-a"}).status_code == 200, "mot de passe confirmé : accordé")
+link, _ = qr(old_web)
+b = claim(device(), link, appareil="Tablette 2", type="android").json()
+pending = old_web.get("/api/pairing/pending").json()
+check(pending["preuve_requise"] is False and old_web.post(f"/api/pairing/flow/{pending['demandes'][0]['id']}/autoriser", json={"verification": b["verification"]}).status_code == 200,
+      "confirmé il y a moins de 15 minutes : pas redemandé dans ce navigateur", pending)
+
+fresh()
+fresh_web = alice_session()
+link, _ = qr(fresh_web)
+b = claim(device(), link, appareil="Téléphone", type="android").json()
+pending = fresh_web.get("/api/pairing/pending").json()
+check(pending["preuve_requise"] is False and fresh_web.post(f"/api/pairing/flow/{pending['demandes'][0]['id']}/autoriser", json={"verification": b["verification"]}).status_code == 200,
+      "le cas courant : ordinateur tout juste connecté, QR, téléphone. Rien de plus à saisir", pending)
+
+fresh()
+via_qr = alice_session()
+link, _ = qr(via_qr)
+phone_browser = device()
+b = claim(phone_browser, link).json()  # navigateur du téléphone : session de type web, mais pas par mot de passe
+via_qr.post(f"/api/pairing/flow/{only_pending(via_qr)['id']}/autoriser", json={"verification": b["verification"]})
+token = phone_browser.post("/api/pairing/flow/poll", json={"sondage": b["sondage"]}, headers={"Origin": BASE}).json()["token"]
+held = httpx.Client(base_url=BASE, headers={"Authorization": f"Bearer {token}", "X-Forwarded-For": addr()}, timeout=20)
+link, _ = qr(held)
+b = claim(device(), link, appareil="Encore un", type="android").json()
+pending = held.get("/api/pairing/pending").json()
+check(pending["preuve_requise"] is True and held.post(f"/api/pairing/flow/{pending['demandes'][0]['id']}/autoriser", json={"verification": b["verification"]}).status_code == 428,
+      "navigateur relié par QR, pas par mot de passe : pas de dispense", pending)
+
+fresh()
+main._account_failures.clear()
+from noah import double_verification  # noqa: E402
+
+code_web = alice_session()
+setup = code_web.post("/api/me/double-verification/preparer", json={"motdepasse": "motdepasse-a"}).json()
+now_code = lambda: double_verification.code_at(setup["secret"], int(time.time()) // 30)  # noqa: E731
+spare = code_web.post("/api/me/double-verification/confirmer", json={"code": now_code()}).json()["secours"]
+link, _ = qr(thief_app)
+b = claim(device(), link, appareil="Avec code", type="android").json()
+pending = thief_app.get("/api/pairing/pending").json()
+fid = pending["demandes"][0]["id"]
+check(pending["code_requis"] is True, "double vérification active : l'accord demande aussi le code", pending)
+r = thief_app.post(f"/api/pairing/flow/{fid}/autoriser", json={"verification": b["verification"], "motdepasse": "motdepasse-a"})
+check(r.status_code == 400, "le mot de passe seul ne suffit plus", r.text)
+r = thief_app.post(f"/api/pairing/flow/{fid}/autoriser", json={"verification": b["verification"], "motdepasse": "motdepasse-a", "code": spare[0]})
+check(r.status_code == 200, "mot de passe et code de secours : accordé", r.text)
+fresh()
+main._account_failures.clear()
+code_web.post("/api/me/double-verification/couper", json={"motdepasse": "motdepasse-a", "code": spare[1]})
+
 server.should_exit = True
 print()
 if failed:
