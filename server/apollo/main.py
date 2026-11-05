@@ -277,11 +277,18 @@ def _ip(request: Request) -> str:
 
 
 def _login_response(request: Request, response: Response, user_id: int, device: str = "", platform: str = "web") -> dict:
+    # Mot de passe saisi dans la fenêtre de l'app Android : une session de téléphone, pas de navigateur. Un cookie qui dure
+    # y serait écrit en clair sur le disque (la session d'appairage, elle, y est chiffrée par le Keystore).
+    app_window = platform == "web" and bool(re.search(r"\bNoahApp/\S+ Android$", request.headers.get("user-agent", "")))
+    if app_window:
+        platform = "android"
     token = auth.new_session(user_id, device or _device_name(request), platform if platform in PLATFORMS else "web",
                              _ip(request), request.headers.get("x-noah-version", ""))
     # Navigateur : cookie. Derrière Caddy (VPS), la requête arrive en HTTPS : il ne doit jamais repartir en clair.
     # Apps (bureau, mobile) : jeton dans la réponse seulement, qu'elles rangent chiffré ; un cookie y resterait en clair.
-    if platform == "web" or platform not in PLATFORMS:
+    if app_window:
+        response.set_cookie(auth.COOKIE, token, httponly=True, samesite="lax", secure=request.url.scheme == "https")
+    elif platform == "web" or platform not in PLATFORMS:
         response.set_cookie(auth.COOKIE, token, httponly=True, samesite="lax", max_age=30 * 86400,
                             secure=request.url.scheme == "https")
     return {"token": token}

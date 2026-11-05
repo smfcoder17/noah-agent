@@ -31,6 +31,11 @@ jobs:
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
+      - name: Pas d'EncryptedSharedPreferences dans l'APK ni dans les dépendances résolues
+        working-directory: mobile/android
+        run: |
+          ./gradlew :app:dependencies --configuration debugRuntimeClasspath --no-daemon > "$RUNNER_TEMP/dependances.txt"
+          sh ../../tests/android/apk_scan.sh app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/dependances.txt"
       - uses: actions/upload-artifact@v4
         with:
           name: noah-android
