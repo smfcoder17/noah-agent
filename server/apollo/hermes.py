@@ -20,10 +20,11 @@ LAUNCHER = {"Authorization": f"Bearer {LAUNCHER_KEY}"}
 class Agent:
     id: str
     api_key: str
+    profile: str | None = None  # profil Hermes d'une personne avec qui l'agent est partagé (voir access.separated)
 
     @property
     def url(self) -> str:
-        return f"http://apollo-agent-{self.id}:8642"
+        return f"http://apollo-agent-{self.id}:8642" + (f"/p/{self.profile}" if self.profile else "")
 
     @property
     def headers(self) -> dict:
@@ -84,6 +85,16 @@ async def delete_container(agent_id: str) -> None:
 
 async def restart(agent_id: str) -> None:
     await _launcher("POST", f"/agents/{agent_id}/restart")
+
+
+async def prepare_guest(agent_id: str, profile: str) -> None:
+    """Crée ou met à jour le profil Hermes d'une personne : même modèle et même rôle que l'agent, rien de sa mémoire ni de ses comptes."""
+    garde = {name: (AGENT_PLUGIN / name).read_text(encoding="utf-8") for name in ("plugin.yaml", "__init__.py")}
+    await _launcher("POST", f"/agents/{agent_id}/admin/invite_preparer", json={"profil": profile, "garde": garde}, timeout=120)
+
+
+async def remove_guest(agent_id: str, profile: str) -> None:
+    await _launcher("POST", f"/agents/{agent_id}/admin/invite_effacer", json={"profil": profile}, timeout=60)
 
 
 def browser_secrets(agent_id: str) -> tuple[str, str]:
@@ -283,6 +294,8 @@ async def configure(agent_id: str, model: dict, role: str | None = None) -> None
     cfg.setdefault("skills", {})["inline_shell"] = False
     # Une routine n'a personne pour dire oui : un outil en « confirmer » y est refusé, jamais accepté tout seul (G13.2).
     cfg.setdefault("approvals", {})["cron_mode"] = "deny"
+    # Une personne avec qui l'agent est partagé parle à son propre profil Hermes, /p/<profil>/… sur la même adresse (G12.5).
+    cfg["gateway"] = {**(cfg.get("gateway") or {}), "multiplex_profiles": True}  # une config neuve peut dire « gateway: » sans rien
     for name in ("plugin.yaml", "__init__.py"):
         files[f"plugins/noah-garde/{name}"] = (AGENT_PLUGIN / name).read_text(encoding="utf-8")
     files["config.yaml"] = yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True)
@@ -466,8 +479,8 @@ async def start_run(agent: Agent, text: str, session_id: str) -> str:
 LOST_TURN = "unknown_execution"  # refus d'Hermes : un redémarrage a coupé un tour, et la session attend qu'on en prenne acte
 
 
-async def discard_lost_turn(agent_id: str, session_id: str) -> None:
-    await _launcher("POST", f"/agents/{agent_id}/sessions/{session_id}/discard", timeout=60)
+async def discard_lost_turn(agent_id: str, session_id: str, profile: str | None = None) -> None:
+    await _launcher("POST", f"/agents/{agent_id}/sessions/{session_id}/discard", params={"profil": profile} if profile else None, timeout=60)
 
 
 RUN_SILENCE = 120  # secondes sans aucun octet : conteneur figé. Hermes envoie un signe de vie toutes les 10 s, même pendant une attente

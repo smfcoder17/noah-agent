@@ -174,19 +174,38 @@ def day_cost(agent_id: str) -> float:
     return float(row["total"])
 
 
+def day_refusal(agent_id: str) -> str | None:
+    """Message de refus si cet agent a atteint son plafond du jour : le relais du modèle, et tout ce qui dépense hors du
+    relais (images, voix, transcription, tri des veilles, préparation d'un appel)."""
+    cap = daily_cap(agent_id)
+    if cap is None or day_cost(agent_id) < cap:
+        return None
+    _check_daily(agent_id)  # l'alerte « arrêté » part même si le dernier appel l'avait déjà franchi
+    return f"Plafond du jour de {cap:.2f} $ atteint pour cet agent. Il reprend demain, ou augmente le plafond dans Noah Agent."
+
+
+def spending_refusal(agent_id: str) -> str | None:
+    """Ce qui arrête cet agent en ce moment, tous plafonds confondus. None : rien."""
+    limit = budget()
+    if limit is not None and month_cost() >= limit:
+        return f"Budget mensuel de {limit:.2f} $ atteint. Augmente-le dans Noah Agent pour continuer."
+    return profile_refusal(agent_id) or day_refusal(agent_id)
+
+
 def _agent_name(agent_id: str) -> str:
     with db.connect() as c:
         row = c.execute("SELECT name FROM agents WHERE id = ?", (agent_id,)).fetchone()
     return row["name"] if row else agent_id
 
 
-def _warn_once(agent_id: str, level: str, title: str, text: str) -> None:
-    """Une alerte par niveau (80 %, 100 %) et par jour, sur les appareils du propriétaire de l'agent."""
+def _warn_once(agent_id: str, level: str, cap: float, title: str, text: str) -> None:
+    """Une alerte par niveau (80 %, 100 %), par jour et par plafond, sur les appareils du propriétaire de l'agent : un plafond
+    relevé dans la journée prévient de nouveau, sinon l'agent s'arrêterait au nouveau plafond sans rien dire."""
     from . import push
-    key, today = f"budget_alert:{agent_id}:{level}", _day_start()
-    if db.get_setting(key) == today:
+    key, stamp = f"budget_alert:{agent_id}:{level}", f"{_day_start()}|{cap}"
+    if db.get_setting(key) == stamp:
         return
-    db.set_setting(key, today)
+    db.set_setting(key, stamp)
     push.notify(title, text, url="/", urgent=level.endswith("100"), user_id=billed_to(agent_id))
 
 
@@ -199,10 +218,10 @@ def _check_profile(agent_id: str) -> None:
     spent = profile_cost(user)
     tag = f"profil{user}"
     if spent >= limit:
-        _warn_once(agent_id, f"{tag}:100", "Budget du profil atteint",
+        _warn_once(agent_id, f"{tag}:100", limit, "Budget du profil atteint",
                    f"{spent:.2f} $ dépensés ce mois-ci sur {limit:.2f} $ : les agents de ce profil s'arrêtent.")
     elif spent >= 0.8 * limit:
-        _warn_once(agent_id, f"{tag}:80", "Budget du profil bientôt atteint", f"{spent:.2f} $ dépensés ce mois-ci sur {limit:.2f} $.")
+        _warn_once(agent_id, f"{tag}:80", limit, "Budget du profil bientôt atteint", f"{spent:.2f} $ dépensés ce mois-ci sur {limit:.2f} $.")
 
 
 def _check_daily(agent_id: str) -> None:
@@ -213,10 +232,10 @@ def _check_daily(agent_id: str) -> None:
     spent = day_cost(agent_id)
     name = _agent_name(agent_id)
     if spent >= cap:
-        _warn_once(agent_id, "100", f"{name} s'est arrêté",
+        _warn_once(agent_id, "100", cap, f"{name} s'est arrêté",
                    f"Plafond du jour atteint ({spent:.2f} $ sur {cap:.2f} $). Il reprend demain, ou augmente le plafond.")
     elif spent >= 0.8 * cap:
-        _warn_once(agent_id, "80", f"{name} approche de son plafond",
+        _warn_once(agent_id, "80", cap, f"{name} approche de son plafond",
                    f"{spent:.2f} $ dépensés aujourd'hui sur {cap:.2f} $. Au plafond, il s'arrête jusqu'à demain.")
 
 
@@ -263,6 +282,11 @@ async def _record(agent_id: str, model: str, usage: dict | None, task: str | Non
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (agent_id, model, prompt, completion, float(cost or 0), cached, task, billed_to(agent_id)),
         )
+    check_spend(agent_id)
+
+
+def check_spend(agent_id: str) -> None:
+    """Après chaque dépense mesurée, par le relais ou non : les alertes de plafond partent d'ici."""
     _check_daily(agent_id)
     _check_profile(agent_id)
 
@@ -332,28 +356,11 @@ async def relay(path: str, request: Request):
         _note_status(agent_id, r.status_code)
         return Response(r.content, status_code=r.status_code, media_type=r.headers.get("content-type"))
 
-    limit = budget()
-    if limit is not None and month_cost() >= limit:
-        # Message lu par l'agent et remonté tel quel dans l'interface.
-        return JSONResponse(
-            {"error": {"message": f"Budget mensuel de {limit:.2f} $ atteint. Augmente-le dans Noah Agent pour continuer.",
-                       "type": "budget_exceeded", "code": 402}},
-            status_code=402,
-        )
-
-    refused = profile_refusal(agent_id)
+    refused = spending_refusal(agent_id)
     if refused:
         _check_profile(agent_id)
+        # Lu par l'agent : Hermes ne le remonte pas tel quel à la personne, main._run lui redonne la vraie raison.
         return JSONResponse({"error": {"message": refused, "type": "budget_exceeded", "code": 402}}, status_code=402)
-
-    cap = daily_cap(agent_id)
-    if cap is not None and day_cost(agent_id) >= cap:
-        _check_daily(agent_id)  # l'alerte « arrêté » part même si le dernier appel l'avait déjà franchi
-        return JSONResponse(
-            {"error": {"message": f"Plafond du jour de {cap:.2f} $ atteint pour cet agent. Il reprend demain, ou "
-                                  "augmente le plafond dans Noah Agent.", "type": "budget_exceeded", "code": 402}},
-            status_code=402,
-        )
 
     body = await request.json()
     model = body.get("model", "")

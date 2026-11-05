@@ -79,7 +79,8 @@ BROWSER_IMAGE = os.environ.get("BROWSER_IMAGE", "ghcr.io/jo-inc/camofox-browser:
 BROWSER_PREFIX = "apollo-browser-"
 BROWSER_LABEL = "apollo.browser"
 # Version des réglages du navigateur ; un conteneur plus ancien est recréé (le profil reste dans son volume).
-BROWSER_VERSION = "10"  # 10 : clé du mode privé à part ; 9 : aucune capture pendant une prise en main ; 8 : jetons hors de la config Docker
+# 11 : toutes les routes sous clé ; 10 : clé du mode privé à part ; 9 : aucune capture pendant une prise en main ; 8 : jetons hors de la config Docker
+BROWSER_VERSION = "11"
 
 
 def _frozen(agent_id: str):
@@ -191,8 +192,10 @@ def _ensure_browser(agent_id: str, body: BrowserKeys, image: str | None = None, 
         shm_size="1g",
         security_opt=["no-new-privileges"],
     )
-    updater.put_env(c, SECRETS_FILE, {"CAMOFOX_API_KEY": body.api_key, "VNC_PASSWORD": body.vnc_password,
-                                      "NOAH_PRIVATE_KEY": body.private_key})
+    # Sans CAMOFOX_ACCESS_KEY, Camofox ne protège que l'import de cookies : les agents sont sur le même réseau, et celui d'un
+    # autre profil ouvrait des onglets ici, avec les comptes connectés de cet agent (G12.3).
+    updater.put_env(c, SECRETS_FILE, {"CAMOFOX_API_KEY": body.api_key, "CAMOFOX_ACCESS_KEY": body.api_key,
+                                      "VNC_PASSWORD": body.vnc_password, "NOAH_PRIVATE_KEY": body.private_key})
     # Avant le démarrage : le plugin Noah et sa déclaration, puis le correctif AutoConfig de Firefox (un onglet ouvert à
     # la main dans l'écran hérite du conteneur de l'agent, donc de ses cookies).
     here = Path(__file__).parent / "camofox-noah"
@@ -565,13 +568,14 @@ def _owner(c) -> str:
 
 
 @app.post("/agents/{agent_id}/sessions/{session}/discard", dependencies=[Depends(auth)])
-def discard_lost_turn(agent_id: str, session: str):
+def discard_lost_turn(agent_id: str, session: str, profil: str = ""):
     """Un redémarrage pendant un tour bloque la session jusqu'à ce qu'on prenne acte du tour perdu (il n'est pas rejoué)."""
-    if not re.fullmatch(r"apollo-[\w-]{1,80}", session):
+    if not re.fullmatch(r"apollo-[\w-]{1,80}", session) or (profil and not re.fullmatch(r"u\d+[0-9a-f]{8}", profil)):
         raise HTTPException(400, "Session invalide")
     c = container(check_id(agent_id))
+    home = f"{DATA}/profiles/{profil}" if profil else DATA
     res = c.exec_run([HERMES_PYTHON, "-m", "hermes_cli.main", "sessions", "discard", session, "--yes"], user=_owner(c),
-                     environment={"HOME": DATA, "HERMES_HOME": DATA}, workdir=DATA)
+                     environment={"HOME": DATA, "HERMES_HOME": home}, workdir=DATA)
     if res.exit_code != 0:
         raise HTTPException(502, res.output.decode(errors="replace")[-300:])
     return {"ok": True}

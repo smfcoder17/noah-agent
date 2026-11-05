@@ -150,7 +150,7 @@ async def lost_turn():
     reachable[0] = True
     discarded: list[tuple[str, str]] = []
 
-    async def fake_discard(agent_id, session):
+    async def fake_discard(agent_id, session, profile=None):
         discarded.append((agent_id, session))
 
     hermes.discard_lost_turn = fake_discard
@@ -173,7 +173,7 @@ async def lost_turn():
     assert not main._runs, "aucun run oublié"
 
     # La levée échoue : le message le dit, sans boucler.
-    async def broken_discard(agent_id, session):
+    async def broken_discard(agent_id, session, profile=None):
         raise httpx.ConnectError("lanceur injoignable")
 
     hermes.discard_lost_turn = broken_discard

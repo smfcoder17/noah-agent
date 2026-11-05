@@ -9,8 +9,8 @@ type Droit = "lecture" | "usage" | "admin";
 
 const RIGHTS: { id: Droit; label: string; hint: string }[] = [
   { id: "lecture", label: "Lecture", hint: "Voir l'agent et les conversations rendues visibles, sans rien écrire." },
-  { id: "usage", label: "Usage", hint: "Lui parler dans ses propres conversations et voir ses fichiers." },
-  { id: "admin", label: "Admin", hint: "En plus, ses réglages et son écran, sauf le supprimer ou le repartager." },
+  { id: "usage", label: "Usage", hint: "Lui parler dans ses propres conversations, avec sa propre mémoire, sans tes comptes ni terminal. Le dossier de travail reste commun." },
+  { id: "admin", label: "Admin", hint: "En plus, ses réglages et son écran, sauf le supprimer ou le repartager. Ta mémoire, ton navigateur et tes comptes connectés deviennent communs." },
 ];
 
 export function ShareDialog({ agent, open, onOpenChange, onChanged }: { agent: Agent; open: boolean; onOpenChange: (o: boolean) => void; onChanged: () => void }) {
@@ -69,7 +69,7 @@ function ShareForm({ agent, onChanged }: { agent: Agent; onChanged: () => void }
     <div className="flex flex-col gap-4">
       <p role="alert" className="flex gap-2 rounded-xl bg-warn-soft p-3 text-sm text-warn">
         <TriangleAlert className="mt-0.5 size-4 shrink-0" />
-        <span>Attention : {warning || "cet agent garde une seule mémoire, un seul navigateur et un seul dossier de travail ; ses comptes connectés et ses dossiers servent à tous ceux avec qui tu le partages."}</span>
+        <span>Attention : {warning || "avec le droit « usage », cette personne a sa mémoire et son navigateur à elle ; avec le droit « admin », elle partage ta mémoire, ton navigateur, tes comptes connectés et tes dossiers."}</span>
       </p>
       {shares && shares.length > 0 && (
         <ul className="flex flex-col gap-1.5">
@@ -95,7 +95,7 @@ function ShareForm({ agent, onChanged }: { agent: Agent; onChanged: () => void }
         </fieldset>
         <label className="flex cursor-pointer items-start gap-2 text-sm">
           <input type="checkbox" className="mt-1" checked={understood} onChange={(e) => setUnderstood(e.target.checked)} />
-          J'ai compris : sa mémoire, son navigateur et ses comptes connectés seront communs.
+          J'ai compris : le dossier de travail est commun et, avec le droit Admin, ma mémoire, mon navigateur et mes comptes connectés aussi.
         </label>
         <ErrorText>{error}</ErrorText>
         <Button type="submit" className="self-start" disabled={!understood}>Partager</Button>

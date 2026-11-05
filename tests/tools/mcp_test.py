@@ -627,16 +627,15 @@ def test_access() -> None:
 def test_sharing_warning() -> None:
     warning = alice.get(f"/api/agents/{A}/shares").json()["avertissement"]
     assert warning == access.SHARE_WARNING
-    for words in ("une seule mémoire, un seul navigateur et un seul dossier de travail", "ses comptes connectés et ses dossiers",
-                  "tous ceux avec qui tu le partages"):
+    for words in ("le dossier de travail reste commun", "tes comptes connectés et tes dossiers", "droit « admin »"):
         assert words in warning, warning
     front = Path("/front/Sharing.tsx")
     if front.exists():
-        assert "un seul dossier de travail" in front.read_text(encoding="utf-8")
+        assert "le dossier de travail est commun" in front.read_text(encoding="utf-8")
     powers = Path("/front/AgentPowers.tsx")
     if powers.exists():
         text = powers.read_text(encoding="utf-8")
-        assert "cet outil servira aussi à tous ceux avec qui tu le partages" in text
+        assert "cet outil servira aussi à ceux à qui tu donnes le droit admin" in text
         assert "Une commande locale n'est pas acceptée" in text
     print("8. partage : l'avertissement cite le dossier de travail et les dossiers confiés" + (" ; l'interface dit le reste" if powers.exists() else ""))
 

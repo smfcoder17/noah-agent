@@ -9,6 +9,7 @@ dossier temporaire ; aucun conteneur : tout appel réseau sortant est capté et 
 """
 import asyncio
 import os
+import re
 import sqlite3
 import sys
 import tempfile
@@ -161,9 +162,27 @@ started: list[dict] = []
 pushes: list[dict] = []
 
 
+prepared: list = []
+lost: dict = {}
+
+
+async def fake_prepare(agent_id, profile):
+    prepared.append(("preparer", agent_id, profile))
+
+
+async def broken_prepare(agent_id, profile):
+    raise httpx.ConnectError("machine arrêtée")
+
+
+async def fake_remove(agent_id, profile):
+    prepared.append(("effacer", agent_id, profile))
+
+
 async def fake_start(agent, text, session_id):
     touched.append(f"run:{agent.id}")
-    started.append({"agent": agent.id, "text": text, "session": session_id})
+    if lost.get("profile") and agent.profile == lost.pop("profile"):  # machine restaurée : Hermes ne connaît plus ce profil
+        raise httpx.HTTPStatusError("404", request=httpx.Request("POST", agent.url), response=httpx.Response(404))
+    started.append({"agent": agent.id, "text": text, "session": session_id, "profile": agent.profile})
     return uuid.uuid4().hex
 
 
@@ -213,6 +232,7 @@ async def nothing(*a, **k):
 
 hermes.start_run, hermes.run_events, hermes.stop_run, hermes.answer_approval = fake_start, fake_events, fake_stop, fake_answer
 hermes.create_container, hermes.delete_container = fake_create, fake_delete
+hermes.prepare_guest, hermes.remove_guest = fake_prepare, fake_remove
 hermes.recreate_container = hermes.configure = hermes.ensure_browser = hermes.restart = nothing
 main._browser_wake = main._browser_restart = nothing  # leur vraie boucle attend un écran pendant 15 s
 handoff._ensure_keeper = lambda agent_id: None  # gardien du mode privé : testé par keeper_test
@@ -630,6 +650,59 @@ def test_rights() -> None:
     assert len(started) == 2 and started[0]["session"] != started[1]["session"], "même session Hermes pour deux personnes"
     assert "uma" in started[0]["text"] and "alice" not in started[0]["text"], started[0]["text"]
     assert "alice" in started[1]["text"], started[1]["text"]
+    # G12.5 : la mémoire et les comptes de chacun. Usage : son propre profil Hermes, jamais celui de l'agent, même si sa préparation
+    # échoue. Admin, et seulement lui : le choix explicite de tout mettre en commun.
+    assert started[0]["profile"] == access.guest_profile(UMA) and started[1]["profile"] is None, started
+    assert "ni les comptes connectés de ton propriétaire" in started[0]["text"]
+    assert "communs" in started[1]["text"], "le propriétaire d'un agent partagé en admin doit savoir que sa mémoire est commune"
+    started.clear()
+    assert ada.post("/api/chat", json={"agent_id": A, "text": "ici Ada"}).status_code == 200
+    assert started[0]["profile"] is None and "communs" in started[0]["text"], started
+    prepared.clear()
+    started.clear()
+    db.set_setting(f"invite:{A}:{access.guest_profile(UMA)}", "")
+    assert uma.post("/api/chat", json={"agent_id": A, "text": "encore"}).status_code == 200
+    assert prepared == [("preparer", A, access.guest_profile(UMA))], f"profil non préparé : {prepared}"
+    started.clear()
+    assert uma.post("/api/chat", json={"agent_id": A, "text": "encore"}).status_code == 200 and len(prepared) == 1, "profil refait à chaque message"
+    hermes.prepare_guest = broken_prepare
+    started.clear()
+    db.set_setting(f"invite:{A}:{access.guest_profile(UMA)}", "")
+    assert uma.post("/api/chat", json={"agent_id": A, "text": "encore"}).status_code == 503 and not started, "retombé sur la mémoire de l'agent"
+    hermes.prepare_guest = fake_prepare
+    lost["profile"] = access.guest_profile(UMA)
+    assert uma.post("/api/chat", json={"agent_id": A, "text": "encore"}).status_code == 200, "profil perdu : pas refait"
+    assert not lost and started[-1]["profile"] == access.guest_profile(UMA), started
+    # Droit admin retiré : la tâche ne garde pas la mémoire de l'agent ; revenu à usage, elle repart dans son profil.
+    assert alice.put(f"/api/agents/{A}/shares", json={"utilisateur": "lea", "droit": "admin", "compris": True}).status_code == 200
+    main._runs[RUN] = {"agent": A, "user": LEA, "conv": "x", "profil": None}
+    stopped.clear()
+    assert alice.put(f"/api/agents/{A}/shares", json={"utilisateur": "lea", "droit": "usage", "compris": True}).status_code == 200
+    assert stopped == [RUN], "tâche gardée dans la mémoire de l'agent après le retrait du droit admin"
+    main._runs.pop(RUN)
+    assert alice.put(f"/api/agents/{A}/shares", json={"utilisateur": "lea", "droit": "lecture", "compris": True}).status_code == 200
+    # Arrêter ou répondre à sa tâche va dans son profil, pas dans celui de l'agent.
+    hit: list = []
+
+    async def seen_stop(agent, run_id):
+        hit.append(agent.url)
+
+    previous, hermes.stop_run = hermes.stop_run, seen_stop
+    main._runs[RUN] = {"agent": A, "user": UMA, "conv": "x", "profil": access.guest_profile(UMA)}
+    assert uma.post(f"/api/agents/{A}/runs/{RUN}/stop").status_code == 200
+    assert hit and hit[0].endswith(f"/p/{access.guest_profile(UMA)}"), hit
+    main._runs.pop(RUN)
+    hermes.stop_run = previous
+    # Le numéro d'un compte peut resservir, pas son profil Hermes.
+    assert access.guest_profile(UMA) != access.guest_profile(ADA) and re.fullmatch(r"u\d+[0-9a-f]{8}", access.guest_profile(UMA))
+    before_name = access.guest_profile(UMA)
+    with db.connect() as c:
+        created = c.execute("SELECT created_at FROM users WHERE id = ?", (UMA,)).fetchone()["created_at"]
+        c.execute("UPDATE users SET created_at = '2030-01-01 00:00:00' WHERE id = ?", (UMA,))
+    assert access.guest_profile(UMA) != before_name, "nouveau compte au même numéro : même profil Hermes"
+    with db.connect() as c:
+        c.execute("UPDATE users SET created_at = ? WHERE id = ?", (created, UMA))
+    assert access.guest_profile(UMA) == before_name
     # Une tâche d'alice : uma ne l'arrête pas et n'y répond pas.
     main._runs[RUN] = {"agent": A, "user": ALICE}
     touched.clear()
@@ -646,10 +719,10 @@ def test_rights() -> None:
     assert ada.put(f"/api/agents/{A}/plafond", json={"daily": 99}).status_code == 403
     # Partage : l'avertissement est dit, et demandé en retour.
     shares = alice.get(f"/api/agents/{A}/shares").json()
-    assert "seule mémoire, un seul navigateur et un seul dossier de travail" in shares["avertissement"]
-    assert "comptes connectés et ses dossiers" in shares["avertissement"]
+    assert "sa mémoire et son navigateur à elle" in shares["avertissement"] and "dossier de travail reste commun" in shares["avertissement"]
+    assert "ta mémoire, ton navigateur, tes comptes connectés et tes dossiers" in shares["avertissement"]
     r = alice.put(f"/api/agents/{A}/shares", json={"utilisateur": "bruno", "droit": "lecture"})
-    assert r.status_code == 400 and "seule mémoire" in r.json()["detail"], r.text
+    assert r.status_code == 400 and "sa mémoire et son navigateur à elle" in r.json()["detail"], r.text
     assert alice.put(f"/api/agents/{A}/shares", json={"utilisateur": "alice", "droit": "lecture", "compris": True}).status_code == 400
     assert alice.put(f"/api/agents/{A}/shares", json={"utilisateur": "inconnu", "droit": "lecture", "compris": True}).status_code == 404
     assert alice.put(f"/api/agents/{A}/shares", json={"utilisateur": "bruno", "droit": "maitre", "compris": True}).status_code == 422
@@ -668,7 +741,9 @@ def test_revocation() -> None:
         c.execute("INSERT OR REPLACE INTO voice_calls (id, agent_id, user_id, conversation_id, texte, etat, created_at) "
                   "VALUES ('appel-uma', ?, ?, ?, 'pour uma', 'sonne', ?)", (A, UMA, own, time.time()))
     assert "appel-uma" in uma.get("/api/calls/pending").text
+    prepared.clear()
     assert alice.delete(f"/api/agents/{A}/shares/{UMA}").status_code == 200
+    assert prepared == [("effacer", A, access.guest_profile(UMA))], f"sa mémoire reste sur la machine après la révocation : {prepared}"
     assert uma.get(f"/api/agents/{A}/conversations").status_code == 404
     assert uma.get(f"/api/conversations/{own}/messages").status_code == 404, "sa conversation doit disparaître avec l'accès"
     assert uma.post("/api/chat", json={"agent_id": A, "text": "x"}).status_code == 404
@@ -808,6 +883,11 @@ def test_budget() -> None:
     assert ask(agent_a).status_code == 200, "le plafond d'un profil arrête les agents d'un autre"
     db.set_setting("budget_daily:agent-alice", "0.01")
     assert ask(agent_a).status_code == 402 and "Plafond du jour" in ask(agent_a).json()["error"]["message"]
+    # La personne lit la vraie raison, pas le résumé d'Hermes (« plus de crédit chez le fournisseur »).
+    run_behaviour["events"] = [("run.failed", {"error": "HTTP 402: Plafond du jour"})]
+    said = alice.post("/api/chat", json={"agent_id": A, "text": "x"}).text
+    run_behaviour["events"] = []
+    assert "Plafond du jour de 0.01" in said and "plus de crédit" not in said, said
     db.set_setting("budget_daily:agent-alice", "")
     db.set_setting("budget_monthly", "0.01")
     assert "Budget mensuel de 0.01" in ask(agent_a).json()["error"]["message"]

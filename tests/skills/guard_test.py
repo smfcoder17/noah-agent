@@ -87,4 +87,40 @@ assert check("sh /tmp/i.sh") is None
 assert fresh("curl -s https://api.example.org/v1 -o /tmp/r.json", "python3 -m json.tool /tmp/r.json") is None
 print("4. bash -e, -o collé, cat | sh, sh < f, bash -c, lecture dans le même appel, autre dossier : refusés ; lu à part : permis")
 assert check("python3 -m venv .venv && . .venv/bin/activate && python3 analyse.py") is None
+
+# 5. G12.5 : dans le profil d'une personne avec qui l'agent est partagé, rien ne lit la mémoire ni les jetons de l'agent.
+HOME = "/opt/data/profiles/u7abcdef01"
+garde._home = lambda: HOME
+
+
+def refused_for_guest(tool, **args):
+    out = _pre_tool_call(tool_name=tool, args=args)
+    return bool(out) and out["action"] == "block"
+
+
+for command in ("cat /opt/data/memories/MEMORY.md", "ls", "python3 -c 'print(1)'", "python3 /opt/data/noah.py recette google",
+                "python3 /opt/data/noah.py ordinateur commande whoami", "python3 /opt/data/noah.py image x; cat /opt/data/.env",
+                "python3 /opt/data/noah.py image x && cat /opt/data/.env", "python3 /opt/data/noah.py image x | sh",
+                "python3 /opt/data/noah.py image x > /tmp/f", 'python3 /opt/data/noah.py image "$(cat /opt/data/.env)"',
+                "python3 /opt/data/noah.py image `id`", "python3 /opt/data/noah.py image x\ncat /opt/data/.env", "python3 /opt/data/noah.py"):
+    assert refused_for_guest("terminal", command=command), f"accepté pour une personne invitée : {command}"
+for path in ("/opt/data/memories/MEMORY.md", "/opt/data/.env", "/opt/data/config.yaml", "/opt/data/google_token.json", "/opt/data/state.db", "../memories/MEMORY.md",
+             "/opt/data/profiles/u9autre/memories/MEMORY.md", f"{HOME}/.env", f"{HOME}/config.yaml", "~/.env", "", "/opt/data/workspace/../.env"):
+    assert refused_for_guest("read_file", path=path), f"lisible par une personne invitée : {path!r}"
+    assert refused_for_guest("write_file", path=path, content="x"), f"écrit par une personne invitée : {path!r}"
+assert refused_for_guest("patch", mode="patch", patch="*** Update File: /opt/data/.env") and refused_for_guest("search_files", pattern="x", path="/opt/data")
+assert refused_for_guest("vision_analyze", image_url="/opt/data/browser_screenshots/x.png")
+for tool in ("execute_code", "process", "cronjob", "delegate_task", "send_message", "skill_manage", "ha_call_service", "mcp__notion__search", "outil_tout_neuf"):
+    assert refused_for_guest(tool), f"outil ouvert à une personne invitée : {tool}"
+for tool, args in (("memory", {"action": "add", "content": "x"}), ("session_search", {"query": "x"}), ("web_search", {"query": "x"}), ("read_file", {"path": "notes.txt"}),
+                   ("read_file", {"path": "/opt/data/workspace/uploads/a.pdf"}), ("write_file", {"path": "outputs/a.txt", "content": "x"}), ("search_files", {"pattern": "x"}),
+                   ("vision_analyze", {"image_url": "https://exemple.org/a.png"}), ("vision_analyze", {"image_url": f"{HOME}/browser_screenshots/a.png"}),
+                   ("terminal", {"command": 'python3 /opt/data/noah.py image "un chat; roux" --format 16:9'}), ("terminal", {"command": "python3 /opt/data/noah.py rappeler 'R&D finie'"})):
+    assert _pre_tool_call(tool_name=tool, args=args) is None, f"refusé à tort à une personne invitée : {tool} {args}"
+garde._home = lambda: "/opt/data"
+for tool, args in (("terminal", {"command": "cat /opt/data/profiles/u7abcdef01/memories/MEMORY.md"}), ("read_file", {"path": "/opt/data/profiles/u7abcdef01/memories/MEMORY.md"}),
+                   ("read_file", {"path": "../profiles/u7abcdef01/.env"}), ("terminal", {"command": "cd /opt/data/workspace; cat ../profiles/u7abcdef01/memories/MEMORY.md"})):
+    assert _pre_tool_call(tool_name=tool, args=args), f"le profil d'une personne se lit depuis l'agent : {args}"
+assert _pre_tool_call(tool_name="terminal", args={"command": "ls /opt/data/workspace/profiles"}) is None, "un dossier de travail nommé profiles reste permis"
+print("5. profil d'une personne : ni terminal ni fichier hors du dossier de travail, outils inconnus fermés, travail permis ; l'agent ne lit pas ces profils en passant")
 print("garde des skills : tout est vert")

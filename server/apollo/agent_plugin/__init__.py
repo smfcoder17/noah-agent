@@ -256,7 +256,97 @@ def _wake_browser() -> None:
         pass  # l'outil dira lui-même qu'il n'a pas de navigateur
 
 
+# --- Partage de l'agent (G12.5) ------------------------------------------------------------------------------------------
+# Une personne avec qui l'agent est partagé tourne dans son propre profil Hermes : mémoire, sessions et navigateur à elle. Le
+# terminal, lui, lit toute la machine, y compris la mémoire et les jetons du propriétaire : rien ne s'y exécute dans ce profil,
+# sauf les commandes de noah.py qui ne touchent ni aux comptes ni à la machine. Liste de ce qui est permis : un outil nouveau
+# d'Hermes reste fermé. Dans l'autre sens, le propriétaire ne fouille pas les profils : filtre, pas bac à sable, il reste maître
+# de sa machine (c'est dit au partage).
+DATA = "/opt/data"
+GUEST_ROOT = f"{DATA}/profiles/"
+WORKSPACE = f"{DATA}/workspace"
+GUEST_TOOLS = {"memory", "session_search", "todo", "clarify", "web_search", "web_extract", "vision_analyze", "image_generate",
+               "text_to_speech", "skills_list", "skill_view"}
+GUEST_FILES = {"read_file", "write_file", "patch", "search_files"}
+GUEST_NOAH = {"image", "video", "musique", "voix", "rappeler", "navigateur", "fil", "fil-etat"}
+OPERATORS = set(";&|<>()")
+
+
+def _home() -> str:
+    """Dossier du profil Hermes de ce tour : celui de la requête en cours, pas celui du processus."""
+    try:
+        from hermes_constants import get_hermes_home
+        return str(get_hermes_home())
+    except Exception:  # noqa: BLE001 - hors d'Hermes
+        return os.environ.get("HERMES_HOME", DATA)
+
+
+def _guest_path_ok(path: str, home: str) -> bool:
+    """Le dossier de travail commun, et les images que ses propres outils ont rangées dans son profil."""
+    path = path.strip()
+    if not path or path.startswith("~"):
+        return False
+    full = os.path.realpath(os.path.join(WORKSPACE, path))
+    own = tuple(os.path.join(home, d) + "/" for d in ("cache", "image_cache", "browser_screenshots", "audio_cache"))
+    return full == WORKSPACE or full.startswith(WORKSPACE + "/") or full.startswith(own)
+
+
+def _guest_command_ok(command: str) -> bool:
+    if re.search(r"[$`\n\r]", command):
+        return False
+    try:
+        lex = shlex.shlex(command, posix=True, punctuation_chars=True)
+        lex.whitespace_split = True
+        words = list(lex)
+    except ValueError:
+        return False
+    if any(w and set(w) <= OPERATORS for w in words):
+        return False
+    return len(words) >= 3 and words[0] == "python3" and words[1] == f"{DATA}/noah.py" and words[2] in GUEST_NOAH
+
+
+def check_guest(tool_name: str, args: dict, home: str) -> str | None:
+    """Raison du refus d'un outil dans le profil d'une personne avec qui l'agent est partagé, ou None."""
+    if tool_name.startswith("browser_") or tool_name in GUEST_TOOLS and tool_name != "vision_analyze":
+        return None
+    if tool_name == "terminal":
+        if _guest_command_ok(str(args.get("command", ""))):
+            return None
+        return ("Noah refuse : cette personne n'a pas de terminal sur cet agent, seulement `python3 /opt/data/noah.py` pour créer un "
+                "média, ouvrir un fil ou rappeler. Seul son propriétaire peut lui donner plus (droit admin). Dis-le simplement.")
+    if tool_name == "vision_analyze":
+        url = str(args.get("image_url", ""))
+        if url.startswith(("http://", "https://")) or _guest_path_ok(url, home):
+            return None
+    elif tool_name in GUEST_FILES:
+        path = args.get("path") if "path" in args else "." if tool_name == "search_files" else ""
+        if tool_name == "search_files" and path == ".":
+            return None  # le terminal et ses fichiers partent du dossier de travail
+        if _guest_path_ok(str(path or ""), home):
+            return None
+    else:
+        return f"Noah refuse : l'outil « {tool_name} » n'est pas ouvert à cette personne sur cet agent. Dis-le simplement."
+    return ("Noah refuse : cette personne n'accède qu'au dossier de travail commun, /opt/data/workspace, et pas au reste de la "
+            "machine de l'agent. Dis-le simplement.")
+
+
+def check_owner(tool_name: str, args: dict) -> str | None:
+    """Dans le profil de l'agent : ce qu'une personne a confié à son profil ne se lit pas en passant."""
+    if tool_name == "terminal":
+        hit = GUEST_ROOT.rstrip("/") in str(args.get("command", "")) or re.search(r"(^|[\s'\"/])\.\./profiles\b", str(args.get("command", "")))
+    elif tool_name in GUEST_FILES or tool_name == "vision_analyze":
+        path = str(args.get("path") or args.get("image_url") or "")
+        hit = not path.startswith(("http://", "https://")) and os.path.realpath(os.path.join(WORKSPACE, path)).startswith(GUEST_ROOT)
+    else:
+        return None
+    return ("Noah refuse : ce dossier tient la mémoire privée des personnes avec qui cet agent est partagé." if hit else None)
+
+
 def _pre_tool_call(tool_name: str = "", args: dict | None = None, **_) -> dict | None:
+    home = _home()
+    reason = (check_guest if GUEST_ROOT in home + "/" else lambda t, a, _h: check_owner(t, a))(tool_name, args if isinstance(args, dict) else {}, home)
+    if reason:
+        return {"action": "block", "message": reason}
     if tool_name.startswith("browser_"):
         _wake_browser()
         return None

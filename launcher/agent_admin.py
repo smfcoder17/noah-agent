@@ -6,9 +6,11 @@ l'interface voient toujours la même chose. Réponse : une ligne JSON sur la sor
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, "/opt/hermes")
@@ -393,7 +395,84 @@ def tool_remove(body):
     return {"connecte": False}
 
 
+# --- Profil d'une personne avec qui l'agent est partagé (G12.5) ----------------------------------------------------------
+# Un vrai profil Hermes dans la même machine : sa mémoire, ses sessions, ses compétences et son identité de navigateur à lui.
+# Il reçoit le modèle et le rôle de l'agent, jamais ses comptes : ni serveurs MCP, ni jetons Google, ni le .env en entier.
+GUEST_ENV = ("API_SERVER_KEY", "CAMOFOX_URL", "CAMOFOX_API_KEY")
+
+
+def _guest_home(body):
+    name = str(body.get("profil", ""))
+    if not re.fullmatch(r"u\d+[0-9a-f]{8}", name):
+        fail("Profil invalide")
+    return name, DATA / "profiles" / name
+
+
+def guest_prepare(body):
+    from ruamel.yaml import YAML  # le YAML d'Hermes : son environnement n'a pas PyYAML
+
+    yaml = YAML(typ="safe")
+    yaml.default_flow_style = False
+    name, home = _guest_home(body)
+    if not home.exists():
+        made = subprocess.run([sys.executable, "-m", "hermes_cli.main", "profile", "create", name, "--no-alias"],
+                              capture_output=True, text=True, timeout=110, cwd=DATA)
+        if made.returncode != 0:
+            fail(f"Profil non créé : {made.stdout[-300:]}{made.stderr[-300:]}")
+    cfg = yaml.load((DATA / "config.yaml").read_text(encoding="utf-8")) or {}
+    cfg.pop("mcp_servers", None)
+    camofox = cfg.setdefault("browser", {}).setdefault("camofox", {})
+    camofox["user_id"] = camofox["session_key"] = name  # un contexte Firefox à lui : d'autres cookies
+    with open(home / "config.yaml", "w", encoding="utf-8") as f:
+        yaml.dump(cfg, f)
+    env = [line for line in (DATA / ".env").read_text(encoding="utf-8").splitlines() if line.split("=", 1)[0].strip() in GUEST_ENV]
+    (home / ".env").write_text("\n".join(env) + "\n", encoding="utf-8")
+    os.chmod(home / ".env", 0o600)
+    soul = DATA / "SOUL.md"
+    if soul.exists():
+        shutil.copyfile(soul, home / "SOUL.md")
+    garde = home / "plugins" / "noah-garde"
+    garde.mkdir(parents=True, exist_ok=True)
+    for file, text in (body.get("garde") or {}).items():
+        if file in ("plugin.yaml", "__init__.py"):
+            (garde / file).write_text(text, encoding="utf-8")
+    _guard_loaded(name, home)
+    return {"ok": True}
+
+
+RELOAD = ("import json; from hermes_cli.plugins_activation import reload_running_gateway; "
+          "print(json.dumps(reload_running_gateway() or {}))")
+
+
+def _guard_loaded(name, home):
+    """Hermes charge les extensions d'un profil une fois, à sa création : avant que la garde y soit. Sans elle, le terminal de
+    ce profil lirait toute la machine : on la fait charger par la passerelle en service, et sa réponse fait foi."""
+    answer = {}
+    for attempt in range(12):  # la passerelle prend le nouveau profil en charge en quelques secondes
+        done = subprocess.run([sys.executable, "-c", RELOAD], capture_output=True, text=True, timeout=30, cwd=DATA,
+                              env={**os.environ, "HERMES_HOME": str(home)})
+        try:
+            answer = json.loads(done.stdout.strip().splitlines()[-1])
+        except (ValueError, IndexError):
+            answer = {}
+        if answer.get("reloaded") and "noah-garde" in answer.get("plugins", []):
+            return
+        time.sleep(1)
+    fail(f"Garde non chargée dans le profil {name} : {str(answer)[:200]}")
+
+
+def guest_remove(body):
+    name, home = _guest_home(body)
+    if home.exists():
+        done = subprocess.run([sys.executable, "-m", "hermes_cli.main", "profile", "delete", name, "--yes"],
+                              capture_output=True, text=True, timeout=50, cwd=DATA)
+        if done.returncode != 0:
+            shutil.rmtree(home, ignore_errors=True)
+    return {"ok": True}
+
+
 ACTIONS = {
+    "invite_preparer": guest_prepare, "invite_effacer": guest_remove,
     "applications": apps, "application_connecter": app_connect, "application_finir": app_finish,
     "application_retirer": app_remove,
     "outil_poser": tool_set, "outil_connecter": tool_connect, "outil_finir": tool_finish, "outil_droits": tool_rights,

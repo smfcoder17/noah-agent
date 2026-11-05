@@ -10,6 +10,7 @@ import threading
 import time
 import unicodedata
 import uuid
+from dataclasses import replace
 from urllib.parse import quote, urlencode, urlsplit
 
 import httpx
@@ -89,7 +90,7 @@ _running_runs: set = set()  # runs suivis en arrière-plan (référence gardée 
 task_state: dict[str, str] = {}
 
 # Version du branchement des agents ; l'augmenter reconfigure tous les agents au démarrage.
-AGENT_SETUP_VERSION = "27-navigateur"  # 26 : navigateur au premier usage
+AGENT_SETUP_VERSION = "28-profils-partage"  # garde des profils de partage (G12.5) ; 27 : navigateur ; 26 : navigateur au premier usage
 
 
 @app.on_event("startup")
@@ -1409,11 +1410,16 @@ async def _remove_agent(agent_id: str) -> None:
     provisioning.pop(agent_id, None)
 
 
+def _agent_of_run(run: dict) -> Agent:
+    """L'agent d'une tâche en cours, dans le profil Hermes où elle tourne."""
+    return replace(_agent(run["agent"]), profile=run.get("profil"))
+
+
 async def _stop_conversation(conv_id: str) -> None:
     for run_id, r in list(_runs.items()):
         if r.get("conv") == conv_id:
             with contextlib.suppress(Exception):  # agent arrêté : plus rien à arrêter
-                await hermes.stop_run(_agent(r["agent"]), run_id)
+                await hermes.stop_run(_agent_of_run(r), run_id)
 
 
 async def _stop_runs(user: int, agent_id: str | None = None) -> None:
@@ -1422,12 +1428,23 @@ async def _stop_runs(user: int, agent_id: str | None = None) -> None:
     for run_id, r in list(_runs.items()):
         if r["user"] == user and agent_id in (None, r["agent"]):
             try:
-                await hermes.stop_run(_agent(r["agent"]), run_id)
+                await hermes.stop_run(_agent_of_run(r), run_id)
             except Exception:  # noqa: BLE001 - agent arrêté : plus rien à arrêter
                 pass
 
 
-profiles.setup(stop_runs=_stop_runs, remove_agent=_remove_agent, drop_pending=_drop_pending)
+async def _forget_guest(agent_id: str, user: int) -> None:
+    """Le partage s'arrête : la mémoire que cette personne a laissée dans la machine de l'agent part avec lui."""
+    profile = access.guest_profile(user)
+    with db.connect() as c:
+        c.execute("DELETE FROM settings WHERE key = ?", (f"invite:{agent_id}:{profile}",))
+    try:
+        await hermes.remove_guest(agent_id, profile)
+    except Exception as e:  # noqa: BLE001 - machine arrêtée : le profil reste, personne n'y a plus accès
+        print(f"[partage] profil {profile} non effacé sur {agent_id} : {e}", flush=True)
+
+
+profiles.setup(stop_runs=_stop_runs, remove_agent=_remove_agent, drop_pending=_drop_pending, forget_guest=_forget_guest)
 
 
 # --- Conversations ----------------------------------------------------------------------
@@ -1556,14 +1573,19 @@ async def chat(body: ChatMessage, request: Request, apollo_session: str | None =
 
 
 def _speaker(user: int, agent_id: str) -> str:
-    """Sur un agent partagé, il sait à qui il parle. Rien sur un agent qui n'a qu'un utilisateur : le début du prompt
-    reste le même, donc en cache, et son comportement ne change pas."""
+    """Sur un agent partagé, il sait à qui il parle. Rien pour le propriétaire tant que personne ne partage sa mémoire : le
+    début du prompt reste le même, donc en cache, et son comportement ne change pas."""
     owner = access.owner_of(agent_id)
-    with db.connect() as c:
-        shared = c.execute("SELECT 1 FROM agent_shares WHERE agent_id = ? LIMIT 1", (agent_id,)).fetchone()
-    if user == owner and not shared:
-        return ""
     name = re.sub(r"[\[\]\s]+", " ", access.username(user)).strip()
+    if access.separated(user, agent_id):
+        return (f"[Cette conversation est avec {name}, avec qui ton propriétaire te partage. Ici, ta mémoire et ton navigateur sont "
+                f"ceux de {name}. Tu n'as ni les comptes connectés de ton propriétaire, ni sa mémoire, ni terminal : seulement tes outils "
+                "de recherche, de navigateur, de mémoire et le dossier de travail commun, et `python3 /opt/data/noah.py` pour créer "
+                "un média, ouvrir un fil, ou rappeler. Dis-le simplement si une demande sort de là.]\n\n")
+    with db.connect() as c:
+        common = c.execute("SELECT 1 FROM agent_shares WHERE agent_id = ? AND droit = 'admin' LIMIT 1", (agent_id,)).fetchone()
+    if user == owner and not common:
+        return ""
     who = f"{name}, ton propriétaire" if user == owner else f"{name}, avec qui ton propriétaire te partage"
     return (f"[Cette conversation est avec {who}. Tu sers plusieurs personnes : chacune a ses conversations, mais ta mémoire, "
             f"ton navigateur et tes comptes connectés sont communs. Ne répète pas à {name} ce que d'autres t'ont confié, "
@@ -1578,6 +1600,33 @@ def _new_conversation(user: int, agent_id: str, title: str, main: bool = False, 
             (conv_id, user, agent_id, title[:80], int(main), origin),
         )
     return conv_id
+
+
+async def _guest_agent(agent: Agent, user: int | None) -> Agent:
+    """Une personne avec qui l'agent est partagé lui parle dans son propre profil Hermes, tenu à jour du modèle et du rôle de
+    l'agent. Le droit admin, et lui seul, parle à la mémoire et aux comptes de l'agent (voir access.separated)."""
+    if not access.separated(user, agent.id):
+        return agent
+    profile = access.guest_profile(user)
+    with db.connect() as c:
+        row = c.execute("SELECT name, role FROM agents WHERE id = ?", (agent.id,)).fetchone()
+    raw = json.dumps([_config_rev(agent.id), row["name"] if row else "", row["role"] if row else "", AGENT_SETUP_VERSION])
+    version, key = hashlib.sha256(raw.encode()).hexdigest(), f"invite:{agent.id}:{profile}"
+    if db.get_setting(key) != version:
+        await hermes.prepare_guest(agent.id, profile)
+        db.set_setting(key, version)
+    return replace(agent, profile=profile)
+
+
+async def _start_run(agent: Agent, text: str, session: str) -> str:
+    """Un profil perdu (machine restaurée, clé changée) se refait ; il ne retombe jamais sur la mémoire de l'agent."""
+    try:
+        return await hermes.start_run(agent, text, session_id=session)
+    except httpx.HTTPStatusError as e:
+        if not agent.profile or e.response.status_code not in (401, 404):
+            raise
+    await hermes.prepare_guest(agent.id, agent.profile)
+    return await hermes.start_run(agent, text, session_id=session)
 
 
 async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, context: str = "", author: str = "user"):
@@ -1595,13 +1644,14 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
     trial = db.get_setting("onboarded") == "0"  # essai de l'assistant : borné, et arrêté s'il est abandonné
     launched_by = _conversation_owner(conv_id)  # avant l'attente : le profil peut disparaître, avec ses conversations
     try:
-        run_id = await hermes.start_run(agent, context + prompt, session_id=f"apollo-{conv_id}")
+        agent = await _guest_agent(agent, launched_by)
+        run_id = await _start_run(agent, context + prompt, f"apollo-{conv_id}")
     except Exception:
         task_state[conv_id] = "error"
         raise HTTPException(503, "L'agent ne répond pas. Il démarre peut-être encore : réessaie dans un instant.")
 
     updates.activity()
-    _runs[run_id] = {"agent": agent.id, "user": launched_by, "conv": conv_id}
+    _runs[run_id] = {"agent": agent.id, "user": launched_by, "conv": conv_id, "profil": agent.profile}
     if launched_by is not None and not access.allowed(launched_by, agent.id, "usage"):  # retiré pendant le démarrage d'Hermes
         task_state[conv_id] = "idle"
         with contextlib.suppress(Exception):
@@ -1619,13 +1669,13 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
                 yield kind, data
                 continue
             try:
-                await hermes.discard_lost_turn(agent.id, session)
+                await hermes.discard_lost_turn(agent.id, session, agent.profile)
                 new_id = await hermes.start_run(agent, context + prompt, session_id=session)
             except Exception as e:
                 print(f"[tâche] tour perdu non levé sur {agent.id} : {e}", flush=True)
                 yield kind, data
                 return
-            _runs[new_id] = _runs.pop(run_id, {"agent": agent.id, "user": launched_by, "conv": conv_id})
+            _runs[new_id] = _runs.pop(run_id, {"agent": agent.id, "user": launched_by, "conv": conv_id, "profil": agent.profile})
             run_id = new_id
             yield "noah.relance", {}
             async for pair in hermes.run_events(agent, run_id):
@@ -1660,6 +1710,11 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
                     continue
                 if out["type"] == "done" and gave_up[0]:
                     out = {"type": "done", "status": "failed", "error": relay.UNREACHABLE}
+                if out["type"] == "done" and out.get("status") == "failed":
+                    # Hermes résume un refus de plafond (402) en « plus de crédit chez le fournisseur » : on donne la vraie raison.
+                    refused = relay.spending_refusal(agent.id)
+                    if refused:
+                        out = {**out, "error": refused}
                 if out["type"] == "approval":
                     mcp.approval_seen(agent.id, out.get("request_id"), str(out.get("summary") or ""))
                 if out["type"] == "approval" and task_state.get(conv_id) != "approve":
@@ -1820,9 +1875,8 @@ def _run_of(user: int, agent_id: str, run_id: str) -> Agent:
     if run and run["agent"] != agent_id:
         access.access(user, agent_id, "lecture")
         raise HTTPException(404, "Tâche introuvable")
-    if run and run["user"] == user:
-        return _usable(user, agent_id, "usage")
-    return _usable(user, agent_id, "admin")
+    agent = _usable(user, agent_id, "usage" if run and run["user"] == user else "admin")
+    return replace(agent, profile=run.get("profil")) if run else agent
 
 
 @app.get("/api/agents/{agent_id}/media")
