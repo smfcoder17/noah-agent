@@ -418,7 +418,7 @@ await scenario("6ter. Réseau coupé pour de bon : le son finit par abandonner",
 await scenario("7. Image en data: dans la vue d'appel", async () => {
   const s = await open("defaut7");
   await server("/_essai/regler", {
-    output: `Voici ![pixel](data:image/png;base64,${PNG}) et [sans-point](data:image/png;base64,${PNG}) et ![piege-html](data:text/html;base64,PHNjcmlwdD5kb2N1bWVudC50aXRsZT0nUElFR0UnPC9zY3JpcHQ+) et ![piege-svg](data:image/svg+xml;base64,PHN2Zy8+) et [piege-lien](data:text/html,x)`,
+    output: `Voici ![pixel](data:image/png;base64,${PNG}) et [sans-point](data:image/jpeg;base64,${PNG}) et ![piege-html](data:text/html;base64,PHNjcmlwdD5kb2N1bWVudC50aXRsZT0nUElFR0UnPC9zY3JpcHQ+) et ![piege-svg](data:image/svg+xml;base64,PHN2Zy8+) et [piege-lien](data:text/html,x)`,
   });
   await s.startCall();
   check("le tour part", await sayTurn(s, "Fais une image ?"));
