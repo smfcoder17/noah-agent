@@ -5,8 +5,9 @@
 #
 # Installe Docker s'il le faut, télécharge le fichier deploy/docker-compose.yml dans /opt/noah, ouvre les ports web et
 # démarre Noah à partir des images publiées (rien n'est compilé sur le VPS). Sans nom de domaine, Noah répond en
-# HTTPS sur <ip>.sslip.io. Variables facultatives :
-#   NOAH_DOMAIN=noah.example.com   ton domaine (il doit déjà pointer vers ce serveur)
+# HTTPS sur <ip>.sslip.io, où l'IP se lit dans l'adresse. Un sous-domaine est conseillé. Variables facultatives, à placer
+# devant sh, après le | :
+#   NOAH_DOMAIN=noah.example.com   ton sous-domaine (il doit déjà pointer vers ce serveur)
 #   NOAH_DIR=/opt/noah             dossier d'installation
 #   NOAH_COMPOSE_URL=https://…     fichier compose à utiliser (une copie à toi, par exemple)
 # Relancer la commande met Noah Agent à jour sans toucher aux données ni aux secrets.
@@ -134,3 +135,9 @@ elif [ -n "$url" ]; then
 else
   say "Noah démarre encore. Le lien s'affichera dans : cd $DIR && docker compose logs server"
 fi
+case "$url" in
+  *.sslip.io*)
+    say "Pour une adresse simple, sans l'IP : crée un sous-domaine qui pointe vers ce serveur, puis relance :"
+    say "curl -fsSL $RAW/get.sh | NOAH_DOMAIN=noah.exemple.com sh"
+    ;;
+esac
