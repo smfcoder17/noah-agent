@@ -184,7 +184,7 @@ try {
     }
 
     // Ce que Noah fait tourner sans le construire : le code de ces projets doit se lire aussi.
-    for (const tiers of ["NousResearch/hermes-agent", "jo-inc/camofox-browser", "daijro/camoufox", "caddyserver/caddy", "gorhill/uBlock", ...depotsGit]) {
+    for (const tiers of ["NousResearch/hermes-agent", "jo-inc/camofox-browser", "daijro/camoufox", "caddyserver/caddy", ...depotsGit]) {
       const r = await anonymous(`https://github.com/${tiers}`);
       check(`composant tiers : ${tiers} se lit sans compte`, r.ok, String(r.status));
     }

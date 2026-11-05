@@ -19,6 +19,9 @@
     },
     "noah": {
       "enabled": true
+    },
+    "bureau": {
+      "enabled": true
     }
   }
 }

@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Application
+Name=Fichiers
+Exec=pcmanfm /home/bureau/Documents
+Icon=/home/bureau/.local/share/noah/fichiers.png

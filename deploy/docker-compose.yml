@@ -41,7 +41,7 @@ services:
     restart: unless-stopped
     environment:
       AGENT_IMAGE: nousresearch/hermes-agent:stable
-      BROWSER_IMAGE: ghcr.io/jo-inc/camofox-browser:latest
+      BROWSER_IMAGE: ghcr.io/smfcoder17/noah-browser:stable
       AGENT_NETWORK: noah-net
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock

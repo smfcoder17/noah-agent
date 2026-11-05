@@ -14,7 +14,7 @@
 # v1.2.3-rc1 : même chemin, images 1.2.3-rc1, Release marqué préversion ; ni :stable, ni manifeste, ni « latest ».
 # Sans étiquette (gh workflow run release.yml, depuis main) : image edge seulement.
 #
-# Les clés : sh scripts/preparer-signatures.sh. Les paquets GHCR noah-server et noah-launcher sont déjà publics.
+# Les clés : sh scripts/preparer-signatures.sh. Les paquets GHCR noah-server et noah-launcher sont déjà publics ; noah-browser est à rendre public à sa première publication.
 name: Publication
 
 on:
@@ -68,6 +68,9 @@ jobs:
           - name: noah-launcher
             context: launcher
             file: launcher/Dockerfile
+          - name: noah-browser
+            context: launcher/camofox-bureau
+            file: launcher/camofox-bureau/Dockerfile
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
@@ -206,7 +209,7 @@ jobs:
         if: needs.controle.outputs.stable == 'true'
         run: |
           owner=$(echo "$OWNER" | tr 'A-Z' 'a-z')
-          for image in noah-server noah-launcher; do
+          for image in noah-server noah-launcher noah-browser; do
             docker buildx imagetools create -t "ghcr.io/$owner/$image:stable" "ghcr.io/$owner/$image:$VERSION"
           done
       - name: Release publié

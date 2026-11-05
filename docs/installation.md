@@ -264,7 +264,7 @@ Les agents n'ont jamais la clé du fournisseur. Ils appellent `noah-server` (`/r
 
 ### Navigateur et écran de l'agent
 
-Chaque agent a son navigateur [Camoufox](https://camoufox.com) (Firefox anti-détection), dans un conteneur `noah-browser-*` basé sur [camofox-browser](https://github.com/jo-inc/camofox-browser), que Hermes pilote nativement (`CAMOFOX_URL`). Le profil (cookies, sessions connectées) est gardé dans un volume.
+Chaque agent a son navigateur [Camoufox](https://camoufox.com) (Firefox anti-détection), dans un conteneur `noah-browser-*` construit sur [camofox-browser](https://github.com/jo-inc/camofox-browser) avec un petit bureau (fichiers, éditeur de texte, sans terminal), que Hermes pilote nativement (`CAMOFOX_URL`). Le profil (cookies, sessions connectées) est gardé dans un volume.
 
 L'onglet « Ordinateur » ouvre l'écran du navigateur en direct (noVNC, relayé par le serveur derrière ta connexion). « Prendre le contrôle » passe en mode interactif : tu te connectes toi-même à un site ou tu résous un CAPTCHA. L'agent a pour consigne de ne jamais demander de mot de passe dans la conversation : quand une étape est la tienne, il t'appelle (`noah.py appeler`). Un bandeau s'affiche au-dessus de la conversation, son écran s'ouvre, une notification arrive sur l'ordinateur, et il attend ton « C'est fait » pour reprendre.
 

@@ -484,9 +484,9 @@ function Computer({ agentId }: { agentId: string }) {
     }
   };
 
-  // Sans page ouverte, l’écran est noir : on le traite comme en veille.
+  // Le bureau reste affiché quand le navigateur dort : seul un écran coupé cache le flux.
   const awake = !!status?.awake;
-  const visible = awake && (status?.tabs ?? 0) > 0;
+  const visible = awake;
   return (
     <>
       <div className={cn("relative min-h-64 flex-1 overflow-hidden rounded-xl border border-border bg-[#0b0f14]", control && awake && "ring-3 ring-warn")}>

@@ -1,0 +1,61 @@
+# Fenêtres du bureau de l'agent, aux couleurs de Noah.
+border.width: 1
+padding.width: 6
+padding.height: 4
+window.client.padding.width: 0
+window.client.padding.height: 0
+window.handle.width: 0
+window.active.border.color: #ff7a59
+window.inactive.border.color: #2a3542
+window.active.client.color: #151c24
+window.inactive.client.color: #151c24
+window.active.title.bg: flat solid
+window.active.title.bg.color: #1d2630
+window.inactive.title.bg: flat solid
+window.inactive.title.bg.color: #11171e
+window.active.label.bg: parentrelative
+window.inactive.label.bg: parentrelative
+window.active.label.text.color: #ffffff
+window.inactive.label.text.color: #95a3b1
+window.label.text.justify: center
+window.active.button.unpressed.bg: flat solid
+window.active.button.unpressed.bg.color: #1d2630
+window.active.button.unpressed.image.color: #e6ebf0
+window.active.button.hover.bg: flat solid
+window.active.button.hover.bg.color: #2a3542
+window.active.button.hover.image.color: #ffffff
+window.active.button.pressed.bg: flat solid
+window.active.button.pressed.bg.color: #ff7a59
+window.active.button.pressed.image.color: #0e1318
+window.active.button.toggled.unpressed.bg: flat solid
+window.active.button.toggled.unpressed.bg.color: #1d2630
+window.active.button.toggled.unpressed.image.color: #e6ebf0
+window.active.button.disabled.bg: parentrelative
+window.active.button.disabled.image.color: #5d6875
+window.inactive.button.unpressed.bg: parentrelative
+window.inactive.button.unpressed.image.color: #95a3b1
+window.inactive.button.hover.bg: parentrelative
+window.inactive.button.hover.image.color: #e6ebf0
+window.inactive.button.pressed.bg: parentrelative
+window.inactive.button.pressed.image.color: #e6ebf0
+window.inactive.button.disabled.bg: parentrelative
+window.inactive.button.disabled.image.color: #5d6875
+menu.items.bg: flat solid
+menu.items.bg.color: #151c24
+menu.items.text.color: #e6ebf0
+menu.items.disabled.text.color: #5d6875
+menu.items.active.bg: flat solid
+menu.items.active.bg.color: #2a3542
+menu.items.active.text.color: #ffffff
+menu.title.bg: flat solid
+menu.title.bg.color: #1d2630
+menu.title.text.color: #ffffff
+menu.title.text.justify: center
+menu.border.width: 1
+menu.border.color: #2a3542
+menu.separator.color: #2a3542
+osd.bg: flat solid
+osd.bg.color: #151c24
+osd.border.color: #2a3542
+osd.label.bg: parentrelative
+osd.label.text.color: #e6ebf0
