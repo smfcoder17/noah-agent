@@ -137,6 +137,8 @@ jobs:
         run: |
           docker run --rm -e NOAH_DOMAIN=noah.example.com -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" \
             caddy:2.10-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+      - name: "Journal d'accès de Caddy : ni code d'installation ni jeton d'aperçu"
+        run: sh tests/exposition/journaux_caddy.sh
       - name: Adresses montrées (jamais une IP en http, sortie réelle de get.sh et install.sh)
         run: node tests/pwa/urls_https_test.mjs
       - name: Sources de tout ce qui est distribué (suivies par git, sans dépôt privé)

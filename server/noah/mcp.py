@@ -171,8 +171,8 @@ class Target:
             return {"sni_hostname": self.host}
 
 
-def parse(url: str):
-    """Tout ce qui se juge sans le réseau. Rend l'adresse découpée."""
+def parse(url: str, for_source: bool = False):
+    """Tout ce qui se juge sans le réseau. Rend l'adresse découpée. `for_source` : voir resolve."""
     url = url.strip()
     if "://" not in url or url.split("://", 1)[0].lower() not in ("https", "http"):
         raise Refused("Il faut une adresse https://… Une commande locale n'est pas acceptée : elle exécuterait du code téléchargé.")
@@ -185,7 +185,7 @@ def parse(url: str):
         raise Refused("Adresse illisible.") from None
     if parts.username is not None or parts.password is not None or "@" in parts.netloc:
         raise Refused("Adresse refusée : pas d'identifiants dans l'adresse, mets le jeton dans le champ prévu.")
-    if any(SECRET_PARAM.search(k) for k, _ in parse_qsl(parts.query, keep_blank_values=True)):
+    if not for_source and any(SECRET_PARAM.search(k) for k, _ in parse_qsl(parts.query, keep_blank_values=True)):
         raise Refused("Adresse refusée : pas de clé ni de jeton dans l'adresse, mets-le dans le champ prévu.")
     host = (parts.hostname or "").rstrip(".").lower()
     if not host:
@@ -198,9 +198,10 @@ def parse(url: str):
     return parts, host, port
 
 
-async def resolve(url: str) -> Target:
-    """Vérifie l'adresse après résolution DNS : toutes les adresses du nom doivent passer."""
-    parts, host, port = parse(url)
+async def resolve(url: str, for_source: bool = False) -> Target:
+    """Vérifie l'adresse après résolution DNS : toutes les adresses du nom doivent passer. `for_source` : une page lue sans
+    jeton (veille) : http public et paramètres d'adresse permis, mêmes réseaux interdits."""
+    parts, host, port = parse(url, for_source)
     scheme = parts.scheme.lower()
     try:
         infos = await asyncio.wait_for(
@@ -211,7 +212,7 @@ async def resolve(url: str) -> Target:
     if not addresses:
         raise Down("Ce nom de serveur ne se résout pas.")
     for a in addresses:
-        _judge(ipaddress.ip_address(a), scheme)
+        _judge(ipaddress.ip_address(a), "https" if for_source else scheme)
     path = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
     return Target(scheme, host, port, path, addresses[0])
 

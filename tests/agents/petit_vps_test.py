@@ -18,6 +18,10 @@ sys.path.insert(0, "/launcher")
 import launcher  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
+for path in ("/openapi.json", "/docs", "/redoc"):
+    assert TestClient(launcher.app).get(path).status_code == 404, f"le lanceur décrit ses routes sans clé : {path}"
+print("le lanceur ne décrit pas ses routes")
+
 client = launcher.client
 launcher.updater.put_env = lambda *a, **k: None
 client.containers.get.side_effect = docker.errors.NotFound()

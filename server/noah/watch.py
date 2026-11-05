@@ -20,7 +20,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from . import access, auth, db, desktop, media, relay
+from . import access, auth, db, desktop, mcp, media, relay
 
 router = APIRouter()
 
@@ -45,6 +45,10 @@ CREATE TABLE IF NOT EXISTS watches (
 
 SEEN_MAX = 3000
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0"
+MAX_BYTES = 3_000_000  # lu de la réponse, décompressée ; le reste de la page n'est pas téléchargé
+FETCH_SECONDS = 45  # le délai d'httpx ne limite que le silence : une source qui envoie sans arrêt ne doit pas tenir le relevé
+MAX_REDIRECTS = 5
+_transport = None  # les tests remplacent le réseau ici
 
 
 KEYS = "3"  # format des empreintes de blocs ; le changer fait réapprendre chaque page en silence
@@ -133,12 +137,40 @@ def _page_items(body: str, base: str = "") -> list[dict]:
     return items
 
 
+async def _read(url: str) -> tuple[str, str]:
+    """Le début de la réponse et l'adresse finale. Mêmes protections que le client MCP, à chaque saut : adresse jugée après
+    résolution, connexion à l'adresse vérifiée, redirection jamais suivie sans repasser par ce contrôle."""
+    for _ in range(MAX_REDIRECTS + 1):
+        target = await mcp.resolve(url, for_source=True)
+        headers = {"Host": target.host_header, "User-Agent": UA, "Accept-Language": "fr,en;q=0.8"}
+        async with httpx.AsyncClient(transport=_transport, timeout=30, follow_redirects=False, trust_env=False) as c:
+            async with c.stream("GET", target.pinned, headers=headers, extensions=target.extensions) as r:
+                if r.is_redirect and r.headers.get("location"):
+                    url = urljoin(url, r.headers["location"])
+                    continue
+                if not r.is_success:
+                    raise ValueError(f"la source répond {r.status_code}")
+                body = bytearray()
+                async for chunk in r.aiter_bytes():
+                    body += chunk
+                    if len(body) >= MAX_BYTES:
+                        break
+                return body[:MAX_BYTES].decode(r.encoding or "utf-8", "replace"), url
+    raise ValueError("trop de redirections")
+
+
 async def fetch(url: str) -> list[dict]:
-    r = await relay.upstream_client().get(url, headers={"User-Agent": UA, "Accept-Language": "fr,en;q=0.8"},
-                                          timeout=30, follow_redirects=True)
-    r.raise_for_status()
-    body = r.text[:3_000_000]
-    return _feed_items(body) or _page_items(body, str(r.url))
+    """Une erreur devient une ValueError dont le texte ne cite ni adresse interne ni détail réseau : elle s'affiche."""
+    try:
+        async with asyncio.timeout(FETCH_SECONDS):
+            body, final = await _read(url)
+    except TimeoutError:
+        raise ValueError("la source ne finit pas de répondre") from None
+    except (mcp.Refused, mcp.Down) as e:
+        raise ValueError(str(e)) from None
+    except (httpx.HTTPError, httpx.InvalidURL) as e:
+        raise ValueError(mcp._why(e)) from None
+    return _feed_items(body) or _page_items(body, final)
 
 
 # --- Tri par un petit modèle -------------------------------------------------------------------
@@ -213,6 +245,7 @@ async def check(wid: str, save_message, main_conversation) -> dict:
         return {"erreur": "Veille introuvable"}
     now = time.time()
     try:
+        mcp._scope(w["agent_id"])  # le réseau privé accepté est celui du propriétaire de l'installation
         items = await fetch(w["url"])
     except (httpx.HTTPError, ValueError) as e:
         with db.connect() as c:

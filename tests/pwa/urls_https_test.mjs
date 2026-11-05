@@ -67,11 +67,11 @@ const lance = (journal) => {
   const r = spawnSync("docker", ["run", "--rm", "-v", `${ROOT}:/depot:ro`, "-v", `${tmp}:/j:ro`, "alpine:3", "sh", "/depot/tests/pwa/sortie_scripts.sh", "/depot", "/j/journal.txt"], { encoding: "utf8", timeout: 240000 });
   return { code: r.status, get: (r.stdout || "").split("=== install.sh")[0], install: (r.stdout || "").split("=== install.sh")[1] || "", err: r.stderr };
 };
-const pret = "\n\n  Noah est prêt. Ouvre ce lien pour créer ton compte :\n\n    https://1-2-3-4.sslip.io/?installation=BCDFGHJKLMNP\n\n  Code d'installation : BCDFGHJKLMNP\n";
+const pret = "\n\n  Noah est prêt. Ouvre ce lien pour créer ton compte :\n\n    https://1-2-3-4.sslip.io/#installation=BCDFGHJKLMNP\n\n  Code d'installation : BCDFGHJKLMNP\n";
 const uvicorn = "INFO:     Uvicorn running on http://0.0.0.0:8080 (Press CTRL+C to quit)\n";
 const a = lance(uvicorn + pret);
 check("les scripts tournent (faux docker)", a.code === 0, a.code ? (a.get + a.err).slice(-400) : "");
-check("get.sh donne le lien HTTPS avec le code", a.get.includes("https://1-2-3-4.sslip.io/?installation=BCDFGHJKLMNP"), a.get.trim().split("\n").pop());
+check("get.sh donne le lien HTTPS, le code après le #", a.get.includes("https://1-2-3-4.sslip.io/#installation=BCDFGHJKLMNP") && !/\?installation=/.test(a.get), a.get.trim().split("\n").pop());
 check("get.sh ne donne aucune adresse http://", !/http:\/\//.test(a.get));
 const b = lance("INFO: démarrage\n");
 check("get.sh sans adresse encore connue : aucune adresse inventée", !/https?:\/\/\S/.test(b.get.replace(/https:\/\/get\.docker\.com/g, "")), b.get.trim().split("\n").pop());

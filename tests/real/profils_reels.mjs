@@ -6,6 +6,7 @@
 // --neuf : efface d'abord ce qu'un passage --garder a laissé.
 // Les conteneurs d'essai sont effacés à la fin ; le volume de l'installation de l'utilisateur n'est jamais monté.
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const args = process.argv.slice(2);
@@ -280,24 +281,21 @@ async function g123() {
   check(`l'API de l'agent d'alice refuse la machine de bruno (${probes.length} appels)`, !open.length && agentApi.every((r) => r.status === 401 || r.erreur === undefined && r.status >= 400), JSON.stringify(agentApi.map((r) => r.status ?? r.erreur)));
   check("témoin : la clé d'alice ouvre cette API", probe(B, [{ url: `${hermesA}/api/sessions`, h: bearer(secretsA.api) }])[0].status === 200);
 
-  // Le lanceur : toutes ses routes, lues dans sa propre description.
+  // Le lanceur : toutes ses routes, lues dans son code. Il ne les décrit à personne.
   const launcher = "http://launcher:9000";
-  const openapi = probe(B, [{ url: `${launcher}/openapi.json` }])[0];
-  const described = JSON.parse(inServer(`import json, urllib.request
-print(json.dumps(json.load(urllib.request.urlopen("http://launcher:9000/openapi.json"))["paths"]))`));
+  const closed = probe(B, ["/openapi.json", "/docs", "/redoc"].map((p) => ({ url: launcher + p })));
+  check("le lanceur ne décrit pas ses routes à une machine d'agent", closed.every((r) => r.status === 404), JSON.stringify(closed.map((r) => r.status ?? r.erreur)));
+  const routes = [...readFileSync("launcher/launcher.py", "utf8").matchAll(/^@app\.(get|post|put|patch|delete)\("([^"]+)"/gm)];
   const calls = [];
-  for (const [path, ops] of Object.entries(described)) {
+  for (const [, method, path] of routes) {
     if (path === "/health") continue;
-    for (const method of Object.keys(ops)) {
-      for (const key of [null, secretsB.api]) {
-        calls.push({ url: launcher + path.replace(/\{[^}]+\}/g, A), m: method.toUpperCase(), h: bearer(key), ...(method !== "get" ? { corps: {} } : {}) });
-      }
+    for (const key of [null, secretsB.api]) {
+      calls.push({ url: launcher + path.replace(/\{[^}]+\}/g, A), m: method.toUpperCase(), h: bearer(key), ...(method !== "get" ? { corps: {} } : {}) });
     }
   }
   const launcherReplies = probe(B, calls);
   const leaks = launcherReplies.map((r, i) => [r, calls[i]]).filter(([r]) => r.status !== 401);
   check(`le lanceur refuse ${calls.length} appels de la machine de bruno (toutes ses routes, sans clé et avec celle de bruno)`, !leaks.length, leaks.slice(0, 6).map(([r, c]) => `${c.m} ${c.url} ${r.status ?? r.erreur}`).join(" | "));
-  note(`description du lanceur lisible sans clé par une machine d'agent : ${openapi.status}`);
 
   // Le serveur : le jeton de relais de bruno n'ouvre ni les routes d'un profil ni les données d'alice.
   const server = "http://noah-server:8080";

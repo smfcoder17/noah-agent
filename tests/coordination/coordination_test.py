@@ -55,7 +55,7 @@ down: set[str] = set()
 hermes.start_run = fake_start
 hermes.run_events = fake_events
 rings: list[dict] = []
-push.notify = lambda title, text, url="/", urgent=False, user_id=None: rings.append(
+push.notify = lambda title, text, url="/", urgent=False, user_id=None, extra=None: rings.append(
     {"title": title, "text": text, "url": url, "urgent": urgent, "user": user_id})
 coordination.FREE_POLL = 0.01
 
