@@ -49,7 +49,7 @@ class Clock:
 
 clock = Clock()
 main.time = clock
-web = client(auth.new_session(alice, "Firefox", "web"))
+web = client(auth.new_session(alice, "Firefox", "web", proven=True))
 
 
 def new_qr() -> tuple[str, dict]:

@@ -238,7 +238,7 @@ main._browser_wake = main._browser_restart = nothing  # leur vraie boucle attend
 handoff._ensure_keeper = lambda agent_id: None  # gardien du mode privé : testé par keeper_test
 updates.install = updates.resolve = updates.check = nothing
 updates.blocked = lambda: asyncio.sleep(0, None)
-push.notify = lambda title, text, url="/", urgent=False, user_id=None: pushes.append(
+push.notify = lambda title, text, url="/", urgent=False, user_id=None, extra=None: pushes.append(
     {"title": title, "text": text, "urgent": urgent, "user": user_id})
 
 
@@ -384,6 +384,7 @@ WHITELIST = {
     ("DELETE", "/api/devices/{device_id}"): "Filtré par compte dans auth.revoke_device : un appareil d'un autre compte rend 404 (vérifié par test_personal).",
     ("PATCH", "/api/profiles/{profile_id}"): "Réservé au rôle owner (vérifié par OWNER_ROUTES).",
     ("DELETE", "/api/profiles/{profile_id}"): "Réservé au rôle owner (vérifié par OWNER_ROUTES et test_profiles).",
+    ("POST", "/api/profiles/{profile_id}/double-verification/couper"): "Réservé au rôle owner, avec sa preuve (OWNER_ROUTES et double_verification_test).",
 }
 
 # Routes sans identifiant : la configuration globale, refusée à un profil…
@@ -411,7 +412,8 @@ OWNER_ROUTES = {
     ("GET", "/api/mcp/reseaux"): None,
     ("PUT", "/api/mcp/reseaux"): {"reseaux": []},
 }
-OWNER_WITH_ID = {("PATCH", "/api/profiles/{profile_id}"): {"budget": None}, ("DELETE", "/api/profiles/{profile_id}"): None}
+OWNER_WITH_ID = {("PATCH", "/api/profiles/{profile_id}"): {"budget": None}, ("DELETE", "/api/profiles/{profile_id}"): None,
+                 ("POST", "/api/profiles/{profile_id}/double-verification/couper"): {"motdepasse": "x"}}
 # … et les routes ouvertes, chacune avec la raison pour laquelle elle ne montre rien d'un autre.
 OPEN_ROUTES = {
     ("GET", "/api/status"): "Publique : l'écran à montrer, rien d'autre pour un inconnu une fois le compte créé (tests/exposition/public_test.py).",
@@ -435,6 +437,10 @@ OPEN_ROUTES = {
     ("POST", "/api/devices/others/revoke"): "Autres sessions de ce compte.",
     ("GET", "/api/me"): "Ce compte.",
     ("POST", "/api/me/password"): "Ce compte, avec son mot de passe actuel.",
+    ("GET", "/api/me/double-verification"): "Ce compte : active ou non, nombre de codes de secours (double_verification_test).",
+    ("POST", "/api/me/double-verification/preparer"): "Ce compte, avec son mot de passe actuel (double_verification_test).",
+    ("POST", "/api/me/double-verification/confirmer"): "Ce compte : le secret qu'il vient de préparer (double_verification_test).",
+    ("POST", "/api/me/double-verification/couper"): "Ce compte, avec son mot de passe et un code (double_verification_test).",
     ("GET", "/api/providers"): "Liste statique des fournisseurs connus, sans clé ; derrière la connexion (public_test).",
     ("POST", "/api/models"): "Un profil ne lit que le fournisseur en service, sans adresse ni clé à lui (vérifié par test_secrets).",
     ("GET", "/api/usage"): "Filtrée par profil (vérifié par test_lists).",

@@ -47,8 +47,8 @@ def sessions() -> int:
         return c.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
 
 
-web_a = client(auth.new_session(alice, "Firefox", "web"))
-web_b = client(auth.new_session(bob, "Firefox", "web"))
+web_a = client(auth.new_session(alice, "Firefox", "web", proven=True))
+web_b = client(auth.new_session(bob, "Firefox", "web", proven=True))
 
 # 1. QR code : pas de session sans accord ; un QR filmé (partage d'écran) ne suffit pas.
 reset()
@@ -225,7 +225,7 @@ print("8 bis ter. 6 liens acceptés d'avance : 3 essais, puis 429 au sondage (bu
 
 # 8 ter. Accord différé donné par une session ensuite révoquée (« Déconnecter tous les autres ») : il tombe avec elle.
 reset()
-thief_session = auth.new_session(alice, "Session volée", "web")
+thief_session = auth.new_session(alice, "Session volée", "web", proven=True)
 thief = client(thief_session)
 p = thief.post("/api/pairing").json()
 r = client().post("/api/pairing/claim", json={"code": p["code"], "appareil": "Appareil de l'attaquant"}).json()
@@ -233,7 +233,7 @@ fid = thief.get("/api/pairing/pending").json()["demandes"][0]["id"]
 assert thief.post(f"/api/pairing/flow/{fid}/autoriser", json={"verification": r["verification"]}).status_code == 200
 assert web_a.post("/api/devices/others/revoke").status_code == 200  # l'utilisateur fait le ménage
 assert client().post("/api/pairing/flow/poll", json={"sondage": r["sondage"]}).status_code == 410, "accord survivant"
-web_a = client(auth.new_session(alice, "Firefox", "web"))  # la révocation a aussi coupé l'ancienne session de test
+web_a = client(auth.new_session(alice, "Firefox", "web", proven=True))  # la révocation a aussi coupé l'ancienne session de test
 print("8 ter. accord donné par une session révoquée ensuite : plus de session à récupérer (410)")
 
 # 8 quater. Course : « Déconnecter tous les autres » pendant que l'appareil récupère sa session. Quel que soit l'ordre,
@@ -243,8 +243,8 @@ import threading  # noqa: E402
 leaks = 0
 for i in range(40):
     reset()
-    owner = auth.new_session(alice, "Propriétaire", "web")
-    stolen = auth.new_session(alice, "Session volée", "web")
+    owner = auth.new_session(alice, "Propriétaire", "web", proven=True)
+    stolen = auth.new_session(alice, "Session volée", "web", proven=True)
     thief = client(stolen)
     p = thief.post("/api/pairing").json()
     r = client().post("/api/pairing/claim", json={"code": p["code"], "appareil": "Attaquant"}).json()
@@ -260,7 +260,7 @@ for i in range(40):
     if got["r"].status_code == 200 and auth.still_valid(got["r"].json()["token"]):
         leaks += 1
 assert leaks == 0, f"{leaks} sessions d'attaquant survivent à la révocation"
-web_a = client(auth.new_session(alice, "Firefox", "web"))
+web_a = client(auth.new_session(alice, "Firefox", "web", proven=True))
 print("8 quater. révocation concurrente du sondage (40 essais, deux ordres) : aucune session d'attaquant ne survit")
 
 # 8 quinquies. Plusieurs comptes : Bob crée une demande, lit le nombre avec son compte, puis envoie le lien à Alice.
@@ -392,7 +392,7 @@ print("12. jeton d'appairage jamais lu dans l'adresse (seulement le fragment) ; 
 # 13. Navigateur utilisé chaque jour : le cookie est renouvelé avec la session (sinon il expire à J+30).
 from datetime import datetime, timedelta, timezone  # noqa: E402
 
-web = auth.new_session(alice, "Navigateur", "web")
+web = auth.new_session(alice, "Navigateur", "web", proven=True)
 with db.connect() as c:
     old = datetime.now(timezone.utc)
     c.execute("UPDATE sessions SET expires_at = ?, last_seen = ? WHERE token = ?",

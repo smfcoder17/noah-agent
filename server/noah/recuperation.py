@@ -5,6 +5,9 @@ le code se lit dans les journaux du service `server` (Docker Manager de Hostinge
 
 Il sert une fois, 15 minutes. La base n'en garde que l'empreinte, dans `settings` : le serveur et la commande sont deux
 processus, et un redémarrage ne doit pas changer les règles. Le changement ferme toutes les sessions du serveur.
+
+Qui a la main sur le serveur peut aussi couper la double vérification du propriétaire (téléphone perdu), si la demande le dit :
+l'écran le dit, et le journal le garde.
 """
 import json
 import logging
@@ -108,10 +111,10 @@ def _matches(given: str) -> bool:
     return False
 
 
-def change_password(given: str, password: str, network: str) -> str | None:
+def change_password(given: str, password: str, network: str, cut_double: bool = False) -> str | None:
     """Le bon code change le mot de passe du propriétaire et ferme toutes les sessions, en une seule transaction : le code ne
     sert qu'une fois, même envoyé deux fois au même instant. Rend le nom du compte, ou None. TooManyTries si l'adresse a épuisé
-    ses essais."""
+    ses essais. La double vérification reste en place sans `cut_double`, et ses codes faux d'avant ne comptent plus."""
     reserved = _reserve(network)
     if not _matches(given):
         return None
@@ -127,6 +130,10 @@ def change_password(given: str, password: str, network: str) -> str | None:
             return None
         c.execute("DELETE FROM settings WHERE key = ?", (_KEY,))
         c.execute("UPDATE users SET pw_hash = ? WHERE id = ?", (pw_hash, row["id"]))
+        if cut_double:
+            c.execute("DELETE FROM double_verification WHERE user_id = ?", (row["id"],))
+        else:
+            c.execute("UPDATE double_verification SET essais = '[]' WHERE user_id = ?", (row["id"],))
         c.execute("DELETE FROM sessions")  # et leurs sessions de fenêtre, par la clé étrangère
         c.execute("DELETE FROM push_subscriptions")
         c.execute("DELETE FROM push_queue")
@@ -141,7 +148,8 @@ def main() -> int:
         print("Aucun compte sur ce serveur : rien à récupérer. Crée le compte avec le code d'installation.")
         return 1
     print(f"\nCode de récupération, valable {SECONDS // 60} minutes et une seule fois :\n\n    {issue(replace=True)}\n\n"
-          "Sur la page de connexion : « Mot de passe oublié ? ». Toutes les sessions seront fermées après le changement.\n")
+          "Sur la page de connexion : « Mot de passe oublié ? ». Toutes les sessions seront fermées après le changement.\n"
+          "Ce code peut aussi couper la double vérification du propriétaire, si la page le demande.\n")
     return 0
 
 

@@ -4,6 +4,7 @@ import { Laptop, Loader2, Smartphone } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ApiError, get, send } from "@/lib/api";
 import { Button, ErrorText } from "./ui";
+import { GrantProof } from "./GrantProof";
 import { minutes } from "./PairingTime";
 
 const KEY = "noah:autoriser";
@@ -21,7 +22,10 @@ export function keepApprovalRequest() {
   history.replaceState(null, "", location.pathname + location.search);
 }
 
-type Request = { appareil: string; type: string; ip: string; autre_reseau: boolean; verification: string | null; age: number; expire: number };
+type Request = {
+  appareil: string; type: string; ip: string; autre_reseau: boolean; verification: string | null; age: number; expire: number;
+  preuve_requise: boolean; code_requis: boolean;
+};
 
 export function DeviceApproval() {
   const [id] = useState(() => {
@@ -35,6 +39,8 @@ export function DeviceApproval() {
   const [state, setState] = useState<"ask" | "busy" | "ok" | "no">("ask");
   const [error, setError] = useState("");
   const [code, setCode] = useState("");
+  const [password, setPassword] = useState("");
+  const [secondCode, setSecondCode] = useState("");
 
   useEffect(() => {
     if (!id) return;
@@ -53,15 +59,20 @@ export function DeviceApproval() {
   const decide = async (decision: "autoriser" | "refuser") => {
     setState("busy");
     try {
-      await send(`/api/pairing/flow/${id}/${decision}`, { verification: code });
+      await send(`/api/pairing/flow/${id}/${decision}`, { verification: code, motdepasse: password, code: secondCode });
       sessionStorage.removeItem(KEY);
       setState(decision === "autoriser" ? "ok" : "no");
     } catch (e) {
+      setSecondCode(""); // un code ne sert qu'une fois : le suivant, s'il faut recommencer
+      if (e instanceof ApiError && e.status === 428) { // page restée ouverte plus de 15 minutes : le serveur veut la preuve
+        setReq(await get<Request>(`/api/pairing/flow/${id}`).catch(() => req));
+      }
       setError((e as Error).message);
       if (e instanceof ApiError && e.status === 403) setReq(null); // mauvais nombre : la demande est annulée
       setState("ask");
     }
   };
+  const proven = !req?.preuve_requise || (password !== "" && (!req.code_requis || secondCode !== ""));
 
   if (!id || state === "no" || (!req && !error)) return null;
   const Icon = req?.type === "android" || req?.type === "ios" ? Smartphone : Laptop;
@@ -112,10 +123,11 @@ export function DeviceApproval() {
             </label>
             )}
             <p className="text-xs text-muted-foreground">Autorise seulement si tu viens de lancer cette demande toi-même et que tu as l'appareil sous les yeux. Tu pourras le déconnecter dans Réglages → Appareils.</p>
+            {req.preuve_requise && <GrantProof password={password} code={secondCode} needCode={req.code_requis} onPassword={setPassword} onCode={setSecondCode} />}
             <ErrorText>{error}</ErrorText>
             <div className="flex justify-end gap-2">
               <Button variant="ghost" onClick={() => decide("refuser")} disabled={state === "busy"}>Refuser</Button>
-              <Button onClick={() => decide("autoriser")} disabled={state === "busy" || (!req.verification && code.length !== 3)}>
+              <Button onClick={() => decide("autoriser")} disabled={state === "busy" || (!req.verification && code.length !== 3) || !proven}>
                 {state === "busy" && <Loader2 className="animate-spin" />}Autoriser cet appareil
               </Button>
             </div>

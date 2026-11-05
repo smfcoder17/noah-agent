@@ -8,7 +8,7 @@ import sqlite3
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from . import access, auth, db, relay
+from . import access, auth, db, double_verification, relay
 
 router = APIRouter()
 
@@ -34,7 +34,8 @@ def _public(row) -> dict:
         agents = [dict(r) for r in c.execute("SELECT id, name FROM agents WHERE owner_id = ? ORDER BY created_at", (row["id"],))]
         devices = c.execute("SELECT COUNT(*) FROM sessions WHERE user_id = ?", (row["id"],)).fetchone()[0]
     return {"id": row["id"], "username": row["username"], "role": row["role"], "budget": row["budget_monthly"],
-            "depense": round(relay.profile_cost(row["id"]), 4), "agents": agents, "appareils": devices}
+            "depense": round(relay.profile_cost(row["id"]), 4), "agents": agents, "appareils": devices,
+            "double": double_verification.active(row["id"])}
 
 
 def _profile(profile_id: int):
