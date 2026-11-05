@@ -7,6 +7,7 @@ privilège. Le serveur Noah Agent n'a donc jamais accès au socket Docker.
 import base64
 import functools
 import io
+import hmac
 import json
 import os
 import re
@@ -52,7 +53,7 @@ app = FastAPI(title="Noah Agent launcher")
 
 
 def auth(authorization: str = Header("")) -> None:
-    if authorization != f"Bearer {KEY}":
+    if not hmac.compare_digest(authorization.encode(), f"Bearer {KEY}".encode()):
         raise HTTPException(401, "Clé du lanceur invalide")
 
 

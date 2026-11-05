@@ -17,19 +17,21 @@ import uuid
 from dataclasses import replace
 from urllib.parse import quote, urlencode, urlsplit
 
+import bcrypt
 import httpx
 import websockets
 from fastapi import BackgroundTasks, Cookie, Depends, FastAPI, HTTPException, Request, Response, WebSocket
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import access, accounts, auth, catalog, coordination, db, desktop, events, handoff, hermes, machine, mcp, media, pendant, profiles, public, push, recuperation, relay, updates, watch, precall, diagnostics
+from . import access, accounts, auth, catalog, coordination, db, desktop, events, exposition, handoff, hermes, machine, mcp, media, pendant, profiles, public, push, recuperation, relay, updates, watch, precall, diagnostics
 from . import config
 from .config import WEB_DIR, forget_setup_code
 from .hermes import Agent
 
-app = FastAPI(title="Noah Agent")
+# Ni /docs, ni /redoc, ni /openapi.json : une installation ne décrit pas son API à qui passe.
+app = FastAPI(title="Noah Agent", docs_url=None, redoc_url=None, openapi_url=None)
 
 
 @app.exception_handler(Exception)
@@ -37,9 +39,14 @@ async def internal_error(request: Request, error: Exception):
     """Une panne de Noah : jamais de trace à l'écran, mais elle reste lisible dans Réglages > Diagnostic."""
     route = getattr(request.scope.get("route"), "path", request.url.path)  # le modèle de la route : un chemin peut porter un jeton
     diagnostics.failure(f"{request.method} {route}", error)
-    return JSONResponse({"detail": "Erreur interne de Noah Agent. Détails dans Réglages > Diagnostic."}, status_code=500)
+    # Répondue hors des intergiciels : ses en-têtes sont posés ici.
+    return JSONResponse({"detail": "Erreur interne de Noah Agent. Détails dans Réglages > Diagnostic."}, status_code=500,
+                        headers=exposition.headers_for(request.scope))
 
 UNSAFE = {"POST", "PUT", "PATCH", "DELETE"}
+# Pour les agents, le lanceur et Caddy, sur le réseau Docker. Depuis dehors, elles n'existent pas : ni format lisible en 422,
+# ni question sur les noms de ce serveur.
+INSIDE_ONLY = ("/agent-api/", "/relay/", "/api/tls-ask", "/api/public")
 # L'échange de la fenêtre aussi : perdu avec l'instantané, l'app en redemande un ; refusé, le téléphone ne s'ouvrirait plus.
 MAINTENANCE_OK = ("/api/updates", "/api/login", "/api/logout", "/api/devices/self/fenetre")
 # Compatibilité des apps (bureau, téléphone) : le serveur sert la version N-1. En dessous de MIN_CLIENT_VERSION, il
@@ -63,16 +70,25 @@ def _from_noah(request: Request) -> bool:
     return source is None or source.split("://", 1)[-1].split("/", 1)[0] == request.headers.get("host", "")
 
 
+def _foreign_page(connection: Request | WebSocket) -> bool:
+    """Le navigateur dit d'où vient la requête. Une page d'un autre hôte, même un site frère du même domaine (pour qui SameSite
+    laisse partir le cookie), n'agit pas avec la session. Sans cookie, ou par en-tête (apps, agents) : pas concerné."""
+    headers = connection.headers
+    if auth.COOKIE not in connection.cookies or "authorization" in headers:
+        return False
+    source = headers.get("origin") or headers.get("referer") or ""
+    return not source or source.split("://", 1)[-1].split("/", 1)[0] != headers.get("host", "")
+
+
 @app.middleware("http")
 async def same_origin_only(request: Request, call_next):
     """Anti-CSRF : avec le cookie de session (navigateur), une écriture doit venir d'une page de Noah lui-même.
     Les apps et les agents s'authentifient par en-tête (Bearer), qu'une page étrangère ne peut pas poser."""
-    if request.method in UNSAFE and auth.COOKIE in request.cookies and "authorization" not in request.headers:
-        source = request.headers.get("origin") or request.headers.get("referer") or ""
-        host = request.headers.get("host", "")
-        if not source or source.split("://", 1)[-1].split("/", 1)[0] != host:
-            return Response('{"detail":"Requête refusée : elle ne vient pas de Noah."}', status_code=403,
-                            media_type="application/json")
+    if request.url.path.startswith(INSIDE_ONLY) and relay._from_outside(request):
+        return JSONResponse({"detail": "Réservé au réseau interne."}, status_code=403)
+    if request.method in UNSAFE and _foreign_page(request):
+        return Response('{"detail":"Requête refusée : elle ne vient pas de Noah."}', status_code=403,
+                        media_type="application/json")
     if request.url.path.startswith("/api/") and request.url.path != "/api/status" \
             and client_too_old(request.headers.get("x-noah-version", "")):
         return JSONResponse({"detail": "Cette version de l'app est trop ancienne pour ce serveur Noah : mets-la à jour.",
@@ -88,6 +104,9 @@ async def same_origin_only(request: Request, call_next):
         if token and await asyncio.to_thread(auth.still_valid, token):
             updates.saw_client(zone)
     return await call_next(request)
+
+
+app.add_middleware(exposition.SecurityHeaders)
 app.include_router(relay.router)
 app.include_router(machine.router)
 app.include_router(mcp.router)
@@ -247,12 +266,23 @@ def _model_replied(final: dict | None, text: str, rev: str) -> None:
         db.set_setting("model_replied", rev)
 
 
+def _stranger(request: Request) -> bool:
+    """Compte créé, requête venue de dehors, sans session valable : ni l'assistant, ni le lanceur, ni la personne qui
+    vérifie son installation depuis le serveur."""
+    token = auth.request_token(request, request.cookies.get(auth.COOKIE))
+    return auth.has_users() and relay._from_outside(request) and not (token and auth.still_valid(token))
+
+
 @app.get("/api/status")
-def status():
+def status(request: Request):
     has_users = auth.has_users()
-    return {"has_account": has_users, "model_configured": db.get_setting("provider") is not None,
-            "setup_code": bool(config.setup_code()) and not has_users, "onboarded": has_users and onboarded(),
-            "api": API_VERSION, "min_client_version": MIN_CLIENT_VERSION, "secrets_lisibles": _secrets_readable()}
+    brief = {"has_account": has_users, "setup_code": bool(config.setup_code()) and not has_users,
+             "api": API_VERSION, "min_client_version": MIN_CLIENT_VERSION}
+    # Un inconnu n'apprend que l'écran à montrer (connexion) et si son app est assez récente.
+    if _stranger(request):
+        return brief
+    return {**brief, "model_configured": db.get_setting("provider") is not None, "onboarded": has_users and onboarded(),
+            "secrets_lisibles": _secrets_readable()}
 
 
 def _secrets_readable() -> bool:
@@ -315,7 +345,8 @@ def _login_response(request: Request, response: Response, user_id: int, device: 
     # Apps (bureau, mobile) : jeton dans la réponse seulement, qu'elles rangent chiffré ; un cookie y resterait en clair.
     if in_app or platform == "web" or platform not in PLATFORMS:
         _session_cookie(request, response, token)
-    return {"token": token}
+    # Navigateur : le cookie HttpOnly suffit. Le jeton dans le corps le rendrait lisible au script de la page.
+    return {"token": token} if in_app or platform != "web" else {"ok": True}
 
 
 # --- Appairage d'un appareil (téléphone, app de bureau) ------------------------------------------
@@ -698,7 +729,7 @@ def _check_setup_code(given: str, request: Request) -> None:
         if len(recent) >= LOGIN_TRIES:
             raise HTTPException(429, "Trop d'essais. Réessaie dans quelques minutes.")
         _setup_tries[net] = recent + [now]
-    if not secrets.compare_digest(given.strip().upper().replace("-", ""), code.upper().replace("-", "")):
+    if not secrets.compare_digest(given.strip().upper().replace("-", "").encode(), code.upper().replace("-", "").encode()):
         raise HTTPException(403, "Code d'installation incorrect. Il est affiché à la fin de l'installation (et dans les journaux du serveur).")
     with _setup_tries_lock:  # bon code : l'essai réservé ne compte pas
         if now in _setup_tries.get(net, []):
@@ -744,7 +775,11 @@ async def setup_restore_status(request: Request):
         st = {"etape": "Redémarrage du serveur…", "erreur": None, "fini": False}
     if auth.has_users() and not st.get("etape"):  # lanceur redémarré depuis : le compte est là, rien d'autre à dire
         return {"etape": "Restauré", "erreur": None, "fini": True}
-    return {k: st.get(k) for k in ("etape", "erreur", "fini", "avertissement")}
+    reply = {k: st.get(k) for k in ("etape", "erreur", "fini", "avertissement")}
+    if _stranger(request):  # compte créé : le détail du lanceur (chemins, volumes) ne se lit plus sans session
+        reply["erreur"] = "La restauration n'a pas abouti : détails dans les journaux du lanceur." if st.get("erreur") else None
+        reply["avertissement"] = "Connecte-toi : des éléments sont à vérifier." if st.get("avertissement") else None
+    return reply
 
 
 @app.post("/api/setup/done")
@@ -776,6 +811,10 @@ _setup_lock = threading.Lock()
 
 # Essais de connexion ratés par adresse IP : sur un VPS, la page de connexion est publique.
 _failed_logins: dict[str, list[float]] = {}
+# Et par nom de compte, qu'il existe ou non : des essais répartis sur beaucoup d'adresses (ou un relais qui croit un en-tête
+# X-Forwarded-For falsifié) ne multiplient pas les chances. Ce plafond n'arrête pas une adresse d'où le compte s'est déjà connecté.
+_account_failures: dict[str, list[float]] = {}
+_login_lock = threading.Lock()
 _pairing_failures: dict[str, list[float]] = {}  # codes et nombres d'appairage faux, par adresse (ou réseau /64)
 # Flux navigateur : nombres faux saisis dans une app pour une demande acceptée par ce compte. Plafonné par compte (en
 # plus de l'adresse) : un attaquant qui obtient plusieurs accords depuis des adresses différentes ne multiplie pas ses
@@ -783,22 +822,24 @@ _pairing_failures: dict[str, list[float]] = {}  # codes et nombres d'appairage f
 _number_failures: dict[int, list[float]] = {}
 NUMBER_TRIES, NUMBER_WINDOW = 3, 3600
 LOGIN_WINDOW, LOGIN_TRIES = 600, 10
+LOGIN_ACCOUNT_TRIES = 30
+_decoy_hash: bytes | None = None
 
 
 @app.post("/api/login")
 def login(body: Credentials, request: Request, response: Response, background: BackgroundTasks):
     if not _from_noah(request):  # connexion forcée : la victime se retrouverait sur le compte de l'attaquant
         raise HTTPException(403, "Requête refusée : elle ne vient pas de Noah.")
-    ip = _network(_ip(request)) or "?"
-    now = time.time()
-    recent = [t for t in _failed_logins.get(ip, []) if now - t < LOGIN_WINDOW]
-    if len(recent) >= LOGIN_TRIES:
-        raise HTTPException(429, "Trop d'essais. Réessaie dans quelques minutes.")
-    user_id = auth.check_password(body.username, body.password)
+    ip, name = _network(_ip(request)) or "?", body.username.strip().lower()
+    now = _reserve_login(ip, name, _known_address(body.username, _ip(request)))
+    user_id = _check_password_evenly(body.username, body.password)
     if user_id is None:
-        _failed_logins[ip] = recent + [now]
         raise HTTPException(401, "Nom d'utilisateur ou mot de passe incorrect")
-    _failed_logins.pop(ip, None)
+    # Seul cet essai est rendu : se connecter à son propre compte ne remet pas à zéro les essais faits sur un autre.
+    with _login_lock:
+        for store, key in ((_failed_logins, ip), (_account_failures, name)):
+            if now in store.get(key, []):
+                store[key].remove(now)
     background.add_task(_alert_new_device, user_id, _device_name(request), _ip(request))
     return _login_response(request, response, user_id)
 
@@ -832,11 +873,50 @@ def recovery_reset(body: RecoveryReset, request: Request, response: Response):
     with _pairing_lock:  # plus aucune session : un QR affiché ou une demande en cours ne doit pas survivre
         _pairing.clear()
         _flows.clear()
-    _failed_logins.pop(network, None)  # ses essais d'avant ne l'empêchent pas d'utiliser le nouveau mot de passe
+    with _login_lock:  # ses essais d'avant ne l'empêchent pas d'utiliser le nouveau mot de passe
+        _failed_logins.pop(network, None)
+        _account_failures.pop(username.strip().lower(), None)
     response.delete_cookie(auth.COOKIE)
     recuperation.log.warning("Mot de passe du propriétaire changé par code de récupération depuis l'adresse %s : "
                              "toutes les sessions sont fermées.", _ip(request) or "inconnue")
     return {"ok": True, "username": username}
+
+
+def _reserve_login(ip: str, name: str, known_address: bool) -> float:
+    """L'essai est compté avant bcrypt, sous verrou : des requêtes simultanées ne dépassent pas le plafond."""
+    now = time.time()
+    with _login_lock:
+        if len(_failed_logins) + len(_account_failures) > 10_000:  # noms et adresses au hasard : la mémoire reste bornée
+            for store in (_failed_logins, _account_failures):
+                for key in [k for k, v in store.items() if not v or now - v[-1] >= LOGIN_WINDOW]:
+                    del store[key]
+        recent = [t for t in _failed_logins.get(ip, []) if now - t < LOGIN_WINDOW]
+        account = [t for t in _account_failures.get(name, []) if now - t < LOGIN_WINDOW]
+        if len(recent) >= LOGIN_TRIES or (len(account) >= LOGIN_ACCOUNT_TRIES and not known_address):
+            raise HTTPException(429, "Trop d'essais. Réessaie dans quelques minutes.")
+        _failed_logins[ip], _account_failures[name] = recent + [now], account + [now]
+    return now
+
+
+def _known_address(username: str, ip: str) -> bool:
+    if not ip:
+        return False
+    with db.connect() as c:
+        seen = c.execute("SELECT s.last_ip FROM sessions s JOIN users u ON u.id = s.user_id WHERE u.username = ?", (username,)).fetchall()
+    return any(row["last_ip"] and _network(row["last_ip"]) == _network(ip) for row in seen)
+
+
+def _check_password_evenly(username: str, password: str) -> int | None:
+    """Un compte inconnu fait le même travail qu'un mot de passe faux : le temps de réponse ne dit pas quels noms existent."""
+    global _decoy_hash
+    user_id = auth.check_password(username, password)
+    if user_id is None:
+        with db.connect() as c:
+            known = c.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone()
+        if not known:
+            _decoy_hash = _decoy_hash or bcrypt.hashpw(secrets.token_bytes(16), bcrypt.gensalt())
+            bcrypt.checkpw(password.encode(), _decoy_hash)
+    return user_id
 
 
 @app.post("/api/logout")
@@ -895,7 +975,7 @@ def me(user: int = Depends(auth.current_user)):
 # --- Modèle (partagé par tous les agents) ----------------------------------------------
 
 @app.get("/api/providers")
-def providers():
+def providers(_: int = Depends(auth.current_user)):
     return [
         {"id": k, "label": v["label"], "needs_key": v["env"] is not None, "default_model": v["model"], "own_url": k in relay.OWN_URL}
         for k, v in hermes.PROVIDERS.items()
@@ -2369,7 +2449,9 @@ async def agent_media(agent_id: str, path: str, user: int = Depends(auth.current
     r = await hermes.media(agent_id, path)
     if r.status_code != 200:
         raise HTTPException(r.status_code, "Image indisponible")
-    return Response(r.content, media_type=r.headers.get("content-type"), headers={"Cache-Control": "private, max-age=86400"})
+    # Un SVG écrit par un agent, ouvert seul dans un onglet, ne tourne pas avec l'origine de Noah.
+    return Response(r.content, media_type=r.headers.get("content-type"), headers={
+        "Cache-Control": "private, max-age=86400", "Content-Security-Policy": "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'"})
 
 
 # --- Fichiers de l'agent ---------------------------------------------------------------------
@@ -2461,7 +2543,7 @@ async def preview_link(agent_id: str, body: PreviewAsk, user: int = Depends(auth
 @app.get("/api/apercu/{token}/{path:path}")
 async def preview_file(token: str, path: str, request: Request, download: bool = False):
     body, _, signature = token.partition(".")
-    if not hmac.compare_digest(signature, _preview_signature(body)):
+    if not hmac.compare_digest(signature.encode(), _preview_signature(body).encode()):
         raise HTTPException(403, "Lien d'aperçu invalide")
     agent_id, user, scope, expires = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
     if time.time() > expires or not access.allowed(user, agent_id, "usage"):
@@ -2514,6 +2596,7 @@ async def screen_url(agent_id: str, view_only: bool = False, user: int = Depends
         raise HTTPException(503, "Le navigateur ne confirme pas le mode privé : réessaie dans un instant.")
     _, password = hermes.browser_secrets(agent_id)
     base = f"/api/agents/{agent_id}/screen"
+    # Dans le # : noVNC le lit là d'abord, et ce mot de passe ne passe ni par le serveur ni par les journaux d'accès de Caddy.
     params = {
         "path": "websockify",  # relatif à vnc.html, donc /api/agents/<id>/screen/websockify
         "password": password,
@@ -2523,7 +2606,7 @@ async def screen_url(agent_id: str, view_only: bool = False, user: int = Depends
         "show_dot": "1",
         "view_only": "1" if view_only else "0",
     }
-    return {"url": f"{base}/vnc.html?{urlencode(params)}"}
+    return {"url": f"{base}/vnc.html#{urlencode(params)}"}
 
 
 # --- Presse-papiers de l'écran : l'ordinateur de l'utilisateur ↔ le navigateur de l'agent ----------
@@ -3218,7 +3301,11 @@ async def screen_files(agent_id: str, path: str, request: Request, user: int = D
 
 @app.websocket("/api/agents/{agent_id}/screen/websockify")
 async def screen_socket(websocket: WebSocket, agent_id: str):
-    # Même contrôle que les routes HTTP : session obligatoire, et droit de voir l'écran de cet agent.
+    # Même contrôle que les routes HTTP : session obligatoire, droit de voir l'écran de cet agent. Et la page d'origine : le
+    # navigateur attache le cookie à une poignée de main venue d'un site frère, et le WebSocket échappe à la règle de même origine.
+    if _foreign_page(websocket):
+        await websocket.close(code=4403)
+        return
     try:
         user = auth.current_user(websocket, websocket.cookies.get(auth.COOKIE))
         access.access(user, agent_id, "admin")
@@ -3362,6 +3449,11 @@ class HashedAssets(StaticFiles):
 
 def _sse(obj: dict) -> str:
     return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
+
+
+@app.get("/robots.txt", response_class=PlainTextResponse)
+def robots():
+    return exposition.ROBOTS_TXT
 
 
 # --- Interface web -------------------------------------------------------------------------

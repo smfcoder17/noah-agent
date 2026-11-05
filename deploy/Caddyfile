@@ -12,10 +12,8 @@
 		}
 	}
 
+	# HSTS, CSP et le reste : posés par le serveur (server/noah/exposition.py), ici ils partiraient en double.
 	header {
-		Strict-Transport-Security "max-age=31536000"
-		X-Content-Type-Options nosniff
-		Referrer-Policy same-origin
 		-Server
 	}
 

@@ -104,7 +104,7 @@ def _agent_from(request: Request) -> str:
     with db.connect() as c:
         ids = [r["id"] for r in c.execute("SELECT id FROM agents")]
     for agent_id in ids:
-        if hmac.compare_digest(token, token_for(agent_id)):
+        if hmac.compare_digest(token.encode(), token_for(agent_id).encode()):
             return agent_id
     raise HTTPException(401, "Jeton de relais invalide")
 

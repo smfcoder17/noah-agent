@@ -32,7 +32,9 @@ def login(agent: str) -> tuple[str, str]:
     client = TestClient(main.app, headers={"User-Agent": agent})
     r = client.post("/api/login", json={"username": "alice", "password": "motdepasse-a"})
     assert r.status_code == 200, r.text
-    return r.json()["token"], r.headers.get("set-cookie", "")
+    cookie = r.headers.get("set-cookie", "")
+    # Navigateur : le jeton n'est que dans le cookie (public_test). App : il est aussi dans la réponse.
+    return r.json().get("token") or cookie.split(";", 1)[0].split("=", 1)[1], cookie
 
 
 def platform(token: str) -> str:
