@@ -73,7 +73,7 @@ assert r.status_code == 200 and r.json()["attente"], r.text
 poll, verif = r.json()["sondage"], r.json()["verification"]
 pending = web_a.get("/api/pairing/pending").json()["demandes"]
 assert len(pending) == 1 and pending[0]["appareil"] == "Pixel 8" and pending[0]["type"] == "android", pending
-assert all(set(d) == {"id", "appareil", "type", "ip"} for d in pending), "le nombre est montré à celui qui accepte"
+assert all("verification" not in d and "verif" not in d for d in pending), "le nombre est montré à celui qui accepte"
 assert web_b.get("/api/pairing/pending").json()["demandes"] == [], "un autre compte voit la demande"
 fid = pending[0]["id"]
 assert web_b.get(f"/api/pairing/flow/{fid}").status_code == 404
@@ -384,7 +384,10 @@ print(f"11. flux silencieux d'un appareil révoqué : coupé en {took:.1f} s")
 for path in ("/front/App.tsx", "/mobile/app.js"):
     if os.path.exists(path):
         assert 'get("appairage")' not in open(path).read(), path
-print("12. jeton d'appairage jamais lu dans l'adresse (seulement le fragment)")
+if os.path.exists("/mobile/app.js"):
+    source = open("/mobile/app.js").read()
+    assert source.index("window.confirm(") < source.index("await claim(link.server, link.code)"), "QR : serveur inconnu contacté sans confirmation"
+print("12. jeton d'appairage jamais lu dans l'adresse (seulement le fragment) ; l'app montre le serveur avant de le contacter")
 
 # 13. Navigateur utilisé chaque jour : le cookie est renouvelé avec la session (sinon il expire à J+30).
 from datetime import datetime, timedelta, timezone  # noqa: E402

@@ -200,6 +200,26 @@ def current_user(request: Request, noah_session: str | None = Cookie(None), resp
     return row["user_id"]
 
 
+def owner_of(token: str | None) -> int | None:
+    """Le compte de ce jeton s'il vit encore, sans le prolonger : pour savoir à qui appartient un cookie déjà là."""
+    if not token:
+        return None
+    key = digest(token)
+    with db.connect() as c:
+        row = c.execute("SELECT user_id, expires_at FROM sessions WHERE token = ?", (key,)).fetchone()
+        if not row:
+            window = _use_window(c, key)
+            return window["user_id"] if window else None
+    return row["user_id"] if datetime.fromisoformat(row["expires_at"]) > datetime.now(timezone.utc) else None
+
+
+def session_alive(key: str) -> bool:
+    """La session d'empreinte `key` existe encore (ni déconnectée, ni révoquée, ni expirée)."""
+    with db.connect() as c:
+        return c.execute("SELECT 1 FROM sessions WHERE token = ? AND expires_at > ?",
+                         (key, datetime.now(timezone.utc).isoformat())).fetchone() is not None
+
+
 def full_session(request: Request, noah_session: str | None = Cookie(None), user: int = Depends(current_user)) -> int:
     """Pour ce qui donne un accès durable (appairer un appareil, créer un compte) : une copie du cookie de la fenêtre doit
     mourir avec elle, sans avoir pu se fabriquer un autre accès."""

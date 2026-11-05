@@ -19,7 +19,7 @@ from urllib.parse import quote, urlencode, urlsplit
 
 import httpx
 import websockets
-from fastapi import Cookie, Depends, FastAPI, HTTPException, Request, Response, WebSocket
+from fastapi import BackgroundTasks, Cookie, Depends, FastAPI, HTTPException, Request, Response, WebSocket
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -54,6 +54,13 @@ def _version(text: str) -> tuple[int, ...]:
 
 def client_too_old(version: str) -> bool:
     return bool(version) and _version(version) < _version(MIN_CLIENT_VERSION)
+
+
+def _from_noah(request: Request) -> bool:
+    """Faux si un navigateur dit venir d'un autre site. Les apps n'envoient pas d'Origin, et un navigateur ne peut pas
+    l'omettre sur un POST venu d'ailleurs."""
+    source = request.headers.get("origin")
+    return source is None or source.split("://", 1)[-1].split("/", 1)[0] == request.headers.get("host", "")
 
 
 @app.middleware("http")
@@ -326,13 +333,15 @@ PAIRING_SECONDS = 600
 FLOW_SECONDS = 1200
 SHORT_TRIES = 5      # codes courts faux par adresse (ou réseau /64 en IPv6), par fenêtre de connexion
 SHORT_GLOBAL = 300   # toutes adresses confondues : au-delà, attaque distribuée, on ralentit (sans annuler les codes)
+FLOW_GLOBAL = 1000   # demandes sans titulaire, toutes adresses confondues : la mémoire reste bornée si les adresses tournent
 _short_failures: list[float] = []
 _SHORT = "BCDFGHJKLMNPQRSTVWXZ"  # base 20, sans voyelles (pas de mot gênant) ni caractères ambigus (RFC 8628)
-_pairing: dict[str, dict] = {}   # empreinte -> {user, expire}
+_pairing: dict[str, dict] = {}   # empreinte -> {user, origine (session qui l'a affiché), expire}
 _pairing_lock = threading.Lock()  # usage unique même si deux appareils envoient le code au même instant
 _flows: dict[str, dict] = {}     # identifiant public -> {sondage (empreinte), appareil, type, expire, ip, version,
 #                                  verif (3 chiffres), sens (« accord » : recopié en acceptant, « app » : recopié
-#                                  dans l'app), proprietaire (seul ce compte peut accepter), user (accepté par),
+#                                  dans l'app), proprietaire (seul ce compte peut accepter), origine (QR et code court :
+#                                  seule cette session peut accepter), cree, user (accepté par),
 #                                  jeton (gardé 30 s après le premier sondage réussi, si la réponse s'est perdue)}
 SERVED_SECONDS = 30
 
@@ -365,26 +374,48 @@ def _network(ip: str) -> str:
 
 def _purge() -> None:
     now = time.time()
-    for k in [k for k, v in _pairing.items() if v["expire"] < now]:
-        _pairing.pop(k, None)
-    for k in [k for k, v in _flows.items() if v["expire"] < now]:
-        _flows.pop(k, None)
-
-
-def _drop_pending(user: int) -> None:
-    """Annule le code affiché et les demandes pas encore acceptées de ce compte."""
     with _pairing_lock:
-        for k in [k for k, v in _pairing.items() if v["user"] == user]:
+        for k in [k for k, v in _pairing.items() if v["expire"] < now]:
             _pairing.pop(k, None)
-        for k in [k for k, v in _flows.items() if v.get("proprietaire") == user and not v["user"]]:
+        for k in [k for k, v in _flows.items() if v["expire"] < now]:
             _flows.pop(k, None)
 
 
+def _drop_pending(user: int, accepted: bool = False) -> None:
+    """Annule le code affiché et les demandes pas encore acceptées de ce compte ; avec `accepted` (mot de passe changé),
+    aussi celles qu'il a acceptées et dont l'appareil n'a pas encore récupéré sa session."""
+    with _pairing_lock:
+        for k in [k for k, v in _pairing.items() if v["user"] == user]:
+            _pairing.pop(k, None)
+        for k in [k for k, v in _flows.items() if (v.get("proprietaire") == user and not v["user"])
+                  or (accepted and v["user"] == user and not v.get("jeton"))]:
+            _flows.pop(k, None)
+
+
+def _session_of(request: Request) -> str:
+    return auth.session_key(auth.request_token(request, request.cookies.get(auth.COOKIE)))
+
+
+def _may_decide(flow: dict, user: int, session: str) -> bool:
+    """QR et code court : seul l'écran qui les a affichés accepte. Flux navigateur : le compte qui a ouvert la page."""
+    return flow["origine"] == session if flow.get("origine") else flow.get("proprietaire") in (None, user)
+
+
+def _ages(flow: dict, request: Request) -> dict:
+    """Ce qui aide à juger une demande : depuis quand elle attend, ce qu'il lui reste, et si elle vient d'ailleurs."""
+    now = time.time()
+    return {"age": int(now - flow["cree"]), "expire": int(flow["expire"] - now),
+            "autre_reseau": not _same_network(flow["ip"], _ip(request))}
+
+
 def _new_flow(request: Request, appareil: str, kind: str, owner: int | None, default_kind: str,
-              sens: str = "accord") -> tuple[str, str, str]:
+              sens: str = "accord", origin: str = "") -> tuple[str, str, str]:
     public, poll = secrets.token_urlsafe(16), secrets.token_urlsafe(32)
     verif = f"{secrets.randbelow(900) + 100}"  # 3 chiffres : 1 chance sur 900 de deviner
-    _flows[public] = {"sondage": auth.digest(poll), "appareil": appareil.strip() or _device_name(request),
+    # Le nom vient de l'appareil : rien qui puisse retourner le texte ou le couper sur l'écran d'accord (caractères Cc, Cf).
+    name = "".join(ch for ch in appareil if unicodedata.category(ch)[0] != "C").strip()
+    _flows[public] = {"sondage": auth.digest(poll), "appareil": name or _device_name(request),
+                      "origine": origin, "cree": time.time(),
                       "type": kind if kind in PLATFORMS else default_kind, "expire": time.time() + FLOW_SECONDS,
                       "ip": _ip(request), "user": None, "proprietaire": owner, "verif": verif, "sens": sens,
                       "version": request.headers.get("x-noah-version", "")}
@@ -396,7 +427,7 @@ def pairing_start(request: Request, user: int = Depends(auth.full_session)):
     _purge()
     _drop_pending(user)  # « Nouveau code » : le précédent et ses demandes en attente ne servent plus
     link, short = secrets.token_urlsafe(24), _short_code()  # 192 bits pour le lien
-    entry = {"user": user, "expire": time.time() + PAIRING_SECONDS}
+    entry = {"user": user, "origine": _session_of(request), "expire": time.time() + PAIRING_SECONDS}
     _pairing[auth.digest(link)] = _pairing[auth.digest(_norm_short(short))] = entry
     base = str(request.base_url).rstrip("/")
     host = request.url.hostname or ""
@@ -412,11 +443,13 @@ def pairing_cancel(user: int = Depends(auth.full_session)):
 
 
 @app.get("/api/pairing/pending")
-def pairing_pending(user: int = Depends(auth.full_session)):
-    """Appareils qui ont utilisé le QR code ou le code court et attendent l'accord de l'utilisateur."""
+def pairing_pending(request: Request, user: int = Depends(auth.full_session)):
+    """Appareils qui ont utilisé le QR code ou le code court de cet écran et attendent son accord."""
     _purge()
-    return {"demandes": [{"id": public, "appareil": f["appareil"], "type": f["type"], "ip": f["ip"]}
-                         for public, f in _flows.items() if f.get("proprietaire") == user and not f["user"]]}
+    session = _session_of(request)
+    with _pairing_lock:
+        return {"demandes": [{"id": public, "appareil": f["appareil"], "type": f["type"], "ip": f["ip"], **_ages(f, request)}
+                             for public, f in _flows.items() if f.get("origine") == session and not f["user"]]}
 
 
 class PairingCode(BaseModel):
@@ -435,6 +468,15 @@ def _too_many(request: Request) -> list[float]:
     return recent + pairing
 
 
+async def _alert_new_device(user: int, name: str, ip: str) -> None:
+    """Chaque nouvel appareil se signale sur les appareils déjà abonnés du compte, pour qu'un accès volé se voie."""
+    try:
+        await push.send("Nouvel appareil sur ton compte",
+                        f"{name} ({ip}). Ce n'est pas toi ? Déconnecte-le dans Réglages → Appareils.", urgent=True, user_id=user)
+    except Exception as e:
+        print(f"[appareils] alerte de nouvel appareil non envoyée : {e}", flush=True)
+
+
 def _pairing_failed(request: Request) -> None:
     """Code ou nombre faux : compté à part des mots de passe (une connexion réussie n'efface pas ce budget)."""
     net = _network(_ip(request))
@@ -445,6 +487,13 @@ def _pairing_failed(request: Request) -> None:
 @app.post("/api/pairing/claim")
 def pairing_claim(body: PairingCode, request: Request):
     recent = _too_many(request)
+    web = body.type not in PLATFORMS or body.type == "web"  # la session arriverait en cookie, dans ce navigateur
+    if web and not _from_noah(request):
+        raise HTTPException(403, "Requête refusée : elle ne vient pas de Noah.")
+    # Lien ouvert dans un navigateur déjà connecté : on ne touche ni à sa session ni au code (la personne n'a rien fait).
+    if web and auth.owner_of(auth.request_token(request, request.cookies.get(auth.COOKIE))) is not None:
+        raise HTTPException(409, "Ce navigateur est déjà connecté à un compte Noah, ce code ne sert pas ici. Pour le relier "
+                                 "à un autre compte, déconnecte-toi d'abord. Si quelqu'un t'a envoyé ce lien, ignore-le.")
     _purge()
     code = body.code.strip()
     short = len(code) <= 12
@@ -457,12 +506,17 @@ def pairing_claim(body: PairingCode, request: Request):
         if entry:
             for k in [k for k, v in _pairing.items() if v is entry]:  # le lien et le code court servent une seule fois
                 _pairing.pop(k, None)
-            _, poll, verif = _new_flow(request, body.appareil, body.type, entry["user"], "web")
+            # La session qui l'a affiché est partie (déconnexion, révocation, expiration) : le code part avec elle.
+            if not auth.session_alive(entry["origine"]):
+                entry = None
+            else:
+                _, poll, verif = _new_flow(request, body.appareil, body.type, entry["user"], "web", origin=entry["origine"])
     if not entry:
         _pairing_failed(request)
         if short:
             _short_failures.append(time.time())
-        raise HTTPException(400, "Ce code est faux, a expiré ou a déjà servi. Affiche un nouveau code dans Réglages > Appareils.")
+        raise HTTPException(400, "Ce code est faux, a expiré ou a déjà servi. Affiche un nouveau code dans Réglages > Appareils. "
+                                 "Si tu ne l'as pas utilisé toi-même, refuse la demande sur l'écran où il est affiché.")
     return {"attente": True, "sondage": poll, "verification": verif, "expire": FLOW_SECONDS}
 
 
@@ -476,9 +530,13 @@ def flow_start(body: FlowStart, request: Request):
     """L'app demande à être autorisée : elle ouvre `adresse` dans le navigateur et sonde avec `sondage`."""
     _too_many(request)
     _purge()
-    if sum(1 for f in _flows.values() if _network(f["ip"]) == _network(_ip(request))) >= 5:
-        raise HTTPException(429, "Trop de demandes en attente depuis cette adresse. Réessaie dans quelques minutes.")
-    public, poll, _ = _new_flow(request, body.appareil, body.type, None, "desktop", sens="app")
+    with _pairing_lock:  # compté et créé d'un seul geste : des demandes simultanées ne dépassent pas le plafond
+        if sum(1 for f in _flows.values() if _network(f["ip"]) == _network(_ip(request))) >= 5:
+            raise HTTPException(429, "Trop de demandes en attente depuis cette adresse. Réessaie dans quelques minutes.")
+        if sum(1 for f in _flows.values() if f.get("proprietaire") is None) >= FLOW_GLOBAL:
+            raise HTTPException(429, "Trop de demandes en attente sur ce serveur. Réessaie dans quelques minutes, ou relie "
+                                     "l'appareil par un code depuis Réglages > Appareils.")
+        public, poll, _ = _new_flow(request, body.appareil, body.type, None, "desktop", sens="app")
     base = str(request.base_url).rstrip("/")
     # Le nombre n'est pas rendu ici : il s'affiche dans la page d'accord, l'utilisateur le recopie dans l'app.
     return {"adresse": f"{base}/#autoriser={public}", "sondage": poll, "expire": FLOW_SECONDS}
@@ -488,14 +546,17 @@ def flow_start(body: FlowStart, request: Request):
 def flow_info(public: str, request: Request, user: int = Depends(auth.full_session)):
     with _pairing_lock:
         flow = _flows.get(public)
-        if not flow or flow["expire"] < time.time() or flow["user"] or flow.get("proprietaire") not in (None, user):
+        if not flow or flow["expire"] < time.time() or flow["user"] or not _may_decide(flow, user, _session_of(request)):
             raise HTTPException(404, "Cette demande a expiré ou a déjà été traitée. Recommence depuis l'appareil.")
         # Le premier compte qui voit le nombre est le seul qui pourra accepter : un compte qui lit le nombre puis
         # envoie le lien à quelqu'un d'autre n'obtient rien.
         flow["proprietaire"] = user
-    return {"appareil": flow["appareil"], "type": flow["type"], "ip": flow["ip"],
-            "autre_reseau": not _same_network(flow["ip"], _ip(request)),
+    return {"appareil": flow["appareil"], "type": flow["type"], "ip": flow["ip"], **_ages(flow, request),
             "verification": flow["verif"] if flow["sens"] == "app" else None}
+
+
+def _same_number(given: str, number: str) -> bool:
+    return secrets.compare_digest(given.strip().encode(), number.encode())  # en octets : un « é » n'est pas une erreur 500
 
 
 class Decision(BaseModel):
@@ -506,11 +567,12 @@ class Decision(BaseModel):
 def flow_decide(public: str, decision: str, request: Request, body: Decision | None = None,
                 noah_session: str | None = Cookie(None), user: int = Depends(auth.full_session)):
     flow = _flows.get(public)
-    if not flow or flow["expire"] < time.time() or flow["user"] or flow.get("proprietaire") not in (None, user):
+    session = _session_of(request)
+    if not flow or flow["expire"] < time.time() or flow["user"] or not _may_decide(flow, user, session):
         raise HTTPException(404, "Cette demande a expiré ou a déjà été traitée.")
     if decision == "refuser":
         with _pairing_lock:  # même contrôle atomique que l'accord : jamais « refusé » pour une demande déjà accordée
-            if flow["user"] or _flows.get(public) is not flow or flow.get("proprietaire") not in (None, user):
+            if flow["user"] or _flows.get(public) is not flow or not _may_decide(flow, user, session):
                 raise HTTPException(404, "Cette demande a déjà été traitée.")
             _flows.pop(public, None)
         return {"ok": True}
@@ -528,7 +590,7 @@ def flow_decide(public: str, decision: str, request: Request, body: Decision | N
             # Déjà traitée, annulée, ou ouverte par un autre compte entre-temps (flux navigateur : seul le compte qui a
             # vu le nombre peut accepter).
             raise HTTPException(404, "Cette demande a déjà été traitée.")
-        if flow["sens"] == "accord" and (not body or not secrets.compare_digest(body.verification.strip(), flow["verif"])):
+        if flow["sens"] == "accord" and (not body or not _same_number(body.verification, flow["verif"])):
             # Mauvais nombre : la demande ne vient sans doute pas de l'appareil que l'utilisateur a en main.
             _flows.pop(public, None)
             raise HTTPException(403, "Ce nombre ne correspond pas à celui affiché sur l'appareil. Par prudence, la "
@@ -544,7 +606,7 @@ class FlowPoll(BaseModel):
 
 
 @app.post("/api/pairing/flow/poll")
-def flow_poll(body: FlowPoll, request: Request, response: Response):
+def flow_poll(body: FlowPoll, request: Request, response: Response, background: BackgroundTasks):
     _too_many(request)
     """Crée et rend la session dès que l'utilisateur a autorisé l'appareil ; 202 tant qu'il ne l'a pas fait (ou que le
     nombre n'a pas encore été saisi dans l'app), 410 quand la demande n'existe plus (refusée, expirée, déjà servie)."""
@@ -553,8 +615,17 @@ def flow_poll(body: FlowPoll, request: Request, response: Response):
         for public, flow in list(_flows.items()):
             if flow["sondage"] == key and flow["expire"] >= time.time():
                 if not flow["user"]:
+                    if flow.get("origine") and not auth.session_alive(flow["origine"]):
+                        _flows.pop(public, None)  # plus personne ne peut l'accepter : l'appareil s'arrête
+                        break
                     response.status_code = 202
                     return {"attente": "accord"}
+                if flow["type"] == "web":  # la session arriverait en cookie : jamais forcée par un autre site...
+                    if not _from_noah(request):
+                        raise HTTPException(403, "Requête refusée : elle ne vient pas de Noah.")
+                    # ...ni à la place de celle d'un autre compte (fixation de session : la personne continuerait chez l'autre).
+                    if auth.owner_of(request.cookies.get(auth.COOKIE)) not in (None, flow["user"]):
+                        raise HTTPException(409, "Ce navigateur est déjà connecté à un autre compte Noah : rien n'a été changé.")
                 if flow["sens"] == "app" and not flow.get("jeton"):
                     if not body.verification:
                         response.status_code = 202
@@ -564,7 +635,7 @@ def flow_poll(body: FlowPoll, request: Request, response: Response):
                         # Budget du compte épuisé : les demandes acceptées d'avance ne donnent pas d'essai de plus.
                         _flows.pop(public, None)
                         raise HTTPException(429, "Trop de nombres faux pour ce compte. Relie l'appareil par un code.")
-                    if not secrets.compare_digest(body.verification.strip(), flow["verif"]):
+                    if not _same_number(body.verification, flow["verif"]):
                         _flows.pop(public, None)
                         _pairing_failed(request)
                         _number_failures.setdefault(flow["user"], []).append(time.time())
@@ -579,6 +650,7 @@ def flow_poll(body: FlowPoll, request: Request, response: Response):
                         _flows.pop(public, None)
                         break
                     flow["expire"] = time.time() + SERVED_SECONDS
+                    background.add_task(_alert_new_device, flow["user"], flow["appareil"], _ip(request))
                 token = flow["jeton"]
                 break
         else:
@@ -587,7 +659,7 @@ def flow_poll(body: FlowPoll, request: Request, response: Response):
             raise HTTPException(410, "Demande expirée, refusée ou déjà servie")
     if flow["type"] == "web":  # navigateur du téléphone (QR scanné par l'appareil photo) : cookie
         _session_cookie(request, response, token)
-    return {"token": token}
+    return {"token": token, "compte": access.username(flow["user"])}  # l'appareil dit à quel compte il vient d'être relié
 
 
 # Essais du code d'installation, par adresse (ou réseau /64), comptés à part des connexions : aucune autre requête ne
@@ -711,7 +783,9 @@ LOGIN_WINDOW, LOGIN_TRIES = 600, 10
 
 
 @app.post("/api/login")
-def login(body: Credentials, request: Request, response: Response):
+def login(body: Credentials, request: Request, response: Response, background: BackgroundTasks):
+    if not _from_noah(request):  # connexion forcée : la victime se retrouverait sur le compte de l'attaquant
+        raise HTTPException(403, "Requête refusée : elle ne vient pas de Noah.")
     ip = _network(_ip(request)) or "?"
     now = time.time()
     recent = [t for t in _failed_logins.get(ip, []) if now - t < LOGIN_WINDOW]
@@ -722,6 +796,7 @@ def login(body: Credentials, request: Request, response: Response):
         _failed_logins[ip] = recent + [now]
         raise HTTPException(401, "Nom d'utilisateur ou mot de passe incorrect")
     _failed_logins.pop(ip, None)
+    background.add_task(_alert_new_device, user_id, _device_name(request), _ip(request))
     return _login_response(request, response, user_id)
 
 

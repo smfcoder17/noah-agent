@@ -145,7 +145,9 @@ def change_password(body: NewPassword, request: Request, noah_session: str | Non
     401 quand il se trompe : sa session reste bonne. Les autres appareils du compte sont déconnectés."""
     if auth.check_password(access.username(user), body.actuel) != user:
         raise HTTPException(400, "Mot de passe actuel incorrect.")
+    _h["drop_pending"](user, accepted=True)  # un QR ou un accord d'avant ne survit pas au nouveau mot de passe, même sur cet écran
     auth.set_password(user, body.nouveau, keep=auth.session_key(auth.request_token(request, noah_session)))
+    _h["drop_pending"](user, accepted=True)  # et rien de ce qui a pu arriver pendant le calcul du hachage
     return {"ok": True}
 
 
