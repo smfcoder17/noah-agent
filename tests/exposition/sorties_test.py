@@ -42,7 +42,7 @@ MANIFESTS += [str(p.relative_to(REPO)) for p in (REPO / "mobile").rglob("Android
 read = 0
 for name in MANIFESTS:
     path = REPO / name
-    if not path.exists():
+    if not path.is_file():  # un dossier .gradle laissé par une compilation locale ressemble à un manifeste
         continue
     read += 1
     text = path.read_text(encoding="utf-8", errors="replace")
@@ -60,6 +60,7 @@ KNOWN = {
     "openrouter.ai": "fournisseur", "api.openai.com": "fournisseur", "api.anthropic.com": "fournisseur",
     "generativelanguage.googleapis.com": "fournisseur", "ollama.com": "fournisseur",
     # Grille : manifeste et registre des mises à jour
+    "addons.mozilla.org": "construction de l'image du lanceur seulement (fetch_ublock.py), jamais au lancement",
     "github.com": "mises à jour", "raw.githubusercontent.com": "installation (get.sh)", "get.docker.com": "installation (get.sh)",
     # Déclarés dans /api/flux, hors de la liste de la grille
     "ipinfo.io": "hors grille", "api.ipify.org": "hors grille", "ifconfig.me": "hors grille", "icanhazip.com": "hors grille",

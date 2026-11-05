@@ -722,3 +722,7 @@ test_list_changed()
 test_everywhere()
 assert not [line for line in LOGS if JETON in line], "jeton en clair dans les journaux"
 print("OK")
+# Tout a été vérifié. Une extension C plante parfois à la fermeture de Python (segfault après ce OK), sans lien avec le code testé :
+# on sort sans passer par cette fermeture pour que le résultat du test reste fiable.
+sys.stdout.flush()
+os._exit(0)

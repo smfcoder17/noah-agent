@@ -196,8 +196,9 @@ print(f"10. dépassement borné : {spent:.3f} $ pour un plafond de 0,10 $ et des
 # précédent est déjà partie aujourd'hui).
 alerts.clear()
 assert web.put("/api/agents/a4/plafond", json={"daily": spent + 0.05}).status_code == 200
-assert ask(quick) == 200 and alerts == [("Pressé s'est arrêté", True)], alerts
+assert ask(quick) == 200 and alerts == [("Pressé approche de son plafond", False)], alerts
+assert ask(quick) == 200 and alerts[-1] == ("Pressé s'est arrêté", True), alerts
 assert ask(quick) == 402
-assert len(alerts) == 1, alerts
+assert len(alerts) == 2, alerts
 print("11. plafond relevé : l'agent reprend, et le nouveau plafond prévient de nouveau")
 print("plafond quotidien : tout est vert")
