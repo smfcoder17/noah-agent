@@ -59,6 +59,9 @@ const api = async (token, method, path, body) => {
   const text = await r.text();
   let json = null;
   try { json = JSON.parse(text); } catch {}
+  // Connexion navigateur : le jeton n'est que dans le cookie (tests/exposition/public_test.py).
+  const session = /noah_session=([^;]+)/.exec(r.headers.get("set-cookie") || "")?.[1];
+  if (session && json && !json.token) json.token = session;
   return { status: r.status, json, text };
 };
 

@@ -414,10 +414,10 @@ OWNER_ROUTES = {
 OWNER_WITH_ID = {("PATCH", "/api/profiles/{profile_id}"): {"budget": None}, ("DELETE", "/api/profiles/{profile_id}"): None}
 # … et les routes ouvertes, chacune avec la raison pour laquelle elle ne montre rien d'un autre.
 OPEN_ROUTES = {
-    ("GET", "/api/status"): "Publique : aucune donnée de compte.",
+    ("GET", "/api/status"): "Publique : l'écran à montrer, rien d'autre pour un inconnu une fois le compte créé (tests/exposition/public_test.py).",
     ("POST", "/api/setup/check"): "Publique : refusée dès qu'un compte existe.",
     ("POST", "/api/setup/restore"): "Refusée dès qu'un compte existe (code d'installation).",
-    ("GET", "/api/setup/restore"): "Avancement de la restauration, sans donnée de compte.",
+    ("GET", "/api/setup/restore"): "Avancement de la restauration ; sans session, plus de détail du lanceur une fois le compte créé (public_test).",
     ("POST", "/api/setup/account"): "Premier compte seulement (410 ensuite, vérifié par test_profiles).",
     ("POST", "/api/pairing"): "Code de ce compte.",
     ("DELETE", "/api/pairing"): "Code de ce compte.",
@@ -433,7 +433,7 @@ OPEN_ROUTES = {
     ("POST", "/api/devices/others/revoke"): "Autres sessions de ce compte.",
     ("GET", "/api/me"): "Ce compte.",
     ("POST", "/api/me/password"): "Ce compte, avec son mot de passe actuel.",
-    ("GET", "/api/providers"): "Liste statique des fournisseurs connus, sans clé.",
+    ("GET", "/api/providers"): "Liste statique des fournisseurs connus, sans clé ; derrière la connexion (public_test).",
     ("POST", "/api/models"): "Un profil ne lit que le fournisseur en service, sans adresse ni clé à lui (vérifié par test_secrets).",
     ("GET", "/api/usage"): "Filtrée par profil (vérifié par test_lists).",
     ("GET", "/api/model"): "Le nom du cerveau, sans clé ni adresse pour un profil (vérifié par test_secrets).",
@@ -444,14 +444,14 @@ OPEN_ROUTES = {
     ("GET", "/api/calls/wait"): "Même lecture que /api/calls/pending, en attente longue.",
     ("GET", "/api/desktop/next"): "File de ce compte (vérifié par test_desktop).",
     ("GET", "/api/desktop/status"): "État de l'application de bureau de ce compte (vérifié par test_desktop).",
-    ("GET", "/api/health/stream"): "Contrôle technique, sans donnée.",
+    ("GET", "/api/health/stream"): "Contrôle de bout en bout à travers le mandataire : deux nombres, aucune donnée.",
     ("GET", "/api/push/key"): "Clé publique du serveur.",
     ("POST", "/api/push/subscription"): "Abonnement de cette session.",
     ("DELETE", "/api/push/subscription"): "Abonnement de cette session.",
     ("GET", "/api/push/subscription"): "Abonnement de cette session.",
     ("POST", "/api/push/test"): "Envoi à cette session.",
-    ("GET", "/api/tls-ask"): "Publique (Caddy) : répond oui ou non pour un nom de ce serveur.",
-    ("GET", "/api/public"): "Publique : l'adresse du serveur.",
+    ("GET", "/api/tls-ask"): "Pour Caddy, sur le réseau interne : refusée depuis dehors (public_test).",
+    ("GET", "/api/public"): "Pour le lanceur, sur le réseau interne : refusée depuis dehors (public_test).",
 }
 # Noms qui désignent une ressource où qu'ils soient dans la requête : chemin, adresse ou corps.
 SENSITIVE = {"agent_id", "agent", "conv_id", "conversation_id", "call_id", "routine_id", "wid", "watch_id", "run_id", "rid", "audio_id",
@@ -1061,7 +1061,7 @@ def test_profiles() -> None:
     assert alice.post("/api/profiles", json={"username": "x", "password": "court"}).status_code == 422
     login = TestClient(app).post("/api/login", json={"username": "nina", "password": "motdepasse-n"})
     assert login.status_code == 200
-    nina = TestClient(app, headers={"Authorization": f"Bearer {login.json()['token']}"}, raise_server_exceptions=False)
+    nina = TestClient(app, headers={"Authorization": f"Bearer {login.cookies['noah_session']}"}, raise_server_exceptions=False)
     me = nina.get("/api/me").json()
     assert me["role"] == "member" and me["username"] == "nina", me
     assert alice.get("/api/me").json()["role"] == "owner"
@@ -1085,7 +1085,7 @@ def test_profiles() -> None:
         c.execute("INSERT INTO agent_shares (agent_id, user_id, droit) VALUES ('agent-nina', ?, 'usage')", (UMA,))
         c.execute("INSERT INTO agent_shares (agent_id, user_id, droit) VALUES ('agent-nina', ?, 'usage')", (ALICE,))
         c.execute("INSERT INTO conversations (id, user_id, agent_id, title, main) VALUES ('conv-alice-chez-nina', ?, 'agent-nina', 'Chez Nina', 1)", (ALICE,))
-        session = auth.digest(login.json()["token"])
+        session = auth.digest(login.cookies["noah_session"])
         c.execute("INSERT INTO push_subscriptions (endpoint, session, p256dh, auth) VALUES ('https://fcm.googleapis.com/x', ?, 'a', 'b')", (session,))
     r = alice.delete(f"/api/profiles/{nina_id}")
     assert r.status_code == 409 and "Clara" in r.json()["detail"] and "transferer" in r.json()["detail"] and "supprimer" in r.json()["detail"], r.text

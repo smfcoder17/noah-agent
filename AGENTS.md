@@ -132,7 +132,7 @@ Donne le lien à la personne, avec ceci :
 
 Conseil si elle n'a pas de clé : Ollama Cloud est le plus simple sur un VPS. Ollama local n'est pas joignable depuis ce compose.
 
-**Fini quand :** elle confirme, et `/api/status` donne `"has_account":true`, `"model_configured":true`, `"onboarded":true`.
+**Fini quand :** elle confirme, et `/api/status` donne `"has_account":true`. Une fois le compte créé, cette adresse ne dit rien de plus à un inconnu ; le reste se lit depuis le serveur (`docker exec noah-server python -c "import urllib.request as u;print(u.urlopen('http://127.0.0.1:8080/api/status').read().decode())"`) : `"model_configured":true`, `"onboarded":true`.
 
 ### 7. Relier ses appareils
 
@@ -173,6 +173,6 @@ Diagnostique avec la colonne du milieu, puis applique le geste. Après deux essa
 | Quota Let's Encrypt atteint sur sslip.io | `rateLimited` dans le journal de Caddy | Essaie `<ip-en-tirets>.nip.io`, que Noah accepte aussi |
 | Derrière Traefik : erreur 404, 502 ou 504 | `docker inspect <traefik> --format '{{json .NetworkSettings.Networks}}'` | Connecte-le à `noah-net`. Vérifie `NOAH_TRAEFIK_RESOLVER` et l'entrée `websecure` |
 | `get.sh` : `déjà installé dans …` | Noah vient d'un autre dossier ou de Hostinger | Passe à [Déjà installé](#déjà-installé), sans forcer |
-| `/api/status` : `"secrets_lisibles":false` | Clé et données ne correspondent plus | Ne touche à rien, rends compte. Une sauvegarde peut réparer |
+| `/api/status` (lu depuis le serveur une fois le compte créé) : `"secrets_lisibles":false` | Clé et données ne correspondent plus | Ne touche à rien, rends compte. Une sauvegarde peut réparer |
 
 Pour aller plus loin : `docs/installation.md` (Traefik, adresse, sauvegardes, ce qui tourne) et `docs/etat.md` (ce qui est prouvé). Ce parcours n'a pas encore été suivi sur un VPS neuf : si une consigne ne correspond pas à ce que tu vois, dis-le à la personne et décris l'écart.
