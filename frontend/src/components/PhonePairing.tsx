@@ -169,7 +169,12 @@ export function PhonePairing() {
     }
   };
 
-  useEffect(() => () => void del("/api/pairing").catch(() => {}), []);
+  // Dans l'app Android, la fenêtre n'a qu'une session courte : elle ne relie pas d'appareil (le serveur le refuse aussi).
+  const pairs = shell?.kind !== "android";
+
+  useEffect(() => {
+    if (pairs) return () => void del("/api/pairing").catch(() => {});
+  }, [pairs]);
 
   useEffect(() => {
     if (!pairing) return;
@@ -185,11 +190,11 @@ export function PhonePairing() {
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm text-muted-foreground">
-        Pour relier un téléphone, scanne le QR code avec l'app Noah ou l'appareil photo. Pour l'app de bureau ou un autre
-        appareil, saisis l'adresse et le code court, puis autorise l'appareil ici. Le code sert une seule fois ; le
-        laisser expirer ne déconnecte aucun appareil déjà relié.
+        {pairs
+          ? "Pour relier un téléphone, scanne le QR code avec l'app Noah ou l'appareil photo. Pour l'app de bureau ou un autre appareil, saisis l'adresse et le code court, puis autorise l'appareil ici. Le code sert une seule fois ; le laisser expirer ne déconnecte aucun appareil déjà relié."
+          : "Pour relier un autre appareil, ouvre Réglages → Appareils dans un navigateur où tu es connecté."}
       </p>
-      {pairing && left > 0 ? (
+      {!pairs ? null : pairing && left > 0 ? (
         <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-start">
           {secure && <QR text={pairing.adresse} />}
           <div className="flex min-w-0 flex-col gap-2 text-sm">
@@ -222,7 +227,7 @@ export function PhonePairing() {
         </Button>
       )}
       <ErrorText>{error}</ErrorText>
-      <PendingRequests refresh={refresh} onDone={() => setRefresh((n) => n + 1)} />
+      {pairs && <PendingRequests refresh={refresh} onDone={() => setRefresh((n) => n + 1)} />}
       <PushToggle />
       <DeviceList refresh={refresh} />
       {shell && (
