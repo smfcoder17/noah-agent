@@ -524,7 +524,7 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
   report?: { id: string; text: string } | null;
   onReportRead?: () => void;
 }) {
-  const { agentId, agentName, agentColor, conversationId, say } = useContext(AgentContext);
+  const { agentId, agentName, agentColor, agentShape, agentDetail, conversationId, say } = useContext(AgentContext);
   const running = useAuiState((s) => s.thread.isRunning);
   const messages = useAuiState((s) => s.thread.messages);
   const mic = useMic();
@@ -724,7 +724,7 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
     if (refusal) return setError(refusal);
     try {
       await mic.open();
-      if (alive.current) nativeCall(true, agentName, agentColor); // Android refuse ce service tant que le micro n'est pas accordé
+      if (alive.current) nativeCall(true, agentName, agentColor, agentShape, agentDetail); // Android refuse ce service tant que le micro n'est pas accordé
     } catch {
       setError(MIC_REFUSED);
     }

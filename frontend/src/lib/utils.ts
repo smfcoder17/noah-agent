@@ -20,6 +20,19 @@ export function safeMedia(src: string | undefined): string | undefined {
  * d'erreur si le serveur répond 502, et couperait l'appel en cours. Ici, seule une erreur charge une page, dans ce cadre caché.
  */
 export function downloadFile(url: string, onFailed: () => void) {
+  // Dans l'app Android, un cadre caché ne déclenche aucun téléchargement : le fichier est vérifié ici, puis confié à l'app.
+  const native = window.Capacitor?.Plugins?.NoahShell?.download;
+  if (native) {
+    const stop = new AbortController();
+    void fetch(url, { signal: stop.signal, credentials: "same-origin" })
+      .then((r) => {
+        stop.abort(); // seul l'état de la réponse compte ici : c'est l'app qui récupère le fichier
+        if (!r.ok) return onFailed();
+        void native({ url: new URL(url, location.href).href, mime: r.headers.get("content-type") ?? "" }).catch(onFailed);
+      })
+      .catch(onFailed);
+    return;
+  }
   const frame = document.createElement("iframe");
   frame.hidden = true;
   const late = setTimeout(() => frame.remove(), 300_000); // un vrai téléchargement ne déclenche pas « load »

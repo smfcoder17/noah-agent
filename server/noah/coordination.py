@@ -349,7 +349,11 @@ def _ring(agent_id: str, texte: str, actions: str = "", user: int | None = None)
     _h["save"](conv, "agent", written)
     if conv not in relay.active.get(agent_id, []):  # depuis un fil : sa conversation principale ne le sait pas encore
         machine.add_context(conv, written)
-    push.notify(f"{_name(agent_id)} t'appelle", texte[:200], url=f"/#appel={call_id}", urgent=True, user_id=user)
+    with db.connect() as c:
+        look = c.execute("SELECT color, shape, detail FROM agents WHERE id = ?", (agent_id,)).fetchone()
+    # Le visage de l'agent sur l'écran d'appel du téléphone : couleur, forme et détail.
+    face = {"agent_id": agent_id, "couleur": look["color"] or "", "forme": look["shape"] or "", "detail": look["detail"] or ""} if look else None
+    push.notify(f"{_name(agent_id)} t'appelle", texte[:200], url=f"/#appel={call_id}", urgent=True, user_id=user, extra=face)
     if user != owner:  # le propriétaire sait que son agent a appelé, sans lire ce qui ne lui est pas adressé
         push.notify(f"{_name(agent_id)} a rappelé {access.username(user)}", "Le compte rendu est dans sa conversation.", user_id=owner)
     precall.prepare(agent_id, user, texte)  # au décroché, la voix sait déjà de quoi il s'agit

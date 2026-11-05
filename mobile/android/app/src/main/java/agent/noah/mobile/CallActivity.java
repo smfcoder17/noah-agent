@@ -33,6 +33,8 @@ public class CallActivity extends Activity {
     static final String URL = "url";
     static final String NOTIFICATION = "notification";
     static final String COLOR = "couleur";
+    static final String SHAPE = "forme";
+    static final String DETAIL = "detail";
     static final String CHOICE = "choix";
     static final String ANSWERED = "repondre";
     static final String DECLINED = "refuser";
@@ -94,7 +96,7 @@ public class CallActivity extends Activity {
         FrameLayout.LayoutParams middle = new FrameLayout.LayoutParams(dp(136), dp(136), Gravity.CENTER);
         int face = getIntent().getIntExtra(COLOR, ACCENT);
         for (int i = 0; i < 3; i++) center.addView(wave(i, face), middle);
-        center.addView(new NoahFace(this, face), middle);
+        center.addView(new NoahFace(this, face, getIntent().getStringExtra(SHAPE), getIntent().getStringExtra(DETAIL)), middle);
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);

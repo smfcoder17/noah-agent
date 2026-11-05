@@ -267,6 +267,20 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const [inCall, setInCall] = useState<ChatProps | null>(null);
 
   const agent = agents.find((a) => a.id === agentId) ?? null;
+  // Bouton Retour d'Android : ferme ce qui est ouvert, du plus proche au plus lointain. Les fenêtres se ferment sur Échap.
+  useEffect(() => {
+    window.noahRetour = () => {
+      if (document.querySelector('[role="dialog"]')) document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      else if (panel) setPanel(null);
+      else if (sidebarOpen) setSidebarOpen(false);
+      else if (threadId) setThreadId(null);
+      else return false;
+      return true;
+    };
+    return () => {
+      delete window.noahRetour;
+    };
+  }, [panel, sidebarOpen, threadId]);
   // Message envoyé à l'agent depuis Détails : il part dans la conversation principale.
   useEffect(() => {
     const toMain = () => setThreadId(null);
@@ -430,6 +444,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
               aria-pressed={details}
               title="Afficher les détails techniques (appels d'outils)"
               aria-label="Détails techniques"
+              className="max-sm:hidden"
             >
               <Bug />
             </Button>
@@ -439,7 +454,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
               </Button>
             )}
             {agent && canAdmin(agent) && (
-              <Button variant={panel === "computer" ? "outline" : "default"} size="sm" onClick={() => setPanel(panel === "computer" ? null : "computer")} aria-pressed={panel === "computer"}>
+              <Button variant={panel === "computer" ? "outline" : "default"} size="sm" onClick={() => setPanel(panel === "computer" ? null : "computer")} aria-pressed={panel === "computer"} aria-label="Ordinateur" className="max-sm:bg-transparent max-sm:text-foreground max-sm:shadow-none">
                 <MonitorPlay /><span className="hidden sm:inline">Ordinateur</span>
               </Button>
             )}
@@ -500,6 +515,8 @@ function Shell({ onLogout }: { onLogout: () => void }) {
                 if (archived && id === threadId) setThreadId(null);
                 refreshConversations();
               }}
+              technical={details}
+              onTechnical={setDetails}
             />
           </aside>
           </Suspense>

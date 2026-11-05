@@ -106,6 +106,20 @@ public class MainActivity extends BridgeActivity {
                 .create();
         }
         super.onCreate(savedInstanceState);
+        // Retour : ferme d'abord ce qui est ouvert dans l'interface (fenêtre, panneau, menu, fil), comme une app native. Rien
+        // d'ouvert : l'app passe derrière sans s'arrêter, un appel en cours continue.
+        getOnBackPressedDispatcher().addCallback(this, new androidx.activity.OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                if (bridge == null) {
+                    moveTaskToBack(true);
+                    return;
+                }
+                bridge.getWebView().evaluateJavascript("window.noahRetour ? window.noahRetour() : false", handled -> {
+                    if (!"true".equals(handled)) moveTaskToBack(true);
+                });
+            }
+        });
     }
 
     /** Sans distributeur UnifiedPush, c'est Noah lui-même qui attend les appels : rien à installer en plus. */
@@ -212,6 +226,11 @@ public class MainActivity extends BridgeActivity {
                     return new android.webkit.WebResourceResponse("text/plain", "utf-8", 403, "Forbidden",
                         new java.util.HashMap<>(), new java.io.ByteArrayInputStream(new byte[0]));
                 }
+                // Capacitor lit lui-même toute navigation et la ressert comme une page, sans les en-têtes du serveur : un
+                // téléchargement (Content-Disposition) ne se déclenchait jamais, et un aperçu perdait son bac à sable. Seule la
+                // page de l'interface a besoin de son pont ; le cadre caché, les aperçus et les fichiers vont droit au serveur.
+                String path = u.getPath();
+                if (home.equals(origin(u.toString())) && (!request.isForMainFrame() || (path != null && path.startsWith("/api/")))) return null;
                 return super.shouldInterceptRequest(view, request);
             }
         });
@@ -223,9 +242,12 @@ public class MainActivity extends BridgeActivity {
 
     /** Confie le fichier au gestionnaire de téléchargements d'Android, dans Téléchargements, avec la session de la fenêtre. */
     private void download(String url, String agent, String disposition, String mime, String home) {
-        if (!home.equals(origin(url))) return; // la session ne part que vers le serveur
+        if (!home.equals(origin(url))) { // la session ne part que vers le serveur
+            android.widget.Toast.makeText(this, "Ce fichier n'a pas pu être téléchargé.", android.widget.Toast.LENGTH_LONG).show();
+            return;
+        }
         try {
-            String name = android.webkit.URLUtil.guessFileName(url, disposition, mime);
+            String name = fileName(url, disposition, mime);
             android.app.DownloadManager.Request request = new android.app.DownloadManager.Request(android.net.Uri.parse(url))
                 .setMimeType(mime)
                 .setTitle(name)
@@ -240,6 +262,25 @@ public class MainActivity extends BridgeActivity {
         } catch (Exception e) {
             android.widget.Toast.makeText(this, "Ce fichier n'a pas pu être téléchargé.", android.widget.Toast.LENGTH_LONG).show();
         }
+    }
+
+    /** Demandé par l'interface (NoahShell.download) : le nom vient de l'adresse, le serveur ne s'exprime qu'au gestionnaire. */
+    boolean downloadFromPage(String url, String agent, String mime) {
+        if (server == null) return false;
+        String last = android.net.Uri.parse(url).getLastPathSegment();
+        String disposition = last == null ? null : "attachment; filename*=UTF-8''" + android.net.Uri.encode(last);
+        download(url, agent, disposition, mime.split(";")[0].trim(), origin(server));
+        return true;
+    }
+
+    /** Le vrai nom : filename* (accents compris, qu'Android lit mal selon la version), sinon le chemin demandé, sinon sa devinette. */
+    private static String fileName(String url, String disposition, String mime) {
+        java.util.regex.Matcher utf8 = java.util.regex.Pattern.compile("filename\\*=UTF-8''([^;]+)", java.util.regex.Pattern.CASE_INSENSITIVE)
+            .matcher(disposition == null ? "" : disposition);
+        String asked = android.net.Uri.parse(url).getQueryParameter("path");
+        String name = utf8.find() ? android.net.Uri.decode(utf8.group(1)) : asked != null ? android.net.Uri.parse(asked).getLastPathSegment() : null;
+        if (name == null || name.isEmpty()) name = android.webkit.URLUtil.guessFileName(url, disposition, mime);
+        return name.replaceAll("[/\\\\]", "_"); // jamais un autre dossier que Téléchargements
     }
 
     /**

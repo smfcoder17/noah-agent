@@ -160,7 +160,7 @@ public class NoahPush extends PushService {
                 // celle-ci.
                 synchronized (Pairing.class) {
                     if (gen == pairing.pushGeneration() && mine.equals(pairing.pushTag())) {
-                        show(id, data.optString("titre", title), data.optString("texte", text), data.optString("url", url));
+                        show(id, data.optString("titre", title), data.optString("texte", text), data.optString("url", url), data);
                     }
                 }
             }
@@ -226,6 +226,11 @@ public class NoahPush extends PushService {
     }
 
     private void show(int id, String title, String text, String url) {
+        show(id, title, text, url, new JSONObject());
+    }
+
+    /** `message` : le message reçu, avec le visage de l'agent quand c'est un appel (serveur plus ancien : la couleur de Noah). */
+    private void show(int id, String title, String text, String url, JSONObject message) {
         NotificationManager manager = getSystemService(NotificationManager.class);
         if (manager == null) return;
         manager.createNotificationChannel(new NotificationChannel(CHANNEL, "Noah", NotificationManager.IMPORTANCE_HIGH));
@@ -233,7 +238,8 @@ public class NoahPush extends PushService {
         // Un code par notification : sinon toucher une ancienne ouvrirait la page de la dernière reçue.
         PendingIntent tap = PendingIntent.getActivity(this, id, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         if (url != null && url.startsWith(CALL_URL)) {
-            ring(this, manager, id, title, text, url, NoahFace.colorOf("#ff7a59", null), tap);
+            int color = message.has("agent_id") ? NoahFace.colorOf(message.optString("couleur"), message.optString("agent_id")) : NoahFace.colorOf("#ff7a59", null);
+            ring(this, manager, id, title, text, url, color, message.optString("forme"), message.optString("detail"), tap);
             return;
         }
         NotificationCompat.Builder n = new NotificationCompat.Builder(this, CHANNEL)
@@ -248,7 +254,7 @@ public class NoahPush extends PushService {
     }
 
     /** Un rappel sonne comme un appel. Android 14 peut refuser le plein écran à une app qui n'est pas un téléphone : il reste la sonnerie. */
-    static void ring(Context context, NotificationManager manager, int id, String title, String text, String url, int color, PendingIntent tap) {
+    static void ring(Context context, NotificationManager manager, int id, String title, String text, String url, int color, String shape, String detail, PendingIntent tap) {
         NotificationChannel channel = new NotificationChannel(CALLS, "Appels de tes agents", NotificationManager.IMPORTANCE_HIGH);
         channel.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE),
             new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE).build());
@@ -257,13 +263,14 @@ public class NoahPush extends PushService {
         channel.setLockscreenVisibility(Notification.VISIBILITY_PRIVATE);
         manager.createNotificationChannel(channel);
         Intent screen = new Intent(context, CallActivity.class).putExtra(CallActivity.TITLE, title).putExtra(CallActivity.URL, url)
-            .putExtra(CallActivity.NOTIFICATION, id).putExtra(CallActivity.COLOR, color).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            .putExtra(CallActivity.NOTIFICATION, id).putExtra(CallActivity.COLOR, color).putExtra(CallActivity.SHAPE, shape)
+            .putExtra(CallActivity.DETAIL, detail).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         int flags = PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT;
         PendingIntent full = PendingIntent.getActivity(context, id, screen, flags);
         // Écran allumé, Android n'ouvre pas le plein écran : c'est ce bandeau qui répond ou refuse.
         PendingIntent answer = PendingIntent.getActivity(context, id + 1, new Intent(screen).setData(Uri.parse("noah-appel:" + id + "/" + CallActivity.ANSWERED)).putExtra(CallActivity.CHOICE, CallActivity.ANSWERED), flags);
         PendingIntent decline = PendingIntent.getActivity(context, id + 2, new Intent(screen).setData(Uri.parse("noah-appel:" + id + "/" + CallActivity.DECLINED)).putExtra(CallActivity.CHOICE, CallActivity.DECLINED), flags);
-        Person who = new Person.Builder().setName(title).setIcon(IconCompat.createWithBitmap(NoahFace.bitmap(context, color, 192))).build();
+        Person who = new Person.Builder().setName(title).setIcon(IconCompat.createWithBitmap(NoahFace.bitmap(context, color, shape, detail, 192))).build();
         NotificationCompat.Builder n = new NotificationCompat.Builder(context, CALLS)
             .setSmallIcon(R.drawable.ic_stat_noah).setContentTitle(title).setContentText(text)
             .setCategory(NotificationCompat.CATEGORY_CALL).setPriority(NotificationCompat.PRIORITY_MAX)

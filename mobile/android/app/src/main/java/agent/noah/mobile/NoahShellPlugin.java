@@ -19,10 +19,51 @@ public class NoahShellPlugin extends Plugin {
     @PluginMethod
     public void callState(PluginCall call) {
         boolean active = Boolean.TRUE.equals(call.getBoolean("active"));
-        if (active) CallSession.start(getContext(), call.getString("agent"), call.getString("color"));
+        if (active) CallSession.start(getContext(), call.getString("agent"), call.getString("color"), call.getString("shape"), call.getString("detail"));
         else CallSession.stop(getContext());
         if (getActivity() instanceof MainActivity) ((MainActivity) getActivity()).setInCall(active);
         call.resolve();
+    }
+
+    /** Télécharge un fichier du serveur : le cadre caché de la page ne déclenche pas le téléchargement dans la WebView. */
+    @PluginMethod
+    public void download(PluginCall call) {
+        String url = call.getString("url");
+        if (url == null || !(getActivity() instanceof MainActivity)) {
+            call.reject("Téléchargement impossible");
+            return;
+        }
+        String mime = call.getString("mime", "");
+        getActivity().runOnUiThread(() -> { // la WebView ne se lit que depuis ce fil
+            String agent = bridge.getWebView().getSettings().getUserAgentString();
+            if (((MainActivity) getActivity()).downloadFromPage(url, agent, mime)) call.resolve();
+            else call.reject("Téléchargement impossible");
+        });
+    }
+
+    /** Un fichier fabriqué dans la page (export CSV) : un lien blob: ne peut pas passer par le gestionnaire de téléchargements. */
+    @PluginMethod
+    public void saveFile(PluginCall call) {
+        String name = call.getString("name", "fichier").replaceAll("[/\\\\]", "_");
+        byte[] data = call.getString("text", "").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        android.content.Context context = getContext();
+        try {
+            // Avant Android 10, le dossier public demande une permission : l'export n'y est pas proposé (le message d'échec le dit).
+            if (Build.VERSION.SDK_INT < 29) throw new java.io.IOException("Android trop ancien");
+            android.content.ContentValues values = new android.content.ContentValues();
+            values.put(android.provider.MediaStore.Downloads.DISPLAY_NAME, name);
+            values.put(android.provider.MediaStore.Downloads.MIME_TYPE, call.getString("mime", "application/octet-stream"));
+            android.net.Uri file = context.getContentResolver().insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+            if (file == null) throw new java.io.IOException("insert");
+            try (java.io.OutputStream out = context.getContentResolver().openOutputStream(file)) {
+                out.write(data);
+            }
+            android.widget.Toast.makeText(context, name + " est dans Téléchargements", android.widget.Toast.LENGTH_SHORT).show();
+            call.resolve();
+        } catch (Exception e) {
+            android.widget.Toast.makeText(context, "Ce fichier n'a pas pu être enregistré.", android.widget.Toast.LENGTH_LONG).show();
+            call.reject("Enregistrement impossible");
+        }
     }
 
     @PluginMethod

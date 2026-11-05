@@ -241,9 +241,9 @@ async def _send_one(client: httpx.AsyncClient, sub, payload: bytes, urgent: bool
 
 
 async def send(title: str, text: str, url: str = "/", urgent: bool = False, user_id: int | None = None,
-               session: str | None = None) -> dict:
+               session: str | None = None, extra: dict | None = None) -> dict:
     """Envoie à chaque appareil abonné dont la session est encore valable (ou à la seule session donnée, par son
-    empreinte). Rend {livres, echecs, morts, differes}."""
+    empreinte). `extra` : champs de plus dans le message chiffré. Rend {livres, echecs, morts, differes}."""
     now = datetime.now(timezone.utc).isoformat()
     with db.connect() as c:
         c.execute("DELETE FROM push_subscriptions WHERE session NOT IN (SELECT token FROM sessions WHERE expires_at > ?)", (now,))
@@ -258,7 +258,7 @@ async def send(title: str, text: str, url: str = "/", urgent: bool = False, user
             rows = [r for r in rows if r["endpoint"] not in stray]
     if not rows:
         return {"livres": 0, "echecs": 0, "morts": 0, "differes": 0}
-    message = {"titre": title[:120], "texte": text[:400], "url": url}
+    message = {"titre": title[:120], "texte": text[:400], "url": url, **(extra or {})}
     # Enregistré avant le premier envoi, réservé pendant LEASE : si le serveur redémarre pendant l'envoi ou ses premiers
     # essais, la file le reprend. Supprimé une fois traité (livré, refusé, ou différé sous une autre ligne).
     now = time.time()
@@ -291,14 +291,14 @@ def _owner() -> int | None:
     return db.owner_id()
 
 
-def notify(title: str, text: str, url: str = "/", urgent: bool = False, user_id: int | None = None) -> None:
+def notify(title: str, text: str, url: str = "/", urgent: bool = False, user_id: int | None = None, extra: dict | None = None) -> None:
     """Depuis le code du serveur : envoie sans attendre (rien ne bloque si un service de push est lent), au compte
     donné ou, par défaut, au propriétaire de l'installation, jamais à tous les comptes."""
     target = user_id if user_id is not None else _owner()
     if target is None:
         return
     try:
-        asyncio.get_running_loop().create_task(send(title, text, url, urgent, user_id=target))
+        asyncio.get_running_loop().create_task(send(title, text, url, urgent, user_id=target, extra=extra))
     except RuntimeError:
         pass  # hors de la boucle (tests, scripts) : pas de notification
 

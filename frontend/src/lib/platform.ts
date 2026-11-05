@@ -6,7 +6,20 @@ type Shell = { kind: "desktop" | "android"; forget(): Promise<unknown>; version(
 declare global {
   interface Window {
     Capacitor?: { Plugins?: Record<string, Record<string, (arg?: unknown) => Promise<unknown>>> };
+    /** Bouton Retour d'Android : vrai si l'interface a fermé quelque chose. */
+    noahRetour?: () => boolean;
   }
+}
+
+/** Dans l'app Android : la fenêtre n'affiche pas les PDF ni les CSV, et n'a pas d'onglets. */
+export const inAndroidApp = () => appShell()?.kind === "android";
+
+/** Enregistre un fichier fabriqué dans la page, là où un lien blob: ne téléchargerait rien. Faux : au navigateur de le faire. */
+export function nativeSave(name: string, mime: string, text: string) {
+  const save = window.Capacitor?.Plugins?.NoahShell?.saveFile;
+  if (!save) return false;
+  void save({ name, mime, text }).catch(() => {});
+  return true;
 }
 
 export function appShell(): Shell | null {
@@ -18,8 +31,8 @@ export function appShell(): Shell | null {
 }
 
 /** Un appel commence ou finit : l'app Android garde le micro hors de l'application et propose sa fenêtre flottante. */
-export function nativeCall(active: boolean, agent: string, color: string) {
-  void window.Capacitor?.Plugins?.NoahShell?.callState?.({ active, agent, color })?.catch(() => {});
+export function nativeCall(active: boolean, agent: string, color: string, shape?: string, detail?: string) {
+  void window.Capacitor?.Plugins?.NoahShell?.callState?.({ active, agent, color, shape, detail })?.catch(() => {});
 }
 
 const parts = (v: string) => (v.split("-")[0].match(/\d+/g) ?? ["0"]).slice(0, 3).map(Number);

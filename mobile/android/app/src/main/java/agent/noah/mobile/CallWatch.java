@@ -102,7 +102,7 @@ public class CallWatch extends Service {
                 Intent open = new Intent(this, MainActivity.class).putExtra("url", url).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 PendingIntent tap = PendingIntent.getActivity(this, shown, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
                 // Le compte rendu n'est pas sur l'écran verrouillé : seulement le nom de l'agent.
-                NoahPush.ring(this, getSystemService(NotificationManager.class), shown, call.optString("agent", "Noah"), "t'appelle", url, NoahFace.colorOf(call.optString("couleur"), call.optString("agent_id")), tap);
+                NoahPush.ring(this, getSystemService(NotificationManager.class), shown, call.optString("agent", "Noah"), "t'appelle", url, NoahFace.colorOf(call.optString("couleur"), call.optString("agent_id")), call.optString("forme"), call.optString("detail"), tap);
             }
             now.put(id, shown);
         }

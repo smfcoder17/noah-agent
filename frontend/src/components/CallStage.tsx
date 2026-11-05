@@ -227,7 +227,7 @@ export function CallStage(props: {
           <Face {...faceProps} className="size-10" />
           <span className="min-w-0 flex-1">
             <span className="block text-xs tabular-nums text-muted-foreground">En appel avec {agentName} · {time}</span>
-            <span className={cn("block truncate text-sm font-semibold", phase === "error" && "text-warn")} aria-live="polite">{status}</span>
+            <span className={cn("line-clamp-2 text-sm font-semibold", phase === "error" && "text-warn")} aria-live="polite">{status}</span>
             <span className="block truncate text-xs text-muted-foreground">{now && busy ? now : hint}</span>
           </span>
           <Maximize2 className="size-4 shrink-0 text-muted-foreground" />
