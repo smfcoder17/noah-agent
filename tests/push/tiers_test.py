@@ -177,7 +177,10 @@ body = java[java.index("public void onMessage("):]
 body = body[:body.index("private void handle(")]
 guard = "if (!message.getDecrypted()) return;"
 assert guard in body and body.index(guard) < body.index("show("), "un message non déchiffré est affiché"
-assert "getContent" not in body, "onMessage lit le contenu avant le contrôle"
+# Avant de savoir à quelle session il est destiné, seul le type du message est lu, pour choisir un canal : ni son texte, ni son adresse.
+assert body.count("getContent") == 1 and body.index(guard) < body.index("getContent"), "onMessage lit le contenu avant le contrôle"
+assert 'generic.put("type",' in body and body.count("generic.put(") == 1, "la notification générique reprend plus que le type"
+assert 'show(id, "Noah", "Nouvelle notification. Ouvre Noah pour la voir.", "/", generic);' in body, "la notification générique montre du contenu"
 assert re.search(r'UnifiedPush\.register\(activity, ConstantsKt\.INSTANCE_DEFAULT, "Noah", vapid\)', java), "inscription sans clé VAPID"
 print("5. app : message non déchiffré jamais affiché, inscription liée à la clé VAPID du serveur")
 
