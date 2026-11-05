@@ -5,7 +5,7 @@ import { Phone, PhoneOff, X } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui";
 import { type Agent, ApiError, get, send, type VoiceCall } from "@/lib/api";
-import { AgentFace, agentColor } from "./Noah";
+import { AgentFace, agentColor, type NoahHandle } from "./Noah";
 
 export type CallReport = { id: string; agentId: string; text: string };
 
@@ -65,6 +65,14 @@ export function CallScreen({ agents, onOpen }: { agents: Agent[]; onOpen: (repor
   const baseId = useId();
   const ringing = call?.etat === "sonne";
   useRing(ringing);
+  // Pendant que ça sonne, l'agent sautille pour attirer l'œil, au rythme des ondes.
+  const faceRef = useRef<NoahHandle>(null);
+  useEffect(() => {
+    if (!ringing) return;
+    faceRef.current?.react("hop");
+    const timer = setInterval(() => faceRef.current?.react("hop"), 2400);
+    return () => clearInterval(timer);
+  }, [ringing]);
 
   // Adresse d'une notification : le rappel a pu finir de sonner depuis, on le dit au lieu de ne rien montrer.
   useEffect(() => {
@@ -181,7 +189,7 @@ export function CallScreen({ agents, onOpen }: { agents: Agent[]; onOpen: (repor
         </h1>
         <div className={`relative my-auto flex shrink-0 items-center justify-center ${ringing ? "noah-call-waves" : ""}`}>
           {ringing && [0, 1, 2].map((i) => <span key={i} aria-hidden="true" className="noah-call-wave" style={{ animationDelay: `${i * 0.8}s`, background: agentColor(face) }} />)}
-          <AgentFace agent={face} state={ringing ? "speaking" : "idle"} className="relative size-28" />
+          <AgentFace agent={face} handle={faceRef} state={ringing ? "listening" : "idle"} className="relative size-28" />
         </div>
         <p id={`${baseId}-texte`} className={`overflow-y-auto text-sm whitespace-pre-wrap text-muted-foreground ${ringing ? "sr-only" : "max-h-[40vh]"}`}>{call.texte}</p>
         {error && <p role="alert" className="text-sm text-danger">{error}</p>}

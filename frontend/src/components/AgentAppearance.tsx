@@ -93,7 +93,7 @@ export function AgentAppearance({ agent, onChanged }: { agent: Agent; onChanged:
                   shape === s.id && "ring-2 ring-accent",
                 )}
               >
-                <Noah color={color} shape={s.id} detail="" className="size-9" />
+                <Noah color={color} shape={s.id} detail="" still className="size-9" />
                 {s.name}
               </button>
             ))}
