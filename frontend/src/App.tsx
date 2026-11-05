@@ -8,7 +8,7 @@ import { CALL_SLOT } from "@/components/CallStage";
 import { Onboarding } from "@/components/Onboarding";
 import { DeviceApproval, keepApprovalRequest } from "@/components/DeviceApproval";
 import { HandoffBanner } from "@/components/Handoff";
-import { NoahTile, agentColor } from "@/components/Noah";
+import { AgentFace, agentColor } from "@/components/Noah";
 import type { PanelTab } from "@/components/SidePanel";
 import { STATE_WORD, Sidebar, StateShape } from "@/components/Sidebar";
 import { Thread } from "@/components/Thread";
@@ -380,7 +380,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
                 <ArrowLeft />
               </Button>
             ) : (
-              agent && <NoahTile color={agentColor(agent)} className="size-9" />
+              agent && <AgentFace agent={agent} className="size-9" />
             )}
             <div className="min-w-0 flex-1">
               <p className="truncate font-semibold">{thread ? thread.title : agent?.name ?? "Aucun agent"}</p>
@@ -589,19 +589,22 @@ function AgentChat(props: ChatProps) {
   const { id, name, role } = props.agent;
   const { readOnly } = props;
   const color = agentColor(props.agent);
+  const { shape, detail } = props.agent;
   const context = useMemo(
     () => ({
       say,
       agentId: id,
       agentName: name,
       agentColor: color,
+      agentShape: shape ?? "",
+      agentDetail: detail ?? "",
       conversationId: props.conversationId,
       hint: role ? role.slice(0, 180) : "Pose une question, confie une tâche ou envoie un fichier.",
       readOnly,
       canWatch: canAdmin(props.agent),
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [say, id, name, color, role, readOnly, props.conversationId, canAdmin(props.agent)],
+    [say, id, name, color, shape, detail, role, readOnly, props.conversationId, canAdmin(props.agent)],
   );
   return (
     <AssistantRuntimeProvider runtime={runtime}>

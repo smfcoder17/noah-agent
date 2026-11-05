@@ -11,6 +11,7 @@ import base64
 import hmac
 import posixpath
 import time
+import typing
 import unicodedata
 import uuid
 from dataclasses import replace
@@ -1056,7 +1057,7 @@ async def set_model(body: ModelChoice, user: int = Depends(access.owner_only)):
 def _agents() -> list[dict]:
     with db.connect() as c:
         return [dict(r) for r in c.execute(
-            "SELECT id, name, role, api_key, color, pinned, owner_id FROM agents ORDER BY pinned DESC, created_at"
+            "SELECT id, name, role, api_key, color, shape, detail, pinned, owner_id FROM agents ORDER BY pinned DESC, created_at"
         )]
 
 
@@ -1301,6 +1302,8 @@ async def list_agents(user: int = Depends(auth.current_user)):
             "tasks": _task_counts(a["id"], by_agent.get(a["id"], [])),
             "state": task_state.get(mains.get(a["id"], ""), "idle"),
             "color": a["color"],
+            "shape": a["shape"],
+            "detail": a["detail"],
             "pinned": bool(a["pinned"]),
             "model": own_models.get(a["id"]),
             "droit": rights[a["id"]],
@@ -1377,6 +1380,9 @@ async def agent_model(agent_id: str, body: AgentModel, user: int = Depends(auth.
 
 class AgentLook(BaseModel):
     color: str | None = Field(default=None, pattern=r"^(#[0-9a-fA-F]{6})?$")
+    # Visage : listes fermées (chaîne vide = celui d'origine), les mêmes noms sur le web, le bureau et le téléphone.
+    shape: typing.Literal["", "gomme", "bulle", "cube", "goutte", "pastille"] | None = None
+    detail: typing.Literal["", "lunettes", "antenne", "sourcils", "joues"] | None = None
     pinned: bool | None = None
 
 
@@ -1387,6 +1393,10 @@ def agent_look(agent_id: str, body: AgentLook, user: int = Depends(auth.current_
     with db.connect() as c:
         if body.color is not None:
             c.execute("UPDATE agents SET color = ? WHERE id = ?", (body.color, agent_id))
+        if body.shape is not None:
+            c.execute("UPDATE agents SET shape = ? WHERE id = ?", (body.shape, agent_id))
+        if body.detail is not None:
+            c.execute("UPDATE agents SET detail = ? WHERE id = ?", (body.detail, agent_id))
         if body.pinned is not None:
             c.execute("UPDATE agents SET pinned = ? WHERE id = ?", (int(body.pinned), agent_id))
     return {"ok": True}

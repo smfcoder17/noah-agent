@@ -3,7 +3,7 @@ import { LogOut, MoreHorizontal, Palette, Pin, PinOff, Plus, Settings, Users, X 
 import { useEffect, useState } from "react";
 import { type Agent, canAdmin, type CurrentModel, type TaskState, type Usage } from "@/lib/api";
 import { cn, money } from "@/lib/utils";
-import { NoahTile, agentColor } from "./Noah";
+import { AgentFace } from "./Noah";
 import type { SettingsTab } from "./Settings";
 import { Button } from "./ui";
 
@@ -122,7 +122,7 @@ export function Sidebar(props: {
                 )}
               >
                 <span className="relative">
-                  <NoahTile color={agentColor(a)} className="size-10" />
+                  <AgentFace agent={a} className="size-10" />
                   {s.state !== "idle" && s.state !== "offline" && (
                     <span className="absolute -right-0.5 -bottom-0.5 grid size-3.5 place-items-center rounded-full bg-sidebar">
                       <StateShape state={s.state} />

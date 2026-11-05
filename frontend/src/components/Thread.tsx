@@ -326,13 +326,13 @@ function QuoteChips() {
 }
 
 function AssistantMessage() {
-  const { agentColor } = useContext(AgentContext);
+  const { agentColor, agentShape, agentDetail } = useContext(AgentContext);
   const running = useAuiState((s) => s.message.status?.type === "running");
   const empty = useAuiState((s) => s.message.content.length === 0);
   const isLast = useAuiState((s) => s.thread.messages[s.thread.messages.length - 1]?.id === s.message.id);
   return (
     <MessagePrimitive.Root data-reply-source className="group relative flex flex-col gap-1 py-2 md:pl-11">
-      <NoahTile color={agentColor} className="absolute top-2 left-0 hidden size-8 md:grid" />
+      <NoahTile color={agentColor} shape={agentShape} detail={agentDetail} state={running ? "thinking" : "idle"} className="absolute top-2 left-0 hidden size-8 md:grid" />
       <div className="max-w-[92%] min-w-0">
         {empty && running ? (
           <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
@@ -428,8 +428,8 @@ function Composer({ onVoiceMode, inCall }: { onVoiceMode: () => void; inCall: bo
 }
 
 function EmptyNoah() {
-  const { agentColor } = useContext(AgentContext);
-  return <NoahTile color={agentColor} className="mb-2 size-20" />;
+  const { agentColor, agentShape, agentDetail } = useContext(AgentContext);
+  return <NoahTile color={agentColor} shape={agentShape} detail={agentDetail} className="mb-2 size-20" />;
 }
 
 export function Thread({ report, onReportRead, onCall }: { report: { id: string; text: string } | null; onReportRead: () => void; onCall: (on: boolean) => void }) {

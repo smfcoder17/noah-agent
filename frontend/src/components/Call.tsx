@@ -5,7 +5,7 @@ import { Phone, PhoneOff, X } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui";
 import { type Agent, ApiError, get, send, type VoiceCall } from "@/lib/api";
-import { NoahTile, agentColor } from "./Noah";
+import { AgentFace, agentColor } from "./Noah";
 
 export type CallReport = { id: string; agentId: string; text: string };
 
@@ -163,6 +163,7 @@ export function CallScreen({ agents, onOpen }: { agents: Agent[]; onOpen: (repor
   };
 
   const agent = agents.find((a) => a.id === call.agent_id);
+  const face = agent ?? { id: call.agent_id, color: call.couleur, shape: call.forme, detail: call.detail };
   return (
     <div
       ref={box}
@@ -179,8 +180,8 @@ export function CallScreen({ agents, onOpen }: { agents: Agent[]; onOpen: (repor
           {ringing ? `${call.agent} t'appelle` : `${OVER[call.etat] ?? "Appel terminé"} : ${call.agent}`}
         </h1>
         <div className={`relative my-auto flex shrink-0 items-center justify-center ${ringing ? "noah-call-waves" : ""}`}>
-          {ringing && [0, 1, 2].map((i) => <span key={i} aria-hidden="true" className="noah-call-wave" style={{ animationDelay: `${i * 0.8}s`, background: agentColor(agent ?? { id: call.agent_id }) }} />)}
-          <NoahTile color={agentColor(agent ?? { id: call.agent_id })} className="relative size-28" />
+          {ringing && [0, 1, 2].map((i) => <span key={i} aria-hidden="true" className="noah-call-wave" style={{ animationDelay: `${i * 0.8}s`, background: agentColor(face) }} />)}
+          <AgentFace agent={face} state={ringing ? "speaking" : "idle"} className="relative size-28" />
         </div>
         <p id={`${baseId}-texte`} className={`overflow-y-auto text-sm whitespace-pre-wrap text-muted-foreground ${ringing ? "sr-only" : "max-h-[40vh]"}`}>{call.texte}</p>
         {error && <p role="alert" className="text-sm text-danger">{error}</p>}

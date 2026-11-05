@@ -4,9 +4,10 @@ import { useCallback, useEffect, useState } from "react";
 import { type Agent, canAdmin, canTalk, type Conversation, get, mediaUrl, rawFileUrl, send, type Usage, type WorkspaceFile } from "@/lib/api";
 import { wireClipboard } from "@/lib/vncClipboard";
 import { cn, fileSize, money } from "@/lib/utils";
+import { AgentAppearance } from "./AgentAppearance";
 import { AgentBrain } from "./AgentBrain";
 import { Connections, Folders, Memory, Routines, Software, Watches } from "./AgentPowers";
-import { NoahTile, agentColor } from "./Noah";
+import { AgentFace } from "./Noah";
 import { ShareDialog } from "./Sharing";
 import { STATE_WORD, StateShape } from "./Sidebar";
 import { Button, Dialog, DialogContent, Tabs, TabsContent, TabsList, TabsTrigger } from "./ui";
@@ -115,7 +116,7 @@ function Details({ agent, onEdit, refreshKey, onAgentChanged, children }: { agen
   return (
     <div className="flex flex-col gap-4 px-1">
       <div className="flex items-center gap-3">
-        <NoahTile color={agentColor(agent)} className="size-14" />
+        <AgentFace agent={agent} className="size-14" />
         <div className="min-w-0">
           <p className="truncate font-semibold">{agent.name}</p>
           <p className="text-sm text-muted-foreground">{agent.step || (agent.online ? "En ligne" : "Hors ligne")}</p>
@@ -128,6 +129,7 @@ function Details({ agent, onEdit, refreshKey, onAgentChanged, children }: { agen
       <ShareDialog agent={agent} open={sharing} onOpenChange={setSharing} onChanged={onAgentChanged} />
       {children}
       {canAdmin(agent) && <AgentBrain key={agent.id} agentId={agent.id} own={agent.model} onChanged={onAgentChanged} />}
+      {canAdmin(agent) && <AgentAppearance key={agent.id} agent={agent} onChanged={onAgentChanged} />}
       <div className="grid grid-cols-2 gap-2">
         <Stat label="Coût ce mois-ci" value={`${money(mine?.cost ?? 0)} $`} />
         <Stat label="Appels au modèle" value={mine?.calls ?? 0} />
