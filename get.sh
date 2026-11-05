@@ -137,7 +137,7 @@ code=$(docker compose logs server 2>/dev/null | sed -n "s/.*Code d'installation 
 url=$(docker compose logs server 2>/dev/null | sed -n 's/.*\(https:\/\/[^ ?#]*\).*/\1/p' | tail -1)
 url=${url%/}
 # Les journaux peuvent dater d'un démarrage précédent : on demande au serveur si le compte existe déjà.
-has_account=$(docker compose exec -T server python -c "import json,urllib.request;print(json.load(urllib.request.urlopen('http://127.0.0.1:8080/api/status'))['has_account'])" 2>/dev/null || true)
+has_account=$(docker compose exec -T server python -c "import json,urllib.request;print(json.load(urllib.request.urlopen('http://127.0.0.1:8080/api/status'))['has_account'])" 2>/dev/null </dev/null || true)
 [ "$has_account" = "True" ] && code=""
 # Le compte existe : le mot de passe de départ ne reste pas sur le disque, il ne resservira jamais.
 if [ "$has_account" = "True" ] && grep -q '^NOAH_ADMIN_' .env; then
