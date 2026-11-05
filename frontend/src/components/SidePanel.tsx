@@ -2,6 +2,7 @@
 import { Archive, ArchiveRestore, ChevronDown, Download, ExternalLink, Eye, Hand, Loader2, LogIn, MonitorPlay, Power, RefreshCw, Sunrise, Users, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { type Agent, canAdmin, canTalk, type Conversation, get, mediaUrl, rawFileUrl, send, type Usage, type WorkspaceFile } from "@/lib/api";
+import { inAndroidApp } from "@/lib/platform";
 import { wireClipboard } from "@/lib/vncClipboard";
 import { cn, fileSize, money } from "@/lib/utils";
 import { AgentAppearance } from "./AgentAppearance";
@@ -11,7 +12,7 @@ import { AgentFace } from "./Noah";
 import { ShareDialog } from "./Sharing";
 import { STATE_WORD, StateShape } from "./Sidebar";
 import { Button, Dialog, DialogContent, Tabs, TabsContent, TabsList, TabsTrigger } from "./ui";
-import { useDownload } from "./Viewer";
+import { canFrame, useDownload } from "./Viewer";
 
 export type PanelTab = "details" | "files" | "computer";
 
@@ -29,6 +30,8 @@ export function SidePanel({
   threadId,
   onOpenThread,
   onArchiveThread,
+  technical,
+  onTechnical,
 }: {
   agent: Agent;
   /** Après un changement de cerveau : la liste des agents est relue. */
@@ -45,6 +48,9 @@ export function SidePanel({
   threadId: string | null;
   onOpenThread: (id: string | null) => void;
   onArchiveThread: (id: string, archived: boolean) => void;
+  /** Détails techniques du fil. Sur un téléphone, ce réglage vit ici plutôt que dans l'en-tête. */
+  technical: boolean;
+  onTechnical: (on: boolean) => void;
 }) {
   const admin = canAdmin(agent);
   return (
@@ -71,6 +77,10 @@ export function SidePanel({
               <Software agentId={agent.id} />
             </>
           )}
+          <label className="flex items-center justify-between gap-3 py-1 text-sm sm:hidden">
+            Afficher les détails techniques
+            <input type="checkbox" checked={technical} onChange={(e) => onTechnical(e.target.checked)} className="size-5 accent-[var(--accent)]" />
+          </label>
         </Details>
       </TabsContent>
       <TabsContent value="files" className="min-h-0 flex-1 overflow-y-auto">
@@ -315,7 +325,7 @@ function Files({ agentId, refreshKey }: { agentId: string; refreshKey: number })
           {s.items.slice(0, 100).map((f) => {
             const isApp = s.prefix === "apps/";
             const isImage = /\.(png|jpe?g|gif|webp)$/i.test(f.path);
-            const canPreview = isApp || isImage || /\.(html?|pdf|txt|md|csv|json|svg)$/i.test(f.path);
+            const canPreview = isApp || isImage || canFrame(f.path);
             const name = isApp ? f.path.split("/")[1] : f.path.replace(/^(outputs|uploads|captures)\//, "");
             const raw = rawFileUrl(agentId, f.path);
             return (
@@ -341,11 +351,13 @@ function Files({ agentId, refreshKey }: { agentId: string; refreshKey: number })
       <Dialog open={!!preview} onOpenChange={(o) => !o && setPreview(null)}>
         {preview && (
           <DialogContent title={preview.title} className="h-[min(85dvh,860px)] max-w-5xl p-4">
-            <div className="flex justify-end">
-              <Button variant="outline" size="sm" asChild>
-                <a href={preview.url} target="_blank" rel="noopener"><ExternalLink />Ouvrir dans un onglet</a>
-              </Button>
-            </div>
+            {!inAndroidApp() && (
+              <div className="flex justify-end">
+                <Button variant="outline" size="sm" asChild>
+                  <a href={preview.url} target="_blank" rel="noopener"><ExternalLink />Ouvrir dans un onglet</a>
+                </Button>
+              </div>
+            )}
             <iframe
               src={preview.url}
               title={preview.title}

@@ -6,15 +6,23 @@ const shell = Capacitor.Plugins.NoahShell;
 const scanner = Capacitor.Plugins.CapacitorBarcodeScanner;
 const $ = (id) => document.getElementById(id);
 
+/** Ferme le clavier, qui cacherait la suite, et amène ce qu'il faut lire à l'écran une fois la page redimensionnée. */
+function reveal(el) {
+  document.activeElement?.blur?.();
+  setTimeout(() => el.scrollIntoView({ block: "center", behavior: "smooth" }), 350);
+}
+
 const say = (text) => {
   $("wait").style.display = "none";
   $("error").textContent = text || "";
+  if (text) reveal($("error"));
 };
 /** Attente de l'accord : consigne calme et nombre bien lisible, pas une erreur. */
 function showWaiting(verification) {
   $("error").textContent = "";
   $("wait").replaceChildren("Sur l'appareil où le code est affiché, accepte ce téléphone et saisis :", Object.assign(document.createElement("b"), { textContent: verification }));
   $("wait").style.display = "block";
+  reveal($("wait"));
 }
 
 function origin(raw) {

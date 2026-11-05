@@ -1,6 +1,7 @@
 // Visionneuse : une image ou un fichier de l'agent s'ouvre ici, par-dessus le chat, sans quitter Noah Agent.
 import { Check, Copy, Download, ExternalLink } from "lucide-react";
 import { createContext, useCallback, useContext, useState } from "react";
+import { inAndroidApp } from "@/lib/platform";
 import { downloadFile } from "@/lib/utils";
 import { Button, Dialog, DialogContent } from "./ui";
 
@@ -19,7 +20,8 @@ export function useDownload() {
 }
 
 export const isImagePath = (p: string) => /\.(png|jpe?g|gif|webp|avif)$/i.test(p);
-export const canFrame = (p: string) => /\.(html?|pdf|txt|md|csv|json|svg|log)$/i.test(p);
+/** Dans l'app Android, un cadre PDF reste blanc et un cadre CSV se télécharge tout seul : ces fichiers ne s'y montrent pas. */
+export const canFrame = (p: string) => (inAndroidApp() ? /\.(html?|txt|md|json|svg|log)$/i : /\.(html?|pdf|txt|md|csv|json|svg|log)$/i).test(p);
 
 export function ViewerProvider({ children }: { children: React.ReactNode }) {
   const [item, setItem] = useState<Viewable | null>(null);
@@ -86,9 +88,11 @@ function ImageView({ item }: { item: Extract<Viewable, { kind: "image" }> }) {
         <Button variant="outline" size="sm" asChild>
           <a href={item.src} download={name}><Download />Télécharger</a>
         </Button>
-        <Button variant="ghost" size="sm" asChild>
-          <a href={item.src} target="_blank" rel="noopener"><ExternalLink />Ouvrir dans un onglet</a>
-        </Button>
+        {!inAndroidApp() && (
+          <Button variant="ghost" size="sm" asChild>
+            <a href={item.src} target="_blank" rel="noopener"><ExternalLink />Ouvrir dans un onglet</a>
+          </Button>
+        )}
       </div>
     </DialogContent>
   );
@@ -108,9 +112,11 @@ function FileView({ item }: { item: Extract<Viewable, { kind: "file" }> }) {
         <Button variant="outline" size="sm" asChild>
           <a href={`${item.url}?download=1`} onClick={(e) => { e.preventDefault(); download(`${item.url}?download=1`, item.title); }}><Download />Télécharger</a>
         </Button>
-        <Button variant="ghost" size="sm" asChild>
-          <a href={item.url} target="_blank" rel="noopener"><ExternalLink />Ouvrir dans un onglet</a>
-        </Button>
+        {!inAndroidApp() && (
+          <Button variant="ghost" size="sm" asChild>
+            <a href={item.url} target="_blank" rel="noopener"><ExternalLink />Ouvrir dans un onglet</a>
+          </Button>
+        )}
       </div>
     </DialogContent>
   );

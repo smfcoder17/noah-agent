@@ -5,6 +5,7 @@ import { useAuiState } from "@assistant-ui/react";
 import { Check, Download, ExternalLink, FileText, Maximize2, Reply } from "lucide-react";
 import { useContext, useEffect, useMemo, useState } from "react";
 import { mediaUrl, previewUrl, rawFileUrl } from "@/lib/api";
+import { inAndroidApp, nativeSave } from "@/lib/platform";
 import { cn, safeMedia } from "@/lib/utils";
 import { AgentContext } from "@/lib/agentContext";
 import { useQuotes, widgetQuote } from "@/lib/quotes";
@@ -50,10 +51,12 @@ function toCsv(columns: string[], rows: (string | number)[][]) {
 }
 
 function CsvButton({ columns, rows, name }: { columns: string[]; rows: (string | number)[][]; name: string }) {
-  const href = useMemo(() => URL.createObjectURL(new Blob(["﻿" + toCsv(columns, rows)], { type: "text/csv" })), [columns, rows]);
+  const text = "﻿" + toCsv(columns, rows);
+  const href = useMemo(() => URL.createObjectURL(new Blob([text], { type: "text/csv" })), [text]);
+  const file = `${name || "donnees"}.csv`;
   return (
     <Button asChild variant="outline" size="sm">
-      <a href={href} download={`${name || "donnees"}.csv`}><Download />CSV</a>
+      <a href={href} download={file} onClick={(e) => nativeSave(file, "text/csv", text) && e.preventDefault()}><Download />CSV</a>
     </Button>
   );
 }
@@ -239,7 +242,7 @@ function Preview({ spec }: { spec: PreviewSpec }) {
           {(image || frame) && (
             <Button size="sm" variant="outline" onClick={open}><Maximize2 />Agrandir</Button>
           )}
-          {frame && (
+          {frame && !inAndroidApp() && (
             <Button size="icon-sm" variant="ghost" asChild>
               <a href={url} target="_blank" rel="noopener" aria-label="Ouvrir dans un onglet"><ExternalLink /></a>
             </Button>
@@ -275,7 +278,7 @@ function Preview({ spec }: { spec: PreviewSpec }) {
           <FileText className="size-8 text-muted-foreground" />
           <span className="flex flex-col">
             <span className="font-medium">{name}</span>
-            <span className="text-xs text-muted-foreground">Cliquer pour télécharger</span>
+            <span className="text-xs text-muted-foreground">{inAndroidApp() ? "Toucher pour télécharger" : "Cliquer pour télécharger"}</span>
           </span>
         </a>
       )}

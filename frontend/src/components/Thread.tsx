@@ -356,6 +356,7 @@ function QuoteChips() {
 
 function AssistantMessage() {
   const { agentColor, agentShape, agentDetail } = useContext(AgentContext);
+  const busyActivity = useContext(WhileBusyContext).activity;
   const running = useAuiState((s) => s.message.status?.type === "running");
   const empty = useAuiState((s) => s.message.content.length === 0);
   const isLast = useAuiState((s) => s.thread.messages[s.thread.messages.length - 1]?.id === s.message.id);
@@ -364,9 +365,12 @@ function AssistantMessage() {
       <NoahTile color={agentColor} shape={agentShape} detail={agentDetail} state={running ? "thinking" : "idle"} still={!isLast} className="absolute top-2 left-0 hidden size-8 md:grid" />
       <div className="max-w-[92%] min-w-0">
         {empty && running ? (
-          <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
-            <Loader2 className="size-3.5 animate-spin text-accent" /> Réflexion…
-          </div>
+          // Un travail repris (app rouverte) dit déjà ce qu'il fait au-dessus de la saisie : pas deux indicateurs.
+          !busyActivity && (
+            <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
+              <Loader2 className="size-3.5 animate-spin text-accent" /> Réflexion…
+            </div>
+          )
         ) : (
           <MessagePrimitive.Parts components={{ Text: MarkdownText, tools: TOOLS }} />
         )}
@@ -418,9 +422,10 @@ function Composer({ onVoiceMode, inCall }: { onVoiceMode: () => void; inCall: bo
       <div className="flex flex-wrap gap-1.5 empty:hidden">
         <ComposerPrimitive.Attachments components={{ Attachment: AttachmentChip }} />
       </div>
-      <div className="flex items-end gap-1.5">
+      {/* Sur un téléphone, le texte a toute la largeur et les boutons passent dessous, comme dans les apps de chat. */}
+      <div className="flex items-end gap-1.5 max-sm:flex-wrap">
         <ComposerPrimitive.AddAttachment asChild multiple>
-          <Button variant="ghost" size="icon" aria-label="Joindre des fichiers" className="text-muted-foreground">
+          <Button variant="ghost" size="icon" aria-label="Joindre des fichiers" className="text-muted-foreground max-sm:mr-auto">
             <Paperclip />
           </Button>
         </ComposerPrimitive.AddAttachment>
@@ -429,7 +434,7 @@ function Composer({ onVoiceMode, inCall }: { onVoiceMode: () => void; inCall: bo
           rows={1}
           autoFocus={FINE_POINTER}
           placeholder={dictating ? "Parle, le texte arrive ici…" : running ? "Précise, pose une question, ou ajoute une demande…" : "Écris à ton agent…"}
-          className="max-h-48 min-h-9 flex-1 resize-none bg-transparent px-1 py-2 text-[15px] outline-none placeholder:text-muted-foreground"
+          className="max-h-48 min-h-9 flex-1 resize-none bg-transparent px-1 py-2 text-[15px] outline-none placeholder:text-muted-foreground max-sm:order-first max-sm:basis-full max-sm:px-2 max-sm:text-base"
           onKeyDown={(e) => {
             // Entrée pendant la dictée : on termine la transcription, puis le message part.
             if (dictating && e.key === "Enter" && !e.shiftKey) {
@@ -483,7 +488,7 @@ function WhileBusyPanel() {
   if (!busy.activity && !busy.waiting.length && !busy.sending.length) return null;
   return (
     <div className="mb-2 flex w-full flex-col gap-1 text-xs text-muted-foreground">
-      {busy.activity && <div className="truncate px-1">{busy.activity}…</div>}
+      {busy.activity && <div className="flex items-center gap-2 px-1"><Loader2 className="size-3.5 shrink-0 animate-spin text-accent" /><span className="truncate">{busy.activity}…</span></div>}
       {busy.sending.map((item) => (
         <div key={item.id} className="flex items-center gap-2 rounded-lg border border-border bg-surface px-2 py-1.5">
           <span className="shrink-0">{item.late ? "Réception à vérifier" : "Envoi"}</span>

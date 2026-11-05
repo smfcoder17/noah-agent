@@ -30,8 +30,9 @@ public class CallSession extends Service {
 
     private PowerManager.WakeLock awake;
 
-    static void start(Context context, String agent, String color) {
-        ContextCompat.startForegroundService(context, new Intent(context, CallSession.class).putExtra("agent", agent).putExtra("couleur", color));
+    static void start(Context context, String agent, String color, String shape, String detail) {
+        ContextCompat.startForegroundService(context, new Intent(context, CallSession.class).putExtra("agent", agent).putExtra("couleur", color)
+            .putExtra("forme", shape).putExtra("detail", detail));
     }
 
     static void stop(Context context) {
@@ -55,7 +56,8 @@ public class CallSession extends Service {
         // Présentée comme un appel : en tête du volet, sans son, Raccrocher visible sans rien déplier.
         String name = agent == null ? "ton agent" : agent;
         int color = NoahFace.colorOf(intent == null ? null : intent.getStringExtra("couleur"), name);
-        Person who = new Person.Builder().setName(name).setIcon(IconCompat.createWithBitmap(NoahFace.bitmap(this, color, 192))).build();
+        String shape = intent == null ? null : intent.getStringExtra("forme"), detail = intent == null ? null : intent.getStringExtra("detail");
+        Person who = new Person.Builder().setName(name).setIcon(IconCompat.createWithBitmap(NoahFace.bitmap(this, color, shape, detail, 192))).build();
         Notification note = new NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_noah).setContentTitle("En appel avec " + name)
             .setContentText("Le micro reste ouvert.").setOngoing(true).setCategory(NotificationCompat.CATEGORY_CALL)
