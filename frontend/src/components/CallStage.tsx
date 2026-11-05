@@ -12,12 +12,14 @@ import { canFrame, useDownload, useViewer } from "./Viewer";
 export const CALL_SLOT = "noah-call-slot";
 const PIP_WIDTH = 300; // plus étroit qu'aucun téléphone : c'est la fenêtre flottante
 const IMAGE = /\.(png|jpe?g|webp|gif|svg|avif)(\?|$)/i;
+const DATA_IMAGE = /^data:image\/(png|jpe?g|webp|gif|avif)[;,]/i; // ni SVG ni text/html : rien qui puisse porter un script
 
 export type Artefact = { kind: "image" | "file"; url: string; title: string };
 type Message = { role: string; content: readonly { type: string; text?: string; toolName?: string; args?: { label?: string } }[] };
 
-/** Ces adresses viennent du texte du modèle : une carte ne s'ouvre que sur du http(s), et un fichier que sur l'API de Noah. */
+/** Ces adresses viennent du texte du modèle : une carte ne s'ouvre que sur du http(s) ou une image intégrée, et un fichier que sur l'API de Noah. */
 function usable(url: string, kind: Artefact["kind"]) {
+  if (DATA_IMAGE.test(url)) return kind === "image";
   try {
     const u = new URL(url, location.href);
     if (u.protocol !== "https:" && u.protocol !== "http:") return false;
@@ -35,7 +37,7 @@ export function artefactsOf(messages: readonly Message[], link: (text: string) =
     for (const p of m.content) {
       if (p.type !== "text" || !p.text) continue;
       for (const [, bang, title, url] of link(p.text).matchAll(/(!?)\[([^\]]*)\]\(([^)\s]+)\)/g)) {
-        const kind = bang || IMAGE.test(url) ? "image" : "file";
+        const kind = bang || IMAGE.test(url) || DATA_IMAGE.test(url) ? "image" : "file";
         if (usable(url, kind)) found.set(url, { kind, url, title: title || (kind === "image" ? "Image" : "Fichier") });
       }
     }
@@ -78,9 +80,9 @@ function Face({ speaking, className }: { speaking: boolean; className: string })
 
 function ArtefactCard({ item, large }: { item: Artefact; large?: boolean }) {
   const view = useViewer();
+  const download = useDownload();
   const open = () => {
     if (item.kind === "image") view({ kind: "image", src: item.url, title: item.title });
-  const download = useDownload();
     else if (canFrame(item.url)) view({ kind: "file", url: item.url, title: item.title });
     else download(`${item.url}?download=1`, item.title);
   };
