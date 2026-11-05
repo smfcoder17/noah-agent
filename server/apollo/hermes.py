@@ -522,6 +522,13 @@ async def answer_approval(agent: Agent, run_id: str, request_id: str, generation
     r.raise_for_status()
 
 
+async def steer_run(agent: Agent, run_id: str, text: str) -> None:
+    """Glisse un message dans un run en cours, sans l'interrompre : Hermes le lui donne après le lot d'outils en cours."""
+    async with httpx.AsyncClient(timeout=10) as c:
+        r = await c.post(f"{agent.url}/v1/runs/{run_id}/steer", headers=agent.headers, json={"input": text})
+    r.raise_for_status()
+
+
 async def stop_run(agent: Agent, run_id: str) -> None:
     async with httpx.AsyncClient(timeout=10) as c:
         await c.post(f"{agent.url}/v1/runs/{run_id}/stop", headers=agent.headers)

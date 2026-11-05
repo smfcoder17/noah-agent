@@ -89,6 +89,19 @@ function apply(msg: ChatMessage, ev: ChatEvent, runId: string | null): ChatMessa
 
 const messagesCache = new Map<string, ChatMessage[]>();
 
+export type WhileBusyApi = {
+  active: boolean;
+  /** Travail lancé sans ce flux (une demande qui attendait, un autre écran) : sa ligne s'affiche près de la saisie. */
+  activity: string | null;
+  waiting: { id: string; text: string }[];
+  sending: string[];
+  send: (text: string) => void;
+  now: (id: string) => void;
+  cancel: (id: string) => void;
+};
+type Now = { occupe: boolean; activite: string | null; run_id: string | null; file: { id: string; text: string }[] };
+const IDLE: Now = { occupe: false, activite: null, run_id: null, file: [] };
+
 // Fonction stable : si elle changeait à chaque rendu, assistant-ui viderait son cache et reconvertirait tout le fil
 // à chaque image du flux, au lieu du seul message qui change.
 const convertMessage = (m: ChatMessage): ThreadMessageLike => ({
@@ -184,6 +197,91 @@ export function useAgentChat(opts: {
     }
   }, []);
 
+  // --- Pendant le travail : la saisie reste ouverte, et ce qui attend se voit. ---
+  const [serverNow, setServerNow] = useState<Now>(IDLE);
+  const [sending, setSending] = useState<string[]>([]);
+  const serverBusy = useRef(false);
+  serverBusy.current = serverNow.occupe;
+  const serverRun = useRef<string | null>(null);
+  serverRun.current = serverNow.run_id;
+
+  const reload = useCallback(async (conv: string) => {
+    const rows = await get<StoredMessage[]>(`/api/conversations/${conv}/messages`);
+    if (ownConversation.current === conv && !running.current) setMessages((cur) => (rows.length !== cur.length ? rows.map(fromStored) : cur));
+  }, []);
+
+  const refreshNow = useCallback(async () => {
+    const conv = ownConversation.current;
+    if (!conv) return setServerNow(IDLE);
+    const state = await get<Now>(`/api/conversations/${conv}/en-cours`).catch(() => null);
+    if (!state || ownConversation.current !== conv) return;
+    setServerNow(state);
+    if (!running.current) await reload(conv).catch(() => {}); // un travail sans flux ici : ses messages arrivent par là
+  }, [reload]);
+
+  useEffect(() => {
+    setServerNow(IDLE);
+    void refreshNow();
+  }, [conversationId, refreshNow]);
+  const watching = isRunning || serverNow.occupe || serverNow.file.length > 0 || sending.length > 0;
+  useEffect(() => {
+    if (!watching) return;
+    const timer = setInterval(() => void refreshNow(), 3000);
+    return () => clearInterval(timer);
+  }, [watching, refreshNow]);
+
+  const addBeforeRunning = useCallback((news: ChatMessage[]) => {
+    setMessages((all) => {
+      const i = all.findIndex((m) => m.running);
+      return i < 0 ? [...all, ...news] : [...all.slice(0, i), ...news, ...all.slice(i)];
+    });
+  }, []);
+
+  const sendWhileBusy = useCallback(
+    async (text: string) => {
+      const clientId = uid("c");
+      setSending((s) => [...s, text]);
+      let result: { type: string; reponse?: string } | null = null;
+      // Même identifiant à chaque essai : le serveur n'en fera qu'une demande.
+      for (let attempt = 0; attempt < 3 && !result; attempt++) {
+        if (attempt) await new Promise((r) => setTimeout(r, 1500));
+        result = await send<{ type: string; reponse?: string }>("/api/chat/pendant", {
+          agent_id: agentId,
+          conversation_id: ownConversation.current,
+          client_id: clientId,
+          text,
+        }).catch(() => null);
+      }
+      setSending((s) => s.filter((t) => t !== text));
+      const user: ChatMessage = { id: uid("u"), role: "user", content: [{ type: "text", text }] };
+      if (!result) {
+        addBeforeRunning([
+          user,
+          { id: uid("r"), role: "assistant", content: [{ type: "tool-call", toolCallId: uid("e"), toolName: "error", args: { message: "Ce message n'est pas parti : le serveur ne répond pas. Renvoie-le dans un instant.", detail: "" }, result: true }] },
+        ]);
+      } else if (result.type !== "tache") {
+        const parts: Part[] = result.reponse ? [{ type: "text", text: result.reponse }] : [];
+        if (result.type === "question") parts.push({ type: "tool-call", toolCallId: uid("s"), toolName: "send_aside", args: { id: clientId } });
+        addBeforeRunning(parts.length ? [user, { id: uid("r"), role: "assistant", content: parts }] : [user]);
+      }
+      void refreshNow();
+    },
+    [agentId, addBeforeRunning, refreshNow],
+  );
+
+  const whileBusy = useMemo<WhileBusyApi>(
+    () => ({
+      active: isRunning || serverNow.occupe,
+      activity: !isRunning && serverNow.occupe ? serverNow.activite || "Travaille sur ta demande" : null,
+      waiting: serverNow.file,
+      sending,
+      send: (text) => void sendWhileBusy(text),
+      now: (id) => void send(`/api/chat/file/${id}/maintenant`, {}).catch(() => {}).then(refreshNow),
+      cancel: (id) => void request(`/api/chat/file/${id}`, { method: "DELETE" }).catch(() => {}).then(refreshNow),
+    }),
+    [isRunning, serverNow, sending, sendWhileBusy, refreshNow],
+  );
+
   const onNew = useCallback(
     async (message: AppendMessage) => {
       const typed = message.content
@@ -194,6 +292,7 @@ export function useAgentChat(opts: {
       const attachments = (message.attachments ?? []).map((a) => a.id).filter((id) => id.startsWith("/opt/data/"));
       if (!typed) return;
       const text = (takeQuotes.current?.() ?? "") + typed;
+      if (running.current || serverBusy.current) return sendWhileBusy(text); // un message demandé par l'interface en plein travail
       const userMsg: ChatMessage = {
         id: uid("u"),
         role: "user",
@@ -256,13 +355,14 @@ export function useAgentChat(opts: {
         setRunning(false);
         runRef.current = { runId: null, abort: null };
         onRunFinished();
+        void refreshNow(); // ce qui attendait part maintenant
       }
     },
-    [agentId, details, onConversationCreated, onRunFinished, resync],
+    [agentId, details, onConversationCreated, onRunFinished, resync, sendWhileBusy, refreshNow],
   );
 
   const onCancel = useCallback(async () => {
-    const { runId } = runRef.current;
+    const runId = runRef.current.runId ?? serverRun.current;
     if (runId) await send(`/api/agents/${agentId}/runs/${runId}/stop`, {}).catch(() => {});
   }, [agentId]);
 
@@ -302,7 +402,7 @@ export function useAgentChat(opts: {
 
   const runtime = useExternalStoreRuntime<ChatMessage>({
     messages,
-    isRunning,
+    isRunning: isRunning || serverNow.occupe,
     onNew,
     onCancel,
     onAddToolResult,
@@ -310,5 +410,5 @@ export function useAgentChat(opts: {
     adapters: { attachments },
   });
 
-  return runtime;
+  return { runtime, whileBusy };
 }

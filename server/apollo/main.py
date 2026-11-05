@@ -24,7 +24,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import access, accounts, auth, catalog, coordination, db, desktop, events, handoff, hermes, machine, mcp, media, profiles, public, push, relay, updates, watch, precall, diagnostics
+from . import access, accounts, auth, catalog, coordination, db, desktop, events, handoff, hermes, machine, mcp, media, pendant, profiles, public, push, relay, updates, watch, precall, diagnostics
 from . import config
 from .config import WEB_DIR, forget_setup_code
 from .hermes import Agent
@@ -35,7 +35,8 @@ app = FastAPI(title="Noah Agent")
 @app.exception_handler(Exception)
 async def internal_error(request: Request, error: Exception):
     """Une panne de Noah : jamais de trace à l'écran, mais elle reste lisible dans Réglages > Diagnostic."""
-    diagnostics.failure(f"{request.method} {request.url.path}", error)
+    route = getattr(request.scope.get("route"), "path", request.url.path)  # le modèle de la route : un chemin peut porter un jeton
+    diagnostics.failure(f"{request.method} {route}", error)
     return JSONResponse({"detail": "Erreur interne de Noah Agent. Détails dans Réglages > Diagnostic."}, status_code=500)
 
 UNSAFE = {"POST", "PUT", "PATCH", "DELETE"}
@@ -115,6 +116,7 @@ async def startup() -> None:
     asyncio.create_task(updates.run(task_state))
     asyncio.create_task(push.run_queue())
     _migrate_threads()
+    pendant.resume()
     asyncio.create_task(_after_updates(_refresh_browsers))
     asyncio.create_task(machine.deliver_routines(_save_message, _main_conversation))
     watch.init()
@@ -1626,33 +1628,60 @@ async def chat(body: ChatMessage, request: Request, apollo_session: str | None =
                              media_type="text/event-stream")
 
 
-AFTER_WAIT = 3600  # une demande en attente abandonne au bout d'une heure, et le dit
-AFTER_POLL = 2
-_after_turns: set[asyncio.Task] = set()
+
+
+CLIENT_ID = r"^[A-Za-z0-9_-]{8,64}$"
 
 
 class LaterMessage(BaseModel):
     agent_id: str
     text: str = Field(min_length=1, max_length=20000)
     conversation_id: str | None = None
+    client_id: str | None = Field(default=None, pattern=CLIENT_ID)  # même envoi retransmis : une seule demande
 
 
-async def _after_turn(agent: Agent, conv_id: str, text: str, user: int) -> None:
-    deadline = time.monotonic() + AFTER_WAIT
-    while (coordination._busy(agent.id, conv_id) or updates.maintenance) and time.monotonic() < deadline:
-        await asyncio.sleep(AFTER_POLL)
-    if coordination._busy(agent.id, conv_id) or updates.maintenance:
-        _save_message(conv_id, "user", text)
-        _save_message(conv_id, "error", "Cette demande n'a pas pu partir : l'agent était encore occupé au bout d'une heure. Renvoie-la si besoin.",
-                      _error_details(agent, "Demande faite en appel, toujours en attente après une heure."))
-        return
+class WhileBusy(BaseModel):
+    agent_id: str
+    text: str = Field(min_length=1, max_length=20000)
+    client_id: str = Field(pattern=CLIENT_ID)
+    conversation_id: str | None = None
+    choix: str | None = Field(default=None, pattern="^(precision|tache)$")  # la personne a choisi elle-même : pas de tri
+
+
+async def _queued_turn(row: dict) -> None:
+    """Le tour d'une demande qui attendait. Suivi jusqu'au bout : la suivante ne part qu'après."""
+    agent, user = _agent(row["agent_id"]), row["user_id"]
     try:
-        async for _ in await _run(agent, conv_id, text, False, _speaker(user, agent.id) + machine.pop_context(conv_id)):
+        async for _ in await _run(agent, row["conversation_id"], row["text"], False, _speaker(user, agent.id) + machine.pop_context(row["conversation_id"])):
             pass
     except HTTPException:  # _run a déjà écrit le message et son échec
         pass
     except Exception as e:  # noqa: BLE001
-        diagnostics.failure("demande après l'appel", e, agent.id)
+        diagnostics.failure("demande en attente", e, agent.id)
+
+
+def _queued_expired(row: dict) -> None:
+    _save_message(row["conversation_id"], "user", row["text"])
+    _save_message(row["conversation_id"], "error", "Cette demande n'a pas pu partir : l'agent était encore occupé au bout d'un jour. Renvoie-la si besoin.",
+                  _error_details(_agent(row["agent_id"]), "Demande toujours en attente après le délai."))
+
+
+pendant.setup(
+    busy=lambda agent_id, conv: coordination._busy(agent_id, conv),
+    paused=lambda: updates.maintenance,
+    allowed=lambda user, agent_id: access.allowed(user, agent_id, "usage"),
+    run_turn=_queued_turn,
+    expired=_queued_expired,
+)
+
+
+def _own_conversation(user: int, agent: Agent, conv_id: str | None) -> str:
+    with db.connect() as c:
+        if conv_id and not c.execute(
+            "SELECT 1 FROM conversations WHERE id = ? AND user_id = ? AND agent_id = ?", (conv_id, user, agent.id)
+        ).fetchone():
+            raise HTTPException(404, "Conversation introuvable")
+    return conv_id or _main_conversation(agent.id, user) or _new_conversation(user, agent.id, "Conversation", main=True)
 
 
 @app.post("/api/chat/ensuite")
@@ -1660,18 +1689,114 @@ async def chat_after(body: LaterMessage, user: int = Depends(auth.current_user))
     """Une demande faite en appel pendant que l'agent travaille, puis raccroché : le serveur la garde jusqu'à ce qu'il ait
     fini. Sur le téléphone, l'écran peut se fermer juste après : ça ne peut pas rester du côté de l'application."""
     agent = _usable(user, body.agent_id)
-    conv_id = body.conversation_id
-    with db.connect() as c:
-        if conv_id and not c.execute(
-            "SELECT 1 FROM conversations WHERE id = ? AND user_id = ? AND agent_id = ?", (conv_id, user, agent.id)
-        ).fetchone():
-            raise HTTPException(404, "Conversation introuvable")
-    if not conv_id:
-        conv_id = _main_conversation(agent.id, user) or _new_conversation(user, agent.id, "Conversation", main=True)
-    task = asyncio.create_task(_after_turn(agent, conv_id, body.text, user))
-    _after_turns.add(task)
-    task.add_done_callback(_after_turns.discard)
+    conv_id = _own_conversation(user, agent, body.conversation_id)
+    if pendant.add(f"{user}:{body.client_id or uuid.uuid4().hex}", conv_id, agent.id, user, body.text):
+        pendant.start(agent.id, conv_id)
     return {"ok": True}
+
+
+def _conversation_run(conv_id: str) -> str | None:
+    return next((run_id for run_id, r in reversed(_runs.items()) if r["conv"] == conv_id), None)
+
+
+async def _steer(agent: Agent, conv_id: str, text: str) -> bool:
+    """Transmet au run en cours. False s'il n'y en a plus : à la personne de ne rien perdre, donc à la file."""
+    run_id = _conversation_run(conv_id)
+    if not run_id:
+        return False
+    try:
+        await hermes.steer_run(replace(agent, profile=_runs[run_id].get("profil")), run_id, text)
+    except (httpx.HTTPError, KeyError) as e:
+        diagnostics.record("précision pendant le travail", f"{type(e).__name__}: {e}", agent.id)
+        return False
+    return True
+
+
+def _recent_turns(conv_id: str) -> list[dict]:
+    with db.connect() as c:
+        rows = c.execute("SELECT role, text FROM messages WHERE conversation_id = ? AND role IN ('user', 'agent') ORDER BY id DESC LIMIT 6", (conv_id,)).fetchall()
+    return [{"role": "assistant" if r["role"] == "agent" else "user", "text": r["text"]} for r in reversed(rows)]
+
+
+@app.post("/api/chat/pendant")
+async def chat_while_busy(body: WhileBusy, user: int = Depends(auth.current_user)):
+    """Un message pendant le travail : réponse tout de suite, précision glissée dans le travail, ou demande à la suite.
+    Écrit avant toute réponse ; si le tri échoue, il attend son tour plutôt que de se perdre."""
+    agent = _usable(user, body.agent_id)
+    conv_id = _own_conversation(user, agent, body.conversation_id)
+    request_id = f"{user}:{body.client_id}"
+    if not pendant.add(request_id, conv_id, agent.id, user, body.text, pendant.TRI):
+        return pendant.known_result(request_id) or {"type": "tache", "reponse": ""}
+    kind, reply = body.choix, ""
+    if not coordination._busy(agent.id, conv_id):
+        kind = "tache"  # il vient de finir : elle part tout de suite
+    elif not kind:
+        with db.connect() as c:
+            row = c.execute("SELECT name, role FROM agents WHERE id = ?", (agent.id,)).fetchone()
+        try:
+            found = await media.triage(agent.id, row["name"], row["role"], body.text, _recent_turns(conv_id), task_activity.get(conv_id, ""))
+            kind, reply = found["type"], found["reponse"]
+        except media.MediaError as e:
+            diagnostics.record("tri pendant le travail", str(e), agent.id)
+            kind = "tache"
+    status = pendant.DONE
+    if kind == "question":
+        _save_message(conv_id, "user", body.text)
+        _save_message(conv_id, "agent", reply)
+        machine.add_context(conv_id, f"[Pendant ton travail, la personne a demandé : « {body.text[:1000]} ». Il lui a été répondu : « {reply} ».]\n\n")
+    elif kind == "precision" and await _steer(agent, conv_id, body.text):
+        _save_message(conv_id, "user", body.text)
+        reply = reply or "C'est transmis : il en tient compte après ce qu'il est en train de faire."
+    else:
+        kind, status = "tache", pendant.WAITING
+    result = {"type": kind, "reponse": reply, "conversation_id": conv_id}
+    pendant.settle(request_id, status, result)
+    if status == pendant.WAITING:
+        pendant.start(agent.id, conv_id)
+    return result
+
+
+@app.get("/api/conversations/{conv_id}/en-cours")
+def conversation_now(conv_id: str, user: int = Depends(auth.current_user)):
+    """Ce que l'agent fait dans cette conversation et ce qui attend, même si l'écran n'a pas lancé ce travail."""
+    agent_id = access.conversation(user, conv_id)["agent_id"]
+    busy = coordination._busy(agent_id, conv_id)
+    return {"occupe": busy, "activite": task_activity.get(conv_id) if busy else None, "run_id": _conversation_run(conv_id) if busy else None,
+            "file": [{"id": r["id"].split(":", 1)[1], "text": r["text"]} for r in pendant.waiting(conv_id)]}
+
+
+def _own_request(user: int, client_id: str) -> tuple[str, dict]:
+    request_id = f"{user}:{client_id}"  # le compte fait partie de l'identifiant : la demande d'un autre n'existe pas ici
+    row = pendant.get(request_id)
+    if not row:
+        raise HTTPException(404, "Demande introuvable")
+    access.access(user, row["agent_id"], "usage")
+    return request_id, row
+
+
+@app.post("/api/chat/file/{client_id}/maintenant")
+async def request_now(client_id: str, user: int = Depends(auth.current_user)):
+    """Corrige le tri : une demande à la suite, ou une question qui a eu sa réponse, part maintenant vers le travail en cours."""
+    request_id, row = _own_request(user, client_id)
+    agent, conv_id = _agent(row["agent_id"]), row["conversation_id"]
+    if row["status"] not in (pendant.WAITING, pendant.DONE):
+        raise HTTPException(404, "Demande introuvable")
+    if row["status"] == pendant.WAITING and not pendant.take(request_id):
+        return {"type": "tache"}
+    if await _steer(agent, conv_id, row["text"]):
+        if row["status"] == pendant.WAITING:
+            _save_message(conv_id, "user", row["text"])
+        return {"type": "precision"}
+    if row["status"] == pendant.WAITING:  # plus de travail en cours : elle reprend sa place et part
+        pendant.settle(request_id, pendant.WAITING)
+        pendant.start(agent.id, conv_id)
+    return {"type": "tache"}
+
+
+@app.delete("/api/chat/file/{client_id}")
+def request_cancel(client_id: str, user: int = Depends(auth.current_user)):
+    request_id, _ = _own_request(user, client_id)
+    return {"ok": pendant.take(request_id)}
 
 
 def _speaker(user: int, agent_id: str) -> str:
@@ -1730,9 +1855,15 @@ async def _guest_agent(agent: Agent, user: int | None) -> Agent:
     raw = json.dumps([_config_rev(agent.id), row["name"] if row else "", row["role"] if row else "", AGENT_SETUP_VERSION])
     version, key = hashlib.sha256(raw.encode()).hexdigest(), f"invite:{agent.id}:{profile}"
     if db.get_setting(key) != version:
-        await hermes.prepare_guest(agent.id, profile)
-        db.set_setting(key, version)
+        async with _guest_locks.setdefault(key, asyncio.Lock()):  # deux premiers messages en même temps : un seul prépare
+            if db.get_setting(key) != version:
+                await hermes.prepare_guest(agent.id, profile)
+                db.set_setting(key, version)
     return replace(agent, profile=profile)
+
+
+_guest_locks: dict[str, asyncio.Lock] = {}
+task_activity: dict[str, str] = {}  # la dernière ligne de travail de chaque conversation, pour un écran qui arrive en cours de route
 
 
 async def _start_run(agent: Agent, text: str, session: str) -> str:
@@ -1760,6 +1891,9 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
         rev = "aucune"
     trial = db.get_setting("onboarded") == "0"  # essai de l'assistant : borné, et arrêté s'il est abandonné
     launched_by = _conversation_owner(conv_id)  # avant l'attente : le profil peut disparaître, avec ses conversations
+    if launched_by is not None and not access.allowed(launched_by, agent.id, "usage"):  # accès retiré depuis la demande : on ne prépare rien
+        task_state[conv_id] = "idle"
+        raise HTTPException(404, "Agent introuvable")
     try:
         agent = await _guest_agent(agent, launched_by)
         run_id = await _start_run(agent, context + prompt, f"apollo-{conv_id}")
@@ -1844,6 +1978,8 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
                         push.notify("Noah attend ton accord", str(out.get("summary") or "Une action demande ton accord."),
                                     urgent=True, user_id=target)
                 task_state[conv_id] = "approve" if out["type"] == "approval" else "work"
+                if out["type"] == "activity":
+                    task_activity[conv_id] = out["label"]
                 if out["type"] == "message":
                     reply.append(out["text"])
                 yield _sse(out)
@@ -2055,21 +2191,47 @@ def _preview_signature(body: str) -> str:
     return hmac.new(config.SECRET_KEY.encode(), f"apercu:{body}".encode(), hashlib.sha256).hexdigest()
 
 
+PREVIEW_SHARED_FOLDERS = {"outputs", "uploads"}
+_PAGE_REFERENCE = re.compile(r"""(?:src|href|poster|data-src)\s*=\s*["']([^"'#?]+)|url\(\s*["']?([^"')#?]+)""", re.I)
+
+
+def _page_references(page: bytes, folder: str, limit: int = 100) -> list[str]:
+    """Les fichiers qu'une page cite en chemin relatif, sous son dossier. Lue au moment du lien : ce qu'elle cite alors est connu."""
+    found: list[str] = []
+    for match in _PAGE_REFERENCE.finditer(page[:2_000_000].decode("utf-8", "replace")):
+        cited = (match.group(1) or match.group(2)).strip()
+        if ":" in cited or cited.startswith(("/", "\\")):
+            continue
+        path = posixpath.normpath(posixpath.join(folder, cited))
+        if path.startswith("..") or (folder and not path.startswith(folder + "/")) or path in found:
+            continue
+        found.append(path)
+    return found[:limit]
+
+
 class PreviewAsk(BaseModel):
     path: str = Field(min_length=1, max_length=1000)
 
 
 @app.post("/api/agents/{agent_id}/apercu")
-def preview_link(agent_id: str, body: PreviewAsk, user: int = Depends(auth.current_user)):
+async def preview_link(agent_id: str, body: PreviewAsk, user: int = Depends(auth.current_user)):
     """Le lien d'une page montrée dans son bac à sable. Son origine est opaque : le navigateur n'y envoie aucun cookie, donc
     ses images et ses données en chemins relatifs échouaient. Ce lien vaut pour son dossier seulement, et il suit les droits.
-    Une page à la racine ou dans outputs/ ne voit pas tout : à la racine, elle-même ; dans outputs/, ce dossier de livrables."""
+    Une page à la racine ou posée directement dans un dossier commun (outputs/, uploads/) ne voit pas ses voisins : seulement
+    elle-même et les fichiers qu'elle cite. Dans son propre dossier (une app), elle voit ce dossier."""
     _usable(user, agent_id)
     path = posixpath.normpath(body.path.removeprefix(WORKSPACE))
     if path.startswith(("/", "..")) or path == ".":
         raise HTTPException(400, "Chemin hors de l'espace de travail")
     folder, name = posixpath.split(path)
-    token = base64.urlsafe_b64encode(json.dumps([agent_id, user, folder or path, bool(folder), int(time.time()) + PREVIEW_SECONDS]).encode()).decode().rstrip("=")
+    own_folder = bool(folder) and folder not in PREVIEW_SHARED_FOLDERS
+    files = [path]
+    if not own_folder:
+        with contextlib.suppress(httpx.HTTPError):
+            page = await hermes.read_file(agent_id, path)
+            if page.status_code == 200:
+                files += _page_references(page.content, folder)
+    token = base64.urlsafe_b64encode(json.dumps([agent_id, user, folder if own_folder else files, int(time.time()) + PREVIEW_SECONDS]).encode()).decode().rstrip("=")
     return {"url": f"/api/apercu/{token}.{_preview_signature(token)}/{quote(name)}"}
 
 
@@ -2078,11 +2240,16 @@ async def preview_file(token: str, path: str, request: Request):
     body, _, signature = token.partition(".")
     if not hmac.compare_digest(signature, _preview_signature(body)):
         raise HTTPException(403, "Lien d'aperçu invalide")
-    agent_id, user, scope, is_folder, expires = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
+    agent_id, user, scope, expires = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
     if time.time() > expires or not access.allowed(user, agent_id, "usage"):
         raise HTTPException(403, "Lien d'aperçu expiré")
-    wanted = posixpath.normpath(posixpath.join(scope, path) if is_folder else path)
-    if not (wanted.startswith(scope + "/") if is_folder else wanted == scope):
+    if isinstance(scope, str):  # le dossier de l'app
+        wanted = posixpath.normpath(posixpath.join(scope, path))
+        allowed = wanted.startswith(scope + "/")
+    else:  # la page et ce qu'elle cite, à côté d'elle
+        wanted = posixpath.normpath(posixpath.join(posixpath.dirname(scope[0]), path))
+        allowed = wanted in scope
+    if not allowed:
         raise HTTPException(403, "Hors du dossier de cet aperçu")
     r = await hermes.read_file(agent_id, wanted)
     if r.status_code != 200:

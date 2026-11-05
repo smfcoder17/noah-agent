@@ -45,6 +45,10 @@ cases = {
     "Error code: 403 - key has no access": "refusé ta clé",
     "Error code: 402 - insufficient credits": "plus de crédit",
     "Error code: 429 - rate limit exceeded": "limite les requêtes",
+    "HTTP 429: quota exceeded": "limite les requêtes",
+    "HTTP 403: content policy violation": "selon ses règles",
+    "HTTP 503: upstream credential expired": "en panne",
+    "Your API key has expired": "a expiré",
     "Error code: 404 - model not found: deepseek/x": "modèle",
     "No endpoints found for deepseek/x": "modèle",
     "maximum context length is 8192 tokens": "trop longue",
@@ -61,6 +65,8 @@ for own in ("Budget mensuel de 5.00 $ atteint. Augmente-le dans Noah Agent pour 
             "Plafond du jour de 1.00 $ atteint pour cet agent. Il reprend demain, ou augmente le plafond dans Noah Agent.",
             relay.UNREACHABLE):
     assert events.friendly_error(own) == own, "les phrases de Noah restent telles quelles"
+    assert "sk-or" not in events.friendly_error("Budget exhausted; key=sk-or-v1-syntheticsecret123"), "un préfixe de Noah ne laisse pas passer une clé"
+    assert "syntheticsecret" not in events.friendly_error("Budget exhausted; token=syntheticsecret123")
 print("1. les erreurs connues sont traduites, les autres renvoient aux détails")
 
 # 2. Les détails ne laissent passer aucun secret.

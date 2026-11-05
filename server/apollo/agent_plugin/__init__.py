@@ -305,12 +305,28 @@ def _guest_command_ok(command: str) -> bool:
     return len(words) >= 3 and words[0] == "python3" and words[1] == f"{DATA}/noah.py" and words[2] in GUEST_NOAH
 
 
-_PATCH_TARGET = re.compile(r"^\s*\*{3}\s*(?:(?:update|delete|add)\s+file|move\s+to)\s*:\s*(.+?)\s*$", re.I | re.M)
+_PATCH_FILE = re.compile(r"\*\*\*\s*(?:update|add|delete)\s+file:\s*(.+)", re.I)
+_PATCH_MOVE = re.compile(r"\*\*\*\s*move\s+file:\s*(.+?)\s*->\s*(.+)", re.I)
+_PATCH_MOVE_TO = re.compile(r"\*\*\*\s*move\s+to:\s*(.+)", re.I)
+_PATCH_FRAME = re.compile(r"^\s*\*\*\*\s*(?:begin\s+patch|end\s+patch|end\s+of\s+file)\s*$", re.I)
+_UNKNOWN_PATCH = "/"  # une opération qu'on ne sait pas lire vaut un chemin toujours refusé à une personne invitée
 
 
 def _patch_targets(args: dict) -> list[str]:
-    """Les fichiers qu'un patch V4A touche vraiment : ils sont dans ses en-têtes, pas dans son argument « path »."""
-    return _PATCH_TARGET.findall(str(args.get("patch") or ""))
+    """Les fichiers qu'un patch V4A touche vraiment : ils sont dans ses en-têtes, pas dans son argument « path ». Hermes reconnaît
+    ces en-têtes n'importe où dans la ligne (tools/patch_parser.py), donc on les cherche de même ; un faux positif refuse, jamais l'inverse."""
+    targets: list[str] = []
+    for line in str(args.get("patch") or "").split("\n"):
+        line = line.removesuffix("\r")
+        move = _PATCH_MOVE.search(line)
+        one = _PATCH_FILE.search(line) or _PATCH_MOVE_TO.search(line)
+        if move:
+            targets += [move.group(1).strip(), move.group(2).strip()]
+        elif one:
+            targets.append(one.group(1).strip())
+        elif line.lstrip().startswith("***") and not _PATCH_FRAME.match(line):
+            targets.append(_UNKNOWN_PATCH)
+    return targets
 
 
 def check_guest(tool_name: str, args: dict, home: str) -> str | None:
@@ -330,7 +346,10 @@ def check_guest(tool_name: str, args: dict, home: str) -> str | None:
         path = args.get("path") if "path" in args else "." if tool_name == "search_files" else ""
         if tool_name == "search_files" and path == ".":
             return None  # le terminal et ses fichiers partent du dossier de travail
-        if _guest_path_ok(str(path or ""), home) and all(_guest_path_ok(t, home) for t in _patch_targets(args)):
+        targets = _patch_targets(args)
+        # En mode patch, Hermes n'utilise pas « path » : seules les cibles comptent, et un patch sans cible n'a rien à faire ici.
+        wanted = targets if args.get("mode") == "patch" else [str(path or ""), *targets]
+        if wanted and all(_guest_path_ok(t, home) for t in wanted):
             return None
     else:
         return f"Noah refuse : l'outil « {tool_name} » n'est pas ouvert à cette personne sur cet agent. Dis-le simplement."

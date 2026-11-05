@@ -14,7 +14,7 @@ import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import { ArrowDown, ArrowUp, Check, Copy, FileText, Loader2, Paperclip, Reply, Square, TriangleAlert, X } from "lucide-react";
 import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import remarkGfm from "remark-gfm";
-import { AgentContext } from "@/lib/agentContext";
+import { WhileBusyContext, AgentContext } from "@/lib/agentContext";
 import { mediaUrl, rawFileUrl, send } from "@/lib/api";
 import { imageQuote, splitQuotes, useQuotes } from "@/lib/quotes";
 import { NoahTile } from "./Noah";
@@ -221,7 +221,32 @@ function Detail({ args }: ToolCallMessagePartProps) {
   );
 }
 
-const TOOLS = { by_name: { activity: Activity, approval: Approval, error: ErrorPart, detail: Detail } };
+/** Sous une réponse rapide : le tri peut se tromper, un clic la transmet quand même à l'agent. */
+function SendAside({ args }: { args: { id: string } }) {
+  const busy = useContext(WhileBusyContext);
+  const [sent, setSent] = useState(false);
+  if (!busy.active && !sent) return null;
+  return (
+    <div className="not-prose mt-1 text-xs text-muted-foreground">
+      {sent ? (
+        "Transmis à l'agent."
+      ) : (
+        <button
+          type="button"
+          className="underline underline-offset-2 hover:text-foreground"
+          onClick={() => {
+            setSent(true);
+            busy.now(args.id);
+          }}
+        >
+          Le transmettre aussi à l'agent
+        </button>
+      )}
+    </div>
+  );
+}
+
+const TOOLS = { by_name: { activity: Activity, approval: Approval, error: ErrorPart, detail: Detail, send_aside: SendAside } };
 
 // --- Messages ------------------------------------------------------------------------
 
@@ -370,7 +395,18 @@ function Composer({ onVoiceMode, inCall }: { onVoiceMode: () => void; inCall: bo
   const dictation = useDictation();
   const running = useAuiState((s) => s.thread.isRunning);
   const dictating = dictation.state !== "idle";
+  const busy = useContext(WhileBusyContext);
+  const aui = useAui();
+  const sendWhileBusy = () => {
+    const composer = aui.thread().composer();
+    const text = composer.getState().text.trim();
+    if (!text) return;
+    composer.setText("");
+    busy.send(text);
+  };
   return (
+    <>
+    <WhileBusyPanel />
     <ComposerPrimitive.Root className="flex w-full flex-col gap-2 rounded-2xl border border-border bg-surface p-2 shadow-sm focus-within:border-accent">
       <QuoteChips />
       <div className="flex flex-wrap gap-1.5 empty:hidden">
@@ -386,13 +422,17 @@ function Composer({ onVoiceMode, inCall }: { onVoiceMode: () => void; inCall: bo
           data-composer-input
           rows={1}
           autoFocus={FINE_POINTER}
-          placeholder={dictating ? "Parle, le texte arrive ici…" : "Écris à ton agent…"}
+          placeholder={dictating ? "Parle, le texte arrive ici…" : running ? "Précise, pose une question, ou ajoute une demande…" : "Écris à ton agent…"}
           className="max-h-48 min-h-9 flex-1 resize-none bg-transparent px-1 py-2 text-[15px] outline-none placeholder:text-muted-foreground"
           onKeyDown={(e) => {
             // Entrée pendant la dictée : on termine la transcription, puis le message part.
             if (dictating && e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               void dictation.finish(!running);
+            } else if (running && e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              // Pendant le travail, la saisie reste ouverte : le message est trié, jamais perdu.
+              e.preventDefault();
+              sendWhileBusy();
             }
           }}
         />
@@ -418,12 +458,44 @@ function Composer({ onVoiceMode, inCall }: { onVoiceMode: () => void; inCall: bo
           )}
         </ThreadPrimitive.If>
         <ThreadPrimitive.If running>
+          <Button type="button" size="icon" aria-label="Envoyer" title="Il répond tout de suite ; le travail continue" className="rounded-xl" onClick={sendWhileBusy}>
+            <ArrowUp />
+          </Button>
           <ComposerPrimitive.Cancel asChild>
             <Button size="icon" variant="outline" aria-label="Arrêter" className="rounded-xl"><Square className="fill-current" /></Button>
           </ComposerPrimitive.Cancel>
         </ThreadPrimitive.If>
       </div>
     </ComposerPrimitive.Root>
+    </>
+  );
+}
+
+/** Au-dessus de la saisie : ce que fait un travail lancé ailleurs, et les demandes qui attendent leur tour. */
+function WhileBusyPanel() {
+  const busy = useContext(WhileBusyContext);
+  if (!busy.activity && !busy.waiting.length && !busy.sending.length) return null;
+  return (
+    <div className="mb-2 flex w-full flex-col gap-1 text-xs text-muted-foreground">
+      {busy.activity && <div className="truncate px-1">{busy.activity}…</div>}
+      {busy.sending.map((text, i) => (
+        <div key={i} className="truncate rounded-lg border border-border bg-surface px-2 py-1.5">Envoi : {text}</div>
+      ))}
+      {busy.waiting.map((item) => (
+        <div key={item.id} className="flex items-center gap-2 rounded-lg border border-border bg-surface px-2 py-1">
+          <span className="shrink-0">À la suite</span>
+          <span className="min-w-0 flex-1 truncate text-foreground">{item.text}</span>
+          {busy.active && (
+            <button type="button" className="shrink-0 underline underline-offset-2 hover:text-foreground" onClick={() => busy.now(item.id)}>
+              Maintenant
+            </button>
+          )}
+          <button type="button" className="shrink-0 underline underline-offset-2 hover:text-foreground" onClick={() => busy.cancel(item.id)}>
+            Retirer
+          </button>
+        </div>
+      ))}
+    </div>
   );
 }
 

@@ -75,4 +75,34 @@ def refused():
 r = web.get("/essai-docker")
 assert r.status_code == 502 and "range of CPUs" in r.json()["detail"], r.text
 print("4. un refus de Docker est rendu avec sa raison")
+
+# 4. Lecture d'un fichier : aucun lien suivi, même dans un dossier intermédiaire. Le script tourne ici comme dans l'agent.
+import pathlib  # noqa: E402
+import subprocess  # noqa: E402
+import tempfile  # noqa: E402
+
+base = pathlib.Path(tempfile.mkdtemp())
+secret = base / "google_token.json"
+secret.write_text("SECRET")
+work = base / "workspace"
+(work / "apps/jeu").mkdir(parents=True)
+(work / "apps/jeu/index.html").write_text("page")
+(work / "apps/jeu/assets").symlink_to(base)
+(work / "apps/jeu/lien.txt").symlink_to(secret)
+os.mkfifo(work / "tube")
+(work / "gros.bin").write_bytes(b"x" * 2000)
+
+
+def run(rel, limit=1000):
+    r = subprocess.run([sys.executable, "-c", launcher.READ_NO_LINK, str(work), rel, str(limit)], capture_output=True, timeout=10)
+    return r.returncode, r.stdout
+
+
+assert run("apps/jeu/index.html") == (0, b"page")
+assert run("apps/jeu/assets/google_token.json")[0] == 45, "lien dans un dossier intermédiaire"
+assert run("apps/jeu/lien.txt")[0] == 45, "lien en dernier"
+assert run("tube")[0] == 45, "pas un fichier"
+assert run("absent.txt")[0] == 44 and run("apps/absent/x")[0] == 44
+assert run("gros.bin")[0] == 46
+print("4. lecture : aucun lien suivi, ni fichier spécial ; trop lourd et absent reconnus")
 print("OK")

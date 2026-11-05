@@ -32,8 +32,12 @@ FILES = {
     "apps/jeu/assets/lion.jpg": b"JPEG",
     "apps/jeu/data.json": b"{}",
     "apps/autre/secret.txt": b"AUTRE",
-    "outputs/rapport.html": b"<h1>Rapport</h1>",
+    "outputs/rapport.html": b"<h1>Rapport</h1><img src='graphe.png'><a href='../notes.txt'>x</a><img src='https://ailleurs.example/x.png'><style>a{background:url(fond.jpg)}</style>",
     "outputs/graphe.png": b"PNG",
+    "outputs/fond.jpg": b"JPG",
+    "outputs/autre-client.txt": b"CONFIDENTIEL",
+    "uploads/page.html": b"<h1>Page</h1>",
+    "uploads/piece.pdf": b"PDF",
     "notes.txt": b"NOTES",
     "racine.html": b"<h1>Racine</h1>",
 }
@@ -83,6 +87,17 @@ root = link("racine.html").json()["url"]
 assert anonymous.get(root).status_code == 200
 assert anonymous.get(root.rsplit("/", 1)[0] + "/notes.txt").status_code == 403
 print("3. une page à la racine ne voit qu'elle-même")
+
+# 3 bis. Dans un dossier commun, une page ne lit que ce qu'elle cite : pas les autres livrables.
+report = link("outputs/rapport.html").json()["url"]
+near = report.rsplit("/", 1)[0]
+assert anonymous.get(report).status_code == 200
+assert anonymous.get(f"{near}/graphe.png").content == b"PNG" and anonymous.get(f"{near}/fond.jpg").content == b"JPG", "ce qu'elle cite"
+assert anonymous.get(f"{near}/autre-client.txt").status_code == 403, "un livrable voisin"
+assert anonymous.get(f"{near}/..%2Fnotes.txt").status_code in (403, 404), "un chemin cité hors du dossier ne compte pas"
+page = link("uploads/page.html").json()["url"]
+assert anonymous.get(page.rsplit("/", 1)[0] + "/piece.pdf").status_code == 403, "un fichier envoyé ne voit pas les autres"
+print("3 bis. dans outputs/ et uploads/, une page ne lit que ce qu'elle cite")
 
 # 4. Jeton faux, expiré, ou droits retirés.
 head, tail = entry.removeprefix("/api/apercu/").split("/", 1)

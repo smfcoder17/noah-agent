@@ -14,7 +14,7 @@ os.environ.setdefault("APOLLO_SECRET_KEY", "y" * 32)
 sys.path.insert(0, "/app")
 import httpx  # noqa: E402
 
-from apollo import auth, db, hermes, main  # noqa: E402
+from apollo import auth, db, hermes, main, pendant  # noqa: E402
 
 db.init()
 alice = auth.create_user("alice", "motdepasse-a")
@@ -23,7 +23,7 @@ with db.connect() as c:
     c.execute("INSERT INTO agents (id, name, role, api_key, owner_id) VALUES ('a1', 'Noah', '', 'k', ?)", (alice,))
 db.set_setting("provider", "openrouter")
 db.set_setting("onboarded", "1")
-main.AFTER_POLL = 0.02
+pendant.POLL = 0.02
 conv = main._new_conversation(alice, "a1", "Conversation", main=True)
 started: list[str] = []
 refuse = [False]
@@ -57,7 +57,7 @@ def rows(conversation=conv):
 async def settle():
     for _ in range(100):
         await asyncio.sleep(0.02)
-        if not main._after_turns:
+        if all(t.done() for t in pendant._drains.values()):
             return
     raise AssertionError("la demande attend encore")
 
@@ -99,13 +99,13 @@ async def everything():
     print("4. agent arrêté : la demande et l'échec restent écrits")
 
     # 5. Trop longtemps occupé : ce n'est pas perdu en silence.
-    main.AFTER_WAIT = 0.05
+    pendant.WAIT = 0.05
     main.task_state[conv] = "work"
     await later(alice, "Trop tard")
     await settle()
     assert rows()[-2] == ("user", "Trop tard") and rows()[-1][0] == "error", rows()[-2:]
     main.task_state[conv] = "done"
-    main.AFTER_WAIT = 3600
+    pendant.WAIT = 86400
     print("5. agent occupé trop longtemps : écrit, et dit")
 
     # 6. Les droits de /api/chat.

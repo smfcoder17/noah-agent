@@ -47,6 +47,16 @@ CREATE TABLE IF NOT EXISTS usage (
   cost REAL NOT NULL,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS pending_requests (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  agent_id TEXT NOT NULL,
+  user_id INTEGER NOT NULL,
+  text TEXT NOT NULL,
+  status TEXT NOT NULL,
+  result TEXT,
+  created_at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS messages (
   id INTEGER PRIMARY KEY,
   conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,

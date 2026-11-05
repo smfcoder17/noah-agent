@@ -9,27 +9,109 @@ Le détail brut (appels d'outils, arguments) n'est envoyé que si l'interface de
 """
 import re
 
+from .diagnostics import mask
+
 # Ce que l'utilisateur voit pendant le travail : une seule ligne, remplacée au fil de l'eau.
 # Les étapes qui ont un sens pour lui ont leur libellé ; les commandes, fichiers, compétences et la
 # mémoire restent sans détail technique, mais la ligne dit que l'agent avance (sinon il semble figé).
-TOOL_LABELS = {
-    "web_search": "Cherche sur le web",
-    "web_extract": "Lit une page web",
-    "browser": "Navigue sur le web",
-    "cronjob": "Planifie une tâche",
-    "delegate_task": "Confie une partie du travail à un sous-agent",
-    "vision_analyze": "Regarde une image",
-}
+LABEL_MAX = 90
 
 
-def tool_label(name: str) -> str | None:
-    if name in TOOL_LABELS:
-        return TOOL_LABELS[name]
+def _name(path: object) -> str:
+    return str(path or "").rstrip("/").rsplit("/", 1)[-1]
+
+
+def _site(url: object) -> str:
+    match = re.match(r"(?:[a-z+]+://)?(?:www\.)?([^/?#\s]+)", str(url or ""), re.I)
+    return match.group(1) if match else ""
+
+
+def _quoted(text: object, limit: int = 60) -> str:
+    text = " ".join(str(text or "").split())
+    return text[:limit] + ("…" if len(text) > limit else "")
+
+
+def _noah_tool(words: list[str]) -> str:
+    action = words[2] if len(words) > 2 else ""
+    return {"image": "Crée une image", "video": "Crée une vidéo", "son": "Crée un son", "installer": "Installe un logiciel", "fil": "Ouvre un fil de travail",
+            "rappeler": "Te rappelle", "appeler": "Te rappelle"}.get(action, "Utilise ses outils")
+
+
+def _command_label(command: str) -> str:
+    words = command.split()
+    if not words:
+        return "Lance une commande"
+    if words[0] == "python3" and len(words) > 1 and words[1].endswith("noah.py"):
+        return _noah_tool(words)
+    first = words[0].rsplit("/", 1)[-1]
+    second = words[1] if len(words) > 1 else ""
+    if first in ("npm", "pnpm", "yarn", "pip", "pip3", "apt", "apt-get") and second in ("install", "i", "add"):
+        return "Installe des dépendances"
+    if first == "git" and second:
+        return {"clone": "Récupère un dépôt", "commit": "Enregistre son travail (git)", "status": "Regarde l'état du dépôt", "diff": "Relit ses changements",
+                "log": "Lit l'historique du dépôt", "push": "Envoie son travail (git)", "pull": "Récupère les changements"}.get(second, f"git {second}")
+    if first in ("ls", "find", "tree"):
+        return "Regarde les fichiers"
+    if first in ("cat", "head", "tail", "less", "sed", "grep", "rg"):
+        return "Lit des fichiers"
+    if first in ("rm", "rmdir"):
+        return "Supprime des fichiers"
+    if first in ("mkdir", "cp", "mv", "touch"):
+        return "Range des fichiers"
+    if first in ("curl", "wget"):
+        site = next((_site(w) for w in words[1:] if "://" in w), "")
+        return f"Télécharge depuis {site}" if site else "Télécharge un fichier"
+    if first == "ffmpeg":
+        return "Traite une vidéo ou un son"
+    return f"Lance : {_quoted(command, 60)}"
+
+
+def tool_label(name: str, args: dict | None = None, preview: str | None = None) -> str | None:
+    """La ligne de travail : ce que fait cet appel-ci, pas le nom de l'outil. Déterministe, donc immédiate et gratuite."""
+    args = args if isinstance(args, dict) else {}
+    named = {
+        "web_search": lambda: f"Cherche « {_quoted(args.get('query'))} »" if args.get("query") else "Cherche sur le web",
+        "web_extract": lambda: f"Lit {_site((args.get('urls') or [''])[0] if isinstance(args.get('urls'), list) else args.get('url'))}" if (args.get("urls") or args.get("url")) else "Lit une page web",
+        "browser_navigate": lambda: f"Ouvre {_site(args.get('url'))}" if args.get("url") else "Ouvre une page",
+        "browser_click": lambda: "Clique dans la page",
+        "browser_type": lambda: "Écrit dans la page",
+        "browser_press": lambda: "Appuie sur une touche dans la page",
+        "browser_scroll": lambda: "Fait défiler la page",
+        "browser_back": lambda: "Revient à la page précédente",
+        "browser_snapshot": lambda: "Regarde la page",
+        "browser_vision": lambda: "Regarde la page",
+        "browser_console": lambda: "Lit la console de la page",
+        "browser_get_images": lambda: "Regarde les images de la page",
+        "terminal": lambda: _command_label(str(args.get("command", ""))),
+        "process": lambda: "Suit une commande en cours",
+        "read_file": lambda: f"Lit {_name(args.get('path'))}" if args.get("path") else "Lit un fichier",
+        "write_file": lambda: f"Écrit {_name(args.get('path'))}" if args.get("path") else "Écrit un fichier",
+        "patch": lambda: f"Modifie {_name(args.get('path'))}" if args.get("path") else "Modifie des fichiers",
+        "search_files": lambda: f"Cherche « {_quoted(args.get('pattern'))} » dans les fichiers" if args.get("pattern") else "Cherche dans les fichiers",
+        "vision_analyze": lambda: f"Regarde {_name(args.get('image_url'))}" if args.get("image_url") and "://" not in str(args.get("image_url")) else "Regarde une image",
+        "image_generate": lambda: "Crée une image",
+        "text_to_speech": lambda: "Prépare un message vocal",
+        "execute_code": lambda: "Exécute un petit programme",
+        "delegate_task": lambda: f"Confie à un sous-agent : {_quoted(args.get('goal'))}" if args.get("goal") else "Confie une partie du travail à un sous-agent",
+        "cronjob": lambda: "Planifie une tâche",
+        "memory": lambda: "Met à jour sa mémoire",
+        "session_search": lambda: "Cherche dans vos anciennes conversations",
+        "skill_view": lambda: f"Consulte la compétence {args.get('name')}" if args.get("name") else "Consulte une compétence",
+        "skills_list": lambda: "Regarde ses compétences",
+        "skill_manage": lambda: "Met à jour une compétence",
+        "todo": lambda: "Organise son travail",
+        "clarify": lambda: "Prépare une question pour toi",
+        "send_message": lambda: "Envoie un message",
+    }
+    if name in named:
+        return named[name]()
     if name.startswith("browser"):
-        return TOOL_LABELS["browser"]
+        return "Agit dans le navigateur"
     if name.startswith("mcp_") or "__" in name:
-        return "Utilise une app connectée"
-    return "Travaille sur ta demande"
+        parts = [p for p in re.split(r"_+", name.removeprefix("mcp_")) if p]
+        return f"Utilise {parts[0]}" if parts else "Utilise une app connectée"
+    preview = _quoted(preview, LABEL_MAX - 2)
+    return preview or f"Utilise l'outil {name.replace('_', ' ')}"
 
 
 # Les phrases écrites par Noah lui-même (relais, budget) sont déjà faites pour la personne.
@@ -37,12 +119,18 @@ _OWN = re.compile(r"^(Budget |Plafond du jour|Le modèle est injoignable|Aucun m
 # Du plus précis au plus général. Une erreur inconnue n'est jamais montrée brute : elle reste dans les détails.
 _KNOWN = (
     (r"unknown_execution", "Un redémarrage a coupé le travail précédent et cette conversation reste bloquée. Réessaie dans un instant."),
-    (r"expired", "Ta clé API a expiré. Crée-en une nouvelle chez ton fournisseur, puis colle-la dans Réglages > Cerveau."),
+    (r"content.?(policy|filter)|moderation|flagged|safety (system|polic)",
+     "Le fournisseur a refusé ce contenu selon ses règles. Reformule la demande, ou choisis un autre modèle dans Réglages > Cerveau."),
+    # Une panne chez lui, même si elle parle de clé : la tienne n'y est pour rien.
+    (r"(http|status|code|error)\D{0,10}5\d\d\b", "Le fournisseur est surchargé ou en panne pour le moment. Réessaie dans quelques minutes."),
+    (r"\b429\b|rate.?limit|too many requests",
+     "Le fournisseur limite les requêtes ou le quota de ce compte est atteint. Réessaie dans une minute ; si ça continue, regarde ton compte chez lui."),
+    (r"(key|token|credential).{0,30}expired|expired.{0,30}(key|token|credential)",
+     "Ta clé API a expiré. Crée-en une nouvelle chez ton fournisseur, puis colle-la dans Réglages > Cerveau."),
     (r"\b40[13]\b|authenticat|unauthorized|api key|x-api-key|invalid.{0,12}key|forbidden",
      "Le fournisseur a refusé ta clé API : elle est invalide ou n'a plus accès. Remplace-la dans Réglages > Cerveau."),
     (r"\b402\b|credit|quota|insufficient|billing",
      "Le compte du fournisseur n'a plus de crédit ou a atteint sa limite. Recharge-le, ou choisis un autre modèle dans Réglages > Cerveau."),
-    (r"\b429\b|rate.?limit|too many requests", "Le fournisseur limite les requêtes pour le moment. Réessaie dans une minute."),
     (r"no endpoints|model.{0,40}(not found|not exist|unavailable|invalid)|not a valid model|\b404\b",
      "Ce modèle n'est plus disponible chez le fournisseur. Choisis-en un autre dans Réglages > Cerveau."),
     (r"context.{0,20}(length|window|size)|too (long|large)|token limit",
@@ -57,7 +145,7 @@ def friendly_error(raw: str) -> str:
     if not raw:
         return "Le travail s'est arrêté avant la fin."
     if _OWN.match(raw):
-        return raw
+        return mask(raw)[:500]  # un préfixe ne prouve pas l'origine : ce qui suit peut venir du fournisseur
     for pattern, sentence in _KNOWN:
         if re.search(pattern, raw, re.I):
             return sentence
@@ -73,7 +161,9 @@ def translate(kind: str, data: dict, details: bool) -> dict | None:
         tool = data.get("tool") or data.get("tool_name") or data.get("name") or ""
         if tool.startswith("_"):  # réflexion interne
             return None
-        label = tool_label(tool)
+        args = data.get("args") or data.get("arguments")
+        label = tool_label(tool, args, data.get("preview"))
+        label = mask(label)[:LABEL_MAX] if label else label  # une commande peut contenir une clé
         if details:
             return {"type": "activity", "label": label or tool, "detail": {"tool": tool, "preview": data.get("preview")}}
         return {"type": "activity", "label": label} if label else None

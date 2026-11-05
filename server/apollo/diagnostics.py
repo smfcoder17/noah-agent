@@ -14,6 +14,8 @@ _PATTERNS = (
     re.compile(r"sk-[A-Za-z0-9_-]{6,}"),
     re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]{8,}"),
     re.compile(r"(?i)(x-api-key[\"']?\s*[:=]\s*[\"']?)[A-Za-z0-9._-]{8,}"),
+    re.compile(r"(?i)((?:api[_-]?key|key|token|secret|password)[\"']?\s*[:=]\s*[\"']?)[^\s\"',;&]{6,}"),
+    re.compile(r"(/api/apercu/)[^/\s\"']+"),  # ce lien vaut accès tant qu'il n'a pas expiré
 )
 
 
@@ -39,7 +41,7 @@ def mask(text: str) -> str:
 
 def record(where: str, text: str, agent: str | None = None) -> None:
     masked = mask(text)
-    _recent.append({"quand": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()) + " UTC", "ou": where, "agent": agent, "texte": masked[-4000:]})
+    _recent.append({"quand": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()) + " UTC", "ou": mask(where), "agent": agent, "texte": masked[-4000:]})
     print(f"[diagnostic] {where} {agent or ''} : {masked[-1500:]}", flush=True)
 
 

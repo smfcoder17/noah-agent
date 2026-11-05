@@ -114,6 +114,13 @@ for header in ("*** Update File: /opt/data/memories/MEMORY.md", "*** Delete File
                "  ***  update file:  ../memories/MEMORY.md", "*** Update File: outputs/x.txt\n*** Move to: /opt/data/SOUL.md",
                "*** Update File: outputs/x.txt\n*** Delete File: /opt/data/state.db"):
     assert refused_for_guest("patch", mode="patch", path="n.txt", patch=f"*** Begin Patch\n{header}\n@@\n+x\n*** End Patch"), f"patch accepté : {header}"
+# La grammaire qu'Hermes exécute : un déplacement a deux chemins, l'en-tête peut être précédé de texte, et l'inconnu se refuse.
+for body in ("*** Move File: /opt/data/google_token.json -> outputs/vole.json", "*** Move File: outputs/a.txt -> /opt/data/.env",
+             "x *** Update File: /opt/data/.env", "*** Copy File: /opt/data/.env", "*** Update File: outputs/a.txt\n*** Move to: /opt/data/.env"):
+    assert refused_for_guest("patch", mode="patch", path="outputs/anodin.txt", patch=f"*** Begin Patch\n{body}\n*** End Patch"), f"patch accepté : {body}"
+assert not refused_for_guest("patch", mode="patch", patch="*** Begin Patch\n*** Move File: outputs/a.txt -> outputs/b.txt\n*** End Patch"), "déplacement dans le dossier commun"
+assert not refused_for_guest("patch", mode="patch", patch="*** Begin Patch\n*** Add File: outputs/ok.txt\n+ok\n*** End Patch"), "en mode patch, Hermes ne demande pas de path"
+assert refused_for_guest("patch", mode="patch", patch="rien"), "patch sans cible"
 assert not refused_for_guest("patch", mode="patch", path="n.txt", patch="*** Begin Patch\n*** Update File: outputs/n.txt\n@@\n+x\n*** End Patch"), "un patch dans le dossier commun passe"
 assert not refused_for_guest("patch", mode="replace", path="n.txt", old_string="a", new_string="b"), "un remplacement simple dans le dossier commun passe"
 assert refused_for_guest("vision_analyze", image_url="/opt/data/browser_screenshots/x.png")

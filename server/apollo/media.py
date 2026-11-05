@@ -672,6 +672,51 @@ async def voice_reply(agent_id: str, name: str, role: str, text: str, history: l
     return result
 
 
+CHAT_TRIAGE = """Tu es {name}. Une autre partie de toi exécute un long travail ; toi, tu réponds tout de suite à la personne, sans aucun outil.{role}
+Ce que l'agent fait en ce moment : {doing}
+
+Classe le nouveau message et rends uniquement ce JSON : {{"type": "question" | "precision" | "tache", "reponse": "..."}}
+- "question" : tu peux y répondre avec la conversation ci-dessus ou ce que tu sais déjà (avancement, ce que tu fais, un fait simple). Réponds vraiment, en une ou deux phrases. Si répondre demande de chercher, ne devine pas : c'est une "precision".
+- "precision" : elle corrige, précise, ajoute une information, change de direction ou veut arrêter le travail en cours. Il sera transmis sans interrompre. "reponse" : une très courte phrase qui le dit.
+- "tache" : une demande sans lien avec le travail en cours, à faire après. "reponse" : une très courte phrase qui le dit.
+Écris dans sa langue, sans jargon."""
+
+
+async def triage(agent_id: str, name: str, role: str, text: str, history: list[dict], doing: str) -> dict:
+    """Le cerveau toujours disponible : quelques secondes, aucun outil, et le contexte réduit à la fin de la conversation."""
+    _check_budget(agent_id)
+    base, headers, fallbacks = await _voice_target()
+    system = CHAT_TRIAGE.format(name=name, role=f"\nRôle de l'agent : {role[:600]}" if role else "", doing=doing or "il avance sur la demande en cours")
+    messages = [{"role": "system", "content": system}]
+    messages += [{"role": "assistant" if h.get("role") == "assistant" else "user", "content": str(h.get("text", ""))[:1500]} for h in history[-6:]]
+    messages.append({"role": "user", "content": text[:4000]})
+    for i, model in enumerate(fallbacks):
+        body = {"model": model, "messages": messages, "max_tokens": 200, "temperature": 0.2, "response_format": {"type": "json_object"}}
+        if base == BASE:
+            body |= {"provider": {"sort": "latency"}, "usage": {"include": True}}
+        if "gpt-oss" in model:
+            if base == BASE:
+                body["reasoning"] = {"effort": "low", "exclude": True}
+            else:
+                body["reasoning_effort"] = "low"
+        try:
+            r = await relay.upstream_client().post(f"{base}/chat/completions", json=body, headers=headers, timeout=12)
+            if r.status_code != 200:
+                raise _fail(r)
+            answer = r.json()
+            content = answer["choices"][0]["message"]["content"]
+            data = json.loads(content[content.find("{"): content.rfind("}") + 1])
+            kind = data.get("type")
+            if kind not in ("question", "precision", "tache") or (kind == "question" and not str(data.get("reponse", "")).strip()):
+                raise MediaError("Tri illisible.")
+            _record(agent_id, model, (answer.get("usage") or {}).get("cost"))
+            return {"type": kind, "reponse": str(data.get("reponse", "")).strip()[:1500]}
+        except (httpx.HTTPError, MediaError, ValueError, KeyError, IndexError, TypeError, AttributeError) as e:
+            if i == len(fallbacks) - 1:
+                raise MediaError(f"Tri indisponible : {e}") from e
+    raise MediaError("Aucun modèle rapide.")
+
+
 # --- Voix en flux ---------------------------------------------------------------------------
 # Le navigateur ouvre /api/voice/audio/<id> pendant que le serveur produit le son : la lecture commence au premier
 # morceau de MP3 reçu, sans attendre la fin de la réponse du modèle ni celle de la synthèse.

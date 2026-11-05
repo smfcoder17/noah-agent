@@ -374,6 +374,9 @@ QUERIES = {"/api/agents/{agent_id}/media": {"path": "/x.png"}, "/api/agents/{age
 # Routes avec un identifiant qui n'appartient à aucun agent. Chacune a sa raison et, quand c'est possible, sa vérification.
 WHITELIST = {
     ("GET", "/api/apercu/{token}/{path:path}"): "Sans session : le lien signé porte le compte, le dossier et l'expiration, et suit les droits (apercu_test).",
+    ("POST", "/api/chat/pendant"): "Mêmes droits que /api/chat : agent utilisable et conversation à ce compte (pendant_test).",
+    ("POST", "/api/chat/file/{client_id}/maintenant"): "L'identifiant contient le compte : la demande d'un autre n'existe pas ici (pendant_test).",
+    ("DELETE", "/api/chat/file/{client_id}"): "L'identifiant contient le compte : la demande d'un autre n'existe pas ici (pendant_test).",
     ("POST", "/api/chat/ensuite"): "Mêmes droits que /api/chat : agent utilisable et conversation à ce compte (ensuite_test).",
     ("GET", "/api/pairing/flow/{public}"): "Demande d'appairage : identifiant aléatoire ; le premier compte qui la voit en devient le seul titulaire (vérifié par test_personal et pairing_test).",
     ("POST", "/api/pairing/flow/{public}/{decision}"): "Même titulaire exigé pour accepter ou refuser ; le nombre à recopier protège le reste (pairing_test).",

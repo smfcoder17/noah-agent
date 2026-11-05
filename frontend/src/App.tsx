@@ -16,7 +16,7 @@ import type { SettingsTab } from "@/components/Settings";
 import { ViewerProvider } from "@/components/Viewer";
 import { Button } from "@/components/ui";
 import { type Agent, ApiError, canAdmin, canTalk, type Conversation, type CurrentModel, currentAuthEpoch, get, type Me, request, send, setClientVersion, type Status, type Usage } from "@/lib/api";
-import { AgentContext } from "@/lib/agentContext";
+import { WhileBusyContext, AgentContext } from "@/lib/agentContext";
 import { takeAsk } from "@/lib/askAgent";
 import { clearShare, pendingShare } from "@/lib/share";
 import { appShell, tooOld } from "@/lib/platform";
@@ -545,7 +545,7 @@ type ChatProps = {
 function AgentChat(props: ChatProps) {
   const quotes = useQuoteState();
   const takeQuotes = quotes.take;
-  const runtime = useAgentChat({
+  const { runtime, whileBusy } = useAgentChat({
     agentId: props.agent.id,
     ...props,
     takeQuotes: useCallback(() => {
@@ -608,11 +608,13 @@ function AgentChat(props: ChatProps) {
   );
   return (
     <AssistantRuntimeProvider runtime={runtime}>
+      <WhileBusyContext.Provider value={whileBusy}>
       <AgentContext.Provider value={context}>
         <QuoteContext.Provider value={quotes.value}>
           <Thread report={props.report} onReportRead={props.onReportRead} onCall={onCall} />
         </QuoteContext.Provider>
       </AgentContext.Provider>
+      </WhileBusyContext.Provider>
     </AssistantRuntimeProvider>
   );
 }

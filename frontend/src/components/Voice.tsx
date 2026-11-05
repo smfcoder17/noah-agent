@@ -697,7 +697,7 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
     void request("/api/chat/ensuite", {
       method: "POST",
       keepalive: true,
-      body: JSON.stringify({ agent_id: agentId, conversation_id: conversationId, text: waiting.map((q) => q.text).join("\n") }),
+      body: JSON.stringify({ agent_id: agentId, conversation_id: conversationId, client_id: crypto.randomUUID(), text: waiting.map((q) => q.text).join("\n") }),
     }).catch(() => {});
   };
 

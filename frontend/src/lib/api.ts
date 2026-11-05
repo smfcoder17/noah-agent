@@ -282,15 +282,15 @@ export const mediaUrl = (agentId: string, path: string) =>
 
 /** Fichier de l'espace de travail ; accepte un chemin relatif ou complet (/opt/data/workspace/...). */
 /** Lien d'une page montrée dans son bac à sable : elle y charge ses images et ses données, sans cookie. */
-const previewLinks = new Map<string, Promise<string>>();
+const PREVIEW_REUSE_MS = 60 * 60 * 1000; // le serveur l'accepte 24 h
+const previewLinks = new Map<string, { link: Promise<string>; at: number }>();
 export const previewUrl = (agentId: string, path: string): Promise<string> => {
-  const key = `${agentId}|${path}`;
-  let link = previewLinks.get(key);
-  if (!link) {
-    link = send<{ url: string }>(`/api/agents/${agentId}/apercu`, { path }).then((r) => r.url);
-    link.catch(() => previewLinks.delete(key));
-    previewLinks.set(key, link);
-  }
+  const key = `${currentAuthEpoch()}|${agentId}|${path}`; // jamais le lien de la personne connectée avant
+  const known = previewLinks.get(key);
+  if (known && Date.now() - known.at < PREVIEW_REUSE_MS) return known.link;
+  const link = send<{ url: string }>(`/api/agents/${agentId}/apercu`, { path }).then((r) => r.url);
+  link.catch(() => previewLinks.delete(key));
+  previewLinks.set(key, { link, at: Date.now() });
   return link;
 };
 

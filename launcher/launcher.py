@@ -315,20 +315,47 @@ def list_files(agent_id: str):
     return files
 
 
+# Lit un fichier depuis l'agent en ouvrant chaque dossier sans suivre de lien : un lien posé dans l'espace de travail ne mène
+# jamais à ses secrets. Exécuté dans le conteneur, parce que seul lui sait ce que sont ces chemins au moment de l'ouverture.
+READ_NO_LINK = r"""
+import os, stat, sys
+root, rel, limit = sys.argv[1], sys.argv[2], int(sys.argv[3])
+fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+parts = [p for p in rel.split("/") if p]
+try:
+    for part in parts[:-1]:
+        fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+    fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+except FileNotFoundError:
+    sys.exit(44)
+except OSError:
+    sys.exit(45)
+info = os.fstat(fd)
+if not stat.S_ISREG(info.st_mode):
+    sys.exit(45)
+if info.st_size > limit:
+    sys.exit(46)
+with os.fdopen(fd, "rb") as f:
+    sys.stdout.buffer.write(f.read())
+"""
+
+
+def _read_no_link(c, root: str, rel: str, limit: int) -> bytes:
+    res = c.exec_run(["python3", "-c", READ_NO_LINK, root, rel, str(limit)], user="root", stdout=True, stderr=False)
+    if res.exit_code == 44:
+        raise HTTPException(404, "Fichier introuvable")
+    if res.exit_code == 46:
+        raise HTTPException(413, "Fichier trop lourd")
+    if res.exit_code != 0:
+        raise HTTPException(400, "Ce n'est pas un fichier")
+    return res.output
+
+
 @app.get("/agents/{agent_id}/file", dependencies=[Depends(auth)])
 def read_workspace_file(agent_id: str, path: str):
     full = _workspace_path(path)
-    try:
-        stream, stat = container(check_id(agent_id)).get_archive(full)
-    except NotFound:
-        raise HTTPException(404, "Fichier introuvable")
-    if stat["size"] > FILE_MAX:
-        raise HTTPException(413, "Fichier trop lourd")
-    with tarfile.open(fileobj=io.BytesIO(b"".join(stream))) as tar:
-        member = tar.getmembers()[0]
-        if not member.isfile():
-            raise HTTPException(400, "Ce n'est pas un fichier")
-        return Response(tar.extractfile(member).read(), media_type="application/octet-stream")
+    data = _read_no_link(container(check_id(agent_id)), WORKSPACE, full.removeprefix(WORKSPACE + "/"), FILE_MAX)
+    return Response(data, media_type="application/octet-stream")
 
 
 @app.put("/agents/{agent_id}/upload", dependencies=[Depends(auth)])
@@ -547,14 +574,8 @@ def media(agent_id: str, path: str):
     ext = os.path.splitext(path)[1].lower()
     if ".." in path or ext not in MEDIA_TYPES or not path.startswith(MEDIA_ROOTS):
         raise HTTPException(400, "Fichier non autorisé")
-    try:
-        stream, stat = container(agent_id).get_archive(path)
-    except NotFound:
-        raise HTTPException(404, "Image introuvable")
-    if stat["size"] > MEDIA_MAX:
-        raise HTTPException(413, "Image trop lourde")
-    with tarfile.open(fileobj=io.BytesIO(b"".join(stream))) as tar:
-        data = tar.extractfile(tar.getmembers()[0]).read()
+    base = next(r for r in MEDIA_ROOTS if path.startswith(r))
+    data = _read_no_link(container(agent_id), base, path.removeprefix(base), MEDIA_MAX)
     return Response(data, media_type=MEDIA_TYPES[ext], headers={"Cache-Control": "private, max-age=86400"})
 
 
