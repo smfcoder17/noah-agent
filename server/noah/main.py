@@ -321,6 +321,10 @@ class Credentials(BaseModel):
     installation: str = Field(default="", max_length=64)
 
 
+class NewAccount(Credentials):
+    password: str = Field(min_length=auth.PASSWORD_MIN, max_length=256)
+
+
 PLATFORMS = ("web", "desktop", "android", "ios")
 
 
@@ -884,10 +888,6 @@ LOGIN_ACCOUNT_TRIES = 30
 # Sur la durée, 30 par 10 min laisseraient plus de 4 000 essais par jour sur un compte, depuis des adresses toujours neuves.
 LOGIN_ACCOUNT_DAY_TRIES, LOGIN_ACCOUNT_DAY = 200, 86400
 _decoy_hash: bytes | None = None
-
-
-class NewAccount(Credentials):
-    password: str = Field(min_length=auth.PASSWORD_MIN, max_length=256)
 
 
 class Login(Credentials):
