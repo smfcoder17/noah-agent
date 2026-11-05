@@ -201,10 +201,14 @@ function useTranscripts(agentId: string, onText: (text: string) => void) {
   return { submit, settle, inFlight, pending, error, setError };
 }
 
-/** La réponse s'est arrêtée sur une coupure : voir useAgentChat, qui recharge la conversation au retour du serveur. */
-function isCutOff(m: { content: readonly { type: string; toolName?: string; args?: unknown }[] } | undefined) {
-  return !!m?.content.some((p) => p.type === "tool-call" && p.toolName === "error" && String((p.args as { message?: unknown })?.message).startsWith("Connexion au serveur perdue"));
+/** Le tour s'est fini sur cette erreur. */
+function failureOf(m: { content: readonly { type: string; toolName?: string; args?: unknown }[] } | undefined) {
+  const part = m?.content.find((p) => p.type === "tool-call" && p.toolName === "error");
+  return part ? String((part.args as { message?: unknown })?.message ?? "") : "";
 }
+
+/** Une coupure, et non un échec : voir useAgentChat, qui recharge la conversation au retour du serveur. */
+const isCutOff = (m: Parameters<typeof failureOf>[0]) => failureOf(m).startsWith("Connexion au serveur perdue");
 
 /** Ce qu'on lit à voix haute : le texte de la réponse, sans widgets, code ni mise en forme. */
 function spoken(text: string) {
@@ -694,7 +698,7 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
   }, [askedId]);
 
   // L'agent a fini : on lit le résumé de ce qu'il a fait (s'il a agi), puis la demande suivante part.
-  const finished = (result: string) => {
+  const finished = (result: string, failed = false) => {
     busy.current = false;
     started.current = false;
     cutOff.current = null;
@@ -702,7 +706,7 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
       // Un agent rapide finit pendant l'accusé de réception : son résultat attend la fin de la phrase, et le tri de ce tour-ci.
       if (answering.current) action.current = await answering.current;
       answering.current = null;
-      if (action.current && result.trim() && alive.current) {
+      if ((failed || action.current) && result.trim() && alive.current) {
         // Réponse déjà courte : on la lit telle quelle, sans repasser par le modèle rapide.
         const short = spoken(result);
         try {
@@ -713,7 +717,7 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
         }
       }
       if (!alive.current) return;
-      setNote("");
+      setNote(failed ? result : "");
       // Ce qui a été dit pendant qu'il travaillait part en un seul message ; la voix rapide y a déjà répondu.
       const waiting = queue.current.splice(0);
       if (waiting.length && alive.current) {
@@ -740,7 +744,10 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
       setNote(`Connexion perdue : ${agentName} continue de son côté, je te lis la suite dès son retour.`);
       return;
     }
-    finished(last?.role === "assistant" ? textOf(last) : "");
+    // Un échec se dit : sinon l'appel resterait sur « Je t'écoute », comme si le travail se faisait.
+    const failure = failureOf(last);
+    if (failure) finished(`${agentName} n'a pas pu répondre. ${failure}`, true);
+    else finished(last?.role === "assistant" ? textOf(last) : "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [running]);
 

@@ -151,7 +151,7 @@ export function CallStage(props: {
         </div>
         <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-5 px-4 py-4 md:flex-row md:items-stretch">
           <div className="flex flex-col items-center justify-center gap-4 text-center md:flex-1">
-            <div className="py-8"><Face speaking={speaking} className={latest ? "size-24" : "size-36"} /></div>
+            <div className="py-12"><Face speaking={speaking} className={latest ? "size-24" : "size-36"} /></div>
             <p className={cn("text-lg font-semibold", phase === "error" && "text-warn")} aria-live="polite">{status}</p>
             <p className="line-clamp-2 max-w-md text-sm text-muted-foreground">{hint}</p>
             {phase !== "error" && !speaking && <span className="text-accent">{level}</span>}

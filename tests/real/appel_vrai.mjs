@@ -74,7 +74,7 @@ try {
   // Une tâche qui prend du temps et produit un fichier.
   const mark = Date.now() % 100000;
   const t0 = Date.now();
-  await voice(`Fais-moi un graphique en barres des ventes, janvier dix, février vingt, mars quinze, enregistre-le en image PNG nommée ventes ${mark}, et montre-le-moi.`);
+  await voice(`Crée-moi une image d'un petit robot bleu qui lit un rapport dans un bureau, et montre-la-moi. Ceci est l'essai ${mark}.`);
   const steps = call.getByRole("region", { name: "Ce que fait l'agent" }).or(call.getByLabel("Ce que fait l'agent"));
   check("le travail de l'agent se voit dans l'appel", await steps.waitFor({ timeout: 90000 }).then(() => true, () => false), `${seconds(t0)} s`);
   await shot("travail");

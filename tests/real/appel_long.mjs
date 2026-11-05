@@ -133,6 +133,12 @@ check("message perdu en route : il repart au retour", await page.getByText(new R
 check("et sa réponse seule est lue", await until(() => read.some((t) => t.includes(`Morceau ${RUN} ${lostAt + 1}`)), 15) && read.length === 1, JSON.stringify(read));
 await page.waitForTimeout(6000);
 
+// L'agent ne peut pas répondre : l'appel le dit, au lieu de rester sur « Je t'écoute ».
+await page.route(/\/api\/chat/, (route) => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ detail: "Agent hors ligne." }) }), { times: 1 });
+await say(1000);
+check("agent indisponible : l'appel le dit", await call.getByText(/n'a pas pu répondre/).waitFor({ timeout: 20000 }).then(() => true, () => false));
+await page.waitForTimeout(3000);
+
 // Le micro disparaît (une autre application l'a pris) : l'appel en rouvre un, sans erreur.
 const mics = await page.evaluate(() => window.__mics);
 await page.evaluate(() => {

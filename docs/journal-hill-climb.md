@@ -511,3 +511,11 @@ APK de la CI, relié au VPS, faux modèle, sans son.
   - bouton Répondre coupé par son animation.
 - **Non prouvé :** vrai son (`-no-audio`), vrai téléphone, Doze sur plusieurs heures, 4G. La fenêtre flottante a son bouton Raccrocher, pas essayé : c'est le bouton de la notification qui l'a été.
 - **Vu pendant l'essai :** un premier redémarrage du conteneur d'essai sur le VPS est resté 6 min sans rien démarrer, le second a marché en 55 s. Cause non cherchée : c'est le conteneur d'essai, pas une installation réelle.
+
+### L'appel avec un vrai agent
+
+`tests/real/appel_vrai.mjs` : pile locale, vrai modèle, vraie synthèse dans un faux micro, un seul essai. Demande à la voix : créer une image et la montrer.
+
+- **Tenu :** le travail de l'agent se voit dans l'appel à 19,5 s. Une question posée pendant le travail a sa réponse parlée en 7 s (« Rome »), puis part à l'agent. L'image de 2 048 px arrive dans l'appel à 49 s et s'ouvre d'un clic.
+- **Défaut trouvé parce que l'agent était arrêté :** l'appel restait sur « Je t'écoute » alors que la demande avait échoué. L'appel dit maintenant que l'agent n'a pas pu répondre. Testé par `appel_long.mjs`, avec un refus simulé.
+- **Limites :** personne n'a écouté le son, faux micro. Le nom de l'image est affiché tel quel, long et peu lisible.
