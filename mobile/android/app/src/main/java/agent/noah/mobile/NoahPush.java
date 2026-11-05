@@ -14,6 +14,8 @@ import android.media.RingtoneManager;
 import android.os.Build;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
+import androidx.core.app.Person;
+import androidx.core.graphics.drawable.IconCompat;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -255,12 +257,18 @@ public class NoahPush extends PushService {
         manager.createNotificationChannel(channel);
         Intent screen = new Intent(context, CallActivity.class).putExtra(CallActivity.TITLE, title).putExtra(CallActivity.URL, url)
             .putExtra(CallActivity.NOTIFICATION, id).putExtra(CallActivity.COLOR, color).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        PendingIntent full = PendingIntent.getActivity(context, id, screen, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        int flags = PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT;
+        PendingIntent full = PendingIntent.getActivity(context, id, screen, flags);
+        // Écran allumé, Android n'ouvre pas le plein écran : c'est ce bandeau qui répond ou refuse.
+        PendingIntent answer = PendingIntent.getActivity(context, id + 1, new Intent(screen).putExtra(CallActivity.CHOICE, CallActivity.ANSWERED), flags);
+        PendingIntent decline = PendingIntent.getActivity(context, id + 2, new Intent(screen).putExtra(CallActivity.CHOICE, CallActivity.DECLINED), flags);
+        Person who = new Person.Builder().setName(title).setIcon(IconCompat.createWithBitmap(NoahFace.bitmap(context, color, 192))).build();
         NotificationCompat.Builder n = new NotificationCompat.Builder(context, CALLS)
             .setSmallIcon(R.drawable.ic_stat_noah).setContentTitle(title).setContentText(text)
             .setCategory(NotificationCompat.CATEGORY_CALL).setPriority(NotificationCompat.PRIORITY_MAX)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE) // le compte rendu ne s'affiche pas sur l'écran verrouillé
-            .setContentIntent(tap).setFullScreenIntent(full, true).setAutoCancel(true).setTimeoutAfter(60000);
+            .setContentIntent(tap).setFullScreenIntent(full, true).setAutoCancel(true).setTimeoutAfter(60000)
+            .setStyle(NotificationCompat.CallStyle.forIncomingCall(who, decline, answer));
         try {
             NotificationManagerCompat.from(context).notify(id, n.build());
         } catch (SecurityException ignored) {

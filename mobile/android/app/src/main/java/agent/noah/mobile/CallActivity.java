@@ -33,6 +33,9 @@ public class CallActivity extends Activity {
     static final String URL = "url";
     static final String NOTIFICATION = "notification";
     static final String COLOR = "couleur";
+    static final String CHOICE = "choix";
+    static final String ANSWERED = "repondre";
+    static final String DECLINED = "refuser";
     private static final String PICKED_UP = "&decroche"; // l'application n'affiche pas une seconde sonnerie
     private static final long RING_MILLIS = 60000; // la durée de sonnerie du serveur
     private static final int ACCENT = Color.parseColor("#F0653A"); // la couleur de Noah
@@ -48,6 +51,16 @@ public class CallActivity extends Activity {
         if (Build.VERSION.SDK_INT >= 27) {
             setShowWhenLocked(true);
             setTurnScreenOn(true);
+        }
+        // Choisi depuis le bandeau de la notification : rien à montrer.
+        String choice = getIntent().getStringExtra(CHOICE);
+        if (ANSWERED.equals(choice)) {
+            answer();
+            return;
+        }
+        if (DECLINED.equals(choice)) {
+            decline();
+            return;
         }
         int pad = dp(32);
         LinearLayout page = new LinearLayout(this);
@@ -86,6 +99,7 @@ public class CallActivity extends Activity {
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
         actions.setGravity(Gravity.CENTER);
+        actions.setClipChildren(false); // le bouton vert grandit en appelant le geste
         actions.addView(action("Refuser", "✕", DECLINE, v -> decline()));
         View gap = new View(this);
         actions.addView(gap, new LinearLayout.LayoutParams(dp(72), 1));
@@ -131,6 +145,7 @@ public class CallActivity extends Activity {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setGravity(Gravity.CENTER_HORIZONTAL);
+        box.setClipChildren(false);
         TextView button = new TextView(this);
         button.setText(sign);
         button.setTextColor(Color.WHITE);
