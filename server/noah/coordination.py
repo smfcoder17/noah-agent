@@ -13,7 +13,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from . import access, auth, db, machine, precall, push, relay
+from . import access, auth, db, desktop, machine, notifications, precall, push, relay
 
 router = APIRouter()
 
@@ -332,6 +332,23 @@ class Report(BaseModel):
     texte: str = Field(min_length=1, max_length=2000)
 
 
+def _report_conversation(agent_id: str, user: int) -> str:
+    return _main(agent_id) if user == user_of(agent_id) else (_h["main_conversation"](agent_id, user)
+                                                              or _h["new_conversation"](user, agent_id, "Conversation", main=True))
+
+
+def _report_in_writing(agent_id: str, texte: str, actions: str = "") -> None:
+    """Rappel refusé par le réglage de la personne : le compte rendu reste écrit et part en notification normale."""
+    user = access.launcher(agent_id)
+    conv = _report_conversation(agent_id, user)
+    written = f"{texte}{actions}"
+    _h["save"](conv, "agent", written)
+    if conv not in relay.active.get(agent_id, []):
+        machine.add_context(conv, written)
+    desktop.notify_user(user, _name(agent_id), notifications.first_sentence(texte), "fin", notifications.conversation_url(agent_id, conv))
+    notifications.note_reported(agent_id, user)
+
+
 def _ring(agent_id: str, texte: str, actions: str = "", user: int | None = None) -> dict:
     now, call_id = time.time(), uuid.uuid4().hex[:12]
     with db.connect() as c:
@@ -340,8 +357,9 @@ def _ring(agent_id: str, texte: str, actions: str = "", user: int | None = None)
         raise HTTPException(429, f"Limite atteinte : {CALLS_PER_HOUR} rappels par heure. Écris plutôt dans ta conversation.")
     # Le propriétaire de l'agent, ou le profil partagé qui a lancé la tâche : c'est à lui que ce compte rendu s'adresse.
     owner, user = user_of(agent_id), user or access.launcher(agent_id)
-    conv = _main(agent_id) if user == owner else (_h["main_conversation"](agent_id, user)
-                                                  or _h["new_conversation"](user, agent_id, "Conversation", main=True))
+    if notifications.call_choice(user) == notifications.CALLS_NEVER:
+        raise HTTPException(403, notifications.REFUSED)  # réglage de cette personne : le serveur l'impose, rien ne sonne
+    conv = _report_conversation(agent_id, user)
     with db.connect() as c:
         c.execute("INSERT INTO voice_calls (id, agent_id, user_id, conversation_id, texte, etat, created_at) "
                   "VALUES (?, ?, ?, ?, ?, 'sonne', ?)", (call_id, agent_id, user, conv, texte, now))
@@ -353,9 +371,10 @@ def _ring(agent_id: str, texte: str, actions: str = "", user: int | None = None)
         look = c.execute("SELECT color, shape, detail FROM agents WHERE id = ?", (agent_id,)).fetchone()
     # Le visage de l'agent sur l'écran d'appel du téléphone : couleur, forme et détail.
     face = {"agent_id": agent_id, "couleur": look["color"] or "", "forme": look["shape"] or "", "detail": look["detail"] or ""} if look else None
-    push.notify(f"{_name(agent_id)} t'appelle", texte[:200], url=f"/#appel={call_id}", urgent=True, user_id=user, extra=face)
+    push.notify(f"{_name(agent_id)} t'appelle", texte[:200], url=f"/#appel={call_id}", urgent=True, user_id=user, extra=face, kind="appels")
+    notifications.note_reported(agent_id, user)  # la fin de cette tâche ne le préviendra pas une seconde fois
     if user != owner:  # le propriétaire sait que son agent a appelé, sans lire ce qui ne lui est pas adressé
-        push.notify(f"{_name(agent_id)} a rappelé {access.username(user)}", "Le compte rendu est dans sa conversation.", user_id=owner)
+        push.notify(f"{_name(agent_id)} a rappelé {access.username(user)}", "Le compte rendu est dans sa conversation.", user_id=owner, kind="appels")
     precall.prepare(agent_id, user, texte)  # au décroché, la voix sait déjà de quoi il s'agit
     _spawn(_expire_later(RING_SECONDS))
     return {"id": call_id, "etat": "sonne"}
@@ -369,7 +388,11 @@ async def agent_call_back(body: Report, request: Request):
     texte = body.texte.strip()
     if not texte:
         raise HTTPException(400, "Compte rendu vide.")
-    return _ring(me, texte, _actions_line(relay.active.get(me, [])))
+    actions = _actions_line(relay.active.get(me, []))
+    if notifications.call_choice(access.launcher(me)) == notifications.CALLS_NEVER:
+        _report_in_writing(me, texte, actions)
+        raise HTTPException(403, notifications.REFUSED)
+    return _ring(me, texte, actions)
 
 
 ENDINGS = {"repondu": "Appel pris.", "refuse": "Appel refusé : le compte rendu reste écrit ici.",

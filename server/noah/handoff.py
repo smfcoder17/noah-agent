@@ -39,7 +39,7 @@ def open_call(agent_id: str, message: str, origin: str = "agent", leave_host: st
     if origin == "agent":
         db.set_setting(_trace(agent_id), message[:200])
     _ensure_keeper(agent_id)
-    desktop.notify("Noah a besoin de toi", message[:240], agent_id=agent_id)
+    desktop.notify("Noah a besoin de toi", message[:240], agent_id=agent_id, kind="accord")
     if leave_host:
         asyncio.create_task(_until_left(agent_id, call, leave_host))
     return call

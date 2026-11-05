@@ -29,6 +29,12 @@ public class CallSession extends Service {
     private static final long LONGEST_MILLIS = 12 * 60 * 60 * 1000L; // filet : un verrou oublié viderait la batterie
 
     private PowerManager.WakeLock awake;
+    private static volatile boolean active;
+
+    /** Un appel tient le micro : la bulle ne dicte pas par-dessus. */
+    static boolean isActive() {
+        return active;
+    }
 
     static void start(Context context, String agent, String color, String shape, String detail) {
         ContextCompat.startForegroundService(context, new Intent(context, CallSession.class).putExtra("agent", agent).putExtra("couleur", color)
@@ -70,6 +76,7 @@ public class CallSession extends Service {
             stopSelf();
             return START_NOT_STICKY;
         }
+        active = true;
         if (awake == null) {
             awake = getSystemService(PowerManager.class).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "noah:appel");
             awake.acquire(LONGEST_MILLIS);
@@ -79,6 +86,7 @@ public class CallSession extends Service {
 
     @Override
     public void onDestroy() {
+        active = false;
         if (awake != null && awake.isHeld()) awake.release();
         super.onDestroy();
     }

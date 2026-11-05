@@ -238,7 +238,7 @@ main._browser_wake = main._browser_restart = nothing  # leur vraie boucle attend
 handoff._ensure_keeper = lambda agent_id: None  # gardien du mode privé : testé par keeper_test
 updates.install = updates.resolve = updates.check = nothing
 updates.blocked = lambda: asyncio.sleep(0, None)
-push.notify = lambda title, text, url="/", urgent=False, user_id=None, extra=None: pushes.append(
+push.notify = lambda title, text, url="/", urgent=False, user_id=None, extra=None, kind=None: pushes.append(
     {"title": title, "text": text, "urgent": urgent, "user": user_id})
 
 
@@ -282,6 +282,7 @@ ROUTES = {
     ("POST", "/api/conversations/{conv_id}/archive"): "auteur",
     ("GET", "/api/conversations/{conv_id}/messages"): "auteur",
     ("GET", "/api/conversations/{conv_id}/en-cours"): "auteur",
+    ("POST", "/api/conversations/{conv_id}/regard"): "auteur",
     ("DELETE", "/api/conversations/{conv_id}"): "auteur",
     ("POST", "/api/conversations/{conv_id}/partage"): "auteur",
     ("POST", "/api/chat"): "usage",
@@ -350,6 +351,7 @@ BODIES = {
     "/api/agents/{agent_id}": lambda: {"name": SECRET_A, "role": "Son rôle"},
     "/api/conversations/{conv_id}/archive": lambda: {"archived": False},
     "/api/conversations/{conv_id}/partage": lambda: {"partagee": False},
+    "/api/conversations/{conv_id}/regard": lambda: {"visible": True},
     "/api/agents/{agent_id}/runs/{run_id}/approval": lambda: {"request_id": "r", "generation": 1, "approve": True},
     "/api/agents/{agent_id}/clipboard/paste": lambda: {"texte": "x"},
     "/api/agents/{agent_id}/browser/cookies": lambda: {"cookies": '[{"name": "a", "domain": "b.example", "value": "c"}]'},
@@ -453,6 +455,8 @@ OPEN_ROUTES = {
     ("POST", "/api/me/courriel/activer"): "Le code envoyé à cette session pour ce compte (comptes_test).",
     ("GET", "/api/me/alertes-appareils"): "Les alertes de ce compte, sauf la sienne (comptes_test).",
     ("GET", "/api/me"): "Ce compte.",
+    ("GET", "/api/me/notifications"): "Les réglages de ce compte (tests/push/preferences_test.py).",
+    ("PUT", "/api/me/notifications"): "Les réglages de ce compte (tests/push/preferences_test.py).",
     ("POST", "/api/me/password"): "Ce compte, avec son mot de passe actuel.",
     ("GET", "/api/me/double-verification"): "Ce compte : active ou non, nombre de codes de secours (double_verification_test).",
     ("POST", "/api/me/double-verification/preparer"): "Ce compte, avec son mot de passe actuel (double_verification_test).",

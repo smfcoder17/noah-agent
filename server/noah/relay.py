@@ -206,7 +206,7 @@ def _warn_once(agent_id: str, level: str, cap: float, title: str, text: str) -> 
     if db.get_setting(key) == stamp:
         return
     db.set_setting(key, stamp)
-    push.notify(title, text, url="/", urgent=level.endswith("100"), user_id=billed_to(agent_id))
+    push.notify(title, text, url="/", urgent=level.endswith("100"), user_id=billed_to(agent_id), kind="plafond")
 
 
 def _check_profile(agent_id: str) -> None:

@@ -176,6 +176,8 @@ Réglages > Appareils > « Relier un appareil » affiche un QR code et un code c
 - **Android :** installe l'APK (`noah-agent-android.apk` sur la [page des versions](https://github.com/smfcoder17/noah-agent/releases/latest)), puis « Scanner le QR code ». L'app affiche un nombre à 3 chiffres : recopie-le sur l'ordinateur, puis clique sur « Autoriser ». Sans appareil photo, « Saisir l'adresse et le code ».
 - **iPhone ou autre :** scanne le QR code avec l'appareil photo, ou ouvre l'adresse HTTPS de ton VPS, puis « Ajouter à l'écran d'accueil ».
 
+Réglages > Notifications choisit ce que tu reçois et si un agent peut t'appeler ; Réglages > Téléphone (dans l'app Android) donne l'état de chaque droit et lance la bulle flottante, masquée par Android sur son écran Paramètres.
+
 Pour construire l'APK toi-même (Node 22, JDK 21, SDK Android) : `cd mobile && npm ci && npx cap sync android`, puis `./gradlew assembleDebug` dans `mobile/android`. Il arrive dans `app/build/outputs/apk/debug/`. C'est une version de débogage : Android demandera d'autoriser l'installation hors du Play Store.
 
 Accepter un nouvel appareil demande ton mot de passe, et ton code si la double vérification est active. Seul un navigateur où tu as saisi ton mot de passe il y a moins de 15 minutes en est dispensé : un jeton d'appareil volé ne peut pas en relier un autre.

@@ -28,7 +28,7 @@ function AndroidPushStatus() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   if (!native?.pushStatus || !state) return null;
   const retry = async () => {
-    await native.pushSetup?.();
+    await native.pushSetup?.({ demander: true });
     // L'inscription peut aboutir après les relances natives (30 s, 2 min, 10 min) : relu toutes les 5 s, 15 min.
     let n = 0;
     const t = setInterval(async () => {
@@ -46,9 +46,12 @@ function AndroidPushStatus() {
     <div className="flex flex-col gap-1.5">
       <p className="text-xs font-semibold text-muted-foreground">Notifications sur ce téléphone</p>
       {!state.permission ? (
-        <p className="text-xs text-muted-foreground">
-          Les notifications de Noah sont coupées dans les réglages d'Android (Applis → Noah → Notifications).
-        </p>
+        <>
+          <p className="text-xs text-muted-foreground">Les notifications de Noah sont coupées sur ce téléphone : tu ne verras ni fin de tâche, ni appel.</p>
+          {native.demanderDroit && (
+            <Button size="sm" variant="outline" className="self-start" onClick={() => native.demanderDroit({ droit: "notifications" }).catch(() => {}).finally(refresh)}><Bell />Autoriser les notifications</Button>
+          )}
+        </>
       ) : state.inscrit ? (
         <>
           <p className="text-xs text-muted-foreground">Actives : Noah te prévient même quand l'app est fermée.</p>

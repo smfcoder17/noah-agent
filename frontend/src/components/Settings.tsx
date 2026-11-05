@@ -8,6 +8,8 @@ import { DoubleVerification } from "./DoubleVerification";
 import { MailConfirmation } from "./MailConfirmation";
 import { ModelPicker } from "./ModelPicker";
 import { PhonePairing } from "./PhonePairing";
+import { NotificationSettings } from "./NotificationSettings";
+import { PhoneSettings, phoneSettingsAvailable } from "./PhoneSettings";
 import { MyPassword, Profiles } from "./Profiles";
 import { Updates } from "./Updates";
 import { Flows } from "./Flows";
@@ -15,7 +17,7 @@ import { type MediaModel, ModelSelect } from "./ModelSelect";
 import { Dialog, DialogContent, Tabs, TabsContent, TabsList, TabsTrigger } from "./ui";
 import { Button, Input, Label } from "./ui";
 
-export type SettingsTab = "brain" | "create" | "voice" | "phone" | "security" | "updates" | "privacy" | "profiles" | "diagnostic";
+export type SettingsTab = "brain" | "create" | "voice" | "phone" | "notifications" | "telephone" | "security" | "updates" | "privacy" | "profiles" | "diagnostic";
 
 type Kind = { label: string; setting: string; auto: string | null; routed?: boolean; models: MediaModel[] };
 type MediaState = {
@@ -54,6 +56,8 @@ export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainS
               {owner && <TabsTrigger value="create">Création</TabsTrigger>}
               {owner && <TabsTrigger value="voice">Voix</TabsTrigger>}
               <TabsTrigger value="phone">Appareils</TabsTrigger>
+              <TabsTrigger value="notifications">Notifications</TabsTrigger>
+              {phoneSettingsAvailable() && <TabsTrigger value="telephone">Téléphone</TabsTrigger>}
               <TabsTrigger value="security">Sécurité</TabsTrigger>
               {owner && <TabsTrigger value="profiles">Profils</TabsTrigger>}
               {owner && <TabsTrigger value="updates">Mises à jour</TabsTrigger>}
@@ -75,6 +79,12 @@ export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainS
             <TabsContent value="phone">
               <PhonePairing />
               <FaceMotion />
+            </TabsContent>
+            <TabsContent value="notifications">
+              <NotificationSettings />
+            </TabsContent>
+            <TabsContent value="telephone">
+              <PhoneSettings />
             </TabsContent>
             <TabsContent value="security">
               <MyPassword />

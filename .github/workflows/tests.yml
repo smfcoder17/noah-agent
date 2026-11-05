@@ -53,6 +53,9 @@ jobs:
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \
             "pip install -q -r /app/requirements.txt http_ece==1.2.1 'pyjwt[crypto]==2.10.1' && python /tests/push/push_test.py"
+      - name: "Notifications par compte : appels sur demande, fin de tâche, types à couper"
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/push/preferences_test.py"
       - name: Aucun contenu en clair chez un tiers (capture simulée, puis vrai ntfy en TLS)
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" -v "$PWD/mobile:/mobile:ro" python:3.12-slim sh -c \
@@ -60,6 +63,7 @@ jobs:
           sh tests/push/ntfy_test.sh
       - name: Jeton Android chiffré par le Keystore (vrai Pairing.java sur un Keystore simulé, grep des dépendances)
         run: |
+          sh tests/android/droits_test.sh
           docker run --rm -v "$PWD/mobile:/mobile:ro" -v "$PWD/tests:/tests:ro" eclipse-temurin:21-jdk-alpine \
             sh /tests/android/keystore_test.sh
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \

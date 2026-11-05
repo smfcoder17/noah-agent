@@ -27,7 +27,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from . import auth, db, public
+from . import auth, db, notifications, public
 
 router = APIRouter()
 log = logging.getLogger("uvicorn.error")
@@ -291,12 +291,18 @@ def _owner() -> int | None:
     return db.owner_id()
 
 
-def notify(title: str, text: str, url: str = "/", urgent: bool = False, user_id: int | None = None, extra: dict | None = None) -> None:
+def notify(title: str, text: str, url: str = "/", urgent: bool = False, user_id: int | None = None, extra: dict | None = None,
+           kind: str | None = None) -> None:
     """Depuis le code du serveur : envoie sans attendre (rien ne bloque si un service de push est lent), au compte
-    donné ou, par défaut, au propriétaire de l'installation, jamais à tous les comptes."""
+    donné ou, par défaut, au propriétaire de l'installation, jamais à tous les comptes. `kind` : le type que ce compte
+    peut couper dans Réglages > Notifications ; sans type, rien ne le filtre."""
     target = user_id if user_id is not None else _owner()
     if target is None:
         return
+    if kind:
+        if not notifications.wants(target, kind):
+            return
+        extra = {**(extra or {}), "type": kind}  # le téléphone range les notifications non urgentes dans leur propre canal
     try:
         asyncio.get_running_loop().create_task(send(title, text, url, urgent, user_id=target, extra=extra))
     except RuntimeError:

@@ -62,7 +62,7 @@ Chaque appareil demande ton accord, avec un nombre à 3 chiffres à recopier. Tu
 2. Dans l'app, touche « Scanner le QR code ».
 3. L'app affiche un nombre. Recopie-le sur l'ordinateur, puis clique sur « Autoriser ».
 
-Pour recevoir les notifications sans service de Google, installe aussi l'app gratuite **ntfy** : c'est par elles qu'un agent te rappelle.
+Pour recevoir les notifications sans service de Google, installe aussi l'app gratuite **ntfy** : une tâche finie te prévient, et un agent n'appelle que si tu le lui demandes (Réglages > Notifications). Réglages > Téléphone donne l'état de chaque droit et lance la bulle flottante, pour dicter à ton agent depuis n'importe quelle app.
 
 **iPhone ou autre.** Scanne le QR code avec l'appareil photo, ou ouvre ton adresse HTTPS, puis « Ajouter à l'écran d'accueil ». Il n'y a pas encore d'app iPhone.
 
@@ -112,6 +112,7 @@ Noah n'envoie rien à ses développeurs. Il n'a aucune télémétrie. Réglages 
 | Les pages visitées, avec l'IP du serveur | Les sites de la tâche | Quand une tâche le demande |
 | Rien de toi : liste publique des modèles et des prix | openrouter.ai | Au plus une fois par heure |
 | Rien de toi : recherche de mises à jour et téléchargement | github.com, ghcr.io, registry-1.docker.io | Une fois par heure, et à l'installation |
+| Ta position, si tu la joins à un message depuis l'app Android | Le fournisseur de modèle, dans le message | Quand tu touches « Joindre ma position » |
 | Notifications, au contenu chiffré | Le service de ton appareil : Google, Apple, Mozilla, Microsoft ou ntfy | À chaque notification |
 | Rien de toi : l'IP et le certificat du serveur | api.ipify.org (ifconfig.me, icanhazip.com en secours), Let's Encrypt | Au démarrage, puis tous les deux mois environ |
 | Pays et fuseau du serveur | ipinfo.io | Une seule fois, évitable avec `NOAH_LOCALE` et `NOAH_TIMEZONE` |
