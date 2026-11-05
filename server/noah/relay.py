@@ -265,10 +265,15 @@ def month_start() -> str:
     return first.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
+context_size: dict[str, int] = {}  # conversation -> plus gros contexte envoyé au modèle pendant son tour en cours (voir chauffe.compact)
+
+
 async def _record(agent_id: str, model: str, usage: dict | None, task: str | None = None) -> None:
     if not usage:
         return
     prompt = int(usage.get("prompt_tokens") or 0)
+    if task:
+        context_size[task] = max(prompt, context_size.get(task, 0))
     completion = int(usage.get("completion_tokens") or 0)
     cached = int((usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)
     cost = usage.get("cost")
@@ -334,6 +339,36 @@ def _upstream_headers(provider: str, api_key: str | None) -> dict:
     return headers
 
 
+def warmup_mark(agent_id: str) -> str:
+    """Propre à l'agent, et impossible à taper par hasard : une personne qui écrit à son agent parle toujours au vrai modèle."""
+    code = hmac.new(SECRET_KEY.encode(), f"chauffe:{agent_id}".encode(), hashlib.sha256).hexdigest()[:24]
+    return f"[Entretien technique de Noah, rien à faire : {code}]"
+
+
+WARMUP_MAX = 1000  # le tour lui-même et son titre sont courts ; un résumé de conversation qui citerait la marque, lui, va au vrai modèle
+
+
+def _is_warmup(agent_id: str, body: dict) -> bool:
+    for message in reversed(body.get("messages") or []):
+        if message.get("role") == "user":
+            content = message.get("content")
+            text = content if isinstance(content, str) else " ".join(p.get("text", "") for p in content or [] if isinstance(p, dict))
+            return len(text) < WARMUP_MAX and warmup_mark(agent_id) in text
+    return False
+
+
+def _warmup_reply(model: str, stream: bool) -> Response:
+    base = {"id": "chauffe", "created": int(time.time()), "model": model}
+    usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    if not stream:
+        return JSONResponse(base | {"object": "chat.completion", "usage": usage,
+                                    "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}]})
+    chunks = ({"choices": [{"index": 0, "delta": {"role": "assistant", "content": "ok"}, "finish_reason": None}]},
+              {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}], "usage": usage})
+    frames = "".join(f"data: {json.dumps(base | {'object': 'chat.completion.chunk'} | c)}\n\n" for c in chunks) + "data: [DONE]\n\n"
+    return Response(frames, media_type="text/event-stream")
+
+
 @router.api_route("/relay/v1/{path:path}", methods=["GET", "POST"])
 async def relay(path: str, request: Request):
     agent_id = _agent_from(request)
@@ -356,15 +391,18 @@ async def relay(path: str, request: Request):
         _note_status(agent_id, r.status_code)
         return Response(r.content, status_code=r.status_code, media_type=r.headers.get("content-type"))
 
+    body = await request.json()
+    model = body.get("model", "")
+    stream = bool(body.get("stream"))
+    if path.endswith("chat/completions") and _is_warmup(agent_id, body):  # voir chauffe.py : ni modèle, ni dépense
+        return _warmup_reply(model, stream)
+
     refused = spending_refusal(agent_id)
     if refused:
         _check_profile(agent_id)
         # Lu par l'agent : Hermes ne le remonte pas tel quel à la personne, main._run lui redonne la vraie raison.
         return JSONResponse({"error": {"message": refused, "type": "budget_exceeded", "code": 402}}, status_code=402)
 
-    body = await request.json()
-    model = body.get("model", "")
-    stream = bool(body.get("stream"))
     if path.endswith("chat/completions"):
         if stream:
             body["stream_options"] = {**(body.get("stream_options") or {}), "include_usage": True}

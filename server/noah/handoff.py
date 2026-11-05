@@ -167,6 +167,12 @@ async def wait(agent_id: str, call_id: str, seconds: float) -> str:
         call["attentifs"] -= 1
 
 
+def idle_call(agent_id: str) -> dict | None:
+    """L'appel de l'agent qu'aucun tour n'attend plus : sa réponse relancera l'agent toute seule (voir answer)."""
+    call = current(agent_id)
+    return call if call and call["origine"] == "agent" and not call["attentifs"] else None
+
+
 def _public(call: dict | None) -> dict | None:
     return {k: call[k] for k in ("id", "message", "depuis", "origine")} if call else None
 
@@ -234,7 +240,7 @@ def _result(call_id: str, answer: str) -> dict:
         return {"reponse": "fait", "conseil": "Recharge la page avant de vérifier : elle a pu changer pendant que tu attendais."}
     if answer == "impossible":
         return {"reponse": "impossible", "conseil": "L'utilisateur ne peut pas le faire maintenant : arrête-toi et demande-lui comment continuer."}
-    return {"reponse": answer, "conseil": "Cet appel n'attend plus de réponse."}
+    return {"reponse": answer, "conseil": "Cet appel est terminé, sans réponse de sa part. Ne le relance pas de toi-même : réponds à ce que la personne te dit maintenant."}
 
 
 @router.post("/agent-api/appel")
