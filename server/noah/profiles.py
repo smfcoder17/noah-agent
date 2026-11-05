@@ -193,7 +193,7 @@ def change_password(body: NewPassword, request: Request, noah_session: str | Non
                     user: int = Depends(auth.current_user)):
     """Le mot de passe d'un profil est choisi au départ par le propriétaire : son titulaire le remplace ici. 400 et non
     401 quand il se trompe : sa session reste bonne. Les autres appareils du compte sont déconnectés."""
-    _h["prove_password"](request, user, body.actuel, "Mot de passe actuel incorrect.")
+    _h["prove_password"](request, user, body.actuel, "Mot de passe actuel incorrect.", body.code)
     if auth.must_change(user) and body.nouveau == body.actuel:
         raise HTTPException(400, "Choisis un mot de passe différent du mot de passe temporaire.")
     courriel.gate(user, "mot-de-passe", body.courriel, auth.session_key(auth.request_token(request, noah_session)))

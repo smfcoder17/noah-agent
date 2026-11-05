@@ -144,7 +144,7 @@ Facultatif, dans Réglages > Sécurité. Le propriétaire règle l'envoi (serveu
 
 Chaque nouvelle session (mot de passe depuis un navigateur inconnu, QR code accordé, application de bureau) se signale sur tes autres appareils : notification, notification native au bureau, et courriel si ton adresse est active, avec le nom, l'adresse, le réseau et la date. L'écran revient à chaque ouverture tant que personne n'a tranché. La connexion n'attend aucun accord : tu ne peux pas t'enfermer dehors.
 
-- **« C'est moi » :** ce navigateur, sur ce réseau, ne se signalera plus.
+- **« C'est moi » :** ton mot de passe est redemandé (sauf connexion par mot de passe de moins de 15 minutes dans ce navigateur), puis ce navigateur, sur ce réseau, ne se signalera plus.
 - **« Ce n'est pas moi » :** cette session est coupée tout de suite, sans mot de passe, et Noah propose de changer le tien.
 
 ## Choisir le modèle

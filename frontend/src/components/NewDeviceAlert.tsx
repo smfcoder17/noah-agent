@@ -3,6 +3,7 @@
 import { ShieldAlert } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { get, send } from "@/lib/api";
+import { useProof } from "./Proof";
 import { Button, ErrorText } from "./ui";
 
 type Alert = { id: string; nom: string; type: string; ip: string; reseau_connu: boolean; date: string; peut_confirmer: boolean };
@@ -30,12 +31,16 @@ export function NewDeviceAlert({ onChangePassword }: { onChangePassword: () => v
     };
   }, [load]);
 
+  const { withProof, proofDialog } = useProof();
   const decide = async (alert: Alert, decision: "moi" | "pas-moi") => {
     setBusy(true);
     setError("");
     try {
-      await send(`/api/me/alertes-appareils/${alert.id}/${decision}`, {});
-      if (decision === "pas-moi") setCut(true);
+      const path = `/api/me/alertes-appareils/${alert.id}/${decision}`;
+      if (decision === "pas-moi") {
+        await send(path, {});
+        setCut(true);
+      } else await withProof(path, {}); // « C'est moi » efface l'alerte partout : le mot de passe est redemandé
     } catch (e) {
       setError((e as Error).message);
     }
@@ -47,6 +52,7 @@ export function NewDeviceAlert({ onChangePassword }: { onChangePassword: () => v
   if (!device && !cut) return null;
   return (
     <div className="fixed inset-0 z-40 grid place-items-center overflow-y-auto bg-black/45 p-3">
+      {proofDialog}
       <div role="alertdialog" aria-labelledby="alerte-titre" className="flex w-full max-w-md flex-col gap-3 rounded-2xl border border-warn bg-surface p-5 shadow-2xl">
         {cut ? (
           <>

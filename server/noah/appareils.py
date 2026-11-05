@@ -148,14 +148,27 @@ def _alert(c, user: int, alert_id: str, me: str):
     return row
 
 
+_h: dict = {}  # fonctions de main.py : prove_if_needed
+
+
+def setup(**hooks) -> None:
+    _h.update(hooks)
+
+
 @router.post("/api/me/alertes-appareils/{alert_id}/moi")
-def it_was_me(alert_id: str, request: Request, user: int = Depends(auth.current_user)):
+def it_was_me(alert_id: str, request: Request, body: courriel.Preuve | None = None, user: int = Depends(auth.current_user)):
+    """Clore une alerte efface l'écran « Ce n'est pas moi » partout et fait connaître ce navigateur : un jeton volé ne le fait
+    pas sans le mot de passe. Couper une session, lui, reste sans preuve : c'est le geste de défense."""
     me = _session_of(request)
     with db.connect() as c:
         row = _alert(c, user, alert_id, me)
         if not _may_confirm(c, user, me, row["session"]):
             raise HTTPException(403, "Confirme depuis un appareil déjà relié : celui-ci est lui-même en attente de confirmation.")
-        c.execute("UPDATE alertes_appareils SET tranche = 1 WHERE id = ?", (alert_id,))
+    proof = body or courriel.Preuve()
+    _h["prove_if_needed"](request, user, proof.motdepasse, proof.code, "Confirme ton mot de passe : c'est bien toi sur ce nouvel appareil ?")
+    with db.connect() as c:
+        if not c.execute("UPDATE alertes_appareils SET tranche = 1 WHERE id = ? AND tranche = 0", (alert_id,)).rowcount:
+            raise HTTPException(404, "Cette alerte n'existe plus : quelqu'un a déjà tranché.")
     if row["empreinte"]:
         remember(user, row["empreinte"], row["reseau"])
     return {"ok": True}

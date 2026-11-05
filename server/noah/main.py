@@ -946,8 +946,14 @@ def _prove(request: Request, user: int, password: str, code: str, with_code: boo
     _give_back_login(ip, name, reserved)
 
 
-def _prove_password(request: Request, user: int, password: str, wrong: str) -> None:
-    _prove(request, user, password, "", with_code=False, wrong=wrong)
+def _prove_password(request: Request, user: int, password: str, wrong: str, code: str = "") -> None:
+    """Le mot de passe, puis le code si la double vérification est active : mot de passe et jeton volés ne ferment pas les autres sessions."""
+    if not double_verification.active(user):
+        return _prove(request, user, password, "", with_code=False, wrong=wrong)
+    if not code.strip():
+        _prove(request, user, password, "", with_code=False, wrong=wrong)
+        raise HTTPException(428, "Entre aussi le code de double vérification.")
+    _prove(request, user, password, code, wrong=wrong)
 
 
 def _prove_if_needed(request: Request, user: int, password: str, code: str, ask: str) -> None:
@@ -1940,6 +1946,7 @@ async def _forget_guest(agent_id: str, user: int) -> None:
 
 
 courriel.setup(critical=_critical)
+appareils.setup(prove_if_needed=_prove_if_needed)
 profiles.setup(prove_if_needed=_prove_if_needed, critical=_critical, prove_password=_prove_password, stop_runs=_stop_runs, remove_agent=_remove_agent, drop_pending=_drop_pending, forget_guest=_forget_guest)
 
 
@@ -2374,6 +2381,9 @@ async def _guest_agent(agent: Agent, user: int | None) -> Agent:
         async with _guest_locks.setdefault(key, asyncio.Lock()):  # deux premiers messages en même temps : un seul prépare
             if db.get_setting(key) != version:
                 await hermes.prepare_guest(agent.id, profile)
+                if not access.allowed(user, agent.id, "usage"):  # partage retiré pendant la préparation : rien ne reste derrière
+                    await _forget_guest(agent.id, user)
+                    raise HTTPException(404, "Agent introuvable")
                 db.set_setting(key, version)
     return replace(agent, profile=profile)
 

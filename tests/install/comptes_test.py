@@ -803,7 +803,10 @@ check(newcomer.post(f"/api/me/alertes-appareils/{seen[0]['id']}/moi").status_cod
 check(owner.post("/api/me/alertes-appareils/inconnue/pas-moi").status_code == 404, "alerte inconnue : 404")
 
 print("-- C'est moi")
-check(owner.post(f"/api/me/alertes-appareils/{seen[0]['id']}/moi").status_code == 200 and pending(owner) == [], "« C'est moi » la ferme pour tout le monde")
+stolen = owner.post(f"/api/me/alertes-appareils/{seen[0]['id']}/moi")
+check(stolen.status_code == 428 and len(pending(owner)) == 1, "jeton volé : « C'est moi » demande le mot de passe, l'alerte reste", stolen.text)
+check(owner.post(f"/api/me/alertes-appareils/{seen[0]['id']}/moi", json={"motdepasse": "pas-le-bon-mot-de-passe"}).status_code == 400 and len(pending(owner)) == 1, "un faux mot de passe ne la ferme pas")
+check(owner.post(f"/api/me/alertes-appareils/{seen[0]['id']}/moi", json={"motdepasse": FRANCK_PW}).status_code == 200 and pending(owner) == [], "« C'est moi » la ferme pour tout le monde")
 check(pending(second_look) == [], "partout")
 check(newcomer.get("/api/me").status_code == 200, "l'appareil reste connecté")
 check(owner.post(f"/api/me/alertes-appareils/{seen[0]['id']}/pas-moi").status_code == 404, "une fois tranchée, elle ne coupe plus personne")
