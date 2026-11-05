@@ -84,7 +84,7 @@ function AgentForm({ agent, onSaved, onDeleted, onCancel }: { agent: Agent | nul
               />
             ))}
           </div>
-          <span className="text-xs text-muted-foreground">Accessoires (lunettes, nœud…) : bientôt.</span>
+          <span className="text-xs text-muted-foreground">Forme du visage et détails : dans Détails, section Apparence.</span>
         </fieldset>
       </div>
       <Label>

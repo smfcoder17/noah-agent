@@ -71,6 +71,8 @@ def init() -> None:
         _add_columns(db, "messages", {"detail": "TEXT"})  # d'une erreur : ce qui permet de la diagnostiquer
         db.execute("CREATE INDEX IF NOT EXISTS usage_conversation ON usage(conversation_id)")
         _add_columns(db, "agents", {"color": "TEXT NOT NULL DEFAULT ''", "pinned": "INTEGER NOT NULL DEFAULT 0"})
+        # Visage choisi : forme et détail distinctif (vides = le visage d'origine). Valeurs validées par la route.
+        _add_columns(db, "agents", {"shape": "TEXT NOT NULL DEFAULT ''", "detail": "TEXT NOT NULL DEFAULT ''"})
         # Chaque session est un appareil (navigateur, app de bureau, téléphone), listé et révocable dans Réglages.
         _add_columns(db, "sessions", {"device": "TEXT NOT NULL DEFAULT ''", "platform": "TEXT NOT NULL DEFAULT 'web'",
                                       "created_at": "TEXT", "last_seen": "TEXT", "last_ip": "TEXT", "version": "TEXT"})

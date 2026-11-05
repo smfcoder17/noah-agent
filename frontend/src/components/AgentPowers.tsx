@@ -8,7 +8,7 @@ import { cn, fileSize } from "@/lib/utils";
 import { Button, ErrorText, Input, Textarea } from "./ui";
 
 /** Section repliable de Détails, avec un compteur à droite du titre. */
-function Section({ title, count, defaultOpen = false, children }: { title: string; count?: number | string; defaultOpen?: boolean; children: React.ReactNode }) {
+export function Section({ title, count, defaultOpen = false, children }: { title: string; count?: number | string; defaultOpen?: boolean; children: React.ReactNode }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
     <section className="flex flex-col gap-2">

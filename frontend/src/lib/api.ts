@@ -112,6 +112,9 @@ export type Agent = {
   /** État de la conversation principale. */
   state: TaskState;
   color: string;
+  /** Forme du visage et détail distinctif ; vides : le visage d'origine. */
+  shape?: string;
+  detail?: string;
   pinned: boolean;
   /** Cerveau propre à cet agent ; absent : celui de tous. */
   model?: string | null;
@@ -133,6 +136,10 @@ export type VoiceCall = {
   texte: string;
   etat: "sonne" | "repondu" | "refuse" | "manque";
   expire_a: number;
+  /** Le visage de l'agent, tel qu'il est au moment de l'appel. */
+  couleur?: string;
+  forme?: string;
+  detail?: string;
 };
 export type Conversation = {
   id: string;

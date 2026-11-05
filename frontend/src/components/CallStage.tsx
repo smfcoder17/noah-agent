@@ -67,11 +67,11 @@ function useFloating() {
 }
 
 function Face({ speaking, className }: { speaking: boolean; className: string }) {
-  const { agentColor } = useContext(AgentContext);
+  const { agentColor, agentShape, agentDetail } = useContext(AgentContext);
   return (
     <span className={cn("relative grid shrink-0 place-items-center", speaking && "noah-call-waves")}>
       {speaking && [0, 1, 2].map((i) => <span key={i} aria-hidden="true" className="noah-call-wave" style={{ animationDelay: `${i * 0.8}s`, background: agentColor }} />)}
-      <NoahTile color={agentColor} className={cn("relative", className)} />
+      <NoahTile color={agentColor} shape={agentShape} detail={agentDetail} state={speaking ? "speaking" : "idle"} className={cn("relative", className)} />
     </span>
   );
 }
