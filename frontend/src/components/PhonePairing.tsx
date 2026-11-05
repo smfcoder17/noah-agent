@@ -4,12 +4,11 @@ import qrcode from "qrcode-generator";
 import { Globe, Laptop, Loader2, Smartphone, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, del, get, send } from "@/lib/api";
-import { desktop } from "@/lib/desktop";
 import { appShell } from "@/lib/platform";
 import { PushToggle } from "./PushToggle";
 import { Button, ErrorText } from "./ui";
 
-type Pairing = { adresse: string; serveur: string; code: string; expire: number; local: boolean };
+type Pairing = { adresse: string; serveur: string; code: string; expire: number };
 type Device = { id: string; nom: string; type: string; depuis: string | null; vu: string | null; ip: string; version: string; actuel: boolean };
 
 type Pending = { id: string; appareil: string; type: string; ip: string };
@@ -152,24 +151,9 @@ export function PhonePairing() {
   const [left, setLeft] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  // App de bureau : l'adresse de l'ordinateur sur le Wi-Fi remplace « localhost » dans le QR code.
-  const app = desktop();
-  const [lan, setLan] = useState<{ open: boolean; url: string | null } | null>(null);
-  useEffect(() => {
-    app?.lanStatus().then(setLan).catch(() => {});
-  }, [app]);
-  const openLan = async () => {
-    setBusy(true);
-    try {
-      setLan(await app!.openLan());
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-  const viaLan = !!(pairing?.local && lan?.open && lan.url);
-  const target = pairing && viaLan ? pairing.adresse.replace(/^https?:\/\/[^/]+/, lan!.url!) : pairing?.adresse ?? "";
+  // G5.1 : jamais de QR code ni d'adresse en http. Sur une IP en http, un téléphone n'a ni installation, ni micro, ni
+  // notifications (contexte non sécurisé), et localhost ne mène nulle part depuis un autre appareil.
+  const secure = !!pairing?.serveur.startsWith("https://");
 
   const create = async () => {
     setBusy(true);
@@ -207,25 +191,25 @@ export function PhonePairing() {
       </p>
       {pairing && left > 0 ? (
         <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-start">
-          <QR text={target} />
+          {secure && <QR text={pairing.adresse} />}
           <div className="flex min-w-0 flex-col gap-2 text-sm">
             <p>
               Valable encore <b>{Math.floor(left / 60)} min {String(left % 60).padStart(2, "0")} s</b>, pour un seul téléphone.
             </p>
-            <p className="text-xs text-muted-foreground">Ou saisis dans l'app :</p>
-            <p className="break-all font-mono text-xs">{viaLan ? lan!.url : pairing.serveur}</p>
-            <p className="font-mono text-2xl font-semibold tracking-widest">{pairing.code}</p>
-            {viaLan && <p className="text-xs text-muted-foreground">Ton téléphone doit être sur le même Wi-Fi que cet ordinateur.</p>}
-            {pairing.local && app && !lan?.open && (
-              <Button size="sm" className="self-start" onClick={openLan} disabled={busy || !lan?.url}>
-                Ouvrir Noah à mon Wi-Fi
-              </Button>
+            {secure ? (
+              <>
+                <p className="text-xs text-muted-foreground">Ou saisis dans l'app :</p>
+                <p className="break-all font-mono text-xs">{pairing.serveur}</p>
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground">Code à saisir dans l'app, avec l'adresse HTTPS de ton Noah :</p>
             )}
-            {pairing.local && !viaLan && !app && (
+            <p className="font-mono text-2xl font-semibold tracking-widest">{pairing.code}</p>
+            {!secure && (
               <p className="rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn">
-                Cette adresse ne marche que sur cet ordinateur. Pour ton téléphone, ouvre Noah depuis l'adresse de
-                l'ordinateur sur ton réseau (avec <code>APOLLO_BIND=0.0.0.0</code> dans <code>.env</code>), ou installe
-                Noah sur un VPS avec un domaine, puis affiche le code depuis cette adresse-là.
+                Cette page n'est pas en HTTPS : un téléphone ne peut pas s'en servir. Donne à Noah une adresse HTTPS, avec
+                Tailscale (<code>tailscale serve 8080</code>) ou un VPS, ouvre-la ici, puis affiche le code depuis cette
+                adresse-là.
               </p>
             )}
             <Button variant="outline" size="sm" className="self-start" onClick={create} disabled={busy}>Nouveau code</Button>

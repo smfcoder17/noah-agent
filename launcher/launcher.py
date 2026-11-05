@@ -227,7 +227,10 @@ def _ensure_browser(agent_id: str, body: BrowserKeys, image: str | None = None, 
         cfg = tar.extractfile(tar.getmembers()[0]).read()
     if b"NOAH :" not in cfg:
         cfg += (here / "autoconfig.js").read_bytes()
-    c.put_archive(os.path.dirname(CAMOUFOX_CFG), _tar({os.path.basename(CAMOUFOX_CFG): cfg}))
+    # L'extension déjà là : sans elle, Camoufox la télécharge au premier lancement et ne démarre pas sans réseau (G0.5).
+    addons = here / "addons"
+    files = {f"addons/{p.relative_to(addons).as_posix()}": p.read_bytes() for p in addons.rglob("*") if p.is_file()}
+    c.put_archive(os.path.dirname(CAMOUFOX_CFG), _tar({os.path.basename(CAMOUFOX_CFG): cfg, **files}))
     if start:
         c.start()
     return {"host": name, "created": True}

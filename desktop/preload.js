@@ -4,8 +4,6 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("noahDesktop", {
   pickFolder: () => ipcRenderer.invoke("noah:pick-folder"),
   openPath: (p) => ipcRenderer.invoke("noah:open-path", String(p)),
-  lanStatus: () => ipcRenderer.invoke("noah:lan-status"),
-  openLan: () => ipcRenderer.invoke("noah:open-lan"),
   forgetServer: () => ipcRenderer.invoke("noah:forget-server"),
   version: () => ipcRenderer.invoke("noah:version"),
 });

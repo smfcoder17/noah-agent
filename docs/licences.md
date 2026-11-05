@@ -51,6 +51,7 @@ Généré par `node tools/eval/licences.mjs`. Noah Agent est sous PolyForm Nonco
 | nousresearch/hermes-agent | MIT (à confirmer sur son dépôt) |
 | ghcr.io/jo-inc/camofox-browser | à confirmer sur son dépôt, Camoufox et Firefox sont sous MPL-2.0 |
 | caddy | Apache-2.0 |
+| uBlock Origin 1.75.4 (extension du navigateur, dans l'image du lanceur) | GPL-3.0-only, programme séparé non lié au code de Noah ; sources : github.com/gorhill/uBlock |
 
 ## À regarder de près
 
