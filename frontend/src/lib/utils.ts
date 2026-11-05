@@ -15,6 +15,23 @@ export function safeMedia(src: string | undefined): string | undefined {
   }
 }
 
+/**
+ * Télécharge sans quitter la page : une navigation (lien simple, window.open en « _self ») remplacerait l'application par la page
+ * d'erreur si le serveur répond 502, et couperait l'appel en cours. Ici, seule une erreur charge une page, dans ce cadre caché.
+ */
+export function downloadFile(url: string, onFailed: () => void) {
+  const frame = document.createElement("iframe");
+  frame.hidden = true;
+  const late = setTimeout(() => frame.remove(), 300_000); // un vrai téléchargement ne déclenche pas « load »
+  frame.onload = () => {
+    clearTimeout(late);
+    frame.remove();
+    onFailed();
+  };
+  frame.src = url;
+  document.body.appendChild(frame);
+}
+
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }

@@ -1,14 +1,22 @@
 // Visionneuse : une image ou un fichier de l'agent s'ouvre ici, par-dessus le chat, sans quitter Noah Agent.
 import { Check, Copy, Download, ExternalLink } from "lucide-react";
-import { createContext, useContext, useState } from "react";
+import { createContext, useCallback, useContext, useState } from "react";
+import { downloadFile } from "@/lib/utils";
 import { Button, Dialog, DialogContent } from "./ui";
 
 export type Viewable =
   | { kind: "image"; src: string; title?: string }
-  | { kind: "file"; url: string; title: string };
+  | { kind: "file"; url: string; title: string }
+  | { kind: "gone"; title: string };
 
 const ViewerContext = createContext<(v: Viewable) => void>(() => {});
 export const useViewer = () => useContext(ViewerContext);
+
+/** Télécharge sans quitter Noah Agent ; si le serveur ne donne pas le fichier, la visionneuse le dit. */
+export function useDownload() {
+  const view = useViewer();
+  return useCallback((url: string, title: string) => downloadFile(url, () => view({ kind: "gone", title })), [view]);
+}
 
 export const isImagePath = (p: string) => /\.(png|jpe?g|gif|webp|avif)$/i.test(p);
 export const canFrame = (p: string) => /\.(html?|pdf|txt|md|csv|json|svg|log)$/i.test(p);
@@ -21,6 +29,11 @@ export function ViewerProvider({ children }: { children: React.ReactNode }) {
       <Dialog open={!!item} onOpenChange={(o) => !o && setItem(null)}>
         {item?.kind === "image" && <ImageView item={item} />}
         {item?.kind === "file" && <FileView item={item} />}
+        {item?.kind === "gone" && (
+          <DialogContent title={item.title} className="max-w-md gap-3 p-4">
+            <p className="text-sm">Fichier indisponible pour l'instant. Réessaie dans un moment : il a peut-être aussi été déplacé ou supprimé.</p>
+          </DialogContent>
+        )}
       </Dialog>
     </ViewerContext.Provider>
   );
@@ -82,6 +95,7 @@ function ImageView({ item }: { item: Extract<Viewable, { kind: "image" }> }) {
 }
 
 function FileView({ item }: { item: Extract<Viewable, { kind: "file" }> }) {
+  const download = useDownload();
   return (
     <DialogContent title={item.title} className="h-[min(88dvh,900px)] max-w-6xl gap-3 p-4">
       <iframe
@@ -92,7 +106,7 @@ function FileView({ item }: { item: Extract<Viewable, { kind: "file" }> }) {
       />
       <div className="flex flex-wrap justify-end gap-2">
         <Button variant="outline" size="sm" asChild>
-          <a href={`${item.url}?download=1`}><Download />Télécharger</a>
+          <a href={`${item.url}?download=1`} onClick={(e) => { e.preventDefault(); download(`${item.url}?download=1`, item.title); }}><Download />Télécharger</a>
         </Button>
         <Button variant="ghost" size="sm" asChild>
           <a href={item.url} target="_blank" rel="noopener"><ExternalLink />Ouvrir dans un onglet</a>

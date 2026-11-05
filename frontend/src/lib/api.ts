@@ -189,6 +189,7 @@ export type WorkspaceFile = { path: string; size: number; modified: number };
 // Événements du chat, déjà traduits par le serveur.
 export type ChatEvent =
   | { type: "start"; conversation_id: string; run_id: string }
+  | { type: "deja" }
   | { type: "message"; text: string }
   | { type: "activity"; label: string; detail?: unknown }
   | { type: "activity_detail"; detail: unknown }
@@ -204,7 +205,7 @@ export const voiceRefusal = (kind: keyof VoiceReady): Promise<string | null> =>
 
 /** Envoie un message et appelle `onEvent` pour chaque événement du flux SSE. */
 export async function streamChat(
-  body: { agent_id: string; text: string; conversation_id: string | null; attachments: string[]; details: boolean },
+  body: { agent_id: string; text: string; conversation_id: string | null; attachments: string[]; details: boolean; client_id?: string },
   onEvent: (ev: ChatEvent) => void,
   signal?: AbortSignal,
 ) {

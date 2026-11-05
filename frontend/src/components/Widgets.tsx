@@ -9,7 +9,7 @@ import { cn, safeMedia } from "@/lib/utils";
 import { AgentContext } from "@/lib/agentContext";
 import { useQuotes, widgetQuote } from "@/lib/quotes";
 import { Button } from "./ui";
-import { canFrame, isImagePath, useViewer } from "./Viewer";
+import { canFrame, isImagePath, useDownload, useViewer } from "./Viewer";
 
 type Series = { name?: string; values: number[] };
 type ChartSpec = { type: "chart"; title?: string; kind?: "bar" | "line"; labels: string[]; series: Series[]; note?: string };
@@ -209,6 +209,7 @@ const VIDEO_RE = /\.(mp4|webm|mov)$/i;
 function Preview({ spec }: { spec: PreviewSpec }) {
   const { agentId } = useContext(AgentContext);
   const view = useViewer();
+  const download = useDownload();
   const path = String(spec.path || "");
   const name = path.split("/").pop() || "fichier";
   // Une app est un dossier : son nom parle plus que « index.html ».
@@ -244,7 +245,7 @@ function Preview({ spec }: { spec: PreviewSpec }) {
             </Button>
           )}
           <Button size="icon-sm" variant="ghost" asChild>
-            <a href={`${raw}?download=1`} aria-label={`Télécharger ${name}`}><Download /></a>
+            <a href={`${raw}?download=1`} onClick={(e) => { e.preventDefault(); download(`${raw}?download=1`, name); }} aria-label={`Télécharger ${name}`}><Download /></a>
           </Button>
         </div>
       }
@@ -270,7 +271,7 @@ function Preview({ spec }: { spec: PreviewSpec }) {
           className={cn("block w-full border-0 bg-white", page ? "h-[560px]" : "h-80")}
         />
       ) : (
-        <a href={`${url}?download=1`} className="flex items-center gap-3 px-4 py-4 text-sm no-underline hover:bg-muted">
+        <a href={`${url}?download=1`} onClick={(e) => { e.preventDefault(); download(`${url}?download=1`, name); }} className="flex items-center gap-3 px-4 py-4 text-sm no-underline hover:bg-muted">
           <FileText className="size-8 text-muted-foreground" />
           <span className="flex flex-col">
             <span className="font-medium">{name}</span>

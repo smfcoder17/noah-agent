@@ -20,7 +20,7 @@ import { imageQuote, splitQuotes, useQuotes } from "@/lib/quotes";
 import { NoahTile } from "./Noah";
 import { cn, safeMedia } from "@/lib/utils";
 import { Button } from "./ui";
-import { canFrame, useViewer } from "./Viewer";
+import { canFrame, useDownload, useViewer } from "./Viewer";
 import { DictateButton, useDictation, VoiceMode, VoiceModeButton } from "./Voice";
 import { NoahWidget } from "./Widgets";
 
@@ -67,6 +67,7 @@ const SMOOTH = { drainMs: 100, minCommitMs: 50 };
 function MarkdownText() {
   const { agentId } = useContext(AgentContext);
   const view = useViewer();
+  const download = useDownload();
   const { add: addQuote } = useQuotes();
   // Props stables : sans ça, chaque jeton reçu refait l'analyse Markdown de tous les messages du fil.
   const preprocess = useCallback((text: string) => linkPaths(text, agentId), [agentId]);
@@ -78,7 +79,7 @@ function MarkdownText() {
               type="button"
               className="inline-flex cursor-pointer items-center gap-1 rounded-md bg-muted px-1.5 py-px align-baseline text-[0.92em] font-medium text-accent hover:underline"
               onClick={() =>
-                canFrame(href) ? view({ kind: "file", url: href, title: String(children) }) : window.open(`${href}?download=1`, "_self")
+                canFrame(href) ? view({ kind: "file", url: href, title: String(children) }) : download(`${href}?download=1`, String(children))
               }
             >
               <FileText className="size-3.5" />{children}
@@ -108,7 +109,7 @@ function MarkdownText() {
           </span>
         ),
     }),
-    [view, addQuote],
+    [view, download, addQuote],
   );
   return (
     <MarkdownTextPrimitive
