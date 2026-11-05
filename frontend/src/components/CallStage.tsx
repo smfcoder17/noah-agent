@@ -7,7 +7,7 @@ import { AgentContext } from "@/lib/agentContext";
 import { cn, safeMedia } from "@/lib/utils";
 import { NoahTile } from "./Noah";
 import { Button } from "./ui";
-import { canFrame, useViewer } from "./Viewer";
+import { canFrame, useDownload, useViewer } from "./Viewer";
 
 export const CALL_SLOT = "noah-call-slot";
 const PIP_WIDTH = 300; // plus étroit qu'aucun téléphone : c'est la fenêtre flottante
@@ -80,8 +80,9 @@ function ArtefactCard({ item, large }: { item: Artefact; large?: boolean }) {
   const view = useViewer();
   const open = () => {
     if (item.kind === "image") view({ kind: "image", src: item.url, title: item.title });
+  const download = useDownload();
     else if (canFrame(item.url)) view({ kind: "file", url: item.url, title: item.title });
-    else window.open(`${item.url}?download=1`, "_self");
+    else download(`${item.url}?download=1`, item.title);
   };
   return (
     <button type="button" onClick={open} aria-label={`Ouvrir ${item.title}`} className={cn("group overflow-hidden rounded-xl border border-border bg-surface text-left shadow-sm", large ? "w-full" : "w-28 shrink-0")}>

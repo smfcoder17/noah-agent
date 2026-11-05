@@ -11,6 +11,7 @@ import { AgentFace } from "./Noah";
 import { ShareDialog } from "./Sharing";
 import { STATE_WORD, StateShape } from "./Sidebar";
 import { Button, Dialog, DialogContent, Tabs, TabsContent, TabsList, TabsTrigger } from "./ui";
+import { useDownload } from "./Viewer";
 
 export type PanelTab = "details" | "files" | "computer";
 
@@ -278,6 +279,7 @@ const GROUPS: [string, string][] = [
 ];
 
 function Files({ agentId, refreshKey }: { agentId: string; refreshKey: number }) {
+  const download = useDownload();
   const [files, setFiles] = useState<WorkspaceFile[] | null>(null);
   const [error, setError] = useState("");
   const [preview, setPreview] = useState<{ title: string; url: string } | null>(null);
@@ -329,7 +331,7 @@ function Files({ agentId, refreshKey }: { agentId: string; refreshKey: number })
                   </Button>
                 )}
                 <Button variant="ghost" size="icon-sm" asChild>
-                  <a href={`${raw}?download=1`} aria-label={`Télécharger ${name}`}><Download /></a>
+                  <a href={`${raw}?download=1`} onClick={(e) => { e.preventDefault(); download(`${raw}?download=1`, name); }} aria-label={`Télécharger ${name}`}><Download /></a>
                 </Button>
               </div>
             );
