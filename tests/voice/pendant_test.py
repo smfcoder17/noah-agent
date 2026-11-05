@@ -395,13 +395,30 @@ async def everything():
         await asyncio.sleep(0.05)
 
     hermes.prepare_guest = prepare_guest
-    separated, guest_profile = access.separated, access.guest_profile
-    main.access.separated, main.access.guest_profile = (lambda u, a: True), (lambda u: "p2")
+    separated, guest_profile, allowed = access.separated, access.guest_profile, access.allowed
+    main.access.separated, main.access.guest_profile, main.access.allowed = (lambda u, a: True), (lambda u: "p2"), (lambda u, a, d="lecture": True)
     agent = main._agent("a1")
     await asyncio.gather(main._guest_agent(agent, bruno), main._guest_agent(agent, bruno))
-    main.access.separated, main.access.guest_profile = separated, guest_profile
     assert prepared == ["p2"], prepared
     print("14. profil invité : préparé une seule fois")
+    # Partage retiré pendant la préparation : le profil est effacé, et rien n'est retenu comme prêt.
+    removed = []
+
+    async def remove_guest(agent_id, profile):
+        removed.append(profile)
+
+    remove_before, hermes.remove_guest = hermes.remove_guest, remove_guest
+    main.access.guest_profile = lambda u: "p3"
+    main.access.allowed = lambda u, a, d="lecture": False
+    try:
+        await main._guest_agent(agent, bruno)
+        raise AssertionError("un partage retiré pendant la préparation doit refuser")
+    except main.HTTPException as e:
+        assert e.status_code == 404, e.status_code
+    assert removed == ["p3"] and db.get_setting("invite:a1:p3") is None, (removed, db.get_setting("invite:a1:p3"))
+    hermes.remove_guest = remove_before
+    main.access.separated, main.access.guest_profile, main.access.allowed = separated, guest_profile, allowed
+    print("14 ter. partage retiré pendant la préparation : profil effacé")
 
     # 14 bis. Un tour d'appel renvoyé après une coupure : un seul travail, même si le premier envoi était arrivé.
     finished()
