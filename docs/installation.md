@@ -55,7 +55,7 @@ Sans sous-domaine : `curl -fsSL https://raw.githubusercontent.com/smfcoder17/noa
 
 `NOAH_DOMAIN` se place après le `|`, devant `sh`. Devant `curl`, il ne parviendrait pas au script.
 
-Le script installe Docker s'il manque, ouvre les ports web si `ufw` est actif, place le compose dans `/opt/noah` et démarre Noah sans rien compiler. Le lien de création du compte s'affiche à la fin, ou plus tard avec `cd /opt/noah && docker compose logs server`.
+Le script installe Docker s'il manque, ouvre les ports web si `ufw` est actif, place le compose dans `/opt/noah` et démarre Noah sans rien compiler. Le lien de création du compte s'affiche à la fin, ou plus tard avec `cd /opt/noah && docker compose logs server`. Son code est après le `#` : il ne part pas vers le serveur et ne finit pas dans les journaux d'accès.
 
 Relancer la commande met Noah à jour sans toucher aux données ni aux secrets. Le domaine reste noté dans `/opt/noah/.env`. Autres variables : `NOAH_DIR` (dossier d'installation), `NOAH_COMPOSE_URL` (un autre fichier compose).
 

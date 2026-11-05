@@ -134,7 +134,7 @@ for _ in $(seq 1 60); do
   sleep 2
 done
 code=$(docker compose logs server 2>/dev/null | sed -n "s/.*Code d'installation : \([A-Z0-9]*\).*/\1/p" | tail -1)
-url=$(docker compose logs server 2>/dev/null | sed -n 's/.*\(https:\/\/[^ ?]*\).*/\1/p' | tail -1)
+url=$(docker compose logs server 2>/dev/null | sed -n 's/.*\(https:\/\/[^ ?#]*\).*/\1/p' | tail -1)
 url=${url%/}
 # Les journaux peuvent dater d'un démarrage précédent : on demande au serveur si le compte existe déjà.
 has_account=$(docker compose exec -T server python -c "import json,urllib.request;print(json.load(urllib.request.urlopen('http://127.0.0.1:8080/api/status'))['has_account'])" 2>/dev/null || true)
@@ -148,7 +148,7 @@ if [ "$has_account" = "True" ] && [ -n "${NOAH_ADMIN_USER:-}" ]; then
   say "✓ Noah Agent est installé. Le certificat HTTPS peut prendre une minute."
   say "Connecte-toi sur $url avec le compte $NOAH_ADMIN_USER : Noah te demandera aussitôt un nouveau mot de passe. S'il existait déjà, rien n'a changé."
 elif [ -n "$code" ]; then
-  url="$url/?installation=$code"
+  url="$url/#installation=$code"
   say "✓ Noah Agent est installé. Le certificat HTTPS peut prendre une minute. Code d'installation : $code"
   say "Ouvre ce lien pour créer ton compte : $url"
 elif [ -n "$url" ]; then

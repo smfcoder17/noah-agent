@@ -482,6 +482,10 @@ assert said("delegate_task", goal="Vérifier les chiffres") == "Confie à un sou
 assert said("mcp_notion_search", query="x") == "Utilise notion"
 leak = said("terminal", command="deploy --token=sk-or-v1-abcdefghijklmnop")
 assert "abcdefghijklmnop" not in leak, leak
+# Dernier filet, quand un outil cite une clé dans ce qu'il cherche : la ligne envoyée à l'écran la masque quand même.
+from noah import events as _events
+line = _events.translate("tool.started", {"tool": "web_search", "args": {"query": "deploy sk-or-v1-abcdefghijklmnop"}}, False)["label"]
+assert "abcdefghijklmnop" not in line, line
 assert said("terminal") and said("web_extract") and said("browser_click"), "sans argument : une phrase quand même"
 for secret, command in (("VerySecret123", "deploy --password VerySecret123"), ("VerySecret123", "curl https://alice:VerySecret123@example.com/report"),
                         ("hunter2", "mysql -u root -phunter2"), ("hunter2", "deploy hunter2"), ("hunter2", "npm run hunter2"), ("hunter2", "python3 -c hunter2")):

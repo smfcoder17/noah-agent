@@ -122,7 +122,7 @@ Sans accès au VPS, la personne lit le lien dans le menu du projet (⋮) > View 
 - `noah-server`, `noah-launcher` et `noah-caddy` sont `Up`, sans `Restarting` (derrière Traefik, pas de `noah-caddy`) ;
 - `noah_noah-data` et `noah_noah-secrets` existent. Un autre préfixe veut dire que le projet ne s'appelle pas `noah` : les sauvegardes ne le trouveraient pas ;
 - `NOAH_DOMAIN` vaut le sous-domaine, ou `auto` ;
-- le journal donne un lien en `https://…/?installation=…` ; compte choisi au déploiement : `Noah est prêt : https://…` ;
+- le journal donne un lien en `https://…/#installation=…` ; compte choisi au déploiement : `Noah est prêt : https://…` ;
 - `/api/status` répond en HTTPS valide, avec `"has_account":false`, `"setup_code":true` et `"secrets_lisibles":true` ; compte choisi au déploiement : `"has_account":true` et `"setup_code":false`.
 
 ### 6. Remettre le lien
@@ -135,7 +135,7 @@ Sinon, donne le lien à la personne, avec ceci :
 
 Conseil si elle n'a pas de clé : Ollama Cloud est le plus simple sur un VPS. Ollama local n'est pas joignable depuis ce compose.
 
-**Fini quand :** elle confirme, et `/api/status` donne `"has_account":true`. Une fois le compte créé, cette adresse ne dit rien de plus à un inconnu ; le reste se lit depuis le serveur (`docker exec noah-server python -c "import urllib.request as u;print(u.urlopen('http://127.0.0.1:8080/api/status').read().decode())"`) : `"model_configured":true`, `"onboarded":true`.
+**Fini quand :** elle confirme, et `/api/status` donne `"has_account":true`. Une fois le compte créé, cette adresse ne dit rien de plus à un inconnu ; le reste se lit depuis le serveur (`docker exec noah-server python -c "import urllib.request as u;print(u.urlopen('http://localhost:8080/api/status').read().decode())"`) : `"model_configured":true`, `"onboarded":true`.
 
 ### 7. Relier ses appareils
 

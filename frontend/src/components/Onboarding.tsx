@@ -32,8 +32,10 @@ const firstStep = (st: Status): Step =>
 
 export function Onboarding({ status, onDone }: { status: Status; onDone: () => void }) {
   const [step, setStep] = useState<Step>(() => firstStep(status));
-  // VPS : le lien de fin d'installation porte le code (?installation=…).
-  const [code, setCode] = useState(() => new URLSearchParams(location.search).get("installation") ?? savedCode());
+  // VPS : le lien de fin d'installation porte le code dans le # (#installation=…), qui ne part ni vers le serveur ni dans les
+  // journaux d'accès. Les liens d'avant (?installation=…) restent lus.
+  const [code, setCode] = useState(() =>
+    new URLSearchParams(location.hash.slice(1)).get("installation") ?? new URLSearchParams(location.search).get("installation") ?? savedCode());
   const [agentId, setAgentId] = useState<string | null>(null);
   const at = STEPS.findIndex((s) => s.id === step);
 

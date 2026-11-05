@@ -18,11 +18,19 @@
 	}
 
 	# Journal d'accès (qui s'est connecté, d'où) dans le volume de Caddy, tournant. Caddy n'y écrit ni l'en-tête
-	# Authorization ni les cookies, et aucun jeton ne passe par l'adresse (les liens d'appairage sont dans le #).
+	# Authorization ni les cookies. Les liens d'appairage et d'installation sont dans le # ; le chemin d'un aperçu porte son
+	# jeton, il n'est pas journalisé ; un ancien lien ?installation=… perd son code, dans l'adresse comme dans le Referer.
+	log_skip /api/apercu/*
 	log {
 		output file /data/access.log {
 			roll_size 10MiB
 			roll_keep 5
+		}
+		format filter {
+			request>uri query {
+				delete installation
+			}
+			request>headers>Referer delete
 		}
 	}
 

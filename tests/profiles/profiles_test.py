@@ -993,6 +993,30 @@ def test_notifications() -> None:
     desktop._seen[ALICE] = {"at": time.time(), "os": "test"}
     assert "erreur" in agent_a.post("/agent-api/ordinateur", json={"action": "commande", "cible": "whoami"}).json()
     desktop._seen.pop(ALICE)
+    # fil-etat : le jeton de l'agent ne dit pas pour qui il travaille. Pendant la tâche d'uma, une conversation privée d'alice reste fermée.
+    with db.connect() as c:
+        c.execute("INSERT INTO messages (conversation_id, role, text) VALUES (?, 'agent', 'REPONSE-PRIVEE-ALICE')", (CA,))
+    state = lambda conv: agent_a.get(f"/agent-api/fils/{conv}")  # noqa: E731
+    r = state(CA)
+    assert r.status_code == 404 and "REPONSE-PRIVEE" not in r.text, f"invité : {r.status_code} {r.text}"
+    assert state(own).status_code == 200, "sa propre conversation"
+    with db.connect() as c:
+        c.execute("UPDATE conversations SET shared = 1 WHERE id = ?", (CA,))
+    assert "REPONSE-PRIVEE" in state(CA).text, "conversation partagée : même règle que l'API des profils"
+    with db.connect() as c:
+        c.execute("UPDATE conversations SET shared = 0 WHERE id = ?", (CA,))
+    # Alice et uma en même temps : l'appel peut venir de l'une ou de l'autre, personne ne lit.
+    relay.active[A] = [own, CA]
+    r = state(CA)
+    assert r.status_code == 409 and "REPONSE-PRIVEE" not in r.text, f"ambigu : {r.status_code} {r.text}"
+    assert state(own).status_code == 409
+    # Sans tâche : le propriétaire lit les siennes, pas celles d'uma.
+    relay.active[A] = []
+    assert "REPONSE-PRIVEE" in state(CA).text and state(own).status_code == 404
+    relay.active[A] = [CA]
+    assert "REPONSE-PRIVEE" in state(CA).text, "sa tâche, sa conversation"
+    with db.connect() as c:
+        c.execute("DELETE FROM messages WHERE text = 'REPONSE-PRIVEE-ALICE'")
     relay.active[A] = []
     # Accord demandé pendant la tâche d'uma : uma et alice, personne d'autre.
     run_behaviour["events"] = [("approval.request", {"request_id": "r", "generation": 1, "summary": "Envoyer ?"})]

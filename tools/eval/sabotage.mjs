@@ -17,11 +17,14 @@ const PENDANT = PIP + "python /tests/voice/pendant_test.py";
 const APERCU = PIP + "python /tests/agents/apercu_test.py";
 
 const SABOTAGES = [
-  ["Plafond de dépense ignoré", "noah/relay.py", "if cap is not None and day_cost(agent_id) >= cap:", "if False:", BUDGET],
+  ["Plafond de dépense ignoré", "noah/relay.py", "if cap is None or day_cost(agent_id) < cap:", "if True:", BUDGET],
   ["Heures non retirées des pages surveillées", "noah/watch.py", String.raw`text = _STAMP.sub(r"\1", _VOLATILE.sub(" ", text))`, "pass", WATCH],
   ["Téléchargement puis exécution autorisés", "noah/agent_plugin/__init__.py", 'DOWNLOADER = r"(?:curl|wget|iwr|invoke-webrequest|fetch)"', 'DOWNLOADER = r"(?:zzzz)"', GUARD],
   ["Session d'appairage qui n'expire plus", "noah/auth.py", "UNCLAIMED = timedelta(minutes=10)", "UNCLAIMED = timedelta(days=3650)", PAIRING],
-  ["Outil : adresse jugée sans la résolution DNS", "noah/mcp.py", "_judge(ipaddress.ip_address(a), scheme)", "pass", MCP],
+  ["Outil : adresse jugée sans la résolution DNS", "noah/mcp.py", '_judge(ipaddress.ip_address(a), "https" if for_source else scheme)', "pass", MCP],
+  ["Veille : redirection suivie sans contrôle", "noah/watch.py", "target = await mcp.resolve(url, for_source=True)", 'target = mcp.Target(*(lambda p: (p.scheme, p.hostname, p.port or {"https": 443, "http": 80}[p.scheme], p.path or "/", p.hostname))(mcp.urlsplit(url)))', WATCH],
+  ["Veille : réponse lue sans plafond", "noah/watch.py", "if len(body) >= MAX_BYTES:", "if False:", WATCH],
+  ["Aperçu : session révoquée, le lien sert encore", "noah/main.py", "not auth.session_alive(session) or ", "", APERCU],
   ["Outil : jeton en clair en base", "noah/mcp.py", "db.seal(token) if token else None", "token", MCP],
   ["Outil : « confirmer » laisse passer sans accord", "noah/mcp.py", 'if _take_grant(row["agent_id"], name, _shown(tool, args if args is not None else {})):', "if True:", MCP],
   ["Outil : un accord sert plusieurs fois", "noah/mcp.py", "left.remove(match)", "pass", MCP],
@@ -30,7 +33,7 @@ const SABOTAGES = [
   ["Pendant le travail : même envoi compté deux fois", "noah/pendant.py", "INSERT OR IGNORE INTO pending_requests", "INSERT OR REPLACE INTO pending_requests", PENDANT],
   ["Pendant le travail : la file part par-dessus le travail", "noah/pendant.py", 'elif _h["busy"](agent_id, conv) or _h["paused"]():', "elif False:", PENDANT],
   ["Pendant le travail : accès retiré, la demande part quand même", "noah/pendant.py", 'if not _h["allowed"](row["user_id"], agent_id):', "if False:", PENDANT],
-  ["Pendant le travail : une demande perdue au redémarrage", "noah/pendant.py", 'c.execute("UPDATE pending_requests SET status = ? WHERE status = ?", (WAITING, TRI))', "pass", PENDANT],
+  ["Pendant le travail : une demande perdue au redémarrage", "noah/pendant.py", 'c.execute("UPDATE pending_requests SET status = ? WHERE status IN (?, ?)", (WAITING, TRI, RUNNING))', "pass", PENDANT],
   ["Pendant le travail : une demande retirée peut encore partir", "noah/main.py", 'if not pendant.move(request_id, (pendant.WAITING, pendant.ANSWERED), pendant.SENDING):', 'if not pendant.move(request_id, (pendant.WAITING, pendant.ANSWERED, pendant.CANCELLED, pendant.DONE), pendant.SENDING):', PENDANT],
   ["Pendant le travail : réponse perdue, la précision repart", "noah/main.py", "return STEER_UNSURE", "return STEER_REFUSED", PENDANT],
   ["Pendant le travail : droit retiré pendant le tri", "noah/main.py", 'if not access.allowed(user, agent.id, "usage"):  # le tri prend du temps', 'if False:  # le tri prend du temps', PENDANT],

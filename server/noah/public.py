@@ -68,7 +68,7 @@ async def setup() -> None:
         log.warning("Noah : adresse publique introuvable. Indique ton domaine avec NOAH_DOMAIN=noah.exemple.com.")
         return
     if config.setup_code() and not auth.has_users():
-        log.warning("\n\n  Noah est prêt. Ouvre ce lien pour créer ton compte :\n\n    %s/?installation=%s\n\n"
+        log.warning("\n\n  Noah est prêt. Ouvre ce lien pour créer ton compte :\n\n    %s/#installation=%s\n\n"
                     "  Code d'installation : %s\n", url, config.setup_code(), config.setup_code())
     else:
         log.warning("Noah est prêt : %s", url)

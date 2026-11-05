@@ -136,6 +136,12 @@ def ambiguous(agent_id: str) -> bool:
     return len(_active_users(agent_id)) > 1
 
 
+def callers(agent_id: str) -> set:
+    """Pour qui un appel de cet agent peut venir : les profils des tâches en cours, sinon son propriétaire. Son jeton ne dit
+    pas lequel : c'est le même pour tous ses profils Hermes."""
+    return _active_users(agent_id) or {owner_of(agent_id)}
+
+
 def guest_task(agent_id: str) -> bool:
     """Une tâche lancée par un profil partagé tourne : l'agent ne doit pas lui prêter ce que seul son propriétaire a
     (les autres agents, l'ordinateur du propriétaire)."""

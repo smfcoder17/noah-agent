@@ -2707,7 +2707,7 @@ async def agent_file(agent_id: str, path: str, request: Request, download: bool 
     return Response(r.content, media_type=ctype, headers=headers)
 
 
-PREVIEW_SECONDS = 86400
+PREVIEW_SECONDS = 2 * 3600  # l'interface en redemande un avant la fin (frontend/src/lib/api.ts)
 WORKSPACE = "/opt/data/workspace/"
 
 
@@ -2715,7 +2715,7 @@ def _preview_signature(body: str) -> str:
     return hmac.new(config.SECRET_KEY.encode(), f"apercu:{body}".encode(), hashlib.sha256).hexdigest()
 
 
-PREVIEW_SHARED_FOLDERS = {"outputs", "uploads"}
+PREVIEW_SHARED_FOLDERS = {"outputs", "uploads", "apps"}
 _PAGE_REFERENCE = re.compile(r"""(?:src|href|poster|data-src)\s*=\s*["']([^"'#?]+)|url\(\s*["']?([^"')#?]+)""", re.I)
 
 
@@ -2738,11 +2738,13 @@ class PreviewAsk(BaseModel):
 
 
 @app.post("/api/agents/{agent_id}/apercu")
-async def preview_link(agent_id: str, body: PreviewAsk, user: int = Depends(auth.current_user)):
+async def preview_link(agent_id: str, body: PreviewAsk, request: Request, noah_session: str | None = Cookie(None), user: int = Depends(auth.current_user)):
     """Le lien d'une page montrée dans son bac à sable. Son origine est opaque : le navigateur n'y envoie aucun cookie, donc
-    ses images et ses données en chemins relatifs échouaient. Ce lien vaut pour son dossier seulement, et il suit les droits.
-    Une page à la racine ou posée directement dans un dossier commun (outputs/, uploads/) ne voit pas ses voisins : seulement
-    elle-même et les fichiers qu'elle cite. Dans son propre dossier (une app), elle voit ce dossier."""
+    ses images et ses données en chemins relatifs échouaient. Ce lien vaut pour son dossier seulement, deux heures au plus, et il
+    suit les droits et la session qui l'a demandé : révoquée, il ne sert plus. Une page à la racine ou posée directement dans un
+    dossier commun (outputs/, uploads/, apps/) ne voit pas ses voisins : seulement elle-même et les fichiers qu'elle cite. Dans
+    son propre dossier (une app), elle voit ce dossier, sauf ses fichiers cachés : une app charge ses données depuis son code,
+    et ce qu'elle charge ainsi ne se lit pas dans sa page."""
     _usable(user, agent_id)
     path = posixpath.normpath(body.path.removeprefix(WORKSPACE))
     if path.startswith(("/", "..")) or path == ".":
@@ -2755,7 +2757,8 @@ async def preview_link(agent_id: str, body: PreviewAsk, user: int = Depends(auth
             page = await hermes.read_file(agent_id, path)
             if page.status_code == 200:
                 files += _page_references(page.content, folder)
-    token = base64.urlsafe_b64encode(json.dumps([agent_id, user, folder if own_folder else files, int(time.time()) + PREVIEW_SECONDS]).encode()).decode().rstrip("=")
+    session = auth.session_key(auth.request_token(request, noah_session))  # l'appareil : une session de fenêtre se renouvelle sans cesse
+    token = base64.urlsafe_b64encode(json.dumps([agent_id, user, folder if own_folder else files, int(time.time()) + PREVIEW_SECONDS, session]).encode()).decode().rstrip("=")
     return {"url": f"/api/apercu/{token}.{_preview_signature(token)}/{quote(name)}"}
 
 
@@ -2764,12 +2767,15 @@ async def preview_file(token: str, path: str, request: Request, download: bool =
     body, _, signature = token.partition(".")
     if not hmac.compare_digest(signature.encode(), _preview_signature(body).encode()):
         raise HTTPException(403, "Lien d'aperçu invalide")
-    agent_id, user, scope, expires = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
-    if time.time() > expires or not access.allowed(user, agent_id, "usage"):
+    fields = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
+    if len(fields) != 5:  # lien d'avant le rattachement à la session
+        raise HTTPException(403, "Lien d'aperçu expiré")
+    agent_id, user, scope, expires, session = fields
+    if time.time() > expires or not auth.session_alive(session) or not access.allowed(user, agent_id, "usage"):
         raise HTTPException(403, "Lien d'aperçu expiré")
     if isinstance(scope, str):  # le dossier de l'app
         wanted = posixpath.normpath(posixpath.join(scope, path))
-        allowed = wanted.startswith(scope + "/")
+        allowed = wanted.startswith(scope + "/") and not any(part.startswith(".") for part in wanted.split("/"))
     else:  # la page et ce qu'elle cite, à côté d'elle
         wanted = posixpath.normpath(posixpath.join(posixpath.dirname(scope[0]), path))
         allowed = wanted in scope
@@ -3259,7 +3265,7 @@ async def voice_say(body: SayBody, user: int = Depends(auth.current_user)):
 
 
 @app.get("/api/voice/audio/{audio_id}")
-async def voice_audio(audio_id: str, user: int = Depends(auth.current_user)):
+async def voice_audio(audio_id: str, request: Request, noah_session: str | None = Cookie(None), user: int = Depends(auth.current_user)):
     """Le son d'une réponse, envoyé au navigateur au fur et à mesure qu'il est synthétisé."""
     if not re.match(AUDIO_ID, audio_id):
         raise HTTPException(400, "Identifiant invalide")
@@ -3283,7 +3289,14 @@ async def voice_audio(audio_id: str, user: int = Depends(auth.current_user)):
         finally:
             media.drop_stream(audio_id)
 
-    return StreamingResponse(body(), media_type=stream.ctype, headers={"Cache-Control": "no-store"})
+    async def until_revoked():  # session révoquée : le son s'arrête comme le chat et l'écran, et le flux ne reste pas ouvert
+        try:
+            async for chunk in auth.revocable(body(), auth.request_token(request, noah_session)):
+                yield chunk
+        finally:
+            media.drop_stream(audio_id)
+
+    return StreamingResponse(until_revoked(), media_type=stream.ctype, headers={"Cache-Control": "no-store"})
 
 
 class VoiceTurn(BaseModel):
@@ -3499,8 +3512,16 @@ coordination.setup(run=_run, agent=_agent, new_conversation=_new_conversation, s
 def agent_thread_state(conv_id: str, request: Request):
     agent_id = relay._agent_from(request)
     with db.connect() as c:
-        if not c.execute("SELECT 1 FROM conversations WHERE id = ? AND agent_id = ?", (conv_id, agent_id)).fetchone():
-            raise HTTPException(404, "Fil introuvable")
+        row = c.execute("SELECT user_id, shared FROM conversations WHERE id = ? AND agent_id = ?", (conv_id, agent_id)).fetchone()
+    # Même règle que /api/conversations/{id}/messages, pour chaque personne de qui cet appel peut venir : sa conversation ou une
+    # conversation partagée. L'appel ne dit pas de qui il vient : s'il y en a une qui n'y a pas droit, on ne répond pas.
+    callers = access.callers(agent_id)
+    readers = {u for u in callers if row and (row["shared"] or (row["user_id"] or access.owner_of(agent_id)) == u)}
+    if not readers:
+        raise HTTPException(404, "Fil introuvable")
+    if readers != callers:
+        raise HTTPException(409, "Plusieurs personnes te parlent en ce moment : réessaie quand leurs tâches sont finies.")
+    with db.connect() as c:
         last = c.execute(
             "SELECT text FROM messages WHERE conversation_id = ? AND role != 'user' ORDER BY id DESC LIMIT 1", (conv_id,)
         ).fetchone()
