@@ -90,10 +90,13 @@ export default function App() {
       if (code) {
         history.replaceState(null, "", location.pathname);
         const r = await send<{ sondage: string; verification: string; expire: number }>("/api/pairing/claim", { code }).catch((e) => {
+          if (e instanceof ApiError && e.status === 426) throw e; // app trop ancienne : son écran, plus bas
           setError((e as Error).message);
           return null;
         });
-        if (r) waiting = { sondage: r.sondage, verification: r.verification, until: Date.now() + r.expire * 1000 };
+        // QR déjà servi ou expiré : on le dit, au lieu de passer à l'écran de connexion comme si de rien n'était.
+        if (!r) return setScreen("pairing");
+        waiting = { sondage: r.sondage, verification: r.verification, until: Date.now() + r.expire * 1000 };
       }
       if (waiting && waiting.until > Date.now()) {
         try {
@@ -174,7 +177,20 @@ export default function App() {
     return (
       <div className="mx-auto flex max-w-sm flex-col items-center gap-4 p-10 text-center">
         {error ? (
-          <p className="text-sm text-danger">{error}</p>
+          <>
+            <p className="text-sm text-danger">{error}</p>
+            <button
+              type="button"
+              className="text-sm underline"
+              onClick={() => {
+                setError("");
+                setScreen("loading");
+                boot();
+              }}
+            >
+              Continuer vers Noah
+            </button>
+          </>
         ) : (
           <>
             <p className="text-sm text-muted-foreground">Sur l'appareil où le code est affiché, accepte ce téléphone et saisis :</p>
