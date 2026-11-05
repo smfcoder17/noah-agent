@@ -12,12 +12,12 @@ import {
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import { ArrowDown, ArrowUp, Check, Copy, FileText, Loader2, Paperclip, Reply, Square, TriangleAlert, X } from "lucide-react";
-import { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import remarkGfm from "remark-gfm";
 import { WhileBusyContext, AgentContext } from "@/lib/agentContext";
 import { mediaUrl, rawFileUrl, send } from "@/lib/api";
 import { imageQuote, splitQuotes, useQuotes } from "@/lib/quotes";
-import { NoahTile } from "./Noah";
+import { NoahTile, type NoahHandle } from "./Noah";
 import { cn, safeMedia } from "@/lib/utils";
 import { Button } from "./ui";
 import { canFrame, useDownload, useViewer } from "./Viewer";
@@ -361,7 +361,7 @@ function AssistantMessage() {
   const isLast = useAuiState((s) => s.thread.messages[s.thread.messages.length - 1]?.id === s.message.id);
   return (
     <MessagePrimitive.Root data-reply-source className="group relative flex flex-col gap-1 py-2 md:pl-11">
-      <NoahTile color={agentColor} shape={agentShape} detail={agentDetail} state={running ? "thinking" : "idle"} className="absolute top-2 left-0 hidden size-8 md:grid" />
+      <NoahTile color={agentColor} shape={agentShape} detail={agentDetail} state={running ? "thinking" : "idle"} still={!isLast} className="absolute top-2 left-0 hidden size-8 md:grid" />
       <div className="max-w-[92%] min-w-0">
         {empty && running ? (
           <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
@@ -515,7 +515,12 @@ function WhileBusyPanel() {
 
 function EmptyNoah() {
   const { agentColor, agentShape, agentDetail } = useContext(AgentContext);
-  return <NoahTile color={agentColor} shape={agentShape} detail={agentDetail} className="mb-2 size-20" />;
+  const face = useRef<NoahHandle>(null);
+  // Une conversation vide : l'agent salue d'un petit bond.
+  useEffect(() => {
+    face.current?.react("greet");
+  }, []);
+  return <NoahTile handle={face} color={agentColor} shape={agentShape} detail={agentDetail} className="mb-2 size-20" />;
 }
 
 export function Thread({ report, onReportRead, onCall }: { report: { id: string; text: string } | null; onReportRead: () => void; onCall: (on: boolean) => void }) {

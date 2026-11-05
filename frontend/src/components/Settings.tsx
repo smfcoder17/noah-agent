@@ -3,6 +3,7 @@
 import { Check, Loader2, Play } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { get, request, send } from "@/lib/api";
+import { noahPaused, setNoahPaused } from "@/lib/noahFace";
 import { ModelPicker } from "./ModelPicker";
 import { PhonePairing } from "./PhonePairing";
 import { MyPassword, Profiles } from "./Profiles";
@@ -71,6 +72,7 @@ export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainS
             <TabsContent value="phone">
               <PhonePairing />
               <MyPassword />
+              <FaceMotion />
             </TabsContent>
             <TabsContent value="profiles">
               <Profiles />
@@ -91,6 +93,27 @@ export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainS
   );
 }
 
+
+/** Le mouvement des visages se coupe ici : le réglage reste sur cet appareil. */
+function FaceMotion() {
+  const [still, setStill] = useState(noahPaused);
+  return (
+    <label className="mt-3 flex items-center gap-3 rounded-2xl border border-border p-4 text-sm">
+      <input
+        type="checkbox"
+        checked={still}
+        onChange={(e) => {
+          setStill(e.target.checked);
+          setNoahPaused(e.target.checked);
+        }}
+      />
+      <span>
+        <span className="block font-semibold">Visages immobiles</span>
+        <span className="block text-xs text-muted-foreground">Les agents ne bougent plus à l'écran, sur cet appareil.</span>
+      </span>
+    </label>
+  );
+}
 
 function MediaPanel({ kinds, withVoice, withPreferences }: { kinds: string[]; withVoice?: boolean; withPreferences?: boolean }) {
   const [state, setState] = useState<MediaState | null>(null);
