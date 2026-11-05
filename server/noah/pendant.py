@@ -20,6 +20,7 @@ TRI, WAITING, RUNNING, SENDING, ANSWERED, DONE, CANCELLED = "tri", "attente", "e
 TRI_MAX = 120  # un tri prend quelques secondes ; au-delà, il a échoué sans le dire et ne doit plus retenir la file
 
 _drains: dict[str, asyncio.Task] = {}
+_freed_events: dict[str, asyncio.Event] = {}
 _h: dict = {}
 
 
@@ -83,6 +84,24 @@ def _next(conv: str) -> dict | None:
     return dict(row) if row else None
 
 
+async def _freed(conv: str) -> None:
+    """Le tour d'avant vient de finir, ou POLL s'est écoulé : ce qui attend repart sans laisser un blanc."""
+    event = _freed_events.setdefault(conv, asyncio.Event())
+    event.clear()
+    try:
+        await asyncio.wait_for(event.wait(), POLL)
+    except asyncio.TimeoutError:
+        pass
+    finally:
+        _freed_events.pop(conv, None)
+
+
+def wake(conv: str) -> None:
+    event = _freed_events.get(conv)
+    if event:
+        event.set()
+
+
 async def _drain(agent_id: str, conv: str) -> None:
     while (row := _next(conv)) is not None:
         if row["status"] == TRI:
@@ -96,7 +115,7 @@ async def _drain(agent_id: str, conv: str) -> None:
             if move(row["id"], (WAITING,), DONE):
                 _h["expired"](row)
         elif _h["busy"](agent_id, conv) or _h["paused"]():
-            await asyncio.sleep(POLL)
+            await _freed(conv)
         elif take(row["id"]):
             await _h["run_turn"](row)
 

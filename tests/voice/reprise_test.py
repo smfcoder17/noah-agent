@@ -90,19 +90,40 @@ async def turns():
 
     # 5. Un appel que plus aucun tour n'attend : sa réponse relancera l'agent, il n'a pas à le relancer lui-même.
     call = handoff.open_call("a1", "Connecte-toi à Google dans l'écran.")
-    assert handoff.idle_call("a1") is call
+    assert handoff.left_open("a1")
     await say("hi")
     assert "Connecte-toi à Google dans l'écran." in started[-1] and "sans `attendre`" in started[-1], started[-1]
-    call["attentifs"] = 1  # un tour l'attend encore
-    assert handoff.idle_call("a1") is None and "attendre" not in main._left_open("a1", conv)
+    call["attentifs"] = 1  # un tour l'attend encore, dans une autre conversation
+    relay.active["a1"] = ["autre"]
+    assert not handoff.left_open("a1") and "attendre" not in main._left_open("a1", conv)
+    relay.active["a1"] = []  # plus aucun tour : sa commande coupée attend encore, mais personne derrière
+    assert handoff.left_open("a1")
     call["attentifs"] = 0
     handoff.close_call("a1", call["id"], "impossible")
-    assert handoff.idle_call("a1") is None
+    assert not handoff.left_open("a1"), "une réponse a été donnée : plus rien à dire"
     print("5. appel sans personne qui l'attend : l'agent sait que la réponse lui reviendra")
 
-    # 6. Un appel expiré ne se relance pas.
+    # 6. Un appel perdu (serveur redémarré) ou expiré : dit une seule fois, et le conseil dit de ne pas le relancer.
+    handoff.open_call("a1", "Connecte-toi à Google.")
+    handoff._calls.clear()  # le serveur a redémarré
+    assert "terminé sans réponse" in handoff.left_open("a1") and not handoff.left_open("a1")
     assert "Ne le relance pas" in handoff._result("x", "inconnu")["conseil"]
-    print("6. appel terminé : le conseil dit de ne pas le relancer")
+    print("6. appel perdu : l'agent le sait, une fois, et ne le relance pas")
+
+    # 6 bis. Un autre message pendant que l'agent attend l'appel : son attente s'arrête, l'appel reste ouvert, et une fois seulement.
+    call = handoff.open_call("a1", "Connecte-toi.")
+    waiting = asyncio.create_task(handoff.wait("a1", call["id"], 30))
+    await asyncio.sleep(0.01)
+    handoff.release_waiters("a1")
+    said = await asyncio.wait_for(waiting, 2)
+    assert said == handoff.ANOTHER_MESSAGE and "Ne relance pas" in handoff._result(call["id"], said)["conseil"], said
+    assert handoff._calls["a1"] is call and not call["attente"].done()
+    assert await handoff.wait("a1", call["id"], 0.02) == "en_attente", "une attente relancée exprès attend vraiment"
+    waiting = asyncio.create_task(handoff.wait("a1", call["id"], 30))
+    await asyncio.sleep(0.01)
+    await handoff.answer("a1", call, "fait")
+    assert await asyncio.wait_for(waiting, 2) == "fait", "la réponse à l'appel arrive toujours"
+    print("6 bis. autre message pendant l'appel : l'agent ne le retient pas, l'appel reste ouvert")
 
     # 7. La réponse à un appel, elle, demande bien de reprendre : aucune note ne le contredit.
     end[:] = ["run.cancelled", {}]

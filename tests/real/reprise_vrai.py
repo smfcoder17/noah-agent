@@ -98,8 +98,9 @@ def prepare(case: str) -> str:
     """Laisse la conversation dans l'état d'une demande restée en suspens."""
     faux("/_relais", {})
     conv = new_conv()
-    if case == "fini":  # le tour se termine normalement sur « je t'ai appelé » : la commande est rendue tout de suite par un outil court
-        faux("/_suite", {"suite": [{"outil": "terminal", "args": {"command": "echo '{\"reponse\": \"en_attente\", \"id\": \"abc123\", \"conseil\": \"Relance python3 /opt/data/noah.py attendre abc123.\"}'"}},
+    if case == "fini":  # le tour se termine normalement sur « je t'ai appelé » : un vrai appel, resté ouvert, sans attendre ses 150 s
+        command = f"timeout 2 {CALL}; echo '{{\"reponse\": \"en_attente\", \"id\": \"abc123\", \"conseil\": \"Relance python3 /opt/data/noah.py attendre abc123.\"}}'"
+        faux("/_suite", {"suite": [{"outil": "terminal", "args": {"command": command}},
                                    {"texte": "Je t'ai appelé : connecte-toi à ton compte Google dans l'écran. Je t'attends."}]})
         done = turn(conv, ASK)
         assert done["status"] == "completed", done
@@ -137,6 +138,32 @@ def still_works(model: str) -> int:
         print("OK   " if ok else "ÉCHEC", json.dumps({"cas": case, "message": text[:60], "ms": round(out["ms"]), "outils": tools_called, "reponse": out["reply"][:200]}, ensure_ascii=False))
         faux("/_relais", {})
     return failures
+
+
+def while_calling(model: str | None = None, seconds: float = 200) -> int:
+    """« hi » pendant que l'agent attend la réponse à son appel : le tri l'a mis à la suite. Il ne doit pas attendre la fin de l'appel."""
+    faux("/_relais", {})
+    conv = new_conv()
+    faux("/_suite", {"suite": [{"outil": "terminal", "args": {"command": CALL}}]})
+    started = turn(conv, ASK, until="activity")
+    assert started["run"], started
+    time.sleep(2)
+    if model:
+        faux("/_relais", {"url": "http://host.docker.internal:11434/v1", "cle": "ollama", "modele": model})
+    t0 = time.time()
+    r = web.post(f"{BASE}/api/chat/pendant", json={"agent_id": agent_id, "text": "hi", "conversation_id": conv, "client_id": uuid.uuid4().hex, "choix": "tache"})
+    r.raise_for_status()
+    while time.time() - t0 < seconds:
+        rows = web.get(f"{BASE}/api/conversations/{conv}/messages").json()
+        said = [m["role"] for m in rows]
+        if "hi" in [m["text"] for m in rows] and said[-1] != "user":
+            break
+        time.sleep(0.2)
+    took = time.time() - t0
+    rows = web.get(f"{BASE}/api/conversations/{conv}/messages").json()
+    print(json.dumps({"attente_s": round(took, 1), "messages": [(m["role"], m["text"][:60]) for m in rows]}, ensure_ascii=False))
+    faux("/_relais", {})
+    return took > 30
 
 
 def bounded(model: str) -> int:
@@ -178,7 +205,10 @@ def main() -> None:
     p.add_argument("--texte", default="hi")
     p.add_argument("--qualite", action="store_true", help="avec --modele : une vraie demande après l'ancienne part toujours, outils compris")
     p.add_argument("--borne", action="store_true", help="avec --modele : après le résumé du début, un fait se retrouve et un outil marche")
+    p.add_argument("--pendant", action="store_true", help="« hi » pendant que l'agent attend la réponse à son appel")
     a = p.parse_args()
+    if a.pendant:
+        sys.exit(1 if while_calling(a.modele) else 0)
     if a.qualite:
         sys.exit(1 if still_works(a.modele) else 0)
     if a.borne:
@@ -200,7 +230,7 @@ def main() -> None:
             failures += relaunched if a.modele else 0
             if not a.modele:  # sans vrai modèle : ce qui lui arrive doit lui dire de répondre à ce message
                 said = str(last_msgs[-1].get("content")) if last_msgs else ""
-                wanted = case == "fini" or ("Réponds au message ci-dessous" in said and ASK in said)
+                wanted = "Réponds au message ci-dessous" in said and (case == "fini" or ASK in said)
                 if not (wanted and said.endswith(a.texte)):
                     print("ÉCHEC : la note n'arrive pas au modèle :", said[:400])
                     failures += 1

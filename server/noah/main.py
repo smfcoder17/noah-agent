@@ -2187,6 +2187,7 @@ async def chat_while_busy(body: WhileBusy, user: int = Depends(auth.current_user
             kind, status = "tache", pendant.WAITING
         else:
             _save_message(conv_id, "user", text)
+            handoff.release_waiters(agent.id)  # transmise après l'outil en cours : pas après la réponse à un appel
             reply = UNSURE_STEER if outcome == STEER_UNSURE else reply or "C'est transmis : il en tient compte après ce qu'il est en train de faire."
     else:
         kind, status = "tache", pendant.WAITING
@@ -2198,6 +2199,7 @@ async def chat_while_busy(body: WhileBusy, user: int = Depends(auth.current_user
     pendant.settle(request_id, status, result)
     if status == pendant.WAITING:
         pendant.start(agent.id, conv_id)
+        handoff.release_waiters(agent.id)
     return result
 
 
@@ -2273,9 +2275,9 @@ def _left_open(agent_id: str, conv_id: str) -> str:
     asked = db.get_setting(f"tour_ouvert:{conv_id}")
     if asked:
         notes.append(f"Ta demande précédente (« {asked} ») s'est arrêtée avant la fin, et plus rien n'est en cours pour elle.")
-    call = handoff.idle_call(agent_id)
+    call = handoff.left_open(agent_id)
     if call:
-        notes.append(f"Ton appel à la personne (« {call['message'][:200]} ») reste affiché à son écran ; sa réponse te reviendra toute seule, sans `attendre`.")
+        notes.append(call)
     if not notes:
         return ""
     return ("[Note de Noah, que la personne ne voit pas. " + " ".join(notes) + " Réponds au message ci-dessous, et à lui seul : ne relance ni cette demande, "
@@ -2498,6 +2500,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
             relay.active[agent.id].remove(conv_id)
             _runs.pop(run_id, None)
             queue.put_nowait(None)
+            pendant.wake(conv_id)
     task = asyncio.create_task(pump())
     _running_runs.add(task)
     task.add_done_callback(_running_runs.discard)
