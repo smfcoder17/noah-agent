@@ -1,0 +1,34 @@
+# Pile d'essai des parcours G8.1, G12.3 et G12.5 : vrais conteneurs, base neuve, faux modèle, sans clé ni donnée de l'utilisateur.
+# Ajouté à docker-compose.yml ; le chemin relatif part du dossier de docker-compose.yml. Voir tests/real/profils_reels.mjs.
+services:
+  server:
+    image: ${NOAH_ESSAI_SERVEUR:-apollo-server:latest}
+    environment:
+      APOLLO_LOCALE: fr-FR
+      APOLLO_TIMEZONE: Europe/Paris
+      NOAH_PUSH_HOSTS: noah-faux
+      SSL_CERT_FILE: /ca/ca.pem
+    volumes:
+      - noah-essai-data:/data
+      - noah-essai-ca:/ca:ro
+      - ${NOAH_ESSAI_CODE_SERVEUR:-noah-essai-vide}:${NOAH_ESSAI_CIBLE_SERVEUR:-/tmp/vide}
+    depends_on: [faux]
+  launcher:
+    image: ${NOAH_ESSAI_LANCEUR:-apollo-launcher:latest}
+    volumes:
+      - ${NOAH_ESSAI_CODE_LANCEUR:-noah-essai-vide}:${NOAH_ESSAI_CIBLE_LANCEUR:-/tmp/vide}
+  faux:
+    image: ${NOAH_ESSAI_SERVEUR:-apollo-server:latest}
+    container_name: noah-faux
+    command: ["python", "/t/faux_services.py"]
+    ports:
+      - "127.0.0.1:11599:11500"
+    volumes:
+      - ./tests/real:/t:ro
+      - noah-essai-ca:/ca
+    networks: [apollo]
+
+volumes:
+  noah-essai-data:
+  noah-essai-ca:
+  noah-essai-vide:

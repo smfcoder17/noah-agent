@@ -100,7 +100,7 @@ def _check_budget(agent_id: str) -> None:
     limit = relay.budget()
     if limit is not None and relay.month_cost() >= limit:
         raise MediaError(f"Budget mensuel de {limit:.2f} $ atteint. Augmente-le dans Noah Agent pour continuer.")
-    refused = relay.profile_refusal(agent_id)
+    refused = relay.profile_refusal(agent_id) or relay.day_refusal(agent_id)
     if refused:
         raise MediaError(refused)
 
@@ -112,6 +112,8 @@ def _record(agent_id: str, model: str, cost: float | None) -> None:
             "VALUES (?, ?, 0, 0, ?, 0, ?)",
             (agent_id, model, float(cost or 0), relay.billed_to(agent_id)),
         )
+    if agent_id and agent_id != "routeur":  # le routeur ou une voix sans agent : aucun agent à arrêter ni à nommer
+        relay.check_spend(agent_id)
 
 
 async def _speech_cost(model: str, chars: int) -> float | None:

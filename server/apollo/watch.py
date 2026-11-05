@@ -153,7 +153,7 @@ Réponds uniquement par un objet JSON : {{"pertinent": true ou false, "resume": 
 
 
 async def triage(agent_id: str, w: dict, new: list[dict]) -> dict:
-    refused = relay.profile_refusal(agent_id)
+    refused = relay.profile_refusal(agent_id) or relay.day_refusal(agent_id)
     if refused:
         raise media.MediaError(refused)
     lines = []

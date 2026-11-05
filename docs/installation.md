@@ -72,7 +72,7 @@ Accepte les notifications : c'est par elles qu'un agent te rappelle. Sur Android
 - **Faire travailler un agent pour un autre :** « Demande à Rita de… ». Ajoute « et rappelle-moi quand c'est fini » pour qu'il te rappelle.
 - **Brancher un outil :** Détails > Connexions > Ajouter un outil, l'adresse d'un serveur MCP, un test, puis Enregistrer. Choisis son droit : lire, agir, ou demander confirmation (par défaut). L'agent l'a en moins d'une minute.
 - **Ajouter une personne :** Réglages > Profils. Chacun a ses agents, ses appareils et son plafond de dépenses.
-- **Partager un agent :** Détails > Partager, avec le droit lecture, usage ou admin. Attention : un agent partagé garde une seule mémoire, un seul navigateur et un seul dossier, et ses comptes connectés servent à tous ceux avec qui tu le partages.
+- **Partager un agent :** Détails > Partager, avec le droit lecture, usage ou admin. Avec le droit usage, la personne a sa propre mémoire et son propre navigateur, sans tes comptes connectés ni terminal ; le dossier de travail reste commun. Le droit admin est le choix de tout mettre en commun : ta mémoire, ton navigateur, tes comptes connectés et tes dossiers.
 
 ## En cas de souci
 

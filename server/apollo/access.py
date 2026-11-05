@@ -2,21 +2,26 @@
 
 Un agent a un propriétaire ; il peut le partager avec un autre profil, avec un droit :
 - lecture : voir l'agent et les conversations que leur auteur a rendues visibles, sans rien écrire ;
-- usage : en plus, lui parler dans ses propres conversations, voir ses fichiers ;
-- admin : en plus, ses réglages (rôle, cerveau, routines, mémoire, connexions, écran), sauf le supprimer ou le repartager.
+- usage : en plus, lui parler dans ses propres conversations, avec sa propre mémoire, sans les comptes de l'agent ; voir ses fichiers ;
+- admin : en plus, ses réglages (rôle, cerveau, routines, mémoire, connexions, écran), sauf le supprimer ou le repartager. Ce
+  droit met en commun la mémoire et les comptes connectés : c'est le choix explicite de son propriétaire.
 
 Le rôle `owner` donne la configuration globale, pas les agents des autres : il ne les voit que s'ils lui sont partagés.
 404 quand l'agent est invisible (on ne confirme pas qu'il existe), 403 quand il est visible et que le droit manque.
 """
+import hashlib
+
 from fastapi import Depends, HTTPException
 
 from . import auth, db, relay
 
 SHARE_RIGHTS = ("lecture", "usage", "admin")
 LEVELS = {"lecture": 1, "usage": 2, "admin": 3, "proprietaire": 4}
-# Limite réelle d'Hermes : une mémoire, un navigateur et un dossier de travail par conteneur. Dite telle quelle au partage.
-SHARE_WARNING = ("cet agent garde une seule mémoire, un seul navigateur et un seul dossier de travail ; ses comptes "
-                 "connectés et ses dossiers servent à tous ceux avec qui tu le partages.")
+# Dite telle quelle au partage. « usage » : un profil Hermes à part dans la même machine (G12.5), sans terminal : la garde de
+# Noah (agent_plugin) et les profils d'Hermes font la séparation. « admin » : le choix explicite de tout mettre en commun.
+SHARE_WARNING = ("avec le droit « usage », cette personne a sa mémoire et son navigateur à elle, sans tes comptes connectés "
+                 "ni terminal, et le dossier de travail reste commun. Avec le droit « admin », c'est ton choix : elle partage "
+                 "ta mémoire, ton navigateur, tes comptes connectés et tes dossiers. Toi, tu restes maître de la machine.")
 
 
 def role(user: int) -> str:
@@ -70,6 +75,20 @@ def access(user: int, agent_id: str, droit: str = "lecture") -> str:
     if LEVELS[have] < LEVELS[droit]:
         raise HTTPException(403, "Ton accès à cet agent ne permet pas cela.")
     return have
+
+
+def separated(user: int | None, agent_id: str) -> bool:
+    """Ce profil parle à l'agent dans son propre profil Hermes. Tout sauf le propriétaire et un admin : un droit qui vient
+    de disparaître reste du bon côté. Seul le droit admin, donné exprès, met mémoire et comptes en commun."""
+    return user is not None and owner_of(agent_id) != user and right(user, agent_id) != "admin"
+
+
+def guest_profile(user: int) -> str:
+    """Nom de son profil Hermes. Les numéros de compte peuvent resservir : le suivant n'hérite pas d'une mémoire restée là."""
+    with db.connect() as c:
+        row = c.execute("SELECT username, created_at FROM users WHERE id = ?", (user,)).fetchone()
+    seed = f"{user}:{row['username']}:{row['created_at']}" if row else str(user)
+    return f"u{user}{hashlib.sha256(seed.encode()).hexdigest()[:8]}"
 
 
 def allowed(user: int, agent_id: str, droit: str = "lecture") -> bool:

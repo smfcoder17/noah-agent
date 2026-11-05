@@ -584,7 +584,7 @@ function AddTool({ agentId, shared, onClose, onAdded }: { agentId: string; share
       <p className="text-xs text-muted-foreground">Le droit vaut pour tout ce serveur. « Lire seulement » s'en remet à ce que le serveur déclare en lecture. Dans une routine, personne ne peut confirmer : l'appel y est refusé.</p>
       <p className="text-xs text-muted-foreground">Une commande locale n'est pas acceptée ici : elle reviendrait à exécuter du code téléchargé sur la machine de l'agent.</p>
       <p className={cn("text-xs", shared ? "font-medium text-warn" : "text-muted-foreground")}>
-        {shared ? "Cet agent est partagé : cet outil servira aussi à tous ceux avec qui tu le partages." : "Si tu partages cet agent, cet outil servira aussi à tous ceux avec qui tu le partages."}
+        {shared ? "Cet agent est partagé : cet outil servira aussi à ceux à qui tu donnes le droit admin." : "Si tu partages cet agent, cet outil servira aussi à ceux à qui tu donnes le droit admin."}
       </p>
       {found && (
         <div className="rounded-lg bg-muted p-2 text-xs">

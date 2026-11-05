@@ -79,7 +79,7 @@ async def _decide(agent_id: str, name: str, source: str) -> str:
 
 async def _prepare(agent_id: str, user: int, reason: str) -> None:
     right = access.right(user, agent_id)
-    if not right:
+    if not right or relay.profile_refusal(agent_id) or relay.day_refusal(agent_id):  # plafond atteint : l'appel n'y gagne rien
         return
     with db.connect() as c:
         row = c.execute("SELECT name FROM agents WHERE id = ?", (agent_id,)).fetchone()

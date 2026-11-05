@@ -122,4 +122,82 @@ assert relay.local_day("2026-11-01 04:30:00") == "2026-11-01"   # 00:30, encore 
 assert relay.local_day("2026-11-02 04:30:00") == "2026-11-01"   # 23:30, passé à UTC−5
 assert relay.month_start().endswith(("04:00:00", "05:00:00"))  # minuit à Toronto, le 1er du mois
 print("7. jour de chaque dépense avec le décalage de sa date (changement d'heure du 1er novembre)")
+
+# 8. Le plafond vaut pour tout ce qu'un agent dépense, pas seulement le relais : image, voix, transcription, tri d'une veille.
+import asyncio  # noqa: E402
+
+from apollo import media, precall, watch  # noqa: E402
+
+db.set_setting("media_api_key", "cle-openrouter", secret=True)
+assert relay.day_refusal("a1"), "a1 est au plafond depuis l'étape 3"
+media_calls = []
+
+
+def media_upstream(request: httpx.Request) -> httpx.Response:
+    media_calls.append(str(request.url))
+    return httpx.Response(200, json={"data": [{"b64_json": "AA=="}], "usage": {"cost": 0.04}})
+
+
+relay._client = httpx.AsyncClient(transport=httpx.MockTransport(media_upstream))
+real_client = httpx.AsyncClient
+media.httpx.AsyncClient = lambda **kw: real_client(transport=httpx.MockTransport(media_upstream), **kw)
+
+
+async def refused(job) -> str:
+    try:
+        await job
+    except media.MediaError as e:
+        return str(e)
+    raise AssertionError("dépense acceptée au-delà du plafond")
+
+
+async def stopped_at_cap() -> None:
+    for job in (media.image("a1", "un chat", model="m"), media.speak("a1", "Bonjour."), media.transcribe("a1", b"AUDIO", "webm"), media.music("a1", "un air", model="m"),
+                media.video("a1", "un film", model="m"), watch.triage("a1", {"criteria": "", "name": "n", "url": "u"}, [{"titre": "t", "texte": "x"}])):
+        assert "Plafond du jour" in await refused(job)
+    await precall._prepare("a1", user, "une raison")
+    assert not media_calls, f"appels payants au-delà du plafond : {media_calls}"
+asyncio.run(stopped_at_cap())
+print("8. au plafond : image, voix, transcription, musique, vidéo, tri de veille et préparation d'appel refusés, aucun appel payant")
+
+# 9. Une dépense hors du relais compte et prévient, comme un appel au modèle.
+alerts.clear()
+with db.connect() as c:
+    c.execute("INSERT INTO agents (id, name, role, api_key) VALUES ('a3', 'Graphiste', '', 'k')")
+assert web.put("/api/agents/a3/plafond", json={"daily": 0.09}).status_code == 200  # 0,04 $ l'image : 0,08 $ passe les 80 %
+
+
+async def images() -> None:
+    await media.image("a3", "un chat", model="m")
+    assert not alerts, alerts
+    await media.image("a3", "un chat", model="m")
+    assert alerts == [("Graphiste approche de son plafond", False)], alerts
+    await media.image("a3", "un chat", model="m")
+    assert alerts[-1] == ("Graphiste s'est arrêté", True), alerts
+    assert "Plafond du jour" in await refused(media.image("a3", "un chat", model="m"))
+asyncio.run(images())
+media._record("routeur", "m", 5.0)
+media._record("", "m", 5.0)
+assert len(alerts) == 2, f"alerte pour un agent qui n'en est pas un : {alerts}"
+print("9. images facturées : alerte à 80 %, arrêt au plafond, comme le relais ; le routeur n'est pas un agent")
+
+# 10. Plusieurs appels partis en même temps : le plafond ne se vérifie qu'au départ, chacun compte à son retour.
+with db.connect() as c:
+    c.execute("INSERT INTO agents (id, name, role, api_key) VALUES ('a4', 'Pressé', '', 'k')")
+assert web.put("/api/agents/a4/plafond", json={"daily": 0.10}).status_code == 200
+relay._client = real_client(transport=httpx.MockTransport(upstream))
+quick = TestClient(main.app, headers={"Authorization": f"Bearer {relay.token_for('a4')}"})
+assert ask(quick) == 200 and ask(quick) == 200 and ask(quick) == 200 and ask(quick) == 402
+spent = relay.day_cost("a4")
+assert 0.10 <= spent < 0.10 + 0.045 + 1e-9, spent
+print(f"10. dépassement borné : {spent:.3f} $ pour un plafond de 0,10 $ et des appels à 0,045 $ (un appel au plus, son coût n'est connu qu'à son retour)")
+
+# 11. Plafond relevé dans la journée : l'agent reprend, et il prévient de nouveau avant le nouveau plafond (alors que l'alerte du
+# précédent est déjà partie aujourd'hui).
+alerts.clear()
+assert web.put("/api/agents/a4/plafond", json={"daily": spent + 0.05}).status_code == 200
+assert ask(quick) == 200 and alerts == [("Pressé s'est arrêté", True)], alerts
+assert ask(quick) == 402
+assert len(alerts) == 1, alerts
+print("11. plafond relevé : l'agent reprend, et le nouveau plafond prévient de nouveau")
 print("plafond quotidien : tout est vert")

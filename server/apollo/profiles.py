@@ -12,7 +12,7 @@ from . import access, auth, db, relay
 
 router = APIRouter()
 
-_h: dict = {}  # fonctions de main.py : stop_runs, remove_agent, drop_pending
+_h: dict = {}  # fonctions de main.py : stop_runs, remove_agent, drop_pending, forget_guest
 
 
 def setup(**hooks) -> None:
@@ -113,6 +113,10 @@ async def _delete_profile(profile_id: int, agents: str | None, me: int):
         for a in owned:
             await _h["remove_agent"](a["id"])
     with db.connect() as c:
+        visited = [r["agent_id"] for r in c.execute("SELECT agent_id FROM agent_shares WHERE user_id = ?", (profile_id,))]
+    for agent_id in visited:  # avant de l'effacer : le nom de son profil Hermes dépend de son compte
+        await _h["forget_guest"](agent_id, profile_id)
+    with db.connect() as c:
         if owned and agents == "transferer":
             for a in owned:
                 _transfer(c, a["id"], profile_id, me)
@@ -178,9 +182,11 @@ async def set_share(agent_id: str, body: Share, user: int = Depends(auth.current
     if target["id"] == user:
         raise HTTPException(400, "Cet agent est déjà le tien.")
     with db.connect() as c:
+        before = c.execute("SELECT droit FROM agent_shares WHERE agent_id = ? AND user_id = ?", (agent_id, target["id"])).fetchone()
         c.execute("INSERT INTO agent_shares (agent_id, user_id, droit) VALUES (?, ?, ?) "
                   "ON CONFLICT(agent_id, user_id) DO UPDATE SET droit = excluded.droit", (agent_id, target["id"], body.droit))
-    if body.droit == "lecture":  # droit retiré : ses tâches en cours s'arrêtent, comme à la révocation
+    # Droit retiré : ses tâches en cours s'arrêtent, comme à la révocation. Admin retiré : elles ne gardent pas la mémoire de l'agent.
+    if body.droit == "lecture" or (before and before["droit"] == "admin" and body.droit != "admin"):
         await _h["stop_runs"](target["id"], agent_id)
     return {"partages": _shares(agent_id), "avertissement": access.SHARE_WARNING}
 
@@ -197,4 +203,5 @@ async def revoke_share(agent_id: str, user_id: int, user: int = Depends(auth.cur
     with db.connect() as c:
         c.execute("DELETE FROM push_queue WHERE session IN (SELECT token FROM sessions WHERE user_id = ?)", (user_id,))
     await _h["stop_runs"](user_id, agent_id)
+    await _h["forget_guest"](agent_id, user_id)
     return {"partages": _shares(agent_id)}
