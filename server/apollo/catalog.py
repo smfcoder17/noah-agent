@@ -134,6 +134,16 @@ async def _ollama(url: str = OLLAMA_URL, api_key: str | None = None) -> list[dic
     return out
 
 
+async def check_key(provider: str, api_key: str) -> None:
+    """Lève HTTPStatusError si le fournisseur refuse cette clé. Les catalogues publics (OpenRouter) ne la testent pas :
+    ils répondent même à une clé expirée, et l'erreur n'apparaîtrait qu'au premier message."""
+    if provider == "openrouter":
+        async with httpx.AsyncClient(timeout=10) as c:
+            (await c.get("https://openrouter.ai/api/v1/key", headers=_auth(api_key))).raise_for_status()
+    elif provider in ("anthropic", "openai", "gemini"):
+        await _native(provider, api_key)
+
+
 async def models_for(provider: str, api_key: str | None, base_url: str | None = None) -> list[dict]:
     if provider == "openrouter":
         return [m for m in await openrouter_catalog() if m["tools"]]

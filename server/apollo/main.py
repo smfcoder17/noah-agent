@@ -788,6 +788,20 @@ def _clear_agent_models() -> None:
         c.execute("DELETE FROM settings WHERE key LIKE 'model\\_%' ESCAPE '\\'")
 
 
+KEY_REFUSED = "Le fournisseur a refusé cette clé API : elle est invalide ou expirée."
+
+
+async def _refuse_bad_key(provider: str, key: str) -> None:
+    """Une clé refusée s'arrête ici, avant d'être enregistrée. Si le fournisseur est en panne, le premier essai le dira."""
+    try:
+        await catalog.check_key(provider, key)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code in (401, 403):
+            raise HTTPException(400, KEY_REFUSED)
+    except httpx.HTTPError:
+        pass
+
+
 class ModelQuery(BaseModel):
     provider: str
     api_key: str | None = None
@@ -810,11 +824,13 @@ async def list_models(body: ModelQuery, user: int = Depends(auth.current_user)):
     key = body.api_key
     if not key and same and db.get_setting("api_key") and base_url == (db.get_setting("base_url") or None):
         key = db.get_setting("api_key", secret=True)
+    if body.api_key and body.provider == "openrouter":
+        await _refuse_bad_key(body.provider, body.api_key)
     try:
         models = await catalog.models_for(body.provider, key, base_url)
     except httpx.HTTPStatusError as e:
         if e.response.status_code in (401, 403):
-            raise HTTPException(400, "Le fournisseur a refusé cette clé API.")
+            raise HTTPException(400, KEY_REFUSED)
         raise HTTPException(502, "Le fournisseur n'a pas répondu correctement. Réessaie.")
     except httpx.HTTPError:
         if body.provider == "ollama":
@@ -994,6 +1010,8 @@ async def set_model(body: ModelChoice, user: int = Depends(access.owner_only)):
         raise HTTPException(400, "Cette option demande une clé API")
     if not (body.model or p["model"]):
         raise HTTPException(400, "Choisis un modèle")
+    if body.api_key:
+        await _refuse_bad_key(body.provider, body.api_key)
     if previous and previous["provider"] != body.provider:
         _clear_agent_models()  # les modèles propres à un agent n'existent pas chez le nouveau fournisseur
     # La création et la voix passent par OpenRouter : sa clé reste pour elles quand le cerveau change de fournisseur.
@@ -2153,7 +2171,8 @@ async def browser_restart(agent_id: str, user: int = Depends(auth.current_user))
 @app.get("/api/media")
 async def media_settings(user: int = Depends(access.owner_only)):
     """Pour chaque type : le réglage, le modèle que prendrait « Automatique », la liste des modèles."""
-    out: dict = {"kinds": {}, "available": True, "reason": None}
+    has_key = bool(db.get_setting("media_api_key")) or (db.get_setting("provider") == "openrouter" and bool(db.get_setting("api_key")))
+    out: dict = {"kinds": {}, "available": True, "reason": None, "has_key": has_key}
     try:
         for kind, label in media.KINDS.items():
             ms = await media.models(kind)
@@ -2165,9 +2184,9 @@ async def media_settings(user: int = Depends(access.owner_only)):
         out["voice"] = {"setting": db.get_setting("media_voice") or "auto", "auto": await media.voice_for(model) if model else None, "voices": voices}
         out["preferences"] = db.get_setting("media_preferences") or ""
     except media.MediaError as e:
-        return {"kinds": {}, "available": False, "reason": str(e)}
+        return {"kinds": {}, "available": False, "reason": str(e), "has_key": has_key}
     except httpx.HTTPError:
-        return {"kinds": {}, "available": False, "reason": "Le fournisseur ne répond pas. Réessaie dans un instant."}
+        return {"kinds": {}, "available": False, "reason": "Le fournisseur ne répond pas. Réessaie dans un instant.", "has_key": has_key}
     return out
 
 
@@ -2182,6 +2201,31 @@ def set_media(body: MediaChoice, user: int = Depends(access.owner_only)):
         raise HTTPException(400, "Type inconnu")
     db.set_setting("media_voice" if body.kind == "voice" else f"media_{body.kind}", body.model.strip())
     return {"ok": True}
+
+
+class MediaKey(BaseModel):
+    api_key: str = Field(max_length=2000)  # vide : on la retire
+
+
+@app.post("/api/media/key")
+async def set_media_key(body: MediaKey, user: int = Depends(access.owner_only)):
+    """La clé OpenRouter de la voix et de la création, à côté du cerveau : on peut penser avec Claude et parler par OpenRouter."""
+    key = body.api_key.strip()
+    if key:
+        await _refuse_bad_key("openrouter", key)
+    db.set_setting("media_api_key", key, secret=bool(key))
+    return {"ok": True}
+
+
+@app.get("/api/voice/ready")
+def voice_ready(user: int = Depends(auth.current_user)):
+    """Pourquoi la dictée ou l'appel ne peuvent pas marcher, dit avant d'ouvrir le micro. None : rien ne s'y oppose."""
+    def reason(kinds: tuple[str, ...]) -> str | None:
+        refusal = media.voice_refusal(kinds)
+        if refusal and not access.is_owner(user):
+            return "La voix n'est pas encore configurée sur ce serveur : demande à son propriétaire d'ajouter une clé."
+        return refusal
+    return {"dictation": reason(("transcription",)), "call": reason(("transcription", "speech"))}
 
 
 class VoiceServer(BaseModel):
@@ -2257,7 +2301,8 @@ async def voice_transcribe(request: Request, format: str = "webm", agent_id: str
     try:
         return {"text": await media.transcribe(agent_id, data, format)}
     except media.MediaError as e:
-        raise HTTPException(400, str(e))
+        # 503 : le navigateur garde le son et réessaie. 400 : réessayer ne changera rien, il dit pourquoi.
+        raise HTTPException(503 if e.temporary else 400, str(e))
 
 
 class SpeakBody(BaseModel):

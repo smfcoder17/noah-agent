@@ -196,6 +196,11 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
               </button>
             ))}
           </div>
+          {provider && provider.id !== "openrouter" && (
+            <p className="text-xs text-muted-foreground">
+              {provider.label} sert au texte et aux outils. La voix, les images et la vidéo passent par OpenRouter : tu pourras ajouter sa clé dans Réglages &gt; Voix.
+            </p>
+          )}
           {provider?.own_url && (
             <div className="flex flex-col gap-2">
               <Label>

@@ -190,6 +190,12 @@ export type ChatEvent =
   | { type: "done"; status: string; output?: string; error?: string };
 
 /** Envoie un message et appelle `onEvent` pour chaque événement du flux SSE. */
+export type VoiceReady = { dictation: string | null; call: string | null };
+
+/** Pourquoi la voix ne peut pas marcher, à dire avant d'ouvrir le micro. Serveur injoignable : le micro s'ouvre, le son attendra. */
+export const voiceRefusal = (kind: keyof VoiceReady): Promise<string | null> =>
+  get<VoiceReady>("/api/voice/ready").then((r) => r[kind], () => null);
+
 export async function streamChat(
   body: { agent_id: string; text: string; conversation_id: string | null; attachments: string[]; details: boolean },
   onEvent: (ev: ChatEvent) => void,

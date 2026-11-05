@@ -54,7 +54,11 @@ IMAGE_HINTS = [
 
 
 class MediaError(Exception):
-    """Erreur lisible par l'utilisateur et par l'agent."""
+    """Erreur lisible par l'utilisateur et par l'agent. temporary : panne passagère, la même demande peut réussir plus tard."""
+
+    def __init__(self, message: str, temporary: bool = False):
+        super().__init__(message)
+        self.temporary = temporary
 
 
 def _key() -> str:
@@ -62,7 +66,7 @@ def _key() -> str:
         return db.get_setting("media_api_key", secret=True)
     key = db.get_setting("api_key", secret=True) if db.get_setting("provider") == "openrouter" and db.get_setting("api_key") else None
     if not key:
-        raise MediaError("La création de médias et la voix demandent une clé OpenRouter (Réglages > Cerveau).")
+        raise MediaError("La voix et la création passent par OpenRouter : ajoute une clé OpenRouter dans Réglages > Voix, ou indique ton propre serveur de voix.")
     return key
 
 
@@ -79,6 +83,17 @@ def voice_server(kind: str) -> tuple[str, dict, str] | None:
         return None
     key = db.get_setting("voice_api_key", secret=True) if db.get_setting("voice_api_key") else None
     return base, {"Authorization": f"Bearer {key}"} if key else {}, model
+
+
+def voice_refusal(kinds: tuple[str, ...]) -> str | None:
+    """Pourquoi ces fonctions de voix ne peuvent pas marcher, avant d'ouvrir le micro. None : rien ne s'y oppose."""
+    for kind in kinds:
+        if not voice_server(kind):
+            try:
+                _key()
+            except MediaError as e:
+                return str(e)
+    return None
 
 
 def _check_budget(agent_id: str) -> None:
@@ -121,7 +136,9 @@ def _fail(r: httpx.Response) -> MediaError:
         msg = str(msg).replace(sent, "***")
     if r.status_code == 402:
         return MediaError("Le compte OpenRouter n'a plus de crédit.")
-    return MediaError(f"Le modèle a refusé la demande ({r.status_code}) : {str(msg)[:300]}")
+    if r.status_code in (401, 403):
+        return MediaError("Le fournisseur a refusé la clé de la voix et de la création : elle est invalide ou expirée. Remplace-la dans Réglages > Voix.")
+    return MediaError(f"Le modèle a refusé la demande ({r.status_code}) : {str(msg)[:300]}", temporary=r.status_code in RETRYABLE)
 
 
 # --- Catalogue ---------------------------------------------------------------------------
@@ -927,7 +944,7 @@ async def transcribe(agent_id: str, audio: bytes, fmt: str, language: str | None
             try:
                 r = await relay.upstream_client().post(f"{BASE}/audio/transcriptions", json=body, headers=_headers(), timeout=60)
             except httpx.HTTPError as e:
-                last = MediaError(f"Transcription injoignable : {e}")
+                last = MediaError(f"Transcription injoignable : {e}", temporary=True)
                 continue
             if r.status_code == 200:
                 j = r.json()
@@ -951,7 +968,7 @@ async def _transcribe_at(agent_id: str, own: tuple[str, dict, str], audio: bytes
             r = await relay.upstream_client().post(f"{base}/audio/transcriptions", data=form, files={"file": (f"audio.{fmt}", audio)},
                                                    headers=headers, timeout=60)
         except httpx.HTTPError as e:
-            last = MediaError(f"Serveur de voix injoignable : {e}")
+            last = MediaError(f"Serveur de voix injoignable : {e}", temporary=True)
             continue
         if r.status_code == 200:
             _record(agent_id, model, None)

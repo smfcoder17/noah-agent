@@ -5,7 +5,7 @@ import { useAui, useAuiState } from "@assistant-ui/react";
 import { AudioLines, Loader2, Mic } from "lucide-react";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { AgentContext } from "@/lib/agentContext";
-import { ApiError, request, send } from "@/lib/api";
+import { ApiError, request, send, voiceRefusal } from "@/lib/api";
 import { appShell, nativeCall } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import { CallStage } from "./CallStage";
@@ -147,6 +147,8 @@ async function transcribe(blob: Blob, agentId: string): Promise<string> {
   return (await r.json()).text as string;
 }
 
+const MIC_REFUSED = "Micro refusé ou indisponible.";
+
 /** Transcrit les morceaux en parallèle mais rend les textes dans l'ordre où ils ont été dits. */
 function useTranscripts(agentId: string, onText: (text: string) => void) {
   const state = useRef({ issued: 0, next: 0, running: 0, done: new Map<number, string>(), inflight: new Set<Promise<void>>() });
@@ -168,7 +170,7 @@ function useTranscripts(agentId: string, onText: (text: string) => void) {
       const i = s.issued++;
       setPending((n) => n + 1);
       // Deux transcriptions à la fois au plus (au-delà, le fournisseur répond 429). Le serveur passe déjà aux modèles de
-      // secours : un refus de sa part a droit à trois essais. Réseau coupé ou serveur qui redémarre : le son attend leur retour.
+      // secours : son refus est définitif et il dit pourquoi. Réseau coupé ou serveur qui redémarre : le son attend leur retour.
       const run = async () => {
         while (s.running >= 2) await new Promise((r) => setTimeout(r, 60));
         s.running++;
@@ -179,8 +181,8 @@ function useTranscripts(agentId: string, onText: (text: string) => void) {
               setError("");
               return text;
             } catch (e) {
-              const refused = e instanceof ApiError && e.status < 500;
-              if (!live.current || (refused && attempt >= 2)) throw e;
+              const refused = e instanceof ApiError && e.status < 500; // réessayer ne changera rien
+              if (!live.current || refused) throw e;
               if (attempt >= 2) setError("Réseau coupé : ce que tu as dit partira dès son retour.");
               await new Promise((r) => setTimeout(r, Math.min(700 * (attempt + 1), 10_000)));
             }
@@ -190,8 +192,8 @@ function useTranscripts(agentId: string, onText: (text: string) => void) {
         }
       };
       const p = run()
-        .catch(() => {
-          setError("Un passage n'a pas pu être transcrit (fournisseur indisponible). Le reste est bien là.");
+        .catch((e) => {
+          setError(e instanceof ApiError ? e.message : "Un passage n'a pas pu être transcrit. Le reste est bien là.");
           return "";
         })
         .then((text) => {
@@ -291,12 +293,14 @@ export function useDictation() {
 
   const start = async () => {
     t.setError("");
+    const refusal = await voiceRefusal("dictation");
+    if (refusal) return t.setError(refusal);
     try {
       await mic.open();
       recording.current = true;
       setState("recording");
     } catch {
-      t.setError("Micro refusé ou indisponible.");
+      t.setError(MIC_REFUSED);
     }
   };
 
@@ -675,11 +679,13 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
 
   const openMic = async () => {
     setError("");
+    const refusal = await voiceRefusal("call");
+    if (refusal) return setError(refusal);
     try {
       await mic.open();
       if (alive.current) nativeCall(true, agentName, agentColor); // Android refuse ce service tant que le micro n'est pas accordé
     } catch {
-      setError("Micro refusé ou indisponible.");
+      setError(MIC_REFUSED);
     }
   };
 
@@ -880,7 +886,7 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
   const hint = live
     ? `« ${live.slice(-90)} »`
     : note || t.error ||
-      (phase === "speaking" ? "Parle pour l'interrompre." : phase === "error" ? "Vérifie l'accès au micro." : "Parle naturellement, j'envoie quand tu as fini.");
+      (phase === "speaking" ? "Parle pour l'interrompre." : phase === "error" ? (error === MIC_REFUSED ? "Vérifie l'accès au micro." : "") : "Parle naturellement, j'envoie quand tu as fini.");
 
   return (
     <CallStage

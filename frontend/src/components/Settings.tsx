@@ -10,7 +10,7 @@ import { Updates } from "./Updates";
 import { Flows } from "./Flows";
 import { type MediaModel, ModelSelect } from "./ModelSelect";
 import { Dialog, DialogContent, Tabs, TabsContent, TabsList, TabsTrigger } from "./ui";
-import { Button } from "./ui";
+import { Button, Input, Label } from "./ui";
 
 export type SettingsTab = "brain" | "create" | "voice" | "phone" | "updates" | "privacy" | "profiles";
 
@@ -21,6 +21,7 @@ type MediaState = {
   kinds: Record<string, Kind>;
   voice?: { setting: string; auto: string | null; voices: string[] };
   preferences?: string;
+  has_key?: boolean;
 };
 
 const HINTS: Record<string, string> = {
@@ -103,10 +104,17 @@ function MediaPanel({ kinds, withVoice, withPreferences }: { kinds: string[]; wi
   };
 
   if (!state) return <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture des modèles disponibles…</p>;
-  if (!state.available) return <p className="rounded-xl bg-warn-soft p-4 text-sm text-warn">{state.reason}</p>;
+  if (!state.available)
+    return (
+      <div className="flex flex-col gap-3">
+        <p className="rounded-xl bg-warn-soft p-4 text-sm text-warn">{state.reason}</p>
+        <MediaKeyRow hasKey={!!state.has_key} onSaved={load} />
+      </div>
+    );
 
   return (
     <div className="flex flex-col gap-3">
+      <MediaKeyRow hasKey={!!state.has_key} onSaved={load} />
       {kinds.map((kind) => {
         const k = state.kinds[kind];
         if (!k) return null;
@@ -134,6 +142,41 @@ function MediaPanel({ kinds, withVoice, withPreferences }: { kinds: string[]; wi
       <p className="text-xs text-muted-foreground">
         « Automatique » suit les nouveaux modèles : Noah Agent prend le meilleur disponible, en qualité d'abord puis en coût.
       </p>
+    </div>
+  );
+}
+
+/** La clé OpenRouter de la voix et de la création. Elle ne change pas le cerveau. */
+function MediaKeyRow({ hasKey, onSaved }: { hasKey: boolean; onSaved: () => void }) {
+  const [key, setKey] = useState("");
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const save = async () => {
+    setMessage(null);
+    try {
+      await send("/api/media/key", { api_key: key });
+      setKey("");
+      setMessage({ ok: true, text: "Clé vérifiée et enregistrée." });
+      onSaved();
+    } catch (e) {
+      setMessage({ ok: false, text: (e as Error).message });
+    }
+  };
+  return (
+    <div className="flex flex-col gap-2 rounded-2xl border border-border p-4">
+      <div className="flex items-end gap-2">
+        <Label className="flex-1">
+          Clé OpenRouter pour la voix et la création
+          <Input
+            type="password"
+            autoComplete="off"
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+            placeholder={hasKey ? "Clé enregistrée (colle une autre clé pour la remplacer)" : "Colle ta clé ici"}
+          />
+        </Label>
+        <Button variant="outline" disabled={!key.trim()} onClick={save}>Vérifier et enregistrer</Button>
+      </div>
+      {message && <p className={message.ok ? "text-sm text-ok" : "text-sm text-warn"}>{message.text}</p>}
     </div>
   );
 }
