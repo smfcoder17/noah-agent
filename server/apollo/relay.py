@@ -380,8 +380,10 @@ async def relay(path: str, request: Request):
         return Response(r.content, status_code=r.status_code, media_type=r.headers.get("content-type"))
 
     client = upstream_client()
+    # Un flux compressé retarde le premier mot. Un fournisseur peut compresser quand même : aiter_bytes décompresse.
+    plain = {**headers, "Accept-Encoding": "identity"}
     try:
-        upstream = await client.send(client.build_request("POST", url, headers=headers, json=body), stream=True)
+        upstream = await client.send(client.build_request("POST", url, headers=plain, json=body), stream=True)
     except httpx.TransportError:
         return _unreachable(agent_id)
     _note_status(agent_id, upstream.status_code)
@@ -394,7 +396,7 @@ async def relay(path: str, request: Request):
         usage = None
         pending = b""
         try:
-            async for chunk in upstream.aiter_raw():
+            async for chunk in upstream.aiter_bytes():
                 yield chunk
                 pending += chunk
                 *lines, pending = pending.split(b"\n")
