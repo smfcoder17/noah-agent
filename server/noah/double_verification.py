@@ -24,6 +24,8 @@ DIGITS = 6
 SPARE_CODES = 8
 TRIES = 5
 TRIES_WINDOW = 1800
+# Sur la durée, 5 essais par demi-heure laisseraient 1 chance sur 4 en un an à qui connaît le mot de passe.
+TRIES_DAY, TRIES_DAY_WINDOW = 20, 86400
 
 
 class TooManyTries(Exception):
@@ -64,6 +66,15 @@ def _recent(row) -> list[float]:
     return [t for t in json.loads(row["essais"]) if now - t < TRIES_WINDOW]
 
 
+def _today(row) -> list[float]:
+    now = time.time()
+    return [t for t in json.loads(row["essais"]) if now - t < TRIES_DAY_WINDOW]
+
+
+def _too_many(row) -> bool:
+    return len(_recent(row)) >= TRIES or len(_today(row)) >= TRIES_DAY
+
+
 def active(user_id: int) -> bool:
     with db.connect() as c:
         return c.execute("SELECT 1 FROM double_verification WHERE user_id = ? AND active = 1", (user_id,)).fetchone() is not None
@@ -93,12 +104,11 @@ def confirm(user_id: int, code: str) -> list[str] | None:
         row = c.execute("SELECT * FROM double_verification WHERE user_id = ? AND active = 0", (user_id,)).fetchone()
         if not row:
             return None
-        tries = _recent(row)
-        if len(tries) >= TRIES:
+        if _too_many(row):
             raise TooManyTries
         step = _step_matching(db.unseal(row["secret"]), _clean(code), 0)
         if step is None:
-            c.execute("UPDATE double_verification SET essais = ? WHERE user_id = ?", (json.dumps(tries + [time.time()]), user_id))
+            c.execute("UPDATE double_verification SET essais = ? WHERE user_id = ?", (json.dumps(_today(row) + [time.time()]), user_id))
             return None
         codes = [_new_setup_code() for _ in range(SPARE_CODES)]
         c.execute("UPDATE double_verification SET active = 1, dernier_pas = ?, secours = ?, essais = '[]' WHERE user_id = ?",
@@ -115,8 +125,7 @@ def check(user_id: int, code: str) -> bool:
         row = c.execute("SELECT * FROM double_verification WHERE user_id = ? AND active = 1", (user_id,)).fetchone()
         if not row:
             return False
-        tries = _recent(row)
-        if len(tries) >= TRIES:
+        if _too_many(row):
             raise TooManyTries
         if given.isascii() and given.isdigit():
             step = _step_matching(db.unseal(row["secret"]), given, row["dernier_pas"])
@@ -130,14 +139,14 @@ def check(user_id: int, code: str) -> bool:
                 spare.remove(mine)
                 c.execute("UPDATE double_verification SET secours = ? WHERE user_id = ?", (json.dumps(spare), user_id))
                 return True
-        c.execute("UPDATE double_verification SET essais = ? WHERE user_id = ?", (json.dumps(tries + [time.time()]), user_id))
+        c.execute("UPDATE double_verification SET essais = ? WHERE user_id = ?", (json.dumps(_today(row) + [time.time()]), user_id))
     return False
 
 
 def blocked(user_id: int) -> bool:
     with db.connect() as c:
         row = c.execute("SELECT essais FROM double_verification WHERE user_id = ?", (user_id,)).fetchone()
-    return bool(row) and len(_recent(row)) >= TRIES
+    return bool(row) and _too_many(row)
 
 
 def remove(user_id: int) -> bool:

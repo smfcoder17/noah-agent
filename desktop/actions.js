@@ -3,25 +3,13 @@
 const { execFile } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
-const path = require("node:path");
-const { app, BrowserWindow, clipboard, dialog, Notification, session, shell } = require("electron");
+const { BrowserWindow, clipboard, dialog, Notification, session, shell } = require("electron");
 
 // Un fichier de ces types se lance au lieu de s'ouvrir : seulement par « lancer » ou « commande », confirmés.
 const EXECUTABLE = /\.(exe|msi|bat|cmd|com|ps1|psm1|vbs|vbe|js|jse|wsf|wsh|scr|lnk|url|reg|hta|cpl|jar|appref-ms|sh|command|app)$/i;
 
-const prefsFile = () => path.join(app.getPath("userData"), "autorisations.json");
-const readPrefs = () => {
-  try {
-    return JSON.parse(fs.readFileSync(prefsFile(), "utf8"));
-  } catch {
-    return {};
-  }
-};
-const savePrefs = (p) => fs.writeFileSync(prefsFile(), JSON.stringify(p, null, 1));
-
-/** Demande l'accord de l'utilisateur. `always` : propose « Ne plus demander pour ce type d'action ». */
-async function confirm(kind, message, detail, always) {
-  if (always && readPrefs()[kind]) return true;
+/** Demande l'accord de l'utilisateur, à chaque fois : la demande vient d'un agent, qu'une page web a pu tromper. */
+async function confirm(message, detail) {
   const parent = BrowserWindow.getAllWindows().find((w) => w.isVisible());
   const r = await dialog.showMessageBox(parent, {
     type: "question",
@@ -32,11 +20,8 @@ async function confirm(kind, message, detail, always) {
     defaultId: 1,
     cancelId: 1,
     noLink: true,
-    ...(always ? { checkboxLabel: "Ne plus demander pour ce type d'action" } : {}),
   });
-  if (r.response !== 0) return false;
-  if (always && r.checkboxChecked) savePrefs({ ...readPrefs(), [kind]: true });
-  return true;
+  return r.response === 0;
 }
 
 function run(cmd, args, cwd) {
@@ -57,26 +42,30 @@ async function perform(req) {
       n.show();
       return { ok: true };
     }
-    case "presse_papiers":
-      clipboard.writeText(req.texte || "");
+    case "presse_papiers": {
+      // Un texte glissé là peut être une commande, collée plus tard sans la relire.
+      const text = req.texte || "";
+      if (!(await confirm(`${who} veut remplacer le contenu de ton presse-papiers.`, text.length > 1000 ? `${text.slice(0, 1000)}…` : text))) return refused;
+      clipboard.writeText(text);
       return { ok: true };
+    }
     case "ouvrir": {
       const target = req.cible;
       if (/^https?:\/\//i.test(target)) {
-        if (!(await confirm("ouvrir-page", `${who} veut ouvrir une page dans ton navigateur.`, target, true))) return refused;
+        if (!(await confirm(`${who} veut ouvrir une page dans ton navigateur.`, target))) return refused;
         await shell.openExternal(target);
         return { ok: true };
       }
       if (!fs.existsSync(target)) return { erreur: `Introuvable sur l'ordinateur : ${target}` };
       const isDir = fs.statSync(target).isDirectory();
       if (!isDir && EXECUTABLE.test(target)) return { erreur: "Ce fichier est un programme : utilise « lancer » ou « commande »." };
-      if (!(await confirm(isDir ? "ouvrir-dossier" : "ouvrir-fichier", `${who} veut ouvrir ${isDir ? "un dossier" : "un fichier"}.`, target, true))) return refused;
+      if (!(await confirm(`${who} veut ouvrir ${isDir ? "un dossier" : "un fichier"}.`, target))) return refused;
       const err = await shell.openPath(target);
       return err ? { erreur: err } : { ok: true };
     }
     case "lancer": {
       const name = req.cible.trim();
-      if (!(await confirm("lancer", `${who} veut ouvrir l'application « ${name} ».`, "", false))) return refused;
+      if (!(await confirm(`${who} veut ouvrir l'application « ${name} ».`, ""))) return refused;
       if (process.platform === "win32") {
         // Par son exécutable (« notepad », « code ») ou, à défaut, par son nom dans le menu Démarrer (« Calculatrice »).
         const quoted = `'${name.replace(/'/g, "''")}'`;
@@ -92,8 +81,7 @@ async function perform(req) {
     }
     case "commande": {
       const cwd = req.dossier && fs.existsSync(req.dossier) ? req.dossier : os.homedir();
-      // Jamais de « toujours autoriser » : chaque commande est lue avant d'être lancée.
-      if (!(await confirm("commande", `${who} veut exécuter une commande.`, `${req.cible}\n\nDans : ${cwd}`, false))) return refused;
+      if (!(await confirm(`${who} veut exécuter une commande.`, `${req.cible}\n\nDans : ${cwd}`))) return refused;
       const r = process.platform === "win32"
         ? await run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", req.cible], cwd)
         : await run("/bin/sh", ["-c", req.cible], cwd);
@@ -139,4 +127,4 @@ function listen(getOrigin) {
   return () => (stopped = true);
 }
 
-module.exports = { listen };
+module.exports = { listen, perform };

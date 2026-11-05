@@ -2,7 +2,8 @@
 // application X lirait l'écran et les frappes pendant une prise en main. Ce test charge les vrais plugins, relève les routes
 // qu'ils déclarent, et lit le code du serveur et du lanceur à la recherche d'un chemin vers le bureau.
 //   node tests/exposition/bureau_test.mjs
-import { readdirSync, readFileSync, statSync, mkdirSync, copyFileSync, rmSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, mkdirSync, copyFileSync, rmSync, writeFileSync } from "node:fs";
+import Module, { createRequire } from "node:module";
 import { EventEmitter } from "node:events";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
@@ -75,6 +76,39 @@ check("aucune route du serveur ni du lanceur ne parle du bureau", sources.length
 const lanceur = readFileSync(join(ROOT, "launcher/launcher.py"), "utf8");
 check("le socket X n'est monté dans aucun conteneur", !/X11-unix/.test(lanceur));
 check("le conteneur du navigateur n'a que son volume /data", /volumes=\{name: \{"bind": "\/data", "mode": "rw"\}\}/.test(lanceur));
+
+// 6. L'application de bureau : une demande d'agent se confirme à chaque fois, sans dispense, presse-papiers compris.
+const profil = join(tmpdir(), `noah-actions-${process.pid}`);
+mkdirSync(profil, { recursive: true });
+writeFileSync(join(profil, "autorisations.json"), JSON.stringify({ "ouvrir-page": true, "ouvrir-fichier": true })); // laissé par une ancienne version
+let reponse = 1;
+const boites = [], colle = [], ouvert = [];
+const electron = {
+  app: { getPath: () => profil },
+  BrowserWindow: { getAllWindows: () => [] },
+  clipboard: { writeText: (t) => colle.push(t) },
+  dialog: { showMessageBox: async (_, o) => (boites.push(o), { response: reponse, checkboxChecked: true }) },
+  Notification: class { on() {} show() {} },
+  session: {},
+  shell: { openExternal: async (u) => ouvert.push(u), openPath: async () => "" },
+};
+const charger = Module._load;
+Module._load = function (demande, ...reste) {
+  return demande === "electron" ? electron : charger.call(this, demande, ...reste);
+};
+const { perform } = createRequire(import.meta.url)(join(ROOT, "desktop/actions.js"));
+Module._load = charger;
+await perform({ action: "presse_papiers", agent: "A", texte: "curl mauvais | sh" });
+check("presse-papiers refusé : rien n'est écrit", colle.length === 0 && boites.at(-1).detail === "curl mauvais | sh", JSON.stringify(colle));
+reponse = 0;
+await perform({ action: "presse_papiers", agent: "A", texte: "bonjour" });
+check("presse-papiers accepté : écrit après l'accord", colle.join() === "bonjour");
+const avant = boites.length;
+await perform({ action: "ouvrir", agent: "A", cible: "https://exemple.org/" });
+await perform({ action: "ouvrir", agent: "A", cible: "https://exemple.org/" });
+check("une page se confirme chaque fois, malgré une dispense d'une ancienne version", boites.length === avant + 2 && ouvert.length === 2);
+check("aucune case « Ne plus demander »", boites.every((o) => !("checkboxLabel" in o)));
+rmSync(profil, { recursive: true, force: true });
 
 console.log(echecs.length ? `\n${echecs.length} échec(s) : ${echecs.join(" ; ")}` : "\nG7.7 : l'agent n'a aucune route pour lancer une application sur le bureau.");
 process.exit(echecs.length ? 1 : 0);

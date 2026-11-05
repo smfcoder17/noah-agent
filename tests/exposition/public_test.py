@@ -277,6 +277,14 @@ def test_login_limits() -> None:
         anonymous().post("/api/login", json={"username": "alice", "password": "mauvais-reparti"})
     assert anonymous().post("/api/login", json={"username": "alice", "password": "motdepasse-a"}).status_code == 429
     assert anonymous(home).post("/api/login", json={"username": "alice", "password": "motdepasse-a"}).status_code == 200
+    # Étalés sur la journée, les essais comptent encore ; le lendemain, plus.
+    _reset()
+    assert anonymous(home).post("/api/login", json={"username": "alice", "password": "motdepasse-a"}).status_code == 200
+    main._account_failures["alice"] = [time.time() - main.LOGIN_WINDOW - 1] * main.LOGIN_ACCOUNT_DAY_TRIES
+    assert anonymous().post("/api/login", json={"username": "alice", "password": "motdepasse-a"}).status_code == 429, "plafond de la journée"
+    assert anonymous(home).post("/api/login", json={"username": "alice", "password": "motdepasse-a"}).status_code == 200, "le propriétaire bloqué chez lui"
+    main._account_failures["alice"] = [time.time() - main.LOGIN_ACCOUNT_DAY - 1] * main.LOGIN_ACCOUNT_DAY_TRIES
+    assert anonymous().post("/api/login", json={"username": "alice", "password": "motdepasse-a"}).status_code == 200, "le lendemain"
     _reset()
     print(f"10. limites : {main.LOGIN_TRIES} par adresse, simultanés compris, sans remise à zéro par son propre compte ; {main.LOGIN_ACCOUNT_TRIES} par compte, le propriétaire chez lui passe")
 

@@ -5,12 +5,14 @@ incomplète explique les deux choix.
 """
 import logging
 import sqlite3
+from datetime import datetime, timezone
 
+import anyio.from_thread
 import anyio.to_thread
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from . import access, auth, courriel, db, double_verification, relay
+from . import access, auth, courriel, db, double_verification, push, relay
 
 router = APIRouter()
 logger = logging.getLogger("uvicorn.error")
@@ -24,7 +26,7 @@ def setup(**hooks) -> None:
 
 class NewProfile(courriel.Preuve):
     username: str = Field(min_length=2, max_length=64, pattern=r"^[\w .@-]+$")
-    password: str = Field(min_length=8, max_length=256)
+    password: str = Field(min_length=auth.PASSWORD_MIN, max_length=256)
     budget: float | None = Field(default=None, ge=0, le=100000)
 
 
@@ -145,8 +147,16 @@ async def _delete_profile(profile_id: int, agents: str | None, me: int, request:
 
 # --- Ce que le propriétaire fait pour un profil : ses appareils, son mot de passe. Un cookie de fenêtre volé n'a pas le mot de passe. ---
 
+async def _alert_reset(user: int) -> None:
+    try:
+        await push.send("Ton mot de passe a été réinitialisé", "Le propriétaire de ce serveur l'a fait. Si tu ne le lui as pas demandé, parles-en avec cette personne.",
+                        urgent=True, user_id=user)
+    except Exception as e:
+        logger.warning("Alerte de réinitialisation non envoyée : %s.", e)
+
+
 class ProfilePassword(courriel.Preuve):
-    nouveau: str = Field(min_length=8, max_length=256)
+    nouveau: str = Field(min_length=auth.PASSWORD_MIN, max_length=256)
 
 
 @router.get("/api/profiles/{profile_id}/appareils")
@@ -176,6 +186,9 @@ def reset_profile_password(profile_id: int, body: ProfilePassword, request: Requ
         raise HTTPException(400, "Pour ton propre mot de passe : Réglages > Sécurité.")
     _h["critical"](request, me, f"reinitialiser:{profile_id}", body.motdepasse, body.code, body.courriel,
                    f"Confirme ton mot de passe pour réinitialiser celui de {row['username']}.")
+    # Avant de fermer ses sessions : ses appareils ne reçoivent plus rien ensuite. Cet accès est permis, mais jamais en silence.
+    anyio.from_thread.run(_alert_reset, profile_id)
+    courriel.notify_reset(profile_id, datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M UTC"))
     _h["drop_pending"](profile_id, accepted=True)
     auth.set_password(profile_id, body.nouveau, temporary=True)
     _h["drop_pending"](profile_id, accepted=True)
@@ -185,7 +198,7 @@ def reset_profile_password(profile_id: int, body: ProfilePassword, request: Requ
 
 class NewPassword(courriel.Preuve):
     actuel: str = Field(min_length=1, max_length=256)
-    nouveau: str = Field(min_length=8, max_length=256)
+    nouveau: str = Field(min_length=auth.PASSWORD_MIN, max_length=256)
 
 
 @router.post("/api/me/password")

@@ -854,7 +854,7 @@ def _first_account() -> None:
 
 
 @app.post("/api/setup/account")
-def setup_account(body: Credentials, request: Request, response: Response):
+def setup_account(body: NewAccount, request: Request, response: Response):
     recent = _too_many(request)
     with _setup_lock:
         _check_setup_code(body.installation, request)
@@ -881,7 +881,13 @@ _number_failures: dict[int, list[float]] = {}
 NUMBER_TRIES, NUMBER_WINDOW = 3, 3600
 LOGIN_WINDOW, LOGIN_TRIES = 600, 10
 LOGIN_ACCOUNT_TRIES = 30
+# Sur la durée, 30 par 10 min laisseraient plus de 4 000 essais par jour sur un compte, depuis des adresses toujours neuves.
+LOGIN_ACCOUNT_DAY_TRIES, LOGIN_ACCOUNT_DAY = 200, 86400
 _decoy_hash: bytes | None = None
+
+
+class NewAccount(Credentials):
+    password: str = Field(min_length=auth.PASSWORD_MIN, max_length=256)
 
 
 class Login(Credentials):
@@ -932,7 +938,7 @@ def _code_ok(user: int, code: str) -> bool:
         if double_verification.check(user, code):
             return True
     except double_verification.TooManyTries:
-        raise HTTPException(429, "Trop de codes faux. Réessaie dans une demi-heure.")
+        raise HTTPException(429, "Trop de codes faux. Réessaie plus tard.")
     if double_verification.blocked(user):  # ce code faux vient d'atteindre le plafond ; les suivants ne reviennent pas ici
         recuperation.log.warning("Trop de codes de double vérification faux pour le compte n°%d, avec le bon mot de passe.", user)
         anyio.from_thread.run(_alert_stolen_password, user)  # tout de suite : une réponse d'erreur n'exécute pas les tâches de fond
@@ -1029,7 +1035,7 @@ def double_confirm(body: DoubleCode, user: int = Depends(auth.current_user)):
     try:
         codes = double_verification.confirm(user, body.code)
     except double_verification.TooManyTries:
-        raise HTTPException(429, "Trop de codes faux. Réessaie dans une demi-heure.")
+        raise HTTPException(429, "Trop de codes faux. Réessaie plus tard.")
     if not codes:
         raise HTTPException(400, "Ce code est faux. Vérifie l'heure de ton téléphone, ou attends le code suivant.")
     return {"secours": codes}
@@ -1070,7 +1076,7 @@ def recovery_code(request: Request):
 
 class RecoveryReset(BaseModel):
     code: str = Field(min_length=1, max_length=64)
-    password: str = Field(min_length=8, max_length=256)
+    password: str = Field(min_length=auth.PASSWORD_MIN, max_length=256)
     couper_double: bool = False  # téléphone perdu aussi : qui a la main sur le serveur peut la couper
     couper_courriel: bool = False  # envoi de courriels en panne : pareil
 
@@ -1107,12 +1113,13 @@ def _reserve_login(ip: str, name: str, known_address: bool) -> float:
     now = time.time()
     with _login_lock:
         if len(_failed_logins) + len(_account_failures) > 10_000:  # noms et adresses au hasard : la mémoire reste bornée
-            for store in (_failed_logins, _account_failures):
-                for key in [k for k, v in store.items() if not v or now - v[-1] >= LOGIN_WINDOW]:
+            for store, kept in ((_failed_logins, LOGIN_WINDOW), (_account_failures, LOGIN_ACCOUNT_DAY)):
+                for key in [k for k, v in store.items() if not v or now - v[-1] >= kept]:
                     del store[key]
         recent = [t for t in _failed_logins.get(ip, []) if now - t < LOGIN_WINDOW]
-        account = [t for t in _account_failures.get(name, []) if now - t < LOGIN_WINDOW]
-        if len(recent) >= LOGIN_TRIES or (len(account) >= LOGIN_ACCOUNT_TRIES and not known_address):
+        account = [t for t in _account_failures.get(name, []) if now - t < LOGIN_ACCOUNT_DAY]
+        in_window = sum(now - t < LOGIN_WINDOW for t in account)
+        if len(recent) >= LOGIN_TRIES or ((in_window >= LOGIN_ACCOUNT_TRIES or len(account) >= LOGIN_ACCOUNT_DAY_TRIES) and not known_address):
             raise HTTPException(429, "Trop d'essais. Réessaie dans quelques minutes.")
         _failed_logins[ip], _account_failures[name] = recent + [now], account + [now]
     return now

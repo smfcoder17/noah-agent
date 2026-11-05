@@ -278,7 +278,7 @@ function AccountStep({ code, onNext, onBadCode }: { code: string; onNext: () => 
         </Label>
         <Label>
           Mot de passe
-          <Input id="password" type="password" autoComplete="new-password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} />
+          <Input id="password" type="password" autoComplete="new-password" required minLength={12} value={password} onChange={(e) => setPassword(e.target.value)} />
         </Label>
         <ErrorText>{error}</ErrorText>
         <Button type="submit" size="lg" disabled={busy}>Créer le compte</Button>

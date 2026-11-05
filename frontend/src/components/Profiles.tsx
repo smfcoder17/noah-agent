@@ -109,7 +109,7 @@ function ResetPassword({ profile, onDone, onCancel }: { profile: Profile; onDone
       <p>{profile.username} a oublié son mot de passe ? Choisis-en un temporaire et transmets-le lui toi-même. Toutes ses sessions se ferment, et il devra le remplacer à sa prochaine connexion.</p>
       <Label>
         Mot de passe temporaire
-        <Input id={`reset-${profile.id}`} required type="password" minLength={8} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+        <Input id={`reset-${profile.id}`} required type="password" minLength={12} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
       </Label>
       <ErrorText>{error}</ErrorText>
       <div className="flex flex-wrap gap-2">
@@ -269,7 +269,7 @@ function NewProfile({ onCreated }: { onCreated: () => void }) {
       <p className="text-sm font-semibold">Nouveau profil</p>
       <div className="grid gap-3 sm:grid-cols-3">
         <Label>Nom d'utilisateur<Input required minLength={2} maxLength={64} autoComplete="off" value={username} onChange={(e) => setUsername(e.target.value)} /></Label>
-        <Label>Mot de passe initial<Input required type="password" minLength={8} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} /></Label>
+        <Label>Mot de passe initial<Input required type="password" minLength={12} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} /></Label>
         <Label>Plafond du mois ($)<Input type="number" min={0} step={1} placeholder="Aucun" value={budget} onChange={(e) => setBudget(e.target.value)} /></Label>
       </div>
       <p className="text-xs text-muted-foreground">Transmets-lui ce mot de passe toi-même : il le remplacera dans Réglages &gt; Sécurité.</p>
@@ -304,7 +304,7 @@ export function MyPassword() {
       <p className="text-sm font-semibold">Changer mon mot de passe</p>
       <div className="grid gap-3 sm:grid-cols-2">
         <Label>Mot de passe actuel<Input required type="password" autoComplete="current-password" value={actuel} onChange={(e) => setActuel(e.target.value)} /></Label>
-        <Label>Nouveau mot de passe<Input required type="password" minLength={8} autoComplete="new-password" value={nouveau} onChange={(e) => setNouveau(e.target.value)} /></Label>
+        <Label>Nouveau mot de passe<Input required type="password" minLength={12} autoComplete="new-password" value={nouveau} onChange={(e) => setNouveau(e.target.value)} /></Label>
       </div>
       <ErrorText>{state.error}</ErrorText>
       {state.ok && <p className="text-sm text-ok">Mot de passe changé. Tes autres appareils sont déconnectés.</p>}

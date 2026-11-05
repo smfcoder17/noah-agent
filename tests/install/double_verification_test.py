@@ -8,6 +8,7 @@ ferait une application sur le téléphone.
 import base64
 import hashlib
 import hmac
+import json
 import logging
 import os
 import socket
@@ -255,6 +256,15 @@ with sqlite3.connect(f"{data}/noah.db") as c:
     c.execute("UPDATE double_verification SET essais = ? WHERE user_id = ?", (f"[{time.time() - double_verification.TRIES_WINDOW - 1}]", franck))
 rewind(franck)
 check(login(anyone(), "franck", FRANCK_PW, app_code(secret)).status_code == 200, "passé le délai : le bon code repasse")
+fresh_limits()
+with sqlite3.connect(f"{data}/noah.db") as c:
+    c.execute("UPDATE double_verification SET essais = ? WHERE user_id = ?", (json.dumps([time.time() - double_verification.TRIES_WINDOW - 1] * double_verification.TRIES_DAY), franck))
+rewind(franck)
+check(login(anyone(), "franck", FRANCK_PW, app_code(secret)).status_code == 429, "plafond de la journée atteint, même étalé : le bon code ne passe plus")
+with sqlite3.connect(f"{data}/noah.db") as c:
+    c.execute("UPDATE double_verification SET essais = ? WHERE user_id = ?", (f"[{time.time() - double_verification.TRIES_DAY_WINDOW - 1}]", franck))
+rewind(franck)
+check(login(anyone(), "franck", FRANCK_PW, app_code(secret)).status_code == 200, "le lendemain : le bon code repasse")
 fresh_limits()
 one_ip = addr()
 ten = [login(anyone(one_ip), "franck", FRANCK_PW, "99999" + str(i % 10)).status_code for i in range(11)]

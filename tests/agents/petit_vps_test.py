@@ -115,4 +115,24 @@ assert r.returncode == 45 and b"SECRET" not in r.stdout, "une racine remplacée 
 r = subprocess.run([sys.executable, "-c", launcher.READ_NO_LINK, str(work) + "/", "apps/jeu/index.html", "1000"], capture_output=True, timeout=10)
 assert r.returncode == 0 and r.stdout == b"page", "une racine écrite avec une barre finale"
 print("4. lecture : aucun lien suivi, ni fichier spécial ; trop lourd et absent reconnus")
+
+launcher.SHARE_ROOTS[:] = ["/home/moi", "C:/Users/Moi"]
+folder = lambda chemin, ecriture: launcher.Folder(nom="d", chemin=chemin, ecriture=ecriture)
+for chemin in ("/home/moi", "/home/moi/", "c:\\users\\moi"):
+    try:
+        launcher._check_folders([folder(chemin, True)])
+        sys.exit(f"écriture acceptée sur toute la racine : {chemin}")
+    except launcher.HTTPException as e:
+        assert e.status_code == 403, e
+assert launcher._check_folders([folder("/home/moi", False)]) and launcher._check_folders([folder("/home/moi/projet", True)]), "lecture de la racine, ou écriture d'un sous-dossier, refusée"
+for chemin in ("/home/moi/.bashrc", "/home/moi/.profile", "/home/moi/.gitconfig", "/home/moi/.local/share", "/home/moi/Library/LaunchAgents", "/home/moi/.config/autostart", "C:/Users/Moi/AppData/Roaming"):
+    assert not launcher._shareable(chemin), f"partageable : {chemin}"
+assert launcher._shareable("/home/moi/profile"), "un dossier nommé comme un fichier sensible, sans le point, reste partageable"
+print("5. dossiers : pas d'écriture sur une racine entière, ni rien de ce qui s'exécute à l'ouverture d'une session")
+
+client.containers.create.reset_mock()
+client.containers.create.side_effect = None
+launcher._run_agent("hote", "k", [])
+assert "extra_hosts" not in client.containers.create.call_args.kwargs, "l'agent reçoit un nom pour joindre l'hôte"
+print("6. un agent n'a pas de nom pour joindre l'hôte : c'est le serveur qui parle à un modèle local")
 print("OK")
