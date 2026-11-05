@@ -126,7 +126,7 @@ print("7. jour de chaque dépense avec le décalage de sa date (changement d'heu
 # 8. Le plafond vaut pour tout ce qu'un agent dépense, pas seulement le relais : image, voix, transcription, tri d'une veille.
 import asyncio  # noqa: E402
 
-from noah import media, precall, watch  # noqa: E402
+from noah import decision, media, precall, watch  # noqa: E402
 
 db.set_setting("media_api_key", "cle-openrouter", secret=True)
 assert relay.day_refusal("a1"), "a1 est au plafond depuis l'étape 3"
@@ -146,7 +146,7 @@ media.httpx.AsyncClient = lambda **kw: real_client(transport=httpx.MockTransport
 async def refused(job) -> str:
     try:
         await job
-    except media.MediaError as e:
+    except (media.MediaError, decision.DecisionError) as e:
         return str(e)
     raise AssertionError("dépense acceptée au-delà du plafond")
 

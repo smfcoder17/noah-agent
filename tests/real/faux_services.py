@@ -4,6 +4,8 @@
   envoie au modèle se lit donc pour de vrai, invite système comprise. Une ligne « OUTIL <nom> <json> » dans le message de
   l'utilisateur lui fait appeler cet outil ; il répond ensuite « RESULTAT : <sortie de l'outil> ».
 - Un service de push (port 8443, HTTPS) qui joue le téléphone : il déchiffre chaque message avec sa propre clé (RFC 8291).
+- Avec FAUX_PETIT=1, un second modèle, « faux-petit » : il réussit l'essai du modèle de décision, juge « pertinent » ce qui contient
+  URGENT, et refuse une note de mémoire qui parle d'installation. Une page (/veille-page, /_page) qu'une veille peut relever.
 
 Le serveur le joint par NOAH_PUSH_HOSTS et fait confiance à son certificat par SSL_CERT_FILE. Voir compose.essai.yml.
     python faux_services.py
@@ -29,8 +31,22 @@ from cryptography.x509.oid import NameOID
 
 MODEL = "faux-modele"
 HOST = os.environ.get("FAUX_NOM", "noah-faux")
-state = {"cout": 0.0, "appels": [], "push": []}
+SMALL = "faux-petit"
+state = {"cout": 0.0, "appels": [], "push": [], "page": ""}
 lock = threading.Lock()
+
+
+def _small_reply(system: str, user: str) -> str:
+    """Le modèle de décision : l'essai, le tri d'une veille, le jugement d'une note de mémoire."""
+    if "un courriel de Paul à propos d'une facture" in system:
+        return json.dumps({"pertinent": True, "retenues": [2]})
+    if "Tu fais le tri" in system:
+        return json.dumps({"pertinent": True, "resume": "Un bloc urgent est apparu sur la page.", "retenues": [1]} if "URGENT" in user
+                          else {"pertinent": False, "resume": "", "retenues": []})
+    if system.startswith("Une note de mémoire"):
+        lines = user.splitlines()
+        return json.dumps({"refus": [{"n": i, "raison": "Détail d'installation."} for i, line in enumerate(lines, 1) if "installation" in line.lower()]})
+    return "Bien reçu."
 
 
 def _b64(data: bytes) -> str:
@@ -135,6 +151,15 @@ class Model(BaseHTTPRequestHandler):
                 return self._json({"appels": state["appels"], "push": state["push"], "cout": state["cout"]})
         if self.path == "/_abonnement":
             return self._json({"endpoint": f"https://{HOST}:8443/telephone", "p256dh": _b64(DEVICE_PUBLIC), "auth": _b64(AUTH)})
+        if self.path == "/veille-page":
+            with lock:
+                data = state["page"].encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return None
         if self.path.startswith("/page"):  # page de test du navigateur : ce qu'elle reçoit prouve quel cookie part
             data = f"<html><body>page {self.headers.get('Cookie', 'sans-cookie')}</body></html>".encode()
             self.send_response(200)
@@ -144,7 +169,8 @@ class Model(BaseHTTPRequestHandler):
             self.wfile.write(data)
             return None
         if self.path.endswith("/models"):
-            return self._json({"object": "list", "data": [{"id": MODEL, "object": "model", "context_length": 128000}]})
+            extra = [{"id": SMALL, "object": "model", "context_length": 128000}] if os.environ.get("FAUX_PETIT") else []
+            return self._json({"object": "list", "data": [{"id": MODEL, "object": "model", "context_length": 128000}, *extra]})
         return self._json({"ok": True})
 
     def do_POST(self):
@@ -152,6 +178,10 @@ class Model(BaseHTTPRequestHandler):
         if self.path == "/_cout":
             with lock:
                 state["cout"] = float(body["cout"])
+            return self._json({"ok": True})
+        if self.path == "/_page":
+            with lock:
+                state["page"] = body["html"]
             return self._json({"ok": True})
         if self.path == "/_vider":
             with lock:
@@ -165,10 +195,14 @@ class Model(BaseHTTPRequestHandler):
         with lock:
             cost = state["cout"]
             state["appels"].append({"t": time.time(), "cout": cost, "dernier": _text(messages[-1])[-2000:] if messages else "", "systeme": system,
-                                    "tout": json.dumps(messages, ensure_ascii=False), "outils": [t["function"]["name"] for t in body.get("tools") or []]})
+                                    "tout": json.dumps(messages, ensure_ascii=False), "outils": [t["function"]["name"] for t in body.get("tools") or []],
+                                    "modele": body.get("model")})
         usage = {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15, "cost": cost}
         base = {"id": "faux", "object": "chat.completion", "created": int(time.time()), "model": MODEL}
         last = messages[-1] if messages else {}
+        if body.get("model") == SMALL and not body.get("stream"):
+            content = _small_reply(system, _last_user(messages))
+            return self._json(base | {"choices": [{"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "stop"}], "usage": usage})
         call = re.search(r"^OUTIL (\w+) (.+)$", _last_user(messages), re.M)
         if call and last.get("role") == "user" and body.get("tools"):
             return self._tool(body, base, usage, call.group(1), call.group(2))

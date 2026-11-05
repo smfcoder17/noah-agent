@@ -15,6 +15,7 @@ const PAIRING = PIP + "python /tests/pairing/pairing_test.py";
 const MCP = PIP + "python /tests/tools/mcp_test.py";
 const PENDANT = PIP + "python /tests/voice/pendant_test.py";
 const APERCU = PIP + "python /tests/agents/apercu_test.py";
+const DECISION = PIP + "python /tests/agents/decision_test.py";
 
 const SABOTAGES = [
   ["Plafond de dépense ignoré", "noah/relay.py", "if cap is None or day_cost(agent_id) < cap:", "if True:", BUDGET],
@@ -40,6 +41,9 @@ const SABOTAGES = [
   ["Activité : une clé affichée dans la ligne de travail", "noah/events.py", "label = mask(label)[:LABEL_MAX] if label else label", "pass", PENDANT],
   ["Aperçu : une page voit tout le dossier commun", "noah/main.py", "own_folder = bool(folder) and folder not in PREVIEW_SHARED_FOLDERS", "own_folder = bool(folder)", APERCU],
   ["Garde : un déplacement de patch ignoré", "noah/agent_plugin/__init__.py", "targets += [move.group(1).strip(), move.group(2).strip()]", "pass", GUARD],
+  ["Routine : le cerveau part même si la condition n'est pas remplie", "noah/watch.py", 'if not (alert and alert["pertinent"] and alert["resume"]):', "if not alert:", DECISION],
+  ["Décision : l'essai ne regarde pas la réponse", "noah/decision.py", 'elif a.data.get("pertinent") is not True or _numbers(a.data.get("retenues")) != {2}:', "elif False:", DECISION],
+  ["Mémoire : tout entre sans jugement", "noah/agent_plugin/__init__.py", 'if tool_name == "memory":', "if False:", DECISION],
   ["Outil : ajout sans contrôle d'accès", "noah/mcp.py", 'access.access(user, agent_id, "admin")\n    _scope(agent_id)\n    token = _clean_token(body)', "_scope(agent_id)\n    token = _clean_token(body)", MCP],
 ];
 

@@ -65,7 +65,8 @@ KNOWN = {
     "ipinfo.io": "hors grille", "api.ipify.org": "hors grille", "ifconfig.me": "hors grille", "icanhazip.com": "hors grille",
     # Seulement si l'utilisateur branche son compte Google à un agent (déclaré dans /api/flux)
     "accounts.google.com": "à la demande", "oauth2.googleapis.com": "à la demande", "www.googleapis.com": "à la demande",
-    "console.cloud.google.com": "lien montré",
+    "gmail.googleapis.com": "à la demande",  # relevé d'une veille ou d'une routine, depuis la machine de l'agent
+    "console.cloud.google.com": "lien montré", "mail.google.com": "lien montré",
     # Noms sans trafic : adresses d'exemple, espaces de noms, liens de documentation
     "noah.exemple.com": "exemple", "noah.invalid": "exemple", "mcp.exemple.fr": "exemple",
     "speaches.ai": "lien montré",
@@ -232,7 +233,7 @@ print(f"6. tout est annoncé dans /api/flux ({len(declared)} destinations), qui 
 others = {h for h, kind in KNOWN.items() if kind == "fournisseur"} - {"api.anthropic.com", "openrouter.ai"}
 assert not others & set(hosts), f"autre fournisseur contacté : {others & set(hosts)}"
 to_provider = [r for r in external if r["host"] == "api.anthropic.com"]
-assert to_provider and b"phrase-privee-de-franck" in to_provider[0]["body"], "le message n'est pas parti chez le fournisseur choisi"
+assert any(b"phrase-privee-de-franck" in r["body"] for r in to_provider), "le message n'est pas parti chez le fournisseur choisi"
 print("7. fournisseur choisi (Anthropic) contacté, avec le message ; aucun autre fournisseur")
 
 # 5.4 Ce qui ne porte pas de données : ni corps, ni identifiant, ni clé, ni donnée du compte. La phrase privée, le compte,

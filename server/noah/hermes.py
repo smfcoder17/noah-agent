@@ -287,6 +287,7 @@ async def configure(agent_id: str, model: dict, role: str | None = None) -> None
     tz = (await browser_identity()).get("timezone")
     if tz:
         cfg["timezone"] = tz
+    _set_helpers(cfg, agent_id, model_id)
     # Garde de Noah (G7.6) : skills tiers seulement depuis les dépôts vérifiés, aucun script téléchargé exécuté d'un
     # trait, et jamais de commandes shell dans le texte d'un skill.
     plugins = cfg.setdefault("plugins", {})
@@ -308,6 +309,32 @@ async def configure(agent_id: str, model: dict, role: str | None = None) -> None
     if role is not None:  # nouvelles consignes : les conversations en cours doivent les voir
         await _launcher("POST", f"/agents/{agent_id}/refresh-prompts")
     await restart(agent_id)
+
+
+def _set_helpers(cfg: dict, agent_id: str, brain: str) -> None:
+    """Les petits travaux qu'Hermes fait seul passent par le modèle de décision, toujours à travers le relais (comptés, plafonnés) :
+    la relecture de mémoire après un tour (sinon ~30 000 jetons du cerveau toutes les 10 passes) et le titre des conversations.
+    Le résumé d'une longue conversation reste au cerveau : il décide de ce que l'agent saura ensuite."""
+    from . import decision
+    from .relay import RELAY_URL, token_for
+
+    helper = decision.model()
+    aux = cfg.get("auxiliary") if isinstance(cfg.get("auxiliary"), dict) else {}
+    for task in ("background_review", "title_generation"):
+        aux.pop(task, None)
+        if helper and helper != brain:
+            aux[task] = {"provider": "custom", "model": helper, "base_url": RELAY_URL, "api_key": token_for(agent_id)}
+    if "background_review" in aux:
+        aux["background_review"]["max_input_tokens"] = 30000  # une relecture ne doit jamais coûter plus que le tour qu'elle relit
+    cfg["auxiliary"] = aux
+
+
+async def set_helpers(agent_id: str) -> None:
+    """Hermes relit ces réglages à chaque relecture : un nouveau modèle de décision ne redémarre pas l'agent ni ne coupe un tour."""
+    cfg = yaml.safe_load(await _read(agent_id, "config.yaml") or "{}") or {}
+    brain = ((cfg.get("model") or {}).get("default") or "") if isinstance(cfg.get("model"), dict) else ""
+    _set_helpers(cfg, agent_id, brain)
+    await _launcher("PUT", f"/agents/{agent_id}/files", json={"files": {"config.yaml": yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True)}})
 
 
 AGENT_PLUGIN = Path(__file__).parent / "agent_plugin"
@@ -334,8 +361,15 @@ AIDE = """Utilisation : python3 /opt/data/noah.py <commande>
   musique "description"                             crée un morceau de musique
   voix "texte à dire"                               lit un texte à voix haute (MP3)
   installer paquet [paquet…]   installe des logiciels système (paquets Debian : ffmpeg, imagemagick, poppler-utils…)
-  veille "Nom" "https://…" "ce qui compte" [--minutes 60]   surveille une page ou un flux sans modèle (alerte si pertinent)
-  veilles                                       liste les veilles
+  veille "Nom" <source> "ce qui compte" [--minutes 60]   surveille sans modèle et prévient seulement si c'est pertinent
+  routine-si "Nom" <source> "condition" "ce que tu feras alors" [--minutes 30]
+                               relève sans modèle, un petit modèle juge la condition, et tu n'es réveillé que si elle est remplie
+                               <source> : https://… (page ou flux), gmail ou gmail:<recherche Gmail> (gmail:from:paul@exemple.fr),
+                               agenda ou agenda:<heures à venir>, outil:<serveur>/<outil> (outil connecté, en lecture)
+  routine "Nom" "horaire" "consigne complète et autonome"   un travail à chaque passage, sans condition
+                               horaire : "every day at 8am", "every monday 9am", "0 9 * * 1", "every 2h"
+  routines                                      liste les routines ; routine-action <id> pause|reprendre|lancer|supprimer
+  veilles                                       liste les veilles et les routines à condition
   veille-action <id> pause|reprendre|verifier|supprimer
   appeler "ce qu'il doit faire" [--quand-quitte accounts.google.com]
                                          appelle l'utilisateur (connexion, code) et attend sa réponse ; avec
@@ -417,6 +451,21 @@ elif a[:1] == ["veille"] and len(a) >= 3:
         minutes = int(rest[i + 1]) if i + 1 < len(rest) else 60
         rest = rest[:i] + rest[i + 2:]
     out = call("POST", "/veilles", {"nom": rest[0], "url": rest[1], "critere": " ".join(rest[2:]), "minutes": minutes})
+elif a[:1] == ["routine"] and len(a) >= 4:
+    out = call("POST", "/routines", {"nom": a[1], "quand": a[2], "consigne": " ".join(a[3:])})
+elif a[:1] == ["routines"]:
+    out = call("GET", "/routines")
+elif a[:1] == ["routine-action"] and len(a) == 3:
+    out = call("POST", "/routines/action", {"id": a[1], "action": a[2]})
+elif a[:1] == ["routine-si"] and len(a) >= 5:
+    rest, minutes = a[1:], 30
+    if "--minutes" in rest:
+        i = rest.index("--minutes")
+        minutes = int(rest[i + 1]) if i + 1 < len(rest) else 30
+        rest = rest[:i] + rest[i + 2:]
+    out = call("POST", "/veilles", {"nom": rest[0], "url": rest[1], "critere": rest[2], "consigne": " ".join(rest[3:]), "minutes": minutes})
+elif a[:1] == ["memoire-juger"] and len(a) == 2:  # la garde de l'agent, avant qu'une note n'entre en mémoire
+    out = call("POST", "/memoire/juger", json.loads(a[1]))
 elif a[:1] == ["veilles"]:
     out = call("GET", "/veilles")
 elif a[:1] == ["veille-action"] and len(a) == 3:

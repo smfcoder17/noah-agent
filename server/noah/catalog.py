@@ -64,6 +64,15 @@ async def openrouter_catalog() -> list[dict]:
     return models
 
 
+# Suffixes de version des identifiants natifs, absents du catalogue : claude-haiku-4-5-20251001, gpt-5-mini-2025-08-07, gemini-3-flash-latest.
+_DATED = re.compile(r"-(?:\d{4}-?\d{2}-?\d{2}|latest|preview(?:-[\w.-]+)?|exp(?:-[\w.-]+)?)$")
+
+
+def price_of(prices: dict[str, dict], model_id: str) -> dict:
+    """Le prix d'un identifiant natif ; sans son suffixe de version s'il le faut. Vide si le catalogue ne le connaît pas."""
+    return prices.get(_norm(model_id)) or prices.get(_norm(_DATED.sub("", model_id))) or {}
+
+
 async def price_index() -> dict[str, dict]:
     """Prix par identifiant normalisé, pour estimer le coût des fournisseurs directs."""
     try:
@@ -160,7 +169,7 @@ async def models_for(provider: str, api_key: str | None, base_url: str | None = 
     prices = await price_index()
     out = []
     for mid in await _native(provider, api_key):
-        p = prices.get(_norm(mid), {})
+        p = price_of(prices, mid)
         out.append({
             "id": mid,
             "name": p.get("name") or mid,

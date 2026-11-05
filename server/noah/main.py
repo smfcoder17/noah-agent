@@ -26,7 +26,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Str
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import access, accounts, auth, catalog, coordination, db, desktop, double_verification, events, exposition, handoff, hermes, machine, mcp, media, pendant, profiles, public, push, recuperation, relay, updates, watch, precall, diagnostics
+from . import access, accounts, auth, catalog, coordination, db, decision, desktop, double_verification, events, exposition, handoff, hermes, machine, mcp, media, pendant, profiles, public, push, recuperation, relay, updates, watch, precall, diagnostics
 from . import config
 from .config import WEB_DIR, forget_setup_code
 from .hermes import Agent
@@ -114,6 +114,7 @@ app.include_router(mcp.router)
 app.include_router(desktop.router)
 app.include_router(push.router)
 app.include_router(watch.router)
+app.include_router(decision.router)
 app.include_router(handoff.router)
 app.include_router(coordination.router)
 app.include_router(accounts.router)
@@ -130,7 +131,7 @@ _running_runs: set = set()  # runs suivis en arrière-plan (référence gardée 
 task_state: dict[str, str] = {}
 
 # Version du branchement des agents ; l'augmenter reconfigure tous les agents au démarrage.
-AGENT_SETUP_VERSION = "28-profils-partage"  # garde des profils de partage (G12.5) ; 27 : navigateur ; 26 : navigateur au premier usage
+AGENT_SETUP_VERSION = "29-decision"  # modèle de décision, routines à condition, mémoire jugée ; 28 : garde des profils de partage (G12.5) ; 27 : navigateur ; 26 : navigateur au premier usage
 
 
 @app.on_event("startup")
@@ -148,9 +149,10 @@ async def startup() -> None:
     asyncio.create_task(_after_updates(_refresh_browsers))
     asyncio.create_task(machine.deliver_routines(_save_message, _main_conversation))
     watch.init()
-    watch.setup(_save_message, _main_conversation)
+    watch.setup(_save_message, _main_conversation, _wake_for_routine)
     accounts.setup(_save_message, _main_conversation, _resume_agent)
     asyncio.create_task(watch.run_watches(_save_message, _main_conversation))
+    asyncio.create_task(decision.keep_fresh())
     asyncio.create_task(handoff.keep_browser_sessions())
     asyncio.create_task(_rest_browsers_loop())
     asyncio.create_task(accounts.keep_google_fresh())
@@ -1328,6 +1330,13 @@ def outbound_flows(user: int = Depends(access.owner_only)):
         flows.append({"quoi": f"Cerveau de {a['name']}", "vers": "ce serveur (Ollama)" if local else _host(base),
                       "detail": f"{p.get('label', m['provider'])} · {m.get('model') or p.get('model', '')}",
                       "quand": "à chaque message et à chaque étape d'une tâche", "agent": a["id"], "local": local})
+    if current_model():
+        m = current_model()
+        local = m["provider"] == "ollama" and not m.get("base_url")
+        base = relay.upstream_base(m["provider"], m.get("base_url"))
+        flows.append({"quoi": "Modèle de décision", "vers": "ce serveur (Ollama)" if local else _host(base), "detail": decision.model(),
+                      "quand": "pour juger les nouveautés des veilles et des routines, le tri du chat, les notes de mémoire ; sa liste et un court essai à la pose de la clé, puis chaque semaine",
+                      "local": local})
     if db.get_setting("media_api_key") or db.get_setting("provider") == "openrouter":
         flows.append({"quoi": "Création et voix (images, vidéos, musique, dictée, lecture)", "vers": "openrouter.ai",
                       "quand": "seulement quand tu t'en sers"})
@@ -1364,7 +1373,9 @@ def outbound_flows(user: int = Depends(access.owner_only)):
                       "vers": ", ".join(_host(u) for u in public.IP_SERVICES),
                       "quand": "au démarrage (le premier qui répond ; les suivants seulement en secours)"})
     flows.append({"quoi": "Google (Gmail, Agenda, Drive…)", "vers": "googleapis.com",
-                  "quand": "seulement si tu connectes ton compte Google à un agent"})
+                  "quand": "seulement si tu connectes ton compte Google à un agent ; depuis sa machine, à chaque relevé d'une veille ou d'une routine sur Gmail ou l'Agenda"})
+    flows.append({"quoi": "Pages et flux de tes veilles et routines à condition", "vers": "les adresses que tu leur donnes",
+                  "quand": "à chaque relevé, sans modèle"})
     return {"flux": flows, "telemetrie": False}
 
 
@@ -1415,6 +1426,7 @@ async def set_model(body: ModelChoice, user: int = Depends(access.owner_only)):
             await _start_agent("Noah", "Tu es l'assistant personnel de l'utilisateur. Réponds en français, de façon brève et concrète.", user)
     if agents:
         await asyncio.gather(*(_configure(a["id"]) for a in agents), return_exceptions=True)
+    decision.schedule_refresh()  # ce que cette clé offre, ses prix, sa vitesse : l'écran ne l'attend pas
     return {"ok": True}
 
 
@@ -1450,8 +1462,11 @@ Pour un logiciel système qui manque : `python3 /opt/data/noah.py installer paqu
 Pour Python : `pip install --user`, pour Node : `npm install` dans le dossier du projet. L'utilisateur voit le disque et les logiciels dans Détails.
 
 ## Mémoire
-Ta mémoire (notes sur ton travail) et le profil de l'utilisateur (qui il est, ses goûts, ses habitudes) persistent d'une conversation à l'autre.
-Note-y ce qui servira plus tard : préférences, comptes et outils qu'il utilise, décisions prises. L'utilisateur peut les lire et les corriger dans Détails.
+Ta mémoire et le profil de l'utilisateur (qui il est, ses goûts, ses habitudes) sont relus à chaque message, pour toujours : chaque note coûte. N'y garde que
+ses préférences durables, les faits personnels qu'il t'a demandé de retenir ou qui serviront souvent, et les décisions prises. Jamais d'état temporaire,
+de résultat de tâche, de détail d'installation ou de configuration, de constat sur un outil : ça se retrouve avec session_search, ou va dans un skill.
+Noah relit chaque note avant qu'elle entre. Si elle est refusée, n'insiste pas, sauf si l'utilisateur a demandé lui-même de la retenir : commence-la alors par « Demandé : ».
+L'utilisateur peut tout lire et corriger dans Détails.
 Quand il t'explique comment il veut qu'une chose soit faite (« voici comment je veux mes résumés », « pour mes factures, fais
 comme ça »), garde-le sans qu'il ait à le demander : une préférence courte va en mémoire, une façon de faire en plusieurs étapes
 devient un skill (crée-le ou complète celui qui existe). Dis-lui simplement que c'est retenu, sans parler de fichiers ni de skills.
@@ -1474,20 +1489,17 @@ réponse, pas une panne : ne réessaie pas la même action, propose autre chose.
 dans son dossier de travail puis ouvre-le. Pendant une routine, termine par une notification courte quand le résultat mérite son attention.
 Une commande s'exécute dans son dossier de travail : préfère une commande simple et lisible, jamais destructrice sans qu'il l'ait demandé.
 
-## Veilles : surveiller sans travailler
-Pour « préviens-moi si… », « surveille… », « dis-moi quand… » sur une page ou un flux RSS, crée une veille plutôt qu'une routine :
-`python3 /opt/data/noah.py veille "Nom" "https://…" "ce qui compte pour lui" --minutes 60`.
-Noah Agent relève la source lui-même, sans toi ni modèle ; un petit modèle ne lit que les nouveautés et te les envoie ici
-seulement si elles correspondent à ce qui compte. Ça coûte des centaines de fois moins qu'une routine. Donne une adresse précise
-(la page des offres, le flux RSS du blog, la recherche filtrée) et un critère concret (« prix sous 300 $ », « mentionne Hermes »).
-`veilles` les liste, `veille-action <id> pause|reprendre|verifier|supprimer` les gère. Garde la routine pour ce qui demande
-de travailler (naviguer connecté, croiser plusieurs sources, rédiger un rapport).
-
-## Routines et initiative
-Quand l'utilisateur veut quelque chose de régulier (« chaque matin », « tous les lundis », « surveille… »), crée une routine avec ton outil cron :
-une consigne autonome et complète, un horaire (« every day at 8am », « 0 9 * * 1 », « every 2h »), et la livraison `local`.
-Le résultat de chaque passage arrive tout seul dans cette conversation. L'utilisateur voit, met en pause et supprime ses routines dans Détails.
-Propose une routine quand tu remarques une tâche qui revient.
+## Veilles et routines : choisir le bon type
+Noah Agent relève lui-même une source, sans toi ni modèle ; un petit modèle ne lit que les nouveautés. Rien de nouveau : ça ne coûte rien. Une source est une adresse
+précise (`https://…`, page ou flux), `gmail` ou `gmail:<recherche Gmail>` (`gmail:from:paul@exemple.fr`), `agenda` ou `agenda:<heures à venir>`, `outil:<serveur>/<outil>`.
+- Il veut seulement être prévenu (« préviens-moi si… », « dis-moi quand… », « surveille… ») : une veille, qui l'avertit sans te réveiller.
+  `python3 /opt/data/noah.py veille "Nom" <source> "ce qui compte, concret (prix sous 300 $, un courriel de Paul)" --minutes 60`
+- Il veut que tu agisses quand quelque chose arrive (« si j'ai un courriel de Paul, prépare une réponse », « si un courriel important arrive, résume-le ») : une routine à condition. Tu n'es réveillé que si la condition est remplie, avec ce qui a été relevé.
+  `python3 /opt/data/noah.py routine-si "Nom" <source> "la condition" "ce que tu feras alors, complet et autonome" --minutes 30`
+- Il veut un travail à chaque fois, sans condition (« chaque matin, un briefing », « tous les lundis ») : une routine, qui te fait tourner à chaque passage.
+  `python3 /opt/data/noah.py routine "Nom" "horaire" "consigne autonome et complète"`, avec un horaire comme « every day at 8am », « 0 9 * * 1 », « every 2h ».
+N'utilise jamais une routine pour vérifier si quelque chose est arrivé. `veilles` et `routines` listent, `veille-action <id> pause|reprendre|verifier|supprimer` et `routine-action <id> pause|reprendre|lancer|supprimer` gèrent.
+Tout résultat arrive tout seul dans cette conversation et en notification. L'utilisateur voit et supprime tout dans Détails. Propose une routine quand tu remarques une tâche qui revient.
 
 ## Gmail, Agenda, Drive et autres applications
 Si l'utilisateur a connecté Google dans Détails → Connexions, utilise la compétence google-workspace (seulement pour les accès
@@ -3426,6 +3438,20 @@ async def agent_thread(body: ThreadBody, request: Request):
     task.add_done_callback(_background.discard)
     coordination.inherit(agent_id, conv_id, task)
     return {"id": conv_id, "etat": "en cours"}
+
+
+async def _wake_for_routine(agent_id: str, title: str, prompt: str) -> dict:
+    """Une routine à condition : le cerveau travaille dans un fil à lui, sans l'historique de la conversation principale (moins cher, et
+    il ne s'y mêle pas à une tâche en cours). Rend ce qu'il a répondu et ce que ça a coûté ; le fil reste visible dans Détails."""
+    conv_id = _new_conversation(db.agent_owner(agent_id), agent_id, title, origin="agent")
+    async for _ in await _run(_agent(agent_id), conv_id, prompt):
+        pass
+    with db.connect() as c:
+        row = c.execute("SELECT role, text FROM messages WHERE conversation_id = ? AND role IN ('agent', 'error') ORDER BY rowid DESC LIMIT 1", (conv_id,)).fetchone()
+        cost = c.execute("SELECT COALESCE(SUM(cost), 0) AS total FROM usage WHERE conversation_id = ?", (conv_id,)).fetchone()["total"]
+    if row and row["role"] == "agent":
+        return {"texte": row["text"], "cout": cost}
+    return {"erreur": row["text"] if row else "l'agent n'a rien répondu", "cout": cost}
 
 
 coordination.setup(run=_run, agent=_agent, new_conversation=_new_conversation, save=_save_message,

@@ -209,10 +209,14 @@ function NewRoutine({ agentId, onDone }: { agentId: string; onDone: () => void }
 // --- Mémoire --------------------------------------------------------------------------------
 
 type MemoryState = { memory: string[]; user: string[]; limites: { memory: number; user: number } };
+type MemoryProposal = { cible: "memory" | "user"; entree: string; raison: string };
+type MemoryReview = { propositions: MemoryProposal[]; avant: number; apres: number };
 
 export function Memory({ agentId }: { agentId: string }) {
   const { data, setData, error, setError } = useAgentData<MemoryState>(`/api/agents/${agentId}/memory`);
   const total = data ? data.memory.length + data.user.length : undefined;
+  const [review, setReview] = useState<MemoryReview | null>(null);
+  const [reviewing, setReviewing] = useState(false);
 
   const save = async (target: "memory" | "user", entries: string[]) => {
     try {
@@ -221,6 +225,27 @@ export function Memory({ agentId }: { agentId: string }) {
     } catch (e) {
       setError((e as Error).message);
     }
+  };
+
+  const runReview = async () => {
+    setReviewing(true);
+    setError("");
+    try {
+      setReview(await send<MemoryReview>(`/api/agents/${agentId}/memory/relire`, {}));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setReviewing(false);
+    }
+  };
+  const forget = async (items: MemoryProposal[]) => {
+    if (!data || !review) return;
+    for (const target of ["memory", "user"] as const) {
+      const out = items.filter((p) => p.cible === target).map((p) => p.entree);
+      if (out.length) await save(target, data[target].filter((e) => !out.includes(e)));
+    }
+    const rest = review.propositions.filter((p) => !items.includes(p));
+    setReview(rest.length ? { ...review, propositions: rest } : null);
   };
 
   return (
@@ -232,7 +257,38 @@ export function Memory({ agentId }: { agentId: string }) {
             empty="Rien encore. L'agent y note qui tu es, tes goûts et tes habitudes au fil des conversations." />
           <MemoryList title="Ses notes de travail" entries={data.memory} limit={data.limites.memory} onSave={(e) => save("memory", e)}
             empty="Rien encore. L'agent y garde ce qui lui servira plus tard : outils, décisions, contexte." />
-          <p className="text-xs text-muted-foreground">Une modification compte dès la prochaine conversation.</p>
+          <p className="text-xs text-muted-foreground">
+            Tout ceci est relu à chaque message, et se paie à chaque fois. Une modification compte dès la prochaine conversation.
+          </p>
+          {review ? (
+            <div className="flex flex-col gap-1.5 rounded-xl border border-border p-2.5">
+              {review.propositions.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Rien à retirer : tout semble utile à chaque message.</p>
+              ) : (
+                <>
+                  <p className="text-sm font-medium">
+                    Le modèle de décision propose de retirer {review.propositions.length} note{review.propositions.length > 1 ? "s" : ""} ({review.avant} → {review.apres} caractères).
+                    Rien ne part sans ton accord.
+                  </p>
+                  {review.propositions.map((p) => (
+                    <div key={p.cible + p.entree} className="flex items-start gap-1 rounded-lg px-2 py-1 text-sm hover:bg-muted">
+                      <div className="min-w-0 flex-1">
+                        <p className="line-clamp-2">{p.entree}</p>
+                        <p className="text-xs text-muted-foreground">{p.raison}</p>
+                      </div>
+                      <Button size="sm" variant="ghost" onClick={() => forget([p])}><Trash2 />Oublier</Button>
+                    </div>
+                  ))}
+                  <Button size="sm" variant="outline" className="self-start" onClick={() => forget(review.propositions)}><Trash2 />Tout oublier</Button>
+                </>
+              )}
+              <Button size="sm" variant="ghost" className="self-start text-muted-foreground" onClick={() => setReview(null)}>Fermer</Button>
+            </div>
+          ) : (
+            <Button size="sm" variant="outline" className="self-start" disabled={reviewing || !total} onClick={runReview}>
+              {reviewing && <Loader2 className="animate-spin" />}Relire et proposer un nettoyage
+            </Button>
+          )}
         </>
       )}
       <ErrorText>{error}</ErrorText>
@@ -973,7 +1029,11 @@ type Watch = {
   id: string;
   nom: string;
   url: string;
+  source: "page" | "gmail" | "agenda" | "outil";
   critere: string;
+  consigne: string;
+  reveils: number;
+  cout: number;
   minutes: number;
   active: boolean;
   dernier_passage: number | null;
@@ -991,16 +1051,35 @@ const EVERY: [number, string][] = [
 ];
 const everyLabel = (m: number) => EVERY.find(([v]) => v === m)?.[1] ?? `toutes les ${m} min`;
 const ago = (t: number | null) => (t ? when(new Date(t * 1000).toISOString()) : null);
+const plural = (n: number, word: string) => `${n} ${word}${n > 1 ? "s" : ""}`;
+const dollars = (v: number) =>
+  v === 0 ? "0 $" : v < 0.0001 ? "moins de 0,0001 $" : `${Number(v.toFixed(v < 0.01 ? 4 : 3))} $`.replace(".", ",");
+/** Le compte qui prouve que l'agent ne tourne pas pour rien : « 12 passages, 1 réveil, 0,002 $ ». */
+const tally = (w: Watch) =>
+  [plural(w.passages, "passage"), w.consigne ? plural(w.reveils, "réveil") : plural(w.alertes, "alerte"), dollars(w.cout)].join(", ");
+
+const SOURCES: [string, string, string][] = [
+  ["page", "Page ou flux", "https://… (page ou flux RSS)"],
+  ["gmail", "Gmail", "Recherche Gmail (ex. from:paul@exemple.fr), vide : les nouveaux courriels"],
+  ["agenda", "Agenda", "Heures à venir (vide : 24)"],
+];
+const sourceAddress = (kind: string, text: string) => (kind === "page" ? text.trim() : text.trim() ? `${kind}:${text.trim()}` : kind);
+const sourceLabel = (w: Watch) =>
+  w.source === "gmail" ? `Gmail${w.url.includes(":") ? ` : ${w.url.split(":").slice(1).join(":")}` : ""}`
+  : w.source === "agenda" ? "Agenda"
+  : w.source === "outil" ? `Outil ${w.url.slice(6)}`
+  : w.url;
 
 /**
- * Veilles : Noah Agent relève une page ou un flux lui-même, sans modèle, et ne prévient l'agent que si les nouveautés
- * correspondent à ce que l'utilisateur cherche. Bien moins cher qu'une routine pour « préviens-moi si… ».
+ * Veilles et routines à condition : Noah Agent relève une source lui-même, sans modèle ; le modèle de décision ne lit que les
+ * nouveautés. Une veille prévient ; une routine à condition réveille le cerveau, seulement si la condition est remplie.
  */
 export function Watches({ agentId }: { agentId: string }) {
   const { data, error, setError, load } = useAgentData<{ veilles: Watch[] }>(`/api/agents/${agentId}/watches`);
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
-  const [form, setForm] = useState({ nom: "", url: "", critere: "", minutes: 60 });
+  const blank = { nom: "", source: "page", url: "", critere: "", consigne: "", minutes: 60 };
+  const [form, setForm] = useState(blank);
   const list = data?.veilles ?? [];
 
   const act = async (w: Watch, action: string) => {
@@ -1020,8 +1099,10 @@ export function Watches({ agentId }: { agentId: string }) {
     setBusy("new");
     setError("");
     try {
-      await send(`/api/agents/${agentId}/watches`, form);
-      setForm({ nom: "", url: "", critere: "", minutes: 60 });
+      await send(`/api/agents/${agentId}/watches`, {
+        nom: form.nom, url: sourceAddress(form.source, form.url), critere: form.critere, consigne: form.consigne, minutes: form.minutes,
+      });
+      setForm(blank);
       setAdding(false);
       await load();
     } catch (err) {
@@ -1032,11 +1113,11 @@ export function Watches({ agentId }: { agentId: string }) {
   };
 
   return (
-    <Section title="Veilles" count={list.length}>
+    <Section title="Veilles et routines à condition" count={list.length}>
       {data && !list.length && !adding && (
         <p className="text-sm text-muted-foreground">
-          Surveille une page ou un flux sans faire travailler l'agent : il n'est prévenu que si une nouveauté compte pour toi.
-          Demande-le-lui (« préviens-moi si ce produit passe sous 300 $ ») ou crée-la ici.
+          Surveille une page, un flux, tes courriels ou ton agenda sans faire travailler l'agent. Rien de nouveau : rien ne coûte.
+          Demande-le-lui (« préviens-moi si ce produit passe sous 300 $ », « si j'ai un courriel de Paul, prépare une réponse ») ou crée-la ici.
         </p>
       )}
       {list.map((w) => (
@@ -1045,15 +1126,16 @@ export function Watches({ agentId }: { agentId: string }) {
             <span className={cn("mt-1.5 size-2 shrink-0 rounded-full", !w.active ? "bg-muted-foreground/40" : w.erreur ? "bg-danger" : "bg-ok")} />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium">{w.nom}</p>
-              <p className="truncate text-xs text-muted-foreground" title={w.url}>{w.url}</p>
+              <p className="truncate text-xs text-muted-foreground" title={w.url}>{sourceLabel(w)}</p>
               <p className="text-xs text-muted-foreground">
                 {everyLabel(w.minutes)}
                 {!w.active ? " · en pause" : w.dernier_passage ? ` · vue ${ago(w.dernier_passage)}` : ""}
-                {w.alertes > 0 && ` · ${w.alertes} alerte${w.alertes > 1 ? "s" : ""}`}
               </p>
+              <p className="text-xs text-muted-foreground tabular-nums">{tally(w)}</p>
             </div>
           </div>
-          {w.critere && <p className="line-clamp-2 pl-4 text-xs text-muted-foreground">Ce qui compte : {w.critere}</p>}
+          {w.critere && <p className="line-clamp-2 pl-4 text-xs text-muted-foreground">{w.consigne ? "Si" : "Ce qui compte"} : {w.critere}</p>}
+          {w.consigne && <p className="line-clamp-2 pl-4 text-xs text-muted-foreground">Alors : {w.consigne}</p>}
           {w.erreur && <p className="pl-4 text-xs text-danger">{w.erreur}</p>}
           <div className="flex gap-1 pl-3">
             <Button size="sm" variant="ghost" onClick={() => act(w, w.active ? "pause" : "reprendre")} disabled={!!busy}>
@@ -1062,7 +1144,7 @@ export function Watches({ agentId }: { agentId: string }) {
             <Button size="sm" variant="ghost" onClick={() => act(w, "verifier")} disabled={!!busy}>
               {busy === w.id + "verifier" ? <Loader2 className="animate-spin" /> : <Zap />}Vérifier
             </Button>
-            <Button size="sm" variant="ghost" className="ml-auto text-muted-foreground" onClick={() => act(w, "supprimer")} disabled={!!busy} aria-label="Supprimer la veille">
+            <Button size="sm" variant="ghost" className="ml-auto text-muted-foreground" onClick={() => act(w, "supprimer")} disabled={!!busy} aria-label={`Supprimer « ${w.nom} »`}>
               <Trash2 />
             </Button>
           </div>
@@ -1071,8 +1153,12 @@ export function Watches({ agentId }: { agentId: string }) {
       {adding ? (
         <form onSubmit={create} className="flex flex-col gap-2 rounded-xl border border-border p-2.5">
           <Input value={form.nom} onChange={(e) => setForm({ ...form, nom: e.target.value })} className="h-9" placeholder="Nom (ex. Prix du vélo)" aria-label="Nom de la veille" required />
-          <Input value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} className="h-9" placeholder="https://… (page ou flux RSS)" aria-label="Adresse à surveiller" type="url" required />
-          <Textarea value={form.critere} onChange={(e) => setForm({ ...form, critere: e.target.value })} rows={2} placeholder="Ce qui compte (vide : toute nouveauté)" aria-label="Ce qui compte" />
+          <select value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value, url: "" })} className="h-9 rounded-md border border-border bg-surface px-2 text-sm" aria-label="Source">
+            {SOURCES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+          <Input value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} className="h-9" placeholder={SOURCES.find(([v]) => v === form.source)?.[2]} aria-label="Ce qu'il faut relever" required={form.source === "page"} />
+          <Textarea value={form.critere} onChange={(e) => setForm({ ...form, critere: e.target.value })} rows={2} placeholder="Condition ou ce qui compte (ex. un courriel de Paul à propos d'une facture)" aria-label="Condition" />
+          <Textarea value={form.consigne} onChange={(e) => setForm({ ...form, consigne: e.target.value })} rows={2} placeholder="Facultatif : ce que l'agent fera alors. Vide : il te prévient, sans se réveiller." aria-label="Ce que l'agent fera alors" />
           <select value={form.minutes} onChange={(e) => setForm({ ...form, minutes: Number(e.target.value) })} className="h-9 rounded-md border border-border bg-surface px-2 text-sm" aria-label="Fréquence">
             {EVERY.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
@@ -1082,7 +1168,7 @@ export function Watches({ agentId }: { agentId: string }) {
           </div>
         </form>
       ) : (
-        <Button variant="outline" size="sm" className="self-start" onClick={() => setAdding(true)}><Plus />Nouvelle veille</Button>
+        <Button variant="outline" size="sm" className="self-start" onClick={() => setAdding(true)}><Plus />Nouvelle veille ou routine à condition</Button>
       )}
       <ErrorText>{error}</ErrorText>
     </Section>

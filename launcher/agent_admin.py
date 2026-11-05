@@ -216,6 +216,100 @@ def google_revoke(body):
     return google(None)
 
 
+# --- Relevé de Gmail et de l'Agenda, sans modèle (veilles et routines à condition) ---------------------------------------
+# Le jeton reste ici, dans la machine de l'agent. Le serveur reçoit les nouveautés, jamais le jeton.
+
+def _google_token():
+    import datetime
+    import urllib.parse
+    import urllib.request
+    f = DATA / "google_token.json"
+    if not f.exists():
+        fail("Google n'est pas connecté à cet agent : Détails → Connexions.")
+    t = json.loads(f.read_text(encoding="utf-8"))
+    expiry = str(t.get("expiry") or "").replace("Z", "+00:00")
+    try:
+        fresh = datetime.datetime.fromisoformat(expiry) > datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=60)
+    except ValueError:
+        fresh = False
+    if t.get("token") and fresh:
+        return t["token"]
+    data = urllib.parse.urlencode({"client_id": t.get("client_id"), "client_secret": t.get("client_secret"),
+                                   "refresh_token": t.get("refresh_token"), "grant_type": "refresh_token"}).encode()
+    try:
+        with urllib.request.urlopen(t.get("token_uri") or "https://oauth2.googleapis.com/token", data=data, timeout=20) as r:
+            answer = json.load(r)
+    except OSError:
+        fail("Google n'a pas renouvelé l'accès : refais l'accord dans Détails → Connexions.")
+    t["token"] = answer["access_token"]
+    t["expiry"] = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=int(answer.get("expires_in", 3600)) - 60)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    tmp = f.with_suffix(".tmp")  # le fichier que lit aussi la compétence google-workspace : jamais à moitié écrit
+    tmp.write_text(json.dumps(t, indent=2), encoding="utf-8")
+    tmp.chmod(0o600)
+    tmp.replace(f)
+    return t["token"]
+
+
+def _google_get(url, token):
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return json.load(r)
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            fail("Google refuse cette lecture : l'accès n'est pas coché dans Détails → Connexions.")
+        fail(f"Google répond {e.code}.")
+    except OSError:
+        fail("Google est injoignable.")
+
+
+def _gmail(token, query, known):
+    import urllib.parse
+    base = "https://gmail.googleapis.com/gmail/v1/users/me/messages"
+    q = query or "in:inbox newer_than:2d"
+    listed = _google_get(f"{base}?{urllib.parse.urlencode({'q': q, 'maxResults': 25})}", token).get("messages") or []
+    keys = [m["id"] for m in listed]
+    items = []
+    for key in keys:
+        if key in known:
+            continue  # déjà vu : pas de seconde requête, et rien ne ressort de la boîte
+        msg = _google_get(f"{base}/{key}?format=metadata&metadataHeaders=From&metadataHeaders=Subject", token)
+        heads = {h["name"].lower(): h["value"] for h in (msg.get("payload") or {}).get("headers") or []}
+        items.append({"cle": key, "titre": f"De {heads.get('from', '?')} : {heads.get('subject', '(sans objet)')}"[:300],
+                      "lien": f"https://mail.google.com/mail/u/0/#inbox/{key}", "texte": str(msg.get("snippet") or "")[:500]})
+    return keys, items
+
+
+def _agenda(token, hours):
+    import datetime
+    import urllib.parse
+    now = datetime.datetime.now(datetime.timezone.utc)
+    window = {"timeMin": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "timeMax": (now + datetime.timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "singleEvents": "true", "orderBy": "startTime", "maxResults": 25}
+    found = _google_get("https://www.googleapis.com/calendar/v3/calendars/primary/events?" + urllib.parse.urlencode(window), token)
+    keys, items = [], []
+    for e in found.get("items") or []:
+        key = f"{e.get('id')}:{e.get('updated', '')}"  # un événement déplacé est une nouveauté
+        start = (e.get("start") or {}).get("dateTime") or (e.get("start") or {}).get("date") or ""
+        keys.append(key)
+        items.append({"cle": key, "titre": str(e.get("summary") or "(sans titre)")[:300], "lien": str(e.get("htmlLink") or ""),
+                      "texte": " — ".join(x for x in (start, str(e.get("location") or ""), str(e.get("description") or "")[:300]) if x)})
+    return keys, items
+
+
+def source_google(body):
+    token, service, query = _google_token(), body.get("service"), str(body.get("requete") or "").strip()
+    if service == "gmail":
+        keys, items = _gmail(token, query, set(body.get("connus") or []))
+    elif service == "agenda":
+        keys, items = _agenda(token, int(query) if query.isdigit() else 24)
+    else:
+        fail("Source inconnue")
+    return {"cles": keys, "elements": items}
+
+
 # --- Applications (catalogue MCP d'Hermes : Notion, Todoist, Linear…) ------------------------------
 
 # Connexion OAuth lancée en arrière-plan : Hermes publie l'adresse d'autorisation puis attend le retour
@@ -482,7 +576,7 @@ ACTIONS = {
     "routines": routines, "routine_creer": routine_create, "routine_action": routine_action,
     "routines_sorties": routine_outputs,
     "google": google, "google_revoquer": google_revoke,
-    "google_installer": google_install,
+    "google_installer": google_install, "source_google": source_google,
 }
 
 if __name__ == "__main__":
