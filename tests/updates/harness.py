@@ -6,8 +6,13 @@ import sys
 
 os.environ.setdefault("NOAH_UPDATE_STATE", "/state/updates.json")
 os.environ.setdefault("NOAH_BACKUP_VOLUME", "noahtest-backups")
-os.environ.setdefault("NOAH_UPDATE_HEALTH", "30")
-os.environ.setdefault("NOAH_UPDATE_OBSERVE", "20")
+# Attentes simulées : mêmes gestes et mêmes décisions qu'en production, sans attendre vraiment. Les durées de
+# production sont constatées dans le code au début de docker_test.py.
+os.environ.setdefault("NOAH_UPDATE_HEALTH", "6")
+os.environ.setdefault("NOAH_UPDATE_OBSERVE", "1")
+os.environ.setdefault("NOAH_UPDATE_POLL", "0.1")
+os.environ.setdefault("NOAH_UPDATE_CADDY_DEADLINE", "1.5")
+os.environ.setdefault("NOAH_UPDATE_WATCHDOG", "2")
 os.environ.setdefault("NOAH_RELAY_NAME", "noahtest-relais")
 from cryptography.hazmat.primitives import serialization  # noqa: E402
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402

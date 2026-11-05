@@ -21,9 +21,11 @@ def wait_tx(seconds=600):
     deadline = time.time() + seconds
     while time.time() < deadline:
         s = u.load_state()
-        if s.get("en_cours") is None:
+        final = (s.get("dernier_rapport") or {}).get("composants", {}).get("noah-launcher") != "en_cours"  # le rapport de fin suit la fermeture du journal
+        relay = u._get(u.RELAY)
+        if s.get("en_cours") is None and final and relay and relay.attrs["HostConfig"]["RestartPolicy"]["Name"] == "no":
             return s
-        time.sleep(5)
+        time.sleep(0.5)
     sys.exit(f"transaction pas finie : {u.load_state().get('en_cours')}")
 
 
@@ -35,7 +37,8 @@ def launcher(tag):
             p.unlink()
     c.containers.run(f"{os.environ['REGISTRY']}/noahtest/launcher:{tag}", name=NAME, detach=True, network="noahtest-net",
                      environment={"LAUNCHER_KEY": "test", "AGENT_NETWORK": "noahtest-net", "NOAH_LAUNCHER_NAME": NAME,
-                                  "NOAH_RELAY_NAME": u.RELAY, "NOAH_UPDATE_KEY": os.environ["NOAH_UPDATE_KEY"]},
+                                  "NOAH_RELAY_NAME": u.RELAY, "NOAH_UPDATE_KEY": os.environ["NOAH_UPDATE_KEY"],
+                                  "NOAH_UPDATE_POLL": os.environ["NOAH_UPDATE_POLL"], "NOAH_UPDATE_WATCHDOG": os.environ["NOAH_UPDATE_WATCHDOG"]},
                      volumes={"/var/run/docker.sock": {"bind": "/var/run/docker.sock"}, "noahtest-state": {"bind": "/state"}},
                      restart_policy={"Name": "unless-stopped"})
     assert u.healthy(NAME, 60), "le lanceur de test ne démarre pas"

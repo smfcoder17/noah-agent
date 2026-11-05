@@ -26,7 +26,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             for i in range(EVENTS):
                 self.wfile.write(f"data: {i}\n\n".encode())
                 self.wfile.flush()
-                time.sleep(1)
+                time.sleep(0.2)
             if EVENTS < 2:
                 time.sleep(60)  # flux qui ne donne jamais son 2e événement
         else:

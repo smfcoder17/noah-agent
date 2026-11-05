@@ -60,9 +60,9 @@ print("caddy 1. flux SSE de bout en bout, HTTPS vérifié, à travers un vrai Ca
 server(1)
 t0 = time.time()
 assert not u._through_caddy(), "flux sans 2e événement accepté"
-assert time.time() - t0 < 25, "pas d'échéance globale"
+assert time.time() - t0 < u.CADDY_DEADLINE + 5, "pas d'échéance globale"
 assert u.observe([u.SERVER], 1, caddy_before=True) == u.SERVER
-print("caddy 2. flux qui ne livre jamais son 2e événement : refusé en moins de 25 s, le serveur est désigné fautif")
+print(f"caddy 2. flux qui ne livre jamais son 2e événement : refusé en moins de {u.CADDY_DEADLINE + 5:.0f} s (25 s avec l'échéance de production), le serveur est désigné fautif")
 
 os.environ.pop("NOAH_TEST_CA")  # sans l'autorité de Caddy, son certificat n'est pas de confiance
 server(2)

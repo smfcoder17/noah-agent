@@ -50,6 +50,9 @@ BACKUP_VOLUME = os.environ.get("NOAH_BACKUP_VOLUME", "noah_noah-backups")
 PUBLIC_KEY = os.environ.get("NOAH_UPDATE_KEY", "")
 OBSERVE = int(os.environ.get("NOAH_UPDATE_OBSERVE", "300"))
 HEALTH = int(os.environ.get("NOAH_UPDATE_HEALTH", "120"))
+POLL = float(os.environ.get("NOAH_UPDATE_POLL", "5"))  # secondes entre deux regards sur un conteneur qui démarre
+CADDY_DEADLINE = float(os.environ.get("NOAH_UPDATE_CADDY_DEADLINE", "20"))  # échéance du contrôle à travers Caddy
+WATCHDOG = float(os.environ.get("NOAH_UPDATE_WATCHDOG", "300"))  # secondes entre deux tours de la surveillance
 CRASH_AT = os.environ.get("NOAH_TEST_CRASH_AT", "")  # tests : arrêt brutal à une étape donnée
 # Version de ce lanceur (posée à la publication) : plancher de l'anti-retour, même sur un journal tout neuf.
 BUILT_VERSION = os.environ.get("NOAH_VERSION", "")
@@ -549,11 +552,11 @@ def _through_caddy() -> bool:
         return True
     # Certificat vérifié pour le nom public, comme le ferait un navigateur (tests : autorité locale de Caddy).
     ctx = ssl.create_default_context(cafile=os.environ.get("NOAH_TEST_CA") or None)
-    deadline = time.monotonic() + 20  # échéance globale : un flux qui traîne compte comme un échec
+    deadline = time.monotonic() + CADDY_DEADLINE  # échéance globale : un flux qui traîne compte comme un échec
     try:
-        raw = socket.create_connection((CADDY, 443), timeout=10)
+        raw = socket.create_connection((CADDY, 443), timeout=min(10, CADDY_DEADLINE))
         sock = ctx.wrap_socket(raw, server_hostname=host)
-        conn = http.client.HTTPSConnection(host, 443, timeout=10, context=ctx)
+        conn = http.client.HTTPSConnection(host, 443, timeout=min(10, CADDY_DEADLINE), context=ctx)
         conn.sock = sock
         # Le chat passe par un flux (SSE) : on en ouvre un vrai, à travers Caddy, et on attend deux événements.
         conn.request("GET", "/api/health/stream", headers={"Host": host, "Accept": "text/event-stream"})
@@ -575,7 +578,7 @@ def _through_caddy() -> bool:
 
 
 def healthy(name: str, seconds: int | None = None) -> bool:
-    """Sain = répond 3 fois de suite sur 10 s, sans redémarrer entre-temps."""
+    """Sain = répond 3 fois de suite (sur 10 s avec POLL à 5 s), sans redémarrer entre-temps."""
     url = _health_url(name)
     deadline = time.time() + (HEALTH if seconds is None else seconds)
     streak, restarts = 0, None
@@ -589,7 +592,7 @@ def healthy(name: str, seconds: int | None = None) -> bool:
         streak = streak + 1 if running and (_answers(url) if url else True) else 0
         if streak >= 3:
             return True
-        time.sleep(5)
+        time.sleep(POLL)
     return False
 
 
@@ -613,7 +616,7 @@ def observe(names: list[str], seconds: int, caddy_before: bool = False) -> str |
         if not healthy(n, 30):  # 3 réponses de suite, pas un seul essai qui peut tomber au mauvais moment
             return n
     if caddy_before and (SERVER in names or CADDY in names):
-        if not any(_through_caddy() or time.sleep(5) for _ in range(3)):
+        if not any(_through_caddy() or time.sleep(POLL) for _ in range(3)):
             return SERVER if SERVER in names else CADDY
     return None
 
@@ -1132,7 +1135,7 @@ def _start_relay(image: str) -> None:
     volumes = {"/var/run/docker.sock": {"bind": "/var/run/docker.sock", "mode": "rw"}}
     if state_volume:
         volumes[state_volume] = {"bind": "/state", "mode": "rw"}
-    env = {k: os.environ[k] for k in ("NOAH_UPDATE_OBSERVE", "NOAH_UPDATE_HEALTH", "NOAH_BACKUP_VOLUME", "NOAH_TEST_CRASH_RELAY")
+    env = {k: os.environ[k] for k in ("NOAH_UPDATE_OBSERVE", "NOAH_UPDATE_HEALTH", "NOAH_UPDATE_POLL", "NOAH_UPDATE_CADDY_DEADLINE", "NOAH_BACKUP_VOLUME", "NOAH_TEST_CRASH_RELAY")
            if k in os.environ}
     env.update(NOAH_UPDATE_STATE="/state/updates.json", NOAH_LAUNCHER_NAME=LAUNCHER, NOAH_RELAY_NAME=RELAY, NOAH_IS_RELAY="1")
     if os.environ.get("NOAH_TEST_CRASH_RELAY"):
@@ -1245,7 +1248,7 @@ def refusal() -> str | None:
 def watchdog() -> None:
     """Toutes les 5 minutes : un relais en panne depuis trop longtemps ne bloque pas Noah pour toujours."""
     while True:
-        time.sleep(300)
+        time.sleep(WATCHDOG)
         try:
             tx = load_state().get("en_cours")
             if tx and tx.get("phase") == "validation" and not (_get(RELAY) and _get(RELAY).status == "running"):

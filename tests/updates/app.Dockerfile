@@ -4,4 +4,7 @@ FROM python:3.12-slim
 ARG APPV
 ENV APPV=$APPV
 COPY app.py /app.py
+# En PID 1, Python ignore SIGTERM : Docker attendrait tout son délai d'arrêt avant de tuer. Le kill arrive donc tout de suite,
+# avec le même effet : rien n'est fermé, le WAL reste sur le disque.
+STOPSIGNAL SIGKILL
 CMD ["python", "/app.py"]

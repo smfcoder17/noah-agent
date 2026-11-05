@@ -3,16 +3,46 @@ Ne touche à aucun conteneur de Noah : la liste des composants est remplacée pa
 
     sh tests/updates/docker_test.sh
 """
+import json
 import os
+import re
 import subprocess
 import sys
 import threading
 import time
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, "/tests/updates")
 from harness import AGENTS, c, docker, ref, signed, u  # noqa: E402
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
+
+
+# Durées de production, lues dans le code sans aucun réglage de test. Le reste du test les réduit ; ce sont elles qui comptent.
+TEST_SETTINGS = ("NOAH_UPDATE_HEALTH", "NOAH_UPDATE_OBSERVE", "NOAH_UPDATE_POLL", "NOAH_UPDATE_CADDY_DEADLINE", "NOAH_UPDATE_WATCHDOG")
+READ = "import json, updater as u; print(json.dumps(dict(health=u.HEALTH, observe=u.OBSERVE, poll=u.POLL, caddy=u.CADDY_DEADLINE, relay=u.RELAY_TIMEOUT, watchdog=u.WATCHDOG)))"
+PROD = json.loads(subprocess.run([sys.executable, "-c", READ], cwd="/l", capture_output=True, text=True, check=True,
+                                 env={k: v for k, v in os.environ.items() if k not in TEST_SETTINGS}).stdout)
+assert PROD == {"health": 120, "observe": 300, "poll": 5, "caddy": 20, "relay": 1800, "watchdog": 300}, PROD
+SOURCE = open("/l/updater.py", encoding="utf-8").read()
+STOP_NEW = int(re.search(r"c\.stop\(timeout=(\d+)\)  # arrêt propre", SOURCE).group(1))  # arrêt d'un conteneur remplacé
+STOP_BAD = int(re.search(r"main\.stop\(timeout=(\d+)\)  # la version fautive", SOURCE).group(1))  # arrêt de la version fautive
+assert (STOP_NEW, STOP_BAD) == (30, 20), (STOP_NEW, STOP_BAD)
+assert u.HEALTH < PROD["health"] and u.OBSERVE < PROD["observe"] and u.POLL < PROD["poll"] and u.CADDY_DEADLINE < PROD["caddy"] and u.WATCHDOG < PROD["watchdog"]
+print(f"0. durées de production dans le code : santé {PROD['health']} s, observation {PROD['observe']} s, un regard toutes les "
+      f"{PROD['poll']} s, Caddy {PROD['caddy']} s, relais {PROD['relay']} s, surveillance {PROD['watchdog']} s, arrêts {STOP_NEW} et {STOP_BAD} s ; ce test les réduit")
+
+ROLLBACK_BUDGET = 300  # un retour arrière doit tenir en moins de 5 min avec les délais de production
+# L'échec sur le 2e agent, en production : 2 arrêts à l'aller, 2 au retour, tout le délai de santé sur b, et 3 démarrages sains
+# (a à l'aller, les deux au retour), chacun 3 réponses à POLL d'écart.
+SCENARIO_WAITS = 2 * STOP_NEW + 2 * STOP_BAD + PROD["health"] + 3 * 2 * PROD["poll"]
+
+
+def rollback_time(took: float, budget: float = ROLLBACK_BUDGET) -> float:
+    """Le temps mesuré (gestes réels), plus les attentes que ce test a réduites : ce que ce retour arrière prendrait en production."""
+    projected = took - u.HEALTH + SCENARIO_WAITS
+    assert projected < budget, f"retour arrière trop long : {projected:.0f} s"
+    return projected
 
 
 def reset_state():
@@ -49,40 +79,51 @@ def img(tag):
     return c.images.get(ref("app", tag)).id
 
 
+def both(work):
+    """Le même geste sur les deux agents en même temps : chacun lance son conteneur, sans attendre l'autre."""
+    with ThreadPoolExecutor(len(AGENTS)) as pool:
+        return list(pool.map(work, AGENTS))
+
+
+def prepare(name):
+    remove(name)
+    remove(name + "-ancien")
+    try:
+        c.volumes.get(f"{name}-data").remove(force=True)
+    except docker.errors.NotFound:
+        pass
+    sh(f"{name}-data", "python -c \"import sqlite3; t=sqlite3.connect('/data/temoin.db'); "
+       "t.execute('CREATE TABLE temoin (id INTEGER PRIMARY KEY, v TEXT)'); "
+       "t.executemany('INSERT INTO temoin VALUES (?, ?)', [(i, str(i * 7)) for i in range(1000)]); t.commit()\" && "
+       "mkdir -p /data/espace/partage && echo bonjour > /data/espace/note.txt && "
+       "touch /data/espace/voyage-journal && chown -R 1000:1000 /data/espace && chmod 2775 /data/espace/partage")
+    c.containers.run(f"{os.environ['REGISTRY']}/noahtest/app:v1", name=name, hostname=name, detach=True,
+                     network="noahtest-net", volumes={f"{name}-data": {"bind": "/data"}},
+                     restart_policy={"Name": "unless-stopped"})
+
+
 def start_fleet():
     reset_state()
-    for name in AGENTS:
-        remove(name)
-        remove(name + "-ancien")
-        try:
-            c.volumes.get(f"{name}-data").remove(force=True)
-        except docker.errors.NotFound:
-            pass
-        sh(f"{name}-data", "python -c \"import sqlite3; t=sqlite3.connect('/data/temoin.db'); "
-           "t.execute('CREATE TABLE temoin (id INTEGER PRIMARY KEY, v TEXT)'); "
-           "t.executemany('INSERT INTO temoin VALUES (?, ?)', [(i, str(i * 7)) for i in range(1000)]); t.commit()\" && "
-           "mkdir -p /data/espace/partage && echo bonjour > /data/espace/note.txt && "
-           "touch /data/espace/voyage-journal && chown -R 1000:1000 /data/espace && chmod 2775 /data/espace/partage")
-        c.containers.run(f"{os.environ['REGISTRY']}/noahtest/app:v1", name=name, hostname=name, detach=True,
-                         network="noahtest-net", volumes={f"{name}-data": {"bind": "/data"}},
-                         restart_policy={"Name": "unless-stopped"})
+    both(prepare)
     for name in AGENTS:
         assert u.healthy(name, 30), f"{name} ne démarre pas"
-    time.sleep(2)  # les bases s'écrivent (WAL)
+    time.sleep(0.3)  # les bases s'écrivent (WAL)
 
 
 def fleet_is(tag, migrated=False):
-    for name in AGENTS:
+    def check(name):
         cont = c.containers.get(name)
         assert cont.image.id == img(tag) and cont.status == "running", (name, cont.image.tags, cont.status)
         assert u._get(name + "-ancien") is None, f"{name}-ancien resté"
-        s = schema(name)
+        # Schéma, témoins et fichiers dans un seul conteneur : démarrer un conteneur par question coûte plus que la question.
+        s, witness, files = sh(f"{name}-data", "python -c \"import sqlite3; d=sqlite3.connect('/data/state.db'); "
+                               "print([r[1] for r in d.execute('PRAGMA table_info(t)')], d.execute('PRAGMA integrity_check').fetchone()[0]); "
+                               "t=sqlite3.connect('/data/temoin.db'); print(t.execute('SELECT count(*), sum(id) FROM temoin').fetchone())\" && "
+                               "stat -c '%u:%g %a' /data/espace/note.txt /data/espace/partage && ls /data/espace").split("\n", 2)
         assert s.endswith("ok") and (("migre" in s) == migrated), (name, s)
-        witness = sh(f"{name}-data", "python -c \"import sqlite3; t=sqlite3.connect('/data/temoin.db'); "
-                     "print(t.execute('SELECT count(*), sum(id) FROM temoin').fetchone())\"")
         assert witness == "(1000, 499500)", (name, "témoins perdus ou en trop", witness)
-        files = sh(f"{name}-data", "stat -c '%u:%g %a' /data/espace/note.txt /data/espace/partage && ls /data/espace")
         assert "1000:1000" in files and "2775" in files and "voyage-journal" in files, (name, files)
+    both(check)
 
 
 def done_tx():
@@ -112,19 +153,24 @@ done_tx()
 print("2. image introuvable : rien n'a commencé")
 
 # 3. La v2 migre le schéma, passe sur l'agent a (canari), échoue sur b : TOUT revient, conteneurs et données.
-# Avec le vrai délai de santé (120 s) : le retour arrière doit tenir en moins de 5 min.
-u.HEALTH = 120
+# Le délai de santé est court ici : le temps mesuré est ramené aux délais de production, qui doivent tenir en moins de 5 min.
 t0 = time.time()
 rep = u.apply(*signed({"hermes": ref("app", "v2")}, "2.0.0"))
 took = time.time() - t0
-u.HEALTH = int(os.environ["NOAH_UPDATE_HEALTH"])
-assert took < 300, f"retour arrière trop long : {took:.0f} s"
+assert took >= u.HEALTH, f"le délai de santé n'a pas été attendu : {took:.0f} s"
+projected = rollback_time(took)
+try:  # budget plus court que le délai de santé : le retour arrière est trop long, et ça se voit
+    rollback_time(took, budget=SCENARIO_WAITS)
+    sys.exit("retour arrière trop long pas détecté")
+except AssertionError as e:
+    assert "trop long" in str(e), e
 assert not rep["ok"] and not rep["non_restaures"], rep
 fleet_is("v1")
 s = done_tx()
 assert any(b["image"] == ref("app", "v2") and b["version"] == "2.0.0" for b in s["bloquees"])
 print(f"3. échec sur le 2e agent : les deux reviennent en v1 avec leurs données d'avant la migration, propriétaires, "
-      f"droits (setgid) et fichiers en -journal gardés ; version bloquée ({took:.0f} s avec le vrai délai de santé de 120 s, < 300 s)")
+      f"droits (setgid) et fichiers en -journal gardés ; version bloquée ({took:.0f} s mesurées, {projected:.0f} s avec les délais de production, "
+      f"< {ROLLBACK_BUDGET} s ; dépassement détecté avec un budget court)")
 
 # 4. Version bloquée : pas réessayée seule.
 rep = u.apply(*signed({"hermes": ref("app", "v2")}, "2.0.0"))
@@ -141,8 +187,9 @@ fleet_is("v1")
 print("5. manifeste rejoué plus ancien : refusé par le lanceur")
 
 # 6. Coupure nette (os._exit, comme kill -9) à chaque étape, puis redémarrage du lanceur (recover).
+start_fleet()
 for step in ["arret", "arrete", "sauve", "renomme", "cree", "demarre", "observation"]:
-    start_fleet()
+    reset_state()  # la flotte vient de revenir et d'être vérifiée : chaque coupure repart de données déjà restaurées
     env = dict(os.environ, NOAH_TEST_CRASH_AT=step)
     run = subprocess.run([sys.executable, "/tests/updates/crash_child.py", "v3", "2.1.0"], env=env, capture_output=True, text=True)
     assert run.returncode == 137, (step, run.returncode, run.stdout[-300:], run.stderr[-300:])
@@ -216,7 +263,7 @@ assert not any(b["version"] == "2.4.0" for b in s["bloquees"])
 print("9. disque des sauvegardes plein : refusé d'avance par la vérification de place ; et si l'écriture échoue quand même en plein milieu, rien n'a changé, rien de bloqué")
 
 # 9 bis. Pas assez de place pour l'instantané ET la restauration : refusé avant de toucher à quoi que ce soit.
-start_fleet()
+reset_state()  # flotte revenue et vérifiée à l'étape précédente
 u.SPACE_MARGIN = 1 << 60
 rep = u.apply(*signed({"hermes": ref("app", "v1b")}, "2.4.1"))
 u.SPACE_MARGIN = 512 * 1024 * 1024
@@ -278,7 +325,7 @@ start_fleet()
 run = subprocess.run([sys.executable, "/tests/updates/crash_child.py", "v3", "2.9.0"],
                      env=dict(os.environ, NOAH_TEST_CRASH_AT="demarre"), capture_output=True, text=True)
 assert run.returncode == 137
-time.sleep(3)  # la v3 a migré les données de a
+assert any("migre" in schema("noahtest-agent-a") or time.sleep(0.5) for _ in range(30)), "la v3 n'a pas migré les données de a"
 c.containers.get("noahtest-agent-a-ancien").remove(force=True)
 u.recover()
 fleet_is("v1")
@@ -286,7 +333,7 @@ done_tx()
 print("13. ancien conteneur disparu : recréé sur l'image d'avant, données d'avant remises (témoins exacts)")
 
 # 14. Le canari échoue : les agents jamais touchés ne sont ni arrêtés ni redémarrés (pas de coupure inutile).
-start_fleet()
+reset_state()  # flotte revenue et vérifiée à l'étape précédente
 started = c.containers.get("noahtest-agent-b").attrs["State"]["StartedAt"]
 rep = u.apply(*signed({"hermes": ref("app", "v4")}, "3.0.0"))
 assert not rep["ok"], rep
@@ -296,7 +343,7 @@ done_tx()
 print("14. canari en échec : l'agent jamais touché n'a pas été arrêté ni redémarré")
 
 # 15. Coupure pendant la recréation de l'ancienne version (nom de côté « -neuf ») : reprise depuis ce nom.
-start_fleet()
+reset_state()  # flotte revenue et vérifiée à l'étape précédente
 subprocess.run([sys.executable, "/tests/updates/crash_child.py", "v3", "3.1.0"],
                env=dict(os.environ, NOAH_TEST_CRASH_AT="demarre"), capture_output=True)
 c.containers.get("noahtest-agent-a-ancien").remove(force=True)
@@ -311,7 +358,7 @@ print("15. coupure pendant la recréation de l'ancienne version : reprise depuis
 
 # 16. Instantané attendu mais perdu (inventaire supprimé) alors que la nouvelle version a tourné : pas de démarrage
 # sur des données inconnues, intervention.
-start_fleet()
+reset_state()  # flotte revenue et vérifiée à l'étape précédente
 subprocess.run([sys.executable, "/tests/updates/crash_child.py", "v3", "3.2.0"],
                env=dict(os.environ, NOAH_TEST_CRASH_AT="demarre"), capture_output=True)
 snap = u.load_state()["en_cours"]["elements"][0]["sauvegarde"]
