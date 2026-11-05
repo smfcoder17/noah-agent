@@ -506,7 +506,9 @@ async def outputs(agent_id, action, body=None, timeout=90):
 machine.admin = outputs
 saved.clear()
 desktop_notes.clear()
+agent_owner, db.agent_owner = db.agent_owner, lambda agent: 1  # la notification va à son propriétaire
 asyncio.run(machine.deliver_routines_once(lambda conv, role, text: saved.append(text), lambda agent: "conv"))
+db.agent_owner = agent_owner
 assert saved and "Trois rendez-vous" in saved[0] and len(desktop_notes) == 1 and desktop_notes[0][0] == "Routine « Brief »" and desktop_notes[0][3] == "routines", (saved, desktop_notes)
 machine.admin = fake_admin
 print("17. Routine sans condition : résultat dans la conversation et en notification")
