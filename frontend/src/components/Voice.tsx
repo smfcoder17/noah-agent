@@ -630,10 +630,12 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
   };
 
   mic.onLost.current = () => {
-    // Ce qui venait d'être dit part quand même : seul le micro a changé.
+    // Ce qui venait d'être dit part quand même : seul le micro a changé. Pendant que l'agent parle, ce morceau contient surtout sa
+    // voix : on le jette, comme à la fin de sa phrase.
+    const echo = playing.current;
     void mic.cut(false).then(({ blob, speech }) => {
       mic.close();
-      if (blob && speech >= 150) t.submit(blob);
+      if (blob && speech >= 150 && !echo) t.submit(blob);
       if (alive.current) micReady.current = openMic();
     });
   };
