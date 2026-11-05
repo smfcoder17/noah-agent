@@ -53,7 +53,7 @@ def list_profiles(_: int = Depends(access.owner_only)):
 
 
 @router.post("/api/profiles")
-def create_profile(body: NewProfile, _: int = Depends(access.owner_only)):
+def create_profile(body: NewProfile, _: int = Depends(access.owner_only), __: int = Depends(auth.full_session)):
     try:
         profile_id = auth.create_user(body.username.strip(), body.password, role="member")
     except sqlite3.IntegrityError:
@@ -145,7 +145,7 @@ def change_password(body: NewPassword, request: Request, apollo_session: str | N
     401 quand il se trompe : sa session reste bonne. Les autres appareils du compte sont déconnectés."""
     if auth.check_password(access.username(user), body.actuel) != user:
         raise HTTPException(400, "Mot de passe actuel incorrect.")
-    auth.set_password(user, body.nouveau, keep=auth.digest(auth.request_token(request, apollo_session) or ""))
+    auth.set_password(user, body.nouveau, keep=auth.session_key(auth.request_token(request, apollo_session)))
     return {"ok": True}
 
 

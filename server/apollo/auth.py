@@ -3,7 +3,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
-from fastapi import Cookie, HTTPException, Request, Response
+from fastapi import Cookie, Depends, HTTPException, Request, Response
 
 from . import db
 from .config import SESSION_DAYS
@@ -14,6 +14,12 @@ COOKIE = "apollo_session"
 RENEW_AFTER = timedelta(days=1)
 UNCLAIMED = timedelta(minutes=10)  # session d'appairage jamais utilisée : expire seule
 SEEN_EVERY = timedelta(minutes=5)
+# Session de fenêtre : ce que la WebView de l'app reçoit à la place du jeton d'appareil, qu'elle écrirait en clair sur le
+# disque (Cookies, même sans durée de vie). 2 h sans usage, et 24 h au plus : une copie du fichier, même utilisée sans arrêt,
+# finit par tomber. L'app en demande une nouvelle à chaque ouverture, sans bruit ; ce délai ne se voit donc jamais.
+WINDOW_IDLE = timedelta(hours=2)
+WINDOW_LONGEST = timedelta(hours=24)
+WINDOW_REFUSED = "Pas depuis l'app : pour cette action, ouvre Noah dans un navigateur où tu es connecté."
 
 
 def digest(token: str) -> str:
@@ -98,9 +104,60 @@ def new_session_if_alive(parent: str, user_id: int, device: str = "", platform: 
     return token if created else None
 
 
-def drop_session(token: str) -> None:
+def new_window(device_token: str) -> str | None:
+    """Session de fenêtre rattachée à la session `device_token`, seulement si celle-ci existe et vit encore, en une seule
+    écriture (voir new_session_if_alive). Une session de fenêtre n'est pas dans `sessions` : elle n'en crée pas d'autre."""
+    token = secrets.token_urlsafe(32)
+    now = datetime.now(timezone.utc)
     with db.connect() as c:
-        c.execute("DELETE FROM sessions WHERE token = ?", (digest(token),))
+        c.execute("DELETE FROM window_sessions WHERE expires_at <= ?", (now.isoformat(),))
+        created = c.execute(
+            "INSERT INTO window_sessions (token, parent, expires_at, created_at, last_seen) SELECT ?, ?, ?, ?, ? "
+            "WHERE EXISTS (SELECT 1 FROM sessions WHERE token = ? AND expires_at > ?)",
+            (digest(token), digest(device_token), (now + WINDOW_IDLE).isoformat(), now.isoformat(), now.isoformat(),
+             digest(device_token), now.isoformat()),
+        ).rowcount
+    return token if created else None
+
+
+def _use_window(c, key: str):
+    """La session de fenêtre `key` si elle et son appareil sont encore valables, prolongée de la durée courte. La
+    jointure la fait tomber avec son appareil, quel que soit le chemin qui l'a supprimé ou laissé expirer."""
+    now = datetime.now(timezone.utc)
+    row = c.execute(
+        "SELECT w.expires_at, w.created_at, w.last_seen, s.user_id FROM window_sessions w "
+        "JOIN sessions s ON s.token = w.parent WHERE w.token = ? AND s.expires_at > ?", (key, now.isoformat())).fetchone()
+    if not row:
+        return None
+    ceiling = datetime.fromisoformat(row["created_at"]) + WINDOW_LONGEST
+    if datetime.fromisoformat(row["expires_at"]) <= now or ceiling <= now:
+        return None
+    if now - datetime.fromisoformat(row["last_seen"]) > SEEN_EVERY:
+        c.execute("UPDATE window_sessions SET last_seen = ?, expires_at = ? WHERE token = ?",
+                  (now.isoformat(), min(now + WINDOW_IDLE, ceiling).isoformat(), key))
+    return row
+
+
+def is_window(token: str | None) -> bool:
+    with db.connect() as c:
+        return c.execute("SELECT 1 FROM window_sessions WHERE token = ?", (digest(token or ""),)).fetchone() is not None
+
+
+def session_key(token: str | None) -> str:
+    """Empreinte de la session qui dure derrière ce jeton : celle de l'appareil pour une session de fenêtre. C'est à elle
+    que s'attache ce qui doit survivre au renouvellement (abonnement aux notifications, appareil « actuel »)."""
+    key = digest(token or "")
+    with db.connect() as c:
+        row = c.execute("SELECT parent FROM window_sessions WHERE token = ?", (key,)).fetchone()
+    return row["parent"] if row else key
+
+
+def drop_session(token: str) -> None:
+    """Depuis une session de fenêtre, c'est l'appareil qui part (et ses fenêtres avec) : sinon l'app rouvrirait la session
+    toute seule, et se déconnecter ne servirait à rien."""
+    key = session_key(token)
+    with db.connect() as c:
+        c.execute("DELETE FROM sessions WHERE token = ?", (key,))
 
 
 def request_token(request: Request, cookie: str | None) -> str | None:
@@ -119,7 +176,12 @@ def current_user(request: Request, apollo_session: str | None = Cookie(None), re
             "SELECT user_id, expires_at, last_seen, platform FROM sessions WHERE token = ?", (key,)
         ).fetchone()
         now = datetime.now(timezone.utc)
-        if not row or datetime.fromisoformat(row["expires_at"]) < now:
+        if not row:
+            window = _use_window(c, key)  # jamais la prolongation à SESSION_DAYS ci-dessous : elle ne vaut que pour `sessions`
+            if not window:
+                raise HTTPException(401, "Session expirée")
+            return window["user_id"]
+        if datetime.fromisoformat(row["expires_at"]) < now:
             raise HTTPException(401, "Session expirée")
         seen = datetime.fromisoformat(row["last_seen"]) if row["last_seen"] else None
         if not seen or now - seen > SEEN_EVERY:
@@ -138,11 +200,23 @@ def current_user(request: Request, apollo_session: str | None = Cookie(None), re
     return row["user_id"]
 
 
+def full_session(request: Request, apollo_session: str | None = Cookie(None), user: int = Depends(current_user)) -> int:
+    """Pour ce qui donne un accès durable (appairer un appareil, créer un compte) : une copie du cookie de la fenêtre doit
+    mourir avec elle, sans avoir pu se fabriquer un autre accès."""
+    if is_window(request_token(request, apollo_session)):
+        raise HTTPException(403, WINDOW_REFUSED)
+    return user
+
+
 def still_valid(token: str) -> bool:
-    """Pour les flux longs (chat, écran) : un appareil révoqué perd aussi ce qu'il a déjà ouvert."""
+    """Pour les flux longs (chat, écran) : un appareil révoqué perd aussi ce qu'il a déjà ouvert. Une session de fenêtre
+    reste vivante tant qu'un flux s'en sert, même si l'app en a demandé une nouvelle pour le reste de la page."""
+    key = digest(token)
     with db.connect() as c:
-        row = c.execute("SELECT expires_at FROM sessions WHERE token = ?", (digest(token),)).fetchone()
-    return bool(row) and datetime.fromisoformat(row["expires_at"]) > datetime.now(timezone.utc)
+        row = c.execute("SELECT expires_at FROM sessions WHERE token = ?", (key,)).fetchone()
+        if not row:
+            return _use_window(c, key) is not None
+    return datetime.fromisoformat(row["expires_at"]) > datetime.now(timezone.utc)
 
 
 REVOKE_EVERY = 2  # secondes entre deux contrôles d'un flux ouvert : la révocation doit le couper en 5 s au plus
@@ -193,14 +267,14 @@ def devices(user_id: int, current: str | None) -> list[dict]:
             "WHERE user_id = ? AND expires_at > ? ORDER BY last_seen DESC",
             (user_id, datetime.now(timezone.utc).isoformat()),
         ).fetchall()
-    mine = digest(current) if current else None
+    mine = session_key(current) if current else None
     return [{"id": device_id(r["token"]), "nom": r["device"], "type": r["platform"], "depuis": r["created_at"], "vu": r["last_seen"],
              "ip": r["last_ip"] or "", "version": r["version"] or "", "actuel": r["token"] == mine} for r in rows]
 
 
 def revoke_others(user_id: int, current: str) -> int:
     with db.connect() as c:
-        return c.execute("DELETE FROM sessions WHERE user_id = ? AND token != ?", (user_id, digest(current))).rowcount
+        return c.execute("DELETE FROM sessions WHERE user_id = ? AND token != ?", (user_id, session_key(current))).rowcount
 
 
 def revoke_device(user_id: int, public_id: str) -> bool:

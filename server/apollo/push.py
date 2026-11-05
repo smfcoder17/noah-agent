@@ -324,7 +324,7 @@ def subscribe(body: Subscription, request: Request, apollo_session: str | None =
         assert len(_unb64(body.auth)) == 16
     except Exception:
         raise HTTPException(400, "Clés d'abonnement invalides")
-    session = auth.digest(auth.request_token(request, apollo_session) or "")
+    session = auth.session_key(auth.request_token(request, apollo_session))
     with db.connect() as c:
         c.execute("DELETE FROM push_subscriptions WHERE session = ?", (session,))  # renouvelé : l'ancien ne sert plus
         c.execute("INSERT OR REPLACE INTO push_subscriptions (endpoint, session, p256dh, auth, created_at) "
@@ -338,7 +338,7 @@ def unsubscribe(request: Request, endpoint: str | None = None, apollo_session: s
                 _: int = Depends(auth.current_user)):
     """Sans endpoint : coupe les notifications de cet appareil. Avec : supprime cet abonnement-là seulement (une
     désinscription rejouée en retard ne supprime pas l'abonnement qui l'a remplacé)."""
-    session = auth.digest(auth.request_token(request, apollo_session) or "")
+    session = auth.session_key(auth.request_token(request, apollo_session))
     with db.connect() as c:
         if endpoint is None:
             c.execute("DELETE FROM push_subscriptions WHERE session = ?", (session,))
@@ -351,8 +351,8 @@ def unsubscribe(request: Request, endpoint: str | None = None, apollo_session: s
 def subscribed(request: Request, apollo_session: str | None = Cookie(None), _: int = Depends(auth.current_user)):
     with db.connect() as c:
         row = c.execute("SELECT endpoint FROM push_subscriptions WHERE session = ?",
-                        (auth.digest(auth.request_token(request, apollo_session) or ""),)).fetchone()
-    session = auth.digest(auth.request_token(request, apollo_session) or "")
+                        (auth.session_key(auth.request_token(request, apollo_session)),)).fetchone()
+    session = auth.session_key(auth.request_token(request, apollo_session))
     return {"abonne": bool(row), "endpoint": row["endpoint"] if row else None, "pour": session_tag(session)}
 
 
@@ -360,4 +360,4 @@ def subscribed(request: Request, apollo_session: str | None = Cookie(None), _: i
 async def test(request: Request, apollo_session: str | None = Cookie(None), user: int = Depends(auth.current_user)):
     """Message de test pour cet appareil seulement : le succès d'un autre appareil ne doit pas masquer un échec ici."""
     return await send("Noah", "Les notifications arrivent bien sur cet appareil.", user_id=user,
-                      session=auth.digest(auth.request_token(request, apollo_session) or ""))
+                      session=auth.session_key(auth.request_token(request, apollo_session)))
