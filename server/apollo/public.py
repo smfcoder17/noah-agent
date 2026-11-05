@@ -16,6 +16,9 @@ from .config import PUBLIC_DOMAIN
 
 router = APIRouter()
 log = logging.getLogger("uvicorn.error")
+# Ces journaux sont là où la personne va lire son lien (Docker Manager de Hostinger) : Uvicorn y écrirait juste avant
+# « running on » suivi de l'adresse d'écoute, en http, qui ne s'ouvre pas et n'est pas celle à donner (G5.1).
+log.addFilter(lambda record: not record.getMessage().startswith("Uvicorn running on"))
 _state: dict = {"ip": "", "domaines": set()}
 
 
@@ -81,5 +84,5 @@ def tls_ask(domain: str = ""):
 
 @router.get("/api/public")
 def public_address():
-    """L'adresse à afficher ou à mettre dans un QR code (le nom sslip.io plutôt que http://IP:port)."""
+    """L'adresse à afficher ou à mettre dans un QR code : le nom en HTTPS, jamais l'IP du serveur."""
     return {"adresse": main_url()}

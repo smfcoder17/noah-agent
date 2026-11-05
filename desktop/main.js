@@ -535,34 +535,9 @@ ipcMain.handle("noah:pick-folder", async (e) => {
   const r = await dialog.showOpenDialog(win, { title: "Dossier à confier à Noah", properties: ["openDirectory"] });
   return r.canceled ? null : r.filePaths[0];
 });
-// Téléphone : adresse de l'ordinateur sur le réseau local, et ouverture de Noah à ce réseau (après accord).
 let home = "";
-const lanUrl = () => {
-  const ip = noah.lanAddress();
-  return ip ? `http://${ip}:${noah.readEnv(home).APOLLO_PORT || 8080}` : null;
-};
 ipcMain.handle("noah:version", () => app.getVersion());
 
-ipcMain.handle("noah:lan-status", async (e) => {
-  if (!origin || !sameOrigin(e.senderFrame.url) || !home) return { open: false, url: null };
-  return { open: noah.readEnv(home).APOLLO_BIND === "0.0.0.0", url: lanUrl() };
-});
-ipcMain.handle("noah:open-lan", async (e) => {
-  if (!origin || !sameOrigin(e.senderFrame.url) || !home) return { open: false, url: null };
-  const r = await dialog.showMessageBox(win, {
-    type: "question",
-    title: "Ouvrir Noah à ton réseau",
-    message: "Rendre Noah joignable par les appareils de ton réseau Wi-Fi ?",
-    detail: "Ton téléphone pourra ouvrir Noah. La page de connexion sera visible sur ce réseau : à éviter sur un Wi-Fi public.",
-    buttons: ["Ouvrir", "Annuler"],
-    defaultId: 0,
-    cancelId: 1,
-    noLink: true,
-  });
-  if (r.response !== 0) return { open: false, url: lanUrl() };
-  await noah.openToLan(home);
-  return { open: true, url: lanUrl() };
-});
 // Page de Noah (app reliée à un serveur) : appareil déconnecté côté serveur, l'utilisateur le relie de nouveau.
 ipcMain.handle("noah:forget-server", async (e) => {
   if (!origin || !sameOrigin(e.senderFrame.url)) return;

@@ -28,14 +28,12 @@ Les modèles `:cloud` d'Ollama fonctionnent aussi. Choisis un modèle qui gère 
 
 ### Depuis ton téléphone
 
-**Réglages → Téléphone** affiche un QR code à usage unique (10 min) : le téléphone qui le scanne arrive connecté.
-Dans l'application de bureau, « Ouvrir Noah à mon Wi-Fi » fait le réglage ci-dessous et met l'adresse Wi-Fi du PC
-dans le QR code. À la main :
+Un téléphone a besoin d'une adresse HTTPS : sans elle, le navigateur refuse l'installation, le micro et les
+notifications. Sur un VPS, Noah en a une dès le départ. Sur ton ordinateur, `tailscale serve 8080` en donne une à
+tes appareils Tailscale.
 
-1. Dans `.env`, mets `APOLLO_BIND=0.0.0.0`, puis relance `docker compose up -d`.
-2. Sur le téléphone, connecté au même Wi-Fi, ouvre `http://<adresse-IP-du-PC>:8080`.
-3. Pour l'installer comme une app (« Ajouter à l'écran d'accueil »), le navigateur exige HTTPS :
-   passe par Tailscale (`tailscale serve 8080`) ou un nom de domaine avec Caddy.
+Ouvre Noah à cette adresse, puis **Réglages → Appareils** affiche un QR code à usage unique (10 min) : le téléphone
+qui le scanne arrive connecté. Le QR code n'apparaît que sur une page en HTTPS.
 
 ### Sur un VPS (accessible partout, en HTTPS)
 
