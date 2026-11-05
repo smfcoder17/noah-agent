@@ -117,30 +117,55 @@ async def routine_action(agent_id: str, routine_id: str, action: str, body: Rout
     return await admin(_check(agent_id, user), "routine_action", payload)
 
 
+class AgentRoutineAction(BaseModel):
+    id: str = Field(min_length=1, max_length=80)
+    action: str = Field(pattern="^(pause|reprendre|lancer|supprimer)$")
+
+
+@router.post("/agent-api/routines")
+async def agent_routine_create(body: NewRoutine, request: Request):
+    """Le chemin de l'agent, le même que celui de l'écran : la livraison reste locale, le résultat revient toujours dans la conversation."""
+    return await admin(relay._agent_from(request), "routine_creer", body.model_dump())
+
+
+@router.get("/agent-api/routines")
+async def agent_routines(request: Request):
+    return await admin(relay._agent_from(request), "routines")
+
+
+@router.post("/agent-api/routines/action")
+async def agent_routine_action(body: AgentRoutineAction, request: Request):
+    return await admin(relay._agent_from(request), "routine_action", body.model_dump())
+
+
 async def deliver_routines(save_message, main_conversation) -> None:
-    """Toutes les minutes : les résultats des routines arrivent dans la conversation de l'agent,
-    comme un message de Noah. C'est ce qui rend l'initiative visible."""
+    """Toutes les minutes : les résultats des routines arrivent dans la conversation de l'agent, comme un message de Noah,
+    et en notification. C'est ce qui rend l'initiative visible."""
     while True:
         await asyncio.sleep(60)
-        with db.connect() as c:
-            ids = [r["id"] for r in c.execute("SELECT id FROM agents")]
-        for agent_id in ids:
-            key = f"routines_vues_{agent_id}"
-            try:
-                found = (await admin(agent_id, "routines_sorties", {"depuis": db.get_setting(key) or ""}, 30))["sorties"]
-            except Exception:
-                continue  # agent arrêté ou en cours de création
-            conv = main_conversation(agent_id)
-            for r in found:
-                if conv:
-                    text = f"**Routine « {r['nom']} »**\n\n{r['texte'].strip()}"
-                    save_message(conv, "agent", text)
-                    add_context(conv, text)
-                    owner = db.agent_owner(agent_id)  # son résultat est écrit chez lui : pas chez le profil en train de parler à l'agent
-                    if owner is not None:
-                        desktop.notify_user(owner, f"Routine « {r['nom']} »", notifications.first_sentence(r["texte"]), "routines",
-                                            notifications.conversation_url(agent_id, conv))
-                db.set_setting(key, r["quand"])
+        await deliver_routines_once(save_message, main_conversation)
+
+
+async def deliver_routines_once(save_message, main_conversation) -> None:
+    with db.connect() as c:
+        ids = [r["id"] for r in c.execute("SELECT id FROM agents")]
+    for agent_id in ids:
+        key = f"routines_vues_{agent_id}"
+        try:
+            found = (await admin(agent_id, "routines_sorties", {"depuis": db.get_setting(key) or ""}, 30))["sorties"]
+        except Exception:
+            continue  # agent arrêté ou en cours de création
+        conv = main_conversation(agent_id)
+        for r in found:
+            if conv:
+                text = f"**Routine « {r['nom']} »**\n\n{r['texte'].strip()}"
+                save_message(conv, "agent", text)
+                add_context(conv, text)
+                owner = db.agent_owner(agent_id)  # son résultat est écrit chez lui : pas chez le profil en train de parler à l'agent
+                if owner is not None:
+                    desktop.notify_user(owner, f"Routine « {r['nom']} »", notifications.first_sentence(r["texte"]), "routines",
+                                        notifications.conversation_url(agent_id, conv))
+            db.set_setting(key, r["quand"])
 
 
 def add_context(conv_id: str, text: str) -> None:

@@ -33,7 +33,9 @@ db.init()
 watch.init()
 with db.connect() as c:
     c.execute("INSERT INTO agents (id, name, role, api_key) VALUES ('a1', 'Veilleur', '', 'k')")
-db.set_setting("media_voice_brain", "petit-modele")
+db.set_setting("provider", "openrouter")
+db.set_setting("model", "petit-modele")
+db.set_setting("api_key", "k", secret=True)
 media._key = lambda: "k"
 
 PAGE = """<html><body><h1>Prix du jour</h1>

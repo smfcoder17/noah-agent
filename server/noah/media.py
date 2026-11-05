@@ -15,7 +15,7 @@ from pathlib import Path
 
 import httpx
 
-from . import catalog, db, diagnostics, relay
+from . import catalog, db, decision, diagnostics, relay
 
 BASE = "https://openrouter.ai/api/v1"
 CACHE_SECONDS = 3600
@@ -533,13 +533,10 @@ async def backups(kind: str, limit: int = 3) -> list[str]:
 _voice_pick: dict[str, float | str] = {"at": 0.0, "model": ""}
 
 
-# Voix rapide quand le cerveau n'est pas sur OpenRouter : le plus rapide disponible, sinon le cerveau lui-même.
-FAST_OLLAMA = ["gpt-oss:20b-cloud", "glm-5.3-flash:cloud", "deepseek-v4.1-flash:cloud"]
-_fast_pick: dict[str, str] = {}
-
-
 async def _voice_target() -> tuple[str, dict, list[str]]:
-    """Où parle la voix rapide : (adresse, en-têtes, modèles à essayer). Elle suit le fournisseur du cerveau."""
+    """Où parle la voix rapide : (adresse, en-têtes, modèles à essayer). Elle suit le fournisseur du cerveau. Sur OpenRouter, la liste
+    VOICE_MODELS reste : c'est le premier mot qui compte, mesuré à ~0,25 s sur les hébergeurs les plus rapides. Ailleurs, le modèle de
+    décision, mesuré sur cette clé-là (decision.py) ; sinon le cerveau."""
     provider = db.get_setting("provider")
     if provider == "openrouter" or not provider:
         model = await voice_model()
@@ -548,19 +545,7 @@ async def _voice_target() -> tuple[str, dict, list[str]]:
     base_url = db.get_setting("base_url") or None
     brain = db.get_setting("model")
     chosen = db.get_setting("media_voice_brain") or "auto"
-    if chosen != "auto":
-        model = chosen
-    elif provider in ("ollama", "ollama-cloud"):
-        where = f"{provider}|{base_url}"
-        if where not in _fast_pick:
-            try:
-                ids = {m["id"] for m in await catalog.models_for(provider, key, base_url)}
-            except httpx.HTTPError:
-                ids = set()
-            _fast_pick[where] = next((m for m in FAST_OLLAMA if m in ids), brain)
-        model = _fast_pick[where]
-    else:
-        model = brain
+    model = chosen if chosen != "auto" else decision.model() or brain
     return relay.upstream_base(provider, base_url), {"Authorization": f"Bearer {key}"} if key else {}, [model, model, brain]
 
 
@@ -621,7 +606,7 @@ async def voice_reply(agent_id: str, name: str, role: str, text: str, history: l
                 body |= {"provider": {"sort": "latency"}, "usage": {"include": True}}
             if mode != "result":
                 body["response_format"] = {"type": "json_object"}
-            if "gpt-oss" in model:  # modèle à raisonnement : le minimum, et rien de lu à voix haute
+            if decision.thinks(model):  # modèle à raisonnement : le minimum, et rien de lu à voix haute
                 if on_openrouter:
                     body["reasoning"] = {"effort": "low", "exclude": True}
                 else:
@@ -694,7 +679,7 @@ async def triage(agent_id: str, name: str, role: str, text: str, history: list[d
         body = {"model": model, "messages": messages, "max_tokens": 200, "temperature": 0.2, "response_format": {"type": "json_object"}}
         if base == BASE:
             body |= {"provider": {"sort": "latency"}, "usage": {"include": True}}
-        if "gpt-oss" in model:
+        if decision.thinks(model):
             if base == BASE:
                 body["reasoning"] = {"effort": "low", "exclude": True}
             else:

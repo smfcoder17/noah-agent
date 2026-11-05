@@ -13,6 +13,7 @@ import { PhoneSettings, phoneSettingsAvailable } from "./PhoneSettings";
 import { MyPassword, Profiles } from "./Profiles";
 import { Updates } from "./Updates";
 import { Flows } from "./Flows";
+import { DecisionModel } from "./DecisionModel";
 import { type MediaModel, ModelSelect } from "./ModelSelect";
 import { Dialog, DialogContent, Tabs, TabsContent, TabsList, TabsTrigger } from "./ui";
 import { Button, Input, Label } from "./ui";
@@ -65,7 +66,10 @@ export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainS
               {owner && <TabsTrigger value="diagnostic">Diagnostic</TabsTrigger>}
             </TabsList>
             <TabsContent value="brain">
-              <ModelPicker onCancel={() => onOpenChange(false)} onDone={onBrainSaved} />
+              <div className="flex flex-col gap-3">
+                <DecisionModel />
+                <ModelPicker onCancel={() => onOpenChange(false)} onDone={onBrainSaved} />
+              </div>
             </TabsContent>
             <TabsContent value="create">
               <MediaPanel kinds={["image", "video", "music"]} withPreferences />

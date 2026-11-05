@@ -18,6 +18,9 @@ seuls les outils que le serveur déclare en lecture ; `agir` : tout ; `confirmer
 illisible) : chaque appel passe par la validation humaine d'Hermes, la même que les commandes dangereuses, et Noah répond
 « une fois » seulement. Dans une routine, personne ne peut valider : refus. L'agent ne branche pas de serveur MCP lui-même.
 
+Mémoire : une note ne dure que si elle sert à chaque message. Avant qu'elle entre, Noah la fait juger par le petit modèle de décision
+(voir decision.py). Qu'il soit en panne ou trop lent, et la note entre : une note de trop se retire dans Détails, une note perdue ne revient pas.
+
 Limite : c'est un filtre de commandes, pas un bac à sable. Il ferme le schéma courant des skills piégés (un prérequis
 à lancer sans le lire) ; un agent décidé à le contourner le pourrait, d'où les autres protections (machine isolée,
 aucun secret de Noah dans l'agent, accord demandé pour les actions sensibles).
@@ -370,11 +373,44 @@ def check_owner(tool_name: str, args: dict) -> str | None:
     return ("Noah refuse : ce dossier tient la mémoire privée des personnes avec qui cet agent est partagé." if hit else None)
 
 
+MEMORY_JUDGE_SECONDS = 8
+
+
+def _new_notes(args: dict) -> list[str]:
+    """Le texte des notes que cet appel ajoute, seul ou en lot. Un retrait ou une retouche n'ajoute rien : pas d'appel."""
+    ops = args.get("operations") if isinstance(args.get("operations"), list) else [args]
+    return [str(op.get("content") or op.get("new_text") or "") for op in ops if isinstance(op, dict) and op.get("action") == "add"]
+
+
+def check_memory(args: dict) -> str | None:
+    """Raison du refus d'une note, ou None. Jamais d'erreur : sans réponse à temps, la note entre."""
+    notes = [n for n in _new_notes(args) if n.strip()]
+    if not notes:
+        return None
+    body = json.dumps({"cible": args.get("target") if args.get("target") in ("memory", "user") else "memory", "notes": notes[:20]}, ensure_ascii=False)
+    try:
+        done = subprocess.run([sys.executable, "/opt/data/noah.py", "memoire-juger", body], capture_output=True, timeout=MEMORY_JUDGE_SECONDS)
+        refused = json.loads(done.stdout).get("refus") or []
+    except (OSError, ValueError, AttributeError, subprocess.SubprocessError):
+        return None
+    if not refused:
+        return None
+    lines = [f"« {notes[r['i']][:80]} » : {r.get('raison', '')}" for r in refused if isinstance(r, dict) and isinstance(r.get("i"), int) and r["i"] < len(notes)]
+    if not lines:
+        return None
+    return ("Noah n'a pas gardé cette note, qui serait relue à chaque message :\n" + "\n".join(lines)
+            + "\nRien n'a été écrit. Renvoie les autres notes du lot s'il y en a. Une façon de faire va dans un skill. Si l'utilisateur a demandé "
+            "lui-même de retenir celle-ci, commence-la par « Demandé : ». Sinon, n'insiste pas et n'en parle pas.")
+
+
 def _pre_tool_call(tool_name: str = "", args: dict | None = None, **_) -> dict | None:
     home = _home()
     reason = (check_guest if GUEST_ROOT in home + "/" else lambda t, a, _h: check_owner(t, a))(tool_name, args if isinstance(args, dict) else {}, home)
     if reason:
         return {"action": "block", "message": reason}
+    if tool_name == "memory":
+        refused = check_memory(args if isinstance(args, dict) else {})
+        return {"action": "block", "message": refused} if refused else None
     if tool_name.startswith("browser_"):
         _wake_browser()
         return None

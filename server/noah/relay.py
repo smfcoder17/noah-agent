@@ -268,9 +268,10 @@ def month_start() -> str:
 context_size: dict[str, int] = {}  # conversation -> plus gros contexte envoyé au modèle pendant son tour en cours (voir chauffe.compact)
 
 
-async def _record(agent_id: str, model: str, usage: dict | None, task: str | None = None) -> None:
+async def _record(agent_id: str, model: str, usage: dict | None, task: str | None = None) -> float | None:
+    """Compte un appel et rend son coût. None : le fournisseur n'a rien dit de ce qu'il a consommé."""
     if not usage:
-        return
+        return None
     prompt = int(usage.get("prompt_tokens") or 0)
     if task:
         context_size[task] = max(prompt, context_size.get(task, 0))
@@ -278,7 +279,7 @@ async def _record(agent_id: str, model: str, usage: dict | None, task: str | Non
     cached = int((usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)
     cost = usage.get("cost")
     if cost is None and db.get_setting("provider") not in (*OWN_URL, "ollama-cloud"):
-        price = (await catalog.price_index()).get(catalog._norm(model))
+        price = catalog.price_of(await catalog.price_index(), model)
         if price:
             cost = (prompt * price["price_in"] + completion * price["price_out"]) / 1e6
     with db.connect() as c:
@@ -287,7 +288,9 @@ async def _record(agent_id: str, model: str, usage: dict | None, task: str | Non
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (agent_id, model, prompt, completion, float(cost or 0), cached, task, billed_to(agent_id)),
         )
-    check_spend(agent_id)
+    if agent_id and agent_id != "routeur":  # dépense de Noah lui-même : aucun agent à arrêter ni à nommer
+        check_spend(agent_id)
+    return float(cost or 0)
 
 
 def check_spend(agent_id: str) -> None:
