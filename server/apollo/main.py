@@ -19,12 +19,19 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import access, accounts, auth, catalog, coordination, db, desktop, events, handoff, hermes, machine, mcp, media, profiles, public, push, relay, updates, watch, precall
+from . import access, accounts, auth, catalog, coordination, db, desktop, events, handoff, hermes, machine, mcp, media, profiles, public, push, relay, updates, watch, precall, diagnostics
 from . import config
 from .config import WEB_DIR, forget_setup_code
 from .hermes import Agent
 
 app = FastAPI(title="Noah Agent")
+
+
+@app.exception_handler(Exception)
+async def internal_error(request: Request, error: Exception):
+    """Une panne de Noah : jamais de trace à l'écran, mais elle reste lisible dans Réglages > Diagnostic."""
+    diagnostics.failure(f"{request.method} {request.url.path}", error)
+    return JSONResponse({"detail": "Erreur interne de Noah Agent. Détails dans Réglages > Diagnostic."}, status_code=500)
 
 UNSAFE = {"POST", "PUT", "PATCH", "DELETE"}
 MAINTENANCE_OK = ("/api/updates", "/api/login", "/api/logout")
@@ -1502,7 +1509,7 @@ def messages(conv_id: str, user: int = Depends(auth.current_user)):
     access.conversation(user, conv_id)
     with db.connect() as c:
         rows = c.execute(
-            "SELECT role, text, created_at FROM messages WHERE conversation_id = ? ORDER BY id", (conv_id,)
+            "SELECT role, text, detail, created_at FROM messages WHERE conversation_id = ? ORDER BY id", (conv_id,)
         ).fetchall()
     return [dict(r) for r in rows]
 
@@ -1536,9 +1543,9 @@ def _conversation_owner(conv_id: str) -> int | None:
     return row["user_id"] if row else None
 
 
-def _save_message(conv_id: str, role: str, text: str) -> None:
+def _save_message(conv_id: str, role: str, text: str, detail: str | None = None) -> None:
     with db.connect() as c:
-        c.execute("INSERT INTO messages (conversation_id, role, text) VALUES (?, ?, ?)", (conv_id, role, text))
+        c.execute("INSERT INTO messages (conversation_id, role, text, detail) VALUES (?, ?, ?, ?)", (conv_id, role, text, detail))
         c.execute("UPDATE conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (conv_id,))
 
 
@@ -1598,6 +1605,21 @@ def _new_conversation(user: int, agent_id: str, title: str, main: bool = False, 
     return conv_id
 
 
+def _error_details(agent: Agent, raw: str, run_id: str | None = None) -> str:
+    """Ce qu'il faut pour diagnostiquer une erreur, à copier chez un agent. Secrets masqués, et l'adresse du service reste au serveur."""
+    m = model_for(agent.id) or {}
+    diagnostics.record("tâche", raw, agent.id)
+    return diagnostics.mask("\n".join((
+        f"Quand : {time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())} UTC",
+        f"Version de Noah Agent : {updates.VERSION}",
+        f"Agent : {agent.id}",
+        f"Fournisseur : {m.get('provider') or 'aucun'}",
+        f"Modèle : {m.get('model') or 'aucun'}",
+        f"Exécution : {run_id or 'non démarrée'}",
+        f"Erreur : {raw or 'aucun message'}",
+    )))
+
+
 async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, context: str = "", author: str = "user"):
     """Lance un run Hermes dans une conversation et rend le générateur SSE qui l'enregistre au fil de l'eau.
     `context` précède le message pour l'agent seulement : l'utilisateur ne le voit pas. `author` : qui l'a écrit, à l'écran."""
@@ -1614,9 +1636,11 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
     launched_by = _conversation_owner(conv_id)  # avant l'attente : le profil peut disparaître, avec ses conversations
     try:
         run_id = await hermes.start_run(agent, context + prompt, session_id=f"apollo-{conv_id}")
-    except Exception:
+    except Exception as e:
         task_state[conv_id] = "error"
-        raise HTTPException(503, "L'agent ne répond pas. Il démarre peut-être encore : réessaie dans un instant.")
+        sentence = "L'agent ne répond pas. Il redémarre peut-être, par exemple après un changement de modèle : réessaie dans un instant."
+        _save_message(conv_id, "error", sentence, _error_details(agent, f"{type(e).__name__}: {e}"))  # sinon ce message reste sans réponse
+        raise HTTPException(503, sentence)
 
     updates.activity()
     _runs[run_id] = {"agent": agent.id, "user": launched_by, "conv": conv_id}
@@ -1677,7 +1701,9 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
                 if not out:
                     continue
                 if out["type"] == "done" and gave_up[0]:
-                    out = {"type": "done", "status": "failed", "error": relay.UNREACHABLE}
+                    out = {"type": "done", "status": "failed", "error": relay.UNREACHABLE, "raw_error": relay.UNREACHABLE}
+                if out["type"] == "done" and "raw_error" in out:
+                    out["details"] = _error_details(agent, out.pop("raw_error"), run_id)
                 if out["type"] == "approval":
                     mcp.approval_seen(agent.id, out.get("request_id"), str(out.get("summary") or ""))
                 if out["type"] == "approval" and task_state.get(conv_id) != "approve":
@@ -1692,9 +1718,13 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
                 if out["type"] == "done":
                     final = out
                     break
-        except Exception:
-            final = {"type": "done", "status": "failed",
-                     "error": "L'agent ne répond plus. Il redémarre peut-être : réessaie dans un instant."}
+        except Exception as e:
+            final = {"type": "done", "status": "failed", "error": "L'agent ne répond plus. Il redémarre peut-être : réessaie dans un instant.",
+                     "details": _error_details(agent, f"{type(e).__name__}: {e}", run_id)}
+            yield _sse(final)
+        if final is None and not reply:  # flux fini sans événement de fin : l'écran attendrait, et la conversation resterait sans réponse
+            final = {"type": "done", "status": "failed", "error": "Le travail s'est arrêté avant la fin. Renvoie ton message si besoin.",
+                     "details": _error_details(agent, "Le flux de l'agent s'est terminé sans événement de fin.", run_id)}
             yield _sse(final)
         for thread, _ in delegated:  # run interrompu pendant une délégation
             _close_delegation(thread, None, True)
@@ -1707,7 +1737,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
         if text:
             _save_message(conv_id, "agent", text)
         elif final and final.get("error"):
-            _save_message(conv_id, "error", final["error"])
+            _save_message(conv_id, "error", final["error"], final.get("details"))
 
 
     # Le run est suivi jusqu'au bout même si le client part (téléphone fermé, réseau coupé) : la réponse est
@@ -2217,6 +2247,15 @@ async def set_media_key(body: MediaKey, user: int = Depends(access.owner_only)):
     return {"ok": True}
 
 
+@app.get("/api/diagnostic")
+async def diagnostic(user: int = Depends(access.owner_only)):
+    """De quoi comprendre une panne sans accéder à la machine, à copier chez un agent. Ni clé ni adresse de service."""
+    m = current_model() or {}
+    agents = [{"id": a["id"], "en_ligne": await hermes.health(_agent(a["id"]))} for a in _agents()]
+    return {"version": updates.VERSION, "fournisseur": m.get("provider"), "modele": m.get("model"),
+            "cle_medias": bool(db.get_setting("media_api_key")), "agents": agents, "erreurs": diagnostics.recent()}
+
+
 @app.get("/api/voice/ready")
 def voice_ready(user: int = Depends(auth.current_user)):
     """Pourquoi la dictée ou l'appel ne peuvent pas marcher, dit avant d'ouvrir le micro. None : rien ne s'y oppose."""
@@ -2476,7 +2515,22 @@ async def agent_media_create(body: MediaRequest, request: Request):
             raise HTTPException(400, "Type inconnu : image, video, musique ou voix")
     except media.MediaError as e:
         return {"erreur": str(e)}
-    path = await hermes.upload(agent_id, f"{body.type}-{stamp}-{slug}.{ext}", data, folder="outputs")
+    except httpx.HTTPError as e:
+        diagnostics.failure("création de média", e, agent_id)
+        return {"erreur": "Le fournisseur de médias ne répond pas. Réessaie dans un instant."}
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        diagnostics.failure("création de média", e, agent_id)
+        return {"erreur": f"Erreur interne de Noah Agent ({type(e).__name__}) : ce n'est pas le fournisseur. Détails dans Réglages > Diagnostic."}
+    try:
+        path = await hermes.upload(agent_id, f"{body.type}-{stamp}-{slug}.{ext}", data, folder="outputs")
+    except httpx.HTTPError as e:
+        diagnostics.failure("dépôt du média", e, agent_id)
+        return {"erreur": "Le média a été créé mais n'a pas pu être enregistré dans outputs/ : le lanceur de Noah a échoué. Détails dans Réglages > Diagnostic."}
+    except Exception as e:  # noqa: BLE001
+        diagnostics.failure("dépôt du média", e, agent_id)
+        return {"erreur": f"Erreur interne de Noah Agent ({type(e).__name__}) : ce n'est pas le fournisseur. Détails dans Réglages > Diagnostic."}
     widget = json.dumps({"type": "preview", "path": path, "title": body.description[:60]}, ensure_ascii=False)
     return {"chemin": path, "modele": model, "a_montrer": f"```noah\n{widget}\n```"}
 

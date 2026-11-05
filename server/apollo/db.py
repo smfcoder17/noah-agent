@@ -68,6 +68,7 @@ def init() -> None:
             db.execute("ALTER TABLE usage ADD COLUMN cached_tokens INTEGER NOT NULL DEFAULT 0")
         # Tâche (conversation) qui a provoqué l'appel ; vide pour le travail de fond (tâches planifiées, surveillance).
         _add_columns(db, "usage", {"conversation_id": "TEXT"})
+        _add_columns(db, "messages", {"detail": "TEXT"})  # d'une erreur : ce qui permet de la diagnostiquer
         db.execute("CREATE INDEX IF NOT EXISTS usage_conversation ON usage(conversation_id)")
         _add_columns(db, "agents", {"color": "TEXT NOT NULL DEFAULT ''", "pinned": "INTEGER NOT NULL DEFAULT 0"})
         # Chaque session est un appareil (navigateur, app de bureau, téléphone), listé et révocable dans Réglages.

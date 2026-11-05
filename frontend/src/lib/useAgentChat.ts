@@ -32,7 +32,7 @@ function fromStored(m: StoredMessage, i: number): ChatMessage {
     return { id: `h${i}`, role: "user", content: [{ type: "text", text: match ? m.text.slice(0, match.index) : m.text }], attachments: files };
   }
   if (m.role === "error") {
-    return { id: `h${i}`, role: "assistant", content: [{ type: "tool-call", toolCallId: `e${i}`, toolName: "error", args: { message: m.text }, result: true }] };
+    return { id: `h${i}`, role: "assistant", content: [{ type: "tool-call", toolCallId: `e${i}`, toolName: "error", args: { message: m.text, detail: m.detail ?? "" }, result: true }] };
   }
   return { id: `h${i}`, role: "assistant", content: [{ type: "text", text: m.text }] };
 }
@@ -78,7 +78,7 @@ function apply(msg: ChatMessage, ev: ChatEvent, runId: string | null): ChatMessa
       let next = settle(parts);
       if (!next.some((p) => p.type === "text") && ev.output) next = [...next, { type: "text", text: ev.output }];
       if (ev.status !== "completed" && ev.error) {
-        next = [...next, { type: "tool-call", toolCallId: uid("e"), toolName: "error", args: { message: ev.error }, result: true }];
+        next = [...next, { type: "tool-call", toolCallId: uid("e"), toolName: "error", args: { message: ev.error, detail: ev.details ?? "" }, result: true }];
       }
       return { ...msg, content: next, running: false };
     }

@@ -12,7 +12,7 @@ import { type MediaModel, ModelSelect } from "./ModelSelect";
 import { Dialog, DialogContent, Tabs, TabsContent, TabsList, TabsTrigger } from "./ui";
 import { Button, Input, Label } from "./ui";
 
-export type SettingsTab = "brain" | "create" | "voice" | "phone" | "updates" | "privacy" | "profiles";
+export type SettingsTab = "brain" | "create" | "voice" | "phone" | "updates" | "privacy" | "profiles" | "diagnostic";
 
 type Kind = { label: string; setting: string; auto: string | null; routed?: boolean; models: MediaModel[] };
 type MediaState = {
@@ -54,6 +54,7 @@ export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainS
               {owner && <TabsTrigger value="profiles">Profils</TabsTrigger>}
               {owner && <TabsTrigger value="updates">Mises à jour</TabsTrigger>}
               {owner && <TabsTrigger value="privacy">Confidentialité</TabsTrigger>}
+              {owner && <TabsTrigger value="diagnostic">Diagnostic</TabsTrigger>}
             </TabsList>
             <TabsContent value="brain">
               <ModelPicker onCancel={() => onOpenChange(false)} onDone={onBrainSaved} />
@@ -79,6 +80,9 @@ export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainS
             </TabsContent>
             <TabsContent value="privacy">
               <Flows />
+            </TabsContent>
+            <TabsContent value="diagnostic">
+              <Diagnostic />
             </TabsContent>
           </Tabs>
         </DialogContent>
@@ -142,6 +146,48 @@ function MediaPanel({ kinds, withVoice, withPreferences }: { kinds: string[]; wi
       <p className="text-xs text-muted-foreground">
         « Automatique » suit les nouveaux modèles : Noah Agent prend le meilleur disponible, en qualité d'abord puis en coût.
       </p>
+    </div>
+  );
+}
+
+type DiagnosticState = {
+  version: string;
+  fournisseur: string | null;
+  modele: string | null;
+  agents: { id: string; en_ligne: boolean }[];
+  erreurs: { quand: string; ou: string; agent: string | null; texte: string }[];
+};
+
+/** Les erreurs récentes du serveur, sans accéder à la machine. Le tout se copie pour un agent. */
+function Diagnostic() {
+  const [state, setState] = useState<DiagnosticState | null>(null);
+  const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    get<DiagnosticState>("/api/diagnostic").then(setState).catch((e) => setError(e.message));
+  }, []);
+  if (error) return <p className="rounded-xl bg-warn-soft p-4 text-sm text-warn">{error}</p>;
+  if (!state) return <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture…</p>;
+  const copy = () =>
+    navigator.clipboard.writeText(JSON.stringify(state, null, 2)).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }, () => {});
+  return (
+    <div className="flex flex-col gap-3 text-sm">
+      <p className="text-muted-foreground">
+        Version {state.version} · {state.fournisseur ?? "aucun fournisseur"} · {state.modele ?? "aucun modèle"} ·{" "}
+        {state.agents.filter((a) => a.en_ligne).length} agent(s) en ligne sur {state.agents.length}
+      </p>
+      <p className="text-muted-foreground">Erreurs depuis le dernier démarrage du serveur, clés masquées. Copie-les pour les donner à un agent.</p>
+      <Button variant="outline" size="sm" className="self-start" onClick={copy}>{copied ? "Copié" : "Tout copier"}</Button>
+      {state.erreurs.length === 0 && <p>Aucune erreur depuis le dernier démarrage.</p>}
+      {state.erreurs.map((e, i) => (
+        <details key={i} className="rounded-xl border border-border p-3">
+          <summary className="cursor-pointer font-medium">{e.quand} · {e.ou}{e.agent ? ` · ${e.agent}` : ""}</summary>
+          <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words font-mono text-[11.5px]">{e.texte}</pre>
+        </details>
+      ))}
     </div>
   );
 }

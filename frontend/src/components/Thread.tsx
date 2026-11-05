@@ -7,6 +7,7 @@ import {
   type TextMessagePartProps,
   type ToolCallMessagePartProps,
   ThreadPrimitive,
+  useAui,
   useAuiState,
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
@@ -167,11 +168,47 @@ function Approval({ args, result, addResult }: ToolCallMessagePartProps) {
   );
 }
 
+/** Une erreur : la phrase d'abord. Les détails à côté, à copier ou à donner à l'agent pour qu'il la diagnostique. */
 function ErrorPart({ args }: ToolCallMessagePartProps) {
+  const aui = useAui();
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const detail = String(args.detail ?? "");
   return (
-    <div className="my-1 flex items-start gap-2 rounded-xl bg-warn-soft px-3.5 py-2.5 text-sm">
-      <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warn" />
-      <span>{String(args.message)}</span>
+    <div className="my-1 flex flex-col gap-2 rounded-xl bg-warn-soft px-3.5 py-2.5 text-sm">
+      <div className="flex items-start gap-2">
+        <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warn" />
+        <span>{String(args.message)}</span>
+      </div>
+      {detail && (
+        <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="ml-6 cursor-pointer self-start text-xs font-medium underline underline-offset-2">
+          {open ? "Masquer les détails" : "Voir les détails"}
+        </button>
+      )}
+      {open && (
+        <div className="ml-6 flex flex-col gap-2">
+          <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-background p-2.5 font-mono text-[11.5px]">{detail}</pre>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigator.clipboard.writeText(detail).then(() => {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+              }, () => {})}
+            >
+              {copied ? "Copié" : "Copier"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => aui.thread().composer.setText(`Aide-moi à diagnostiquer cette erreur de Noah Agent :\n\n${detail}`)}
+            >
+              Demander à l'agent
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

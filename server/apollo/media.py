@@ -15,7 +15,7 @@ from pathlib import Path
 
 import httpx
 
-from . import catalog, db, relay
+from . import catalog, db, diagnostics, relay
 
 BASE = "https://openrouter.ai/api/v1"
 CACHE_SECONDS = 3600
@@ -308,7 +308,8 @@ def _table(kind: str, ms: list[dict]) -> str:
 
 
 async def route(kind: str, request: str, context: str = "") -> dict:
-    """{methode, modele, raison}. Ne lève pas : en cas de souci, retombe sur le classement fixe."""
+    """{methode, modele, raison}. Ne lève pas : en cas de souci, retombe sur le classement fixe. Un modèle à raisonnement
+    peut finir sans texte, et aucun détail de sa réponse ne doit empêcher l'image."""
     ms = await models(kind)
     available = {m["id"] for m in ms}
     prefs = db.get_setting("media_preferences") or ""
@@ -333,7 +334,8 @@ async def route(kind: str, request: str, context: str = "") -> dict:
         if methode == "generation" and not modele:
             modele = await auto_choice(kind, request)
         return {"methode": methode, "modele": modele if methode == "generation" else None, "raison": str(d.get("raison", ""))[:300]}
-    except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError, MediaError):
+    except Exception as e:  # noqa: BLE001
+        diagnostics.record("routeur de médias", f"{type(e).__name__}: {e}")
         return {"methode": "generation", "modele": await auto_choice(kind, request), "raison": "Choix par défaut (routeur indisponible)."}
 
 

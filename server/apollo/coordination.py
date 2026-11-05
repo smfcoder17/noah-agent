@@ -296,7 +296,8 @@ async def _deliver(agent_id: str, text: str, note: str, chain: list[str]) -> Non
 
 def _last_message(conv_id: str) -> str | None:
     with db.connect() as c:
-        row = c.execute("SELECT text FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT 1", (conv_id,)).fetchone()
+        # Une reprise refusée écrit son erreur juste après le message : elle ne compte pas pour éviter les doublons.
+        row = c.execute("SELECT text FROM messages WHERE conversation_id = ? AND role != 'error' ORDER BY id DESC LIMIT 1", (conv_id,)).fetchone()
     return row["text"] if row else None
 
 

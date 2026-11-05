@@ -367,6 +367,7 @@ OWNER_ROUTES = {
     ("GET", "/api/media"): None,
     ("POST", "/api/media"): {"kind": "image", "model": "auto"},
     ("POST", "/api/media/key"): {"api_key": "CLE-DE-MEDIAS"},
+    ("GET", "/api/diagnostic"): None,
     ("GET", "/api/voice/server"): None,
     ("POST", "/api/voice/server"): {"base_url": "http://voix.exemple/v1", "api_key": "CLE-DE-VOIX", "speech_model": "m"},
     ("POST", "/api/google/client"): {"fichier": '{"installed": {"client_id": "1-a.apps.googleusercontent.com", "client_secret": "secret"}}'},

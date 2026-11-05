@@ -7,6 +7,7 @@
 
 Le détail brut (appels d'outils, arguments) n'est envoyé que si l'interface demande le mode détails.
 """
+import re
 
 # Ce que l'utilisateur voit pendant le travail : une seule ligne, remplacée au fil de l'eau.
 # Les étapes qui ont un sens pour lui ont leur libellé ; les commandes, fichiers, compétences et la
@@ -31,19 +32,36 @@ def tool_label(name: str) -> str | None:
     return "Travaille sur ta demande"
 
 
+# Les phrases écrites par Noah lui-même (relais, budget) sont déjà faites pour la personne.
+_OWN = re.compile(r"^(Budget |Plafond du jour|Le modèle est injoignable|Aucun modèle|Ce fournisseur)")
+# Du plus précis au plus général. Une erreur inconnue n'est jamais montrée brute : elle reste dans les détails.
+_KNOWN = (
+    (r"unknown_execution", "Un redémarrage a coupé le travail précédent et cette conversation reste bloquée. Réessaie dans un instant."),
+    (r"expired", "Ta clé API a expiré. Crée-en une nouvelle chez ton fournisseur, puis colle-la dans Réglages > Cerveau."),
+    (r"\b40[13]\b|authenticat|unauthorized|api key|x-api-key|invalid.{0,12}key|forbidden",
+     "Le fournisseur a refusé ta clé API : elle est invalide ou n'a plus accès. Remplace-la dans Réglages > Cerveau."),
+    (r"\b402\b|credit|quota|insufficient|billing",
+     "Le compte du fournisseur n'a plus de crédit ou a atteint sa limite. Recharge-le, ou choisis un autre modèle dans Réglages > Cerveau."),
+    (r"\b429\b|rate.?limit|too many requests", "Le fournisseur limite les requêtes pour le moment. Réessaie dans une minute."),
+    (r"no endpoints|model.{0,40}(not found|not exist|unavailable|invalid)|not a valid model|\b404\b",
+     "Ce modèle n'est plus disponible chez le fournisseur. Choisis-en un autre dans Réglages > Cerveau."),
+    (r"context.{0,20}(length|window|size)|too (long|large)|token limit",
+     "Cette conversation est devenue trop longue pour ce modèle. Commence une nouvelle conversation ou choisis un modèle plus grand."),
+    (r"overloaded|\b(500|502|503|504|529)\b|bad gateway|service unavailable",
+     "Le fournisseur est surchargé ou en panne pour le moment. Réessaie dans quelques minutes."),
+    (r"timed? ?out|timeout", "Le fournisseur n'a pas répondu à temps. Réessaie dans un instant."),
+)
+
+
 def friendly_error(raw: str) -> str:
-    text = raw.lower()
-    if "401" in text or "authentication" in text or "api key" in text:
-        return "Le fournisseur a refusé la clé API. Vérifie-la avec le bouton « Modèle »."
-    if "budget mensuel" in text:
-        return "Budget mensuel atteint. Augmente-le dans « Modèle et budget » pour continuer."
-    if "402" in text or "credit" in text or "quota" in text:
-        return "Le compte du fournisseur n'a plus de crédit ou a atteint sa limite."
-    if "429" in text or "rate limit" in text:
-        return "Le fournisseur limite les requêtes pour le moment. Réessaie dans une minute."
-    if "unknown_execution" in text:
-        return "Un redémarrage a coupé le travail précédent et cette conversation reste bloquée. Réessaie dans un instant."
-    return raw or "Le travail s'est arrêté avant la fin."
+    if not raw:
+        return "Le travail s'est arrêté avant la fin."
+    if _OWN.match(raw):
+        return raw
+    for pattern, sentence in _KNOWN:
+        if re.search(pattern, raw, re.I):
+            return sentence
+    return "Le travail s'est arrêté sur une erreur que je ne sais pas expliquer. Clique sur « Voir les détails » : tu peux les donner à un agent pour la diagnostiquer."
 
 
 def translate(kind: str, data: dict, details: bool) -> dict | None:
@@ -97,7 +115,8 @@ def translate(kind: str, data: dict, details: bool) -> dict | None:
         if isinstance(output, str) and output:
             out["output"] = output
         if status != "completed":
-            out["error"] = friendly_error(str(data.get("error") or ""))
+            out["raw_error"] = str(data.get("error") or "")
+            out["error"] = friendly_error(out["raw_error"])
         return out
 
     # message.interim, subagent.*, keepalive… : rien pour l'utilisateur, sauf en mode détails.
