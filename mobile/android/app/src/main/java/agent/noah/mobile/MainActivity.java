@@ -215,8 +215,32 @@ public class MainActivity extends BridgeActivity {
                 return super.shouldInterceptRequest(view, request);
             }
         });
+        // Une WebView ne télécharge rien d'elle-même : sans ça, un lien de téléchargement ne fait rien sur le téléphone.
+        bridge.getWebView().setDownloadListener((url, agent, disposition, mime, length) -> download(url, agent, disposition, mime, home));
         bridge.getWebView().stopLoading();
         openPage(page(getIntent()));
+    }
+
+    /** Confie le fichier au gestionnaire de téléchargements d'Android, dans Téléchargements, avec la session de la fenêtre. */
+    private void download(String url, String agent, String disposition, String mime, String home) {
+        if (!home.equals(origin(url))) return; // la session ne part que vers le serveur
+        try {
+            String name = android.webkit.URLUtil.guessFileName(url, disposition, mime);
+            android.app.DownloadManager.Request request = new android.app.DownloadManager.Request(android.net.Uri.parse(url))
+                .setMimeType(mime)
+                .setTitle(name)
+                .addRequestHeader("User-Agent", agent)
+                .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            // Avant Android 10, le dossier public demande une permission : le dossier de l'app n'en demande aucune.
+            if (android.os.Build.VERSION.SDK_INT >= 29) request.setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, name);
+            else request.setDestinationInExternalFilesDir(this, android.os.Environment.DIRECTORY_DOWNLOADS, name);
+            String cookie = CookieManager.getInstance().getCookie(url);
+            if (cookie != null) request.addRequestHeader("Cookie", cookie);
+            getSystemService(android.app.DownloadManager.class).enqueue(request);
+            android.widget.Toast.makeText(this, "Téléchargement de " + name, android.widget.Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            android.widget.Toast.makeText(this, "Ce fichier n'a pas pu être téléchargé.", android.widget.Toast.LENGTH_LONG).show();
+        }
     }
 
     /**
