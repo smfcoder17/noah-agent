@@ -2,7 +2,7 @@
 #   git tag -a v1.2.3 -m "Ce qui change" && git push origin v1.2.3
 #
 #   controle   clés présentes et cohérentes, sinon rien ne part (scripts/controle-publication.sh)
-#   tests      la suite entière (tests.yml)
+#   (la suite entière se joue avant, en local : node scripts/verifier.mjs. La CI est payée à la minute, elle construit et publie.)
 #   image      images GHCR multi-architecture : 1.2.3 et 1.2
 #   apps       APK signé et installateur Windows (apps.yml)
 #   publier    empreintes, compose épinglé, manifeste signé, Release en brouillon, étiquette stable, puis Release publié
@@ -12,7 +12,7 @@
 # « gh workflow run release.yml --ref v1.2.3 » reprend sans dégât.
 #
 # v1.2.3-rc1 : même chemin, images 1.2.3-rc1, Release marqué préversion ; ni :stable, ni manifeste, ni « latest ».
-# Sans étiquette (gh workflow run release.yml, depuis main) : image edge seulement, avec moins de tests.
+# Sans étiquette (gh workflow run release.yml, depuis main) : image edge seulement.
 #
 # Les clés : sh scripts/preparer-signatures.sh. Les paquets GHCR noah-server et noah-launcher sont déjà publics.
 name: Publication
@@ -51,16 +51,8 @@ jobs:
           NOAH_APK_KEY_ALIAS: ${{ secrets.NOAH_APK_KEY_ALIAS }}
         run: sh scripts/controle-publication.sh
 
-  tests:
-    needs: controle
-    permissions:
-      contents: read
-    uses: ./.github/workflows/tests.yml
-    with:
-      rapide: ${{ github.ref == 'refs/heads/main' }}
-
   image:
-    needs: tests
+    needs: controle
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -117,7 +109,7 @@ jobs:
           push-to-registry: true
 
   apps:
-    needs: [controle, tests]
+    needs: controle
     if: needs.controle.outputs.version != ''
     permissions:
       contents: read

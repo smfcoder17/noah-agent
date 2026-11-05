@@ -34,9 +34,10 @@ jobs = release["jobs"]
 on = lambda f: f.get("on", f.get(True))  # YAML 1.1 lit « on » comme un booléen
 assert "push" in on(release) and "push" not in on(apps), "une étiquette ne déclenche que release.yml : un seul Release, écrit à la fin"
 assert set(jobs["publier"]["needs"]) >= {"image", "apps"}, "le Release attend les images et les applications"
-assert jobs["image"]["needs"] == "tests" and "tests" in jobs["apps"]["needs"], "rien ne se construit avant les tests"
+assert jobs["image"]["needs"] == "controle" or "controle" in jobs["image"]["needs"], "rien ne se construit sans les clés"
 assert jobs["tests"]["needs"] == "controle", "les clés sont contrôlées d'abord"
-assert jobs["tests"]["uses"].endswith("tests.yml") and jobs["apps"]["uses"].endswith("apps.yml")
+assert "tests" not in jobs, "la suite se joue en local : la CI est payée à la minute"
+assert jobs["apps"]["uses"].endswith("apps.yml")
 everything = open(f"{repo}/.github/workflows/release.yml", encoding="utf-8").read() + open(f"{repo}/.github/workflows/apps.yml", encoding="utf-8").read()
 assert "action-gh-release" not in everything, "plusieurs jobs qui écrivent le même Release : latest cassé pendant une heure"
 meta = next(s for s in jobs["image"]["steps"] if s.get("id") == "meta")["with"]
