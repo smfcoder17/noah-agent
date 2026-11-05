@@ -908,6 +908,17 @@ def _prove(request: Request, user: int, password: str, code: str) -> None:
     _give_back_login(ip, name, reserved)
 
 
+def _prove_if_needed(request: Request, user: int, password: str, code: str, ask: str) -> None:
+    """Sans preuve récente de cette session, 428 demande le mot de passe (et le code, si la double vérification est active)."""
+    session = _session_of(request)
+    if auth.proven_recently(session):
+        return
+    if not password:
+        raise HTTPException(428, ask)
+    _prove(request, user, password, code)
+    auth.mark_proven(session)
+
+
 def _proof_needed(user: int, session: str) -> dict:
     """Ce que l'écran d'accord doit demander avant d'accorder un nouvel appareil."""
     needed = not auth.proven_recently(session)
@@ -1853,7 +1864,7 @@ async def _forget_guest(agent_id: str, user: int) -> None:
         print(f"[partage] profil {profile} non effacé sur {agent_id} : {e}", flush=True)
 
 
-profiles.setup(stop_runs=_stop_runs, remove_agent=_remove_agent, drop_pending=_drop_pending, forget_guest=_forget_guest)
+profiles.setup(prove_if_needed=_prove_if_needed, stop_runs=_stop_runs, remove_agent=_remove_agent, drop_pending=_drop_pending, forget_guest=_forget_guest)
 
 
 # --- Conversations ----------------------------------------------------------------------

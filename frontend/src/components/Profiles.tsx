@@ -143,18 +143,21 @@ function NewProfile({ onCreated }: { onCreated: () => void }) {
   const [budget, setBudget] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [proof, setProof] = useState<{ asked: boolean; motdepasse: string; code: string }>({ asked: false, motdepasse: "", code: "" });
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setError("");
     try {
-      await send("/api/profiles", { username: username.trim(), password, budget: budget === "" ? null : Number(budget) });
+      await send("/api/profiles", { username: username.trim(), password, budget: budget === "" ? null : Number(budget), motdepasse: proof.motdepasse, code: proof.code });
       setUsername("");
       setPassword("");
       setBudget("");
+      setProof({ asked: false, motdepasse: "", code: "" });
       onCreated();
     } catch (err) {
       setError((err as Error).message);
+      if ((err as { status?: number }).status === 428) setProof((p) => ({ ...p, asked: true }));
     }
     setBusy(false);
   };
@@ -167,6 +170,12 @@ function NewProfile({ onCreated }: { onCreated: () => void }) {
         <Label>Plafond du mois ($)<Input type="number" min={0} step={1} placeholder="Aucun" value={budget} onChange={(e) => setBudget(e.target.value)} /></Label>
       </div>
       <p className="text-xs text-muted-foreground">Transmets-lui ce mot de passe toi-même : il le remplacera dans Réglages &gt; Appareils.</p>
+      {proof.asked && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Label>Ton mot de passe<Input required type="password" autoComplete="current-password" value={proof.motdepasse} onChange={(e) => setProof({ ...proof, motdepasse: e.target.value })} /></Label>
+          <Label>Code de double vérification, si activée<Input inputMode="numeric" autoComplete="one-time-code" value={proof.code} onChange={(e) => setProof({ ...proof, code: e.target.value })} /></Label>
+        </div>
+      )}
       <ErrorText>{error}</ErrorText>
       <Button type="submit" className="self-start" disabled={busy}><UserPlus />Créer le profil</Button>
     </form>

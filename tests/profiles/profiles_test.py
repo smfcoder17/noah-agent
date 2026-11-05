@@ -408,7 +408,7 @@ OWNER_ROUTES = {
     ("POST", "/api/updates/postpone"): None,
     ("PUT", "/api/updates/settings"): {"auto": True},
     ("GET", "/api/profiles"): None,
-    ("POST", "/api/profiles"): {"username": "nouveau-essai", "password": "motdepasse-n"},
+    ("POST", "/api/profiles"): {"username": "nouveau-essai", "password": "motdepasse-n", "motdepasse": "motdepasse-a"},
     ("GET", "/api/mcp/reseaux"): None,
     ("PUT", "/api/mcp/reseaux"): {"reseaux": []},
 }
@@ -1059,13 +1059,20 @@ def test_profiles() -> None:
     fixture()
     alice = WEB["alice"]
     # Création : mot de passe haché, comme les autres ; connexion normale.
+    # Un compte de plus est un accès durable : sans preuve récente, la session seule ne suffit pas, et un faux mot de passe non plus.
+    with db.connect() as c:
+        c.execute("UPDATE sessions SET mdp_a = NULL")
     r = alice.post("/api/profiles", json={"username": "nina", "password": "motdepasse-n", "budget": 5})
+    assert r.status_code == 428, r.text
+    r = alice.post("/api/profiles", json={"username": "nina", "password": "motdepasse-n", "budget": 5, "motdepasse": "faux-mot-de-passe"})
+    assert r.status_code == 400, r.text
+    r = alice.post("/api/profiles", json={"username": "nina", "password": "motdepasse-n", "budget": 5, "motdepasse": "motdepasse-a"})
     assert r.status_code == 200 and r.json()["budget"] == 5 and r.json()["role"] == "member", r.text
     nina_id = r.json()["id"]
     with db.connect() as c:
         stored = c.execute("SELECT pw_hash FROM users WHERE id = ?", (nina_id,)).fetchone()["pw_hash"]
     assert stored.startswith(b"$2") and b"motdepasse" not in stored
-    assert alice.post("/api/profiles", json={"username": "nina", "password": "motdepasse-n"}).status_code == 409
+    assert alice.post("/api/profiles", json={"username": "nina", "password": "motdepasse-n", "motdepasse": "motdepasse-a"}).status_code == 409
     assert alice.post("/api/profiles", json={"username": "x", "password": "court"}).status_code == 422
     login = TestClient(app).post("/api/login", json={"username": "nina", "password": "motdepasse-n"})
     assert login.status_code == 200
@@ -1119,7 +1126,7 @@ def test_profiles() -> None:
         assert not c.execute("SELECT 1 FROM sessions WHERE user_id = ?", (nina_id,)).fetchone()
         c.execute("DELETE FROM agents WHERE id = 'agent-nina'")
     # Suppression avec ses agents : machine et conversations effacées.
-    r = alice.post("/api/profiles", json={"username": "otto", "password": "motdepasse-o"}).json()
+    r = alice.post("/api/profiles", json={"username": "otto", "password": "motdepasse-o", "motdepasse": "motdepasse-a"}).json()
     otto = r["id"]
     with db.connect() as c:
         c.execute("INSERT INTO agents (id, name, role, api_key, owner_id) VALUES ('agent-otto', 'Oscar', '', 'k', ?)", (otto,))
@@ -1134,7 +1141,7 @@ def test_profiles() -> None:
         assert not c.execute("SELECT 1 FROM conversations WHERE id = 'conv-otto'").fetchone()
         assert c.execute("SELECT owner_id FROM usage WHERE agent_id = 'agent-otto'").fetchone()["owner_id"] == ALICE, "dépense perdue pour le total"
     # Le numéro de compte peut resservir : le nouveau venu n'hérite de rien.
-    reborn = alice.post("/api/profiles", json={"username": "pia", "password": "motdepasse-p"}).json()
+    reborn = alice.post("/api/profiles", json={"username": "pia", "password": "motdepasse-p", "motdepasse": "motdepasse-a"}).json()
     assert reborn["id"] == otto, "SQLite aurait pu ne pas réutiliser ce numéro : l'essai ne prouve plus rien"
     assert reborn["depense"] == 0 and reborn["agents"] == [], reborn
     pia = client(reborn["id"])

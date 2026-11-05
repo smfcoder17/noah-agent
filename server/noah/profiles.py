@@ -23,6 +23,8 @@ class NewProfile(BaseModel):
     username: str = Field(min_length=2, max_length=64, pattern=r"^[\w .@-]+$")
     password: str = Field(min_length=8, max_length=256)
     budget: float | None = Field(default=None, ge=0, le=100000)
+    motdepasse: str = Field(default="", max_length=256)  # preuve de qui crée, si sa session n'en a pas de récente
+    code: str = Field(default="", max_length=32)
 
 
 class ProfileEdit(BaseModel):
@@ -54,7 +56,9 @@ def list_profiles(_: int = Depends(access.owner_only)):
 
 
 @router.post("/api/profiles")
-def create_profile(body: NewProfile, _: int = Depends(access.owner_only), __: int = Depends(auth.full_session)):
+def create_profile(body: NewProfile, request: Request, user: int = Depends(access.owner_only), __: int = Depends(auth.full_session)):
+    # Un compte de plus est un accès durable : un jeton d'appareil volé n'en crée pas sans la preuve, comme pour relier un appareil.
+    _h["prove_if_needed"](request, user, body.motdepasse, body.code, "Confirme ton mot de passe pour créer ce profil.")
     try:
         profile_id = auth.create_user(body.username.strip(), body.password, role="member")
     except sqlite3.IntegrityError:

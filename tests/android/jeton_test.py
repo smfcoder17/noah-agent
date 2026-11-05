@@ -260,12 +260,14 @@ for method, path, body in OWNED + [("GET", f"/api/pairing/flow/{public}", None),
     assert r.status_code == 403, f"{method} {path} ouvert à une session de fenêtre par en-tête : {r.status_code}"
 for method, path, body in OWNED:
     r = bearer(mine).request(method, path, json=body)
-    assert r.status_code == 200, f"témoin : {method} {path} doit rester permis à une vraie session : {r.status_code} {r.text}"
+    # Un compte de plus demande la preuve au jeton d'appareil : volé, il n'en crée pas.
+    wanted = 428 if path == "/api/profiles" else 200
+    assert r.status_code == wanted, f"témoin : {method} {path} doit répondre {wanted} à une vraie session : {r.status_code} {r.text}"
 with db.connect() as c:
     c.execute("DELETE FROM users WHERE username = 'intrus'")
 r = bearer(mine).get(f"/api/pairing/flow/{public}")
 assert r.status_code == 200, f"la demande n'a pas survécu aux refus ci-dessus : {r.text}"
-print("13. appairage et création de compte refusés depuis la fenêtre, permis au jeton d'appareil (témoin)")
+print("13. appairage et création de compte refusés depuis la fenêtre ; le jeton d'appareil appaire, et ne crée un compte qu'avec la preuve")
 
 # Révoquer : ce que permet une session normale, pas plus. « Tous les autres » garde son propre appareil.
 mine, a, b = device("Moi"), device("A"), device("B")
@@ -319,7 +321,7 @@ link = bearer(holder).post("/api/pairing").json()["adresse"].rsplit("=", 1)[1]
 app_client = TestClient(main.app, headers={"User-Agent": APP})
 claim = app_client.post("/api/pairing/claim", json={"code": link}).json()
 pending = bearer(holder).get("/api/pairing/pending").json()["demandes"][0]["id"]
-r = bearer(holder).post(f"/api/pairing/flow/{pending}/autoriser", json={"verification": claim["verification"]})
+r = bearer(holder).post(f"/api/pairing/flow/{pending}/autoriser", json={"verification": claim["verification"], "motdepasse": "motdepasse-a"})
 assert r.status_code == 200, r.text
 r = app_client.post("/api/pairing/flow/poll", json={"sondage": claim["sondage"]})
 assert r.status_code == 200 and r.json()["token"], r.text
