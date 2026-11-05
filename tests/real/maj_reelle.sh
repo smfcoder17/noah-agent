@@ -78,6 +78,17 @@ EOF
   } | lanceur_py
 }
 
+# Fin du dernier rapport : le lanceur prépare (téléchargement, place disque) avant d'ouvrir son journal, un journal vide
+# ne veut donc pas dire « fini ». Seul un nouveau rapport le dit.
+report_end() {
+  { printf '%s\n' "$PRELUDE"; cat <<'EOF'
+path = os.environ.get("NOAH_UPDATE_STATE", "/state/updates.json")
+state = json.load(open(path)) if os.path.exists(path) else {}
+print((state.get("dernier_rapport") or {}).get("fin", 0))
+EOF
+  } | lanceur_py
+}
+
 # Ce qu'il y a dans les données, lu sans rien écrire : lignes de chaque table du serveur.
 data_counts() {
   docker exec -i noah-server python - <<'EOF'
@@ -400,6 +411,7 @@ do_panne() {
   work=$(mktemp -d "$NOTES/signature.XXXXXX")
   sign_here "$target" "$ref" "$work"
   started=$(date +%s)
+  previous_report=$(report_end)
   manifest64=$(base64 <"$work/manifest.json" | tr -d '\r\n')
   signature=$(tr -d '\r\n' <"$work/manifest.json.sig")
   rm -rf "$work"
@@ -426,8 +438,9 @@ EOF
   done_ok=false
   for _ in $(seq 1 240); do
     phase=$(tx_phase 2>/dev/null || echo "?")
+    last_report=$(report_end 2>/dev/null || echo "$previous_report")
     printf '\r  phase : %-20s' "$phase"
-    if [ -z "$phase" ]; then done_ok=true; break; fi
+    if [ -z "$phase" ] && [ "$last_report" != "$previous_report" ]; then done_ok=true; break; fi
     if [ "$phase" = intervention ]; then break; fi
     sleep 5
   done
@@ -454,7 +467,7 @@ EOF
   { printf '%s\n' "$PRELUDE"; cat <<'EOF'
 report = lanceur("/update/status")["etat"].get("dernier_rapport") or {}
 print("Rapport du lanceur :", json.dumps(report, ensure_ascii=False))
-sys.exit(1 if report.get("ok") else 0)
+sys.exit(0 if report and not report.get("ok") else 1)
 EOF
   } | lanceur_py || ko "le lanceur annonce un succès alors que la version devait échouer"
 
