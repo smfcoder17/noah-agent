@@ -15,6 +15,9 @@
 # Relancer la commande met Noah Agent à jour sans toucher aux données ni aux secrets.
 set -eu
 
+# Par curl | sh, le script arrive par l'entrée standard : tout est lu avant de commencer, aucune commande ne peut en avaler la suite.
+main() {
+
 RAW="https://raw.githubusercontent.com/smfcoder17/noah-agent/main"
 # Compose de la dernière version, images épinglées par empreinte ; à défaut, celui du dépôt.
 RELEASE_COMPOSE="https://github.com/smfcoder17/noah-agent/releases/latest/download/docker-compose.yml"
@@ -137,7 +140,7 @@ code=$(docker compose logs server 2>/dev/null | sed -n "s/.*Code d'installation 
 url=$(docker compose logs server 2>/dev/null | sed -n 's/.*\(https:\/\/[^ ?#]*\).*/\1/p' | tail -1)
 url=${url%/}
 # Les journaux peuvent dater d'un démarrage précédent : on demande au serveur si le compte existe déjà.
-has_account=$(docker compose exec -T server python -c "import json,urllib.request;print(json.load(urllib.request.urlopen('http://127.0.0.1:8080/api/status'))['has_account'])" 2>/dev/null || true)
+has_account=$(docker compose exec -T server python -c "import json,urllib.request;print(json.load(urllib.request.urlopen('http://127.0.0.1:8080/api/status'))['has_account'])" 2>/dev/null </dev/null || true)
 [ "$has_account" = "True" ] && code=""
 # Le compte existe : le mot de passe de départ ne reste pas sur le disque, il ne resservira jamais.
 if [ "$has_account" = "True" ] && grep -q '^NOAH_ADMIN_' .env; then
@@ -162,3 +165,6 @@ case "$url" in
     say "curl -fsSL $RAW/get.sh | NOAH_DOMAIN=noah.exemple.com sh"
     ;;
 esac
+}
+
+main "$@"

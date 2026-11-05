@@ -11,8 +11,8 @@ cat > "$FAUX/docker" <<'EOF'
 #!/bin/sh
 case "$1 ${2:-} ${3:-}" in
   "compose up "*) cp .env "$NOAH_VU" ;;
-  "compose logs "*) echo "Noah est prêt : https://noah.exemple.com" ;;
-  "compose exec "*) echo True ;;
+  "compose logs "*) if [ -n "${NOAH_FAUX_NEUF:-}" ]; then echo "Code d'installation : ABC234 https://noah.exemple.com"; else echo "Noah est prêt : https://noah.exemple.com"; fi ;;
+  "compose exec "*) if [ -n "${NOAH_FAUX_NEUF:-}" ]; then cat > /dev/null; echo False; else echo True; fi ;;
 esac
 exit 0
 EOF
@@ -41,6 +41,12 @@ if printf '%s' "$sortie" | grep -qF "$MOT"; then echo "ÉCHEC mot de passe dans 
 printf '%s' "$sortie" | grep -q 'avec le compte patronne' || { echo "ÉCHEC la sortie ne dit pas comment se connecter : $sortie"; exit 1; }
 printf '%s' "$sortie" | grep -q 'installation=' && { echo "ÉCHEC un lien à code d'installation est montré"; exit 1; }
 echo "ok   la fin du script dit de se connecter avec ce compte, sans montrer le mot de passe"
+
+# La commande annoncée partout : le script arrive par l'entrée standard, qu'un « docker compose exec » ne doit pas avaler.
+AILLEURS=$(mktemp -d)
+sortie=$(cat /repo/get.sh | NOAH_DIR="$AILLEURS" NOAH_DOMAIN=noah.exemple.com NOAH_FAUX_NEUF=1 sh 2>&1) || { echo "ÉCHEC curl | sh : $sortie"; exit 1; }
+printf '%s' "$sortie" | grep -q 'noah.exemple.com/#installation=ABC234' || { echo "ÉCHEC curl | sh ne donne pas le lien : $sortie"; exit 1; }
+echo "ok   par curl | sh, le lien de création du compte s'affiche"
 
 # Sans les variables : .env ne les porte pas.
 TRAVAIL2=$(mktemp -d)
