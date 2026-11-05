@@ -202,7 +202,7 @@ function ErrorPart({ args }: ToolCallMessagePartProps) {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => aui.thread().composer.setText(`Aide-moi à diagnostiquer cette erreur de Noah Agent :\n\n${detail}`)}
+              onClick={() => aui.thread().composer().setText(`Aide-moi à diagnostiquer cette erreur de Noah Agent :\n\n${detail}`)}
             >
               Demander à l'agent
             </Button>
