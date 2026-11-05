@@ -40,6 +40,9 @@ FILES = {
     "uploads/piece.pdf": b"PDF",
     "notes.txt": b"NOTES",
     "racine.html": b"<h1>Racine</h1>",
+    "apps/liste.html": b"<h1>Liste</h1>",
+    "apps/jeu/.env": b"CLE=secret",
+    "apps/jeu/.git/config": b"secret",
 }
 asked: list[str] = []
 
@@ -106,10 +109,12 @@ print("3 bis. dans outputs/ et uploads/, une page ne lit que ce qu'elle cite")
 head, tail = entry.removeprefix("/api/apercu/").split("/", 1)
 assert anonymous.get(f"/api/apercu/{head[:-2]}xx/{tail}").status_code == 403
 assert anonymous.get(f"/api/apercu/autre.{head.split('.')[-1]}/{tail}").status_code == 403
+seconds = main.PREVIEW_SECONDS
+assert seconds <= 2 * 3600, f"lien d'aperçu valable {seconds} s"
 main.PREVIEW_SECONDS = -10
 expired = link("apps/jeu/index.html").json()["url"]
 assert anonymous.get(expired).status_code == 403
-main.PREVIEW_SECONDS = 86400
+main.PREVIEW_SECONDS = seconds
 assert other.post("/api/agents/a1/apercu", json={"path": "apps/jeu/index.html"}).status_code in (403, 404), "profil sans accès"
 real = access.allowed
 access.allowed = lambda *a, **k: False
@@ -123,5 +128,33 @@ assert r.status_code == 404 and "Fichier indisponible" in r.text
 assert link("/etc/passwd").status_code == 400
 assert link("../secret").status_code == 400
 print("5. fichier absent dit, chemin hors de l'espace de travail refusé")
+
+# 6. Le lien suit la session qui l'a demandé : révoquée, il ne sert plus. Une autre session du même compte n'y change rien.
+device = auth.new_session(alice, "Téléphone", "web")
+phone = TestClient(main.app, headers={"Authorization": f"Bearer {device}"})
+shown = link("apps/jeu/index.html", phone).json()["url"]
+assert anonymous.get(shown).status_code == 200
+auth.drop_session(device)
+assert anonymous.get(shown).status_code == 403, "session révoquée : le lien sert encore"
+assert anonymous.get(shown.rsplit("/", 1)[0] + "/data.json").status_code == 403, "session révoquée : les voisins restent lisibles"
+assert anonymous.get(entry).status_code == 200, "une autre session : son lien reste bon"
+print("6. session révoquée : lien mort, les liens des autres sessions restent bons")
+
+# 7. Une session de fenêtre donne un lien attaché à l'appareil : renouveler la fenêtre ne le tue pas, révoquer l'appareil si.
+device = auth.new_session(alice, "Ordinateur", "web")
+win = TestClient(main.app, headers={"Authorization": f"Bearer {auth.new_window(device)}"})
+shown = link("apps/jeu/index.html", win).json()["url"]
+assert anonymous.get(shown).status_code == 200
+auth.drop_session(device)
+assert anonymous.get(shown).status_code == 403, "appareil révoqué : le lien de sa fenêtre sert encore"
+print("7. lien demandé depuis une fenêtre : il meurt avec l'appareil")
+
+# 8. Une app ne sert pas ses fichiers cachés, et une page posée directement dans apps/ ne voit pas les autres apps.
+for hidden in (".env", ".git/config"):
+    assert anonymous.get(f"{base}/{hidden}").status_code == 403, hidden
+listing = link("apps/liste.html").json()["url"]
+assert anonymous.get(listing).status_code == 200
+assert anonymous.get(listing.rsplit("/", 1)[0] + "/jeu/data.json").status_code == 403, "une page dans apps/ lit les autres apps"
+print("8. pas de fichier caché, et apps/ est un dossier commun")
 print("OK")
 _ = (asyncio, time)

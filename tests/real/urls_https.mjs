@@ -85,7 +85,7 @@ try {
     const l = docker("logs", SERVEUR);
     journal = `${l.out}\n${l.err}`;
   }
-  const lien = journal.match(/https?:\/\/\S+\?installation=(\w+)/);
+  const lien = journal.match(/https?:\/\/\S+#installation=(\w+)/);
   check("le journal donne un lien de création du compte", !!lien, lien ? "" : journal.slice(-300));
   if (!lien) throw new Error("pas de lien");
   check("ce lien est en HTTPS, sur le nom du serveur", lien[0].startsWith(`https://${DOMAINE}/`), lien[0].replace(lien[1], "…"));

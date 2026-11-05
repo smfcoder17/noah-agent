@@ -307,10 +307,12 @@ export const mediaUrl = (agentId: string, path: string) =>
 
 /** Fichier de l'espace de travail ; accepte un chemin relatif ou complet (/opt/data/workspace/...). */
 /** Lien d'une page montrée dans son bac à sable : elle y charge ses images et ses données, sans cookie. */
-const PREVIEW_REUSE_MS = 60 * 60 * 1000; // le serveur l'accepte 24 h
+const PREVIEW_REUSE_MS = 60 * 60 * 1000;
+const PREVIEW_RENEW_MS = 110 * 60 * 1000; // le serveur l'accepte 2 h
 const previewLinks = new Map<string, { link: Promise<string>; at: number }>();
+const previewKey = (agentId: string, path: string) => `${currentAuthEpoch()}|${agentId}|${path}`; // jamais le lien de la personne connectée avant
 export const previewUrl = (agentId: string, path: string): Promise<string> => {
-  const key = `${currentAuthEpoch()}|${agentId}|${path}`; // jamais le lien de la personne connectée avant
+  const key = previewKey(agentId, path);
   const known = previewLinks.get(key);
   if (known && Date.now() - known.at < PREVIEW_REUSE_MS) return known.link;
   const link = send<{ url: string }>(`/api/agents/${agentId}/apercu`, { path }).then((r) => r.url);
@@ -318,6 +320,9 @@ export const previewUrl = (agentId: string, path: string): Promise<string> => {
   previewLinks.set(key, { link, at: Date.now() });
   return link;
 };
+/** Dans combien de temps redemander le lien rendu par previewUrl, juste avant qu'il ne serve plus. */
+export const previewRenewIn = (agentId: string, path: string): number =>
+  Math.max(60_000, (previewLinks.get(previewKey(agentId, path))?.at ?? 0) + PREVIEW_RENEW_MS - Date.now());
 
 export const rawFileUrl = (agentId: string, path: string) =>
   `/api/agents/${agentId}/files/raw/${path.replace(/^\/opt\/data\/workspace\//, "").split("/").map(encodeURIComponent).join("/")}`;

@@ -49,7 +49,8 @@ DATA = "/opt/data"
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
 
 client = docker.from_env()
-app = FastAPI(title="Noah Agent launcher")
+# Ni /docs, ni /redoc, ni /openapi.json : les machines des agents joignent ce service, il ne leur décrit pas ses routes.
+app = FastAPI(title="Noah Agent launcher", docs_url=None, redoc_url=None, openapi_url=None)
 
 
 def auth(authorization: str = Header("")) -> None:

@@ -109,6 +109,47 @@ async def cancellation() -> None:
 asyncio.run(cancellation())
 print("OK : réponse préparée annulée, requête coupée, aucun message écrit")
 
+
+async def revoked_audio() -> None:
+    """Le son d'une session révoquée s'arrête, même s'il continue d'arriver."""
+    from starlette.requests import Request
+
+    token = auth.new_session(user, "Téléphone", "web")
+    sid = "d" * 32
+    stream = media.audio_stream(sid)
+    stream.owner = user
+    stream.put(b"premier")
+
+    async def feed():
+        while True:
+            stream.put(b"encore")
+            await asyncio.sleep(0.05)
+
+    feeding = asyncio.create_task(feed())
+    request = Request({"type": "http", "headers": [(b"authorization", f"Bearer {token}".encode())]})
+    response = await main.voice_audio(sid, request, None, user)
+    heard = []
+
+    async def listen():
+        async for chunk in response.body_iterator:
+            heard.append(chunk)
+
+    listening = asyncio.create_task(listen())
+    await asyncio.sleep(0.3)
+    assert heard and not listening.done(), "le son doit arriver tant que la session vit"
+    auth.drop_session(token)
+    try:
+        await asyncio.wait_for(listening, auth.REVOKE_EVERY * 2 + 1)
+    except asyncio.TimeoutError:
+        raise AssertionError("session révoquée : le son continue d'arriver") from None
+    finally:
+        feeding.cancel()
+    assert sid not in media._streams, "flux encore ouvert après la révocation"
+
+
+asyncio.run(revoked_audio())
+print("OK : session révoquée, le flux audio s'arrête et se ferme")
+
 # --- Serveur de voix au choix -----------------------------------------------------------------
 
 OWN = "http://voix.test/v1"

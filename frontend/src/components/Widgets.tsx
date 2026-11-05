@@ -3,8 +3,8 @@
 import type { SyntaxHighlighterProps } from "@assistant-ui/react-markdown";
 import { useAuiState } from "@assistant-ui/react";
 import { Check, Download, ExternalLink, FileText, Maximize2, Reply } from "lucide-react";
-import { useContext, useEffect, useMemo, useState } from "react";
-import { mediaUrl, previewUrl, rawFileUrl } from "@/lib/api";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { mediaUrl, previewRenewIn, previewUrl, rawFileUrl } from "@/lib/api";
 import { inAndroidApp, nativeSave } from "@/lib/platform";
 import { cn, safeMedia } from "@/lib/utils";
 import { AgentContext } from "@/lib/agentContext";
@@ -220,14 +220,25 @@ function Preview({ spec }: { spec: PreviewSpec }) {
   const raw = rawFileUrl(agentId, path);
   const page = /\.html?$/i.test(path);
   const [link, setLink] = useState<string | null>(null);
+  // La page déjà ouverte garde son lien : le changer la rechargerait et lui ferait perdre son état. Les boutons prennent le plus récent.
+  const opened = useRef<string | null>(null);
   useEffect(() => {
     let live = true;
-    if (page) previewUrl(agentId, path).then((u) => live && setLink(u), () => live && setLink(raw));
+    let renew: ReturnType<typeof setTimeout> | undefined;
+    opened.current = null;
+    const ask = () => previewUrl(agentId, path).then((u) => {
+      if (!live) return;
+      setLink(u);
+      renew = setTimeout(ask, previewRenewIn(agentId, path));
+    }, () => live && setLink(raw));
+    if (page) ask();
     return () => {
       live = false;
+      clearTimeout(renew);
     };
   }, [agentId, path, page, raw]);
   const url = page ? link ?? raw : raw;
+  if (page && link && !opened.current) opened.current = link;
   const image = isImagePath(path);
   const frame = !image && canFrame(path);
   const open = () => (image ? view({ kind: "image", src: mediaUrl(agentId, path), title }) : view({ kind: "file", url, title }));
@@ -267,7 +278,7 @@ function Preview({ spec }: { spec: PreviewSpec }) {
         <div className="h-[560px] bg-muted" />
       ) : frame ? (
         <iframe
-          src={url}
+          src={page ? opened.current ?? url : url}
           title={title}
           loading="lazy"
           sandbox="allow-scripts allow-forms allow-popups allow-modals"

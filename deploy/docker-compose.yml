@@ -90,11 +90,19 @@ configs:
             header Content-Type image/svg+xml*
           }
         }
-        # Journal d'accès tournant (Caddy n'y écrit ni l'en-tête Authorization ni les cookies).
+        # Journal d'accès tournant (Caddy n'y écrit ni l'en-tête Authorization ni les cookies). Le chemin d'un aperçu porte
+        # son jeton : pas journalisé. Un ancien lien ?installation=… perd son code, dans l'adresse comme dans le Referer.
+        log_skip /api/apercu/*
         log {
           output file /data/access.log {
             roll_size 10MiB
             roll_keep 5
+          }
+          format filter {
+            request>uri query {
+              delete installation
+            }
+            request>headers>Referer delete
           }
         }
         # HSTS, CSP et le reste : posés par le serveur (server/noah/exposition.py), ici ils partiraient en double.

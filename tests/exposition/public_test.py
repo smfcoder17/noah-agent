@@ -335,7 +335,30 @@ def test_deploy_files() -> None:
         assert "-Server" in text, name
         # Le serveur pose ces en-têtes : les répéter ici les enverrait en double.
         assert not re.search(r"^\s*(Strict-Transport-Security|X-Content-Type-Options|Referrer-Policy)\b", text, re.M), name
+        assert "log_skip /api/apercu/*" in text and "delete installation" in text, f"{name} : jetons dans le journal d'accès"
     print("14. Uvicorn ne se nomme plus, clé du lanceur comparée en temps constant, Caddy ne double pas les en-têtes")
+    assert "--no-access-log" in (REPO / "server" / "Dockerfile").read_text(encoding="utf-8"), "journal d'accès d'Uvicorn : les adresses y finissent"
+    assert "/#installation=%s" in (REPO / "server" / "noah" / "public.py").read_text(encoding="utf-8"), "le code d'installation part vers le serveur"
+    onboarding = (REPO / "frontend" / "src" / "components" / "Onboarding.tsx").read_text(encoding="utf-8")
+    assert "location.hash" in onboarding and "location.search" in onboarding, "l'interface lit le # et les anciens liens"
+    get_sh = (REPO / "get.sh").read_text(encoding="utf-8")
+    assert '/#installation=$code' in get_sh and "?installation" not in get_sh
+    print("14 bis. ni code d'installation ni jeton d'aperçu dans les journaux d'accès")
+    pins = [re.search(r"fastapi==([\d.]+)", (REPO / f).read_text(encoding="utf-8")).group(1) for f in ("server/requirements.txt", "launcher/Dockerfile")]
+    assert pins[0] == pins[1], pins
+    assert "openapi_url=None" in launcher, "le lanceur décrit ses routes sans clé"
+
+
+def test_range_header() -> None:
+    """CVE-2025-62727 : Starlette < 0.49.1 met un temps quadratique à lire un en-tête Range malformé, sur tout fichier public."""
+    from importlib.metadata import version
+    found = tuple(int(n) for n in version("starlette").split(".")[:3])
+    assert found >= (0, 49, 1), f"Starlette {found} : CVE-2025-62727"
+    started = time.monotonic()
+    r = anonymous().get("/assets/index-AbCd1234.js", headers={"Range": "bytes=" + "1" * 50000})
+    took = time.monotonic() - started
+    assert r.status_code in (200, 206, 400, 416) and took < 2, f"Range malformé : {r.status_code} en {took:.1f} s"
+    print(f"16. Starlette {'.'.join(map(str, found))} : un Range malformé de 50 000 caractères coûte {took * 1000:.0f} ms")
 
 
 def test_assets() -> None:
@@ -348,6 +371,6 @@ def test_assets() -> None:
 
 for test in (test_no_api_description, test_robots, test_security_headers, test_agent_content_stays_sandboxed, test_status_says_little,
              test_internal_routes_from_outside, test_providers_need_a_session, test_restore_status_says_nothing, test_login_same_answer,
-             test_login_limits, test_login_cookie_and_body, test_other_origins, test_screen_password_out_of_address, test_deploy_files, test_assets):
+             test_login_limits, test_login_cookie_and_body, test_other_origins, test_screen_password_out_of_address, test_deploy_files, test_assets, test_range_header):
     test()
 print("OK : exposition publique")
