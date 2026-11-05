@@ -143,6 +143,24 @@ def init() -> None:
                    "created_at TEXT DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (agent_id, user_id))")
         db.execute("CREATE INDEX IF NOT EXISTS agent_shares_user ON agent_shares(user_id)")
         db.execute("CREATE INDEX IF NOT EXISTS usage_owner ON usage(owner_id, created_at)")
+        # Mot de passe temporaire (premier compte choisi au déploiement, réinitialisation) : à changer avant toute autre chose.
+        _add_columns(db, "users", {"a_changer": "INTEGER NOT NULL DEFAULT 0"})
+        # Courriel de confirmation (courriel.py) : l'adresse d'un compte, les codes en empreinte, les envois de la dernière heure.
+        db.execute("CREATE TABLE IF NOT EXISTS courriel_adresses (user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, "
+                   "adresse TEXT NOT NULL DEFAULT '', active INTEGER NOT NULL DEFAULT 0, en_attente TEXT NOT NULL DEFAULT '')")
+        db.execute("CREATE TABLE IF NOT EXISTS courriel_codes (user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
+                   "action TEXT NOT NULL, session TEXT NOT NULL, empreinte TEXT NOT NULL, expire REAL NOT NULL, "
+                   "essais INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (user_id, action))")
+        db.execute("CREATE TABLE IF NOT EXISTS courriel_envois (user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
+                   "genre TEXT NOT NULL, quand REAL NOT NULL)")
+        # Nouvel appareil (appareils.py) : les navigateurs reconnus, et les sessions signalées sur lesquelles personne n'a tranché.
+        db.execute("CREATE TABLE IF NOT EXISTS appareils_connus (user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
+                   "empreinte TEXT NOT NULL, reseau TEXT NOT NULL, vu REAL NOT NULL, PRIMARY KEY (user_id, empreinte, reseau))")
+        db.execute("CREATE TABLE IF NOT EXISTS alertes_appareils (id TEXT PRIMARY KEY, "
+                   "user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
+                   "session TEXT NOT NULL REFERENCES sessions(token) ON DELETE CASCADE, empreinte TEXT NOT NULL DEFAULT '', "
+                   "nom TEXT NOT NULL DEFAULT '', type TEXT NOT NULL DEFAULT 'web', ip TEXT NOT NULL DEFAULT '', reseau TEXT NOT NULL DEFAULT '', "
+                   "reseau_connu INTEGER NOT NULL DEFAULT 0, cree TEXT NOT NULL, tranche INTEGER NOT NULL DEFAULT 0)")
         # Outils branchés par l'utilisateur (G13) : `jeton` chiffré par seal(), `outils` la dernière liste connue du serveur.
         db.execute("CREATE TABLE IF NOT EXISTS mcp_tools (agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, "
                    "nom TEXT NOT NULL, url TEXT NOT NULL DEFAULT '', "

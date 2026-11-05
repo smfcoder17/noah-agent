@@ -4,6 +4,7 @@ import hashlib
 import ipaddress
 import json
 import mimetypes
+import os
 import re
 import secrets
 import threading
@@ -26,7 +27,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Str
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import access, accounts, auth, catalog, coordination, db, desktop, double_verification, events, exposition, handoff, hermes, machine, mcp, media, pendant, profiles, public, push, recuperation, relay, updates, watch, precall, diagnostics
+from . import access, accounts, appareils, auth, catalog, coordination, courriel, db, desktop, double_verification, events, exposition, handoff, hermes, machine, mcp, media, pendant, profiles, public, push, recuperation, relay, updates, watch, precall, diagnostics
 from . import config
 from .config import WEB_DIR, forget_setup_code
 from .hermes import Agent
@@ -43,6 +44,13 @@ async def internal_error(request: Request, error: Exception):
     # Répondue hors des intergiciels : ses en-têtes sont posés ici.
     return JSONResponse({"detail": "Erreur interne de Noah Agent. Détails dans Réglages > Diagnostic."}, status_code=500,
                         headers=exposition.headers_for(request.scope))
+
+
+@app.exception_handler(courriel.Required)
+async def mail_code_required(_: Request, error: courriel.Required):
+    """Un code vient de partir : l'interface le demande, et renvoie la même requête avec lui."""
+    return JSONResponse({"courriel_requis": True, "detail": error.message}, status_code=428)
+
 
 UNSAFE = {"POST", "PUT", "PATCH", "DELETE"}
 # Pour les agents, le lanceur et Caddy, sur le réseau Docker. Depuis dehors, elles n'existent pas : ni format lisible en 422,
@@ -118,6 +126,8 @@ app.include_router(handoff.router)
 app.include_router(coordination.router)
 app.include_router(accounts.router)
 app.include_router(profiles.router)
+app.include_router(courriel.router)
+app.include_router(appareils.router)
 app.include_router(public.router)
 
 # Agents en cours de création : id -> message d'étape ou d'erreur affiché dans l'interface.
@@ -136,6 +146,7 @@ AGENT_SETUP_VERSION = "28-profils-partage"  # garde des profils de partage (G12.
 @app.on_event("startup")
 async def startup() -> None:
     db.init()
+    _first_account()
     if not auth.has_users():
         config.renew_setup_code()
     auth.hash_old_sessions()
@@ -336,16 +347,32 @@ def _session_cookie(request: Request, response: Response, token: str) -> None:
         response.set_cookie(auth.COOKIE, token, httponly=True, samesite="lax", max_age=30 * 86400, secure=secure)
 
 
-def _login_response(request: Request, response: Response, user_id: int, device: str = "", platform: str = "web") -> dict:
+def _login_response(request: Request, response: Response, user_id: int, device: str = "", platform: str = "web",
+                    background: BackgroundTasks | None = None) -> dict:
     # Mot de passe saisi dans la fenêtre d'une app : une session de téléphone ou d'ordinateur, pas de navigateur.
     in_app = platform == "web" and _app_window(request)
     if in_app:
         platform = in_app.lower()
-    token = auth.new_session(user_id, device or _device_name(request), platform if platform in PLATFORMS else "web",
+    first = appareils.first_device(user_id)  # à lire avant de créer la session
+    name = device or _device_name(request)
+    token = auth.new_session(user_id, name, platform if platform in PLATFORMS else "web",
                              _ip(request), request.headers.get("x-noah-version", ""), proven=platform == "web")
     # Apps (bureau, mobile) : jeton dans la réponse seulement, qu'elles rangent chiffré ; un cookie y resterait en clair.
     if in_app or platform == "web" or platform not in PLATFORMS:
         _session_cookie(request, response, token)
+    fingerprint = ""
+    if platform == "web":  # navigateur : un cookie sans aucun droit, pour le reconnaître à sa prochaine connexion
+        value = appareils.cookie_value(request)
+        response.set_cookie(appareils.COOKIE, value, httponly=True, samesite="lax", max_age=appareils.COOKIE_DAYS * 86400,
+                            secure=request.url.scheme == "https")
+        fingerprint = appareils.device_print(user_id, value)
+    if first:
+        if fingerprint:
+            appareils.remember(user_id, fingerprint, appareils.network(_ip(request)))
+    elif not (fingerprint and appareils.known(user_id, fingerprint, _ip(request))):
+        alert = appareils.signal(user_id, auth.digest(token), name, platform, _ip(request), fingerprint)
+        if background is not None:
+            background.add_task(appareils.announce, alert)
     # Navigateur : le cookie HttpOnly suffit. Le jeton dans le corps le rendrait lisible au script de la page.
     return {"token": token} if in_app or platform != "web" else {"ok": True}
 
@@ -502,15 +529,6 @@ def _too_many(request: Request) -> list[float]:
     if len(recent) >= LOGIN_TRIES or len(pairing) >= LOGIN_TRIES:
         raise HTTPException(429, "Trop d'essais. Réessaie dans quelques minutes.")
     return recent + pairing
-
-
-async def _alert_new_device(user: int, name: str, ip: str) -> None:
-    """Chaque nouvel appareil se signale sur les appareils déjà abonnés du compte, pour qu'un accès volé se voie."""
-    try:
-        await push.send("Nouvel appareil sur ton compte",
-                        f"{name} ({ip}). Ce n'est pas toi ? Déconnecte-le dans Réglages → Appareils.", urgent=True, user_id=user)
-    except Exception as e:
-        print(f"[appareils] alerte de nouvel appareil non envoyée : {e}", flush=True)
 
 
 def _pairing_failed(request: Request) -> None:
@@ -694,7 +712,9 @@ def flow_poll(body: FlowPoll, request: Request, response: Response, background: 
                         _flows.pop(public, None)
                         break
                     flow["expire"] = time.time() + SERVED_SECONDS
-                    background.add_task(_alert_new_device, flow["user"], flow["appareil"], _ip(request))
+                    # Chaque nouvel appareil se signale sur les autres, pour qu'un accès volé se voie.
+                    background.add_task(appareils.announce, appareils.signal(flow["user"], auth.digest(flow["jeton"]), flow["appareil"],
+                                                                             flow["type"], _ip(request)))
                 token = flow["jeton"]
                 break
         else:
@@ -805,6 +825,25 @@ def setup_done(user: int = Depends(access.owner_only)):
     return {"ok": True}
 
 
+def _first_account() -> None:
+    """Premier compte choisi au déploiement (NOAH_ADMIN_USER, NOAH_ADMIN_PASSWORD) : lu au démarrage et seulement s'il n'y a aucun
+    compte ; changer ces variables ensuite ne touche à rien. Le mot de passe, jamais journalisé, est à changer à la première
+    connexion, et le code d'installation ne sert plus. Variables absentes : le lien à code d'installation, comme toujours."""
+    name = os.environ.pop("NOAH_ADMIN_USER", "").strip()
+    password = os.environ.pop("NOAH_ADMIN_PASSWORD", "")  # retiré d'ici : rien de lancé par ce serveur n'en hérite
+    if not name and not password or auth.has_users():
+        return
+    if not re.fullmatch(r"[\w .@-]{2,64}", name) or not 12 <= len(password) <= 256:
+        recuperation.log.warning("NOAH_ADMIN_USER et NOAH_ADMIN_PASSWORD ignorés : il faut un nom de 2 à 64 caractères et un mot de passe "
+                                 "d'au moins 12 caractères. Le lien à code d'installation reste valable.")
+        return
+    with _setup_lock:
+        auth.create_user(name, password, temporary=True)
+        db.set_setting("onboarded", "0")  # l'assistant continue après le nouveau mot de passe : modèle, premier agent, essai
+    forget_setup_code()
+    recuperation.log.warning("Compte propriétaire « %s » créé depuis NOAH_ADMIN_USER : son mot de passe est à changer à la première connexion.", name)
+
+
 @app.post("/api/setup/account")
 def setup_account(body: Credentials, request: Request, response: Response):
     recent = _too_many(request)
@@ -859,8 +898,7 @@ def login(body: Login, request: Request, response: Response, background: Backgro
         if not _code_ok(user_id, body.code):
             raise HTTPException(401, "Ce code est faux ou a déjà servi. Attends le suivant, ou utilise un code de secours.")
     _give_back_login(ip, name, now)
-    background.add_task(_alert_new_device, user_id, _device_name(request), _ip(request))
-    return _login_response(request, response, user_id)
+    return _login_response(request, response, user_id, background=background)
 
 
 def _give_back_login(ip: str, name: str, reserved: float) -> None:
@@ -874,7 +912,7 @@ def _give_back_login(ip: str, name: str, reserved: float) -> None:
 async def _alert_stolen_password(user: int) -> None:
     try:
         await push.send("Quelqu'un connaît ton mot de passe",
-                        "Plusieurs codes de double vérification faux viennent d'être essayés. Change ton mot de passe dans Réglages → Appareils.",
+                        "Plusieurs codes de double vérification faux viennent d'être essayés. Change ton mot de passe dans Réglages → Sécurité.",
                         urgent=True, user_id=user)
     except Exception as e:
         print(f"[appareils] alerte de codes faux non envoyée : {e}", flush=True)
@@ -895,28 +933,47 @@ def _code_ok(user: int, code: str) -> bool:
 WRONG_PROOF = "Mot de passe ou code incorrect."
 
 
-def _prove(request: Request, user: int, password: str, code: str) -> None:
+def _prove(request: Request, user: int, password: str, code: str, with_code: bool = True, wrong: str = WRONG_PROOF) -> None:
     """Une session valable, peut-être volée, confirme le mot de passe et le code s'il y en a un. 400 et non 401 : sa session
     reste bonne. Mêmes limites que la connexion, sans la dispense d'une adresse connue : le voleur du jeton s'en servirait."""
     username = access.username(user)
     ip, name = _network(_ip(request)) or "?", username.strip().lower()
     reserved = _reserve_login(ip, name, False)
     if auth.check_password(username, password) != user:
-        raise HTTPException(400, WRONG_PROOF)
-    if double_verification.active(user) and (not code.strip() or not _code_ok(user, code)):
-        raise HTTPException(400, WRONG_PROOF)
+        raise HTTPException(400, wrong)
+    if with_code and double_verification.active(user) and (not code.strip() or not _code_ok(user, code)):
+        raise HTTPException(400, wrong)
     _give_back_login(ip, name, reserved)
 
 
+def _prove_password(request: Request, user: int, password: str, wrong: str) -> None:
+    _prove(request, user, password, "", with_code=False, wrong=wrong)
+
+
 def _prove_if_needed(request: Request, user: int, password: str, code: str, ask: str) -> None:
-    """Sans preuve récente de cette session, 428 demande le mot de passe (et le code, si la double vérification est active)."""
+    """Sans preuve récente de cette session, 428 demande le mot de passe (et le code, si la double vérification est active).
+    Jamais de dispense pour une session de fenêtre : son cookie, sur le disque de l'appareil, n'a pas le mot de passe."""
     session = _session_of(request)
-    if auth.proven_recently(session):
+    if auth.proven_recently(session) and not auth.is_window(auth.request_token(request, request.cookies.get(auth.COOKIE))):
         return
     if not password:
         raise HTTPException(428, ask)
     _prove(request, user, password, code)
     auth.mark_proven(session)
+
+
+def _critical(request: Request, user: int, action: str, password: str, code: str, mail_code: str, ask: str = "", always: bool = False) -> None:
+    """Action critique : la preuve, puis le code reçu par courriel si une adresse est active. Ce code n'est parti qu'une fois la preuve
+    donnée, à cette même session : le bon code en tient lieu, et un code d'application déjà consommé n'a pas à resservir."""
+    session = _session_of(request)
+    if mail_code.strip() and courriel.active(user):
+        courriel.gate(user, action, mail_code, session)
+        return
+    if always:
+        _prove(request, user, password, code)
+    else:
+        _prove_if_needed(request, user, password, code, ask)
+    courriel.gate(user, action, "", session)
 
 
 def _proof_needed(user: int, session: str) -> dict:
@@ -935,6 +992,7 @@ class DoubleCode(BaseModel):
 
 class DoubleProof(DoublePassword):
     code: str = Field(default="", max_length=32)
+    courriel: str = Field(default="", max_length=16)
 
 
 @app.get("/api/me/double-verification")
@@ -966,7 +1024,7 @@ def double_confirm(body: DoubleCode, user: int = Depends(auth.current_user)):
 def double_cut(body: DoubleProof, request: Request, user: int = Depends(auth.current_user)):
     if not double_verification.active(user):
         raise HTTPException(409, "La double vérification n'est pas activée sur ce compte.")
-    _prove(request, user, body.motdepasse, body.code)
+    _critical(request, user, "couper-double", body.motdepasse, body.code, body.courriel, always=True)
     double_verification.remove(user)
     recuperation.log.warning("Double vérification coupée par le titulaire du compte n°%d, depuis l'adresse %s.", user, _ip(request) or "inconnue")
     return {"ok": True}
@@ -976,7 +1034,7 @@ def double_cut(body: DoubleProof, request: Request, user: int = Depends(auth.cur
 def double_cut_profile(profile_id: int, body: DoubleProof, request: Request,
                        user: int = Depends(access.owner_only)):
     """Un profil a perdu son téléphone et ses codes : seul le propriétaire peut l'aider, avec sa propre preuve."""
-    _prove(request, user, body.motdepasse, body.code)
+    _critical(request, user, f"couper-double:{profile_id}", body.motdepasse, body.code, body.courriel, always=True)
     if not double_verification.remove(profile_id):
         raise HTTPException(404, "Ce profil n'a pas de double vérification.")
     recuperation.log.warning("Double vérification du compte n°%d coupée par le propriétaire, depuis l'adresse %s.", profile_id, _ip(request) or "inconnue")
@@ -999,6 +1057,7 @@ class RecoveryReset(BaseModel):
     code: str = Field(min_length=1, max_length=64)
     password: str = Field(min_length=8, max_length=256)
     couper_double: bool = False  # téléphone perdu aussi : qui a la main sur le serveur peut la couper
+    couper_courriel: bool = False  # envoi de courriels en panne : pareil
 
 
 @app.post("/api/recuperation")
@@ -1022,6 +1081,9 @@ def recovery_reset(body: RecoveryReset, request: Request, response: Response):
     if body.couper_double:
         recuperation.log.warning("Double vérification du propriétaire coupée par code de récupération depuis l'adresse %s.",
                                  _ip(request) or "inconnue")
+    if body.couper_courriel:
+        recuperation.log.warning("Courriel de confirmation coupé pour %d compte(s) par code de récupération depuis l'adresse %s.",
+                                 courriel.cut_all(), _ip(request) or "inconnue")
     return {"ok": True, "username": username}
 
 
@@ -1097,12 +1159,22 @@ def open_window(request: Request, _: int = Depends(auth.current_user)):
 
 
 @app.post("/api/devices/others/revoke")
-def revoke_other_devices(request: Request, noah_session: str | None = Cookie(None), user: int = Depends(auth.current_user)):
+def revoke_other_devices(request: Request, body: courriel.Preuve | None = None, noah_session: str | None = Cookie(None),
+                         user: int = Depends(auth.current_user)):
+    """Un jeton volé ne déconnecte pas les autres appareils : il garderait la main, et la personne ne pourrait plus le couper."""
+    body = body or courriel.Preuve()
+    _critical(request, user, "revoquer-tous", body.motdepasse, body.code, body.courriel, "Confirme ton mot de passe pour déconnecter tes autres appareils.")
     return {"deconnectes": auth.revoke_others(user, auth.request_token(request, noah_session) or "")}
 
 
 @app.delete("/api/devices/{device_id}")
-def revoke_device(device_id: str, user: int = Depends(auth.current_user)):
+def revoke_device(device_id: str, request: Request, body: courriel.Preuve | None = None, user: int = Depends(auth.current_user)):
+    """Un appareil d'un autre compte n'existe pas ici. Se déconnecter soi-même reste libre ; un autre appareil demande la preuve."""
+    if device_id != auth.device_id(_session_of(request)):
+        if not any(d["id"] == device_id for d in auth.devices(user, None)):
+            raise HTTPException(404, "Appareil introuvable")
+        body = body or courriel.Preuve()
+        _prove_if_needed(request, user, body.motdepasse, body.code, "Confirme ton mot de passe pour déconnecter cet appareil.")
     if not auth.revoke_device(user, device_id):
         raise HTTPException(404, "Appareil introuvable")
     return {"ok": True}
@@ -1111,8 +1183,8 @@ def revoke_device(device_id: str, user: int = Depends(auth.current_user)):
 @app.get("/api/me")
 def me(user: int = Depends(auth.current_user)):
     with db.connect() as c:
-        row = c.execute("SELECT username, role FROM users WHERE id = ?", (user,)).fetchone()
-    return {"id": user, "username": row["username"], "role": row["role"]}
+        row = c.execute("SELECT username, role, a_changer FROM users WHERE id = ?", (user,)).fetchone()
+    return {"id": user, "username": row["username"], "role": row["role"], "mot_de_passe_a_changer": bool(row["a_changer"])}
 
 
 # --- Modèle (partagé par tous les agents) ----------------------------------------------
@@ -1365,6 +1437,9 @@ def outbound_flows(user: int = Depends(access.owner_only)):
                       "quand": "au démarrage (le premier qui répond ; les suivants seulement en secours)"})
     flows.append({"quoi": "Google (Gmail, Agenda, Drive…)", "vers": "googleapis.com",
                   "quand": "seulement si tu connectes ton compte Google à un agent"})
+    mail = courriel.flow()
+    if mail:
+        flows.append(mail)
     return {"flux": flows, "telemetrie": False}
 
 
@@ -1864,7 +1939,8 @@ async def _forget_guest(agent_id: str, user: int) -> None:
         print(f"[partage] profil {profile} non effacé sur {agent_id} : {e}", flush=True)
 
 
-profiles.setup(prove_if_needed=_prove_if_needed, stop_runs=_stop_runs, remove_agent=_remove_agent, drop_pending=_drop_pending, forget_guest=_forget_guest)
+courriel.setup(critical=_critical)
+profiles.setup(prove_if_needed=_prove_if_needed, critical=_critical, prove_password=_prove_password, stop_runs=_stop_runs, remove_agent=_remove_agent, drop_pending=_drop_pending, forget_guest=_forget_guest)
 
 
 # --- Conversations ----------------------------------------------------------------------

@@ -136,6 +136,10 @@ jobs:
       - name: "Double vérification : activation, code rejoué, codes de secours, force brute, profils, récupération"
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/install/double_verification_test.py"
+      - name: "Comptes : jeton volé, premier compte au déploiement, mot de passe temporaire, profils, courriel de confirmation, nouvel appareil"
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/install/comptes_test.py"
+          docker run --rm -v "$PWD:/repo:ro" alpine sh /repo/tests/install/get_admin.sh
       - name: Caddyfile du VPS
         run: |
           docker run --rm -e NOAH_DOMAIN=noah.example.com -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" \

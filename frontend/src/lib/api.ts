@@ -2,9 +2,12 @@
 
 export class ApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  /** 428 : un code vient de partir par courriel, il faut le saisir. */
+  courriel: boolean;
+  constructor(message: string, status: number, courriel = false) {
     super(message);
     this.status = status;
+    this.courriel = courriel;
   }
 }
 
@@ -77,15 +80,20 @@ export async function request(path: string, init: RequestInit = {}): Promise<Res
   if (res.status === 200 && /^\/api\/(login|setup\/account|pairing\/flow\/poll)/.test(path)) bumpAuthEpoch();
   // Session révoquée ou expirée pendant l'usage : l'interface revient à l'écran de connexion (ou de reliaison).
   if (res.status === 401 && guarded) window.dispatchEvent(new Event("noah:unauthorized"));
+  // Mot de passe temporaire : rien d'autre ne répond tant qu'il n'est pas remplacé.
+  if (res.status === 403 && res.headers.get("x-noah-mot-de-passe")) window.dispatchEvent(new Event("noah:mot-de-passe"));
   if (!res.ok) {
     let message = `Erreur ${res.status}`;
+    let courriel = false;
     try {
-      const detail = (await res.json()).detail;
+      const body = await res.json();
+      const detail = body.detail;
+      courriel = body.courriel_requis === true;
       message = Array.isArray(detail) ? "Vérifie les champs du formulaire." : detail || message;
     } catch {
       /* corps non JSON */
     }
-    throw new ApiError(message, res.status);
+    throw new ApiError(message, res.status, courriel);
   }
   return res;
 }
@@ -124,7 +132,7 @@ export type Catalog = { needs_key: boolean; groups: ModelGroup[]; models: Model[
 export type CurrentModel = { provider: string; model: string; has_key: boolean; base_url?: string | null } | null;
 export type TaskState = "work" | "approve" | "choice" | "done" | "error" | "idle";
 /** Compte connecté : le rôle cache ce qui n'est pas permis, le serveur reste la seule protection. */
-export type Me = { id: number; username: string; role: "owner" | "member" };
+export type Me = { id: number; username: string; role: "owner" | "member"; mot_de_passe_a_changer?: boolean };
 export type AgentRight = "lecture" | "usage" | "admin" | "proprietaire";
 export type Agent = {
   id: string;

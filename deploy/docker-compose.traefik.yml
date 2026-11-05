@@ -13,6 +13,10 @@ services:
     restart: unless-stopped
     environment:
       NOAH_DOMAIN: ${NOAH_DOMAIN:?NOAH_DOMAIN est obligatoire derrière Traefik}
+      # Facultatif : le premier compte, choisi au déploiement (mot de passe de 12 caractères au moins, à changer à la première connexion).
+      # Lu seulement s'il n'y a aucun compte : changer ces valeurs ensuite ne touche à rien. Vides : le lien à code d'installation.
+      NOAH_ADMIN_USER: ${NOAH_ADMIN_USER:-}
+      NOAH_ADMIN_PASSWORD: ${NOAH_ADMIN_PASSWORD:-}
       NOAH_SETUP_CODE: auto
       LAUNCHER_URL: http://launcher:9000
       NOAH_PUSH_HOSTS: ${NOAH_PUSH_HOSTS:-}

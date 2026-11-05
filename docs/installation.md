@@ -59,6 +59,15 @@ Le script installe Docker s'il manque, ouvre les ports web si `ufw` est actif, p
 
 Relancer la commande met Noah à jour sans toucher aux données ni aux secrets. Le domaine reste noté dans `/opt/noah/.env`. Autres variables : `NOAH_DIR` (dossier d'installation), `NOAH_COMPOSE_URL` (un autre fichier compose).
 
+### Choisir son compte au déploiement
+
+Facultatif. Sans ces variables, le compte se crée par le lien à code d'installation. Si tu ouvres l'adresse sans ce lien, Noah demande le code et dit où le lire : dans les journaux du service `server`.
+
+- **Par une commande :** `curl -fsSL https://raw.githubusercontent.com/smfcoder17/noah-agent/main/get.sh | NOAH_ADMIN_USER=franck NOAH_ADMIN_PASSWORD='provisoire-assez-long' sh`. Le script les retire de `.env` dès que le compte existe.
+- **Par Docker Manager :** dans le YAML Editor, remplis `NOAH_ADMIN_USER` et `NOAH_ADMIN_PASSWORD`, puis vide-les une fois connecté.
+
+Au tout premier démarrage, s'il n'y a aucun compte et que le mot de passe a 12 caractères au moins, le compte propriétaire est créé et le code d'installation effacé. À ta première connexion, Noah exige un nouveau mot de passe avant toute autre chose. Ces variables ne servent plus jamais ensuite : changer leur valeur ne touche pas au compte. Le mot de passe n'est écrit dans aucun journal.
+
 ### Derrière un Traefik
 
 Un Traefik tient déjà les ports 80 et 443 ? Le Caddy de Noah ne pourrait pas démarrer.
@@ -103,25 +112,40 @@ Un sous-domaine ne cache rien : un nom est public, et il mène à l'IP. Seul un 
 
 ## Mot de passe oublié
 
-Noah n'envoie pas de courriel : qui a la main sur le serveur peut changer le mot de passe du propriétaire. Sur la page de connexion, « Mot de passe oublié ? », puis « Créer un code ». Le code se lit dans les journaux du service `server`. Il sert une fois, pendant 15 minutes.
+Qui a la main sur le serveur peut changer le mot de passe du propriétaire. Un profil qui a oublié le sien demande au propriétaire : Réglages > Profils > Mot de passe, un mot de passe temporaire à changer à la connexion. Sur la page de connexion, « Mot de passe oublié ? », puis « Créer un code ». Le code se lit dans les journaux du service `server`. Il sert une fois, pendant 15 minutes.
 
 - **Hostinger :** VPS > Manage > Docker Manager > Projects, menu ⋮ de ton projet > View logs. Cherche « Code de récupération ».
 - **Avec un terminal sur le serveur :** `docker exec noah-server python -m noah.recuperation` crée un nouveau code et l'affiche. L'ancien ne sert plus.
 
 Toutes les sessions du serveur se ferment après le changement : relie de nouveau tes applications. Trop d'essais faux bloquent l'adresse quelques minutes (5 en 10 min), et 20 essais faux annulent le code.
 
-La double vérification du propriétaire reste active, sauf si tu coches la case de cette page. Qui a la main sur le serveur peut donc aussi la couper, et le journal du service `server` le note.
+La double vérification du propriétaire reste active, sauf si tu coches la case de cette page. Qui a la main sur le serveur peut donc aussi la couper, et le journal du service `server` le note. De même pour le [code reçu par courriel](#le-code-reçu-par-courriel).
 
 ## La double vérification
 
 En plus du mot de passe, Noah peut demander un code à 6 chiffres donné par une application sur ton téléphone (Google Authenticator, Aegis, 1Password…). Chaque compte l'active pour lui-même : propriétaire comme profil.
 
-- **Activer :** Réglages > Appareils > « Activer la double vérification ». Noah demande ton mot de passe, affiche un QR code et sa clé en clair, puis attend un premier code. Il montre ensuite 8 codes de secours, une seule fois : note-les ailleurs que sur ce téléphone.
+- **Activer :** Réglages > Sécurité > « Activer la double vérification ». Noah demande ton mot de passe, affiche un QR code et sa clé en clair, puis attend un premier code. Il montre ensuite 8 codes de secours, une seule fois : note-les ailleurs que sur ce téléphone.
 - **Se connecter :** après le mot de passe, saisis le code de l'application, ou un code de secours si tu n'as plus ton téléphone. Un même code ne sert qu'une fois.
 - **Tes applications reliées :** elles gardent leur accès et ne demandent aucun code à l'usage.
 - **Codes faux :** 5 codes faux en 30 minutes bloquent le compte pendant ce délai, quelle que soit l'adresse, et tes appareils abonnés aux notifications sont prévenus. Seul qui a le bon mot de passe atteint cette limite : si cela arrive sans toi, change-le.
 - **Désactiver :** même endroit, avec ton mot de passe et un code. Changer de mot de passe ne la coupe pas.
 - **Plus de téléphone ni de code de secours :** le propriétaire passe par [Mot de passe oublié](#mot-de-passe-oublié). Pour un profil, le propriétaire la coupe dans Réglages > Profils.
+
+## Le code reçu par courriel
+
+Facultatif, dans Réglages > Sécurité. Le propriétaire règle l'envoi (serveur SMTP, port, identifiant, mot de passe, expéditeur, STARTTLS ou SSL) et vérifie avec « Envoyer un essai » ; la connexion est toujours chiffrée et le certificat vérifié. Chaque compte active ensuite son adresse avec un code reçu dessus.
+
+- **Ce qui le demande alors :** changer le mot de passe, supprimer un compte, ajouter un utilisateur, réinitialiser un mot de passe, couper la double vérification, changer l'adresse ou le réglage d'envoi, déconnecter tous les autres appareils. D'abord ton mot de passe, puis le code.
+- **Le code :** il sert une fois, pendant 10 minutes, avec 5 essais, et 5 envois au plus par heure. Il ne vaut que pour cette action et cet écran.
+- **Si l'envoi tombe en panne :** l'action refuse et le dit. La connexion et la coupure d'un appareil précis restent possibles. Coupe l'exigence sur le serveur, et le journal le note : `docker exec noah-server python -m noah.recuperation --couper-courriel`, ou la case de [Mot de passe oublié](#mot-de-passe-oublié).
+
+## Nouvel appareil sur ton compte
+
+Chaque nouvelle session (mot de passe depuis un navigateur inconnu, QR code accordé, application de bureau) se signale sur tes autres appareils : notification, notification native au bureau, et courriel si ton adresse est active, avec le nom, l'adresse, le réseau et la date. L'écran revient à chaque ouverture tant que personne n'a tranché. La connexion n'attend aucun accord : tu ne peux pas t'enfermer dehors.
+
+- **« C'est moi » :** ce navigateur, sur ce réseau, ne se signalera plus.
+- **« Ce n'est pas moi » :** cette session est coupée tout de suite, sans mot de passe, et Noah propose de changer le tien.
 
 ## Choisir le modèle
 

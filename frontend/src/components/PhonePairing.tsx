@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, del, get, send } from "@/lib/api";
 import { appShell } from "@/lib/platform";
 import { GrantProof } from "./GrantProof";
+import { useProof } from "./Proof";
 import { minutes } from "./PairingTime";
 import { PushToggle } from "./PushToggle";
 import { Button, ErrorText } from "./ui";
@@ -96,6 +97,7 @@ function ago(iso: string | null) {
 function DeviceList({ refresh }: { refresh: number }) {
   const [list, setList] = useState<Device[] | null>(null);
   const [error, setError] = useState("");
+  const { withProof, proofDialog } = useProof();
   const load = useCallback(() => get<{ appareils: Device[] }>("/api/devices").then((r) => setList(r.appareils)).catch((e) => setError((e as Error).message)), []);
   useEffect(() => {
     load();
@@ -103,8 +105,8 @@ function DeviceList({ refresh }: { refresh: number }) {
   const revoke = async (d: Device) => {
     if (!confirm(`Déconnecter « ${d.nom || "cet appareil"} » ? Il devra être relié de nouveau.`)) return;
     try {
-      await del(`/api/devices/${d.id}`);
-      load();
+      setError("");
+      if (await withProof(`/api/devices/${d.id}`, {}, "DELETE")) load();
     } catch (e) {
       setError((e as Error).message);
     }
@@ -112,8 +114,8 @@ function DeviceList({ refresh }: { refresh: number }) {
   const revokeOthers = async () => {
     if (!confirm("Déconnecter tous les autres appareils ? Chacun devra être relié de nouveau.")) return;
     try {
-      await send("/api/devices/others/revoke", {});
-      load();
+      setError("");
+      if (await withProof("/api/devices/others/revoke")) load();
     } catch (e) {
       setError((e as Error).message);
     }
@@ -125,7 +127,7 @@ function DeviceList({ refresh }: { refresh: number }) {
       {list.map((d) => {
         const Icon = ICONS[d.type] ?? Globe;
         return (
-          <div key={d.id} className="flex items-center gap-2.5 rounded-lg border border-border px-3 py-2">
+          <div key={d.id} className="flex items-center gap-2.5 rounded-lg border border-border px-3 py-2" data-appareil={d.nom}>
             <Icon className="size-4 shrink-0 text-muted-foreground" />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm">{d.nom || "Appareil"}{d.actuel && <span className="ml-2 text-xs text-ok">cet appareil</span>}</p>
@@ -141,6 +143,7 @@ function DeviceList({ refresh }: { refresh: number }) {
         <Button size="sm" variant="ghost" className="self-start text-danger" onClick={revokeOthers}>Déconnecter tous les autres appareils</Button>
       )}
       <ErrorText>{error}</ErrorText>
+      {proofDialog}
     </div>
   );
 }

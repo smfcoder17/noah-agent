@@ -24,6 +24,10 @@ WINDOW_LONGEST = timedelta(hours=24)
 # cette dispense : une session d'appareil vit des mois, et son jeton volé ne doit pas pouvoir se fabriquer un autre accès.
 PROOF_SECONDS = 15 * 60
 WINDOW_REFUSED = "Pas depuis l'app : pour cette action, ouvre Noah dans un navigateur où tu es connecté."
+# Mot de passe temporaire : tant qu'il n'est pas remplacé, seules ces routes répondent à une session de ce compte, même par jeton.
+# Toutes les routes à session passent par current_user (tests/install/comptes_test.py les parcourt une à une).
+TEMPORARY_ROUTES = ("/api/me", "/api/me/password", "/api/devices/self/fenetre")
+TEMPORARY_REFUSED = "Choisis d'abord ton nouveau mot de passe : celui-ci est temporaire."
 
 
 def digest(token: str) -> str:
@@ -48,24 +52,31 @@ def hash_password(password: str) -> bytes:
     return bcrypt.hashpw(password.encode(), bcrypt.gensalt())
 
 
-def create_user(username: str, password: str, role: str | None = None) -> int:
-    """Sans rôle donné : le tout premier compte est le propriétaire de l'installation, les suivants des profils."""
+def create_user(username: str, password: str, role: str | None = None, temporary: bool = False) -> int:
+    """Sans rôle donné : le tout premier compte est le propriétaire de l'installation, les suivants des profils.
+    `temporary` : le mot de passe est à changer à la première connexion."""
     pw_hash = hash_password(password)
     with db.connect() as c:
         first = c.execute("SELECT 1 FROM users LIMIT 1").fetchone() is None
         cur = c.execute(
-            "INSERT INTO users (username, pw_hash, role) VALUES (?, ?, ?)",
-            (username, pw_hash, role or ("owner" if first else "member")),
+            "INSERT INTO users (username, pw_hash, role, a_changer) VALUES (?, ?, ?, ?)",
+            (username, pw_hash, role or ("owner" if first else "member"), int(temporary)),
         )
         return cur.lastrowid
 
 
-def set_password(user_id: int, password: str, keep: str | None = None) -> None:
+def set_password(user_id: int, password: str, keep: str | None = None, temporary: bool = False) -> None:
     """Change le mot de passe et coupe les sessions du compte, sauf `keep` (empreinte) s'il est donné."""
     pw_hash = hash_password(password)
     with db.connect() as c:
-        c.execute("UPDATE users SET pw_hash = ? WHERE id = ?", (pw_hash, user_id))
+        c.execute("UPDATE users SET pw_hash = ?, a_changer = ? WHERE id = ?", (pw_hash, int(temporary), user_id))
         c.execute("DELETE FROM sessions WHERE user_id = ? AND token != ?", (user_id, keep or ""))
+
+
+def must_change(user_id: int) -> bool:
+    with db.connect() as c:
+        row = c.execute("SELECT a_changer FROM users WHERE id = ?", (user_id,)).fetchone()
+    return bool(row and row["a_changer"])
 
 
 def check_password(username: str, password: str) -> int | None:
@@ -187,6 +198,14 @@ def request_token(request: Request, cookie: str | None) -> str | None:
     return header[7:] if header.lower().startswith("bearer ") else cookie
 
 
+def _temporary_refused(c, user_id: int, connection) -> None:
+    if connection.url.path in TEMPORARY_ROUTES:
+        return
+    row = c.execute("SELECT a_changer FROM users WHERE id = ?", (user_id,)).fetchone()
+    if row and row["a_changer"]:
+        raise HTTPException(403, TEMPORARY_REFUSED, headers={"X-Noah-Mot-De-Passe": "a-changer"})
+
+
 def current_user(request: Request, noah_session: str | None = Cookie(None), response: Response = None) -> int:
     """Dépendance FastAPI : cookie pour le web, en-tête Bearer pour les apps mobile et desktop."""
     token = request_token(request, noah_session)
@@ -202,9 +221,11 @@ def current_user(request: Request, noah_session: str | None = Cookie(None), resp
             window = _use_window(c, key)  # jamais la prolongation à SESSION_DAYS ci-dessous : elle ne vaut que pour `sessions`
             if not window:
                 raise HTTPException(401, "Session expirée")
+            _temporary_refused(c, window["user_id"], request)
             return window["user_id"]
         if datetime.fromisoformat(row["expires_at"]) < now:
             raise HTTPException(401, "Session expirée")
+        _temporary_refused(c, row["user_id"], request)
         seen = datetime.fromisoformat(row["last_seen"]) if row["last_seen"] else None
         if not seen or now - seen > SEEN_EVERY:
             expires = datetime.fromisoformat(row["expires_at"])

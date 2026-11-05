@@ -118,6 +118,16 @@ async def status(user: int = Depends(auth.current_user)):
     return {"connecte": connected(user), "systeme": _seen.get(user, {}).get("os", "")}
 
 
+def send_native(user: int, title: str, text: str) -> None:
+    """Notification native sur l'ordinateur de ce compte, si l'application de bureau est ouverte. Personne n'attend la réponse."""
+    if not connected(user):
+        return
+    rid = uuid.uuid4().hex
+    _waiting[rid] = (asyncio.get_running_loop().create_future(), user)
+    _queue(user).put_nowait({"id": rid, "agent": "Noah", "action": "notifier", "cible": "", "titre": title, "texte": text, "dossier": ""})
+    asyncio.get_running_loop().call_later(120, lambda r=rid: _waiting.pop(r, None))
+
+
 def notify(title: str, text: str, agent_id: str | None = None) -> None:
     """Notification sur l'ordinateur si l'application de bureau est ouverte, et sur les appareils abonnés aux
     notifications (téléphone, navigateur) ; personne n'attend la réponse. Pour un agent : son propriétaire, et le profil
@@ -128,8 +138,4 @@ def notify(title: str, text: str, agent_id: str | None = None) -> None:
         if user is None:
             continue
         push.notify(title, text, user_id=user)
-        if connected(user):
-            rid = uuid.uuid4().hex
-            _waiting[rid] = (asyncio.get_running_loop().create_future(), user)
-            _queue(user).put_nowait({"id": rid, "agent": "Noah", "action": "notifier", "cible": "", "titre": title, "texte": text, "dossier": ""})
-            asyncio.get_running_loop().call_later(120, lambda r=rid: _waiting.pop(r, None))
+        send_native(user, title, text)

@@ -2,7 +2,7 @@ import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import { QuoteContext, useQuoteState } from "@/lib/quotes";
 import { ArrowLeft, Bug, Menu, MonitorPlay, PanelRight, Plus } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AuthScreen } from "@/components/AuthScreen";
+import { AuthScreen, TemporaryPassword } from "@/components/AuthScreen";
 import { CallScreen, type CallReport } from "@/components/Call";
 import { CALL_SLOT } from "@/components/CallStage";
 import { Onboarding } from "@/components/Onboarding";
@@ -30,7 +30,7 @@ const AgentDialog = lazy(() => import("@/components/AgentDialog").then((m) => ({
 const SidePanel = lazy(() => import("@/components/SidePanel").then((m) => ({ default: m.SidePanel })));
 const SettingsDialog = lazy(() => import("@/components/Settings").then((m) => ({ default: m.SettingsDialog })));
 
-type Screen = "loading" | "onboarding" | "login" | "app" | "error" | "pairing" | "linked" | "update";
+type Screen = "loading" | "onboarding" | "login" | "password" | "app" | "error" | "pairing" | "linked" | "update";
 const WAITING = "noah:appairage";
 
 /** Téléphone qui a scanné le QR code : il attend que l'utilisateur l'accepte sur l'appareil où le code est affiché. */
@@ -141,6 +141,7 @@ export default function App() {
         if (e instanceof ApiError && e.status === 401) return setScreen("login");
         throw e;
       }
+      if (me.mot_de_passe_a_changer) return setScreen("password");
       // L'assistant de premier lancement configure le serveur : il ne concerne que son propriétaire.
       setScreen(status.onboarded || me.role !== "owner" ? "app" : "onboarding");
     } catch (e) {
@@ -174,11 +175,14 @@ export default function App() {
       setScreen((s) => (s === "app" || s === "onboarding" ? "login" : s));
     };
     const outdated = () => setScreen("update"); // serveur mis à jour pendant que l'app était ouverte
+    const temporary = () => setScreen("password"); // mot de passe réinitialisé par le propriétaire pendant que l'écran était ouvert
     window.addEventListener("noah:unauthorized", out);
     window.addEventListener("noah:outdated", outdated);
+    window.addEventListener("noah:mot-de-passe", temporary);
     return () => {
       window.removeEventListener("noah:unauthorized", out);
       window.removeEventListener("noah:outdated", outdated);
+      window.removeEventListener("noah:mot-de-passe", temporary);
     };
   }, []);
 
@@ -247,6 +251,13 @@ export default function App() {
       </div>
     );
   if (screen === "login") return <AuthScreen onDone={boot} />;
+  if (screen === "password")
+    return (
+      <TemporaryPassword
+        onDone={() => { setScreen("loading"); boot(); }}
+        onLogout={() => { setScreen("loading"); send("/api/logout", {}).catch(() => {}).finally(boot); }}
+      />
+    );
   if (screen === "onboarding" && status)
     return (
       <>
@@ -386,7 +397,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   return (
     <ViewerProvider>
       <DeviceApproval />
-      <NewDeviceAlert />
+      <NewDeviceAlert onChangePassword={() => setSettings("security")} />
       <CallScreen
         agents={agents}
         onOpen={(r) => {

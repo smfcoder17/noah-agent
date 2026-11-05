@@ -195,7 +195,7 @@ def revoked_by(how, name: str) -> None:
 
 
 other = device("Autre")
-revoked_by(lambda t: bearer(other).delete(f"/api/devices/{public_id(t)}").raise_for_status(), "Réglages > Appareils")
+revoked_by(lambda t: bearer(other).request("DELETE", f"/api/devices/{public_id(t)}", json={"motdepasse": "motdepasse-a"}).raise_for_status(), "Réglages > Appareils")
 revoked_by(lambda t: bearer(t).delete("/api/devices/self").raise_for_status(), "oublier ce serveur")
 revoked_by(lambda t: auth.drop_session(t), "drop_session")
 revoked_by(lambda t: auth.revoke_others(1, other), "déconnecter tous les autres")
@@ -245,9 +245,8 @@ assert r.status_code == 403, f"échange par cookie d'une session de navigateur :
 assert TestClient(main.app).post(FENETRE).status_code == 401
 print("12. échange refusé à une session de fenêtre et à un simple cookie")
 
-# Rien de durable depuis la fenêtre : ni appairer, ni créer un compte. Témoin : le jeton d'appareil le peut.
-OWNED = [("POST", "/api/pairing", None), ("DELETE", "/api/pairing", None), ("GET", "/api/pairing/pending", None),
-         ("POST", "/api/profiles", {"username": "intrus", "password": "motdepasse-intrus"})]
+# Rien de durable depuis la fenêtre : ni appairer, ni créer un compte sans le mot de passe. Témoin : le jeton d'appareil le peut.
+OWNED = [("POST", "/api/pairing", None), ("DELETE", "/api/pairing", None), ("GET", "/api/pairing/pending", None)]
 flow = TestClient(main.app).post("/api/pairing/flow", json={"appareil": "PC", "type": "desktop"}).json()
 public = flow["adresse"].rsplit("=", 1)[1]
 for method, path, body in OWNED + [("GET", f"/api/pairing/flow/{public}", None),
@@ -260,31 +259,43 @@ for method, path, body in OWNED + [("GET", f"/api/pairing/flow/{public}", None),
     assert r.status_code == 403, f"{method} {path} ouvert à une session de fenêtre par en-tête : {r.status_code}"
 for method, path, body in OWNED:
     r = bearer(mine).request(method, path, json=body)
-    # Un compte de plus demande la preuve au jeton d'appareil : volé, il n'en crée pas.
-    wanted = 428 if path == "/api/profiles" else 200
-    assert r.status_code == wanted, f"témoin : {method} {path} doit répondre {wanted} à une vraie session : {r.status_code} {r.text}"
+    assert r.status_code == 200, f"témoin : {method} {path} doit répondre 200 à une vraie session : {r.status_code} {r.text}"
+# Un compte de plus : jamais sans le mot de passe, qu'un cookie de fenêtre ou un jeton volés n'ont pas. Pas de preuve gardée pour une fenêtre.
+INTRUS = {"username": "intrus", "password": "motdepasse-intrus"}
+for who in (in_window(held), bearer(held), bearer(mine)):
+    r = who.post("/api/profiles", json=INTRUS)
+    assert r.status_code == 428, f"compte créé sans le mot de passe : {r.status_code} {r.text}"
+    assert who.post("/api/profiles", json={**INTRUS, "motdepasse": "faux-mot-de-passe"}).status_code == 400
+with db.connect() as c:
+    assert not c.execute("SELECT 1 FROM users WHERE username = 'intrus'").fetchone()
+assert in_window(held).post("/api/profiles", json={**INTRUS, "motdepasse": "motdepasse-a"}).status_code == 200, "depuis l'app, avec le mot de passe"
+assert in_window(held).post("/api/profiles", json={"username": "intrus2", "password": "motdepasse-intrus"}).status_code == 428, "preuve gardée pour une fenêtre"
 with db.connect() as c:
     c.execute("DELETE FROM users WHERE username = 'intrus'")
 r = bearer(mine).get(f"/api/pairing/flow/{public}")
 assert r.status_code == 200, f"la demande n'a pas survécu aux refus ci-dessus : {r.text}"
-print("13. appairage et création de compte refusés depuis la fenêtre ; le jeton d'appareil appaire, et ne crée un compte qu'avec la preuve")
+print("13. appairage refusé depuis la fenêtre ; création de compte seulement avec le mot de passe, redemandé à chaque fois")
 
 # Révoquer : ce que permet une session normale, pas plus. « Tous les autres » garde son propre appareil.
 mine, a, b = device("Moi"), device("A"), device("B")
 held = open_window(mine)
-assert in_window(held).post("/api/devices/others/revoke").status_code == 200
+assert in_window(held).post("/api/devices/others/revoke").status_code == 428, "cookie de fenêtre volé : pas de révocation sans le mot de passe"
+assert bearer(a).get("/api/me").status_code == 200 and bearer(b).get("/api/me").status_code == 200
+assert in_window(held).post("/api/devices/others/revoke", json={"motdepasse": "motdepasse-a"}).status_code == 200
 assert alive(held), "« déconnecter les autres » depuis la fenêtre a coupé son propre appareil"
 assert bearer(mine).get("/api/me").status_code == 200
 assert bearer(a).get("/api/me").status_code == 401 and bearer(b).get("/api/me").status_code == 401
 c2 = device("C")
-assert in_window(held).delete(f"/api/devices/{public_id(c2)}").status_code == 200
+assert in_window(held).delete(f"/api/devices/{public_id(c2)}").status_code == 428
+assert bearer(c2).get("/api/me").status_code == 200
+assert in_window(held).request("DELETE", f"/api/devices/{public_id(c2)}", json={"motdepasse": "motdepasse-a"}).status_code == 200
 assert bearer(c2).get("/api/me").status_code == 401
 auth.create_user("bob", "motdepasse-b")
 theirs = auth.new_session(2, "Bob", "android")
 assert in_window(held).delete(f"/api/devices/{public_id(theirs)}").status_code == 404, "appareil d'un autre compte révoqué"
 assert bearer(theirs).get("/api/me").status_code == 200
 assert in_window(held).delete(f"/api/devices/{public_id(held)}").status_code == 404, "une fenêtre n'est pas un appareil"
-print("14. révocation : mêmes droits qu'une session normale, son propre appareil gardé, un autre compte intouchable")
+print("14. révocation : avec le mot de passe, son propre appareil gardé, un autre compte intouchable")
 
 # Le mot de passe changé depuis la fenêtre garde cet appareil, pas seulement la session de fenêtre.
 other = device("Autre")

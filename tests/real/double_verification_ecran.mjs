@@ -52,7 +52,7 @@ try {
   const page = await context.newPage();
   const shot = (name) => page.screenshot({ path: `${OUT}/${name}.png` });
 
-  // Connexion ordinaire, puis Réglages > Appareils.
+  // Connexion ordinaire, puis Réglages > Sécurité.
   const signIn = async () => {
     await page.locator("#username").fill("alice");
     await page.locator("#password").fill(PASSWORD);
@@ -60,7 +60,7 @@ try {
   };
   const openDevices = async () => {
     await page.getByRole("button", { name: /Réglages/ }).first().click();
-    await page.getByRole("tab", { name: "Appareils" }).click();
+    await page.getByRole("tab", { name: "Sécurité" }).click();
   };
   await page.goto(BASE);
   await signIn();

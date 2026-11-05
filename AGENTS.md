@@ -8,7 +8,7 @@ Parle à la personne en français clair, sans jargon. Toute commande ci-dessous 
 
 ## Ce qui appartient à la personne
 
-- **Mot de passe, clés d'API, choix du modèle :** elle les saisit elle-même dans son navigateur. Si elle te donne une clé dans la conversation, ne t'en sers pas : renvoie-la vers Réglages > Cerveau et conseille-lui de la renouveler.
+- **Mot de passe, clés d'API, choix du modèle :** elle les saisit elle-même dans son navigateur. Si elle te donne une clé dans la conversation, ne t'en sers pas : renvoie-la vers Réglages > Cerveau et conseille-lui de la renouveler. Seule exception, si elle le demande : un compte de départ et son mot de passe provisoire (voir la dernière ligne du tableau).
 - **Lien d'installation :** il porte un code à usage unique. Remets-le à la personne seule, dans la conversation. Il reste hors des fichiers, des tickets et des commits. Elle l'ouvre elle-même.
 - **Données :** les volumes `noah_noah-*` et `noah-agent-*` portent son compte et ses clés. Avant tout geste qui efface (Delete du projet, `docker compose down -v`, `docker volume rm`), obtiens son accord explicite.
 
@@ -19,6 +19,7 @@ Parle à la personne en français clair, sans jargon. Toute commande ci-dessous 
 | Comment accéder au VPS : SSH root, ou API et MCP Hostinger ? | Étape 2 | Guide la personne dans le panneau Hostinger (branche C) |
 | As-tu un sous-domaine pour Noah, comme `noah.exemple.com` ? | Étape 3 | Secours : `<ip-en-tirets>.sslip.io` |
 | Ce serveur héberge-t-il d'autres sites ? | Étape 2 | Lis la réponse dans les ports |
+| Veux-tu choisir ton compte dès le déploiement, ou recevoir un lien à ouvrir ? | Étape 4 | Lien à code d'installation : aucune variable |
 
 Pour le sous-domaine, dis-lui ceci : « Sans domaine, l'adresse contient l'IP du serveur. Avec un sous-domaine, l'adresse est simple, mais qui consulte le DNS trouve quand même l'IP. Seul un relais comme Cloudflare la cache vraiment, et il voit alors passer le trafic. Noah n'a pas été testé derrière un relais. »
 
@@ -83,17 +84,17 @@ Prends une seule branche. Dans chacune, l'URL est celle du **fichier**. L'URL du
 curl -fsSL https://raw.githubusercontent.com/smfcoder17/noah-agent/main/get.sh | NOAH_DOMAIN=noah.exemple.com sh
 ```
 
-Sans sous-domaine, retire `NOAH_DOMAIN=noah.exemple.com`. La variable se place devant `sh`, jamais devant `curl`. Avec un Traefik en place, le script se range derrière lui ; fais ensuite `docker network connect noah-net <nom-du-conteneur-traefik>`. Installation dans `/opt/noah`.
+Sans sous-domaine, retire `NOAH_DOMAIN=noah.exemple.com`. La variable se place devant `sh`, jamais devant `curl`. Compte choisi au déploiement : ajoute `NOAH_ADMIN_USER=nom NOAH_ADMIN_PASSWORD=provisoire` au même endroit (12 caractères au moins, à changer à sa première connexion) ; le script les retire de `.env` dès que le compte existe. Avec un Traefik en place, le script se range derrière lui ; fais ensuite `docker network connect noah-net <nom-du-conteneur-traefik>`. Installation dans `/opt/noah`.
 
 **B. API ou MCP Hostinger.** Outil `VPS_createNewProjectV1` (`POST /api/vps/v1/virtual-machines/{id}/docker`) :
 
 - `project_name` : `noah`, exactement ;
 - `content` : `https://github.com/smfcoder17/noah-agent/releases/latest/download/docker-compose.yml` ;
-- `environment` : `NOAH_DOMAIN=noah.exemple.com`, ou rien sans sous-domaine.
+- `environment` : `NOAH_DOMAIN=noah.exemple.com`, ou rien sans sous-domaine. Compte choisi au déploiement : ajoute `NOAH_ADMIN_USER` et `NOAH_ADMIN_PASSWORD` (12 caractères au moins, à changer à sa première connexion).
 
 Un projet du même nom serait remplacé : l'étape 2 doit avoir écarté ce cas. Avec un Traefik en place, `content` devient `https://raw.githubusercontent.com/smfcoder17/noah-agent/main/deploy/docker-compose.traefik.yml`, `NOAH_DOMAIN` est obligatoire, et il reste à connecter le réseau comme en A.
 
-**C. Panneau Hostinger, par la personne.** Dicte-lui : VPS > Manage > Docker Manager > Compose > « Compose from URL », l'URL de `content` ci-dessus, le nom de projet `noah`, puis Deploy. Avec un sous-domaine, elle remplace ensuite dans le YAML Editor du projet `NOAH_DOMAIN: ${NOAH_DOMAIN:-auto}` par `NOAH_DOMAIN: noah.exemple.com`, puis redéploie. Ce panneau change parfois : fie-toi à ce qu'elle voit à l'écran et décris le but, pas le bouton.
+**C. Panneau Hostinger, par la personne.** Dicte-lui : VPS > Manage > Docker Manager > Compose > « Compose from URL », l'URL de `content` ci-dessus, le nom de projet `noah`, puis Deploy. Avec un sous-domaine, elle remplace ensuite dans le YAML Editor du projet `NOAH_DOMAIN: ${NOAH_DOMAIN:-auto}` par `NOAH_DOMAIN: noah.exemple.com`, puis redéploie. Compte choisi au déploiement : elle remplit de même `NOAH_ADMIN_USER` et `NOAH_ADMIN_PASSWORD`, et les vide une fois connectée. Ce panneau change parfois : fie-toi à ce qu'elle voit à l'écran et décris le but, pas le bouton.
 
 **Fini quand :** le déploiement s'est terminé sans erreur, ou la personne confirme que Deploy a abouti. Le téléchargement prend quelques minutes.
 
@@ -121,12 +122,14 @@ Sans accès au VPS, la personne lit le lien dans le menu du projet (⋮) > View 
 - `noah-server`, `noah-launcher` et `noah-caddy` sont `Up`, sans `Restarting` (derrière Traefik, pas de `noah-caddy`) ;
 - `noah_noah-data` et `noah_noah-secrets` existent. Un autre préfixe veut dire que le projet ne s'appelle pas `noah` : les sauvegardes ne le trouveraient pas ;
 - `NOAH_DOMAIN` vaut le sous-domaine, ou `auto` ;
-- le journal donne un lien en `https://…/#installation=…` ;
-- `/api/status` répond en HTTPS valide, avec `"has_account":false`, `"setup_code":true` et `"secrets_lisibles":true`.
+- le journal donne un lien en `https://…/#installation=…` ; compte choisi au déploiement : `Noah est prêt : https://…` ;
+- `/api/status` répond en HTTPS valide, avec `"has_account":false`, `"setup_code":true` et `"secrets_lisibles":true` ; compte choisi au déploiement : `"has_account":true` et `"setup_code":false`.
 
 ### 6. Remettre le lien
 
-Donne le lien à la personne, avec ceci :
+Compte choisi au déploiement : il n'y a pas de lien. Donne-lui l'adresse : elle se connecte, Noah lui demande aussitôt un nouveau mot de passe, puis la suite est la même.
+
+Sinon, donne le lien à la personne, avec ceci :
 
 > Ouvre ce lien dans ton navigateur. Choisis « Nouvelle installation », crée ton compte, puis choisis ton modèle et colle sa clé. Ces informations restent entre toi et ton serveur : je n'en ai pas besoin. Crée ensuite ton premier agent et échange un message avec lui. Son premier démarrage peut prendre quelques minutes, le temps de télécharger son image. Dis-moi quand c'est fait.
 

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { get, request, send } from "@/lib/api";
 import { noahPaused, setNoahPaused } from "@/lib/noahFace";
 import { DoubleVerification } from "./DoubleVerification";
+import { MailConfirmation } from "./MailConfirmation";
 import { ModelPicker } from "./ModelPicker";
 import { PhonePairing } from "./PhonePairing";
 import { MyPassword, Profiles } from "./Profiles";
@@ -14,7 +15,7 @@ import { type MediaModel, ModelSelect } from "./ModelSelect";
 import { Dialog, DialogContent, Tabs, TabsContent, TabsList, TabsTrigger } from "./ui";
 import { Button, Input, Label } from "./ui";
 
-export type SettingsTab = "brain" | "create" | "voice" | "phone" | "updates" | "privacy" | "profiles" | "diagnostic";
+export type SettingsTab = "brain" | "create" | "voice" | "phone" | "security" | "updates" | "privacy" | "profiles" | "diagnostic";
 
 type Kind = { label: string; setting: string; auto: string | null; routed?: boolean; models: MediaModel[] };
 type MediaState = {
@@ -48,11 +49,12 @@ export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainS
       {open && (
         <DialogContent title="Réglages" description="Les clés restent chiffrées sur cette machine. Les agents ne les voient jamais : ils passent par Noah Agent." className="max-w-4xl">
           <Tabs value={tab} onValueChange={(v) => onTab(v as SettingsTab)} className="flex min-h-0 flex-col gap-4">
-            <TabsList className="self-start">
+            <TabsList className="flex-wrap self-start">
               {owner && <TabsTrigger value="brain">Cerveau</TabsTrigger>}
               {owner && <TabsTrigger value="create">Création</TabsTrigger>}
               {owner && <TabsTrigger value="voice">Voix</TabsTrigger>}
               <TabsTrigger value="phone">Appareils</TabsTrigger>
+              <TabsTrigger value="security">Sécurité</TabsTrigger>
               {owner && <TabsTrigger value="profiles">Profils</TabsTrigger>}
               {owner && <TabsTrigger value="updates">Mises à jour</TabsTrigger>}
               {owner && <TabsTrigger value="privacy">Confidentialité</TabsTrigger>}
@@ -72,9 +74,12 @@ export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainS
             </TabsContent>
             <TabsContent value="phone">
               <PhonePairing />
-              <DoubleVerification />
-              <MyPassword />
               <FaceMotion />
+            </TabsContent>
+            <TabsContent value="security">
+              <MyPassword />
+              <DoubleVerification />
+              <MailConfirmation owner={owner} />
             </TabsContent>
             <TabsContent value="profiles">
               <Profiles />

@@ -158,7 +158,7 @@ try {
   check(true, "« Ce n'est pas mon compte » déconnecte et revient à la connexion");
   await fresh.close();
 
-  // 5. Alerte de nouvel appareil sur l'écran déjà connecté (premier passage : rien à signaler, ensuite oui).
+  // 5. Alerte de nouvel appareil sur l'écran déjà connecté : l'état est sur le serveur.
   await origin.page.reload();
   await settle(origin.page);
   check(!(await origin.page.getByText("Nouvel appareil sur ton compte").isVisible()), "pas de fausse alerte sans nouvel appareil");
@@ -167,7 +167,8 @@ try {
   await origin.page.getByText("Nouvel appareil sur ton compte").waitFor({ timeout: 8000 });
   await shot(origin.page, "7-alerte-nouvel-appareil");
   check(true, "un nouvel appareil sur le compte s'affiche sur l'écran déjà connecté");
-  await origin.page.getByRole("button", { name: "Déconnecter" }).first().click();
+  await origin.page.getByRole("button", { name: "Ce n'est pas moi" }).first().click();
+  await origin.page.getByRole("button", { name: "Plus tard" }).click();
   await origin.page.getByText("Nouvel appareil sur ton compte").waitFor({ state: "hidden", timeout: 8000 });
   check(true, "l'alerte permet de le déconnecter tout de suite");
 

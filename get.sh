@@ -9,6 +9,8 @@
 # devant sh, après le | :
 #   NOAH_DOMAIN=noah.example.com   ton sous-domaine (il doit déjà pointer vers ce serveur)
 #   NOAH_DIR=/opt/noah             dossier d'installation
+#   NOAH_ADMIN_USER=franck         le premier compte, au lieu du lien à code d'installation ; avec :
+#   NOAH_ADMIN_PASSWORD=…          son mot de passe, 12 caractères au moins, à changer à la première connexion
 #   NOAH_COMPOSE_URL=https://…     fichier compose à utiliser (une copie à toi, par exemple)
 # Relancer la commande met Noah Agent à jour sans toucher aux données ni aux secrets.
 set -eu
@@ -110,6 +112,17 @@ if [ -n "${NOAH_DOMAIN:-}" ]; then
   grep -v '^NOAH_DOMAIN=' .env > .env.new || true
   echo "NOAH_DOMAIN=$NOAH_DOMAIN" >> .env.new && mv .env.new .env
 fi
+# Premier compte choisi au déploiement : transmis au serveur par .env, retiré dès que le compte existe (voir plus bas).
+if [ -n "${NOAH_ADMIN_USER:-}" ] && [ -n "${NOAH_ADMIN_PASSWORD:-}" ]; then
+  case "$NOAH_ADMIN_USER$NOAH_ADMIN_PASSWORD" in
+    *"'"*) fail "NOAH_ADMIN_USER et NOAH_ADMIN_PASSWORD ne peuvent pas contenir d'apostrophe : choisis-en d'autres, tu changeras ce mot de passe à la première connexion." ;;
+  esac
+  chmod 600 .env
+  grep -v -e '^NOAH_ADMIN_USER=' -e '^NOAH_ADMIN_PASSWORD=' .env > .env.new || true
+  mv .env.new .env
+  # Entre apostrophes : compose ne touche ni aux $ ni aux espaces.
+  printf "NOAH_ADMIN_USER='%s'\nNOAH_ADMIN_PASSWORD='%s'\n" "$NOAH_ADMIN_USER" "$NOAH_ADMIN_PASSWORD" >> .env
+fi
 # NOAH_LOCAL_IMAGES=1 : images déjà présentes (tests, ou images construites à la main).
 [ "${NOAH_LOCAL_IMAGES:-}" = 1 ] || docker compose pull -q
 docker compose up -d --remove-orphans
@@ -126,7 +139,15 @@ url=${url%/}
 # Les journaux peuvent dater d'un démarrage précédent : on demande au serveur si le compte existe déjà.
 has_account=$(docker compose exec -T server python -c "import json,urllib.request;print(json.load(urllib.request.urlopen('http://127.0.0.1:8080/api/status'))['has_account'])" 2>/dev/null || true)
 [ "$has_account" = "True" ] && code=""
-if [ -n "$code" ]; then
+# Le compte existe : le mot de passe de départ ne reste pas sur le disque, il ne resservira jamais.
+if [ "$has_account" = "True" ] && grep -q '^NOAH_ADMIN_' .env; then
+  grep -v -e '^NOAH_ADMIN_USER=' -e '^NOAH_ADMIN_PASSWORD=' .env > .env.new || true
+  mv .env.new .env
+fi
+if [ "$has_account" = "True" ] && [ -n "${NOAH_ADMIN_USER:-}" ]; then
+  say "✓ Noah Agent est installé. Le certificat HTTPS peut prendre une minute."
+  say "Connecte-toi sur $url avec le compte $NOAH_ADMIN_USER : Noah te demandera aussitôt un nouveau mot de passe. S'il existait déjà, rien n'a changé."
+elif [ -n "$code" ]; then
   url="$url/#installation=$code"
   say "✓ Noah Agent est installé. Le certificat HTTPS peut prendre une minute. Code d'installation : $code"
   say "Ouvre ce lien pour créer ton compte : $url"

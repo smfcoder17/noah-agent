@@ -1,29 +1,25 @@
-// Alerte à chaque nouvel appareil du compte : un accès volé doit se voir, même sans notifications activées. Compare la liste
-// des appareils à ce que ce navigateur a déjà vu (les dates viennent toutes du serveur, l'horloge d'ici n'y est pour rien).
+// Un nouvel appareil sur le compte : l'état vit sur le serveur, l'écran revient à chaque ouverture tant que personne n'a tranché.
+// « Ce n'est pas moi » coupe cette session sans demander de preuve (server/noah/appareils.py).
+import { ShieldAlert } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { del, get } from "@/lib/api";
-import { Button } from "./ui";
+import { get, send } from "@/lib/api";
+import { Button, ErrorText } from "./ui";
 
-const SEEN = "noah:appareils-vus";
+type Alert = { id: string; nom: string; type: string; ip: string; reseau_connu: boolean; date: string; peut_confirmer: boolean };
 
-type Device = { id: string; nom: string; ip: string; depuis: string | null; actuel: boolean };
+const when = (iso: string) => new Date(iso).toLocaleString("fr-FR", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
-export function NewDeviceAlert() {
-  const [fresh, setFresh] = useState<Device[]>([]);
-  const [newest, setNewest] = useState("");
-
-  const load = useCallback(async () => {
-    const { appareils } = await get<{ appareils: Device[] }>("/api/devices");
-    const latest = appareils.reduce((max, d) => (d.depuis && d.depuis > max ? d.depuis : max), "");
-    const seen = localStorage.getItem(SEEN);
-    if (!seen) return localStorage.setItem(SEEN, latest); // premier passage ici : rien à comparer
-    setNewest(latest);
-    setFresh(appareils.filter((d) => !d.actuel && d.depuis && d.depuis > seen));
-  }, []);
+export function NewDeviceAlert({ onChangePassword }: { onChangePassword: () => void }) {
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [closed, setClosed] = useState<string[]>([]); // ne peut pas trancher d'ici : fermé pour cette ouverture seulement
+  const [cut, setCut] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const load = useCallback(() => get<{ alertes: Alert[] }>("/api/me/alertes-appareils").then((r) => setAlerts(r.alertes)).catch(() => {}), []);
 
   useEffect(() => {
     const check = () => {
-      if (!document.hidden) load().catch(() => {});
+      if (!document.hidden) load();
     };
     check();
     const t = setInterval(check, 60000);
@@ -34,21 +30,62 @@ export function NewDeviceAlert() {
     };
   }, [load]);
 
-  if (!fresh.length) return null;
-  const device = fresh[0];
-  const accept = () => {
-    localStorage.setItem(SEEN, newest);
-    setFresh([]);
+  const decide = async (alert: Alert, decision: "moi" | "pas-moi") => {
+    setBusy(true);
+    setError("");
+    try {
+      await send(`/api/me/alertes-appareils/${alert.id}/${decision}`, {});
+      if (decision === "pas-moi") setCut(true);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+    setBusy(false);
+    load();
   };
-  const disconnect = () => del(`/api/devices/${device.id}`).then(load).catch(() => {});
+
+  const device = alerts.find((a) => !closed.includes(a.id));
+  if (!device && !cut) return null;
   return (
-    <div role="alert" className="fixed right-4 bottom-4 z-40 flex w-[min(360px,calc(100vw-2rem))] flex-col gap-2 rounded-xl border border-warn bg-warn-soft p-4 shadow-lg">
-      <p className="text-sm font-semibold">Nouvel appareil sur ton compte</p>
-      <p className="text-sm"><b>{device.nom || "Appareil"}</b>{device.ip ? ` · adresse ${device.ip}` : ""}{fresh.length > 1 ? ` · et ${fresh.length - 1} autre(s)` : ""}</p>
-      <p className="text-xs text-muted-foreground">Ce n'est pas toi ? Déconnecte-le, puis change ton mot de passe.</p>
-      <div className="flex justify-end gap-2">
-        <Button size="sm" variant="ghost" className="text-danger" onClick={disconnect}>Déconnecter</Button>
-        <Button size="sm" onClick={accept}>C'est moi</Button>
+    <div className="fixed inset-0 z-40 grid place-items-center overflow-y-auto bg-black/45 p-3">
+      <div role="alertdialog" aria-labelledby="alerte-titre" className="flex w-full max-w-md flex-col gap-3 rounded-2xl border border-warn bg-surface p-5 shadow-2xl">
+        {cut ? (
+          <>
+            <h2 id="alerte-titre" className="text-lg font-semibold">Cet appareil est déconnecté</h2>
+            <p className="text-sm text-muted-foreground">
+              Il ne peut plus rien faire sur ton compte. S'il s'est connecté avec ton mot de passe, quelqu'un le connaît : change-le maintenant.
+            </p>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button variant="ghost" onClick={() => setCut(false)}>Plus tard</Button>
+              <Button onClick={() => { setCut(false); onChangePassword(); }}>Changer mon mot de passe</Button>
+            </div>
+          </>
+        ) : device && (
+          <>
+            <div className="flex items-start gap-2.5">
+              <ShieldAlert className="mt-0.5 size-5 shrink-0 text-warn" />
+              <div className="min-w-0">
+                <h2 id="alerte-titre" className="text-lg font-semibold">Nouvel appareil sur ton compte</h2>
+                <p className="text-sm text-muted-foreground">Il est connecté en ce moment. Est-ce bien toi&nbsp;?</p>
+              </div>
+            </div>
+            <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-xl bg-muted p-3 text-sm">
+              <dt className="text-muted-foreground">Appareil</dt><dd className="break-words font-medium">{device.nom || "Inconnu"}</dd>
+              <dt className="text-muted-foreground">Adresse</dt><dd className="break-all">{device.ip || "Inconnue"}</dd>
+              <dt className="text-muted-foreground">Réseau</dt><dd>{device.reseau_connu ? "Déjà vu sur ce compte" : "Jamais vu sur ce compte"}</dd>
+              <dt className="text-muted-foreground">Date</dt><dd>{when(device.date)}</dd>
+            </dl>
+            {!device.peut_confirmer && (
+              <p className="text-xs text-muted-foreground">Cet appareil est lui aussi en attente de confirmation : seul un appareil déjà relié peut dire « C'est moi ». Tu peux quand même couper celui-ci.</p>
+            )}
+            <ErrorText>{error}</ErrorText>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button variant="ghost" className="text-danger" disabled={busy} onClick={() => decide(device, "pas-moi")}>Ce n'est pas moi</Button>
+              {device.peut_confirmer
+                ? <Button disabled={busy} onClick={() => decide(device, "moi")}>C'est moi</Button>
+                : <Button variant="outline" onClick={() => setClosed((c) => [...c, device.id])}>Fermer</Button>}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
