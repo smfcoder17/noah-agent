@@ -148,6 +148,12 @@ export default function App() {
   useEffect(() => {
     boot();
   }, [boot]);
+  // Serveur coupé au chargement (l'interface vient alors du service worker) : il se retrouve seul à son retour (G3.6).
+  useEffect(() => {
+    if (screen !== "error") return;
+    const again = setInterval(boot, 5000);
+    return () => clearInterval(again);
+  }, [screen, boot]);
   useEffect(() => {
     let checking = false;
     const out = async () => {
@@ -211,7 +217,13 @@ export default function App() {
         </p>
       </div>
     );
-  if (screen === "error") return <p className="p-10 text-center text-danger">Impossible de joindre le serveur Noah Agent : {error}</p>;
+  if (screen === "error")
+    return (
+      <div className="flex flex-col gap-2 p-10 text-center">
+        <p className="text-danger">Impossible de joindre le serveur Noah Agent : {error}</p>
+        <p className="text-sm text-muted-foreground">Nouvel essai automatique toutes les 5 secondes…</p>
+      </div>
+    );
   if (screen === "login") return <AuthScreen onDone={boot} />;
   if (screen === "onboarding" && status)
     return (

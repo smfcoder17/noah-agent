@@ -426,6 +426,8 @@ OPEN_ROUTES = {
     ("POST", "/api/pairing/flow"): "Sans session : crée une demande sans titulaire.",
     ("POST", "/api/pairing/flow/poll"): "Sans session : le jeton de sondage est le secret.",
     ("POST", "/api/login"): "Publique.",
+    ("POST", "/api/recuperation/code"): "Publique : écrit un code dans les journaux du serveur, ne rend rien (recuperation_test).",
+    ("POST", "/api/recuperation"): "Sans session : le code lu sur le serveur est le secret ; essais limités (recuperation_test).",
     ("POST", "/api/logout"): "Sa propre session.",
     ("GET", "/api/devices"): "Appareils de ce compte (filtre par user_id).",
     ("DELETE", "/api/devices/self"): "Sa propre session.",

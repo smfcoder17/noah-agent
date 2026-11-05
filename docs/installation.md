@@ -101,6 +101,15 @@ Un sous-domaine ne cache rien : un nom est public, et il mène à l'IP. Seul un 
 - Le nom `<ip-en-tirets>.sslip.io` répond toujours : ne l'utilise plus et ne le partage pas. Il révélerait l'IP.
 - Les sites que visitent tes agents voient toujours l'IP du serveur.
 
+## Mot de passe oublié
+
+Noah n'envoie pas de courriel : qui a la main sur le serveur peut changer le mot de passe du propriétaire. Sur la page de connexion, « Mot de passe oublié ? », puis « Créer un code ». Le code se lit dans les journaux du service `server`. Il sert une fois, pendant 15 minutes.
+
+- **Hostinger :** VPS > Manage > Docker Manager > Projects, menu ⋮ de ton projet > View logs. Cherche « Code de récupération ».
+- **Avec un terminal sur le serveur :** `docker exec noah-server python -m noah.recuperation` crée un nouveau code et l'affiche. L'ancien ne sert plus.
+
+Toutes les sessions du serveur se ferment après le changement : relie de nouveau tes applications. Trop d'essais faux bloquent l'adresse quelques minutes (5 en 10 min), et 20 essais faux annulent le code.
+
 ## Choisir le modèle
 
 Réglages > Cerveau, un seul choix pour tous tes agents.

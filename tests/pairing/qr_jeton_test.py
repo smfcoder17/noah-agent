@@ -124,4 +124,45 @@ old = token
 new_qr()
 assert scan(old).status_code == 400, "ancien jeton ressuscité par un nouveau QR"
 print("5. nouveau QR : l'ancien jeton reste mort")
+
+# 6. QR de type web ouvert dans la fenêtre de l'app de bureau : ni cookie de 30 jours, ni la session de l'appareil en cookie.
+# Chromium l'écrirait en clair dans le profil. Sa fenêtre reçoit une session de fenêtre, sans durée de vie. Un navigateur ne change pas.
+CHROME = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+DESKTOP = CHROME.replace("Safari/537.36", "Electron/38.2.0 Safari/537.36") + " NoahApp/0.1.0 Desktop"
+
+
+def scan_web(user_agent: str):
+    """Comme App.tsx : réclame le code sans préciser de type, accepte depuis le navigateur, puis sonde. Rend la réponse du sondage."""
+    token, _p = new_qr()
+    window = client()
+    window.headers["User-Agent"] = user_agent
+    claim = window.post("/api/pairing/claim", json={"code": token})
+    assert claim.status_code == 200, claim.text
+    public = next(k for k, v in main._flows.items() if v["sondage"] == auth.digest(claim.json()["sondage"]))
+    assert web.post(f"/api/pairing/flow/{public}/autoriser", json={"verification": claim.json()["verification"]}).json() == {"ok": True}
+    poll = window.post("/api/pairing/flow/poll", json={"sondage": claim.json()["sondage"]})
+    assert poll.status_code == 200, poll.text
+    return poll
+
+
+poll = scan_web(DESKTOP)
+cookie = poll.headers.get("set-cookie", "")
+assert "max-age" not in cookie.lower() and "expires" not in cookie.lower(), f"cookie durable dans la fenêtre de l'app : {cookie}"
+value = cookie.split("noah_session=")[1].split(";")[0]
+assert value != poll.json()["token"], "la session de l'appareil est posée en cookie"
+assert auth.is_window(value), "le cookie n'est pas une session de fenêtre"
+assert client(value).get("/api/me").status_code == 200
+assert client(value).post("/api/pairing").status_code == 403, "une session de fenêtre fabrique un accès durable"
+poll = scan_web(CHROME)
+assert "max-age=2592000" in poll.headers["set-cookie"].lower() and poll.headers["set-cookie"].split("noah_session=")[1].split(";")[0] == poll.json()["token"]
+print("6. QR web dans la fenêtre de l'app de bureau : session de fenêtre sans durée de vie ; navigateur : 30 jours, comme avant")
+
+# 7. Même chose pour un mot de passe saisi dans cette fenêtre, et un site qui imite le nom de l'app ne trompe personne.
+login = client()
+login.headers["User-Agent"] = DESKTOP
+r = login.post("/api/login", json={"username": "alice", "password": "motdepasse-a"})
+assert "max-age" not in r.headers["set-cookie"].lower(), r.headers["set-cookie"]
+assert next(d for d in auth.devices(alice, r.json()["token"]) if d["actuel"])["type"] == "desktop"
+assert not main._app_window(type("R", (), {"headers": {"user-agent": CHROME + " NoahApp-site Desktop"}})())
+print("7. mot de passe dans la fenêtre : appareil « desktop », même cookie court ; un autre nom ne passe pas")
 print("G2.2 : tout est vert")

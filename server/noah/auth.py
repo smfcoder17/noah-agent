@@ -40,9 +40,13 @@ def has_users() -> bool:
         return c.execute("SELECT 1 FROM users LIMIT 1").fetchone() is not None
 
 
+def hash_password(password: str) -> bytes:
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt())
+
+
 def create_user(username: str, password: str, role: str | None = None) -> int:
     """Sans rôle donné : le tout premier compte est le propriétaire de l'installation, les suivants des profils."""
-    pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
+    pw_hash = hash_password(password)
     with db.connect() as c:
         first = c.execute("SELECT 1 FROM users LIMIT 1").fetchone() is None
         cur = c.execute(
@@ -54,7 +58,7 @@ def create_user(username: str, password: str, role: str | None = None) -> int:
 
 def set_password(user_id: int, password: str, keep: str | None = None) -> None:
     """Change le mot de passe et coupe les sessions du compte, sauf `keep` (empreinte) s'il est donné."""
-    pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
+    pw_hash = hash_password(password)
     with db.connect() as c:
         c.execute("UPDATE users SET pw_hash = ? WHERE id = ?", (pw_hash, user_id))
         c.execute("DELETE FROM sessions WHERE user_id = ? AND token != ?", (user_id, keep or ""))

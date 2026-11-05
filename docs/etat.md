@@ -7,7 +7,7 @@ Fichier généré par `tools/eval/score.mjs`, à ne pas modifier à la main. Un 
 | Parcours | Exigé | Atteint | Tenu |
 |---|---|---|---|
 | J1. VPS Hostinger neuf : première réponse de l'agent en 10 min, sans taper une commande | 3 | 2 | non |
-| J2. App de bureau installée, reliée au compte du VPS, puis conversation | 3 | 0 | non |
+| J2. App de bureau installée, reliée au compte du VPS, puis conversation | 3 | 2 | non |
 | J3. APK installé, QR scanné en 4G, puis conversation | 3 | 2 | non |
 | J4. Version majeure publiée : installée seule à une heure calme, sans perte ; panne provoquée : retour arrière | 3 | 0 | non |
 | J5. Appeler un agent depuis le téléphone, lui parler, lui couper la parole, raccrocher | 3 | 0 | non |
@@ -22,7 +22,7 @@ Fichier généré par `tools/eval/score.mjs`, à ne pas modifier à la main. Un 
 | G0 Images publiées | 0 | 2.5 | 2.5 | 9 | G0.5 |
 | G1 Installation en un clic | 0 | 3.3 | 3.3 | 8 | G1.2, G1.3 |
 | G2 Appairage | 0 | 4.2 | 4.2 | 9 | G2.1, G2.2, G2.4 |
-| G3 App de bureau | 0 | 0 | 1.1 | 8 | G3.1, G3.3 |
+| G3 App de bureau | 0 | 3.3 | 6.7 | 8 | G3.1 |
 | G4 App Android | 0 | 0 | 2.7 | 8 | G4.3, G4.4, G4.5 |
 | G5 PWA | 0 | 0 | 2.9 | 8 | G5.1 |
 | G6 Mises à jour | 9.1 | 9.1 | 10 | 9 | — |
