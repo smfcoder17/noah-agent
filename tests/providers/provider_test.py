@@ -70,7 +70,9 @@ async def save(**body) -> None:
         return None
     main._configure = nothing
     main._start_agent = nothing
-    await main.set_model(main.ModelChoice(**body), user=1)
+    tasks = main.BackgroundTasks()
+    await main.set_model(main.ModelChoice(**body), tasks, user=1)
+    await tasks()
 
 
 with db.connect() as c:
