@@ -292,8 +292,10 @@ async def configure(agent_id: str, model: dict, role: str | None = None, restart
     tools_cfg = cfg.get("tools") if isinstance(cfg.get("tools"), dict) else {}
     cfg["tools"] = {**tools_cfg, "connectors": {"enabled": False}}
     cfg["nous"] = {**(cfg.get("nous") if isinstance(cfg.get("nous"), dict) else {}), "guest": False}
-    # Les routines (« chaque matin à 8 h ») suivent l'heure de l'utilisateur, pas UTC.
-    tz = (await browser_identity()).get("timezone")
+    # Les routines (« chaque matin à 8 h ») et « aujourd'hui » suivent l'heure de la personne, vue par ses apps. Le fuseau du
+    # navigateur, lui, suit l'adresse du serveur : un site comparerait les deux. Il ne sert que tant qu'aucune app n'a parlé.
+    from .updates import client_zone  # ici : updates importe machine, qui importe ce module
+    tz = client_zone() or (await browser_identity()).get("timezone")
     if tz:
         cfg["timezone"] = tz
     _set_helpers(cfg, agent_id, model_id)
@@ -301,6 +303,7 @@ async def configure(agent_id: str, model: dict, role: str | None = None, restart
     # trait, et jamais de commandes shell dans le texte d'un skill.
     plugins = cfg.setdefault("plugins", {})
     plugins["enabled"] = sorted(set(plugins.get("enabled") or []) | {"noah-garde"})
+    plugins["hook_callback_timeout"] = 600  # réveiller le navigateur dépasse les 30 s d'Hermes, qui bloquerait l'outil
     cfg.setdefault("skills", {})["inline_shell"] = False
     # Une routine n'a personne pour dire oui : un outil en « confirmer » y est refusé, jamais accepté tout seul (G13.2).
     cfg.setdefault("approvals", {})["cron_mode"] = "deny"
@@ -387,7 +390,7 @@ AIDE = """Utilisation : python3 /opt/data/noah.py <commande>
                                relève sans modèle, un petit modèle juge la condition, et tu n'es réveillé que si elle est remplie
                                <source> : https://… (page ou flux), gmail ou gmail:<recherche Gmail> (gmail:from:paul@exemple.fr),
                                agenda ou agenda:<heures à venir>, outil:<serveur>/<outil> (outil connecté, en lecture)
-  routine "Nom" "horaire" "consigne complète et autonome"   un travail à chaque passage, sans condition
+  routine "Nom" "horaire" "consigne complète et autonome"   un travail à chaque passage, sans condition (« - » : consigne lue sur l'entrée standard)
                                horaire : "every day at 8am", "every monday 9am", "0 9 * * 1", "every 2h"
   routines                                      liste les routines ; routine-action <id> pause|reprendre|lancer|supprimer
   veilles                                       liste les veilles et les routines à condition
@@ -708,7 +711,8 @@ elif a[:1] == ["veille"] and len(a) >= 3:
         rest = rest[:i] + rest[i + 2:]
     out = call("POST", "/veilles", {"nom": rest[0], "url": rest[1], "critere": " ".join(rest[2:]), "minutes": minutes})
 elif a[:1] == ["routine"] and len(a) >= 4:
-    out = call("POST", "/routines", {"nom": a[1], "quand": a[2], "consigne": " ".join(a[3:])})
+    # « - » : la consigne arrive par l'entrée standard, à l'abri des apostrophes et des guillemets du shell.
+    out = call("POST", "/routines", {"nom": a[1], "quand": a[2], "consigne": sys.stdin.read().strip() if a[3:] == ["-"] else " ".join(a[3:])})
 elif a[:1] == ["routines"]:
     out = call("GET", "/routines")
 elif a[:1] == ["routine-action"] and len(a) == 3:
@@ -719,7 +723,7 @@ elif a[:1] == ["routine-si"] and len(a) >= 5:
         i = rest.index("--minutes")
         minutes = int(rest[i + 1]) if i + 1 < len(rest) else 30
         rest = rest[:i] + rest[i + 2:]
-    out = call("POST", "/veilles", {"nom": rest[0], "url": rest[1], "critere": rest[2], "consigne": " ".join(rest[3:]), "minutes": minutes})
+    out = call("POST", "/veilles", {"nom": rest[0], "url": rest[1], "critere": rest[2], "consigne": sys.stdin.read().strip() if rest[3:] == ["-"] else " ".join(rest[3:]), "minutes": minutes})
 elif a[:1] == ["memoire-juger"] and len(a) == 2:  # la garde de l'agent, avant qu'une note n'entre en mémoire
     out = call("POST", "/memoire/juger", json.loads(a[1]))
 elif a[:1] == ["veilles"]:

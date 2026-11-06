@@ -150,4 +150,21 @@ for tool, args in (("terminal", {"command": "cat /opt/data/profiles/u7abcdef01/m
     assert _pre_tool_call(tool_name=tool, args=args), f"le profil d'une personne se lit depuis l'agent : {args}"
 assert _pre_tool_call(tool_name="terminal", args={"command": "ls /opt/data/workspace/profiles"}) is None, "un dossier de travail nommé profiles reste permis"
 print("5. profil d'une personne : ni terminal ni fichier hors du dossier de travail, outils inconnus fermés, travail permis ; l'agent ne lit pas ces profils en passant")
+
+# 6. Lecture déclarée : Hermes retient les vrais noms (notion-search), l'agent appelle le nom réécrit (notion_search).
+import types  # noqa: E402
+
+import __init__ as garde  # noqa: E402
+
+core = types.SimpleNamespace(_tool_read_only_hints={"notion": {"notion-search": True, "efface-page": False, "a-b": True, "a_b": False, "seul": True}})
+for name, attrs in {"tools": {}, "tools.mcp_tool_common": {"_core": core},
+                    "tools.mcp_tool_schema": {"sanitize_mcp_name_component": lambda v: v.replace("-", "_")},
+                    "tools.mcp_tool_scope": {"_resolve_server_key": lambda s: s}}.items():
+    sys.modules[name] = types.SimpleNamespace(**attrs)
+assert garde._read_only("notion", "notion_search") is True, "un nom réécrit déclaré en lecture"
+assert garde._read_only("notion", "seul") is True
+assert garde._read_only("notion", "efface_page") is False
+assert garde._read_only("notion", "a_b") is False, "deux vrais noms pour le même nom : les deux doivent être en lecture"
+assert garde._read_only("notion", "inconnu") is False and garde._read_only("autre", "notion_search") is False
+print("6. lecture déclarée : le nom réécrit retrouve le vrai ; dans le doute, ce n'est pas une lecture")
 print("garde des skills : tout est vert")

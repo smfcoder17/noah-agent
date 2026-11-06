@@ -204,10 +204,16 @@ def _mcp_parts(tool_name: str, rights: dict) -> tuple[str, str]:
 
 
 def _read_only(server: str, tool: str) -> bool:
-    """Ce que le serveur a déclaré à Hermes ; inconnu ou pas encore lu : pas en lecture."""
+    """Ce que le serveur a déclaré à Hermes ; inconnu ou pas encore lu : pas en lecture. Hermes retient les vrais noms
+    (notion-search) et l'agent appelle le nom réécrit (notion_search) : si plusieurs vrais noms donnent le même, tous doivent
+    être déclarés en lecture."""
     try:
-        from tools.mcp_tool_handlers import _tool_is_read_only
-        return _tool_is_read_only(server, tool) is True
+        from tools.mcp_tool_common import _core
+        from tools.mcp_tool_schema import sanitize_mcp_name_component
+        from tools.mcp_tool_scope import _resolve_server_key
+        hints = _core._tool_read_only_hints.get(_resolve_server_key(server), {})
+        same = [hint for name, hint in hints.items() if sanitize_mcp_name_component(name) == tool]
+        return bool(same) and all(hint is True for hint in same)
     except Exception:  # noqa: BLE001
         return False
 
@@ -249,15 +255,17 @@ def check_mcp(tool_name: str, args: dict) -> dict | None:
 
 
 _browser_awake_at = 0.0
+HOOK_SECONDS = 600  # plugins.hook_callback_timeout, écrit par Noah (plafond d'Hermes) : au-delà, Hermes bloque l'outil
 
 
 def _wake_browser() -> None:
-    """Le navigateur ne tourne que quand on s'en sert : le premier outil qui le demande attend qu'il soit prêt."""
+    """Le navigateur ne tourne que quand on s'en sert : le premier outil qui le demande attend qu'il soit prêt. Hermes coupe ce
+    crochet à plugins.hook_callback_timeout et bloque alors l'outil : l'attente reste en dessous."""
     global _browser_awake_at
     if time.monotonic() - _browser_awake_at < 60:
         return
     try:
-        done = subprocess.run([sys.executable, "/opt/data/noah.py", "navigateur", "reveiller"], capture_output=True, timeout=900)
+        done = subprocess.run([sys.executable, "/opt/data/noah.py", "navigateur", "reveiller"], capture_output=True, timeout=HOOK_SECONDS - 30)
         if json.loads(done.stdout).get("joignable"):
             _browser_awake_at = time.monotonic()
     except (OSError, ValueError, AttributeError, subprocess.SubprocessError):

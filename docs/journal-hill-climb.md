@@ -551,3 +551,18 @@ Audit indépendant sur `f59e736..8de90fc`, sans mes conclusions. 11 défauts ann
 - **Pas prouvé :** Instagram lui-même, sa réaction à l'adresse du VPS, le fichier d'une vraie page Notion, une routine sans personne devant.
 - **Revue Codex, deux tours, FAIL puis corrigé :** adresse de téléchargement interprétée par le shell (nouvelle commande `navigateur telecharger`, https seulement, sans passer par le terminal) ; fichiers du `/tmp` commun et identité d'un invité (envoi et téléchargement fermés aux profils invités) ; bouton sans effet qui remplissait un champ déjà là ; fenêtre ou cadre cachés ; republication après une panne du marquage (journal `/opt/data/publications.txt`, écrit avant le clic) ; plafond non réservé entre deux envois ; script téléchargé lancé sans lecture ; téléchargement coupé déclaré réussi.
 - **Limite assumée :** une remise déjà engagée au moment où la personne prend la main ne s'annule pas ; l'agent le sait et attend. Un invité ne peut pas encore joindre de fichier.
+
+### Démo jouée sur le VPS (6 novembre, v0.1.2)
+
+Premiers essais réels sur `noah.smfapps.cloud`, sans publier, avec le compte et la clé de la personne conservés par la mise à jour.
+
+| Essai | Résultat | Suite |
+|---|---|---|
+| « Ouvre-moi Instagram » | Page ouverte, mais premier outil bloqué et 71 s de réponse : le crochet qui réveille le navigateur peut attendre 15 min, Hermes le coupe à 30 s et bloque l'outil | `plugins.hook_callback_timeout` à 600 s, réveil arrêté avant, prouvé sur le vrai Hermes |
+| « Quels posts aujourd'hui dans Notion ? » | Bonne base, bonne réponse (vérifiée dans Notion), mais un accord par lecture : `notion_search` (nom réécrit) n'était pas comparé à `notion-search` (vrai nom) | Le nom réécrit retrouve le vrai ; deux vrais noms pour un seul : les deux doivent être en lecture |
+| « Dans 5 minutes, écris-moi… » | Reçu à 6 min 12 dans la conversation | Prouvé niveau 3 |
+| Heure annoncée | « Heure de Paris » pour une personne à Toronto : l'agent suivait l'adresse du serveur | Fuseau vu par les apps, celui du serveur tant qu'aucune app n'a parlé ; pris à chaque reconfiguration, pas à chaud |
+| « Crée une routine chaque jour à 9 h » | Créée et vérifiée en 2 min, mais une apostrophe a coupé la consigne ; l'agent l'a vu et refaite | Consigne lue sur l'entrée standard (`-`) |
+| « Refuse les cookies optionnels » | Fait, routine supprimée, bandeau « L'agent a besoin de toi » pour la connexion Instagram | Rien à corriger |
+
+**Pas prouvé :** la connexion à Instagram depuis l'adresse du VPS, une vraie publication, une routine qui publie sans personne, la voix sur cette démo.

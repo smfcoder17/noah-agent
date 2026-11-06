@@ -21,10 +21,17 @@ const CONNEXION = PIP + "python /tests/agents/connexion_logos_test.py";
 const DOSSIERS = "node /repo/tests/desktop/dossiers_test.mjs";
 const ENVOI = "mkdir -p /data && node /tests/navigateur/envoi_test.mjs";
 const ENVOI_OUTIL = "python /tests/navigateur/envoi_outil_test.py";
+const CONFIG_AGENT = PIP + "python /tests/agents/config_agent_test.py";
 const PLUGIN = "launcher/camofox-noah/index.js";
 
 // NOAH_SABOTAGE=mot : seulement les sabotages dont le nom contient ce mot, pour rejouer un cas.
 const SABOTAGES = [
+  ["Routine : la consigne de l'entrée standard est perdue", "noah/hermes.py", 'sys.stdin.read().strip() if a[3:] == ["-"] else " ".join(a[3:])', '" ".join(a[3:])', ENVOI_OUTIL],
+  ["Agent : à l'heure du serveur", "noah/hermes.py", 'tz = client_zone() or (await browser_identity()).get("timezone")', 'tz = (await browser_identity()).get("timezone")', CONFIG_AGENT],
+  ["Agent : Hermes coupe le réveil à 30 s", "noah/hermes.py", 'plugins["hook_callback_timeout"] = 600', 'plugins["hook_callback_timeout"] = 30', CONFIG_AGENT],
+  ["Agent : le réveil dépasse le délai d'Hermes", "noah/agent_plugin/__init__.py", "capture_output=True, timeout=HOOK_SECONDS - 30)", "capture_output=True, timeout=900)", CONFIG_AGENT],
+  ["Outil : un nom à tiret n'est jamais vu en lecture", "noah/agent_plugin/__init__.py", "if sanitize_mcp_name_component(name) == tool]", "if name == tool]", GUARD],
+  ["Outil : un nom ambigu passe pour une lecture", "noah/agent_plugin/__init__.py", "return bool(same) and all(hint is True for hint in same)", "return any(hint is True for hint in same)", GUARD],
   ["Envoi : n'importe qui dépose un fichier", PLUGIN, 'if (!agentKeyGiven(req)) return res.status(403).json({ error: "Forbidden" });', "", ENVOI],
   ["Envoi : le nom sort du dossier", PLUGIN, "const nom = safeName(req.query.nom);", "const nom = String(req.query.nom);", ENVOI],
   ["Envoi : aucun plafond", PLUGIN, "if (size > limit) done(tooBig());", "if (false) done(tooBig());", ENVOI],

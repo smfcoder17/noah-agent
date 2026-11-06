@@ -25,6 +25,9 @@ jobs:
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim \
             sh -c "pip install -q -r /app/requirements.txt && python /tests/updates/logic_test.py"
+      - name: Configuration écrite dans l'agent
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/agents/config_agent_test.py"
       - name: Connexions sans copier-coller et logos
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim             sh -c "pip install -q -r /app/requirements.txt && python /tests/agents/connexion_logos_test.py"

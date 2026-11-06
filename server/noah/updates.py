@@ -122,6 +122,11 @@ def local_zone() -> ZoneInfo:
     return _zone(_load())
 
 
+def client_zone() -> str:
+    """Le fuseau vu par les apps, tel quel ; vide si aucune n'a encore parlé."""
+    return str(_load().get("fuseau") or "")
+
+
 def saw_client(timezone: str | None) -> None:
     """Fuseau envoyé par l'application d'un utilisateur connecté (en-tête X-Noah-Timezone) : le créneau calme suit
     l'utilisateur, pas le VPS."""
