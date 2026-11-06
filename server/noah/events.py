@@ -237,3 +237,37 @@ def translate(kind: str, data: dict, details: bool) -> dict | None:
 
     # message.interim, subagent.*, keepalive… : rien pour l'utilisateur, sauf en mode détails.
     return {"type": "raw", "kind": kind, "data": data} if details else None
+
+
+# Une réaction se donne d'un mot : l'agent commence sa réponse par [[👍]], la personne ne voit que l'emoji posé sur son message.
+REACTIONS = ("👍", "❤️", "😂", "😮", "😢", "🙏", "🔥", "🎉", "👎")
+_REACTION_HEAD = re.compile(r"^\s*\[\[(" + "|".join(REACTIONS) + r")\]\]\s*")
+_MOST_HEAD = 24
+
+
+class ReactionHead:
+    """Retient le début du flux le temps de savoir s'il commence par une réaction. Ce qui n'en est pas une repart tel quel."""
+
+    def __init__(self) -> None:
+        self.held = ""
+        self.done = False
+
+    def feed(self, text: str) -> tuple[str | None, str]:
+        if self.done:
+            return None, text
+        self.held += text
+        start = self.held.lstrip()
+        if start and "[[".startswith(start[:2]) and "]]" not in start and len(self.held) < _MOST_HEAD:
+            return None, ""
+        if not start and len(self.held) < _MOST_HEAD:
+            return None, ""
+        return self._decide()
+
+    def flush(self) -> tuple[str | None, str]:
+        return (None, "") if self.done else self._decide()
+
+    def _decide(self) -> tuple[str | None, str]:
+        self.done = True
+        found = _REACTION_HEAD.match(self.held)
+        rest, self.held = self.held, ""
+        return (found.group(1), rest[found.end():]) if found else (None, rest)

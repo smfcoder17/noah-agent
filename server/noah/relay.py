@@ -32,6 +32,7 @@ UPSTREAMS = {
     "gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
     "ollama": "http://host.docker.internal:11434/v1",
     "ollama-cloud": "https://ollama.com/v1",
+    "mammouth": "https://api.mammouth.ai/v1",
 }
 # Ces fournisseurs acceptent une adresse choisie par l'utilisateur. Aucun prix connu : leur coût reste à 0.
 OWN_URL = {"ollama", "custom"}
@@ -279,8 +280,9 @@ async def _record(agent_id: str, model: str, usage: dict | None, task: str | Non
     completion = int(usage.get("completion_tokens") or 0)
     cached = int((usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)
     cost = usage.get("cost")
-    if cost is None and db.get_setting("provider") not in (*OWN_URL, "ollama-cloud"):
-        price = catalog.price_of(await catalog.price_index(), model)
+    provider = db.get_setting("provider")
+    if cost is None and provider not in (*OWN_URL, "ollama-cloud"):
+        price = catalog.price_of(await (catalog.mammouth_prices() if provider == "mammouth" else catalog.price_index()), model)
         if price:
             cost = (prompt * price["price_in"] + completion * price["price_out"]) / 1e6
     with db.connect() as c:

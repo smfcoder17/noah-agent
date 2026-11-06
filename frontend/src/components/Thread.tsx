@@ -11,14 +11,16 @@ import {
   useAuiState,
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
-import { ArrowDown, ArrowUp, Check, Copy, FileText, Loader2, Paperclip, Reply, Square, TriangleAlert, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, ChevronUp, Copy, FileText, Loader2, Paperclip, Reply, SmilePlus, Square, TriangleAlert, X } from "lucide-react";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import remarkGfm from "remark-gfm";
-import { WhileBusyContext, AgentContext } from "@/lib/agentContext";
+import { WhileBusyContext, AgentContext, HistoryContext } from "@/lib/agentContext";
 import { mediaUrl, rawFileUrl, send } from "@/lib/api";
 import { imageQuote, splitQuotes, useQuotes } from "@/lib/quotes";
+import { ConversationRail } from "./ConversationRail";
+import { giveFilesEvent } from "./Files";
 import { NoahTile, type NoahHandle } from "./Noah";
-import { cn, safeMedia } from "@/lib/utils";
+import { cn, dayLabel, messageMoment, safeMedia } from "@/lib/utils";
 import { Button } from "./ui";
 import { canFrame, useDownload, useViewer } from "./Viewer";
 import { AttachPosition } from "./PhoneSettings";
@@ -264,7 +266,25 @@ function SendAside({ args }: { args: { id: string } }) {
   );
 }
 
-const TOOLS = { by_name: { activity: Activity, approval: Approval, error: ErrorPart, detail: Detail, send_aside: SendAside } };
+/** Le récit du travail : replié, pour qui veut vérifier. Pendant le travail, sa dernière phrase reste lisible. */
+function Steps({ args }: ToolCallMessagePartProps) {
+  const steps = (args.steps as string[]) ?? [];
+  const running = useAuiState((s) => s.message.status?.type === "running");
+  const [open, setOpen] = useState(false);
+  if (!steps.length) return null;
+  return (
+    <div className="my-1 flex flex-col gap-1 text-[13px] text-muted-foreground">
+      {running && !open && <p className="truncate">{steps[steps.length - 1]}</p>}
+      <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className="flex w-fit cursor-pointer items-center gap-1 rounded-md hover:text-foreground">
+        <ChevronUp className={cn("size-3.5 transition-transform", !open && "rotate-180")} />
+        {steps.length} étape{steps.length > 1 ? "s" : ""}
+      </button>
+      {open && <ol className="flex list-decimal flex-col gap-1 pl-5">{steps.map((s, i) => <li key={i}>{s}</li>)}</ol>}
+    </div>
+  );
+}
+
+const TOOLS = { by_name: { activity: Activity, approval: Approval, error: ErrorPart, detail: Detail, steps: Steps, send_aside: SendAside } };
 
 // --- Messages ------------------------------------------------------------------------
 
@@ -295,16 +315,106 @@ function UserText({ text }: TextMessagePartProps) {
   );
 }
 
-function UserMessage() {
+const dayOf = (d?: Date) => (d ? d.toDateString() : "");
+
+/** Entre deux journées : la date, pour se repérer en remontant. */
+function DayDivider() {
+  const when = useAuiState((s) => s.message.createdAt);
+  const first = useAuiState((s) => dayOf(s.thread.messages[s.message.index - 1]?.createdAt) !== dayOf(s.message.createdAt));
+  if (!first || !when) return null;
   return (
-    <MessagePrimitive.Root className="flex flex-col items-end gap-1.5 py-2">
+    <div className="my-3 flex items-center gap-3 text-xs text-muted-foreground">
+      <span className="h-px flex-1 bg-border" />
+      <span className="first-letter:uppercase">{dayLabel(when)}</span>
+      <span className="h-px flex-1 bg-border" />
+    </div>
+  );
+}
+
+const QUICK_EMOJI = ["👍", "❤️", "😂", "😮", "😢", "🙏", "🔥", "🎉"];
+
+/** Les réactions d'un message, et de quoi y réagir : visible au survol, toujours là sur un écran tactile. */
+function MessageReactions() {
+  const id = useAuiState((s) => s.message.id);
+  const custom = useAuiState((s) => s.message.metadata?.custom) as { storedId?: number; reactions?: { user?: string; agent?: string } } | undefined;
+  const { react } = useContext(HistoryContext);
+  const { readOnly } = useContext(AgentContext);
+  const [open, setOpen] = useState(false);
+  const mine = custom?.reactions?.user;
+  const theirs = custom?.reactions?.agent;
+  const stored = custom?.storedId;
+  const set = (emoji: string | null) => {
+    if (stored) react(id, stored, emoji);
+    setOpen(false);
+  };
+  return (
+    <span className="relative flex items-center gap-1">
+      {theirs && <span role="img" aria-label={`Réaction de l'agent : ${theirs}`} className="rounded-full border border-border bg-surface px-1.5 text-sm leading-6">{theirs}</span>}
+      {mine && (
+        <button type="button" onClick={() => set(null)} disabled={readOnly} aria-label={`Retirer ta réaction ${mine}`} className="cursor-pointer rounded-full border border-accent/40 bg-accent-soft px-1.5 text-sm leading-6">{mine}</button>
+      )}
+      {stored && !readOnly && (
+        <Button variant="ghost" size="icon-sm" onClick={() => setOpen(!open)} aria-expanded={open} aria-label="Réagir" className={cn("opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-60", open && "opacity-100")}>
+          <SmilePlus />
+        </Button>
+      )}
+      {open && (
+        <span role="group" aria-label="Choisir une réaction" className="absolute bottom-full left-0 z-20 mb-1 flex gap-0.5 rounded-full border border-border bg-surface p-1 shadow-md">
+          {QUICK_EMOJI.map((e) => (
+            <button key={e} type="button" onClick={() => set(e)} aria-label={`Réagir ${e}`} className="grid size-8 cursor-pointer place-items-center rounded-full text-lg hover:bg-muted">{e}</button>
+          ))}
+        </span>
+      )}
+    </span>
+  );
+}
+
+function MessageTime() {
+  const when = useAuiState((s) => s.message.createdAt);
+  if (!when) return null;
+  return <time dateTime={when.toISOString()} title={when.toLocaleString("fr-CA", { dateStyle: "long", timeStyle: "short" })} className="text-[11px] text-muted-foreground tabular-nums">{messageMoment(when)}</time>;
+}
+
+/** En haut du fil : les messages plus anciens ne se chargent qu'à la demande, sans faire sauter la lecture. */
+function OlderMessages() {
+  const { hasOlder, loading, loadOlder } = useContext(HistoryContext);
+  const self = useRef<HTMLDivElement>(null);
+  if (!hasOlder) return null;
+  const load = async () => {
+    const viewport = self.current?.closest<HTMLElement>("[data-noah-viewport]");
+    const before = viewport ? viewport.scrollHeight - viewport.scrollTop : 0;
+    await loadOlder().catch(() => {});
+    requestAnimationFrame(() => {
+      if (viewport) viewport.scrollTop = viewport.scrollHeight - before;
+    });
+  };
+  return (
+    <div ref={self} className="flex justify-center pb-3">
+      <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+        {loading ? <Loader2 className="animate-spin" /> : <ChevronUp />}Charger les messages précédents
+      </Button>
+    </div>
+  );
+}
+
+function UserMessage() {
+  const id = useAuiState((s) => s.message.id);
+  return (
+    <>
+    <DayDivider />
+    <MessagePrimitive.Root data-noah-msg={id} className="group flex scroll-mt-4 flex-col items-end gap-1.5 py-2">
       <div className="flex flex-wrap justify-end gap-1.5">
         <MessagePrimitive.Attachments components={{ Attachment: AttachmentChip }} />
       </div>
       <div className="max-w-[85%] rounded-2xl rounded-br-md bg-surface px-4 py-2.5 whitespace-pre-wrap shadow-sm ring-1 ring-border">
         <MessagePrimitive.Parts components={{ Text: UserText }} />
       </div>
+      <div className="flex items-center gap-2">
+        <MessageReactions />
+        <MessageTime />
+      </div>
     </MessagePrimitive.Root>
+    </>
   );
 }
 
@@ -374,8 +484,11 @@ function AssistantMessage() {
   const running = useAuiState((s) => s.message.status?.type === "running");
   const empty = useAuiState((s) => s.message.content.length === 0);
   const isLast = useAuiState((s) => s.thread.messages[s.thread.messages.length - 1]?.id === s.message.id);
+  const id = useAuiState((s) => s.message.id);
   return (
-    <MessagePrimitive.Root data-reply-source className="group relative flex flex-col gap-1 py-2 md:pl-11">
+    <>
+    <DayDivider />
+    <MessagePrimitive.Root data-noah-msg={id} data-reply-source className="group relative flex scroll-mt-4 flex-col gap-1 py-2 md:pl-11">
       <NoahTile color={agentColor} shape={agentShape} detail={agentDetail} state={running ? "thinking" : "idle"} still={!isLast} className="absolute top-2 left-0 hidden size-8 md:grid" />
       <div className="max-w-[92%] min-w-0">
         {empty && running ? (
@@ -390,7 +503,9 @@ function AssistantMessage() {
         )}
       </div>
       {/* Place réservée : le bouton apparaît au survol sans décaler le texte en dessous. */}
-      <div className="h-8">
+      <div className="flex h-8 items-center gap-2">
+        {!running && <MessageTime />}
+        {!running && <MessageReactions />}
         {!running && (
           <ActionBarPrimitive.Root
             className={cn(
@@ -408,6 +523,7 @@ function AssistantMessage() {
         )}
       </div>
     </MessagePrimitive.Root>
+    </>
   );
 }
 
@@ -546,6 +662,20 @@ function EmptyNoah() {
 export function Thread({ report, onReportRead, onCall }: { report: { id: string; text: string } | null; onReportRead: () => void; onCall: (on: boolean) => void }) {
   const { agentId, agentName, hint, readOnly } = useContext(AgentContext);
   const [voice, setVoice] = useState(false);
+  // Des fichiers choisis dans le panneau : joints au prochain message, comme un passage cité.
+  const { add: addQuote } = useQuotes();
+  const threadRoot = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const give = (e: Event) => {
+      const { agentId: to, label, text } = (e as CustomEvent<{ agentId: string; label: string; text: string }>).detail;
+      // Un fil caché (un appel en cours ailleurs) reste monté : seul celui qu'on voit reçoit le don.
+      if (to !== agentId || !threadRoot.current?.getClientRects().length) return;
+      addQuote({ label, text });
+      threadRoot.current.querySelector<HTMLTextAreaElement>("[data-composer-input]")?.focus();
+    };
+    window.addEventListener(giveFilesEvent, give);
+    return () => window.removeEventListener(giveFilesEvent, give);
+  }, [addQuote, agentId]);
   // Pour l'appel : un aperçu intégré compte aussi comme un artefact à ouvrir.
   const link = useCallback(
     (text: string) =>
@@ -561,11 +691,13 @@ export function Thread({ report, onReportRead, onCall }: { report: { id: string;
     onCall(voice); // l'application garde cette conversation ouverte tant que l'appel dure
   }, [voice, onCall]);
   return (
-    <ThreadPrimitive.Root className="flex h-full min-h-0 flex-col">
+    <ThreadPrimitive.Root ref={threadRoot} data-noah-thread className="relative flex h-full min-h-0 flex-col">
+      <ConversationRail />
       <SelectionReply />
       <ComposerPrimitive.AttachmentDropzone className="flex min-h-0 flex-1 flex-col data-[dragging=true]:bg-accent-soft/40">
-        <ThreadPrimitive.Viewport className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 [container-type:inline-size]">
+        <ThreadPrimitive.Viewport data-noah-viewport className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 [container-type:inline-size]">
           <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col pt-6">
+            <OlderMessages />
             <ThreadPrimitive.Empty>
               <div className="m-auto flex max-w-md flex-col items-center gap-2 text-center">
                 <EmptyNoah />

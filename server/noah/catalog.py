@@ -82,6 +82,52 @@ async def price_index() -> dict[str, dict]:
     return {_norm(m["id"]): m for m in models if not m["free"]}
 
 
+# Mammouth publie ses modèles et ses prix sans clé. Tous se disent « openai » : le labo se lit dans le nom.
+MAMMOUTH_MODELS = "https://api.mammouth.ai/public/models"
+_MAMMOUTH_LABS = (("claude", "anthropic"), ("gpt", "openai"), ("gemini", "google"), ("kimi", "moonshotai"), ("deepseek", "deepseek"),
+                  ("glm", "z-ai"), ("qwen", "qwen"), ("mistral", "mistralai"), ("grok", "x-ai"), ("minimax", "minimax"), ("llama", "meta"))
+_MAMMOUTH_NOT_CHAT = re.compile(r"embed|image|banana|sonar", re.I)  # images et recherche web : pas de cerveau à outils
+
+
+async def mammouth_catalog() -> list[dict]:
+    hit = _cache.get("mammouth")
+    if hit and time.time() - hit[0] < CACHE_SECONDS:
+        return hit[1]
+    async with httpx.AsyncClient(timeout=20) as c:
+        r = await c.get(MAMMOUTH_MODELS)
+    r.raise_for_status()
+    models = []
+    for m in r.json().get("data", []):
+        mid = str(m.get("id") or "")
+        info = m.get("model_info") or {}
+        if not mid or _MAMMOUTH_NOT_CHAT.search(mid):
+            continue
+        price_in, price_out = info.get("input_cost_per_token"), info.get("output_cost_per_token")
+        models.append({
+            "id": mid,
+            "name": mid,
+            "lab": next((lab for prefix, lab in _MAMMOUTH_LABS if mid.lower().startswith(prefix)), "mammouth"),
+            "created": m.get("created") or 0,
+            "context": info.get("max_input_tokens") or 0,
+            "price_in": float(price_in) * 1e6 if price_in is not None else None,
+            "price_out": float(price_out) * 1e6 if price_out is not None else None,
+            "tools": True,
+            "vision": False,
+            "free": False,
+        })
+    _cache["mammouth"] = (time.time(), models)
+    return models
+
+
+async def mammouth_prices() -> dict[str, dict]:
+    """Prix annoncés par Mammouth, en plafond : le coût affiché peut dépasser un peu le coût réel."""
+    try:
+        models = await mammouth_catalog()
+    except httpx.HTTPError:
+        return {}
+    return {_norm(m["id"]): m for m in models if m["price_in"] is not None}
+
+
 async def _native(provider: str, api_key: str) -> list[str]:
     """Liste les identifiants exposés par l'API du fournisseur, avec la clé de l'utilisateur."""
     async with httpx.AsyncClient(timeout=20) as c:
@@ -149,6 +195,9 @@ async def check_key(provider: str, api_key: str) -> None:
     if provider == "openrouter":
         async with httpx.AsyncClient(timeout=10) as c:
             (await c.get("https://openrouter.ai/api/v1/key", headers=_auth(api_key))).raise_for_status()
+    elif provider == "mammouth":
+        async with httpx.AsyncClient(timeout=10) as c:
+            (await c.get("https://api.mammouth.ai/key/info", headers=_auth(api_key))).raise_for_status()
     elif provider in ("anthropic", "openai", "gemini"):
         await _native(provider, api_key)
 
@@ -160,6 +209,8 @@ async def models_for(provider: str, api_key: str | None, base_url: str | None = 
         return [m for m in await _ollama((base_url or OLLAMA_URL).rstrip("/").removesuffix("/v1"), api_key) if m["tools"]]
     if provider == "custom":
         return await _openai_compatible(base_url, api_key) if base_url else []
+    if provider == "mammouth":
+        return await mammouth_catalog()
     if not api_key:
         return []
     if provider == "ollama-cloud":

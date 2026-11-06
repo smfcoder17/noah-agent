@@ -57,3 +57,25 @@ export const contextSize = (n: number) =>
 
 export const fileSize = (n: number) =>
   n < 1024 ? `${n} o` : n < 1048576 ? `${Math.round(n / 1024)} Ko` : `${(n / 1048576).toFixed(1).replace(".", ",")} Mo`;
+
+const sameDay = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+const hour = (d: Date) => d.toLocaleTimeString("fr-CA", { hour: "2-digit", minute: "2-digit" });
+
+/** « 14 h 52 », « hier, 14 h 52 », « 5 nov., 14 h 52 » : ce qu'il faut pour se repérer, sans plus. */
+export function messageMoment(d: Date, now = new Date()): string {
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (sameDay(d, now)) return hour(d);
+  if (sameDay(d, yesterday)) return `hier, ${hour(d)}`;
+  const day = d.toLocaleDateString("fr-CA", { day: "numeric", month: "short", ...(d.getFullYear() === now.getFullYear() ? {} : { year: "numeric" }) });
+  return `${day}, ${hour(d)}`;
+}
+
+/** « Aujourd'hui », « Hier », « jeudi 5 novembre » : le séparateur entre deux journées. */
+export function dayLabel(d: Date, now = new Date()): string {
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (sameDay(d, now)) return "Aujourd'hui";
+  if (sameDay(d, yesterday)) return "Hier";
+  return d.toLocaleDateString("fr-CA", { weekday: "long", day: "numeric", month: "long", ...(d.getFullYear() === now.getFullYear() ? {} : { year: "numeric" }) });
+}

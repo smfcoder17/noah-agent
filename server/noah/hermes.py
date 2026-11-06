@@ -185,6 +185,10 @@ async def list_files(agent_id: str) -> list[dict]:
     return await _launcher("GET", f"/agents/{agent_id}/files")
 
 
+async def delete_files(agent_id: str, paths: list[str]) -> dict:
+    return await _launcher("POST", f"/agents/{agent_id}/files/supprimer", json={"chemins": paths})
+
+
 async def read_file(agent_id: str, path: str) -> httpx.Response:
     async with httpx.AsyncClient(timeout=120) as c:
         return await c.get(f"{LAUNCHER_URL}/agents/{agent_id}/file", params={"path": path}, headers=LAUNCHER)
@@ -214,6 +218,7 @@ PROVIDERS = {
     "anthropic": {"label": "Anthropic (Claude)", "env": "ANTHROPIC_API_KEY", "model": "claude-sonnet-4-5"},
     "openai": {"label": "OpenAI", "env": "OPENAI_API_KEY", "model": "gpt-5"},
     "gemini": {"label": "Google Gemini", "env": "GEMINI_API_KEY", "model": "gemini-2.5-pro"},
+    "mammouth": {"label": "Mammouth", "env": "MAMMOUTH_API_KEY", "model": "mammouth-recommended"},
     "ollama": {"label": "Ollama (cette machine ou une adresse)", "env": None, "model": "gpt-oss:20b"},
     "ollama-cloud": {"label": "Ollama Cloud", "env": "OLLAMA_API_KEY", "model": "gpt-oss:120b"},
     # Tout service qui parle l'API OpenAI : LM Studio, vLLM, LiteLLM, llama.cpp… La clé est facultative.

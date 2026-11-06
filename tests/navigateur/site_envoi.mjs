@@ -7,7 +7,7 @@ async function vu(input) {
   for (const f of input.files) {
     const hash = await crypto.subtle.digest("SHA-256", await f.arrayBuffer());
     const hex = [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
-    lignes.push(f.name + " " + f.size + " " + hex);
+    lignes.push(f.name + " " + f.size + " " + hex + " type=" + (f.type || "vide"));
   }
   const p = document.createElement("p");
   p.textContent = "RECU " + input.id + " : " + lignes.join(" ; ");

@@ -18,7 +18,7 @@ import type { SettingsTab } from "@/components/Settings";
 import { ViewerProvider } from "@/components/Viewer";
 import { Button } from "@/components/ui";
 import { type Agent, ApiError, canAdmin, canTalk, type Conversation, type CurrentModel, currentAuthEpoch, get, type Me, request, send, setClientVersion, type Status, type Usage } from "@/lib/api";
-import { WhileBusyContext, AgentContext } from "@/lib/agentContext";
+import { WhileBusyContext, AgentContext, HistoryContext } from "@/lib/agentContext";
 import { takeAsk } from "@/lib/askAgent";
 import { clearShare, pendingShare } from "@/lib/share";
 import { appShell, tooOld } from "@/lib/platform";
@@ -291,6 +291,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const [usage, setUsage] = useState<Usage | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [panel, setPanel] = useState<PanelTab | null>(null);
+  const [liveStatus, setLiveStatus] = useState<string | null>(null);
   const [agentDialog, setAgentDialog] = useState<{ open: boolean; agent: Agent | null }>({ open: false, agent: null });
   const [settings, setSettings] = useState<SettingsTab | null>(null);
   const [details, setDetails] = useState(false);
@@ -483,7 +484,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
                     ? thread.de
                       ? `Conversation de ${thread.de} · en lecture`
                       : `Fil de ${agent.name}${thread.archived ? " · archivé" : ""}`
-                    : agent.step || (agent.online ? "En ligne" : "Sa machine ne répond pas")}
+                    : agent.step || liveStatus || (agent.online ? "En ligne" : "Sa machine ne répond pas")}
               </p>
             </div>
             {agent && !agent.online && !agent.step && canAdmin(agent) && (
@@ -544,6 +545,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
                   onRunFinished={onRunFinished}
                   report={!threadId && report?.agentId === agent.id ? report : null}
                   onReportRead={reportRead}
+                  onStatus={setLiveStatus}
                 />
               </div>
             ) : agent ? (
@@ -635,6 +637,7 @@ type ChatProps = {
   onRunFinished: () => void;
   report: CallReport | null;
   onReportRead: () => void;
+  onStatus?: (status: string | null) => void;
 };
 
 function AgentChat(props: ChatProps) {
@@ -650,7 +653,7 @@ function AgentChat(props: ChatProps) {
     [],
   );
   useEffect(() => followConversation(props.conversationId), [followConversation, props.conversationId]);
-  const { runtime, whileBusy } = useAgentChat({
+  const { runtime, whileBusy, history, status } = useAgentChat({
     agentId: props.agent.id,
     ...props,
     agentBusy: Boolean(props.agent.tasks.work || props.agent.tasks.approve), // « choice » attend la personne, sans travail en cours
@@ -663,6 +666,9 @@ function AgentChat(props: ChatProps) {
       self.current.onConversationCreated();
     }, [followConversation]),
   });
+  useEffect(() => {
+    self.current.onStatus?.(status);
+  }, [status]);
   const say = useCallback(
     (text: string, clientId?: string) => runtime.thread.append({ role: "user", content: [{ type: "text", text }], metadata: { custom: { clientId } } }),
     [runtime],
@@ -718,11 +724,13 @@ function AgentChat(props: ChatProps) {
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <WhileBusyContext.Provider value={whileBusy}>
+      <HistoryContext.Provider value={history}>
       <AgentContext.Provider value={context}>
         <QuoteContext.Provider value={quotes.value}>
           <Thread report={props.report} onReportRead={props.onReportRead} onCall={onCall} />
         </QuoteContext.Provider>
       </AgentContext.Provider>
+      </HistoryContext.Provider>
       </WhileBusyContext.Provider>
     </AssistantRuntimeProvider>
   );

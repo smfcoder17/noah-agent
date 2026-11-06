@@ -22,14 +22,41 @@ const DOSSIERS = "node /repo/tests/desktop/dossiers_test.mjs";
 const ENVOI = "mkdir -p /data && node /tests/navigateur/envoi_test.mjs";
 const ENVOI_OUTIL = "python /tests/navigateur/envoi_outil_test.py";
 const CONFIG_AGENT = PIP + "python /tests/agents/config_agent_test.py";
+const FIL = PIP + "python /tests/agents/fil_fichiers_test.py";
 const PLUGIN = "launcher/camofox-noah/index.js";
 
 // NOAH_SABOTAGE=mot : seulement les sabotages dont le nom contient ce mot, pour rejouer un cas.
+const PROVIDER = PIP + "python /tests/providers/provider_test.py";
+const VIVANT = PIP + "python /tests/agents/chat_vivant_test.py";
 const SABOTAGES = [
+  ["Chat : le récit du travail reste dans la réponse", "noah/main.py", "                    reply.clear()\n                    if said:", "                    if said:", VIVANT],
+  ["Chat : un widget écrit en chemin se perd", "noah/main.py", "(kept if _SHOWS_SOMETHING.search(said) else steps).append(said)", "steps.append(said)", VIVANT],
+  ["Chat : une phrase de travail masque une erreur", "noah/main.py", 'text = "\\n\\n".join([*kept, answer]).strip() if answer or succeeded or kept else ""', 'text = "\\n\\n".join([*kept, answer, *steps]).strip()', VIVANT],
+  ["Réaction : la marque s'affiche", "noah/main.py", '                    emoji, text = head.feed(out["text"])', '                    emoji, text = None, out["text"]', VIVANT],
+  ["Réaction : n'importe quel texte passe", "noah/main.py", "if body.emoji is not None and body.emoji not in events.REACTIONS:", "if False:", VIVANT],
+  ["Réaction : un message d'une autre conversation", "noah/main.py", 'WHERE id = ? AND conversation_id = ?", (message_id, conv_id))', 'WHERE id = ? AND ? = ?", (message_id, conv_id, conv_id))', VIVANT],
+  ["Réaction : l'agent ne l'apprend pas", "noah/main.py", 'if body.emoji and row["role"] == "agent":', "if False:", VIVANT],
+  ["Choix : une question déjà équipée en reçoit un autre", "noah/main.py", "if not said or CHOICE_RE.search(said) or not _WAITS_ANSWER", "if not said or not _WAITS_ANSWER", VIVANT],
+  ["Choix : une panne du petit modèle casse la réponse", "noah/main.py", "    except Exception:  # une proposition perdue ne gêne personne : la saisie reste libre\n        return \"\"", "    except ValueError:\n        return \"\"", VIVANT],
+  ["Mammouth : la clé n'est pas vérifiée", "noah/catalog.py", 'elif provider == "mammouth":', 'elif provider == "pas-mammouth":', PROVIDER],
+  ["Mammouth : un modèle d'image devient cerveau", "noah/catalog.py", 'or _MAMMOUTH_NOT_CHAT.search(mid)', "", PROVIDER],
+  ["Mammouth : tout passe pour un modèle OpenAI", "noah/catalog.py", 'next((lab for prefix, lab in _MAMMOUTH_LABS if mid.lower().startswith(prefix)), "mammouth")', 'm.get("owned_by")', PROVIDER],
+  ["Mammouth : prix faux d'un facteur un million", "noah/catalog.py", 'float(price_in) * 1e6 if price_in', 'float(price_in) if price_in', PROVIDER],
+  ["Fil : la tranche demandée est ignorée", "noah/main.py", "    if limit is not None:\n        query, args = f\"SELECT * FROM", "    if False:\n        query, args = f\"SELECT * FROM", FIL],
+  ["Fil : remonter redonne le dernier message lu", "noah/main.py", 'where + " AND id < ?"', 'where + " AND id <= ?"', FIL],
+  ["Fil : reprendre oublie les nouveaux messages", "noah/main.py", 'where + " AND id >= ?"', 'where + " AND id = ?"', FIL],
+  ["Fil : une tranche sans plafond", "noah/main.py", "min(max(limit, 1), 500)", "max(limit, 1)", FIL],
+  ["Fichiers : le simple usage suffit pour supprimer", "noah/main.py", '_usable(user, agent_id, "admin")\n    try:\n        return await hermes.delete_files', '_usable(user, agent_id)\n    try:\n        return await hermes.delete_files', FIL],
+  ["Fichiers : la suppression suit un lien vers l'extérieur", "launcher/launcher.py", "chain.append((fd, part))\n            fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)", "chain.append((fd, part))\n            fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY, dir_fd=fd)", FIL],
+  ["Fichiers : un chemin remonte hors du dossier", "launcher/launcher.py", 'or any(p in ("", ".", "..") for p in parts)', "", FIL],
+  ["Fichiers : un dossier de premier niveau disparaît", "launcher/launcher.py", "reversed(chain[1:])", "reversed(chain)", FIL],
+  ["Fichiers : une grosse suppression d'un seul coup", "launcher/launcher.py", "size + cost > DELETE_ARG_BYTES", "False", FIL],
   ["Routine : le fichier de la consigne est ignoré", "noah/hermes.py", 'if words[:1] != ["--fichier"]:', "if True:", ENVOI_OUTIL],
   ["Routine : n'importe quel fichier part en consigne", "noah/hermes.py", "if not real.startswith(root + os.sep):  # un texte lu en ligne", "if False:  # un texte lu en ligne", ENVOI_OUTIL],
   ["Accord : le texte technique sert de demande", "noah/mcp.py", 'return {"demande": plain, "apercu": _preview(shown)}', 'return {"demande": summary, "apercu": _preview(shown)}', MCP],
-  ["Accord : l'aperçu montre les identifiants", "noah/mcp.py", 'if key in _HIDDEN or key.endswith(("_id", "_ids", "_url", "_urls")):', "if False:", MCP],
+  ["Accord : l'aperçu montre les identifiants", "noah/mcp.py", 'hidden, key = key in _HIDDEN or key.endswith(("_id", "_ids", "_url", "_urls")), ""', "hidden, key = False, key", MCP],
+  ["Accord : une liste d'identifiants prend la place du contenu", "noah/mcp.py", 'inside = max(between.count("[") - between.count("]"), 0)', "inside = 0", MCP],
+  ["Accord : une clé masquée cache la valeur suivante", "noah/mcp.py", 'key.endswith(("_id", "_ids", "_url", "_urls")), ""', 'key.endswith(("_id", "_ids", "_url", "_urls")), key', MCP],
   ["Accord : l'aperçu montre le technique", "noah/mcp.py", "and not _TECHNICAL.match(text) ", "", MCP],
   ["Accord : la description d'Hermes s'affiche", "noah/mcp.py", 'if command else "Ton agent te demande de valider une action."', "if command else summary", MCP],
   ["Accord : une suppression passe pour une lecture", "noah/mcp.py", "for action, verbs, sentence in _ACTIONS:", "for action, verbs, sentence in reversed(_ACTIONS):", MCP],
@@ -163,17 +190,20 @@ function runPlugin([sabotage, path, old, replacement, cmd]) {
 
 function run(item) {
   if (item[1].startsWith("desktop/")) return runDesktop(item);
-  if (item[1].startsWith("launcher/")) return runPlugin(item);
+  if (item[1].startsWith("launcher/") && !item[1].endsWith(".py")) return runPlugin(item);
   const [sabotage, path, old, replacement, cmd] = item;
   const tmp = mkdtempSync(join(tmpdir(), "noah-sabotage-"));
   try {
     const server = join(tmp, "server");
     cpSync(join(ROOT, "server"), server, { recursive: true, filter: (p) => !p.includes("__pycache__") });
-    const target = join(server, path);
+    // Le code du lanceur se sabote dans sa propre copie, le reste dans celle du serveur.
+    const launcherCopy = join(tmp, "launcher");
+    if (path.startsWith("launcher/")) cpSync(join(ROOT, "launcher"), launcherCopy, { recursive: true, filter: (p) => !p.includes("__pycache__") && !p.includes("node_modules") });
+    const target = path.startsWith("launcher/") ? join(tmp, path) : join(server, path);
     const source = readFileSync(target, "utf8");
     if (old && source.split(old).length !== 2) return { sabotage, resultat: "cible introuvable" };
     if (old) writeFileSync(target, source.replace(old, () => replacement));
-    const r = spawnSync("docker", ["run", "--rm", "-e", "PYTHONDONTWRITEBYTECODE=1", "-v", `${server}:/app`, "-v", `${join(ROOT, "tests")}:/tests`, "-v", `${join(ROOT, "launcher")}:/l:ro`,
+    const r = spawnSync("docker", ["run", "--rm", "-e", "PYTHONDONTWRITEBYTECODE=1", "-v", `${server}:/app`, "-v", `${join(ROOT, "tests")}:/tests`, "-v", `${path.startsWith("launcher/") ? launcherCopy : join(ROOT, "launcher")}:/l:ro`,
       "-v", `${join(ROOT, "frontend/src/App.tsx")}:/front/App.tsx:ro`, "-v", `${join(ROOT, "mobile/www/app.js")}:/mobile/app.js:ro`,
       "python:3.12-slim", "sh", "-c", cmd], { timeout: 600000 });
     // Seule une assertion compte : une panne d'installation ou de Docker ne prouve rien.

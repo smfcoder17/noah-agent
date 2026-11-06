@@ -280,6 +280,7 @@ ROUTES = {
     ("GET", "/api/agents/{agent_id}/conversations"): "lecture",
     ("POST", "/api/conversations/{conv_id}/archive"): "auteur",
     ("GET", "/api/conversations/{conv_id}/messages"): "auteur",
+    ("PUT", "/api/conversations/{conv_id}/messages/{message_id}/reaction"): "auteur",
     ("GET", "/api/conversations/{conv_id}/en-cours"): "auteur",
     ("POST", "/api/conversations/{conv_id}/regard"): "auteur",
     ("DELETE", "/api/conversations/{conv_id}"): "auteur",
@@ -291,6 +292,7 @@ ROUTES = {
     ("GET", "/api/agents/{agent_id}/media"): "usage",
     ("GET", "/api/agents/{agent_id}/files"): "usage",
     ("GET", "/api/agents/{agent_id}/files/raw/{path:path}"): "usage",
+    ("POST", "/api/agents/{agent_id}/files/supprimer"): "admin",
     ("POST", "/api/agents/{agent_id}/upload"): "usage",
     ("GET", "/api/agents/{agent_id}/screen-url"): "admin",
     ("POST", "/api/agents/{agent_id}/clipboard/paste"): "admin",
@@ -342,6 +344,8 @@ ROUTES = {
 FILL = {"agent_id": A, "conv_id": CA, "run_id": RUN, "routine_id": "routine-1", "name": "notion", "wid": WID, "audio_id": AUDIO,
         "rid": RID, "user_id": str(ZED), "path:path": "index.html"}
 BODIES = {
+    "/api/conversations/{conv_id}/messages/{message_id}/reaction": lambda: {"emoji": "👍"},
+    "/api/agents/{agent_id}/files/supprimer": lambda: {"chemins": ["uploads/a.txt"]},
     "/api/chat": lambda: {"agent_id": A, "text": "bonjour"},
     "/api/agents/{agent_id}/apercu": lambda: {"path": "apps/x/index.html"},
     "/api/agents/{agent_id}/plafond": lambda: {"daily": 1},
@@ -549,6 +553,9 @@ def call(web: TestClient, method: str, path: str):
         if f"/{key}/" in path:
             url = url.replace("{action}", verb)
     url = url.replace("{call_id}", HANDOFF if "/appel/" in path else CALL)
+    if "{message_id}" in url:
+        with db.connect() as c:
+            url = url.replace("{message_id}", str(c.execute("SELECT id FROM messages WHERE conversation_id = ? LIMIT 1", (CA,)).fetchone()["id"]))
     assert "{" not in url, url
     kw = {}
     if method != "GET" and path in BODIES and not (method == "DELETE"):

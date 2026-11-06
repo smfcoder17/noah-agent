@@ -78,11 +78,27 @@ def seen():
 small, other, big = write("photo.jpg", 200_000), write("deux.jpg", 150_000), write("video.mp4", 60 * 2**20)
 
 r = noah(UP + "photo.jpg")
-check("un seul champ : le fichier arrive entier", r.get("ok") is True and small in seen(), r)
+text = seen()
+check("un seul champ : le fichier arrive entier", r.get("ok") is True and small in text, r)
+check("la page lit le vrai type de l'image (un site refuse un type vide)", "type=image/jpeg" in text, text[-160:])
 
 go("/un")
 r = noah(UP + "video.mp4")
-check("une vidéo de 60 Mo arrive entière", r.get("ok") is True and big in seen(), r)
+text = seen()
+check("une vidéo de 60 Mo arrive entière", r.get("ok") is True and big in text, r)
+check("la page lit le vrai type de la vidéo", "type=video/mp4" in text, text[-160:])
+
+go("/un")
+r = noah(UP + "photo.jpg", UP + "deux.jpg")
+check("un champ à fichier unique : la réponse dit d'envoyer un par un", "un fichier à la fois" in r.get("erreur", ""), r)
+check("rien n'a été posé", "RECU" not in api("GET", f"/tabs/{tab}/snapshot?userId=noah"))
+r = noah(UP + "photo.jpg")
+text = seen()
+check("le premier fichier passe seul ensuite", r.get("ok") is True and small in text, r)
+
+go("/bouton")
+r = noah(UP + "photo.jpg", UP + "deux.jpg", "--selecteur", "#b")
+check("un bouton à fichier unique : même réponse", "un fichier à la fois" in r.get("erreur", ""), r)
 
 go("/fenetre")
 r = noah(UP + "photo.jpg", UP + "deux.jpg")

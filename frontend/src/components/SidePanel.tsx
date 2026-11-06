@@ -1,18 +1,17 @@
 // Panneau de droite : Détails de l'agent, ses Fichiers, et son Ordinateur (écran du navigateur en direct).
-import { Archive, ArchiveRestore, ChevronDown, Download, ExternalLink, Eye, Hand, Loader2, LogIn, MonitorPlay, Power, RefreshCw, Sunrise, Users, X } from "lucide-react";
+import { Archive, ArchiveRestore, ChevronDown, ExternalLink, Hand, Loader2, LogIn, MonitorPlay, Power, RefreshCw, Sunrise, Users, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { type Agent, canAdmin, canTalk, type Conversation, get, mediaUrl, rawFileUrl, send, type Usage, type WorkspaceFile } from "@/lib/api";
-import { inAndroidApp } from "@/lib/platform";
+import { type Agent, canAdmin, canTalk, type Conversation, get, send, type Usage } from "@/lib/api";
 import { wireClipboard } from "@/lib/vncClipboard";
-import { cn, fileSize, money } from "@/lib/utils";
+import { cn, money } from "@/lib/utils";
 import { AgentAppearance } from "./AgentAppearance";
 import { AgentBrain } from "./AgentBrain";
 import { Connections, Folders, Memory, Routines, Software, Watches } from "./AgentPowers";
+import { Files } from "./Files";
 import { AgentFace } from "./Noah";
 import { ShareDialog } from "./Sharing";
 import { STATE_WORD, StateShape } from "./Sidebar";
 import { Button, Dialog, DialogContent, Tabs, TabsContent, TabsList, TabsTrigger } from "./ui";
-import { canFrame, useDownload } from "./Viewer";
 
 export type PanelTab = "details" | "files" | "computer";
 
@@ -84,7 +83,7 @@ export function SidePanel({
         </Details>
       </TabsContent>
       <TabsContent value="files" className="min-h-0 flex-1 overflow-y-auto">
-        <Files agentId={agent.id} refreshKey={refreshKey} />
+        <Files key={agent.id} agentId={agent.id} refreshKey={refreshKey} canDelete={admin} onGiven={() => window.matchMedia("(max-width: 767px)").matches && onClose()} />
       </TabsContent>
       <TabsContent value="computer" className="flex min-h-0 flex-1 flex-col gap-3">
         {tab === "computer" && <Computer agentId={agent.id} />}
@@ -277,97 +276,6 @@ function Threads({
         </>
       )}
     </section>
-  );
-}
-
-const GROUPS: [string, string][] = [
-  ["outputs/", "Livrables"],
-  ["apps/", "Applications"],
-  ["captures/", "Captures"],
-  ["uploads/", "Envoyés par toi"],
-  ["", "Autres fichiers"],
-];
-
-function Files({ agentId, refreshKey }: { agentId: string; refreshKey: number }) {
-  const download = useDownload();
-  const [files, setFiles] = useState<WorkspaceFile[] | null>(null);
-  const [error, setError] = useState("");
-  const [preview, setPreview] = useState<{ title: string; url: string } | null>(null);
-
-  const load = useCallback(() => {
-    get<WorkspaceFile[]>(`/api/agents/${agentId}/files`)
-      .then((f) => { setFiles(f); setError(""); })
-      .catch((e) => setError(e.message));
-  }, [agentId]);
-  useEffect(load, [load, refreshKey]);
-
-  if (error) return <p className="text-sm text-danger">{error}</p>;
-  if (!files) return <p className="text-sm text-muted-foreground">Chargement…</p>;
-  if (!files.length) return <p className="text-sm text-muted-foreground">Aucun fichier pour l'instant. Ce que l'agent crée et ce que tu lui envoies apparaîtra ici.</p>;
-
-  const used = new Set<string>();
-  const sections = GROUPS.map(([prefix, title]) => {
-    const group = files.filter((f) => !used.has(f.path) && f.path.startsWith(prefix));
-    group.forEach((f) => used.add(f.path));
-    // Une application = un dossier : on montre son index.html.
-    const items = prefix === "apps/" ? group.filter((f) => /^apps\/[^/]+\/index\.html$/.test(f.path)) : group;
-    return { prefix, title, items };
-  }).filter((s) => s.items.length);
-
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="flex justify-end">
-        <Button variant="ghost" size="sm" onClick={load}><RefreshCw />Actualiser</Button>
-      </div>
-      {sections.map((s) => (
-        <section key={s.title} className="flex flex-col gap-1">
-          <h3 className="px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">{s.title}</h3>
-          {s.items.slice(0, 100).map((f) => {
-            const isApp = s.prefix === "apps/";
-            const isImage = /\.(png|jpe?g|gif|webp)$/i.test(f.path);
-            const canPreview = isApp || isImage || canFrame(f.path);
-            const name = isApp ? f.path.split("/")[1] : f.path.replace(/^(outputs|uploads|captures)\//, "");
-            const raw = rawFileUrl(agentId, f.path);
-            return (
-              <div key={f.path} className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-muted">
-                {isImage && (
-                  <img src={mediaUrl(agentId, `/opt/data/workspace/${f.path}`)} alt="" loading="lazy" className="size-9 rounded-md border border-border object-cover" />
-                )}
-                <span className="min-w-0 flex-1 truncate text-sm" title={f.path}>{name}</span>
-                <span className="text-xs text-muted-foreground tabular-nums">{fileSize(f.size)}</span>
-                {canPreview && (
-                  <Button variant="outline" size="sm" onClick={() => setPreview({ title: name, url: raw })}>
-                    <Eye />{isApp ? "Ouvrir" : "Aperçu"}
-                  </Button>
-                )}
-                <Button variant="ghost" size="icon-sm" asChild>
-                  <a href={`${raw}?download=1`} onClick={(e) => { e.preventDefault(); download(`${raw}?download=1`, name); }} aria-label={`Télécharger ${name}`}><Download /></a>
-                </Button>
-              </div>
-            );
-          })}
-        </section>
-      ))}
-      <Dialog open={!!preview} onOpenChange={(o) => !o && setPreview(null)}>
-        {preview && (
-          <DialogContent title={preview.title} className="h-[min(85dvh,860px)] max-w-5xl p-4">
-            {!inAndroidApp() && (
-              <div className="flex justify-end">
-                <Button variant="outline" size="sm" asChild>
-                  <a href={preview.url} target="_blank" rel="noopener"><ExternalLink />Ouvrir dans un onglet</a>
-                </Button>
-              </div>
-            )}
-            <iframe
-              src={preview.url}
-              title={preview.title}
-              sandbox="allow-scripts allow-forms allow-popups allow-modals"
-              className="min-h-0 flex-1 rounded-lg border border-border bg-white"
-            />
-          </DialogContent>
-        )}
-      </Dialog>
-    </div>
   );
 }
 

@@ -668,6 +668,37 @@ Classe le nouveau message et rends uniquement ce JSON : {{"type": "question" | "
 Écris dans sa langue, sans jargon."""
 
 
+QUICK_REPLIES = (
+    "L'agent vient d'écrire ce message à la personne. Si la fin attend une réponse qu'on peut toucher (oui ou non, un choix entre des possibilités "
+    "nommées), propose 2 à 4 réponses de 1 à 5 mots, reprises du message, dans sa langue. Si elle attend une réponse libre, aucune. "
+    'Réponds en JSON seul : {"options": ["..."]}.'
+)
+
+
+async def quick_replies(agent_id: str, text: str) -> list[str]:
+    """Les réponses à toucher qu'un message appelle. Rien si le petit modèle ne sait pas : la saisie libre reste toujours là."""
+    _check_budget(agent_id)
+    base, headers, fallbacks = await _voice_target()
+    body = {"model": fallbacks[0], "messages": [{"role": "system", "content": QUICK_REPLIES}, {"role": "user", "content": text[-1500:]}],
+            "max_tokens": 120, "temperature": 0, "response_format": {"type": "json_object"}}
+    if base == BASE:
+        body |= {"provider": {"sort": "latency"}, "usage": {"include": True}}
+    if decision.thinks(fallbacks[0]):
+        if base == BASE:
+            body["reasoning"] = {"effort": "low", "exclude": True}
+        else:
+            body["reasoning_effort"] = "low"
+    r = await relay.upstream_client().post(f"{base}/chat/completions", json=body, headers=headers, timeout=6)
+    if r.status_code != 200:
+        return []
+    answer = r.json()
+    _record(agent_id, fallbacks[0], (answer.get("usage") or {}).get("cost"))
+    content = answer["choices"][0]["message"]["content"]
+    options = json.loads(content[content.find("{"): content.rfind("}") + 1]).get("options") or []
+    clean = list(dict.fromkeys(" ".join(str(o).split())[:40] for o in options if str(o).strip()))
+    return clean[:4] if len(clean) >= 2 else []
+
+
 async def triage(agent_id: str, name: str, role: str, text: str, history: list[dict], doing: str) -> dict:
     """Le cerveau toujours disponible : quelques secondes, aucun outil, et le contexte réduit à la fin de la conversation."""
     _check_budget(agent_id)

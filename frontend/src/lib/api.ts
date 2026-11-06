@@ -191,7 +191,8 @@ export type Conversation = {
   /** Auteur, si ce n'est pas ce compte : elle se lit, elle ne s'écrit pas. */
   de: string | null;
 };
-export type StoredMessage = { role: "user" | "agent" | "error"; text: string; detail?: string | null; created_at: string };
+export type Reactions = { user?: string; agent?: string };
+export type StoredMessage = { reactions?: Reactions; id?: number; role: "user" | "agent" | "error"; text: string; detail?: string | null; created_at: string };
 export type AgentUsage = {
   agent_id: string;
   name: string;
@@ -228,6 +229,8 @@ export type ChatEvent =
   | { type: "start"; conversation_id: string; run_id: string }
   | { type: "deja" }
   | { type: "message"; text: string }
+  | { type: "etape" }
+  | { type: "reaction"; emoji: string }
   | { type: "activity"; label: string; detail?: unknown }
   | { type: "activity_detail"; detail: unknown }
   | { type: "raw"; kind: string; data: unknown }

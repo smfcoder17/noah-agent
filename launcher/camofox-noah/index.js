@@ -172,6 +172,16 @@ function notTakenOver() {
   if (Date.now() < privateUntil) throw fail(423, "L'utilisateur a la main sur l'écran : attends qu'il ait fini.");
 }
 
+// Un champ sans « multiple » refuse plusieurs fichiers : Instagram, pour un carrousel. L'agent doit le savoir pour changer de méthode,
+// au lieu de lire une erreur générale et de soupçonner ses images.
+async function setFilesOn(input, files) {
+  const takesSeveral = files.length < 2 || (await input.evaluate((el) => el.multiple).catch(() => true));
+  if (!takesSeveral) {
+    throw fail(422, "Ce champ ne prend qu'un fichier à la fois. Envoie le premier, puis ajoute les suivants un par un avec le bouton d'ajout du site (souvent + dans sa galerie).");
+  }
+  await input.setInputFiles(files, { timeout: 10000 });
+}
+
 async function throughTrigger(page, trigger, files) {
   for (const frame of page.frames()) {
     await frame.locator(FILE_INPUT).evaluateAll((all) => all.forEach((el) => {
@@ -190,13 +200,16 @@ async function throughTrigger(page, trigger, files) {
   while (Date.now() < end) {
     if (chooser) {
       notTakenOver();
+      if (files.length > 1 && !chooser.isMultiple()) {
+        throw fail(422, "Ce bouton ne prend qu'un fichier à la fois. Envoie le premier, puis ajoute les suivants un par un avec le bouton d'ajout du site (souvent + dans sa galerie).");
+      }
       await chooser.setFiles(files);
       return "selecteur";
     }
     const input = await theOnlyInput(page, true);
     if (input) {
       notTakenOver();
-      await input.setInputFiles(files, { timeout: 10000 });
+      await setFilesOn(input, files);
       return "champ";
     }
     await page.waitForTimeout(300);
@@ -211,7 +224,7 @@ async function putFiles(tabState, files, { ref, selector }) {
     const input = await theOnlyInput(page);
     if (!input) throw fail(422, "Aucun champ de fichier ici : ouvre d'abord la fenêtre d'envoi du site, ou désigne son bouton avec --ref.");
     notTakenOver();
-    await input.setInputFiles(files, { timeout: 10000 });
+    await setFilesOn(input, files);
     return "champ";
   }
   const isInput = await target.evaluate((el) => el.matches('input[type="file"]'), null, { timeout: 4000 }).catch(() => {
@@ -219,7 +232,7 @@ async function putFiles(tabState, files, { ref, selector }) {
   });
   if (!isInput) return throughTrigger(page, target, files);
   notTakenOver();
-  await target.setInputFiles(files, { timeout: 10000 });
+  await setFilesOn(target, files);
   return "champ";
 }
 

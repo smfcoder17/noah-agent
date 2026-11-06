@@ -83,7 +83,7 @@ jobs:
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \
             "pip install -q -r /app/requirements.txt && python /tests/budget/budget_test.py"
-      - name: Fournisseurs (Ollama, Ollama Cloud, service compatible OpenAI)
+      - name: Fournisseurs (Ollama, Ollama Cloud, Mammouth, service compatible OpenAI)
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c             "pip install -q -r /app/requirements.txt && python /tests/providers/provider_test.py"
       - name: "Relais : flux compressé par le fournisseur"
@@ -98,6 +98,12 @@ jobs:
       - name: "Lanceur sur un petit VPS"
         run: |
           docker run --rm -v "$PWD/launcher:/launcher:ro" -v "$PWD/tests:/tests:ro" python:3.12-slim sh -c "pip install -q fastapi pydantic httpx && python /tests/agents/petit_vps_test.py"
+      - name: "Chat vivant : réponse sans récit du travail, réactions, réponses à toucher"
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/agents/chat_vivant_test.py"
+      - name: "Fil et fichiers : conversation par tranches, suppression selon le droit, sans suivre de lien"
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/launcher:/l:ro" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/agents/fil_fichiers_test.py"
       - name: "Aperçu : une app charge ses fichiers sans sortir de son dossier"
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/agents/apercu_test.py"

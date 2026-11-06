@@ -729,11 +729,24 @@ def _preview(shown: str) -> list[str]:
     """Ce que l'action écrirait, en texte : le destinataire, le titre, le contenu, même dans une liste ou coupé par la limite du texte montré."""
     found: list[str] = []
     key = ""
-    for raw, end in _STRING.findall(_CUT.sub("", shown)):
+    text_in = _CUT.sub("", shown)
+    last = 0
+    inside = 0  # profondeur de la liste masquée en cours
+    for m in _STRING.finditer(text_in):
+        raw, end = m.groups()
+        between = text_in[last:m.start()]
+        last = m.end()
+        if inside:
+            inside += between.count("[") - between.count("]")
+            if inside > 0:
+                continue
+            inside = 0
         if end.endswith(":"):
             key = raw
             continue
-        if key in _HIDDEN or key.endswith(("_id", "_ids", "_url", "_urls")):
+        hidden, key = key in _HIDDEN or key.endswith(("_id", "_ids", "_url", "_urls")), ""  # la clé vaut pour la valeur qui la suit, pas pour la suivante
+        if hidden:
+            inside = max(between.count("[") - between.count("]"), 0)
             continue
         try:
             text = " ".join(str(json.loads(f'"{raw}"')).split())

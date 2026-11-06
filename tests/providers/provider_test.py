@@ -25,6 +25,18 @@ seen: list[httpx.Request] = []
 
 def upstream(request: httpx.Request) -> httpx.Response:
     seen.append(request)
+    if request.url.host == "api.mammouth.ai":
+        if request.url.path == "/public/models":
+            assert "authorization" not in request.headers, "la liste publique ne reçoit pas la clé"
+            return httpx.Response(200, json={"object": "list", "data": [
+                {"id": "claude-haiku-5-5", "owned_by": "openai", "created": 5, "model_info": {"max_input_tokens": 200000, "input_cost_per_token": 1e-7, "output_cost_per_token": 5e-7}},
+                {"id": "kimi-k3", "owned_by": "openai", "created": 5, "model_info": {}},
+                {"id": "modele-inconnu", "owned_by": "openai", "created": 5},
+                {"id": "gpt-image-2", "owned_by": "openai"}, {"id": "text-embedding-3-large", "owned_by": "openai"}, {"id": "sonar-pro", "owned_by": "openai"},
+            ]})
+        if request.url.path == "/key/info":
+            ok = request.headers.get("authorization") == "Bearer bonne-cle"
+            return httpx.Response(200 if ok else 401, json={})
     if request.url.path.endswith("/models"):
         return httpx.Response(200, json={"data": [{"id": "mon-modele"}]})
     if request.url.path == "/api/tags":
@@ -97,9 +109,37 @@ for bad, why in (({"provider": "custom", "model": "m"}, "adresse"), ({"provider"
 print("4. la clé enregistrée ne suit ni un autre fournisseur ni une autre adresse")
 
 
+# Mammouth : adresse fixe, liste publique avec ses prix, clé vérifiée avant d'être gardée.
+assert relay.upstream_base("mammouth", "http://piege/v1") == "https://api.mammouth.ai/v1", "Mammouth n'accepte pas d'autre adresse"
+listed = asyncio.run(catalog.models_for("mammouth", None))
+assert [m["id"] for m in listed] == ["claude-haiku-5-5", "kimi-k3", "modele-inconnu"], "ni images, ni embeddings, ni recherche web comme cerveau"
+haiku = listed[0]
+assert (haiku["lab"], haiku["context"]) == ("anthropic", 200000), "le labo se lit dans le nom, pas dans owned_by"
+assert abs(haiku["price_in"] - 0.1) < 1e-9 and abs(haiku["price_out"] - 0.5) < 1e-9, "prix en dollars par million de jetons"
+assert listed[1]["lab"] == "moonshotai" and listed[1]["price_in"] is None, "sans prix : inconnu, pas zéro"
+assert listed[2]["lab"] == "mammouth"
+prices = asyncio.run(catalog.mammouth_prices())
+assert catalog.price_of(prices, "claude-haiku-5-5")["price_out"] > 0 and not catalog.price_of(prices, "kimi-k3")
+try:
+    asyncio.run(save(provider="mammouth", model="claude-haiku-5-5", api_key="mauvaise"))
+except HTTPException as e:
+    assert e.status_code == 400
+else:
+    raise AssertionError("clé Mammouth refusée mais enregistrée")
+try:
+    asyncio.run(save(provider="mammouth", model="claude-haiku-5-5"))
+except HTTPException as e:
+    assert "clé" in e.detail
+else:
+    raise AssertionError("Mammouth accepté sans clé")
+asyncio.run(save(provider="mammouth", model="claude-haiku-5-5", api_key="bonne-cle"))
+assert db.get_setting("provider") == "mammouth" and db.get_setting("api_key", secret=True) == "bonne-cle"
+print("5. Mammouth : adresse fixe, modèles et prix publics, clé vérifiée")
+
+
 if os.environ.get("NOAH_OLLAMA_URL"):
     catalog.httpx.AsyncClient = real_client
     found = asyncio.run(catalog.models_for("ollama", None, os.environ["NOAH_OLLAMA_URL"]))
     assert found
-    print(f"5. vrai Ollama : {len(found)} modèles avec outils")
+    print(f"6. vrai Ollama : {len(found)} modèles avec outils")
 print("fournisseurs : tout est vert")

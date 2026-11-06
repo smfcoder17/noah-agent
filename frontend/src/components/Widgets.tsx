@@ -2,7 +2,7 @@
 // Graphique, tableau, grille d'éléments, question à choix. Le JSON invalide retombe en bloc de code.
 import type { SyntaxHighlighterProps } from "@assistant-ui/react-markdown";
 import { useAuiState } from "@assistant-ui/react";
-import { Check, Download, ExternalLink, FileText, Maximize2, Reply } from "lucide-react";
+import { Check, Download, ExternalLink, FileText, Maximize2, Moon, Play, Reply } from "lucide-react";
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { mediaUrl, previewRenewIn, previewUrl, rawFileUrl } from "@/lib/api";
 import { inAndroidApp, nativeSave } from "@/lib/platform";
@@ -208,9 +208,31 @@ function Grid({ spec }: { spec: GridSpec }) {
 const AUDIO_RE = /\.(mp3|wav|ogg|m4a|aac|flac)$/i;
 const VIDEO_RE = /\.(mp4|webm|mov)$/i;
 
+// Une page ou une vidéo déjà loin dans la conversation n'a plus à tourner : elle dort sous une vitre, et se recharge d'un clic.
+const STALE_BEHIND = 6;
+const STALE_AFTER = 30 * 60_000;
+const ON_SCREEN_RECHECK = 15_000;
+
+function Frozen({ onWake, page }: { onWake: () => void; page: boolean }) {
+  return (
+    <div className="relative flex h-36 flex-col items-center justify-center gap-2 overflow-hidden bg-gradient-to-br from-muted via-surface to-muted px-4 text-center">
+      <div aria-hidden className="absolute inset-0 bg-[repeating-linear-gradient(135deg,transparent_0_14px,var(--border)_14px_15px)] opacity-40" />
+      <p className="relative text-xs text-muted-foreground">{page ? "En veille pour ne rien consommer." : "En veille."}</p>
+      <Button size="sm" variant="outline" className="relative bg-surface" onClick={onWake}><Play />Recharger</Button>
+    </div>
+  );
+}
+
 /** Un fichier créé par l'agent, montré dans la conversation : application, page, PDF, image, son, vidéo ou carte de téléchargement. */
 function Preview({ spec }: { spec: PreviewSpec }) {
   const { agentId } = useContext(AgentContext);
+  const when = useAuiState((s) => s.message.createdAt);
+  const working = useAuiState((s) => s.message.status?.type === "running");
+  const farBehind = useAuiState((s) => s.thread.messages.length - 1 - s.message.index > STALE_BEHIND);
+  const [aged, setAged] = useState(() => !!when && Date.now() - when.getTime() > STALE_AFTER);
+  const stale = !working && (farBehind || aged);
+  const [woken, setWoken] = useState(false);
+  const shell = useRef<HTMLDivElement>(null);
   const view = useViewer();
   const download = useDownload();
   const path = String(spec.path || "");
@@ -219,6 +241,21 @@ function Preview({ spec }: { spec: PreviewSpec }) {
   const title = spec.title || (/^index.html?$/i.test(name) ? path.split("/").slice(-2)[0] : name);
   const raw = rawFileUrl(agentId, path);
   const page = /\.html?$/i.test(path);
+  const heavy = !isImagePath(path) && (canFrame(path) || VIDEO_RE.test(path));
+  const frozen = heavy && stale && !woken;
+  useEffect(() => {
+    if (!heavy || aged || !when) return;
+    let timer: ReturnType<typeof setTimeout>;
+    // Qui joue ou regarde depuis 30 minutes n'est pas coupé : on attend que la page ne soit plus à l'écran.
+    const check = () => {
+      const box = shell.current?.getBoundingClientRect();
+      const onScreen = !document.hidden && !!box && box.width > 0 && box.bottom > 0 && box.top < innerHeight;
+      if (onScreen) timer = setTimeout(check, ON_SCREEN_RECHECK);
+      else setAged(true);
+    };
+    timer = setTimeout(check, Math.max(when.getTime() + STALE_AFTER - Date.now(), 0));
+    return () => clearTimeout(timer);
+  }, [heavy, aged, when]);
   const [link, setLink] = useState<string | null>(null);
   // La page déjà ouverte garde son lien : le changer la rechargerait et lui ferait perdre son état. Les boutons prennent le plus récent.
   const opened = useRef<string | null>(null);
@@ -231,18 +268,19 @@ function Preview({ spec }: { spec: PreviewSpec }) {
       setLink(u);
       renew = setTimeout(ask, previewRenewIn(agentId, path));
     }, () => live && setLink(raw));
-    if (page) ask();
+    if (page && !frozen) ask();
     return () => {
       live = false;
       clearTimeout(renew);
     };
-  }, [agentId, path, page, raw]);
+  }, [agentId, path, page, raw, frozen]);
   const url = page ? link ?? raw : raw;
   if (page && link && !opened.current) opened.current = link;
   const image = isImagePath(path);
   const frame = !image && canFrame(path);
   const open = () => (image ? view({ kind: "image", src: mediaUrl(agentId, path), title }) : view({ kind: "file", url, title }));
   return (
+    <div ref={shell}>
     <Frame
       title={title}
       note={spec.note ?? name}
@@ -250,7 +288,10 @@ function Preview({ spec }: { spec: PreviewSpec }) {
       style={page ? { width: PAGE_WIDTH, marginLeft: `calc((100% - ${PAGE_WIDTH}) / 2)` } : undefined}
       actions={
         <div className="flex shrink-0 gap-1">
-          {(image || frame) && (
+          {heavy && stale && woken && (
+            <Button size="sm" variant="ghost" onClick={() => setWoken(false)}><Moon />Mettre en veille</Button>
+          )}
+          {(image || frame) && !frozen && (
             <Button size="sm" variant="outline" onClick={open}><Maximize2 />Agrandir</Button>
           )}
           {frame && !inAndroidApp() && (
@@ -264,7 +305,9 @@ function Preview({ spec }: { spec: PreviewSpec }) {
         </div>
       }
     >
-      {AUDIO_RE.test(path) ? (
+      {frozen ? (
+        <Frozen page={page} onWake={() => setWoken(true)} />
+      ) : AUDIO_RE.test(path) ? (
         <div className="px-4 py-3">
           <audio controls preload="metadata" src={url} className="w-full" />
         </div>
@@ -294,6 +337,7 @@ function Preview({ spec }: { spec: PreviewSpec }) {
         </a>
       )}
     </Frame>
+    </div>
   );
 }
 
@@ -302,48 +346,34 @@ function Choice({ spec }: { spec: ChoiceSpec }) {
   const running = useAuiState((s) => s.thread.isRunning);
   // La question n'attend plus de réponse dès qu'un message suit celui-ci.
   const isLast = useAuiState((s) => s.thread.messages[s.thread.messages.length - 1]?.id === s.message.id);
-  const [picked, setPicked] = useState<string | null>(null);
   const [sent, setSent] = useState<string | null>(null);
   const open = isLast && !sent && !running;
   return (
-    <section className={cn("my-3 flex flex-col gap-3 rounded-2xl border bg-surface p-4", open ? "border-warn shadow-sm" : "border-border")}>
-      <span className={cn("text-[11px] font-semibold uppercase tracking-wide", open ? "text-warn" : "text-muted-foreground")}>
-        {open ? "Attend ton choix" : "Choix"}
-      </span>
-      <p className="text-[15px] font-semibold">{spec.question}</p>
-      <div role="radiogroup" aria-label={spec.question} className="flex flex-wrap gap-2">
+    <section className="my-3 flex flex-col gap-2">
+      {spec.question && <p className="text-[15px] font-semibold">{spec.question}</p>}
+      <div role="group" aria-label={spec.question || "Réponses proposées"} className="flex flex-col gap-2">
         {(spec.options ?? []).map((o) => (
           <button
             key={o}
             type="button"
-            role="radio"
-            aria-checked={(sent ?? picked) === o}
+            aria-pressed={sent === o}
             disabled={!open}
-            onClick={() => setPicked(o)}
+            onClick={() => {
+              setSent(o);
+              say(o); // un toucher suffit : c'est la réponse
+            }}
             className={cn(
-              "inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-full border border-muted-foreground/50 bg-surface px-3.5 text-[13px] font-medium disabled:cursor-default",
-              (sent ?? picked) === o && "border-2 border-accent bg-accent-soft px-[13px] text-accent",
-              !open && (sent ?? picked) !== o && "opacity-60",
+              "flex min-h-11 w-full max-w-md cursor-pointer items-center justify-between gap-2 rounded-xl border border-border bg-surface px-4 py-2 text-left text-[14px] transition-colors",
+              open && "hover:border-accent hover:bg-accent-soft",
+              sent === o && "border-accent bg-accent-soft font-medium text-accent",
+              !open && sent !== o && "opacity-50",
             )}
           >
-            {sent === o && <Check className="size-3.5" />}{o}
+            {o}
+            {sent === o && <Check className="size-4 shrink-0" />}
           </button>
         ))}
       </div>
-      {open && (
-        <div className="flex justify-end">
-          <Button
-            disabled={!picked}
-            onClick={() => {
-              if (!picked) return;
-              setSent(picked);
-              say(picked);
-            }}
-          >
-            Valider ce choix
-          </Button>
-        </div>
-      )}
     </section>
   );
 }

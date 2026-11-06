@@ -7,7 +7,7 @@ import {
   useExternalStoreRuntime,
 } from "@assistant-ui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ApiError, type ChatEvent, get, send, type StoredMessage, request, StreamLost, streamChat, uploadFile } from "./api";
+import { ApiError, type ChatEvent, get, send, type Reactions, type StoredMessage, request, StreamLost, streamChat, uploadFile } from "./api";
 
 type TextPart = { type: "text"; text: string };
 type ToolPart = { type: "tool-call"; toolCallId: string; toolName: string; args: Record<string, unknown>; result?: unknown };
@@ -18,6 +18,9 @@ export type ChatMessage = {
   content: Part[];
   attachments?: string[];
   running?: boolean;
+  createdAt?: Date;
+  storedId?: number;
+  reactions?: Reactions;
 };
 
 let seq = 0;
@@ -25,7 +28,32 @@ const uid = (p: string) => `${p}-${Date.now().toString(36)}-${(seq++).toString(3
 
 const ATTACHED_RE = /\n\nFichiers joints par l'utilisateur :\n((?:- .+\n?)+)$/;
 
-function fromStored(m: StoredMessage, i: number): ChatMessage {
+/** La conversation par tranches : au départ les derniers messages, plus haut sur demande. Une fois lue, une tranche reste à l'écran. */
+const PAGE = 60;
+const windows = new Map<string, { from: number; more: boolean }>();
+const windowUrl = (conv: string) => {
+  const open = windows.get(conv);
+  return `/api/conversations/${conv}/messages?${open ? `depuis=${open.from}` : `limit=${PAGE}`}`;
+};
+const anchorOf = (conv: string) => windows.get(conv)?.from;
+/** Vrai si cette lecture décrit encore la fenêtre : celle lancée avant de remonter plus haut ne doit rien remplacer. */
+function current(conv: string, asked: number | undefined, rows: StoredMessage[]) {
+  const open = windows.get(conv);
+  if (open && open.from !== asked && rows[0]?.id !== open.from) return false;
+  if (!rows.length) windows.delete(conv); // conversation vidée : l'ancre n'existe plus
+  else if (!open && rows[0].id !== undefined) windows.set(conv, { from: rows[0].id, more: rows.length >= PAGE });
+  return true;
+}
+
+// Le serveur écrit en UTC, sans le dire.
+const storedDate = (at: string | undefined) => (at ? new Date(`${at.replace(" ", "T")}Z`) : undefined);
+
+function fromStored(stored: StoredMessage, i: number): ChatMessage {
+  const m = stored;
+  return { ...fromStoredContent(m, m.id ?? i), createdAt: storedDate(m.created_at), storedId: m.id, reactions: m.reactions };
+}
+
+function fromStoredContent(m: StoredMessage, i: number): ChatMessage {
   if (m.role === "user") {
     const match = m.text.match(ATTACHED_RE);
     const files = match ? match[1].trim().split("\n").map((l) => l.replace(/^- /, "").split("/").pop()!) : [];
@@ -34,8 +62,25 @@ function fromStored(m: StoredMessage, i: number): ChatMessage {
   if (m.role === "error") {
     return { id: `h${i}`, role: "assistant", content: [{ type: "tool-call", toolCallId: `e${i}`, toolName: "error", args: { message: m.text, detail: m.detail ?? "" }, result: true }] };
   }
-  return { id: `h${i}`, role: "assistant", content: [{ type: "text", text: m.text }] };
+  const steps = storedSteps(m.detail);
+  return { id: `h${i}`, role: "assistant", content: [{ type: "text", text: m.text }, ...(steps.length ? [stepsPart(steps)] : [])] };
 }
+
+const stepsPart = (steps: string[]): Part => ({ type: "tool-call", toolCallId: "steps", toolName: "steps", args: { steps } as never, result: true });
+function storedSteps(detail: unknown): string[] {
+  if (typeof detail !== "string" || !detail.startsWith('{"etapes"')) return [];
+  try {
+    return JSON.parse(detail).etapes ?? [];
+  } catch {
+    return [];
+  }
+}
+const stepsOf = (parts: Part[]): string[] => {
+  const found = parts.find((p) => p.type === "tool-call" && p.toolName === "steps");
+  return found ? ((found as unknown as { args: { steps: string[] } }).args.steps ?? []) : [];
+};
+const withoutSteps = (parts: Part[]) => parts.filter((p) => !(p.type === "tool-call" && p.toolName === "steps"));
+const SHOWS_SOMETHING = /```noah|^MEDIA:/m;
 
 /** Retire la ligne de travail : elle ne sert que pendant que l'agent agit. */
 const settle = (parts: Part[]): Part[] => parts.filter((p) => !(p.type === "tool-call" && p.toolName === "activity"));
@@ -47,6 +92,13 @@ function apply(msg: ChatMessage, ev: ChatEvent, runId: string | null): ChatMessa
       const last = parts[parts.length - 1];
       if (last?.type === "text") return { ...msg, content: [...parts.slice(0, -1), { type: "text", text: last.text + ev.text }] };
       return { ...msg, content: [...settle(parts), { type: "text", text: ev.text.replace(/^\n+/, "") }] };
+    }
+    case "etape": {
+      // Ce qu'il a écrit avant de lancer un outil est le récit de son travail : il quitte la réponse. Un widget ou une image reste.
+      const last = parts[parts.length - 1];
+      if (last?.type !== "text" || SHOWS_SOMETHING.test(last.text)) return msg;
+      const said = last.text.trim();
+      return { ...msg, content: [stepsPart([...stepsOf(parts), ...(said ? [said] : [])]), ...withoutSteps(parts.slice(0, -1))] };
     }
     case "activity": {
       // Une seule ligne de travail, toujours en bas : la nouvelle étape remplace l'ancienne.
@@ -77,6 +129,14 @@ function apply(msg: ChatMessage, ev: ChatEvent, runId: string | null): ChatMessa
     case "done": {
       let next = settle(parts);
       if (!next.some((p) => p.type === "text") && ev.output) next = [...next, { type: "text", text: ev.output }];
+      // Les étapes passent sous la réponse. S'il a tout dit avant son dernier outil, sa dernière phrase est la réponse.
+      let steps = stepsOf(next);
+      next = withoutSteps(next);
+      if (ev.status === "completed" && !next.some((p) => p.type === "text") && steps.length) {
+        next = [...next, { type: "text", text: steps[steps.length - 1] }];
+        steps = steps.slice(0, -1);
+      }
+      if (steps.length) next = [...next, stepsPart(steps)];
       if (ev.status !== "completed" && ev.error) {
         next = [...next, { type: "tool-call", toolCallId: uid("e"), toolName: "error", args: { message: ev.error, detail: ev.details ?? "" }, result: true }];
       }
@@ -132,6 +192,8 @@ const convertMessage = (m: ChatMessage): ThreadMessageLike => ({
   id: m.id,
   role: m.role,
   content: m.content as ThreadMessageLike["content"],
+  createdAt: m.createdAt,
+  metadata: { custom: { storedId: m.storedId, reactions: m.reactions } },
   status: m.role === "assistant" ? (m.running ? { type: "running" } : { type: "complete", reason: "stop" }) : undefined,
   attachments: (m.attachments ?? []).map((name, i) => ({
     id: `${m.id}-att-${i}`,
@@ -161,6 +223,9 @@ export function useAgentChat(opts: {
   // Conversation déjà ouverte : ses messages s'affichent tout de suite, la version du serveur arrive derrière.
   const [messages, setMessages] = useState<ChatMessage[]>(() => (conversationId && messagesCache.get(conversationId)) || []);
   const [isRunning, setRunning] = useState(false);
+  const [more, setMore] = useState(false);
+  const [liveLabel, setLiveLabel] = useState<string | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const runRef = useRef<{ runId: string | null; abort: AbortController | null }>({ runId: null, abort: null });
   // Conversation créée pendant ce run : on ne recharge pas l'historique par-dessus le flux en cours.
   const ownConversation = useRef<string | null>(null);
@@ -181,9 +246,16 @@ export function useAgentChat(opts: {
       return;
     }
     setMessages(messagesCache.get(conversationId) ?? []);
+    setMore(windows.get(conversationId)?.more ?? false);
     let cancelled = false;
-    get<StoredMessage[]>(`/api/conversations/${conversationId}/messages`)
-      .then((rows) => !cancelled && setMessages(rows.map(fromStored)))
+    const asked = anchorOf(conversationId);
+    get<StoredMessage[]>(windowUrl(conversationId))
+      .then((rows) => {
+        if (cancelled) return;
+        if (!current(conversationId, asked, rows)) return setMore(windows.get(conversationId)?.more ?? false);
+        setMore(windows.get(conversationId)?.more ?? false);
+        setMessages(rows.map(fromStored));
+      })
       .catch(() => !cancelled && setMessages((cur) => (cur.length ? cur : [])));
     return () => {
       cancelled = true;
@@ -198,8 +270,11 @@ export function useAgentChat(opts: {
   useEffect(() => {
     if (!conversationId || !updatedAt || running.current) return;
     let cancelled = false;
-    get<StoredMessage[]>(`/api/conversations/${conversationId}/messages`)
+    const asked = anchorOf(conversationId);
+    get<StoredMessage[]>(windowUrl(conversationId))
       .then((rows) => {
+        if (!current(conversationId, asked, rows)) return;
+        if (!cancelled) setMore(windows.get(conversationId)?.more ?? false);
         // Seulement s'il y a du nouveau, pour ne pas redessiner la conversation pour rien.
         if (!cancelled && !running.current) setMessages((cur) => (rows.length > cur.length ? rows.map(fromStored) : cur));
       })
@@ -217,9 +292,12 @@ export function useAgentChat(opts: {
       if (i) await new Promise((r) => setTimeout(r, 3000));
       if (gone.aborted || ownConversation.current !== conv) return;
       try {
+        const asked = anchorOf(conv);
         const rows = (await (
-          await request(`/api/conversations/${conv}/messages`, { signal: AbortSignal.timeout(8000) })
+          await request(windowUrl(conv), { signal: AbortSignal.timeout(8000) })
         ).json()) as StoredMessage[];
+        if (!current(conv, asked, rows)) continue;
+        if (ownConversation.current === conv) setMore(windows.get(conv)?.more ?? false);
         if (ownConversation.current === conv && !running.current) setMessages(rows.map(fromStored));
         // Réponse encore en cours côté serveur : on recharge encore jusqu'à la voir arrivée.
         if (rows[rows.length - 1]?.role !== "user") return;
@@ -239,8 +317,18 @@ export function useAgentChat(opts: {
   serverRun.current = serverNow.run_id;
 
   const reload = useCallback(async (conv: string) => {
-    const rows = await get<StoredMessage[]>(`/api/conversations/${conv}/messages`);
-    if (ownConversation.current === conv && !running.current) setMessages((cur) => (rows.length !== cur.length ? rows.map(fromStored) : cur));
+    const asked = anchorOf(conv);
+    const rows = await get<StoredMessage[]>(windowUrl(conv));
+    if (!current(conv, asked, rows)) return;
+    if (ownConversation.current === conv) setMore(windows.get(conv)?.more ?? false);
+    if (ownConversation.current === conv && !running.current) {
+      setMessages((cur) => {
+        if (rows.length !== cur.length) return rows.map(fromStored);
+        // Même nombre : on garde l'affichage, en apprenant le numéro des messages écrits ici (pour pouvoir y réagir) et leurs réactions.
+        const changed = rows.some((r, i) => r.id !== cur[i].storedId || JSON.stringify(r.reactions ?? null) !== JSON.stringify(cur[i].reactions ?? null));
+        return changed ? cur.map((m, i) => ({ ...m, storedId: rows[i].id, reactions: rows[i].reactions })) : cur;
+      });
+    }
   }, []);
 
   const refreshNow = useCallback(async () => {
@@ -381,8 +469,9 @@ export function useAgentChat(opts: {
         role: "user",
         content: [{ type: "text", text }],
         attachments: attachments.map((p) => p.split("/").pop()!),
+        createdAt: new Date(),
       };
-      const reply: ChatMessage = { id: uid("r"), role: "assistant", content: [], running: true };
+      const reply: ChatMessage = { id: uid("r"), role: "assistant", content: [], running: true, createdAt: new Date() };
       setMessages((m) => [...m, userMsg, reply]);
       setRunning(true);
       const abort = new AbortController();
@@ -399,6 +488,12 @@ export function useAgentChat(opts: {
         if (evs.length) update((m) => evs.reduce((acc, ev) => apply(acc, ev, runRef.current.runId), m));
       };
       const queue = (ev: ChatEvent) => {
+        if (ev.type === "reaction") {
+          setMessages((cur) => cur.map((m) => (m.id === userMsg.id ? { ...m, reactions: { ...m.reactions, agent: ev.emoji } } : m)));
+          return;
+        }
+        if (ev.type === "activity") setLiveLabel(ev.label);
+        if (ev.type === "done") setLiveLabel(null);
         pending.push(ev);
         if (ev.type === "done") {
           cancelAnimationFrame(frame);
@@ -486,12 +581,18 @@ export function useAgentChat(opts: {
   );
 
   // Un accord demandé par un travail que cet écran ne suit pas : il s'affiche quand même, et se donne de la même façon.
-  // Déjà dans le fil (flux perdu, historique en retard) : pas de seconde carte pour le même accord.
+  // Encore à répondre dans le fil (flux perdu, historique en retard) : pas de seconde carte pour ce même accord. Une carte déjà
+  // répondue ne masque jamais une nouvelle demande : la personne resterait sans bouton.
   const asked = serverNow.accord;
-  const pendingApproval =
-    !isRunning && asked && !messages.some((m) => m.content.some((p) => p.type === "tool-call" && p.toolName === "approval" && (p.args as { request_id?: string }).request_id === asked.request_id))
-      ? asked
-      : null;
+  const alreadyThere = (a: Approval) =>
+    messages.some((m) =>
+      m.content.some((p) => {
+        if (p.type !== "tool-call" || p.toolName !== "approval" || p.result !== undefined) return false;
+        const local = p.args as { request_id?: string; generation?: number };
+        return local.request_id === a.request_id && local.generation === a.generation;
+      }),
+    );
+  const pendingApproval = !isRunning && asked && !alreadyThere(asked) ? asked : null;
   const shown = useMemo<ChatMessage[]>(
     () =>
       pendingApproval
@@ -517,5 +618,38 @@ export function useAgentChat(opts: {
     adapters: { attachments },
   });
 
-  return { runtime, whileBusy };
+  const history = useMemo(
+    () => ({
+      hasOlder: more,
+      loading: loadingOlder,
+      loadOlder: async () => {
+        const conv = ownConversation.current;
+        const open = conv ? windows.get(conv) : undefined;
+        if (!conv || !open) return;
+        setLoadingOlder(true);
+        try {
+          const rows = await get<StoredMessage[]>(`/api/conversations/${conv}/messages?avant=${open.from}&limit=${PAGE}`);
+          if (ownConversation.current !== conv) return;
+          const next = { from: rows[0]?.id ?? open.from, more: rows.length >= PAGE };
+          windows.set(conv, next);
+          setMore(next.more);
+          setMessages((cur) => [...rows.map(fromStored), ...cur]);
+        } finally {
+          setLoadingOlder(false);
+        }
+      },
+      react: (id: string, stored: number, emoji: string | null) => {
+        const conv = ownConversation.current;
+        if (!conv) return;
+        setMessages((cur) => cur.map((m) => (m.id === id ? { ...m, reactions: { ...m.reactions, user: emoji ?? undefined } } : m)));
+        void send(`/api/conversations/${conv}/messages/${stored}/reaction`, { emoji }, "PUT").catch(() => {});
+      },
+    }),
+    [more, loadingOlder],
+  );
+
+  // En deux mots, ce que fait l'agent : affiché près de son nom, sur le web, le bureau et le téléphone.
+  const status = isRunning ? liveLabel : serverNow.occupe ? serverNow.activite : null;
+
+  return { runtime, whileBusy, history, status };
 }

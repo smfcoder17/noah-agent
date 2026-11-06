@@ -71,6 +71,12 @@ CREATE TABLE IF NOT EXISTS messages (
   text TEXT NOT NULL,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS reactions (
+  message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  who TEXT NOT NULL,
+  emoji TEXT NOT NULL,
+  PRIMARY KEY (message_id, who)
+);
 """
 
 _fernet = Fernet(base64.urlsafe_b64encode(hashlib.sha256(SECRET_KEY.encode()).digest()))

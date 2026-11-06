@@ -748,6 +748,12 @@ technical = ('Outil « notion » : x\n{"data": {"query": "SELECT * FROM x", "dat
 assert plain_request(technical)["apercu"] == [], plain_request(technical)
 kept = plain_request('Outil « mail » : send_mail\n{"to": ["paul@exemple.fr", "ana@exemple.fr"], "subject": "Devis", "body": "Bonjour"}')["apercu"]
 assert kept == ["paul@exemple.fr", "ana@exemple.fr", "Devis", "Bonjour"], "un destinataire dans une liste se voit"
+mixed = plain_request('Outil « mail » : send_mail\n{"to": [{"email": "paul@exemple.fr", "id": "contact-1"}, "ana@exemple.fr"], "subject": "Devis"}')["apercu"]
+assert mixed == ["paul@exemple.fr", "ana@exemple.fr", "Devis"], ("une clé masquée ne cache pas la valeur d'après", mixed)
+listed = plain_request('Outil « mail » : send_mail\n{"attachment_ids": ["file-A", "file-B", "file-C", "file-D", "file-E"], "subject": "Devis", "body": "Bonjour Paul"}')["apercu"]
+assert listed == ["Devis", "Bonjour Paul"], ("une liste d'identifiants reste masquée en entier", listed)
+nested = plain_request('Outil « mail » : send_mail\n{"page_ids": [["a", "b"], ["c"]], "to": ["paul@exemple.fr"]}')["apercu"]
+assert nested == ["paul@exemple.fr"], ("une liste dans une liste aussi", nested)
 cut = 'Outil « notion » : notion_update_page\n{"title": "Un titre", "content": "coupé en plein mil… [empreinte 0123ab]'
 assert plain_request(cut)["apercu"] == ["Un titre", "coupé en plein mil"], "un texte coupé se lit encore, sans la marque de coupure"
 for raw, command, expected in (("rm -rf /", True, "commande sensible"), ("Execute recursive delete: rm -rf /opt/data", False, "valider une action"),
