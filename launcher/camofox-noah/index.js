@@ -111,15 +111,22 @@ async function receiveFile(req, res) {
   }
 }
 
-function findAgentTab(session, wanted) {
+// L'onglet demandé, sinon le dernier du groupe de l'agent (même nom que son identité) : pas celui d'une connexion en cours à côté.
+function findAgentTab(session, wanted, user) {
+  if (wanted) {
+    for (const group of session?.tabGroups?.values() || []) {
+      if (group.has(wanted)) return group.get(wanted);
+    }
+    return null;
+  }
+  const own = session?.tabGroups?.get(user);
   let last = null;
-  for (const group of session?.tabGroups?.values() || []) {
-    for (const [tabId, tabState] of group) {
-      if (tabId === wanted) return tabState;
+  for (const group of own ? [own] : session?.tabGroups?.values() || []) {
+    for (const tabState of group.values()) {
       if (!tabState.page?.isClosed?.()) last = tabState;
     }
   }
-  return wanted ? null : last;
+  return last;
 }
 
 // Comme Camofox lit ses références (e12) : le rôle, le nom et le rang vus dans la dernière lecture de la page.
@@ -230,7 +237,7 @@ async function attachFiles(req, res, ctx) {
       }
     });
     const session = ctx.sessions.get(ctx.normalizeUserId(req.query.userId));
-    const tabState = findAgentTab(session, req.query.onglet ? String(req.query.onglet) : "");
+    const tabState = findAgentTab(session, req.query.onglet ? String(req.query.onglet) : "", String(req.query.userId));
     if (!tabState) throw fail(404, "Aucun onglet ouvert : ouvre d'abord la page.");
     session.lastAccess = Date.now();
     const via = await ctx.withUserLimit(String(req.query.userId), async () => {

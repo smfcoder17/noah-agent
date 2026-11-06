@@ -277,6 +277,20 @@ r = await byButton();
 assert.equal(r.status, 422, "le bouton n'a rien ouvert");
 assert.equal(seen.length, 0, "le champ déjà là ne reçoit rien");
 
+// Un onglet de connexion ouvert après celui de l'agent ne reçoit rien.
+seen = [];
+const others = [];
+sessions.set("noah", { tabGroups: new Map([
+  ["noah", new Map([["t1", { page: page({ all: ["agent"], seen }), refs: new Map() }]])],
+  ["connexion", new Map([["t2", { page: page({ all: ["connexion"], seen: others }), refs: new Map() }]])],
+]) });
+await attach();
+assert.equal(seen[0]?.id, "agent", "l'onglet de l'agent");
+assert.equal(others.length, 0, "pas l'onglet d'à côté");
+await attach("&onglet=t2");
+assert.equal(others[0]?.id, "connexion", "sauf s'il est demandé");
+assert.equal((await attach("&onglet=absent")).status, 404);
+
 // 6. Une autre identité ne voit pas l'onglet ; pendant la prise en main, rien, même si elle commence en route.
 assert.equal((await post(`/noah/joindre?userId=invite&fichiers=${id}`)).status, 404, "l'onglet d'un autre");
 await post("/noah/prive?secondes=60", { key: "cle-serveur" });

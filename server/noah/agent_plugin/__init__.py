@@ -162,8 +162,9 @@ def check(command: str) -> str | None:
                     "lance-le en le disant à l'utilisateur.")
         if words and re.fullmatch(DOWNLOADER, os.path.basename(words[0]), re.I):
             unread |= set(_downloads(words))
-        if len(words) >= 6 and os.path.basename(words[1]) == "noah.py" and words[2:4] == ["navigateur", "telecharger"]:
-            unread.add(_path(f"{WORKSPACE}/uploads/{words[5]}"))
+        for i, w in enumerate(words):  # où que soit noah.py dans la commande : « timeout 60 python3 -u noah.py … »
+            if os.path.basename(w) == "noah.py" and words[i + 1:i + 3] == ["navigateur", "telecharger"] and len(words) > i + 4:
+                unread.add(_path(f"{WORKSPACE}/uploads/{words[i + 4]}"))
     # Lu dans cette commande : compte pour les suivantes (l'agent a vu le contenu dans le résultat).
     _unread.clear()
     _unread.update(u for u in unread if not any(_same(u, r) for r in read_now))

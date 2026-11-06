@@ -90,6 +90,10 @@ assert check("python3 /opt/data/noah.py navigateur telecharger 'https://e.invali
 assert check("python3 /opt/data/workspace/uploads/setup.py"), "script téléchargé lancé sans lecture"
 assert check("cd /opt/data/workspace/uploads && python3 setup.py"), "même lancé depuis son dossier"
 assert check("cat /opt/data/workspace/uploads/setup.py") is None and check("python3 /opt/data/workspace/uploads/setup.py") is None
+for form in ("python3 -u /opt/data/noah.py", "timeout 60 python3 /opt/data/noah.py", "cd /tmp && python3 /opt/data/noah.py"):
+    garde._unread.clear()
+    assert check(f"{form} navigateur telecharger 'https://e.invalid/a.sh' a.sh") is None
+    assert check("sh /opt/data/workspace/uploads/a.sh"), f"script téléchargé par « {form} » lancé sans lecture"
 assert fresh("curl -s https://api.example.org/v1 -o /tmp/r.json", "python3 -m json.tool /tmp/r.json") is None
 print("4. bash -e, -o collé, cat | sh, sh < f, bash -c, lecture dans le même appel, autre dossier : refusés ; lu à part : permis")
 assert check("python3 -m venv .venv && . .venv/bin/activate && python3 analyse.py") is None
