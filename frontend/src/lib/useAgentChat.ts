@@ -70,7 +70,7 @@ function apply(msg: ChatMessage, ev: ChatEvent, runId: string | null): ChatMessa
             type: "tool-call",
             toolCallId: uid("p"),
             toolName: "approval",
-            args: { summary: ev.summary, request_id: ev.request_id, generation: ev.generation, run_id: runId ?? "" },
+            args: { summary: ev.summary, demande: ev.demande, apercu: ev.apercu, request_id: ev.request_id, generation: ev.generation, run_id: runId ?? "" },
           },
         ],
       };
@@ -101,7 +101,7 @@ export type WhileBusyApi = {
   cancel: (id: string) => void;
   giveUp: (id: string) => void;
 };
-type Approval = { summary: string; request_id: string; generation: number; run_id: string };
+type Approval = { summary: string; demande?: string; apercu?: string[]; request_id: string; generation: number; run_id: string };
 type Now = { occupe: boolean; activite: string | null; run_id: string | null; file: { id: string; text: string }[]; accord: Approval | null };
 const IDLE: Now = { occupe: false, activite: null, run_id: null, file: [], accord: null };
 
@@ -150,10 +150,12 @@ export function useAgentChat(opts: {
   onRunFinished: () => void;
   /** Dernière mise à jour connue côté serveur : un message arrivé sans nous (routine) déclenche un rechargement. */
   updatedAt?: string;
+  /** L'agent travaille quelque part, d'après sa fiche : même lancé sans cet écran (réponse à un appel, routine). */
+  agentBusy?: boolean;
   /** Citations à mettre devant le message (vidées à l'envoi). */
   takeQuotes?: () => string;
 }) {
-  const { agentId, conversationId, details, onConversationCreated, onRunFinished, updatedAt } = opts;
+  const { agentId, conversationId, details, onConversationCreated, onRunFinished, updatedAt, agentBusy } = opts;
   const takeQuotes = useRef(opts.takeQuotes);
   takeQuotes.current = opts.takeQuotes;
   // Conversation déjà ouverte : ses messages s'affichent tout de suite, la version du serveur arrive derrière.
@@ -254,9 +256,10 @@ export function useAgentChat(opts: {
     setServerNow(IDLE);
     void refreshNow();
   }, [conversationId, refreshNow]);
-  const watching = isRunning || serverNow.occupe || serverNow.file.length > 0 || sending.length > 0;
+  const watching = isRunning || serverNow.occupe || serverNow.file.length > 0 || sending.length > 0 || !!agentBusy;
   useEffect(() => {
     if (!watching) return;
+    if (!running.current) void refreshNow(); // un travail lancé sans cet écran : son accord s'affiche sans rafraîchir la page
     // Écran caché : personne ne regarde, et le serveur le sait à ce silence (il notifie alors la fin de la tâche).
     const timer = setInterval(() => !document.hidden && void refreshNow(), 3000);
     return () => clearInterval(timer);

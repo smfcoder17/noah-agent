@@ -159,14 +159,31 @@ assert "vide" in run("telecharger", SITE + "/vide", "n.jpg")["erreur"]
 assert "coupé" in run("telecharger", SITE + "/tronque", "n.jpg").get("erreur", "")
 assert sorted(os.listdir(uploads)) == ["image du jour.jpg"], "ni partiel ni fichier temporaire"
 
-# Une routine : la consigne passe par l'entrée standard, avec ses apostrophes et ses guillemets.
+# Une routine : la consigne passe par un fichier, avec ses apostrophes et ses guillemets.
 consigne = "Publie aujourd'hui ce qui est « prévu » : l'agent n'oublie rien, \"même ceci\"."
 local = os.path.join(base, "noah_local.py")
 open(local, "w", encoding="utf-8").write(tool.replace("http://noah-server:8080/agent-api", f"http://127.0.0.1:{port}"))
-out = subprocess.run([sys.executable, local, "routine", "Essai", "every day at 9am", "-"], input=consigne, capture_output=True, text=True,
-                     env={"HERMES_HOME": home, "PATH": os.environ["PATH"]}, timeout=30)
-assert seen[-1]["path"] == "/routines" and json.loads(seen[-1]["body"])["consigne"] == consigne, (out.stderr, seen[-1])
+consigne_path = os.path.join(work, "consigne.txt")
+open(consigne_path, "w", encoding="utf-8").write(consigne + "\n")
+
+
+def routine(*args):
+    done = subprocess.run([sys.executable, local, "routine", "Essai", "every day at 9am", *args], capture_output=True, text=True,
+                          env={"HERMES_HOME": home, "PATH": os.environ["PATH"]}, timeout=30)
+    return json.loads(done.stdout)
+
+
+routine("--fichier", consigne_path)
+assert seen[-1]["path"] == "/routines" and json.loads(seen[-1]["body"])["consigne"] == consigne, seen[-1]
 del seen[-1]
+routine("en", "toutes", "lettres")
+assert json.loads(seen[-1]["body"])["consigne"] == "en toutes lettres", seen[-1]
+del seen[-1]
+held = len(seen)
+assert "illisible" in routine("--fichier", os.path.join(work, "absent.txt"))["erreur"] and len(seen) == held, "rien ne part sans consigne"
+open(consigne_path, "w").close()
+assert "vide" in routine("--fichier", consigne_path)["erreur"] and len(seen) == held
+os.remove(consigne_path)
 
 # Un second fichier en échec : rien n'est joint.
 os.remove(os.path.join(home, ".env"))

@@ -782,10 +782,10 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
   const asked = (() => {
     const last = messages[messages.length - 1];
     if (last?.role !== "assistant") return null;
-    const part = (last.content as readonly { type: string; toolName?: string; toolCallId?: string; result?: unknown; args?: { summary?: unknown } }[]).find(
+    const part = (last.content as readonly { type: string; toolName?: string; toolCallId?: string; result?: unknown; args?: { demande?: unknown } }[]).find(
       (p) => p.type === "tool-call" && p.toolName === "approval" && p.result === undefined,
     );
-    return part ? { id: part.toolCallId ?? "", what: String(part.args?.summary ?? "").split("\n")[0] } : null;
+    return part ? { id: part.toolCallId ?? "", what: String(part.args?.demande ?? "") } : null;
   })();
   const askedSaid = useRef<string | null>(null);
   const askedId = asked?.id;

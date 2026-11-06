@@ -220,6 +220,7 @@ def translate(kind: str, data: dict, details: bool) -> dict | None:
             "request_id": data.get("prompt_id") or data.get("request_id"),
             "generation": data.get("execution_generation"),
             "summary": data.get("description") or data.get("command") or data.get("preview") or "Action à valider",
+            "commande": bool(data.get("command")),
         }
 
     if kind in ("run.completed", "run.failed", "run.cancelled", "run.interrupted"):

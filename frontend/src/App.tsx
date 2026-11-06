@@ -653,6 +653,7 @@ function AgentChat(props: ChatProps) {
   const { runtime, whileBusy } = useAgentChat({
     agentId: props.agent.id,
     ...props,
+    agentBusy: Object.values(props.agent.tasks).some(Boolean),
     takeQuotes: useCallback(() => {
       clearShare(); // le partage part avec ce message
       return takeQuotes();
@@ -705,13 +706,14 @@ function AgentChat(props: ChatProps) {
       agentColor: color,
       agentShape: shape ?? "",
       agentDetail: detail ?? "",
+      details: props.details,
       conversationId: props.conversationId,
       hint: role ? role.slice(0, 180) : "Pose une question, confie une tâche ou envoie un fichier.",
       readOnly,
       canWatch: canAdmin(props.agent),
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [say, id, name, color, shape, detail, role, readOnly, props.conversationId, canAdmin(props.agent)],
+    [say, id, name, color, shape, detail, props.details, role, readOnly, props.conversationId, canAdmin(props.agent)],
   );
   return (
     <AssistantRuntimeProvider runtime={runtime}>

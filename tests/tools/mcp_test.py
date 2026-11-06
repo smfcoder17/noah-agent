@@ -730,6 +730,27 @@ test_access()
 test_sharing_warning()
 test_list_changed()
 test_everywhere()
+
+# La demande d'accord telle que la personne la lit : une phrase, jamais le texte technique.
+from noah.mcp import plain_request  # noqa: E402
+
+asked = 'Outil « notion » : notion_create_pages\n{"pages": [{"parent": {"data_source_id": "d4b95a89"}, "properties": {"Name": "Mon post du jour"}, "content": "L\'idée \\"clé\\""}], "telemetry": {"intent": "Create a post"}, "skill": "notion"}'
+plain = plain_request(asked)
+assert plain["demande"] == "Ton agent veut créer quelque chose dans Notion.", plain
+assert plain["apercu"] == ["Mon post du jour", "L'idée \"clé\""], plain
+assert plain_request('Outil « google-drive » : outil_inconnu\n{}') == {"demande": "Ton agent veut utiliser Google Drive.", "apercu": []}
+assert "supprimer" in plain_request('Outil « notion » : read_and_delete_page\n{}')["demande"], "lire et supprimer : c'est une suppression"
+assert "consulter Notion" in plain_request('Outil « notion » : notion_search\n{}')["demande"]
+assert plain_request('Outil « fiches » : envoie_fiche\n{}')["demande"] == "Ton agent veut envoyer quelque chose avec Fiches."
+sql = 'Outil « notion » : notion_query_data_sources\n{"data": {"query": "SELECT * FROM x", "data_source_urls": "collection://abc"}, "url": "https://x.io/a", "page_id": "40dba45869e3819fafb1ec930c0fc128"}'
+assert plain_request(sql)["apercu"] == [], plain_request(sql)
+cut = 'Outil « notion » : notion_update_page\n{"title": "Un titre", "content": "coupé en plein mil… [empreinte 0123]'
+assert plain_request(cut)["apercu"] == ["Un titre"], "un texte coupé se lit encore, sans sa partie cassée"
+for raw, command, expected in (("rm -rf /", True, "commande sensible"), ("recursive delete", True, "commande sensible"), ("Supprimer le dossier ?", False, "Supprimer le dossier ?"),
+                               ('{"a": 1}', False, "valider une action"), ("", False, "valider une action")):
+    assert expected in plain_request(raw, command)["demande"], (raw, plain_request(raw, command))
+assert "rm -rf" not in plain_request("rm -rf /", True)["demande"]
+print("accord : une phrase claire et ce qui serait envoyé, le technique reste pour les détails")
 assert not [line for line in LOGS if JETON in line], "jeton en clair dans les journaux"
 print("OK")
 # Tout a été vérifié. Une extension C plante parfois à la fermeture de Python (segfault après ce OK), sans lien avec le code testé :

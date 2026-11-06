@@ -390,7 +390,7 @@ AIDE = """Utilisation : python3 /opt/data/noah.py <commande>
                                relève sans modèle, un petit modèle juge la condition, et tu n'es réveillé que si elle est remplie
                                <source> : https://… (page ou flux), gmail ou gmail:<recherche Gmail> (gmail:from:paul@exemple.fr),
                                agenda ou agenda:<heures à venir>, outil:<serveur>/<outil> (outil connecté, en lecture)
-  routine "Nom" "horaire" "consigne complète et autonome"   un travail à chaque passage, sans condition (« - » : consigne lue sur l'entrée standard)
+  routine "Nom" "horaire" --fichier consigne.txt   un travail à chaque passage, sans condition ; la consigne, complète et autonome, est dans ce fichier
                                horaire : "every day at 8am", "every monday 9am", "0 9 * * 1", "every 2h"
   routines                                      liste les routines ; routine-action <id> pause|reprendre|lancer|supprimer
   veilles                                       liste les veilles et les routines à condition
@@ -435,6 +435,18 @@ def call(method, path, body=None):
         return {"erreur": e.read().decode(errors="replace")[:500]}
     except OSError as e:
         return {"erreur": "Noah Agent injoignable : %s" % e}
+
+
+def routine_text(words):
+    """La consigne d'une routine : dans un fichier écrit à part (ni apostrophe ni guillemet n'y coupe rien), ou en toutes lettres."""
+    if words[:1] != ["--fichier"]:
+        return {"consigne": " ".join(words)}
+    try:
+        with open(words[1], encoding="utf-8") as f:
+            text = f.read().strip()
+    except (IndexError, OSError, ValueError) as e:
+        return {"erreur": "Consigne illisible : %s" % e}
+    return {"consigne": text} if text else {"erreur": "Le fichier de la consigne est vide."}
 
 
 def option(words, name, valued=True):
@@ -711,8 +723,9 @@ elif a[:1] == ["veille"] and len(a) >= 3:
         rest = rest[:i] + rest[i + 2:]
     out = call("POST", "/veilles", {"nom": rest[0], "url": rest[1], "critere": " ".join(rest[2:]), "minutes": minutes})
 elif a[:1] == ["routine"] and len(a) >= 4:
-    # « - » : la consigne arrive par l'entrée standard, à l'abri des apostrophes et des guillemets du shell.
-    out = call("POST", "/routines", {"nom": a[1], "quand": a[2], "consigne": sys.stdin.read().strip() if a[3:] == ["-"] else " ".join(a[3:])})
+    out = routine_text(a[3:])
+    if "consigne" in out:
+        out = call("POST", "/routines", {"nom": a[1], "quand": a[2], "consigne": out["consigne"]})
 elif a[:1] == ["routines"]:
     out = call("GET", "/routines")
 elif a[:1] == ["routine-action"] and len(a) == 3:
@@ -723,7 +736,9 @@ elif a[:1] == ["routine-si"] and len(a) >= 5:
         i = rest.index("--minutes")
         minutes = int(rest[i + 1]) if i + 1 < len(rest) else 30
         rest = rest[:i] + rest[i + 2:]
-    out = call("POST", "/veilles", {"nom": rest[0], "url": rest[1], "critere": rest[2], "consigne": sys.stdin.read().strip() if rest[3:] == ["-"] else " ".join(rest[3:]), "minutes": minutes})
+    out = routine_text(rest[3:])
+    if "consigne" in out:
+        out = call("POST", "/veilles", {"nom": rest[0], "url": rest[1], "critere": rest[2], "consigne": out["consigne"], "minutes": minutes})
 elif a[:1] == ["memoire-juger"] and len(a) == 2:  # la garde de l'agent, avant qu'une note n'entre en mémoire
     out = call("POST", "/memoire/juger", json.loads(a[1]))
 elif a[:1] == ["veilles"]:

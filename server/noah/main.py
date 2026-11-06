@@ -144,7 +144,7 @@ _running_runs: set = set()  # runs suivis en arrière-plan (référence gardée 
 task_state: dict[str, str] = {}
 
 # Version du branchement des agents ; l'augmenter reconfigure tous les agents au démarrage.
-AGENT_SETUP_VERSION = "35-reveil-fuseau"  # le réveil du navigateur ne bloque plus l'outil, l'heure de l'agent est celle de la personne ; 34 : joindre un fichier à une page, publier ce qui est prévu ; 33 : va au bout, cookies, tâche unique, plus de connexions par un tiers ; 31 : l'agent lit et change ses réglages non sensibles à condition, mémoire jugée, l'agent n'appelle plus de lui-même ; 29 : message sans rapport et contexte borné ; 28 : garde des profils de partage (G12.5) ; 27 : navigateur ; 26 : navigateur au premier usage
+AGENT_SETUP_VERSION = "36-reveil-fuseau-routine"  # le réveil du navigateur ne bloque plus l'outil, l'heure de l'agent est celle de la personne ; 34 : joindre un fichier à une page, publier ce qui est prévu ; 33 : va au bout, cookies, tâche unique, plus de connexions par un tiers ; 31 : l'agent lit et change ses réglages non sensibles à condition, mémoire jugée, l'agent n'appelle plus de lui-même ; 29 : message sans rapport et contexte borné ; 28 : garde des profils de partage (G12.5) ; 27 : navigateur ; 26 : navigateur au premier usage
 
 
 @app.on_event("startup")
@@ -1617,7 +1617,7 @@ précise (`https://…`, page ou flux), `gmail` ou `gmail:<recherche Gmail>` (`g
 - Il veut que tu agisses quand quelque chose arrive (« si j'ai un courriel de Paul, prépare une réponse », « si un courriel important arrive, résume-le ») : une routine à condition. Tu n'es réveillé que si la condition est remplie, avec ce qui a été relevé.
   `python3 /opt/data/noah.py routine-si "Nom" <source> "la condition" "ce que tu feras alors, complet et autonome" --minutes 30`
 - Il veut un travail à chaque fois, sans condition (« chaque matin, un briefing », « tous les lundis ») : une routine, qui te fait tourner à chaque passage.
-  `python3 /opt/data/noah.py routine "Nom" "horaire" - <<'FIN'` puis la consigne autonome et complète, puis `FIN` sur sa propre ligne : les apostrophes ne la coupent pas. Même « - » à la place de la consigne pour `routine-si`. Horaire comme « every day at 8am », « 0 9 * * 1 », « every 2h ».
+  Écris la consigne, autonome et complète, dans un fichier avec write_file, puis `python3 /opt/data/noah.py routine "Nom" "horaire" --fichier ce-fichier` : les apostrophes ne la coupent pas. Même `--fichier` à la place de la consigne pour `routine-si`. Horaire comme « every day at 8am », « 0 9 * * 1 », « every 2h ».
 - Il veut une action une seule fois, plus tard (« dans 5 minutes, fais… », « rappelle-moi à 17 h ») : la même commande, avec « in 5m », « in 2h » ou l'heure exacte « 2026-11-06T17:00:00 ». Une durée seule (« 5m ») se répéterait : mets toujours « in ». Fais-la tout de suite, et dis à quelle heure elle partira. Elle disparaît de la liste une fois faite.
 N'utilise jamais une routine pour vérifier si quelque chose est arrivé. `veilles` et `routines` listent, `veille-action <id> pause|reprendre|verifier|supprimer` et `routine-action <id> pause|reprendre|lancer|supprimer` gèrent.
 Tout résultat arrive tout seul dans cette conversation et en notification. L'utilisateur voit et supprime tout dans Détails. Propose une routine quand tu remarques une tâche qui revient.
@@ -2623,16 +2623,17 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
                     out["details"] = _error_details(agent, out.pop("raw_error"), run_id)
                 if out["type"] == "approval":
                     mcp.approval_seen(agent.id, out.get("request_id"), str(out.get("summary") or ""))
+                    out = {**out, **mcp.plain_request(str(out.get("summary") or ""), bool(out.pop("commande", False)))}
                 if out["type"] == "approval" and task_state.get(conv_id) != "approve":
                     # Celui qui a lancé la tâche et le propriétaire de l'agent : pas les autres profils partagés.
                     for target in dict.fromkeys((_conversation_owner(conv_id), access.owner_of(agent.id))):
-                        push.notify("Noah attend ton accord", str(out.get("summary") or "Une action demande ton accord."),
+                        push.notify("Noah attend ton accord", str(out.get("demande") or "Une action demande ton accord."),
                                     urgent=True, user_id=target, kind="accord")
                 task_state[conv_id] = "approve" if out["type"] == "approval" else "work"
                 if out["type"] == "activity":
                     task_activity[conv_id] = out["label"]
                 if out["type"] == "approval":
-                    task_approval[conv_id] = {"summary": out.get("summary"), "request_id": out.get("request_id"), "generation": out.get("generation"), "run_id": run_id}
+                    task_approval[conv_id] = {"summary": out.get("summary"), "demande": out.get("demande"), "apercu": out.get("apercu"), "request_id": out.get("request_id"), "generation": out.get("generation"), "run_id": run_id}
                 else:
                     task_approval.pop(conv_id, None)
                 if out["type"] == "message":

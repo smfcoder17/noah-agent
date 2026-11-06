@@ -710,6 +710,54 @@ _asked: dict[tuple[str, str], tuple[str, str, float]] = {}  # (serveur, ce qui a
 _grants: dict[tuple[str, str], list[tuple]] = {}  # (échéance, ce qui a été montré, identifiant)
 
 
+# La demande telle que la personne la lit : une phrase, et ce que l'action enverrait. Le texte brut reste pour les détails techniques.
+# Dans l'ordre : un outil dont le nom dit « lire et supprimer » se présente comme une suppression.
+_ACTIONS = (
+    ("supprimer", {"delete", "remove", "trash", "cancel", "destroy", "archive", "supprimer", "supprime", "effacer", "efface"}, "supprimer quelque chose dans {}"),
+    ("envoyer", {"send", "post", "publish", "reply", "share", "envoyer", "envoie", "publier", "publie"}, "envoyer quelque chose avec {}"),
+    ("modifier", {"update", "edit", "set", "patch", "move", "rename", "modify", "change", "resolve", "modifier", "modifie", "changer"}, "modifier quelque chose dans {}"),
+    ("créer", {"create", "add", "new", "insert", "upload", "duplicate", "write", "creer", "cree", "ajouter", "ajoute", "ecrire"}, "créer quelque chose dans {}"),
+    ("consulter", {"search", "find", "query", "list", "get", "fetch", "read", "view", "lire", "chercher", "cherche"}, "consulter {}"),
+)
+_HIDDEN = {"intent", "feedback", "skill", "id", "url", "mode", "type", "operator", "property", "propertyType", "instructions_version", "sort", "direction"}
+_TECHNICAL = re.compile(r"^(?:[a-z][a-z0-9+.-]*://|[0-9a-f-]{32,36}$|select\s)", re.I)
+_PAIR = re.compile(r'"([^"\\]+)":\s*"((?:[^"\\]|\\.)*)"')
+
+
+def _preview(shown: str) -> list[str]:
+    """Ce que l'action écrirait, en texte : le titre, le contenu. Lu dans le texte montré, même coupé. Rien d'autre que du texte."""
+    found: list[str] = []
+    for key, raw in _PAIR.findall(shown):
+        if key in _HIDDEN or key.endswith(("_id", "_url")):
+            continue
+        try:
+            text = " ".join(str(json.loads(f'"{raw}"')).split())
+        except ValueError:
+            continue
+        if len(text) >= 2 and not _TECHNICAL.match(text) and text[:140] not in found:
+            found.append(text[:140])
+    return found[:3]
+
+
+def plain_request(summary: str, command: bool = False) -> dict:
+    """{demande, apercu} : ce qu'une personne sans notion technique lit pour décider."""
+    m = ASKED.match(summary)
+    if not m:
+        first = summary.split("\n")[0][:200]
+        plain = "Ton agent veut lancer une commande sensible sur sa machine." if command else first
+        return {"demande": plain if plain and not plain.startswith(("{", "[")) else "Ton agent te demande de valider une action.", "apercu": []}
+    app = m.group(1).replace("-", " ").title()
+    tool, _, shown = summary[m.end():].partition("\n")
+    words = set(re.split(r"[_\W]+", tool.lower()))
+    wish = f"utiliser {app}"
+    for action, verbs, sentence in _ACTIONS:
+        if words & verbs:
+            wish = sentence.format(app)
+            break
+    plain = f"Ton agent veut {wish}."
+    return {"demande": plain, "apercu": _preview(shown)}
+
+
 def _shown(tool: str, args) -> str:
     """Ce que le plugin de garde montre à la personne : un accord ne vaut que pour cela."""
     text = json.dumps(args, ensure_ascii=False, default=str)

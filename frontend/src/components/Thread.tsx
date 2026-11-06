@@ -139,8 +139,9 @@ function Activity({ args }: ToolCallMessagePartProps) {
 }
 
 function Approval({ args, result, addResult }: ToolCallMessagePartProps) {
-  const { agentId } = useContext(AgentContext);
+  const { agentId, details } = useContext(AgentContext);
   const [error, setError] = useState("");
+  const preview = Array.isArray(args.apercu) ? (args.apercu as string[]) : [];
   const answer = async (approve: boolean) => {
     try {
       await send(`/api/agents/${agentId}/runs/${args.run_id}/approval`, {
@@ -156,7 +157,13 @@ function Approval({ args, result, addResult }: ToolCallMessagePartProps) {
   return (
     <div className="my-2 flex flex-col gap-3 rounded-xl border border-warn bg-warn-soft p-3.5">
       <span className="text-xs font-semibold uppercase tracking-wide text-warn">À valider</span>
-      <p className="text-sm whitespace-pre-wrap">{String(args.summary)}</p>
+      <p className="text-sm">{String(args.demande || "Ton agent te demande de valider une action.")}</p>
+      {preview.length > 0 && (
+        <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
+          {preview.map((line) => <li key={line} className="truncate">« {line} »</li>)}
+        </ul>
+      )}
+      {details && <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-background p-2 font-mono text-[11.5px] text-muted-foreground">{String(args.summary)}</pre>}
       {result === undefined ? (
         <div className="flex gap-2">
           <Button variant="warn" size="sm" onClick={() => answer(true)}>Autoriser</Button>

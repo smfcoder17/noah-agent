@@ -231,7 +231,7 @@ export type ChatEvent =
   | { type: "activity"; label: string; detail?: unknown }
   | { type: "activity_detail"; detail: unknown }
   | { type: "raw"; kind: string; data: unknown }
-  | { type: "approval"; request_id: string; generation: number; summary: string }
+  | { type: "approval"; request_id: string; generation: number; summary: string; demande?: string; apercu?: string[] }
   | { type: "done"; status: string; output?: string; error?: string; details?: string };
 
 export type VoiceReady = { dictation: string | null; call: string | null };
