@@ -540,3 +540,12 @@ Audit indépendant sur `f59e736..8de90fc`, sans mes conclusions. 11 défauts ann
 | Deux appels entrants : boutons échangés | Chaque bouton a son identité | Lecture du code |
 
 « Lecture du code » veut dire qu'aucun test n'a provoqué ce cas.
+
+### Joindre un fichier à une page (démo Instagram)
+
+- **Hypothèse :** la démo « publie les posts prévus dans mon Notion » échoue avant même Instagram : aucun outil n'envoie de fichier, et l'agent et son navigateur n'ont pas de dossier commun.
+- **Fait :** `noah.py navigateur envoyer`, deux routes dans l'extension du navigateur (`/noah/fichier`, `/noah/joindre`), protégées par la clé de l'agent. La route de Camofox prend le premier champ de la page, qui peut être la photo de profil : la nôtre prend celui de la fenêtre ouverte, le seul de la page, ou celui que l'agent désigne, et refuse sinon.
+- **Preuve :** niveau 2. `tests/navigateur/envoi_reel.mjs` : conteneur créé par le vrai lanceur, vrai Firefox, vrai `noah.py` depuis une autre machine, réseau sans sortie ; la page calcule l'empreinte de ce qu'elle reçoit (photo, carrousel, vidéo de 60 Mo, bouton, panneau, référence). 13 sabotages tous vus.
+- **Consignes :** publier seulement ce qui est prévu, marquer pour ne pas publier deux fois, session expirée en routine : prévenir sans réessayer.
+- **Droits :** `confirmer` laisse passer une lecture déclarée, sans quoi une routine ne pouvait même pas lire Notion. La déclaration vient du serveur de l'outil, comme pour le droit `lire`.
+- **Pas prouvé :** Instagram lui-même, sa réaction à l'adresse du VPS, le fichier d'une vraie page Notion, une routine sans personne devant.

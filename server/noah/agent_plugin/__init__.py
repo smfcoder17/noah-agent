@@ -230,6 +230,8 @@ def check_mcp(tool_name: str, args: dict) -> dict | None:
         return {"action": "block", "message": (
             f"Noah refuse : « {server} » est en lecture seule sur cet agent et « {tool} » n'est pas déclaré en lecture. "
             "Dis-le à l'utilisateur ; il peut changer ce droit dans Détails → Connexions.")}
+    if _read_only(server, tool):  # lire ne change rien : pas d'accord à demander, ni de routine bloquée pour une lecture
+        return None
     if _unattended():
         return {"action": "block", "message": (
             f"Noah refuse : « {server} » demande la confirmation de l'utilisateur et personne ne peut la donner pendant une "

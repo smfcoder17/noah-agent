@@ -81,6 +81,7 @@ assert blocked and "lecture seule" in blocked, blocked
 print("lire : lire_fiche passe (readOnlyHint lu par Hermes), creer_fiche refusé")
 
 rights("confirmer")
+assert gate(READ) is None, "confirmer : une lecture déclarée passe, même sans personne"
 blocked = gate(WRITE, {"titre": "x"})
 assert blocked and "BLOCKED" in blocked, blocked
 print("confirmer sans personne pour répondre : refusé (fermé par défaut)")

@@ -19,9 +19,25 @@ const DECISION = PIP + "python /tests/agents/decision_test.py";
 const APPAREILS = PIP + "timeout 120 python /tests/desktop/appareils_test.py";
 const CONNEXION = PIP + "python /tests/agents/connexion_logos_test.py";
 const DOSSIERS = "node /repo/tests/desktop/dossiers_test.mjs";
+const ENVOI = "mkdir -p /data && node /tests/navigateur/envoi_test.mjs";
+const ENVOI_OUTIL = "python /tests/navigateur/envoi_outil_test.py";
+const PLUGIN = "launcher/camofox-noah/index.js";
 
 // NOAH_SABOTAGE=mot : seulement les sabotages dont le nom contient ce mot, pour rejouer un cas.
 const SABOTAGES = [
+  ["Envoi : n'importe qui dépose un fichier", PLUGIN, 'if (!agentKeyGiven(req)) return res.status(403).json({ error: "Forbidden" });', "", ENVOI],
+  ["Envoi : le nom sort du dossier", PLUGIN, "const nom = safeName(req.query.nom);", "const nom = String(req.query.nom);", ENVOI],
+  ["Envoi : aucun plafond", PLUGIN, "if (size > MAX_FILE || used + size > MAX_TOTAL) done(tooBig());", "if (false) done(tooBig());", ENVOI],
+  ["Envoi : un transfert coupé reste sur le disque", PLUGIN, 'fs.rmSync(dir, { recursive: true, force: true });\n    if (!res.headersSent)', "if (!res.headersSent)", ENVOI],
+  ["Envoi : les vieux fichiers restent", PLUGIN, "Date.now() - fs.statSync(dir).mtimeMs > KEEP_MS", "false", ENVOI],
+  ["Envoi : le premier champ pris au hasard", PLUGIN, "if (candidates.length === 1) return candidates[0];", "if (candidates.length) return candidates[0];", ENVOI],
+  ["Envoi : le champ de profil avant la fenêtre ouverte", PLUGIN, "const candidates = inDialogs.length ? inDialogs : everywhere;", "const candidates = everywhere.slice(0, 1);", ENVOI],
+  ["Envoi : l'agent joint pendant la prise en main", PLUGIN, "if (Date.now() < privateUntil) throw fail(423,", "if (false) throw fail(423,", ENVOI],
+  ["Envoi : la configuration de l'agent peut partir", "noah/hermes.py", "if not any(real.startswith(root + os.sep) for root in roots):", "if False:", ENVOI_OUTIL],
+  ["Envoi : un lien sort de l'espace de travail", "noah/hermes.py", "real = os.path.realpath(local)", "real = os.path.abspath(local)", ENVOI_OUTIL],
+  ["Envoi : le voisin de l'espace de travail accepté", "noah/hermes.py", "real.startswith(root + os.sep) for root in roots", "real.startswith(root) for root in roots", ENVOI_OUTIL],
+  ["Envoi : l'identité d'un invité ignorée", "noah/hermes.py", 'user = found.group(1) if found else user', "pass", ENVOI_OUTIL],
+  ["Outil : une écriture passe pour une lecture", "noah/mcp.py", 'if tool in known and _is_read_only(known[tool]):  # lire ne change rien', 'if tool in known:  # lire ne change rien', MCP],
   ["Appareil : la réponse d'un autre appareil acceptée", "noah/desktop.py", "elif future is None or owner != user or target != device:", "elif future is None:", APPAREILS],
   ["Appareil : un fichier en attente servi à un autre", "noah/desktop.py", 'if not row or row["user_id"] != user or row["appareil"] != _device(request, noah_session) or not path.is_file():', "if not row or not path.is_file():", APPAREILS],
   ["Appareil : le chemin d'un dossier gardé par le serveur", "noah/desktop.py", 'shown = [{"id": str(d.get("id", ""))[:40], "nom": str(d.get("nom", ""))[:120], "ecriture": bool(d.get("ecriture")), "absent": bool(d.get("absent"))} for d in body.dossiers]', "shown = body.dossiers", APPAREILS],
@@ -97,8 +113,25 @@ function runDesktop([sabotage, path, old, replacement, cmd]) {
   }
 }
 
+function runPlugin([sabotage, path, old, replacement, cmd]) {
+  const tmp = mkdtempSync(join(tmpdir(), "noah-sabotage-"));
+  try {
+    for (const part of ["launcher/camofox-noah", "tests/navigateur", "tests/handoff"]) cpSync(join(ROOT, part), join(tmp, part), { recursive: true });
+    const target = join(tmp, path);
+    const source = readFileSync(target, "utf8");
+    if (old && source.split(old).length !== 2) return { sabotage, resultat: "cible introuvable" };
+    if (old) writeFileSync(target, source.replace(old, () => replacement));
+    const r = spawnSync("docker", ["run", "--rm", "-v", `${join(tmp, "launcher/camofox-noah")}:/p:ro`, "-v", `${join(tmp, "tests")}:/tests:ro`, "node:22-alpine", "sh", "-c", cmd], { timeout: 180000 });
+    const seen = r.status && String(r.stderr).includes("AssertionError");
+    return { sabotage, resultat: seen ? "vu" : r.status ? "panne" : "NON VU" };
+  } finally {
+    rmSync(tmp, { recursive: true, force: true, maxRetries: 2 });
+  }
+}
+
 function run(item) {
   if (item[1].startsWith("desktop/")) return runDesktop(item);
+  if (item[1].startsWith("launcher/")) return runPlugin(item);
   const [sabotage, path, old, replacement, cmd] = item;
   const tmp = mkdtempSync(join(tmpdir(), "noah-sabotage-"));
   try {
@@ -121,7 +154,7 @@ function run(item) {
 
 // Témoin : la même chaîne sans défaut doit rester verte, sinon un « vu » ne prouve rien.
 const CHOISIS = SABOTAGES.filter((s) => !process.env.NOAH_SABOTAGE || new RegExp(process.env.NOAH_SABOTAGE, "i").test(s[0]));
-const TEMOINS = [...new Set(CHOISIS.map((s) => s[4]))].map((cmd) => run(["témoin", cmd === DOSSIERS ? "desktop/dossiers.js" : "noah/auth.py", "", "", cmd]));
+const TEMOINS = [...new Set(CHOISIS.map((s) => s[4]))].map((cmd) => run(["témoin", cmd === DOSSIERS ? "desktop/dossiers.js" : cmd === ENVOI ? PLUGIN : "noah/auth.py", "", "", cmd]));
 if (TEMOINS.some((t) => t.resultat !== "NON VU")) {
   console.error("Un témoin échoue sans sabotage : les résultats ne valent rien.");
   process.exit(2);

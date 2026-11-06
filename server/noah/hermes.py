@@ -356,6 +356,7 @@ import hashlib
 import http.client
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.parse
@@ -369,6 +370,8 @@ AIDE = """Utilisation : python3 /opt/data/noah.py <commande>
   regler <type> <valeur>       change un réglage (type ci-dessus, ou gouts) ; auto revient au choix automatique
   navigateur reveiller         rallume le navigateur et son écran
   navigateur redemarrer        redémarre le navigateur (écran noir, figé, injoignable) ; profil et cookies gardés
+  navigateur envoyer <fichier> [fichier…] [--selecteur "css"] [--ref e12] [--onglet <id>]
+                               joint des fichiers de /opt/data/workspace/ (ou /tmp) à la page ouverte ; regarde ensuite l'écran
   fil "Titre" "consigne"       ouvre un fil de travail parallèle, visible par l'utilisateur dans Détails
   fil-etat <id>                état et dernière réponse d'un fil
   image "description" [--format 16:9] [--contexte "goûts connus"] [--generer]
@@ -506,6 +509,74 @@ def computer_write(device, folder, path, local, replace):
             return {"erreur": "Noah Agent injoignable : %s. Le fichier a peut-être été déposé quand même : regarde avec « ordinateur lister » avant de réessayer." % e}
 
 
+def browser_access():
+    """L'adresse et la clé du navigateur de ce profil, et son identité (un invité a la sienne)."""
+    home = os.environ.get("HERMES_HOME") or "/opt/data"
+    env = {}
+    try:
+        with open(os.path.join(home, ".env"), encoding="utf-8") as f:
+            for line in f:
+                key, _, value = line.strip().partition("=")
+                env[key] = value.strip().strip("\"'")
+    except OSError:
+        pass
+    user = "noah"
+    try:
+        with open(os.path.join(home, "config.yaml"), encoding="utf-8") as f:
+            found = re.search(r"^\s*user_id:\s*[\"']?([\w-]+)", f.read(), re.M)
+            user = found.group(1) if found else user
+    except OSError:
+        pass
+    return home, env.get("CAMOFOX_URL") or os.environ.get("CAMOFOX_URL"), env.get("CAMOFOX_API_KEY") or os.environ.get("CAMOFOX_API_KEY"), user
+
+
+def browser_post(base, key, path, query, data=None, size=0, timeout=60):
+    req = urllib.request.Request(base + path + "?" + urllib.parse.urlencode(query), data=data if data is not None else b"", method="POST",
+                                 headers={"Authorization": "Bearer " + key, "Content-Type": "application/octet-stream", "Content-Length": str(size)})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.load(r)
+    except urllib.error.HTTPError as e:
+        if e.code == 404 and path == "/noah/fichier":
+            return {"erreur": "Ce navigateur ne sait pas encore recevoir de fichier : lance « noah.py navigateur redemarrer », puis réessaie."}
+        text = e.read().decode(errors="replace")[:2000]
+        try:
+            body = json.loads(text)
+        except ValueError:
+            return {"erreur": text[:500]}
+        return {"erreur": body.get("error", text[:500]), **({"champs": body["champs"]} if "champs" in body else {})}
+    except OSError as e:
+        return {"erreur": "Navigateur injoignable : %s. Lance « noah.py navigateur reveiller »." % e}
+
+
+def browser_send(words):
+    selector, ref, tab = option(words, "--selecteur"), option(words, "--ref"), option(words, "--onglet")
+    if not words:
+        return {"erreur": "Quel fichier joindre ?"}
+    home, base, key, user = browser_access()
+    if not base or not key:
+        return {"erreur": "Navigateur non configuré sur cette machine."}
+    # Seulement les fichiers de travail : un texte lu en ligne ne doit pas pouvoir faire déposer la configuration sur un site.
+    roots = [os.path.realpath(os.path.join(home, "workspace")), os.path.realpath("/tmp")]
+    ids = []
+    for local in words:
+        real = os.path.realpath(local)
+        if not any(real.startswith(root + os.sep) for root in roots):
+            return {"erreur": "Seuls les fichiers de %s ou de /tmp se joignent à une page. Copie d'abord ce fichier là, s'il doit vraiment partir : %s" % (roots[0], local)}
+        if not os.path.isfile(real):
+            return {"erreur": "Ce fichier n'existe pas dans ta machine : %s" % local}
+        with open(real, "rb") as f:
+            sent = browser_post(base, key, "/noah/fichier", {"nom": os.path.basename(real)}, f, os.path.getsize(real), 600)
+        if "id" not in sent:
+            return sent
+        ids.append(sent["id"])
+    query = {"userId": user, "fichiers": ",".join(ids)}
+    for name, value in (("selecteur", selector), ("ref", ref), ("onglet", tab)):
+        if value:
+            query[name] = value
+    return browser_post(base, key, "/noah/joindre", query, timeout=90)
+
+
 def media(kind, args):
     opts, words, i = {}, [], 0
     while i < len(args):
@@ -534,6 +605,8 @@ elif a[:2] == ["navigateur", "reveiller"]:
     out = call("POST", "/navigateur/reveiller")
 elif a[:2] == ["navigateur", "redemarrer"]:
     out = call("POST", "/navigateur/redemarrer")
+elif a[:2] == ["navigateur", "envoyer"]:
+    out = browser_send(a[2:])
 elif a[:1] == ["fil"] and len(a) >= 3:
     out = call("POST", "/fils", {"titre": a[1], "consigne": " ".join(a[2:])})
 elif a[:1] == ["installer"] and len(a) >= 2:

@@ -12,7 +12,7 @@ OAuth reprend le parcours d'Hermes (voir launcher/agent_admin.py) : Hermes garde
 direct. Le droit n'y est tenu que par le plugin de garde, et l'adresse n'est vérifiée qu'à l'ajout et aux relevés d'état.
 
 Le droit vaut pour un serveur entier : `lire` (seuls les outils que le serveur déclare en lecture, readOnlyHint ; cette
-déclaration vient du serveur), `agir` (tout, sans demander), `confirmer` (chaque appel attend l'accord de l'utilisateur).
+déclaration vient du serveur), `agir` (tout, sans demander), `confirmer` (une lecture déclarée passe ; toute autre action attend l'accord de l'utilisateur).
 """
 import asyncio
 import contextvars
@@ -779,15 +779,15 @@ def _gate(row, tool: str, args=None) -> str | None:
     name = row["nom"]
     if row["droit"] == "agir":
         return None
+    known = {t["name"]: t for t in json.loads(row["outils"] or "[]")}
+    if tool in known and _is_read_only(known[tool]):  # lire ne change rien : ni accord à demander, ni routine bloquée
+        return None
     if row["droit"] == "lire":
-        known = {t["name"]: t for t in json.loads(row["outils"] or "[]")}
-        if tool in known and _is_read_only(known[tool]):
-            return None
         return (f"Refusé : « {name} » est en lecture seule sur cet agent et « {tool} » n'est pas déclaré en lecture. "
                 "Dis-le à l'utilisateur ; il peut changer ce droit dans Détails → Connexions.")
     if _take_grant(row["agent_id"], name, _shown(tool, args if args is not None else {})):
         return None
-    return (f"Refusé : « {name} » demande la confirmation de l'utilisateur à chaque appel et elle n'a pas été donnée. "
+    return (f"Refusé : « {name} » demande la confirmation de l'utilisateur pour cette action et elle n'a pas été donnée. "
             "Dans une routine personne ne peut l'accorder : pour s'en servir là, il doit passer ce droit à « agir » dans "
             "Détails → Connexions. Dis-le-lui et continue sans cet outil.")
 

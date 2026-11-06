@@ -433,6 +433,12 @@ def test_rights() -> None:
     assert action_of("libre", "lire_fiche") == "block", "sans Hermes pour confirmer la déclaration : refus"
     garde._read_only = lambda server, tool: tool == "lire_fiche"
     assert plugin("libre", "lire_fiche") is None and action_of("libre", "creer_fiche") == "block"
+    # confirmer : une lecture déclarée passe sans accord (une routine peut donc lire), une écriture reste bloquée.
+    set_right("libre", "confirmer")
+    assert plugin("libre", "lire_fiche") is None and action_of("libre", "creer_fiche") == "approve"
+    assert not call_tool("libre", "lire_fiche").get("isError") and len(libre.calls) == done + 2
+    assert call_tool("libre", "creer_fiche").get("isError") and len(libre.calls) == done + 2, "une écriture sans accord"
+    done += 1
     # agir : tout passe, sans rien demander.
     set_right("libre", "agir")
     assert plugin("libre", "creer_fiche") is None
