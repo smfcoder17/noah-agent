@@ -23,6 +23,7 @@ Mécanique de What's Up Docker (préchargement, sauvegarde bloquante, retour arr
 """
 import base64
 import contextlib
+import ctypes
 import hashlib
 import io
 import json
@@ -392,6 +393,17 @@ def _sha(path: str) -> str:
     return h.hexdigest()
 
 
+def _sync_volume(path: str) -> None:
+    """Écrit sur disque le volume de ce chemin, et lui seul. Jamais sync() : il attend tous les disques de la machine, et un seul
+    montage figé (réseau, FUSE) bloquerait la mise à jour, l'agent arrêté, jusqu'à l'échéance d'une heure. Vu en vrai."""
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        if ctypes.CDLL(None, use_errno=True).syncfs(fd) != 0:
+            raise OSError(ctypes.get_errno(), "syncfs", path)
+    finally:
+        os.close(fd)
+
+
 def _snapshot(folder: str, volumes: list[str]) -> None:
     """(Conteneur jetable.) /v<i> -> <folder>/<volume>.tar.gz, propriétaires et droits gardés, plus un inventaire
     des archives (empreintes). Les bases SQLite passent par l'API backup (le journal WAL compris) et integrity_check ;
@@ -433,7 +445,7 @@ def _snapshot(folder: str, volumes: list[str]) -> None:
                         else:
                             tar.addfile(info)
             inventory[name] = _sha(f"{folder}/{name}.tar.gz")
-        os.sync()  # archives sur disque avant l'inventaire : une panne ne laisse pas un inventaire sans archives
+        _sync_volume(folder)  # archives sur disque avant l'inventaire : une panne ne laisse pas un inventaire sans archives
         with open(f"{folder}/inventaire.json", "w") as fh:  # écrit en dernier : sans lui, l'instantané n'existe pas
             json.dump(inventory, fh)
             fh.flush()
@@ -496,7 +508,7 @@ def _unpack(folder: str, volumes: list[str]) -> None:
         os.chown(dest, st.st_uid, st.st_gid)
         os.chmod(dest, st.st_mode & 0o7777)
         staging.rmdir()
-        os.sync()  # données d'avant sur disque avant de jeter celles d'après et de redémarrer l'ancien
+        _sync_volume(str(dest))  # données d'avant sur disque avant de jeter celles d'après et de redémarrer l'ancien
         shutil.rmtree(aside, ignore_errors=True)
 
 

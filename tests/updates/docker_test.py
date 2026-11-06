@@ -45,6 +45,10 @@ def rollback_time(took: float, budget: float = ROLLBACK_BUDGET) -> float:
     return projected
 
 
+# sync() attend tous les disques de la machine : un montage figé bloquerait la mise à jour, l'agent arrêté (vu en vrai).
+assert "os.sync()" not in open(u.__file__, encoding="utf-8").read()
+
+
 def reset_state():
     for p in u.STATE.parent.glob("*"):
         if p.is_file():
