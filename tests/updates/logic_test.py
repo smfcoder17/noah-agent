@@ -203,6 +203,40 @@ asyncio.run(u._follow())
 assert u.maintenance is False
 print("_follow : à jour, annulée, à vérifier (avec les noms), rien tant que le lanceur n'a pas fini ; maintenance suit le journal : OK")
 
+# Une correction change le numéro technique, pas celui qu'on voit : rien n'est annoncé, ni avant ni après.
+os.environ["NOAH_DISPLAY_VERSION"] = "9.9.9"
+assert u.shown_version() == "9.9.9" and u._shown({"version": "9.9.10", "affichee": "9.9.9"}) == "9.9.9"
+told.clear()
+u._patch(lambda s: s.pop("affichee_vue", None))
+launcher_state["etat"] = {"dernier_rapport": {"ok": True, "version": "9.9.10", "composants": {"noah-server": "fait"}, "fin": 20_000}, "en_cours": None}
+asyncio.run(u._follow())
+assert not told, told
+launcher_state["etat"] = {"dernier_rapport": {"ok": True, "version": "9.9.11", "composants": {"noah-server": "fait"}, "fin": 20_001}, "en_cours": None}
+asyncio.run(u._follow())
+assert not told, told
+os.environ["NOAH_DISPLAY_VERSION"] = "10.0.0"  # un numéro monté volontairement : là, on le dit
+launcher_state["etat"] = {"dernier_rapport": {"ok": True, "version": "10.0.0", "composants": {"noah-server": "fait"}, "fin": 20_002}, "en_cours": None}
+asyncio.run(u._follow())
+assert told and "10.0.0" in told[-1][1], told
+del os.environ["NOAH_DISPLAY_VERSION"]
+print("correction : silencieuse, numéro affiché inchangé ; numéro monté : annoncé")
+
+# Vu sur un vrai VPS : la transaction finie, Noah refusait encore le chat et les réglages jusqu'au tour suivant (5 min).
+slept = []
+real_sleep = u.asyncio.sleep
+async def no_sleep(seconds):
+    slept.append(seconds)
+    if len(slept) == 3:  # la transaction se ferme pendant l'attente
+        launcher_state["etat"] = {"en_cours": None}
+u.asyncio.sleep = no_sleep
+u.maintenance = True
+launcher_state["etat"] = {"en_cours": {"phase": "validation"}}
+asyncio.run(u._until_next_tick())
+u.asyncio.sleep = real_sleep
+assert u.maintenance is False, "la maintenance doit s'arrêter dès la fin, sans attendre le tour suivant"
+assert sum(slept) == 300, slept
+print("fin de l'installation : les écritures reprennent en 10 s, le tour suivant reste à 5 min : OK")
+
 # routine_soon : une routine qui part dans 10 min retient la mise à jour, une dans 2 h non.
 db.init()
 with db.connect() as conn:

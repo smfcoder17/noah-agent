@@ -61,8 +61,8 @@ def sign(version: str, notes_file: str, images: list[str]) -> None:
     notes = open(notes_file, encoding="utf-8").read().strip() if os.path.exists(notes_file) else ""
     migration = "[migration]" in notes.lower()
     notes = "\n".join(line for line in notes.splitlines() if line.strip().lower() != "[migration]").strip()
-    manifest = {"version": version, "publie": int(time.time()), "notes": notes[:4000], "migration": migration,
-                "images": refs}
+    manifest = {"version": version, "affichee": os.environ.get("NOAH_AFFICHEE") or version, "publie": int(time.time()),
+                "notes": notes[:4000], "migration": migration, "images": refs}
     raw = json.dumps(manifest, ensure_ascii=False, indent=1).encode()
     with open("manifest.json", "wb") as f:
         f.write(raw)

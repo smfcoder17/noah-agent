@@ -111,6 +111,10 @@ def init() -> None:
         db.execute("CREATE INDEX IF NOT EXISTS messages_conversation ON messages(conversation_id)")
         db.execute("CREATE INDEX IF NOT EXISTS conversations_agent ON conversations(agent_id)")
         # Abonnements Web Push : un par appareil, rattaché à sa session (déconnecter l'appareil coupe ses notifications).
+        # Fichiers qu'un agent destine à un ordinateur éteint : le contenu dans DATA_DIR/attente, le temps de sa reconnexion.
+        db.execute("CREATE TABLE IF NOT EXISTS desktop_attente (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, appareil TEXT NOT NULL, "
+                   "agent TEXT NOT NULL, dossier TEXT NOT NULL, chemin TEXT NOT NULL, sha256 TEXT NOT NULL, taille INTEGER NOT NULL, "
+                   "remplacer INTEGER NOT NULL DEFAULT 0, cree TEXT NOT NULL, expire TEXT NOT NULL)")
         db.execute("CREATE TABLE IF NOT EXISTS push_subscriptions (endpoint TEXT PRIMARY KEY, session TEXT NOT NULL, "
                    "p256dh TEXT NOT NULL, auth TEXT NOT NULL, created_at TEXT)")
         # Envois repris plus tard (service de push indisponible, Retry-After) : survivent à un redémarrage.

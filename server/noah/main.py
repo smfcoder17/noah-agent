@@ -27,7 +27,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Str
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import access, accounts, appareils, auth, catalog, coordination, courriel, db, decision, desktop, double_verification, events, exposition, handoff, hermes, machine, mcp, media, notifications, pendant, profiles, public, push, recuperation, relay, updates, watch, precall, diagnostics, chauffe
+from . import access, accounts, appareils, auth, catalog, connexion, coordination, courriel, db, decision, desktop, double_verification, events, exposition, handoff, hermes, logos, machine, mcp, media, notifications, pendant, profiles, public, push, recuperation, relay, updates, watch, precall, diagnostics, chauffe
 from . import config
 from .config import WEB_DIR, forget_setup_code
 from .hermes import Agent
@@ -131,6 +131,8 @@ app.include_router(profiles.router)
 app.include_router(courriel.router)
 app.include_router(appareils.router)
 app.include_router(public.router)
+app.include_router(connexion.router)
+app.include_router(logos.router)
 
 # Agents en cours de création : id -> message d'étape ou d'erreur affiché dans l'interface.
 provisioning: dict[str, str] = {}
@@ -142,7 +144,7 @@ _running_runs: set = set()  # runs suivis en arrière-plan (référence gardée 
 task_state: dict[str, str] = {}
 
 # Version du branchement des agents ; l'augmenter reconfigure tous les agents au démarrage.
-AGENT_SETUP_VERSION = "31-reglages"  # l'agent lit et change ses réglages non sensibles à condition, mémoire jugée, l'agent n'appelle plus de lui-même ; 29 : message sans rapport et contexte borné ; 28 : garde des profils de partage (G12.5) ; 27 : navigateur ; 26 : navigateur au premier usage
+AGENT_SETUP_VERSION = "33-appareils"  # va au bout, cookies, tâche unique, plus de connexions par un tiers ; 31 : l'agent lit et change ses réglages non sensibles à condition, mémoire jugée, l'agent n'appelle plus de lui-même ; 29 : message sans rapport et contexte borné ; 28 : garde des profils de partage (G12.5) ; 27 : navigateur ; 26 : navigateur au premier usage
 
 
 @app.on_event("startup")
@@ -156,6 +158,8 @@ async def startup() -> None:
     updates.announce = _announce_update
     asyncio.create_task(updates.run(task_state))
     asyncio.create_task(push.run_queue())
+    asyncio.create_task(desktop.keep_clean())
+    asyncio.create_task(_after_updates(lambda: machine.keep_connections_warm(lambda: [a["id"] for a in _agents()], _warmable)))
     _migrate_threads()
     asyncio.create_task(_resume_requests())
     asyncio.create_task(_after_updates(_refresh_browsers))
@@ -1157,7 +1161,7 @@ def logout(request: Request, response: Response, noah_session: str | None = Cook
 
 @app.get("/api/devices")
 def devices(request: Request, noah_session: str | None = Cookie(None), user: int = Depends(auth.current_user)):
-    return {"appareils": auth.devices(user, auth.request_token(request, noah_session))}
+    return {"appareils": desktop.decorate(user, auth.devices(user, auth.request_token(request, noah_session)))}
 
 
 @app.delete("/api/devices/self")
@@ -1594,6 +1598,17 @@ réponse, pas une panne : ne réessaie pas la même action, propose autre chose.
 dans son dossier de travail puis ouvre-le. Le résultat d'une routine arrive tout seul en notification : n'en ajoute pas.
 Une commande s'exécute dans son dossier de travail : préfère une commande simple et lisible, jamais destructrice sans qu'il l'ait demandé.
 
+## Ses appareils et les dossiers qu'il te confie depuis son ordinateur
+`python3 /opt/data/noah.py appareils` dit quels appareils il a, s'ils sont en ligne, et sur chaque ordinateur les dossiers qu'il t'a confiés
+(Détails → Dossiers, dans l'application de bureau). Regarde cette liste dès qu'on te parle de son ordinateur, de son téléphone ou d'un de ses dossiers.
+Ces dossiers ne sont pas dans ta machine : `ordinateur lister|lire|ecrire` y accède à la demande, sans le déranger, selon le droit qu'il a donné.
+Un fichier lu arrive dans /opt/data/workspace/ordinateur/ ; n'en mets dans la conversation que ce qui sert, car ce qui y entre passe par le modèle.
+`ordinateur ecrire` ne remplace jamais un fichier sans son accord (--remplacer lui demande) : sinon une copie est créée à côté. Si l'ordinateur est
+éteint, le fichier attend sa reconnexion et il en est prévenu : dis-le-lui, et ne réessaie pas.
+« Sur mon téléphone » : `notifier "titre" "texte" --appareil <id>`, qui ne vise que lui. « Sur mon ordinateur » : `--appareil` si plusieurs sont possibles ;
+si c'est ambigu, demande lequel. Dans une routine, écris l'identifiant de l'appareil dans sa consigne, jamais son nom : l'identifiant survit à un renommage.
+Une routine qui doit produire un fichier sur son ordinateur l'écrit d'abord dans sa machine, puis le dépose avec `ordinateur ecrire`.
+
 ## Veilles et routines : choisir le bon type
 Noah Agent relève lui-même une source, sans toi ni modèle ; un petit modèle ne lit que les nouveautés. Rien de nouveau : ça ne coûte rien. Une source est une adresse
 précise (`https://…`, page ou flux), `gmail` ou `gmail:<recherche Gmail>` (`gmail:from:paul@exemple.fr`), `agenda` ou `agenda:<heures à venir>`, `outil:<serveur>/<outil>`.
@@ -1603,20 +1618,21 @@ précise (`https://…`, page ou flux), `gmail` ou `gmail:<recherche Gmail>` (`g
   `python3 /opt/data/noah.py routine-si "Nom" <source> "la condition" "ce que tu feras alors, complet et autonome" --minutes 30`
 - Il veut un travail à chaque fois, sans condition (« chaque matin, un briefing », « tous les lundis ») : une routine, qui te fait tourner à chaque passage.
   `python3 /opt/data/noah.py routine "Nom" "horaire" "consigne autonome et complète"`, avec un horaire comme « every day at 8am », « 0 9 * * 1 », « every 2h ».
+- Il veut une action une seule fois, plus tard (« dans 5 minutes, fais… », « rappelle-moi à 17 h ») : la même commande, avec « in 5m », « in 2h » ou l'heure exacte « 2026-11-06T17:00:00 ». Une durée seule (« 5m ») se répéterait : mets toujours « in ». Fais-la tout de suite, et dis à quelle heure elle partira. Elle disparaît de la liste une fois faite.
 N'utilise jamais une routine pour vérifier si quelque chose est arrivé. `veilles` et `routines` listent, `veille-action <id> pause|reprendre|verifier|supprimer` et `routine-action <id> pause|reprendre|lancer|supprimer` gèrent.
 Tout résultat arrive tout seul dans cette conversation et en notification. L'utilisateur voit et supprime tout dans Détails. Propose une routine quand tu remarques une tâche qui revient.
 
 ## Gmail, Agenda, Drive et autres applications
 Si l'utilisateur a connecté Google dans Détails → Connexions, utilise la compétence google-workspace (seulement pour les accès
 qu'il a cochés). Les applications et outils connectés là (Notion, Todoist, Linear, Figma, ou tout serveur MCP ajouté par son
-adresse) t'apportent leurs propres outils, à la voix, à l'écrit et dans les routines. Pour une application pas encore connectée,
-invite-le à le faire dans Détails → Connexions plutôt que de lui demander des identifiants. Chaque outil a un droit choisi par
+adresse) t'apportent leurs propres outils, à la voix, à l'écrit et dans les routines. Pour savoir ce qui est connecté, regarde tes outils (ils commencent par `mcp__<application>__`). Pour une application pas encore connectée,
+invite-le à le faire dans Détails → Connexions plutôt que de lui demander des identifiants, sans jamais lui donner le lien d'un service tiers. Chaque outil a un droit choisi par
 l'utilisateur : un appel peut être refusé ou attendre son accord. Un outil injoignable ou un refus n'arrête pas ta tâche : dis-le
 en une phrase et continue le reste. N'installe jamais un serveur MCP toi-même : l'ajout se fait dans Détails → Connexions.
 Quand on te demande de connecter Google, suis la recette : `python3 /opt/data/noah.py recette google`.
 
 ## Appeler l'utilisateur
-Quand une étape doit rester la sienne (se connecter, code 2FA, CAPTCHA, accepter des conditions, cliquer sur « Autoriser »),
+Quand une étape doit rester la sienne (se connecter, code 2FA, CAPTCHA, payer, cliquer sur « Autoriser » pour donner accès à un compte),
 ne finis pas ton tour : `python3 /opt/data/noah.py appeler "ce qu'il doit faire, en une phrase"`. Noah Agent lui montre ton
 écran et le prévient ; la commande rend sa réponse (« fait », « impossible ») ou « en_attente » avec un id : relance alors
 `python3 /opt/data/noah.py attendre <id>`. Après « fait », recharge la page avant de vérifier.
@@ -1648,7 +1664,9 @@ l'utilisateur : ce qui est irréversible ou visible par d'autres attend toujours
 
 ## Navigateur
 Tu pilotes un vrai navigateur (Firefox anti-détection). L'utilisateur peut voir son écran en direct et en prendre le contrôle depuis l'onglet « Ordinateur ».
-Ne demande jamais de mot de passe, de code ou de carte bancaire dans la conversation. Quand une page demande une connexion, un code 2FA ou un CAPTCHA :
+Ne demande jamais de mot de passe, de code ou de carte bancaire dans la conversation. Un écran de cookies ou de consentement ne t'arrête jamais : accepte-le toi-même (« Tout accepter », « Accept all », « J'accepte ») et continue la tâche. Si un clic échoue,
+essaie le texte du bouton, un autre sélecteur, ou l'adresse directe de la page, sans en parler à l'utilisateur tant qu'il te reste un moyen.
+Quand une page demande une connexion, un code 2FA ou un CAPTCHA :
 reste sur cette page et appelle l'utilisateur (`noah.py appeler`, voir plus bas) pour qu'il le fasse lui-même dans l'onglet « Ordinateur », puis reprends. La session reste connectée ensuite.
 L'écran qu'il voit et tes onglets partagent les mêmes cookies. Quand il dit qu'il s'est connecté, recharge la page (ou rouvre l'adresse)
 avant de vérifier : une page chargée avant sa connexion reste affichée comme déconnectée. S'il insiste alors que la page semble
@@ -1680,6 +1698,11 @@ ou script), sauf si l'utilisateur veut explicitement une image générée (relan
 Sinon la commande enregistre le fichier dans outputs/ et rend le bloc `noah` à recopier tel quel pour le montrer.
 Une vidéo ou une musique coûte plus cher qu'une image : n'en crée que si on te le demande.
 Modèle précis pour une seule création : `--modele <id>` (liste : `noah.py reglages image`).
+
+## Va au bout
+On te demande une tâche : tu la fais, entièrement, sans demander la permission pour chaque étape. Un obstacle ordinaire (écran de cookies, popup, page
+lente, erreur passagère, clic raté) se contourne : essaie un autre moyen avant de revenir vers l'utilisateur. Tu t'arrêtes seulement pour ce qui est vraiment à lui :
+un mot de passe, un code, un CAPTCHA, un paiement, un envoi ou une suppression qu'il n'a pas demandés. Ta réponse dit ce qui est fait, pas ce qu'il devrait faire à ta place.
 
 ## Tes réglages
 Tu vois et tu changes toi-même ce qui n'est pas sensible : modèles d'image, de vidéo, de musique, de voix et de dictée, voix, goûts.
@@ -2443,7 +2466,7 @@ def _error_details(agent: Agent, raw: str, run_id: str | None = None) -> str:
     diagnostics.record("tâche", raw, agent.id)
     return diagnostics.mask("\n".join((
         f"Quand : {time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())} UTC",
-        f"Version de Noah Agent : {updates.VERSION}",
+        f"Version de Noah Agent : {updates.shown_version()} (construction {updates.VERSION})",
         f"Agent : {agent.id}",
         f"Fournisseur : {m.get('provider') or 'aucun'}",
         f"Modèle : {m.get('model') or 'aucun'}",
@@ -3270,7 +3293,7 @@ async def diagnostic(user: int = Depends(access.owner_only)):
     """De quoi comprendre une panne sans accéder à la machine, à copier chez un agent. Ni clé ni adresse de service."""
     m = current_model() or {}
     agents = [{"id": a["id"], "en_ligne": await hermes.health(_agent(a["id"]))} for a in _agents()]
-    return {"version": updates.VERSION, "fournisseur": m.get("provider"), "modele": m.get("model"),
+    return {"version": updates.shown_version(), "fournisseur": m.get("provider"), "modele": m.get("model"),
             "cle_medias": bool(db.get_setting("media_api_key")), "agents": agents, "erreurs": diagnostics.recent()}
 
 

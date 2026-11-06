@@ -428,5 +428,27 @@ def _pre_tool_call(tool_name: str = "", args: dict | None = None, **_) -> dict |
     return {"action": "block", "message": reason} if reason else None
 
 
+def _forget_nous_guest() -> None:
+    """Retire le compte anonyme qu'Hermes a pu créer chez son éditeur (Nous Portal) avant que Noah coupe ces connexions :
+    aucun de ses services ne doit plus s'en servir. Un compte choisi par la personne reste."""
+    path = os.path.join(os.environ.get("HERMES_HOME") or "/opt/data", "auth.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        if data["providers"]["nous"]["auth_method"] != "anonymous":
+            return
+        del data["providers"]["nous"]
+        if data.get("active_provider") == "nous":
+            data["active_provider"] = None
+        mode = os.stat(path).st_mode & 0o777
+        with open(path + ".noah", "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.chmod(path + ".noah", mode)
+        os.replace(path + ".noah", path)
+    except (OSError, ValueError, KeyError, TypeError):
+        return
+
+
 def register(ctx) -> None:
+    _forget_nous_guest()
     ctx.register_hook("pre_tool_call", _pre_tool_call)

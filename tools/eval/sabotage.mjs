@@ -16,15 +16,47 @@ const MCP = PIP + "python /tests/tools/mcp_test.py";
 const PENDANT = PIP + "python /tests/voice/pendant_test.py";
 const APERCU = PIP + "python /tests/agents/apercu_test.py";
 const DECISION = PIP + "python /tests/agents/decision_test.py";
+const APPAREILS = PIP + "timeout 120 python /tests/desktop/appareils_test.py";
+const CONNEXION = PIP + "python /tests/agents/connexion_logos_test.py";
+const DOSSIERS = "node /repo/tests/desktop/dossiers_test.mjs";
 
+// NOAH_SABOTAGE=mot : seulement les sabotages dont le nom contient ce mot, pour rejouer un cas.
 const SABOTAGES = [
+  ["Appareil : la réponse d'un autre appareil acceptée", "noah/desktop.py", "elif future is None or owner != user or target != device:", "elif future is None:", APPAREILS],
+  ["Appareil : un fichier en attente servi à un autre", "noah/desktop.py", 'if not row or row["user_id"] != user or row["appareil"] != _device(request, noah_session) or not path.is_file():', "if not row or not path.is_file():", APPAREILS],
+  ["Appareil : le chemin d'un dossier gardé par le serveur", "noah/desktop.py", 'shown = [{"id": str(d.get("id", ""))[:40], "nom": str(d.get("nom", ""))[:120], "ecriture": bool(d.get("ecriture")), "absent": bool(d.get("absent"))} for d in body.dossiers]', "shown = body.dossiers", APPAREILS],
+  ["Appareil : file d'attente sans plafond", "noah/desktop.py", "if size > MAX_FILE or (user is not None and _pending_bytes(user) + _receiving[user] > MAX_PENDING):", "if False:", APPAREILS],
+  ["Appareil : un fichier en attente n'expire jamais", "noah/desktop.py", 'if row["expire"] <= now:', "if False:", APPAREILS],
+  ["Connexions : un état périmé remis en mémoire", "noah/machine.py", "if _connections_version.get(agent_id, 0) == version:", "if True:", APPAREILS],
+  ["Connexions : un changement n'oublie pas le cache", "noah/machine.py", "    _connections.pop(agent_id, None)\n", "", APPAREILS],
+  ["Dossier : un lien sort du dossier", "desktop/dossiers.js", 'if (!inside(root, existing)) throw new Refus("Ce chemin mène hors du dossier.");', "", DOSSIERS],
+  ["Dossier : lecture seule ignorée", "desktop/dossiers.js", 'if (!folder.ecriture) throw new Refus(', 'if (false) throw new Refus(', DOSSIERS],
+  ["Dossier : un fichier existant écrasé", "desktop/dossiers.js", "fs.linkSync(temporary, candidate); // échoue d'un coup si le nom existe", "fs.copyFileSync(temporary, candidate);", DOSSIERS],
+  ["Dossier : fichiers sensibles permis", "desktop/dossiers.js", 'if (isSensitive(parts) || isSensitive(path.relative(root, target).split(path.sep))) throw new Refus("Fichier sensible : refusé d\'office, quel que soit le droit.");', "", DOSSIERS],
+  ["Dossier : permis pour toujours malgré un programme changé", "desktop/dossiers.js", "t.exe === print.exe && t.sha256 === print.sha256", "t.exe === print.exe", DOSSIERS],
+  ["Dossier : un lanceur permis pour toujours", "desktop/dossiers.js", "return ALWAYS_PROGRAMS.test(bare) ? { program: bare, args } : null;", "return { program: bare, args };", DOSSIERS],
+  ["Dossier : l'accès coupé levé par un changement de compte", "desktop/dossiers.js", "state = { ...EMPTY(), coupe: state.coupe };", "state = EMPTY();", DOSSIERS],
+  ["Dossier : un fichier qui agit écrit sans accord", "desktop/dossiers.js", "if (needsConsent(target, pieces(relative)) && !(await", "if (false && !(await", DOSSIERS],
+  ["Dossier : un nom trompeur accepté", "desktop/dossiers.js", 'if (DECEIVING.test(part)) throw new Refus("Ce nom contient des caractères invisibles ou de contrôle.");', "", DOSSIERS],
+  ["Dossier : l'erreur du système part telle quelle", "desktop/dossiers.js", 'return { message: final[error.code] ?? "Le système de l\'ordinateur a refusé cette opération.", later: false };', "return { message: error.message, later: false };", DOSSIERS],
+  ["Bureau : un autre serveur obtient une demande sans vérification", "desktop/actions.js", "if (attachedTo !== `${link.origin}|${link.token}` && !(await beat())) {", "if (false) {", DOSSIERS],
+  ["Bureau : le nom de l'agent imite un message", "desktop/actions.js", 'const who = clean(req.agent) || "Noah";', 'const who = req.agent || "Noah";', DOSSIERS],
+  ["Appareil : une demande non reçue perdue", "noah/desktop.py", 'if last and fichiers and last["id"] != recu and (last["id"] in _waiting or _pending_row(last["id"])):', "if False:", APPAREILS],
+  ["Appareil : un agent partagé en admin atteint l'ordinateur", "noah/desktop.py", "if access.guest_task(agent_id) or access.shared_admin(agent_id):", "if access.guest_task(agent_id):", APPAREILS],
+  ["Appareil : un ordinateur disparu fait attendre 5 minutes", "noah/desktop.py", 'if seen.get("bat") and not _online(device):', "if False:", APPAREILS],
+  ["Connexion : l'accord d'un autre compte accepté", "noah/connexion.py", 'if login.get("user") is not None and here is not None and here != login["user"]:', "if False:", CONNEXION],
+  ["Connexion : sans session, sans confirmation", "noah/connexion.py", 'if login.get("user") is not None and here is None and not params.get("error"):', "if False:", CONNEXION],
+  ["Bureau : l'accès coupé ne coupe rien", "desktop/actions.js", 'if (store?.isCut() && req.action !== "notifier") return CUT;', "", DOSSIERS],
+  ["Bureau : un nom d'application piégé arrive au système", "desktop/actions.js", 'if (!APP_NAME.test(name)) return { erreur: "Donne seulement le nom de l\'application, sans chemin ni symbole." };', "", DOSSIERS],
+  ["Bureau : un accord tardif agit quand même", "desktop/actions.js", "const blocked = await stop();\n      if (blocked) return blocked;\n      clipboard.writeText(text);", "clipboard.writeText(text);", DOSSIERS],
+  ["Bureau : ouvrir suit une liste trop large", "desktop/actions.js", 'if (!isDir && !OPENABLE.test(finale)) return { erreur: "Noah n\'ouvre pas ce type de fichier directement : utilise « commande », qui demande un accord." };', "", DOSSIERS],
   ["Plafond de dépense ignoré", "noah/relay.py", "if cap is None or day_cost(agent_id) < cap:", "if True:", BUDGET],
   ["Heures non retirées des pages surveillées", "noah/watch.py", String.raw`text = _STAMP.sub(r"\1", _VOLATILE.sub(" ", text))`, "pass", WATCH],
   ["Téléchargement puis exécution autorisés", "noah/agent_plugin/__init__.py", 'DOWNLOADER = r"(?:curl|wget|iwr|invoke-webrequest|fetch)"', 'DOWNLOADER = r"(?:zzzz)"', GUARD],
   ["Session d'appairage qui n'expire plus", "noah/auth.py", "UNCLAIMED = timedelta(minutes=10)", "UNCLAIMED = timedelta(days=3650)", PAIRING],
   ["Outil : adresse jugée sans la résolution DNS", "noah/mcp.py", '_judge(ipaddress.ip_address(a), "https" if for_source else scheme)', "pass", MCP],
   ["Veille : redirection suivie sans contrôle", "noah/watch.py", "target = await mcp.resolve(url, for_source=True)", 'target = mcp.Target(*(lambda p: (p.scheme, p.hostname, p.port or {"https": 443, "http": 80}[p.scheme], p.path or "/", p.hostname))(mcp.urlsplit(url)))', WATCH],
-  ["Veille : réponse lue sans plafond", "noah/watch.py", "if len(body) >= MAX_BYTES:", "if False:", WATCH],
+  ["Veille : réponse lue sans plafond", "noah/watch.py", "if len(body) >= limit:", "if False:", WATCH],
   ["Aperçu : session révoquée, le lien sert encore", "noah/main.py", "not auth.session_alive(session) or ", "", APERCU],
   ["Outil : jeton en clair en base", "noah/mcp.py", "db.seal(token) if token else None", "token", MCP],
   ["Outil : « confirmer » laisse passer sans accord", "noah/mcp.py", 'if _take_grant(row["agent_id"], name, _shown(tool, args if args is not None else {})):', "if True:", MCP],
@@ -44,10 +76,30 @@ const SABOTAGES = [
   ["Routine : le cerveau part même si la condition n'est pas remplie", "noah/watch.py", 'if not (alert and alert["pertinent"] and alert["resume"]):', "if not alert:", DECISION],
   ["Décision : l'essai ne regarde pas la réponse", "noah/decision.py", 'elif a.data.get("pertinent") is not True or _numbers(a.data.get("retenues")) != {2}:', "elif False:", DECISION],
   ["Mémoire : tout entre sans jugement", "noah/agent_plugin/__init__.py", 'if tool_name == "memory":', "if False:", DECISION],
-  ["Outil : ajout sans contrôle d'accès", "noah/mcp.py", 'access.access(user, agent_id, "admin")\n    _scope(agent_id)\n    token = _clean_token(body)', "_scope(agent_id)\n    token = _clean_token(body)", MCP],
+  ["Outil : ajout sans contrôle d'accès", "noah/mcp.py", 'access.access(user, agent_id, "admin")\n    _scope(agent_id)\n    machine.forget_connections(agent_id)\n    token = _clean_token(body)', "_scope(agent_id)\n    token = _clean_token(body)", MCP],
 ];
 
-function run([sabotage, path, old, replacement, cmd]) {
+function runDesktop([sabotage, path, old, replacement, cmd]) {
+  const tmp = mkdtempSync(join(tmpdir(), "noah-sabotage-"));
+  try {
+    for (const part of ["desktop", "tests/desktop"]) {
+      cpSync(join(ROOT, part), join(tmp, part), { recursive: true, filter: (p) => !p.includes("node_modules") && !p.includes("dist") });
+    }
+    const target = join(tmp, path);
+    const source = readFileSync(target, "utf8");
+    if (old && source.split(old).length !== 2) return { sabotage, resultat: "cible introuvable" };
+    if (old) writeFileSync(target, source.replace(old, () => replacement));
+    const r = spawnSync("docker", ["run", "--rm", "-v", `${tmp}:/repo`, "node:22-alpine", "sh", "-c", cmd], { timeout: 120000 });
+    const seen = r.status === 1 && String(r.stdout).includes("ÉCHEC");
+    return { sabotage, resultat: seen ? "vu" : r.status ? "panne" : "NON VU" };
+  } finally {
+    rmSync(tmp, { recursive: true, force: true, maxRetries: 2 });
+  }
+}
+
+function run(item) {
+  if (item[1].startsWith("desktop/")) return runDesktop(item);
+  const [sabotage, path, old, replacement, cmd] = item;
   const tmp = mkdtempSync(join(tmpdir(), "noah-sabotage-"));
   try {
     const server = join(tmp, "server");
@@ -68,12 +120,13 @@ function run([sabotage, path, old, replacement, cmd]) {
 }
 
 // Témoin : la même chaîne sans défaut doit rester verte, sinon un « vu » ne prouve rien.
-const TEMOINS = [...new Set(SABOTAGES.map((s) => s[4]))].map((cmd) => run(["témoin", "noah/auth.py", "", "", cmd]));
+const CHOISIS = SABOTAGES.filter((s) => !process.env.NOAH_SABOTAGE || new RegExp(process.env.NOAH_SABOTAGE, "i").test(s[0]));
+const TEMOINS = [...new Set(CHOISIS.map((s) => s[4]))].map((cmd) => run(["témoin", cmd === DOSSIERS ? "desktop/dossiers.js" : "noah/auth.py", "", "", cmd]));
 if (TEMOINS.some((t) => t.resultat !== "NON VU")) {
   console.error("Un témoin échoue sans sabotage : les résultats ne valent rien.");
   process.exit(2);
 }
-const results = SABOTAGES.map(run);
+const results = CHOISIS.map(run);
 console.log(JSON.stringify(results, null, 1));
 const seen = results.filter((r) => r.resultat === "vu").length;
 console.log(`Défauts vus : ${seen} sur ${results.length}`);

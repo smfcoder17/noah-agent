@@ -14,7 +14,7 @@
 #                                                    code 2 : pas encore (la raison est affichée) ; à relancer
 #   NOAH_ESSAI_OUI=1 NOAH_RELEASE_KEY_FICHIER=~/.noah-signatures/release.key sh tests/real/maj_reelle.sh panne MODE
 #       serveur    le nouveau serveur ne démarre pas : retour arrière au contrôle de santé
-#       tardive    il démarre, écrit dans ses données, tombe pendant les 5 minutes d'observation : retour arrière, et ce
+#       tardive    il démarre, écrit dans ses données, tombe pendant les 2 minutes d'observation : retour arrière, et ce
 #                  qu'il a écrit a disparu
 #       coupure    le lanceur est tué en pleine transaction : au redémarrage, tout revient
 #   sh tests/real/maj_reelle.sh nettoyer             retire les témoins
@@ -394,7 +394,7 @@ do_panne() {
       printf 'FROM noah-panne-base:essai\nCMD ["sh", "-c", "touch /data/ecrit-par-la-panne; exit 1"]\n' | docker build -q -t "$tag" - >/dev/null
       ;;
     *)
-      printf 'FROM noah-panne-base:essai\nCMD ["sh", "-c", "touch /data/ecrit-par-la-panne; (sleep 150; kill 1) & exec uvicorn noah.main:app --host 0.0.0.0 --port 8080"]\n' \
+      printf 'FROM noah-panne-base:essai\nCMD ["sh", "-c", "touch /data/ecrit-par-la-panne; (sleep 60; kill 1) & exec uvicorn noah.main:app --host 0.0.0.0 --port 8080"]\n' \
         | docker build -q -t "$tag" - >/dev/null
       ;;
   esac

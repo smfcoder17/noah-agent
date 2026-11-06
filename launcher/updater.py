@@ -7,7 +7,7 @@ que les empreintes signées. Une mise à jour est une transaction, journalisée 
   remplacement  pour chaque conteneur, dans l'ordre (un agent d'abord, en canari, puis les autres, les navigateurs,
                 Caddy, le serveur) : arrêt, instantané à froid de ses volumes (inventaire avec empreintes), renommage
                 en <nom>-ancien, création sur la nouvelle image, démarrage, contrôle de santé ;
-  observation   tous les conteneurs neufs sont surveillés 5 minutes (ils tournent, ne redémarrent pas, répondent ;
+  observation   tous les conteneurs neufs sont surveillés 2 minutes (ils tournent, ne redémarrent pas, répondent ;
                 le serveur aussi à travers Caddy), comme la fenêtre de retour arrière de What's Up Docker ;
   lanceur       s'il change, un relais lancé depuis la nouvelle image le remplace, l'observe, et décide pour toute
                 la transaction (les anciens conteneurs attendent jusque-là) ;
@@ -49,7 +49,7 @@ client = docker.from_env() if docker and not os.environ.get("NOAH_TOOL") else No
 STATE = Path(os.environ.get("NOAH_UPDATE_STATE", "/state/updates.json"))
 BACKUP_VOLUME = os.environ.get("NOAH_BACKUP_VOLUME", "noah_noah-backups")
 PUBLIC_KEY = os.environ.get("NOAH_UPDATE_KEY", "")
-OBSERVE = int(os.environ.get("NOAH_UPDATE_OBSERVE", "300"))
+OBSERVE = int(os.environ.get("NOAH_UPDATE_OBSERVE", "120"))
 HEALTH = int(os.environ.get("NOAH_UPDATE_HEALTH", "120"))
 POLL = float(os.environ.get("NOAH_UPDATE_POLL", "5"))  # secondes entre deux regards sur un conteneur qui démarre
 CADDY_DEADLINE = float(os.environ.get("NOAH_UPDATE_CADDY_DEADLINE", "20"))  # échéance du contrôle à travers Caddy

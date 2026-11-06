@@ -142,6 +142,14 @@ def callers(agent_id: str) -> set:
     return _active_users(agent_id) or {owner_of(agent_id)}
 
 
+def shared_admin(agent_id: str) -> bool:
+    """Un autre profil a le droit admin sur cet agent. Partager mémoire, routines et terminal fait de lui un second maître de l'agent."""
+    owner = owner_of(agent_id)
+    with db.connect() as c:
+        rows = c.execute("SELECT user_id FROM agent_shares WHERE agent_id = ? AND droit = 'admin'", (agent_id,)).fetchall()
+    return any(r["user_id"] != owner for r in rows)
+
+
 def guest_task(agent_id: str) -> bool:
     """Une tâche lancée par un profil partagé tourne : l'agent ne doit pas lui prêter ce que seul son propriétaire a
     (les autres agents, l'ordinateur du propriétaire)."""

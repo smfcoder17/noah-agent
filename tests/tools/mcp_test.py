@@ -131,7 +131,7 @@ async def real_admin(agent_id: str, action: str, body: dict | None = None, timeo
         return {"disponible": False}
     # Le vrai agent_admin lance la connexion d'Hermes en arrière-plan : ici, seul ce départ est remplacé.
     source = ADMIN_SOURCE.replace('sys.path.insert(0, "/opt/hermes")', f'sys.path.insert(0, {str(STUB)!r})', 1)
-    source = source.replace("def _start_login(name):", f"def _start_login(name):\n    return {{'adresse': {login_address!r}}}\n\n\ndef _unused(name):", 1)
+    source = source.replace('def _start_login(name, retour=""):', f"def _start_login(name, retour=''):\n    return {{'adresse': {login_address!r}}}\n\n\ndef _unused(name):", 1)
     r = subprocess.run([sys.executable, "-c", source, action, text], capture_output=True, text=True)
     out = json.loads(r.stdout.strip().splitlines()[-1]) if r.stdout.strip() else {}
     if r.returncode:
@@ -318,7 +318,7 @@ def test_token() -> None:
     assert stored and JETON not in stored and db.unseal(stored) == JETON, "le jeton doit être chiffré, et déchiffrable"
     for f in DATA.iterdir():
         assert JETON.encode() not in f.read_bytes(), f"jeton en clair dans {f}"
-    seen = alice.get(f"/api/agents/{A}/connections")
+    seen = alice.get(f"/api/agents/{A}/connections?frais=1")
     assert seen.status_code == 200 and JETON not in seen.text, seen.text[:300]
     row = [t for t in seen.json()["outils"] if t["nom"] == "fiches"][0]
     assert row["jeton"] is True and row["auth"] == "jeton" and row["etat"] == "ok", row
@@ -476,7 +476,7 @@ def test_outage() -> None:
     assert took < 15, f"l'agent a attendu {took} s"
     assert own_ip not in text_of(result), "le message donne une adresse interne"
     # À l'écran : un état visible.
-    state = {t["nom"]: t for t in alice.get(f"/api/agents/{A}/connections").json()["outils"]}["fragile"]
+    state = {t["nom"]: t for t in alice.get(f"/api/agents/{A}/connections?frais=1").json()["outils"]}["fragile"]
     assert state["etat"] == "injoignable" and "Injoignable" in state["erreur"], state
     # Hermes redémarre pendant la panne : il se connecte quand même et garde la liste connue.
     hello = rpc(agent_a, "fragile", "initialize", {"protocolVersion": "2025-06-18"})
@@ -485,12 +485,12 @@ def test_outage() -> None:
     assert len(listed) == 3, listed
     # Les autres outils de l'agent ne sont pas touchés.
     assert not call_tool("fiches", "lire_fiche").get("isError")
-    states = {t["nom"]: t["etat"] for t in alice.get(f"/api/agents/{A}/connections").json()["outils"]}
+    states = {t["nom"]: t["etat"] for t in alice.get(f"/api/agents/{A}/connections?frais=1").json()["outils"]}
     assert states["fiches"] == "ok" and states["fragile"] == "injoignable", states
     # Le serveur revient : l'état revient, sans rien refaire.
     back = Server(port=int(url.rsplit(":", 1)[1].split("/")[0])).start()
     assert not call_tool("fragile", "lire_fiche").get("isError")
-    assert {t["nom"]: t for t in alice.get(f"/api/agents/{A}/connections").json()["outils"]}["fragile"]["etat"] == "ok"
+    assert {t["nom"]: t for t in alice.get(f"/api/agents/{A}/connections?frais=1").json()["outils"]}["fragile"]["etat"] == "ok"
     # Le serveur a oublié la session : une autre s'ouvre, sans erreur pour l'agent.
     back.forget_sessions = True
     assert not call_tool("fragile", "lire_fiche").get("isError")
@@ -505,16 +505,16 @@ def test_outage() -> None:
     FAKE_DNS["change.example.org"] = ["169.254.169.254"]
     result = call_tool("change", "creer_fiche")
     assert result.get("isError") and len(fixe.calls) == done, result
-    state = {t["nom"]: t for t in alice.get(f"/api/agents/{A}/connections").json()["outils"]}["change"]
+    state = {t["nom"]: t for t in alice.get(f"/api/agents/{A}/connections?frais=1").json()["outils"]}["change"]
     assert state["etat"] == "refuse" and "métadonnées" in state["erreur"], state
     # Le jeton retiré chez le fournisseur : dit clairement.
     fiches.expected = "un-autre-jeton-valide"
     mcp._sessions.pop((A, "fiches"), None)
-    state = {t["nom"]: t for t in alice.get(f"/api/agents/{A}/connections").json()["outils"]}["fiches"]
+    state = {t["nom"]: t for t in alice.get(f"/api/agents/{A}/connections?frais=1").json()["outils"]}["fiches"]
     assert state["etat"] == "jeton_refuse", state
     assert call_tool("fiches", "lire_fiche").get("isError")
     fiches.expected = JETON
-    assert alice.get(f"/api/agents/{A}/connections").json()["outils"], "un état illisible casserait la section"
+    assert alice.get(f"/api/agents/{A}/connections?frais=1").json()["outils"], "un état illisible casserait la section"
     print(f"5. panne : message clair à l'agent en {took:.2f} s, état visible, liste gardée, autres outils intacts, retour automatique ; rebinding refusé")
 
 
@@ -557,7 +557,7 @@ def test_oauth() -> None:
     FAKE_DNS["oauth.example.org"] = ["93.184.216.34"]
     with db.connect() as c:
         c.execute("UPDATE mcp_tools SET etat = 'ok', vu_a = ? WHERE nom = 'protege'", (time.time() + 60,))
-    seen = {t["nom"]: t for t in alice.get(f"/api/agents/{A}/connections").json()["outils"]}["protege"]
+    seen = {t["nom"]: t for t in alice.get(f"/api/agents/{A}/connections?frais=1").json()["outils"]}["protege"]
     assert seen["etat"] == "a_connecter" and not seen["connecte"], seen
     assert alice.post(f"{TOOLS}/protege/connect", json={}).json()["adresse"] == login_address
     assert alice.post(f"{TOOLS}/protege/finish", json={}).status_code == 400

@@ -1,3 +1,4 @@
+import { forgetSeen } from "./seen";
 // Client de l'API Noah Agent (même origine, session par cookie).
 
 export class ApiError extends Error {
@@ -56,6 +57,7 @@ function renewWindow(): Promise<string> | null {
 }
 
 export async function request(path: string, init: RequestInit = {}): Promise<Response> {
+  if (/^\/api\/(logout|login|setup)/.test(path)) forgetSeen(); // un autre compte ne voit pas, même un instant, l'écran du précédent
   const call = () => fetch(path, {
     ...init,
     credentials: "same-origin",

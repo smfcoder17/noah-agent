@@ -23,7 +23,7 @@ TEST_SETTINGS = ("NOAH_UPDATE_HEALTH", "NOAH_UPDATE_OBSERVE", "NOAH_UPDATE_POLL"
 READ = "import json, updater as u; print(json.dumps(dict(health=u.HEALTH, observe=u.OBSERVE, poll=u.POLL, caddy=u.CADDY_DEADLINE, relay=u.RELAY_TIMEOUT, watchdog=u.WATCHDOG)))"
 PROD = json.loads(subprocess.run([sys.executable, "-c", READ], cwd="/l", capture_output=True, text=True, check=True,
                                  env={k: v for k, v in os.environ.items() if k not in TEST_SETTINGS}).stdout)
-assert PROD == {"health": 120, "observe": 300, "poll": 5, "caddy": 20, "relay": 1800, "watchdog": 300}, PROD
+assert PROD == {"health": 120, "observe": 120, "poll": 5, "caddy": 20, "relay": 1800, "watchdog": 300}, PROD
 SOURCE = open("/l/updater.py", encoding="utf-8").read()
 STOP_NEW = int(re.search(r"c\.stop\(timeout=(\d+)\)  # arrêt propre", SOURCE).group(1))  # arrêt d'un conteneur remplacé
 STOP_BAD = int(re.search(r"main\.stop\(timeout=(\d+)\)  # la version fautive", SOURCE).group(1))  # arrêt de la version fautive

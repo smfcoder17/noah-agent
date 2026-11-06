@@ -262,7 +262,6 @@ def fixture() -> None:
         c.executemany("INSERT INTO agent_shares (agent_id, user_id, droit) VALUES (?, ?, ?)",
                       [(A, LEA, "lecture"), (A, UMA, "usage"), (A, ADA, "admin"), (A, ZED, "lecture")])
     handoff._calls[A] = {"id": HANDOFF, "message": "Connecte-toi", "depuis": now, "origine": "agent", "attente": FakeFuture(), "attentifs": 1}
-    desktop._waiting[RID] = (FakeFuture(), ALICE)
     media.drop_stream(AUDIO)
     stream = media.audio_stream(AUDIO)
     stream.owner = ALICE
@@ -336,7 +335,6 @@ ROUTES = {
     ("GET", "/api/calls/{call_id}"): "auteur",
     ("POST", "/api/calls/{call_id}/answer"): "auteur",
     ("POST", "/api/calls/{call_id}/decline"): "auteur",
-    ("POST", "/api/desktop/result/{rid}"): "auteur",
     ("GET", "/api/agents/{agent_id}/shares"): "proprietaire",
     ("PUT", "/api/agents/{agent_id}/shares"): "proprietaire",
     ("DELETE", "/api/agents/{agent_id}/shares/{user_id}"): "proprietaire",
@@ -371,13 +369,17 @@ BODIES = {
     "/api/agents/{agent_id}/watches": lambda: {"nom": "n", "url": "https://example.org"},
     "/api/agents/{agent_id}/appel/{call_id}": lambda: {"reponse": "impossible"},
     "/api/agents/{agent_id}/shares": lambda: {"utilisateur": "zed", "droit": "lecture", "compris": True},
-    "/api/desktop/result/{rid}": lambda: {},
 }
 QUERIES = {"/api/agents/{agent_id}/media": {"path": "/x.png"}, "/api/agents/{agent_id}/upload": {"name": "x.txt"}, "/api/voice/transcribe": {"agent_id": A}}
 
 # Routes avec un identifiant qui n'appartient à aucun agent. Chacune a sa raison et, quand c'est possible, sa vérification.
 WHITELIST = {
     ("GET", "/api/apercu/{token}/{path:path}"): "Sans session : le lien signé porte le compte, le dossier et l'expiration, et suit les droits (apercu_test).",
+    ("POST", "/api/desktop/result/{rid}"): "Seulement l'appareil à qui la demande a été donnée (appareils_test et test_desktop).",
+    ("GET", "/api/desktop/encore/{rid}"): "Seulement l'appareil visé par la demande (appareils_test).",
+    ("GET", "/api/desktop/piece/{rid}"): "Seulement l'appareil visé par ce fichier (appareils_test).",
+    ("POST", "/api/desktop/piece/{rid}"): "Seulement l'appareil à qui la lecture a été demandée (appareils_test).",
+    ("GET", "/api/logos/{host}"): "Le logo public d'un site, le même pour tous : rien d'un autre compte (connexion_logos_test).",
     ("POST", "/api/chat/pendant"): "Mêmes droits que /api/chat : agent utilisable et conversation à ce compte (pendant_test).",
     ("POST", "/api/chat/file/{client_id}/maintenant"): "L'identifiant contient le compte : la demande d'un autre n'existe pas ici (pendant_test).",
     ("DELETE", "/api/chat/file/{client_id}"): "L'identifiant contient le compte : la demande d'un autre n'existe pas ici (pendant_test).",
@@ -434,6 +436,8 @@ OWNER_WITH_ID = {("PATCH", "/api/profiles/{profile_id}"): {"budget": None}, ("DE
                  ("POST", "/api/profiles/{profile_id}/mot-de-passe"): {"nouveau": "nouveau-motdepasse", "motdepasse": "motdepasse-d"}}
 # … et les routes ouvertes, chacune avec la raison pour laquelle elle ne montre rien d'un autre.
 OPEN_ROUTES = {
+    ("POST", "/api/connexion/retour"): "Publique, comme le retour lui-même : sans state valide, rien n'atteint l'agent (connexion_logos_test).",
+    ("GET", "/api/connexion/retour"): "Publique : le fournisseur y ramène parfois un navigateur sans session. Sans state valide, rien n'atteint l'agent (connexion_logos_test).",
     ("GET", "/api/status"): "Publique : l'écran à montrer, rien d'autre pour un inconnu une fois le compte créé (tests/exposition/public_test.py).",
     ("POST", "/api/setup/check"): "Publique : refusée dès qu'un compte existe.",
     ("POST", "/api/setup/restore"): "Refusée dès qu'un compte existe (code d'installation).",
@@ -477,6 +481,7 @@ OPEN_ROUTES = {
     ("GET", "/api/calls/wait"): "Même lecture que /api/calls/pending, en attente longue.",
     ("GET", "/api/desktop/next"): "File de ce compte (vérifié par test_desktop).",
     ("GET", "/api/desktop/status"): "État de l'application de bureau de ce compte (vérifié par test_desktop).",
+    ("POST", "/api/desktop/battement"): "La présence de son propre appareil : rien d'un autre compte (appareils_test).",
     ("GET", "/api/health/stream"): "Contrôle de bout en bout à travers le mandataire : deux nombres, aucune donnée.",
     ("GET", "/api/push/key"): "Clé publique du serveur.",
     ("POST", "/api/push/subscription"): "Abonnement de cette session.",
@@ -1043,6 +1048,9 @@ def test_desktop() -> None:
     fixture()
     desktop.WAIT = 0.05
     sessions = {u: auth.new_session(u, "bureau", "desktop") for u in (ALICE, BRUNO)}
+    # Partagé en admin, l'agent n'atteint plus les appareils de son propriétaire : essayé à part dans appareils_test.
+    with db.connect() as c:
+        c.execute("DELETE FROM agent_shares WHERE agent_id = ? AND droit = 'admin'", (A,))
 
     async def go():
         transport = httpx.ASGITransport(app=app)

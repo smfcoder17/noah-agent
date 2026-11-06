@@ -5,6 +5,13 @@ contextBridge.exposeInMainWorld("noahDesktop", {
   pickFolder: () => ipcRenderer.invoke("noah:pick-folder"),
   openPath: (p) => ipcRenderer.invoke("noah:open-path", String(p)),
   forgetServer: () => ipcRenderer.invoke("noah:forget-server"),
+  dossiers: () => ipcRenderer.invoke("noah:dossiers"),
+  dossierAjouter: () => ipcRenderer.invoke("noah:dossier-ajouter"),
+  dossierRetirer: (id) => ipcRenderer.invoke("noah:dossier-retirer", String(id)),
+  dossierDroit: (id, ecriture) => ipcRenderer.invoke("noah:dossier-droit", String(id), Boolean(ecriture)),
+  couper: (coupe) => ipcRenderer.invoke("noah:couper", Boolean(coupe)),
+  dossierOuvrir: (id) => ipcRenderer.invoke("noah:dossier-ouvrir", String(id)),
+  commandeOublier: (commande, dossier) => ipcRenderer.invoke("noah:commande-oublier", String(commande), String(dossier)),
   version: () => ipcRenderer.invoke("noah:version"),
 });
 

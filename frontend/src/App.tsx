@@ -6,6 +6,7 @@ import { AuthScreen, TemporaryPassword } from "@/components/AuthScreen";
 import { CallScreen, type CallReport } from "@/components/Call";
 import { CALL_SLOT } from "@/components/CallStage";
 import { Onboarding } from "@/components/Onboarding";
+import { ConnectedBanner } from "@/components/ConnectedBanner";
 import { DeviceApproval, keepApprovalRequest } from "@/components/DeviceApproval";
 import { NewDeviceAlert } from "@/components/NewDeviceAlert";
 import { HandoffBanner } from "@/components/Handoff";
@@ -427,6 +428,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   return (
     <ViewerProvider>
       <DeviceApproval />
+      <ConnectedBanner />
       <NewDeviceAlert onChangePassword={() => setSettings("security")} />
       <CallScreen
         agents={agents}
@@ -514,7 +516,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
             </Button>
             {agent && (
               <Button variant={panel && panel !== "computer" ? "outline" : "ghost"} size="sm" onClick={() => setPanel(panel && panel !== "computer" ? null : "details")} aria-pressed={!!panel && panel !== "computer"}>
-                <PanelRight /><span className="hidden sm:inline">Détails</span>
+                <PanelRight aria-label="Détails" /><span className="hidden sm:inline">Détails</span>
               </Button>
             )}
             {agent && canAdmin(agent) && (

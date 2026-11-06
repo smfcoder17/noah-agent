@@ -287,6 +287,11 @@ async def configure(agent_id: str, model: dict, role: str | None = None, restart
     compression["threshold_tokens"] = CONTEXT_LIMIT
     compression["target_ratio"] = 0.3
     compression["idle_compact_after_seconds"] = 0
+    # Hermes propose par défaut des connexions hébergées par son éditeur (Nous Portal), et se crée pour cela un compte
+    # anonyme chez lui : les comptes de la personne passeraient par un tiers. Chez Noah, tout passe par Détails > Connexions.
+    tools_cfg = cfg.get("tools") if isinstance(cfg.get("tools"), dict) else {}
+    cfg["tools"] = {**tools_cfg, "connectors": {"enabled": False}}
+    cfg["nous"] = {**(cfg.get("nous") if isinstance(cfg.get("nous"), dict) else {}), "guest": False}
     # Les routines (« chaque matin à 8 h ») suivent l'heure de l'utilisateur, pas UTC.
     tz = (await browser_identity()).get("timezone")
     if tz:
@@ -347,9 +352,13 @@ AGENT_PLUGIN = Path(__file__).parent / "agent_plugin"
 # Outil en ligne de commande (noah.py) posé dans la machine de l'agent : il parle au serveur avec le jeton de relais.
 AGENT_TOOL = r'''#!/usr/bin/env python3
 """Outil de l'agent pour parler à Noah Agent : diagnostic, navigateur, fils, médias."""
+import hashlib
+import http.client
 import json
+import os
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 URL = "http://noah-server:8080/agent-api"
@@ -397,7 +406,13 @@ Sur l'ordinateur de l'utilisateur (application de bureau ouverte ; il confirme l
   ordinateur notifier "titre" "texte"    notification sur son écran (fin d'une tâche, rappel, résultat de routine)
   ordinateur copier "texte"              met un texte dans son presse-papiers
   ordinateur lancer "application"        ouvre une application (ex. « Calculatrice », « Visual Studio Code »)
-  ordinateur commande "commande"         exécute une commande (PowerShell sous Windows) dans son dossier de travail
+  ordinateur commande "commande"         exécute une commande (PowerShell sous Windows) dans son dossier de travail ou --dossier <dossier>
+  ordinateur lister <dossier> [chemin]   liste un dossier qu'il t'a confié
+  ordinateur lire <dossier> <chemin>     copie ce fichier dans /opt/data/workspace/ordinateur/ ; rend le chemin de la copie
+  ordinateur ecrire <dossier> <chemin> <fichier> [--remplacer]   y dépose ton fichier ; ordinateur éteint : il attend sa reconnexion
+  (chaque ordre d'ordinateur accepte --appareil <id ou nom>)
+  appareils                              ses appareils : en ligne ou non, dossiers confiés, notifications possibles
+  notifier "titre" "texte" [--appareil <id ou nom>]   notification sur cet appareil seulement, ou sur tous sans --appareil
 Les fichiers créés vont dans /opt/data/workspace/outputs/ ; la réponse donne le widget à montrer."""
 
 
@@ -412,6 +427,83 @@ def call(method, path, body=None):
         return {"erreur": e.read().decode(errors="replace")[:500]}
     except OSError as e:
         return {"erreur": "Noah Agent injoignable : %s" % e}
+
+
+def option(words, name, valued=True):
+    """Retire « --nom valeur » (ou « --nom ») de la liste ; rend sa valeur."""
+    if name not in words:
+        return "" if valued else False
+    i = words.index(name)
+    if not valued:
+        del words[i]
+        return True
+    if i + 1 >= len(words) or words[i + 1].startswith("--"):
+        print(json.dumps({"erreur": "%s attend une valeur." % name}, ensure_ascii=False))
+        sys.exit(1)
+    value = words[i + 1]
+    del words[i : i + 2]
+    return value
+
+
+def save_download(response, path, expected):
+    """Enregistre et vérifie : un serveur qui redémarre en route donne un fichier tronqué, sans autre signe."""
+    base = os.path.basename(path.replace("\\", "/"))[:120] or "fichier"
+    os.makedirs("/opt/data/workspace/ordinateur", exist_ok=True)
+    stem, ext = os.path.splitext(base)
+    target, n = "/opt/data/workspace/ordinateur/" + base, 2
+    while os.path.exists(target):
+        target, n = "/opt/data/workspace/ordinateur/%s (%d)%s" % (stem, n, ext), n + 1
+    digest = hashlib.sha256()
+    try:
+        with open(target, "wb") as out:
+            while True:
+                chunk = response.read(1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+                out.write(chunk)
+    except http.client.HTTPException as e:
+        digest = None
+    if digest is None or digest.hexdigest() != expected:
+        if os.path.exists(target):
+            os.unlink(target)
+        return {"erreur": "Le fichier n'est pas arrivé entier : réessaie."}
+    return {"ok": True, "fichier": target, "taille": os.path.getsize(target)}
+
+
+def computer_read(device, folder, path):
+    data = json.dumps({"appareil": device, "dossier": folder, "chemin": path}).encode()
+    req = urllib.request.Request(URL + "/ordinateur/lire", data=data, method="POST",
+                                 headers={"Authorization": "Bearer " + TOKEN, "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=600) as r:
+            if not r.headers.get("Content-Type", "").startswith("application/octet-stream"):
+                return json.load(r)
+            try:
+                return save_download(r, path, r.headers.get("X-Noah-Empreinte", ""))
+            except OSError as e:
+                return {"erreur": "Impossible d'enregistrer ce fichier dans ta machine : %s" % e.strerror}
+    except urllib.error.HTTPError as e:
+        return {"erreur": e.read().decode(errors="replace")[:500]}
+    except OSError as e:
+        return {"erreur": "Noah Agent injoignable : %s" % e}
+
+
+def computer_write(device, folder, path, local, replace):
+    if not os.path.isfile(local):
+        return {"erreur": "Ce fichier n'existe pas dans ta machine : %s" % local}
+    query = urllib.parse.urlencode({"dossier": folder, "chemin": path, "appareil": device, "remplacer": "true" if replace else "false"})
+    with open(local, "rb") as f:
+        req = urllib.request.Request(URL + "/ordinateur/ecrire?" + query, data=f, method="POST",
+                                     headers={"Authorization": "Bearer " + TOKEN, "Content-Type": "application/octet-stream",
+                                              "Content-Length": str(os.path.getsize(local))})
+        try:
+            with urllib.request.urlopen(req, timeout=600) as r:
+                return json.load(r)
+        except urllib.error.HTTPError as e:
+            return {"erreur": e.read().decode(errors="replace")[:500]}
+        except OSError as e:
+            return {"erreur": "Noah Agent injoignable : %s. Le fichier a peut-être été déposé quand même : regarde avec « ordinateur lister » avant de réessayer." % e}
 
 
 def media(kind, args):
@@ -446,15 +538,38 @@ elif a[:1] == ["fil"] and len(a) >= 3:
     out = call("POST", "/fils", {"titre": a[1], "consigne": " ".join(a[2:])})
 elif a[:1] == ["installer"] and len(a) >= 2:
     out = call("POST", "/installer", {"paquets": a[1:]})
+elif a[:1] == ["appareils"]:
+    out = call("GET", "/appareils")
+elif a[:1] == ["notifier"] and len(a) >= 2:
+    rest = a[1:]
+    device = option(rest, "--appareil")
+    out = call("POST", "/notifier", {"titre": rest[0], "texte": " ".join(rest[1:]), "appareil": device}) if rest else {"erreur": "Donne un titre."}
+elif a[:1] == ["ordinateur"] and (len(a) < 3 or (a[1] not in ("lister", "lire", "ecrire", "ouvrir", "notifier", "copier", "lancer", "commande"))):
+    out = {"erreur": "Usage : ordinateur lister|lire|ecrire|ouvrir|notifier|copier|lancer|commande … (voir l'aide de noah.py)"}
+elif a[:1] == ["ordinateur"] and a[1] in ("lister", "lire", "ecrire"):
+    rest = a[2:]
+    device = option(rest, "--appareil")
+    replace = option(rest, "--remplacer", False)
+    if a[1] == "lister" and rest:
+        out = call("POST", "/ordinateur", {"action": "lister", "appareil": device, "dossier": rest[0], "chemin": " ".join(rest[1:])})
+    elif a[1] == "lire" and len(rest) >= 2:
+        out = computer_read(device, rest[0], " ".join(rest[1:]))
+    elif a[1] == "ecrire" and len(rest) == 3:
+        out = computer_write(device, rest[0], rest[1], rest[2], replace)
+    else:
+        out = {"erreur": "Usage : ordinateur lister <dossier> [chemin] | lire <dossier> <chemin> | ecrire <dossier> <chemin> <fichier>"}
 elif a[:1] == ["ordinateur"] and len(a) >= 3 and a[1] in ("ouvrir", "notifier", "copier", "lancer", "commande"):
+    rest = a[2:]
+    device = option(rest, "--appareil")
+    folder = option(rest, "--dossier")
     action = {"copier": "presse_papiers"}.get(a[1], a[1])
     if a[1] == "notifier":
-        body = {"action": action, "titre": a[2], "texte": " ".join(a[3:])}
+        body = {"action": action, "titre": rest[0] if rest else "", "texte": " ".join(rest[1:])}
     elif a[1] == "copier":
-        body = {"action": action, "texte": " ".join(a[2:])}
+        body = {"action": action, "texte": " ".join(rest)}
     else:
-        body = {"action": action, "cible": " ".join(a[2:])}
-    out = call("POST", "/ordinateur", body)
+        body = {"action": action, "cible": " ".join(rest)}
+    out = call("POST", "/ordinateur", {**body, "appareil": device, "dossier": folder})
 elif a[:1] == ["veille"] and len(a) >= 3:
     rest, minutes = a[1:], 60
     if "--minutes" in rest:

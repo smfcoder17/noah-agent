@@ -32,7 +32,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
-from . import access, auth, db, machine, relay
+from . import access, auth, connexion, db, machine, relay
 
 router = APIRouter()
 
@@ -484,10 +484,11 @@ async def test_tool(agent_id: str, body: NewTool, user: int = Depends(auth.curre
 
 
 @router.post("/api/agents/{agent_id}/connections/tools")
-async def add_tool(agent_id: str, body: NewTool, user: int = Depends(auth.current_user)):
+async def add_tool(agent_id: str, body: NewTool, request: Request, user: int = Depends(auth.current_user)):
     """Enregistre seulement ce qui vient de passer le test. Un outil OAuth rend l'adresse d'autorisation d'Hermes."""
     access.access(user, agent_id, "admin")
     _scope(agent_id)
+    machine.forget_connections(agent_id)
     token = _clean_token(body)
     found = await _try(body, token)
     try:
@@ -507,21 +508,25 @@ async def add_tool(agent_id: str, body: NewTool, user: int = Depends(auth.curren
                    json.dumps(found["outils"], ensure_ascii=False), "a_connecter" if oauth else "ok", time.time()))
     try:
         out = await machine.admin(agent_id, "outil_poser", {
-            "nom": name, "config": _oauth_config(url) if oauth else _agent_config(agent_id, name), "droits": _rights(agent_id)})
+            "nom": name, "config": _oauth_config(url) if oauth else _agent_config(agent_id, name), "droits": _rights(agent_id),
+            "retour": connexion.callback_url(request)})
+        connexion.expect(out, agent_id, name, lambda adresse: _finish_tool(agent_id, name, adresse), connexion.from_app(request), user)
     except Exception:
         with db.connect() as c:
             c.execute("DELETE FROM mcp_tools WHERE agent_id = ? AND nom = ?", (agent_id, name))
         raise
     if not oauth:
-        _tell_agent(agent_id, name, found["outils"])
-    return {"nom": name, "outils": _public_tools(found["outils"]), **({"adresse": out["adresse"]} if out.get("adresse") else {})}
+        tell_agent(agent_id, name, found["outils"])
+    return {"nom": name, "outils": _public_tools(found["outils"]), **{k: out[k] for k in ("adresse", "retour") if k in out}}
 
 
-def _tell_agent(agent_id: str, name: str, tools: list[dict]) -> None:
+def tell_agent(agent_id: str, name: str, tools: list[dict]) -> None:
     """Hermes relit ses outils environ chaque minute : sans ce mot, l'agent répond tout de suite qu'il n'a pas cet outil.
     Les noms viennent du serveur de l'outil : on ne garde que ceux qui ne peuvent rien dire d'autre qu'un nom."""
+    machine.forget_connections(agent_id)
     names = [t["nom"] for t in tools if re.fullmatch(r"[\w.-]{1,64}", t.get("nom") or "")][:20]
-    note = (f"[L'utilisateur vient de connecter l'outil « {name} » ({', '.join(names)}). Il arrive dans tes outils en moins "
+    what = f" ({', '.join(names)})" if names else ""
+    note = (f"[L'utilisateur vient de connecter l'outil « {name} »{what}. Il arrive dans tes outils en moins "
             "d'une minute. S'il n'y est pas encore, dis qu'il arrive et cherche-le de nouveau : ne dis pas qu'il n'existe pas.]\n\n")
     with db.connect() as c:
         conversations = c.execute("SELECT id FROM conversations WHERE agent_id = ? AND main = 1", (agent_id,)).fetchall()
@@ -536,6 +541,7 @@ class ToolRight(BaseModel):
 @router.put("/api/agents/{agent_id}/connections/tools/{name}/droit")
 async def set_right(agent_id: str, name: str, body: ToolRight, user: int = Depends(auth.current_user)):
     """Vaut aussi pour une application du catalogue : elle entre dans la table à son premier droit."""
+    machine.forget_connections(agent_id)
     access.access(user, agent_id, "admin")
     row = _row(agent_id, name)
     if not row:
@@ -566,7 +572,7 @@ class ToolFinish(BaseModel):
 
 
 @router.post("/api/agents/{agent_id}/connections/tools/{name}/{action}")
-async def tool_action(agent_id: str, name: str, action: str, body: ToolFinish | None = None, user: int = Depends(auth.current_user)):
+async def tool_action(agent_id: str, name: str, action: str, request: Request, body: ToolFinish | None = None, user: int = Depends(auth.current_user)):
     access.access(user, agent_id, "admin")
     row = _row(agent_id, name)
     if not row or row["auth"] == "catalogue":
@@ -578,17 +584,25 @@ async def tool_action(agent_id: str, name: str, action: str, body: ToolFinish | 
     if row["auth"] != "oauth":
         raise HTTPException(400, "Action inconnue")
     if action == "connect":
-        return await machine.admin(agent_id, "outil_connecter", {"nom": name})
+        out = await machine.admin(agent_id, "outil_connecter", {"nom": name, "retour": connexion.callback_url(request)})
+        connexion.expect(out, agent_id, name, lambda adresse: _finish_tool(agent_id, name, adresse), connexion.from_app(request), user)
+        return out
     if action == "finish":
         if not body or not body.adresse.strip():
             raise HTTPException(400, "Adresse de retour manquante")
-        out = await machine.admin(agent_id, "outil_finir", {"nom": name, "adresse": body.adresse})
-        _note(agent_id, name, "ok", "", out.get("outils"))
-        return {"connecte": True, "outils": _public_tools(out.get("outils") or [])}
+        return await _finish_tool(agent_id, name, body.adresse)
     raise HTTPException(400, "Action inconnue")
 
 
+async def _finish_tool(agent_id: str, name: str, adresse: str) -> dict:
+    out = await machine.admin(agent_id, "outil_finir", {"nom": name, "adresse": adresse})
+    _note(agent_id, name, "ok", "", out.get("outils"))
+    tell_agent(agent_id, name, out.get("outils") or [])
+    return {"connecte": True, "outils": _public_tools(out.get("outils") or [])}
+
+
 def forget(agent_id: str, name: str) -> None:
+    machine.forget_connections(agent_id)
     with db.connect() as c:
         c.execute("DELETE FROM mcp_tools WHERE agent_id = ? AND nom = ?", (agent_id, name))
     _sessions.pop((agent_id, name), None)

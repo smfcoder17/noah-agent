@@ -313,8 +313,9 @@ def source_google(body):
 # --- Applications (catalogue MCP d'Hermes : Notion, Todoist, Linear…) ------------------------------
 
 # Connexion OAuth lancée en arrière-plan : Hermes publie l'adresse d'autorisation puis attend le retour
-# du fournisseur sur un port local de cette machine. L'utilisateur colle l'adresse de retour dans Noah
-# Agent, qui la rejoue sur ce port.
+# du fournisseur sur un port local de cette machine. Le fournisseur revient sur l'adresse publique de Noah,
+# qui rejoue son retour sur ce port (voir connexion.py). S'il refuse cette adresse, retour classique en
+# 127.0.0.1 : l'utilisateur colle alors l'adresse affichée dans Noah Agent, rejouée de la même façon.
 MCP_LOGIN = r"""
 import sys
 sys.path.insert(0, "/opt/hermes")
@@ -373,25 +374,65 @@ def app_connect(body):
         fail("Configuration refusée par Hermes")
     if entry.auth.type != "oauth":
         return {"connecte": True}
-    return _start_login(entry.name)
+    return _start_login(entry.name, body.get("retour") or "")
 
 
-def _start_login(name):
+def _set_callback(name, retour):
+    """Où le fournisseur doit revenir. Le port reste celui où Hermes attend dans cette machine."""
+    import socket
+    from hermes_cli.mcp_config import _get_mcp_servers, _save_mcp_server
+    cfg = dict(_get_mcp_servers()[name])
+    oauth = {k: v for k, v in (cfg.get("oauth") or {}).items() if k not in ("redirect_uri", "redirect_port", "timeout")}
+    if oauth.get("client_name") == "Noah Agent":
+        del oauth["client_name"]
+    if retour:
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        oauth.update(redirect_uri=retour, redirect_port=port, timeout=600)
+        if "figma" not in name:  # Figma n'accepte que les noms de sa liste : Hermes en pose un lui-même
+            oauth["client_name"] = "Noah Agent"
+    if oauth:
+        cfg["oauth"] = oauth
+    else:
+        cfg.pop("oauth", None)
+    if not _save_mcp_server(name, cfg):
+        fail("Configuration refusée par Hermes")
+
+
+def _start_login(name, retour=""):
+    """L'adresse d'autorisation. Avec `retour` : sans copier-coller. Un fournisseur qui refuse cette adresse de retour
+    (la sienne doit être en 127.0.0.1) garde la voie classique : la personne colle l'adresse."""
+    if retour:
+        _set_callback(name, retour)
+        found = _run_login(name)
+        if found:
+            return {"adresse": found, "retour": True}
+    _set_callback(name, "")
+    found = _run_login(name)
+    if not found:
+        fail("Le fournisseur n'a pas rendu d'adresse d'autorisation : " + _mcp_log(name).read_text(errors="replace")[-300:])
+    return {"adresse": found, "retour": False}
+
+
+def _run_login(name):
     import re
     import time
     log = _mcp_log(name)
     log.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(["pkill", "-f", f"NOAH_MCP_LOGIN {name}$"], capture_output=True)
     with open(log, "w") as f:
-        subprocess.Popen([sys.executable, "-c", MCP_LOGIN, name, "NOAH_MCP_LOGIN", name],
-                         stdin=subprocess.DEVNULL, stdout=f, stderr=subprocess.STDOUT, start_new_session=True,
-                         cwd=str(DATA), env={**os.environ, "HOME": str(DATA)})
+        login = subprocess.Popen([sys.executable, "-c", MCP_LOGIN, name, "NOAH_MCP_LOGIN", name],
+                                 stdin=subprocess.DEVNULL, stdout=f, stderr=subprocess.STDOUT, start_new_session=True,
+                                 cwd=str(DATA), env={**os.environ, "HOME": str(DATA)})
     for _ in range(60):
         time.sleep(0.5)
-        m = re.search(r"https://\S+redirect_uri=\S+", log.read_text(errors="replace"))
+        m = re.search(r"https?://\S+redirect_uri=\S+", log.read_text(errors="replace"))
         if m:
-            return {"adresse": m.group(0)}
-    fail("Le fournisseur n'a pas rendu d'adresse d'autorisation : " + log.read_text(errors="replace")[-300:])
+            return m.group(0)
+        if login.poll() is not None:
+            return None
+    return None
 
 
 def app_finish(body):
@@ -407,12 +448,14 @@ def _finish_login(name, body):
     query = pasted.split("?", 1)[1] if "?" in pasted else pasted
     if "code=" not in query and "error=" not in query:
         fail("Colle l'adresse complète de la page de retour (elle contient « code= »)")
+    from hermes_cli.mcp_config import _get_mcp_servers
     log = _mcp_log(name)
     text = log.read_text(errors="replace") if log.exists() else ""
     m = re.search(r"redirect_uri=([^&\s]+)", text)
     if not m:
         fail("Aucune connexion en cours : relance « Connecter »")
-    callback = urllib.parse.unquote(m.group(1))
+    port = ((_get_mcp_servers().get(name) or {}).get("oauth") or {}).get("redirect_port")
+    callback = urllib.parse.urlunsplit(("http", f"127.0.0.1:{port}", "/callback", "", "")) if port else urllib.parse.unquote(m.group(1))
     try:
         urllib.request.urlopen(f"{callback}?{query.split('#')[0]}", timeout=10).read()
     except OSError as e:
@@ -457,11 +500,11 @@ def tool_set(body):
         fail(f"Un outil s'appelle déjà « {name} »")
     if not _save_mcp_server(name, cfg):
         fail("Configuration refusée par Hermes")
-    return _start_login(name) if cfg.get("auth") == "oauth" else {"connecte": True}
+    return _start_login(name, body.get("retour") or "") if cfg.get("auth") == "oauth" else {"connecte": True}
 
 
 def tool_connect(body):
-    return _start_login(_tool_name(body))
+    return _start_login(_tool_name(body), body.get("retour") or "")
 
 
 def tool_finish(body):

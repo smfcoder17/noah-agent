@@ -83,6 +83,16 @@ def _semver(v: str) -> tuple[int, int, int] | None:
     return tuple(int(x) for x in m.groups()) if m else None
 
 
+def shown_version() -> str:
+    """Le numéro que voit la personne (version-affichee.txt). VERSION est le numéro technique, unique pour chaque publication
+    signée : une correction en change, sans rien annoncer. Le numéro affiché ne monte que lorsqu'on le décide."""
+    return os.environ.get("NOAH_DISPLAY_VERSION") or VERSION
+
+
+def _shown(manifest: dict) -> str:
+    return manifest.get("affichee") or manifest["version"]
+
+
 def _tell(title: str, text: str) -> None:
     """Notification de l'app de bureau si elle est là, et toujours un message dans la conversation : sur un VPS
     utilisé depuis le web ou le téléphone, c'est ce que l'utilisateur verra."""
@@ -295,13 +305,15 @@ async def _check() -> dict:
             s.update(annoncee=int(time.time()), reportee=0, majeure=major)
     state = _patch(keep)
     if fresh:
+        same_number = _shown(manifest) == shown_version() and not manifest.get("migration")
         if manifest.get("migration"):
             when = " attend ton accord : elle transforme tes données. Installe-la depuis Réglages > Mises à jour quand tu veux."
         elif major:
             when = " est une version majeure : elle s'installera seule dans 7 jours, pendant ta nuit (ou dès maintenant d'un clic dans Réglages > Mises à jour)."
         else:
             when = " s'installera seule pendant ta nuit."
-        _tell("Nouvelle version de Noah", f"Noah {manifest['version']}{when}")
+        if not same_number:
+            _tell("Nouvelle version de Noah", f"Noah {_shown(manifest)}{when}")
         try:  # préchargement : à l'heure de l'installation, la coupure ne dure que le redémarrage
             await _launcher("POST", "/update/pull", json=_signed(state, list(todo)), timeout=1800)
         except httpx.HTTPError:
@@ -397,7 +409,10 @@ async def _follow() -> None:
     _patch({"rapport_vu": report["fin"]})
     if report.get("ok"):
         if report.get("composants") and "en_cours" not in report["composants"].values() and not report.get("validation"):
-            _tell("Noah est à jour", f"Version {report.get('version', VERSION)} installée.")
+            told = state.get("affichee_vue")
+            _patch({"affichee_vue": shown_version()})
+            if not os.environ.get("NOAH_DISPLAY_VERSION") or (told and told != shown_version()):
+                _tell("Noah est à jour", f"Version {shown_version()} installée.")
     elif report.get("non_restaures"):
         _tell("Mise à jour : à vérifier", f"{report.get('erreur')}. Le retour à la version d'avant n'a pas pu se "
               f"faire pour : {', '.join(report['non_restaures'])}. Ils restent arrêtés pour protéger leurs "
@@ -453,7 +468,19 @@ async def run(task_state: dict[str, str]) -> None:
             await tick()
         except Exception as e:  # noqa: BLE001 - la boucle ne doit jamais s'arrêter
             print(f"[mises à jour] {e}", flush=True)
-        await asyncio.sleep(300)
+        await _until_next_tick()
+
+
+async def _until_next_tick() -> None:
+    """Pendant une installation, on suit le journal de près : Noah accepte à nouveau les écritures dès la fin, pas au
+    prochain tour, jusqu'à 5 minutes plus tard."""
+    for _ in range(30):
+        await asyncio.sleep(10)
+        if maintenance:
+            try:
+                await _follow()
+            except Exception as e:  # noqa: BLE001 - lanceur en cours de remplacement : on réessaie au passage suivant
+                print(f"[mises à jour] suivi : {e}", flush=True)
 
 
 async def tick(now: float | None = None) -> str | None:
@@ -500,8 +527,8 @@ async def summary() -> dict:
     if attente is None and failed:
         attente = f"elle a déjà échoué ici ({', '.join(failed)})"
     return {
-        "version": VERSION,
-        "disponible": {"version": manifest["version"], "notes": manifest.get("notes", ""),
+        "version": shown_version(),
+        "disponible": {"version": _shown(manifest), "correction": _shown(manifest) == shown_version(), "notes": manifest.get("notes", ""),
                        "majeure": bool(state.get("majeure")), "migration": bool(manifest.get("migration")),
                        "ignoree": state.get("ignoree") == manifest["version"],
                        "composants": sorted(pending(manifest, launcher.get("actuel", {}), etat.get("images")))} if manifest else None,

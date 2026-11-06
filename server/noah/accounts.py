@@ -302,6 +302,7 @@ async def _exchange(agent_id: str, flow: dict, code: str) -> None:
     granted = _granted(scopes)
     account = {"compte": _email(t.get("id_token", "")), "permissions": granted, "depuis": int(time.time())}
     db.set_setting(f"google_{agent_id}", json.dumps(account, ensure_ascii=False))
+    _forget_screen(agent_id)
     _tell_agent(agent_id, account)
 
 
@@ -408,6 +409,12 @@ def _valid(perms: list[str]) -> list[str]:
     return sorted(set(perms))
 
 
+def _forget_screen(agent_id: str) -> None:
+    from . import machine
+
+    machine.forget_connections(agent_id)
+
+
 @router.get("/api/agents/{agent_id}/google")
 async def google_state(agent_id: str, user: int = Depends(auth.current_user)):
     return _state(_check(agent_id, user))
@@ -418,6 +425,7 @@ async def google_connect(agent_id: str, body: Connect, user: int = Depends(auth.
     """Avec les identifiants : ouvre l'accord dans l'écran de l'agent. Sans : rend la consigne à envoyer à l'agent
     pour qu'il les crée (l'accord suivra tout seul)."""
     agent_id = _check(agent_id, user)
+    _forget_screen(agent_id)
     _own_client(agent_id)
     perms = _valid(body.permissions)
     db.set_setting(f"google_voulu_{agent_id}", json.dumps(perms))
@@ -431,6 +439,7 @@ async def google_connect(agent_id: str, body: Connect, user: int = Depends(auth.
 
 @router.post("/api/agents/{agent_id}/google/cancel")
 async def google_cancel(agent_id: str, user: int = Depends(auth.current_user)):
+    _forget_screen(agent_id)
     flow = _flows.pop(_check(agent_id, user), None)
     if flow and flow.get("tache"):
         flow["tache"].cancel()
@@ -443,6 +452,7 @@ async def google_disconnect(agent_id: str, user: int = Depends(auth.current_user
     """Efface le jeton de cet agent. Pas de révocation chez Google : elle retirerait l'accord de toute
     l'application, donc aussi aux autres agents. L'utilisateur peut tout retirer sur myaccount.google.com."""
     agent_id = _check(agent_id, user)
+    _forget_screen(agent_id)
     await admin(agent_id, "google_revoquer", {"local": True})
     db.set_setting(f"google_{agent_id}", "")
     return _state(agent_id)

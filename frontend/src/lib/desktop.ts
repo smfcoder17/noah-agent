@@ -1,5 +1,17 @@
 // Pont avec l'application de bureau (Electron) : présent seulement quand l'interface tourne dans sa fenêtre.
+export type ComputerFolder = { id: string; nom: string; ecriture: boolean };
+export type AlwaysCommand = { commande: string; dossier: string; nom: string };
+export type ComputerFolders = { dossiers: ComputerFolder[]; coupe: boolean; toujours: AlwaysCommand[] };
+
 export type NoahDesktop = {
+  /** Dossiers confiés à l'agent depuis cet ordinateur : absents d'une application trop ancienne. */
+  dossiers?(): Promise<ComputerFolders | null>;
+  dossierAjouter?(): Promise<ComputerFolders | null>;
+  dossierRetirer?(id: string): Promise<ComputerFolders | null>;
+  dossierDroit?(id: string, ecriture: boolean): Promise<ComputerFolders | null>;
+  couper?(coupe: boolean): Promise<ComputerFolders | null>;
+  dossierOuvrir?(id: string): Promise<void>;
+  commandeOublier?(commande: string, dossier: string): Promise<ComputerFolders | null>;
   /** Ouvre le sélecteur de dossier du système ; rend le chemin choisi ou null. */
   pickFolder(): Promise<string | null>;
   /** Ouvre un dossier ou un fichier de l'ordinateur dans l'explorateur. */

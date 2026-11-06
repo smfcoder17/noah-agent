@@ -11,7 +11,7 @@ import { minutes } from "./PairingTime";
 import { Button, ErrorText } from "./ui";
 
 type Pairing = { adresse: string; serveur: string; code: string; expire: number };
-type Device = { id: string; nom: string; type: string; depuis: string | null; vu: string | null; ip: string; version: string; actuel: boolean };
+type Device = { id: string; nom: string; type: string; depuis: string | null; vu: string | null; ip: string; version: string; en_ligne?: boolean; attente?: number; actuel: boolean };
 
 type Pending = { id: string; appareil: string; type: string; ip: string; age: number; expire: number; autre_reseau: boolean };
 
@@ -130,10 +130,12 @@ function DeviceList({ refresh }: { refresh: number }) {
             <Icon className="size-4 shrink-0 text-muted-foreground" />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm">{d.nom || "Appareil"}{d.actuel && <span className="ml-2 text-xs text-ok">cet appareil</span>}</p>
+              {(d.en_ligne || d.type === "desktop") && !d.actuel && <p className={d.en_ligne ? "text-xs text-ok" : "text-xs text-muted-foreground"}>{d.en_ligne ? "En ligne" : "Éteint, ou application fermée"}</p>}
+              {!!d.attente && <p className="text-xs">{d.attente === 1 ? "Un fichier attend cet ordinateur" : `${d.attente} fichiers attendent cet ordinateur`}</p>}
               <p className="text-xs text-muted-foreground">{[KINDS[d.type] ?? d.type, since(d.depuis), ago(d.vu), d.ip, d.version && `version ${d.version}`].filter(Boolean).join(" · ")}</p>
             </div>
             {!d.actuel && (
-              <Button size="sm" variant="ghost" onClick={() => revoke(d)} aria-label="Déconnecter"><Trash2 /></Button>
+              <Button size="sm" variant="ghost" onClick={() => revoke(d)} aria-label={`Déconnecter ${d.nom || "cet appareil"}`}><Trash2 /></Button>
             )}
           </div>
         );

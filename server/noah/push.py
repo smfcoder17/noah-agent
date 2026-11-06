@@ -240,6 +240,13 @@ async def _send_one(client: httpx.AsyncClient, sub, payload: bytes, urgent: bool
     return "echec"
 
 
+def subscribed_sessions(user_id: int) -> set[str]:
+    """Les sessions de ce compte qui reçoivent des notifications. Jamais l'adresse d'abonnement."""
+    with db.connect() as c:
+        rows = c.execute("SELECT p.session FROM push_subscriptions p JOIN sessions s ON s.token = p.session WHERE s.user_id = ?", (user_id,)).fetchall()
+    return {r["session"] for r in rows}
+
+
 async def send(title: str, text: str, url: str = "/", urgent: bool = False, user_id: int | None = None,
                session: str | None = None, extra: dict | None = None) -> dict:
     """Envoie à chaque appareil abonné dont la session est encore valable (ou à la seule session donnée, par son

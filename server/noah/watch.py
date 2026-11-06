@@ -150,6 +150,12 @@ def _page_items(body: str, base: str = "") -> list[dict]:
 
 
 async def _read(url: str) -> tuple[str, str]:
+    """Le début de la réponse, en texte, et l'adresse finale."""
+    text, final = await read_bytes(url, MAX_BYTES, as_text=True)
+    return text, final
+
+
+async def read_bytes(url: str, limit: int, as_text: bool = False):
     """Le début de la réponse et l'adresse finale. Mêmes protections que le client MCP, à chaque saut : adresse jugée après
     résolution, connexion à l'adresse vérifiée, redirection jamais suivie sans repasser par ce contrôle."""
     for _ in range(MAX_REDIRECTS + 1):
@@ -165,9 +171,10 @@ async def _read(url: str) -> tuple[str, str]:
                 body = bytearray()
                 async for chunk in r.aiter_bytes():
                     body += chunk
-                    if len(body) >= MAX_BYTES:
+                    if len(body) >= limit:
                         break
-                return body[:MAX_BYTES].decode(r.encoding or "utf-8", "replace"), url
+                data = bytes(body[:limit])
+                return (data.decode(r.encoding or "utf-8", "replace") if as_text else data), url
     raise ValueError("trop de redirections")
 
 

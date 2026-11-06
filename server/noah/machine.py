@@ -6,6 +6,7 @@ avec les modules d'Hermes : l'agent et l'interface lisent et écrivent exactemen
 import asyncio
 import json
 import re
+import time
 import unicodedata
 
 import httpx
@@ -186,14 +187,67 @@ def pop_context(conv_id: str) -> str:
 
 # --- Connexions : Google (détail dans accounts.py) et applications ------------------------
 
-@router.get("/api/agents/{agent_id}/connections")
-async def connections(agent_id: str, user: int = Depends(auth.current_user)):
+# Lire cet état interroge l'agent et chaque service branché : plusieurs secondes. On garde la dernière réponse, en mémoire,
+# pour rendre l'écran tout de suite ; l'interface la relit ensuite si elle a vieilli. Un changement l'oublie aussitôt.
+_connections: dict[str, tuple[float, dict]] = {}
+_connections_version: dict[str, int] = {}
+_reading: dict[tuple[str, int], asyncio.Task] = {}
+CONNECTIONS_FRESH = 30
+WARM_EVERY = 3600
+
+
+def forget_connections(agent_id: str) -> None:
+    _connections.pop(agent_id, None)
+    _connections_version[agent_id] = _connections_version.get(agent_id, 0) + 1
+
+
+async def _read_connections(agent_id: str) -> dict:
+    """Deux onglets qui demandent en même temps font une seule lecture, tant que rien n'a changé entre-temps."""
+    key = (agent_id, _connections_version.get(agent_id, 0))
+    task = _reading.get(key)
+    if task is None:
+        task = asyncio.create_task(_read_connections_once(agent_id, key[1]))
+        _reading[key] = task
+        task.add_done_callback(lambda _t, k=key: _reading.pop(k, None))
+    return await asyncio.shield(task)
+
+
+async def _read_connections_once(agent_id: str, version: int) -> dict:
     from . import mcp
 
-    google, apps = await asyncio.gather(admin(_check(agent_id, user), "google"), admin(agent_id, "applications"))
+    google, apps = await asyncio.gather(admin(agent_id, "google"), admin(agent_id, "applications"))
     applications = apps.get("applications") or []
     state = await mcp.connections_state(agent_id, applications, apps.get("personnels") or {})
-    return {"google": google, "applications": applications, **state}
+    value = {"google": google, "applications": applications, **state}
+    if _connections_version.get(agent_id, 0) == version:  # sinon quelque chose a changé pendant la lecture : elle est déjà vieille
+        _connections[agent_id] = (time.time(), value)
+    return value
+
+
+@router.get("/api/agents/{agent_id}/connections")
+async def connections(agent_id: str, frais: bool = False, user: int = Depends(auth.current_user)):
+    agent_id = _check(agent_id, user)
+    known = _connections.get(agent_id)
+    if known and not frais:
+        age = time.time() - known[0]
+        return {**known[1], "age": int(age)} if age > CONNECTIONS_FRESH else known[1]
+    return await _read_connections(agent_id)
+
+
+async def keep_connections_warm(agents, ready) -> None:
+    """Après une mise à jour puis à chaque heure, pour les agents au repos : l'état et les logos sont prêts avant qu'on les demande."""
+    from . import logos
+
+    while True:
+        for agent_id in agents():
+            if not ready(agent_id):
+                continue
+            try:
+                value = await _read_connections(agent_id)
+                await logos.prepare(value)
+            except Exception:  # noqa: BLE001 - agent arrêté ou service en panne : l'écran relira à la demande
+                pass
+        await asyncio.sleep(WARM_EVERY)
 
 
 class AppFinish(BaseModel):
@@ -201,20 +255,30 @@ class AppFinish(BaseModel):
 
 
 @router.post("/api/agents/{agent_id}/connections/apps/{name}/{action}")
-async def app_action(agent_id: str, name: str, action: str, body: AppFinish | None = None,
+async def app_action(agent_id: str, name: str, action: str, request: Request, body: AppFinish | None = None,
                      user: int = Depends(auth.current_user)):
     """Connecte ou retire une application du catalogue d'Hermes. La gateway relit sa configuration et
     ses jetons d'elle-même : les outils arrivent sans redémarrer l'agent (ni couper une connexion en cours)."""
+    from . import connexion, mcp
+
     _check(agent_id, user)
+    forget_connections(agent_id)
+
+    async def finish(adresse: str) -> dict:
+        done = await admin(agent_id, "application_finir", {"nom": name, "adresse": adresse})
+        mcp.tell_agent(agent_id, name, [])
+        return done
+
     if action == "connect":
-        out = await admin(agent_id, "application_connecter", {"nom": name})
+        out = await admin(agent_id, "application_connecter", {"nom": name, "retour": connexion.callback_url(request)})
+        connexion.expect(out, agent_id, name, finish, connexion.from_app(request), user)
+        if out.get("connecte"):
+            mcp.tell_agent(agent_id, name, [])
     elif action == "finish":
         if not body or len(body.adresse.strip()) < 4:
             raise HTTPException(400, "Colle l'adresse de retour affichée après l'accord.")
-        out = await admin(agent_id, "application_finir", {"nom": name, "adresse": body.adresse})
+        out = await finish(body.adresse)
     elif action == "remove":
-        from . import mcp
-
         out = await admin(agent_id, "application_retirer", {"nom": name})
         mcp.forget(agent_id, name)
     else:
