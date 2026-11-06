@@ -737,7 +737,7 @@ function AddTool({ agentId, shared, onClose, onAdded }: { agentId: string; share
         <Input type="password" autoComplete="off" value={form.jeton} onChange={(e) => change({ jeton: e.target.value })} className="h-9" required placeholder="Jeton" aria-label="Jeton" />
       )}
       {form.auth === "jeton" && <p className="text-xs text-muted-foreground">Le jeton reste chiffré sur ton serveur : ni l'agent ni cet écran ne le reverront.</p>}
-      <p className="text-xs text-muted-foreground">Le droit vaut pour tout ce serveur. « Lire seulement » s'en remet à ce que le serveur déclare en lecture. Dans une routine, personne ne peut confirmer : l'appel y est refusé.</p>
+      <p className="text-xs text-muted-foreground">Le droit vaut pour tout ce serveur. « Lire seulement » s'en remet à ce que le serveur déclare en lecture. Avec « Confirmer », ce qu'il déclare en lecture passe sans accord. Dans une routine, personne ne peut confirmer : le reste y est refusé.</p>
       <p className="text-xs text-muted-foreground">Une commande locale n'est pas acceptée ici : elle reviendrait à exécuter du code téléchargé sur la machine de l'agent.</p>
       <p className={cn("text-xs", shared ? "font-medium text-warn" : "text-muted-foreground")}>
         {shared ? "Cet agent est partagé : cet outil servira aussi à ceux à qui tu donnes le droit admin." : "Si tu partages cet agent, cet outil servira aussi à ceux à qui tu donnes le droit admin."}

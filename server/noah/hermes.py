@@ -364,14 +364,16 @@ import urllib.request
 
 URL = "http://noah-server:8080/agent-api"
 TOKEN = "__TOKEN__"
+MAX_SEND = 300 * 2**20
 AIDE = """Utilisation : python3 /opt/data/noah.py <commande>
   etat                         diagnostic (navigateur, écran, budget) avec un conseil
   reglages [type]              réglages non sensibles ; avec un type (image, video, musique, voix-modele, dictee, voix) : les choix possibles
   regler <type> <valeur>       change un réglage (type ci-dessus, ou gouts) ; auto revient au choix automatique
   navigateur reveiller         rallume le navigateur et son écran
   navigateur redemarrer        redémarre le navigateur (écran noir, figé, injoignable) ; profil et cookies gardés
+  navigateur telecharger 'https://…' nom.jpg   range un fichier en ligne dans /opt/data/workspace/uploads/ ; rend son chemin
   navigateur envoyer <fichier> [fichier…] [--selecteur "css"] [--ref e12] [--onglet <id>]
-                               joint des fichiers de /opt/data/workspace/ (ou /tmp) à la page ouverte ; regarde ensuite l'écran
+                               joint des fichiers de /opt/data/workspace/ à la page ouverte ; regarde ensuite l'écran
   fil "Titre" "consigne"       ouvre un fil de travail parallèle, visible par l'utilisateur dans Détails
   fil-etat <id>                état et dernière réponse d'un fil
   image "description" [--format 16:9] [--contexte "goûts connus"] [--generer]
@@ -523,7 +525,7 @@ def browser_access():
     user = "noah"
     try:
         with open(os.path.join(home, "config.yaml"), encoding="utf-8") as f:
-            found = re.search(r"^\s*user_id:\s*[\"']?([\w-]+)", f.read(), re.M)
+            found = re.search(r"camofox:[ \t]*\n(?:[ \t]+.*\n)*?[ \t]+user_id:\s*[\"']?([\w-]+)", f.read())
             user = found.group(1) if found else user
     except OSError:
         pass
@@ -549,20 +551,73 @@ def browser_post(base, key, path, query, data=None, size=0, timeout=60):
         return {"erreur": "Navigateur injoignable : %s. Lance « noah.py navigateur reveiller »." % e}
 
 
+class HttpsOnly(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not newurl.lower().startswith("https://"):
+            raise urllib.error.URLError("redirection hors de https")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def browser_download(words):
+    """Sans passer par le terminal : une adresse venue d'un outil ou d'une page reste une adresse, jamais une commande."""
+    home = os.environ.get("HERMES_HOME") or "/opt/data"
+    if "/profiles/" in home:
+        return {"erreur": "Réservé au propriétaire de l'agent."}
+    if len(words) != 2 or not words[0].lower().startswith("https://"):
+        return {"erreur": "Il faut une adresse en https:// et un nom de fichier."}
+    url, name = words
+    # Le nom exact : la garde de l'agent retient ce fichier comme « téléchargé, pas encore lu » avant de le laisser lancer.
+    if not re.fullmatch(r"[^\W_][\w .()-]{0,119}", name):
+        return {"erreur": "Nom de fichier invalide : lettres, chiffres, espaces, . ( ) - et _ seulement, sans dossier."}
+    folder = os.path.join(home, "workspace", "uploads")
+    final = os.path.join(folder, name)
+    os.makedirs(folder, exist_ok=True)
+    temporary = os.path.join(folder, ".telechargement-%d.tmp" % os.getpid())
+    size = 0
+    try:
+        opener = urllib.request.build_opener(HttpsOnly)
+        with opener.open(urllib.request.Request(url, headers={"User-Agent": "Noah"}), timeout=120) as r, open(temporary, "wb") as f:
+            expected = r.headers.get("Content-Length")
+            while chunk := r.read(1 << 20):
+                size += len(chunk)
+                if size > MAX_SEND:
+                    return {"erreur": "Fichier trop lourd (300 Mo au plus)."}
+                f.write(chunk)
+        if not size:
+            return {"erreur": "Fichier vide : l'adresse a peut-être expiré. Redemande-la à l'outil."}
+        if expected and expected.isdigit() and int(expected) != size:
+            return {"erreur": "Téléchargement coupé en route : recommence."}
+        os.link(temporary, final)  # échoue si le nom existe : rien n'est écrasé
+        return {"chemin": final, "octets": size}
+    except FileExistsError:
+        return {"erreur": "Ce nom existe déjà dans uploads/ : choisis-en un autre."}
+    except urllib.error.HTTPError as e:
+        return {"erreur": "Téléchargement refusé (%s) : l'adresse a peut-être expiré. Redemande-la à l'outil." % e.code}
+    except (OSError, ValueError) as e:
+        return {"erreur": "Téléchargement impossible : %s" % e}
+    finally:
+        try:
+            os.remove(temporary)
+        except OSError:
+            pass
+
+
 def browser_send(words):
     selector, ref, tab = option(words, "--selecteur"), option(words, "--ref"), option(words, "--onglet")
     if not words:
         return {"erreur": "Quel fichier joindre ?"}
     home, base, key, user = browser_access()
+    if "/profiles/" in home:
+        return {"erreur": "Réservé au propriétaire de l'agent."}
     if not base or not key:
         return {"erreur": "Navigateur non configuré sur cette machine."}
     # Seulement les fichiers de travail : un texte lu en ligne ne doit pas pouvoir faire déposer la configuration sur un site.
-    roots = [os.path.realpath(os.path.join(home, "workspace")), os.path.realpath("/tmp")]
+    root = os.path.realpath(os.path.join(home, "workspace"))
     ids = []
     for local in words:
         real = os.path.realpath(local)
-        if not any(real.startswith(root + os.sep) for root in roots):
-            return {"erreur": "Seuls les fichiers de %s ou de /tmp se joignent à une page. Copie d'abord ce fichier là, s'il doit vraiment partir : %s" % (roots[0], local)}
+        if not real.startswith(root + os.sep):
+            return {"erreur": "Seuls les fichiers de %s se joignent à une page : %s" % (root, local)}
         if not os.path.isfile(real):
             return {"erreur": "Ce fichier n'existe pas dans ta machine : %s" % local}
         with open(real, "rb") as f:
@@ -607,6 +662,8 @@ elif a[:2] == ["navigateur", "redemarrer"]:
     out = call("POST", "/navigateur/redemarrer")
 elif a[:2] == ["navigateur", "envoyer"]:
     out = browser_send(a[2:])
+elif a[:2] == ["navigateur", "telecharger"]:
+    out = browser_download(a[2:])
 elif a[:1] == ["fil"] and len(a) >= 3:
     out = call("POST", "/fils", {"titre": a[1], "consigne": " ".join(a[2:])})
 elif a[:1] == ["installer"] and len(a) >= 2:

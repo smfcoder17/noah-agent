@@ -32,6 +32,7 @@ const MAX_TOTAL = 2 ** 30;
 const KEEP_MS = 3600 * 1000;
 const TRIGGER_MS = 12000;
 const FILE_INPUT = 'input[type="file"]';
+const reserved = new Map(); // dossier d'un envoi en cours → octets qu'il peut encore prendre
 let receiving = 0;
 let privateUntil = 0;
 try {
@@ -59,6 +60,7 @@ function sweepOutbox() {
   let used = 0;
   for (const id of fs.readdirSync(OUTBOX)) {
     const dir = path.join(OUTBOX, id);
+    if (reserved.has(dir)) continue;
     try {
       if (Date.now() - fs.statSync(dir).mtimeMs > KEEP_MS) {
         fs.rmSync(dir, { recursive: true, force: true });
@@ -79,13 +81,17 @@ async function receiveFile(req, res) {
   try {
     const used = sweepOutbox();
     const announced = Number(req.headers["content-length"]) || 0;
-    if (announced > MAX_FILE || used + announced > MAX_TOTAL) throw tooBig();
+    if (announced > MAX_FILE) throw tooBig();
+    const limit = announced || MAX_FILE;
+    const others = [...reserved.values()].reduce((sum, bytes) => sum + bytes, 0);
+    if (used + others + limit > MAX_TOTAL) throw tooBig();
+    reserved.set(dir, limit); // réservé avant toute attente : deux envois simultanés ne dépassent pas le plafond à eux deux
     fs.mkdirSync(dir);
     let size = 0;
     const meter = new Transform({
       transform(chunk, _encoding, done) {
         size += chunk.length;
-        if (size > MAX_FILE || used + size > MAX_TOTAL) done(tooBig());
+        if (size > limit) done(tooBig());
         else done(null, chunk);
       },
     });
@@ -100,6 +106,7 @@ async function receiveFile(req, res) {
       res.status(e.status || 500).json({ error: e.status ? e.message : "Fichier non reçu : réessaie." });
     }
   } finally {
+    reserved.delete(dir);
     receiving--;
   }
 }
@@ -126,19 +133,27 @@ function locateRef(tabState, ref) {
 }
 
 // Le champ sans ambiguïté : celui de la fenêtre ouverte, sinon le seul de la page. Rend null s'il n'y en a aucun.
-async function theOnlyInput(page) {
-  const inDialogs = [];
-  const everywhere = [];
+// Un cadre ou une fenêtre cachés ne comptent pas. Après un clic sur un bouton, seuls comptent les champs apparus depuis.
+async function theOnlyInput(page, onlyNew = false) {
+  const inOpenDialogs = [];
+  const onPage = [];
   for (const frame of page.frames()) {
-    const collect = async (selector, list) => {
-      const found = frame.locator(selector);
-      const count = await found.count();
-      for (let i = 0; i < count; i++) list.push(found.nth(i));
-    };
-    await collect(`[role="dialog"] ${FILE_INPUT}, dialog ${FILE_INPUT}`, inDialogs);
-    await collect(FILE_INPUT, everywhere);
+    if (frame.parentFrame?.() && !(await frame.frameElement().then((el) => el.isVisible()).catch(() => false))) continue;
+    const found = frame.locator(FILE_INPUT);
+    const count = await found.count();
+    for (let i = 0; i < count; i++) {
+      const input = found.nth(i);
+      const seen = await input.evaluate((el) => {
+        const dialog = el.closest('[role="dialog"], dialog');
+        const open = dialog && (dialog.checkVisibility ? dialog.checkVisibility() : dialog.getClientRects().length > 0);
+        return { place: !dialog ? "page" : open ? "fenetre" : "cachee", before: Boolean(el.__noahAvantClic) };
+      }).catch(() => null);
+      if (!seen || (onlyNew && seen.before)) continue;
+      if (seen.place === "fenetre") inOpenDialogs.push(input);
+      if (seen.place === "page") onPage.push(input);
+    }
   }
-  const candidates = inDialogs.length ? inDialogs : everywhere;
+  const candidates = inOpenDialogs.length ? inOpenDialogs : onPage;
   if (candidates.length === 1) return candidates[0];
   if (!candidates.length) return null;
   const seen = await Promise.all(candidates.slice(0, 8).map((input) =>
@@ -146,22 +161,34 @@ async function theOnlyInput(page) {
   throw Object.assign(fail(409, "Plusieurs champs de fichier sur cette page : désigne le bon avec --selecteur."), { champs: seen });
 }
 
+function notTakenOver() {
+  if (Date.now() < privateUntil) throw fail(423, "L'utilisateur a la main sur l'écran : attends qu'il ait fini.");
+}
+
 async function throughTrigger(page, trigger, files) {
+  for (const frame of page.frames()) {
+    await frame.locator(FILE_INPUT).evaluateAll((all) => all.forEach((el) => {
+      const dialog = el.closest('[role="dialog"], dialog');
+      const closed = dialog && !(dialog.checkVisibility ? dialog.checkVisibility() : dialog.getClientRects().length > 0);
+      el.__noahAvantClic = !closed; // une fenêtre fermée que le bouton ouvre reste une bonne cible
+    })).catch(() => {});
+  }
+  notTakenOver();
   let chooser = null;
   const waited = page.waitForEvent("filechooser", { timeout: TRIGGER_MS }).catch(() => null).then((c) => (chooser = c));
   await trigger.click({ timeout: 4000 }).catch(() => {
     throw fail(422, "Ce bouton n'a pas pu être cliqué : relis la page.");
   });
-  // Une seconde pour le sélecteur du système : un champ déjà là n'est peut-être pas celui que ce bouton vient d'ouvrir.
-  await Promise.race([waited, page.waitForTimeout(1000)]);
   const end = Date.now() + TRIGGER_MS;
   while (Date.now() < end) {
     if (chooser) {
+      notTakenOver();
       await chooser.setFiles(files);
       return "selecteur";
     }
-    const input = await theOnlyInput(page);
+    const input = await theOnlyInput(page, true);
     if (input) {
+      notTakenOver();
       await input.setInputFiles(files, { timeout: 10000 });
       return "champ";
     }
@@ -176,6 +203,7 @@ async function putFiles(tabState, files, { ref, selector }) {
   if (!target) {
     const input = await theOnlyInput(page);
     if (!input) throw fail(422, "Aucun champ de fichier ici : ouvre d'abord la fenêtre d'envoi du site, ou désigne son bouton avec --ref.");
+    notTakenOver();
     await input.setInputFiles(files, { timeout: 10000 });
     return "champ";
   }
@@ -183,13 +211,14 @@ async function putFiles(tabState, files, { ref, selector }) {
     throw fail(422, "Rien ne correspond à ce que tu désignes : relis la page.");
   });
   if (!isInput) return throughTrigger(page, target, files);
+  notTakenOver();
   await target.setInputFiles(files, { timeout: 10000 });
   return "champ";
 }
 
 async function attachFiles(req, res, ctx) {
   try {
-    if (Date.now() < privateUntil) throw fail(423, "L'utilisateur a la main sur l'écran : attends qu'il ait fini.");
+    notTakenOver();
     const ids = String(req.query.fichiers || "").split(",");
     if (ids.length > 10 || !ids.every((id) => /^[0-9a-f]{24}$/.test(id))) throw fail(400, "Fichiers invalides (10 au plus).");
     const files = ids.map((id) => {
@@ -209,6 +238,8 @@ async function attachFiles(req, res, ctx) {
       await tabState.page.waitForTimeout(1500); // le temps que la page lise le fichier et montre son aperçu
       return used;
     });
+    // Une remise engagée ne s'annule pas : au moins, l'agent ne croit pas que tout s'est passé normalement.
+    if (Date.now() < privateUntil) throw fail(423, "L'utilisateur a pris la main pendant l'envoi : le fichier a pu être remis au site. Attends qu'il ait fini, puis regarde l'écran.");
     res.json({ ok: true, via, fichiers: files.map((f) => path.basename(f)) });
   } catch (e) {
     ctx.log?.("info", "noah: fichier non joint", { error: String(e.message).slice(0, 200) });

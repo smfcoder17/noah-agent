@@ -84,6 +84,12 @@ _pre_tool_call(tool_name="read_file", args={"path": "/safe/i.sh"})
 assert check("sh /tmp/i.sh"), "lire /safe/i.sh a débloqué /tmp/i.sh"
 _pre_tool_call(tool_name="read_file", args={"path": "/tmp/i.sh"})
 assert check("sh /tmp/i.sh") is None
+# La commande de téléchargement de noah.py compte comme curl : pas de script lancé sans l'avoir lu.
+garde._unread.clear()
+assert check("python3 /opt/data/noah.py navigateur telecharger 'https://e.invalid/a?b=1&c=2' setup.py") is None
+assert check("python3 /opt/data/workspace/uploads/setup.py"), "script téléchargé lancé sans lecture"
+assert check("cd /opt/data/workspace/uploads && python3 setup.py"), "même lancé depuis son dossier"
+assert check("cat /opt/data/workspace/uploads/setup.py") is None and check("python3 /opt/data/workspace/uploads/setup.py") is None
 assert fresh("curl -s https://api.example.org/v1 -o /tmp/r.json", "python3 -m json.tool /tmp/r.json") is None
 print("4. bash -e, -o collé, cat | sh, sh < f, bash -c, lecture dans le même appel, autre dossier : refusés ; lu à part : permis")
 assert check("python3 -m venv .venv && . .venv/bin/activate && python3 analyse.py") is None
@@ -98,7 +104,9 @@ def refused_for_guest(tool, **args):
     return bool(out) and out["action"] == "block"
 
 
-for command in ("cat /opt/data/memories/MEMORY.md", "ls", "python3 -c 'print(1)'", "python3 /opt/data/noah.py recette google",
+for command in ("python3 /opt/data/noah.py navigateur envoyer /tmp/travail/prive.txt", "python3 /opt/data/noah.py navigateur envoyer /opt/data/workspace/a.jpg",
+                "python3 /opt/data/noah.py navigateur telecharger https://exemple.org/a.jpg",
+                "cat /opt/data/memories/MEMORY.md", "ls", "python3 -c 'print(1)'", "python3 /opt/data/noah.py recette google",
                 "python3 /opt/data/noah.py ordinateur commande whoami", "python3 /opt/data/noah.py image x; cat /opt/data/.env",
                 "python3 /opt/data/noah.py image x && cat /opt/data/.env", "python3 /opt/data/noah.py image x | sh",
                 "python3 /opt/data/noah.py image x > /tmp/f", 'python3 /opt/data/noah.py image "$(cat /opt/data/.env)"',
@@ -129,7 +137,8 @@ for tool in ("execute_code", "process", "cronjob", "delegate_task", "send_messag
 for tool, args in (("memory", {"action": "add", "content": "x"}), ("session_search", {"query": "x"}), ("web_search", {"query": "x"}), ("read_file", {"path": "notes.txt"}),
                    ("read_file", {"path": "/opt/data/workspace/uploads/a.pdf"}), ("write_file", {"path": "outputs/a.txt", "content": "x"}), ("search_files", {"pattern": "x"}),
                    ("vision_analyze", {"image_url": "https://exemple.org/a.png"}), ("vision_analyze", {"image_url": f"{HOME}/browser_screenshots/a.png"}),
-                   ("terminal", {"command": 'python3 /opt/data/noah.py image "un chat; roux" --format 16:9'}), ("terminal", {"command": "python3 /opt/data/noah.py rappeler 'R&D finie'"})):
+                   ("terminal", {"command": 'python3 /opt/data/noah.py image "un chat; roux" --format 16:9'}), ("terminal", {"command": "python3 /opt/data/noah.py rappeler 'R&D finie'"}),
+                   ("terminal", {"command": "python3 /opt/data/noah.py navigateur reveiller"})):
     assert _pre_tool_call(tool_name=tool, args=args) is None, f"refusé à tort à une personne invitée : {tool} {args}"
 garde._home = lambda: "/opt/data"
 for tool, args in (("terminal", {"command": "cat /opt/data/profiles/u7abcdef01/memories/MEMORY.md"}), ("read_file", {"path": "/opt/data/profiles/u7abcdef01/memories/MEMORY.md"}),

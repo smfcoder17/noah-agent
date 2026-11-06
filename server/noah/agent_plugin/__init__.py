@@ -15,7 +15,7 @@ Les skills que l'agent écrit lui-même (skill_manage) restent permis : ils pass
 
 Outils MCP (G13.2) : chaque serveur a un droit choisi par l'utilisateur, écrit par le lanceur en root dans /etc/noah/mcp-droits.json. `lire` :
 seuls les outils que le serveur déclare en lecture ; `agir` : tout ; `confirmer` (par défaut, y compris fichier absent ou
-illisible) : chaque appel passe par la validation humaine d'Hermes, la même que les commandes dangereuses, et Noah répond
+illisible) : hors lecture déclarée, l'appel passe par la validation humaine d'Hermes, la même que les commandes dangereuses, et Noah répond
 « une fois » seulement. Dans une routine, personne ne peut valider : refus. L'agent ne branche pas de serveur MCP lui-même.
 
 Mémoire : une note ne dure que si elle sert à chaque message. Avant qu'elle entre, Noah la fait juger par le petit modèle de décision
@@ -162,6 +162,8 @@ def check(command: str) -> str | None:
                     "lance-le en le disant à l'utilisateur.")
         if words and re.fullmatch(DOWNLOADER, os.path.basename(words[0]), re.I):
             unread |= set(_downloads(words))
+        if len(words) >= 6 and os.path.basename(words[1]) == "noah.py" and words[2:4] == ["navigateur", "telecharger"]:
+            unread.add(_path(f"{WORKSPACE}/uploads/{words[5]}"))
     # Lu dans cette commande : compte pour les suivantes (l'agent a vu le contenu dans le résultat).
     _unread.clear()
     _unread.update(u for u in unread if not any(_same(u, r) for r in read_now))
@@ -230,7 +232,7 @@ def check_mcp(tool_name: str, args: dict) -> dict | None:
         return {"action": "block", "message": (
             f"Noah refuse : « {server} » est en lecture seule sur cet agent et « {tool} » n'est pas déclaré en lecture. "
             "Dis-le à l'utilisateur ; il peut changer ce droit dans Détails → Connexions.")}
-    if _read_only(server, tool):  # lire ne change rien : pas d'accord à demander, ni de routine bloquée pour une lecture
+    if _read_only(server, tool):  # ce que le serveur déclare en lecture : pas d'accord, ni de routine bloquée pour une lecture
         return None
     if _unattended():
         return {"action": "block", "message": (
@@ -274,6 +276,7 @@ GUEST_TOOLS = {"memory", "session_search", "todo", "clarify", "web_search", "web
                "text_to_speech", "skills_list", "skill_view"}
 GUEST_FILES = {"read_file", "write_file", "patch", "search_files"}
 GUEST_NOAH = {"image", "video", "musique", "voix", "rappeler", "navigateur", "fil", "fil-etat"}
+GUEST_BROWSER = {"reveiller", "redemarrer"}
 OPERATORS = set(";&|<>()")
 
 
@@ -307,6 +310,8 @@ def _guest_command_ok(command: str) -> bool:
         return False
     if any(w and set(w) <= OPERATORS for w in words):
         return False
+    if len(words) >= 4 and words[2] == "navigateur" and words[3] not in GUEST_BROWSER:
+        return False  # joindre ou télécharger lit le disque commun, avec la clé du navigateur partagée entre les profils
     return len(words) >= 3 and words[0] == "python3" and words[1] == f"{DATA}/noah.py" and words[2] in GUEST_NOAH
 
 

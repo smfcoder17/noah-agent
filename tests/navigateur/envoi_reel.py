@@ -110,6 +110,19 @@ go("/panneau")
 r = noah(UP + "photo.jpg", "--selecteur", "#b")
 check("un bouton qui fait apparaître un champ", r.get("ok") is True and small in seen(), r)
 
+go("/inerte")
+r = noah(UP + "photo.jpg", "--selecteur", "#b")
+check("un bouton sans effet ne remplit pas le champ déjà là", "erreur" in r and "RECU" not in api("GET", f"/tabs/{tab}/snapshot?userId=noah"), r)
+
+go("/dialogue")
+r = noah(UP + "photo.jpg", "--selecteur", "#b")
+check("un bouton qui ouvre une fenêtre déjà présente", r.get("ok") is True and "RECU ouverte" in seen(), r)
+
+go("/cachee")
+r = noah(UP + "photo.jpg")
+text = seen()
+check("une fenêtre et un cadre cachés ne comptent pas", r.get("ok") is True and "RECU principal" in text, r)
+
 go("/aucun")
 r = noah(UP + "photo.jpg")
 check("aucun champ : la réponse dit quoi faire", "ouvre d'abord" in r.get("erreur", ""), r)

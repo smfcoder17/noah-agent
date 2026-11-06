@@ -21,6 +21,9 @@ const PAGES = {
   "/deux": `<h1>Deux champs</h1><input type="file" id="premier" name="a"><input type="file" id="second" name="b">`,
   "/bouton": `<h1>Bouton</h1><button id="b" onclick="document.getElementById('cache').click()">Choisir un fichier</button><input type="file" id="cache" style="display:none">`,
   "/panneau": `<h1>Panneau</h1><button id="b" onclick="setTimeout(()=>{const i=document.createElement('input');i.type='file';i.id='monte';document.body.append(i)},500)">Ouvrir</button>`,
+  "/inerte": `<h1>Inerte</h1><button id="b">Ne fait rien</button><input type="file" id="profil">`,
+  "/cachee": `<h1>Cachée</h1><div role="dialog" style="display:none"><input type="file" id="ferme"></div><iframe style="display:none" srcdoc="<div role='dialog'><input type='file' id='cadre'></div>"></iframe><input type="file" id="principal">`,
+  "/dialogue": `<h1>Dialogue</h1><button id="b" onclick="document.getElementById('d').style.display='block'">Ouvrir</button><input type="file" id="profil"><div role="dialog" id="d" style="display:none"><input type="file" id="ouverte"></div>`,
   "/aucun": `<h1>Aucun champ</h1><p>Rien à joindre ici.</p>`,
 };
 createServer((req, res) => {
