@@ -486,7 +486,12 @@ export function useAgentChat(opts: {
   );
 
   // Un accord demandé par un travail que cet écran ne suit pas : il s'affiche quand même, et se donne de la même façon.
-  const pendingApproval = !isRunning ? serverNow.accord : null;
+  // Déjà dans le fil (flux perdu, historique en retard) : pas de seconde carte pour le même accord.
+  const asked = serverNow.accord;
+  const pendingApproval =
+    !isRunning && asked && !messages.some((m) => m.content.some((p) => p.type === "tool-call" && p.toolName === "approval" && (p.args as { request_id?: string }).request_id === asked.request_id))
+      ? asked
+      : null;
   const shown = useMemo<ChatMessage[]>(
     () =>
       pendingApproval

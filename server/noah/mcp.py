@@ -710,42 +710,46 @@ _asked: dict[tuple[str, str], tuple[str, str, float]] = {}  # (serveur, ce qui a
 _grants: dict[tuple[str, str], list[tuple]] = {}  # (échéance, ce qui a été montré, identifiant)
 
 
-# La demande telle que la personne la lit : une phrase, et ce que l'action enverrait. Le texte brut reste pour les détails techniques.
-# Dans l'ordre : un outil dont le nom dit « lire et supprimer » se présente comme une suppression.
+# La demande telle que la personne la lit : une phrase, et ce que l'action enverrait. Le texte brut reste à un clic, et dans les détails
+# techniques. Dans l'ordre : un outil dont le nom dit « créer et supprimer » se présente comme une suppression. Rien pour « lire » : ce
+# qui arrive jusqu'à une carte n'est pas déclaré en lecture par son serveur, et une phrase rassurante pourrait être fausse.
 _ACTIONS = (
     ("supprimer", {"delete", "remove", "trash", "cancel", "destroy", "archive", "supprimer", "supprime", "effacer", "efface"}, "supprimer quelque chose dans {}"),
     ("envoyer", {"send", "post", "publish", "reply", "share", "envoyer", "envoie", "publier", "publie"}, "envoyer quelque chose avec {}"),
     ("modifier", {"update", "edit", "set", "patch", "move", "rename", "modify", "change", "resolve", "modifier", "modifie", "changer"}, "modifier quelque chose dans {}"),
     ("créer", {"create", "add", "new", "insert", "upload", "duplicate", "write", "creer", "cree", "ajouter", "ajoute", "ecrire"}, "créer quelque chose dans {}"),
-    ("consulter", {"search", "find", "query", "list", "get", "fetch", "read", "view", "lire", "chercher", "cherche"}, "consulter {}"),
 )
 _HIDDEN = {"intent", "feedback", "skill", "id", "url", "mode", "type", "operator", "property", "propertyType", "instructions_version", "sort", "direction"}
-_TECHNICAL = re.compile(r"^(?:[a-z][a-z0-9+.-]*://|[0-9a-f-]{32,36}$|select\s)", re.I)
-_PAIR = re.compile(r'"([^"\\]+)":\s*"((?:[^"\\]|\\.)*)"')
+_TECHNICAL = re.compile(r"^(?:[a-z][a-z0-9+.-]*://|[0-9a-f-]{32,36}$|[/~]|[a-z]:\\|bearer\s|authorization:|select\s.+\sfrom\s|insert\s+into\s|update\s+\S+\s+set\s|delete\s+from\s|(?:drop|alter|create)\s+table\s)", re.I)
+_STRING = re.compile(r'"((?:[^"\\]|\\.)*)("\s*:|"|$)')
+_CUT = re.compile(r"… \[empreinte [0-9a-f]+\]$")
 
 
 def _preview(shown: str) -> list[str]:
-    """Ce que l'action écrirait, en texte : le titre, le contenu. Lu dans le texte montré, même coupé. Rien d'autre que du texte."""
+    """Ce que l'action écrirait, en texte : le destinataire, le titre, le contenu, même dans une liste ou coupé par la limite du texte montré."""
     found: list[str] = []
-    for key, raw in _PAIR.findall(shown):
-        if key in _HIDDEN or key.endswith(("_id", "_url")):
+    key = ""
+    for raw, end in _STRING.findall(_CUT.sub("", shown)):
+        if end.endswith(":"):
+            key = raw
+            continue
+        if key in _HIDDEN or key.endswith(("_id", "_ids", "_url", "_urls")):
             continue
         try:
             text = " ".join(str(json.loads(f'"{raw}"')).split())
         except ValueError:
-            continue
+            text = " ".join(raw.split())  # coupé en plein échappement : le texte brut suffit à le reconnaître
         if len(text) >= 2 and not _TECHNICAL.match(text) and text[:140] not in found:
             found.append(text[:140])
-    return found[:3]
+    return found[:4]
 
 
 def plain_request(summary: str, command: bool = False) -> dict:
-    """{demande, apercu} : ce qu'une personne sans notion technique lit pour décider."""
+    """{demande, apercu} : ce qu'une personne sans notion technique lit pour décider. La description d'Hermes n'y entre jamais :
+    elle est technique, en anglais, et peut venir d'un texte que l'agent a écrit."""
     m = ASKED.match(summary)
     if not m:
-        first = summary.split("\n")[0][:200]
-        plain = "Ton agent veut lancer une commande sensible sur sa machine." if command else first
-        return {"demande": plain if plain and not plain.startswith(("{", "[")) else "Ton agent te demande de valider une action.", "apercu": []}
+        return {"demande": "Ton agent veut lancer une commande sensible sur sa machine." if command else "Ton agent te demande de valider une action.", "apercu": []}
     app = m.group(1).replace("-", " ").title()
     tool, _, shown = summary[m.end():].partition("\n")
     words = set(re.split(r"[_\W]+", tool.lower()))

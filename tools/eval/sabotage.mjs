@@ -27,8 +27,11 @@ const PLUGIN = "launcher/camofox-noah/index.js";
 // NOAH_SABOTAGE=mot : seulement les sabotages dont le nom contient ce mot, pour rejouer un cas.
 const SABOTAGES = [
   ["Routine : le fichier de la consigne est ignoré", "noah/hermes.py", 'if words[:1] != ["--fichier"]:', "if True:", ENVOI_OUTIL],
+  ["Routine : n'importe quel fichier part en consigne", "noah/hermes.py", "if not real.startswith(root + os.sep):  # un texte lu en ligne", "if False:  # un texte lu en ligne", ENVOI_OUTIL],
   ["Accord : le texte technique sert de demande", "noah/mcp.py", 'return {"demande": plain, "apercu": _preview(shown)}', 'return {"demande": summary, "apercu": _preview(shown)}', MCP],
-  ["Accord : l'aperçu montre le technique", "noah/mcp.py", "if key in _HIDDEN or key.endswith((\"_id\", \"_url\")):", "if False:", MCP],
+  ["Accord : l'aperçu montre les identifiants", "noah/mcp.py", 'if key in _HIDDEN or key.endswith(("_id", "_ids", "_url", "_urls")):', "if False:", MCP],
+  ["Accord : l'aperçu montre le technique", "noah/mcp.py", "and not _TECHNICAL.match(text) ", "", MCP],
+  ["Accord : la description d'Hermes s'affiche", "noah/mcp.py", 'if command else "Ton agent te demande de valider une action."', "if command else summary", MCP],
   ["Accord : une suppression passe pour une lecture", "noah/mcp.py", "for action, verbs, sentence in _ACTIONS:", "for action, verbs, sentence in reversed(_ACTIONS):", MCP],
   ["Fuseau : un invité change l'heure du propriétaire", "noah/main.py", "await asyncio.to_thread(access.owner_app, token)", "await asyncio.to_thread(auth.still_valid, token)", CONFIG_AGENT],
   ["Agent : à l'heure du serveur", "noah/hermes.py", 'tz = client_zone() or (await browser_identity()).get("timezone")', 'tz = (await browser_identity()).get("timezone")', CONFIG_AGENT],

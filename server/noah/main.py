@@ -1617,7 +1617,7 @@ précise (`https://…`, page ou flux), `gmail` ou `gmail:<recherche Gmail>` (`g
 - Il veut que tu agisses quand quelque chose arrive (« si j'ai un courriel de Paul, prépare une réponse », « si un courriel important arrive, résume-le ») : une routine à condition. Tu n'es réveillé que si la condition est remplie, avec ce qui a été relevé.
   `python3 /opt/data/noah.py routine-si "Nom" <source> "la condition" "ce que tu feras alors, complet et autonome" --minutes 30`
 - Il veut un travail à chaque fois, sans condition (« chaque matin, un briefing », « tous les lundis ») : une routine, qui te fait tourner à chaque passage.
-  Écris la consigne, autonome et complète, dans un fichier avec write_file, puis `python3 /opt/data/noah.py routine "Nom" "horaire" --fichier ce-fichier` : les apostrophes ne la coupent pas. Même `--fichier` à la place de la consigne pour `routine-si`. Horaire comme « every day at 8am », « 0 9 * * 1 », « every 2h ».
+  Écris la consigne, autonome et complète, dans un fichier de ton dossier de travail avec write_file (par exemple `/opt/data/workspace/consigne.txt`), puis `python3 /opt/data/noah.py routine "Nom" "horaire" --fichier /opt/data/workspace/consigne.txt` : les apostrophes ne la coupent pas. Même `--fichier` à la place de la consigne pour `routine-si`. Horaire comme « every day at 8am », « 0 9 * * 1 », « every 2h ».
 - Il veut une action une seule fois, plus tard (« dans 5 minutes, fais… », « rappelle-moi à 17 h ») : la même commande, avec « in 5m », « in 2h » ou l'heure exacte « 2026-11-06T17:00:00 ». Une durée seule (« 5m ») se répéterait : mets toujours « in ». Fais-la tout de suite, et dis à quelle heure elle partira. Elle disparaît de la liste une fois faite.
 N'utilise jamais une routine pour vérifier si quelque chose est arrivé. `veilles` et `routines` listent, `veille-action <id> pause|reprendre|verifier|supprimer` et `routine-action <id> pause|reprendre|lancer|supprimer` gèrent.
 Tout résultat arrive tout seul dans cette conversation et en notification. L'utilisateur voit et supprime tout dans Détails. Propose une routine quand tu remarques une tâche qui revient.
@@ -2623,7 +2623,8 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
                     out["details"] = _error_details(agent, out.pop("raw_error"), run_id)
                 if out["type"] == "approval":
                     mcp.approval_seen(agent.id, out.get("request_id"), str(out.get("summary") or ""))
-                    out = {**out, **mcp.plain_request(str(out.get("summary") or ""), bool(out.pop("commande", False)))}
+                    command = bool(out.pop("commande", False))
+                    out = {**out, **mcp.plain_request(str(out.get("summary") or ""), command)}
                 if out["type"] == "approval" and task_state.get(conv_id) != "approve":
                     # Celui qui a lancé la tâche et le propriétaire de l'agent : pas les autres profils partagés.
                     for target in dict.fromkeys((_conversation_owner(conv_id), access.owner_of(agent.id))):

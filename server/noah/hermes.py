@@ -441,8 +441,12 @@ def routine_text(words):
     """La consigne d'une routine : dans un fichier écrit à part (ni apostrophe ni guillemet n'y coupe rien), ou en toutes lettres."""
     if words[:1] != ["--fichier"]:
         return {"consigne": " ".join(words)}
+    root = os.path.realpath(os.path.join(os.environ.get("HERMES_HOME") or "/opt/data", "workspace"))
     try:
-        with open(words[1], encoding="utf-8") as f:
+        real = os.path.realpath(words[1])
+        if not real.startswith(root + os.sep):  # un texte lu en ligne ne doit pas faire partir la configuration dans une consigne
+            return {"erreur": "La consigne doit être un fichier de %s." % root}
+        with open(real, encoding="utf-8") as f:
             text = f.read().strip()
     except (IndexError, OSError, ValueError) as e:
         return {"erreur": "Consigne illisible : %s" % e}

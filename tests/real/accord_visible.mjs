@@ -41,6 +41,13 @@ check(body.includes("Mon post du jour"), "ce qui serait envoyé est lisible");
 for (const word of ["notion_create_pages", "telemetry", "d4b95a89", "{", "Outil «"]) check(!body.includes(word), `pas de « ${word} » à l'écran`);
 await page.screenshot({ path: `${OUT}/1-accord-clair.png` });
 
+// Un clic voulu montre le brut sur cette carte seulement, pour décider en connaissance de cause.
+await page.getByRole("button", { name: "Voir les détails" }).click();
+await page.getByText("notion_create_pages", { exact: false }).first().waitFor({ timeout: 5000 });
+check(true, "« Voir les détails » : le texte brut apparaît");
+await page.getByRole("button", { name: "Masquer les détails" }).click();
+check(!(await page.locator("body").innerText()).includes("notion_create_pages"), "« Masquer les détails » : il repart");
+
 // Détails techniques cochés : le brut est là.
 await page.getByRole("button", { name: "Détails techniques" }).click();
 await page.getByText("notion_create_pages", { exact: false }).first().waitFor({ timeout: 5000 });

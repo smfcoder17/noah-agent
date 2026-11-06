@@ -142,6 +142,7 @@ function Approval({ args, result, addResult }: ToolCallMessagePartProps) {
   const { agentId, details } = useContext(AgentContext);
   const [error, setError] = useState("");
   const preview = Array.isArray(args.apercu) ? (args.apercu as string[]) : [];
+  const [open, setOpen] = useState(false);
   const answer = async (approve: boolean) => {
     try {
       await send(`/api/agents/${agentId}/runs/${args.run_id}/approval`, {
@@ -163,7 +164,12 @@ function Approval({ args, result, addResult }: ToolCallMessagePartProps) {
           {preview.map((line) => <li key={line} className="truncate">« {line} »</li>)}
         </ul>
       )}
-      {details && <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-background p-2 font-mono text-[11.5px] text-muted-foreground">{String(args.summary)}</pre>}
+      {!details && (
+        <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="cursor-pointer self-start text-xs font-medium underline underline-offset-2">
+          {open ? "Masquer les détails" : "Voir les détails"}
+        </button>
+      )}
+      {(details || open) && <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-background p-2 font-mono text-[11.5px] text-muted-foreground">{String(args.summary)}</pre>}
       {result === undefined ? (
         <div className="flex gap-2">
           <Button variant="warn" size="sm" onClick={() => answer(true)}>Autoriser</Button>

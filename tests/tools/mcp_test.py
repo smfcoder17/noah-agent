@@ -739,17 +739,21 @@ plain = plain_request(asked)
 assert plain["demande"] == "Ton agent veut créer quelque chose dans Notion.", plain
 assert plain["apercu"] == ["Mon post du jour", "L'idée \"clé\""], plain
 assert plain_request('Outil « google-drive » : outil_inconnu\n{}') == {"demande": "Ton agent veut utiliser Google Drive.", "apercu": []}
-assert "supprimer" in plain_request('Outil « notion » : read_and_delete_page\n{}')["demande"], "lire et supprimer : c'est une suppression"
-assert "consulter Notion" in plain_request('Outil « notion » : notion_search\n{}')["demande"]
+assert "supprimer" in plain_request('Outil « notion » : create_and_delete_page\n{}')["demande"], "créer et supprimer : c'est une suppression"
 assert plain_request('Outil « fiches » : envoie_fiche\n{}')["demande"] == "Ton agent veut envoyer quelque chose avec Fiches."
-sql = 'Outil « notion » : notion_query_data_sources\n{"data": {"query": "SELECT * FROM x", "data_source_urls": "collection://abc"}, "url": "https://x.io/a", "page_id": "40dba45869e3819fafb1ec930c0fc128"}'
-assert plain_request(sql)["apercu"] == [], plain_request(sql)
-cut = 'Outil « notion » : notion_update_page\n{"title": "Un titre", "content": "coupé en plein mil… [empreinte 0123]'
-assert plain_request(cut)["apercu"] == ["Un titre"], "un texte coupé se lit encore, sans sa partie cassée"
-for raw, command, expected in (("rm -rf /", True, "commande sensible"), ("recursive delete", True, "commande sensible"), ("Supprimer le dossier ?", False, "Supprimer le dossier ?"),
-                               ('{"a": 1}', False, "valider une action"), ("", False, "valider une action")):
-    assert expected in plain_request(raw, command)["demande"], (raw, plain_request(raw, command))
-assert "rm -rf" not in plain_request("rm -rf /", True)["demande"]
+for read_like in ("execute_query", "notion_search", "get_page", "read_page"):
+    assert plain_request(f'Outil « notion » : {read_like}\n{{}}')["demande"] == "Ton agent veut utiliser Notion.", "pas déclaré en lecture : ne jamais promettre une simple lecture"
+technical = ('Outil « notion » : x\n{"data": {"query": "SELECT * FROM x", "data_source_urls": ["collection://abc"]}, "url": "https://x.io/a", "page_id": "40dba45869e3819fafb1ec930c0fc128", '
+             '"q1": "DELETE FROM clients", "q2": "UPDATE users SET a=1", "chemin": "/opt/data/.env", "h": "Authorization: secret"}')
+assert plain_request(technical)["apercu"] == [], plain_request(technical)
+kept = plain_request('Outil « mail » : send_mail\n{"to": ["paul@exemple.fr", "ana@exemple.fr"], "subject": "Devis", "body": "Bonjour"}')["apercu"]
+assert kept == ["paul@exemple.fr", "ana@exemple.fr", "Devis", "Bonjour"], "un destinataire dans une liste se voit"
+cut = 'Outil « notion » : notion_update_page\n{"title": "Un titre", "content": "coupé en plein mil… [empreinte 0123ab]'
+assert plain_request(cut)["apercu"] == ["Un titre", "coupé en plein mil"], "un texte coupé se lit encore, sans la marque de coupure"
+for raw, command, expected in (("rm -rf /", True, "commande sensible"), ("Execute recursive delete: rm -rf /opt/data", False, "valider une action"),
+                               ("Ton agent veut consulter Notion.", False, "valider une action"), ('{"a": 1}', False, "valider une action"), ("", False, "valider une action")):
+    said = plain_request(raw, command)["demande"]
+    assert expected in said and "rm -rf" not in said, (raw, said)
 print("accord : une phrase claire et ce qui serait envoyé, le technique reste pour les détails")
 assert not [line for line in LOGS if JETON in line], "jeton en clair dans les journaux"
 print("OK")

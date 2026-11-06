@@ -181,6 +181,10 @@ assert json.loads(seen[-1]["body"])["consigne"] == "en toutes lettres", seen[-1]
 del seen[-1]
 held = len(seen)
 assert "illisible" in routine("--fichier", os.path.join(work, "absent.txt"))["erreur"] and len(seen) == held, "rien ne part sans consigne"
+assert "dossier" not in routine("--fichier")["erreur"] and len(seen) == held
+for outside in (os.path.join(home, ".env"), os.path.join(work, "lien.jpg"), "/etc/passwd"):
+    assert "doit être un fichier" in routine("--fichier", outside).get("erreur", ""), outside
+assert len(seen) == held, "rien d'extérieur au dossier de travail ne part dans une consigne"
 open(consigne_path, "w").close()
 assert "vide" in routine("--fichier", consigne_path)["erreur"] and len(seen) == held
 os.remove(consigne_path)

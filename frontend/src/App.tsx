@@ -653,7 +653,7 @@ function AgentChat(props: ChatProps) {
   const { runtime, whileBusy } = useAgentChat({
     agentId: props.agent.id,
     ...props,
-    agentBusy: Object.values(props.agent.tasks).some(Boolean),
+    agentBusy: Boolean(props.agent.tasks.work || props.agent.tasks.approve), // « choice » attend la personne, sans travail en cours
     takeQuotes: useCallback(() => {
       clearShare(); // le partage part avec ce message
       return takeQuotes();
