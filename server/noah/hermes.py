@@ -238,8 +238,9 @@ CACHE_MARKER_MODELS = re.compile(r"claude|kimi|moonshot|qwen", re.I)
 CONTEXT_LIMIT = 64000  # jetons envoyés au modèle : au-delà, le début de la conversation se résume (voir configure)
 
 
-async def configure(agent_id: str, model: dict, role: str | None = None) -> None:
+async def configure(agent_id: str, model: dict, role: str | None = None, restart_after: bool = True) -> None:
     """Branche l'agent sur le relais du serveur avec le modèle choisi (et son rôle), puis le redémarre.
+    Sans `restart_after` : les fichiers seulement, pour un simple changement de modèle, que le relais applique déjà.
 
     L'agent ne reçoit jamais la clé du fournisseur : seulement l'adresse du relais et son jeton.
     """
@@ -311,7 +312,8 @@ async def configure(agent_id: str, model: dict, role: str | None = None) -> None
     await _launcher("PUT", f"/agents/{agent_id}/files", json={"files": files})
     if role is not None:  # nouvelles consignes : les conversations en cours doivent les voir
         await _launcher("POST", f"/agents/{agent_id}/refresh-prompts")
-    await restart(agent_id)
+    if restart_after:
+        await restart(agent_id)
 
 
 def _set_helpers(cfg: dict, agent_id: str, brain: str) -> None:

@@ -9,6 +9,7 @@ import hashlib
 import hmac
 import ipaddress
 import json
+import re
 import socket
 import time
 from contextvars import ContextVar
@@ -360,6 +361,32 @@ def _is_warmup(agent_id: str, body: dict) -> bool:
     return False
 
 
+# Familles qui lisent les marqueurs de cache d'Anthropic : les autres peuvent les refuser.
+_CACHE_MARKERS = re.compile(r"claude|kimi|moonshot|qwen", re.I)
+
+
+def _strip_cache_marks(messages: list) -> None:
+    """Hermes pose ses marqueurs selon le modèle qu'il a connu au démarrage : celui qu'on vient de choisir n'en veut peut-être pas."""
+    for message in messages:
+        message.pop("cache_control", None)
+        content = message.get("content") if isinstance(message, dict) else None
+        if isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict):
+                    part.pop("cache_control", None)
+
+
+def _current_brain(agent_id: str, asked: str) -> str:
+    """Le modèle de cet appel. Changer de cerveau prend effet ici, au prochain appel, sans toucher à la machine de l'agent : c'est
+    instantané, même au milieu d'une tâche. Seul le modèle de décision, que l'agent demande pour ses petits travaux, reste le sien."""
+    from . import decision  # decision passe par ce module
+
+    helper, brain = decision.model(), db.get_setting("model")
+    if helper and helper != brain and asked == helper:  # sans petit modèle, le modèle de décision est le cerveau de tous
+        return asked
+    return db.get_setting(f"model_{agent_id}") or brain or asked
+
+
 def _warmup_reply(model: str, stream: bool) -> Response:
     base = {"id": "chauffe", "created": int(time.time()), "model": model}
     usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
@@ -407,6 +434,9 @@ async def relay(path: str, request: Request):
         return JSONResponse({"error": {"message": refused, "type": "budget_exceeded", "code": 402}}, status_code=402)
 
     if path.endswith("chat/completions"):
+        model = body["model"] = _current_brain(agent_id, model)
+        if not _CACHE_MARKERS.search(model) and isinstance(body.get("messages"), list):
+            _strip_cache_marks(body["messages"])
         if stream:
             body["stream_options"] = {**(body.get("stream_options") or {}), "include_usage": True}
         if provider == "openrouter":

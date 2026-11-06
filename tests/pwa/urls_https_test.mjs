@@ -56,7 +56,7 @@ const services = compose.split(/^services:/m)[1].split(/^configs:/m)[0];
 const blocs = Object.fromEntries(services.split(/^  (?=\w[\w-]*:\s*$)/m).filter((b) => b.trim()).map((b) => [b.split(":")[0].trim(), b]));
 check("VPS : le serveur ne publie aucun port", !/^\s+ports:/m.test(blocs.server));
 check("VPS : le lanceur ne publie aucun port", !/^\s+ports:/m.test(blocs.launcher));
-check("VPS : http:// redirige vers https://", /http:\/\/ \{\s*redir https:\/\/\{host\}\{uri\} permanent\s*\}/.test(compose));
+check("VPS : http:// redirige vers https://", /http:\/\/ \{[\s\S]*?redir https:\/\/\{host\}\{uri\} permanent/.test(compose));
 const traefik = readFileSync(join(ROOT, "deploy/docker-compose.traefik.yml"), "utf8");
 check("Traefik : le serveur reste sur la boucle locale, le routeur sur websecure", /NOAH_PUBLISH:-127\.0\.0\.1:/.test(traefik) && /entrypoints: websecure/.test(traefik));
 

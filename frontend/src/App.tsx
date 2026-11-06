@@ -481,7 +481,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
                     ? thread.de
                       ? `Conversation de ${thread.de} · en lecture`
                       : `Fil de ${agent.name}${thread.archived ? " · archivé" : ""}`
-                    : agent.step || (agent.online ? "En ligne" : "Hors ligne")}
+                    : agent.step || (agent.online ? "En ligne" : "Sa machine ne répond pas")}
               </p>
             </div>
             {agent && !agent.online && !agent.step && canAdmin(agent) && (

@@ -197,7 +197,7 @@ async def connections(agent_id: str, user: int = Depends(auth.current_user)):
 
 
 class AppFinish(BaseModel):
-    adresse: str = Field(min_length=4, max_length=4000)
+    adresse: str = Field(default="", max_length=4000)  # seulement pour « finish » : « connect » et « remove » n'en ont pas
 
 
 @router.post("/api/agents/{agent_id}/connections/apps/{name}/{action}")
@@ -209,8 +209,8 @@ async def app_action(agent_id: str, name: str, action: str, body: AppFinish | No
     if action == "connect":
         out = await admin(agent_id, "application_connecter", {"nom": name})
     elif action == "finish":
-        if not body:
-            raise HTTPException(400, "Adresse de retour manquante")
+        if not body or len(body.adresse.strip()) < 4:
+            raise HTTPException(400, "Colle l'adresse de retour affichée après l'accord.")
         out = await admin(agent_id, "application_finir", {"nom": name, "adresse": body.adresse})
     elif action == "remove":
         from . import mcp

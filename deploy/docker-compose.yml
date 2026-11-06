@@ -120,7 +120,7 @@ configs:
         }
       }
       http:// {
-        # Le lien « Open » de Hostinger mène à http://<IP> : l'IP seule n'a pas de certificat, on part vers son nom sslip.io.
+        # Le lien « Open » de Hostinger mène à l'adresse IP nue, sans HTTPS : l'IP seule n'a pas de certificat, on part vers son nom sslip.io.
         @ip header_regexp ip Host ^([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)(:[0-9]+)?$
         handle @ip {
           redir https://{re.ip.1}-{re.ip.2}-{re.ip.3}-{re.ip.4}.sslip.io/ 302

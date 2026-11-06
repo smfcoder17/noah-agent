@@ -31,7 +31,7 @@ Quick start à fournir : « Ouvre le lien Open de ton projet, connecte-toi avec 
 ## Sans formulaire : le bouton d'aujourd'hui
 
 1. Le bouton mène à l'offre VPS, puis au Docker Manager avec le fichier prêt.
-2. Le lien « Open » du projet mène à `http://<IP>`, et Noah envoie vers `https://<ip-en-tirets>.sslip.io`.
+2. Le lien « Open » du projet mène à l'adresse IP nue, sans HTTPS, et Noah envoie vers `https://<ip-en-tirets>.sslip.io`.
 3. L'écran demande le code d'installation et dit où le lire : menu ⋮ du projet, View logs.
 
 Le nom donné au projet n'a plus d'effet sur les données : les volumes portent un nom fixe.

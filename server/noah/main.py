@@ -265,13 +265,13 @@ def _config_rev(agent_id: str) -> str:
     return f"{agent_id}:" + hashlib.sha256(raw.encode()).hexdigest()
 
 
-async def _configure(agent_id: str, soul: str | None = None) -> None:
+async def _configure(agent_id: str, soul: str | None = None, restart: bool = True) -> None:
     """Applique à l'agent sa configuration effective, et note laquelle il a vraiment reçue : la base peut dire M2
     alors que l'agent, faute d'avoir été reconfiguré (lanceur indisponible), tourne encore sur M1. Pendant la
     reconfiguration, aucune configuration n'est garantie : une exécution lancée alors ne prouve rien."""
     rev = _config_rev(agent_id)
     db.set_setting(f"applied:{agent_id}", "")
-    await hermes.configure(agent_id, model_for(agent_id), soul)
+    await hermes.configure(agent_id, model_for(agent_id), soul, restart_after=restart)
     await mcp.seal_rights(agent_id)
     db.set_setting(f"applied:{agent_id}", rev)
 
@@ -1487,8 +1487,16 @@ def get_model(user: int = Depends(auth.current_user)):
 _first_agent_lock = asyncio.Lock()
 
 
+async def _write_configs(agent_ids: list[str]) -> None:
+    """Le modèle choisi dans les fichiers de l'agent, pour son prochain démarrage. Une machine arrêtée le recevra à son retour."""
+    done = await asyncio.gather(*(_configure(a, restart=False) for a in agent_ids), return_exceptions=True)
+    for agent_id, result in zip(agent_ids, done):
+        if isinstance(result, Exception):
+            diagnostics.record("configuration du modèle", str(result), agent_id)
+
+
 @app.post("/api/model")
-async def set_model(body: ModelChoice, user: int = Depends(access.owner_only)):
+async def set_model(body: ModelChoice, tasks: BackgroundTasks, user: int = Depends(access.owner_only)):
     p = hermes.PROVIDERS.get(body.provider)
     if not p:
         raise HTTPException(400, "Fournisseur inconnu")
@@ -1521,8 +1529,8 @@ async def set_model(body: ModelChoice, user: int = Depends(access.owner_only)):
         agents = _agents()
         if not agents:
             await _start_agent("Noah", "Tu es l'assistant personnel de l'utilisateur. Réponds en français, de façon brève et concrète.", user)
-    if agents:
-        await asyncio.gather(*(_configure(a["id"]) for a in agents), return_exceptions=True)
+    if agents:  # le relais applique déjà le nouveau modèle : on met les fichiers à jour sans couper l'agent, et sans faire attendre
+        tasks.add_task(_write_configs, [a["id"] for a in agents])
     decision.schedule_refresh()  # ce que cette clé offre, ses prix, sa vitesse : l'écran ne l'attend pas
     return {"ok": True}
 
@@ -1849,8 +1857,8 @@ class AgentModel(BaseModel):
 
 
 @app.put("/api/agents/{agent_id}/model")
-async def agent_model(agent_id: str, body: AgentModel, user: int = Depends(auth.current_user)):
-    """Cerveau propre à un agent (None : celui de tous). L'agent redémarre avec, ses conversations restent."""
+async def agent_model(agent_id: str, body: AgentModel, tasks: BackgroundTasks, user: int = Depends(auth.current_user)):
+    """Cerveau propre à un agent (None : celui de tous). Actif dès le prochain appel au modèle, sans redémarrage."""
     agent = _usable(user, agent_id, "admin")
     if not current_model():
         raise HTTPException(400, "Choisis d'abord un cerveau dans Réglages.")
@@ -1859,7 +1867,7 @@ async def agent_model(agent_id: str, body: AgentModel, user: int = Depends(auth.
     else:
         with db.connect() as c:
             c.execute("DELETE FROM settings WHERE key = ?", (f"model_{agent_id}",))
-    await _configure(agent.id)
+    tasks.add_task(_write_configs, [agent.id])
     return {"model": db.get_setting(f"model_{agent_id}")}
 
 

@@ -89,7 +89,10 @@ export async function request(path: string, init: RequestInit = {}): Promise<Res
       const body = await res.json();
       const detail = body.detail;
       courriel = body.courriel_requis === true;
-      message = Array.isArray(detail) ? "Vérifie les champs du formulaire." : detail || message;
+      if (Array.isArray(detail)) {
+        const field = detail[0]?.loc?.[detail[0].loc.length - 1];
+        message = typeof field === "string" ? `Vérifie le champ « ${field} ».` : "Vérifie les champs du formulaire.";
+      } else message = detail || message;
     } catch {
       /* corps non JSON */
     }

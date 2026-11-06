@@ -294,6 +294,22 @@ with db.connect() as c:
   const settingsSay = await say(`OUTIL terminal ${JSON.stringify({ command: "python3 /opt/data/noah.py reglages" })}`);
   check("   l'agent lit ses réglages par noah.py", settingsSay.output.includes("disponible"), settingsSay.output.slice(0, 300));
 
+  // 5 quater. « Connecter » une application : la vraie route, le vrai Hermes, jusqu'à l'adresse d'accord du service.
+  const notion = await api("POST", `/api/agents/${agent}/connections/apps/notion/connect`, {});
+  check("   Connecter une application répond, sans erreur de formulaire", notion.status !== 422 && notion.status < 500, `${notion.status} ${JSON.stringify(notion.json).slice(0, 200)}`);
+  note(`Notion : ${notion.status} ${String(notion.json?.adresse || JSON.stringify(notion.json)).slice(0, 80)}`);
+
+  // 5 ter. Changer de modèle : instantané, la machine de l'agent n'est pas redémarrée.
+  const startedAt = () => docker("inspect", `noah-agent-${agent}`, "--format", "{{.State.StartedAt}}").trim();
+  const before5 = startedAt();
+  await faux("POST", "/_vider", {});
+  const changed = await api("PUT", `/api/agents/${agent}/model`, { model: "faux-autre" });
+  await say("Réponds seulement : OK-NOUVEAU");
+  const usedModels = (await faux("GET", "/_journal")).appels.map((a) => a.modele);
+  check("   changer de modèle : le message suivant part vers le nouveau", changed.status === 200 && usedModels.includes("faux-autre"), usedModels.join(","));
+  check("   sans redémarrer la machine de l'agent", startedAt() === before5, `${before5} / ${startedAt()}`);
+  await api("PUT", `/api/agents/${agent}/model`, { model: null });
+
   // 6. Ce que l'agent ouvre est ce que l'écran Ordinateur montre : le vrai outil d'Hermes, dans le navigateur partagé.
   // Vu sur le premier VPS : une version d'Hermes sans Camofox naviguait dans un Chromium invisible, et l'écran restait vide.
   await api("POST", `/api/agents/${agent}/browser/wake`, {});
