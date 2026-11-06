@@ -49,6 +49,27 @@ updates.saw_client("Pas/UnFuseau")
 assert config()["timezone"] == "America/Toronto", "un fuseau invalide ne change rien"
 print("fuseau : celui de la personne dès qu'une app l'a donné, jamais une valeur invalide")
 
+# Seule l'app du propriétaire donne l'heure : un invité ne change pas celle de ses agents.
+from fastapi.testclient import TestClient  # noqa: E402
+
+from noah import auth, main  # noqa: E402
+
+owner = auth.create_user("proprio", "mot-de-passe-essai-1", role="owner")
+guest = auth.create_user("invite", "mot-de-passe-essai-2", role="user")
+client = TestClient(main.app)
+
+
+def seen_from(user: int, zone: str) -> None:
+    client.cookies.set(auth.COOKIE, auth.new_session(user))
+    assert client.get("/api/status", headers={"X-Noah-Timezone": zone}).status_code == 200
+
+
+seen_from(guest, "Pacific/Kiritimati")
+assert updates.client_zone() == "America/Toronto", "un invité a changé l'heure du propriétaire"
+seen_from(owner, "Europe/Madrid")
+assert updates.client_zone() == "Europe/Madrid", "le propriétaire change de fuseau"
+print("fuseau : seule l'app du propriétaire le change")
+
 plugin = written["plugins/noah-garde/__init__.py"]
 seconds = int(re.search(r"^HOOK_SECONDS = (\d+)", plugin, re.M).group(1))
 timeout = config()["plugins"]["hook_callback_timeout"]

@@ -108,9 +108,9 @@ async def same_origin_only(request: Request, call_next):
         return Response('{"detail":"Noah installe une mise à jour (quelques minutes) : réessaie juste après."}',
                         status_code=503, media_type="application/json", headers={"Retry-After": "120"})
     zone = request.headers.get("x-noah-timezone")
-    if zone and zone != updates._last_zone:  # fuseau d'un utilisateur connecté : créneau des mises à jour
+    if zone and zone != updates._last_zone:  # fuseau du propriétaire : créneau des mises à jour, heure de ses agents
         token = auth.request_token(request, request.cookies.get(auth.COOKIE))
-        if token and await asyncio.to_thread(auth.still_valid, token):
+        if token and await asyncio.to_thread(access.owner_app, token):
             updates.saw_client(zone)
     return await call_next(request)
 

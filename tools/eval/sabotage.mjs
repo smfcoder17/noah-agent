@@ -27,6 +27,9 @@ const PLUGIN = "launcher/camofox-noah/index.js";
 // NOAH_SABOTAGE=mot : seulement les sabotages dont le nom contient ce mot, pour rejouer un cas.
 const SABOTAGES = [
   ["Routine : la consigne de l'entrée standard est perdue", "noah/hermes.py", 'sys.stdin.read().strip() if a[3:] == ["-"] else " ".join(a[3:])', '" ".join(a[3:])', ENVOI_OUTIL],
+  ["Routine : le texte de la consigne compte comme des commandes", "noah/agent_plugin/__init__.py", "    command = _without_routine_text(command)\n", "", GUARD],
+  ["Routine : une commande passe cachée après le texte", "noah/agent_plugin/__init__.py", " or any(line.strip() for line in lines[lines.index(found.group(1)) + 1:])", "", GUARD],
+  ["Fuseau : un invité change l'heure du propriétaire", "noah/main.py", "await asyncio.to_thread(access.owner_app, token)", "await asyncio.to_thread(auth.still_valid, token)", CONFIG_AGENT],
   ["Agent : à l'heure du serveur", "noah/hermes.py", 'tz = client_zone() or (await browser_identity()).get("timezone")', 'tz = (await browser_identity()).get("timezone")', CONFIG_AGENT],
   ["Agent : Hermes coupe le réveil à 30 s", "noah/hermes.py", 'plugins["hook_callback_timeout"] = 600', 'plugins["hook_callback_timeout"] = 30', CONFIG_AGENT],
   ["Agent : le réveil dépasse le délai d'Hermes", "noah/agent_plugin/__init__.py", "capture_output=True, timeout=HOOK_SECONDS - 30)", "capture_output=True, timeout=900)", CONFIG_AGENT],

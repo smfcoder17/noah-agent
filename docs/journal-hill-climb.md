@@ -565,4 +565,6 @@ Premiers essais réels sur `noah.smfapps.cloud`, sans publier, avec le compte et
 | « Crée une routine chaque jour à 9 h » | Créée et vérifiée en 2 min, mais une apostrophe a coupé la consigne ; l'agent l'a vu et refaite | Consigne lue sur l'entrée standard (`-`) |
 | « Refuse les cookies optionnels » | Fait, routine supprimée, bandeau « L'agent a besoin de toi » pour la connexion Instagram | Rien à corriger |
 
+**Revue Codex, FAIL puis corrigé :** le texte d'une routine était lu comme des commandes par la garde (il valait lecture d'un fichier, ou refus) : c'est du texte jusqu'au premier `FIN`, le reste reste contrôlé ; un invité pouvait imposer son fuseau : seule l'app du propriétaire compte. Laissé : les 600 s valent pour toute la garde, une autre branche figée ferait attendre 10 min, mais hors réveil tout y est borné à quelques secondes.
+
 **Pas prouvé :** la connexion à Instagram depuis l'adresse du VPS, une vraie publication, une routine qui publie sans personne, la voix sur cette démo.

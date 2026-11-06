@@ -34,6 +34,12 @@ def is_owner(user: int) -> bool:
     return role(user) == "owner"
 
 
+def owner_app(token: str | None) -> bool:
+    """Ce jeton vit encore et c'est celui du propriétaire : seul son fuseau compte pour l'heure de ses agents et ses mises à jour."""
+    user = auth.owner_of(token)
+    return user is not None and is_owner(user)
+
+
 def owner_only(user: int = Depends(auth.current_user)) -> int:
     """Dépendance des routes de configuration globale : fournisseur, clé, budget global, mises à jour, flux, profils."""
     if not is_owner(user):

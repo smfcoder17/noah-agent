@@ -135,8 +135,22 @@ def _segments(command: str) -> list[list[str]]:
     return [_words(part) for part in re.split(r"&&|\|\||;|\n", command) if part.strip()]
 
 
+ROUTINE_TEXT = re.compile(r"(?:python3\s+)?\S*noah\.py\s+routine(?:-si)?\s[^\n;&|<>`$]*\s-\s+<<'(\w+)'")
+
+
+def _without_routine_text(command: str) -> str:
+    """La consigne d'une routine, passée en « <<'FIN' », est du texte et non des commandes. Seulement si rien ne suit le premier
+    FIN : le shell s'y arrête et exécuterait ce qui vient après."""
+    first, _, rest = command.strip().partition("\n")
+    found, lines = ROUTINE_TEXT.fullmatch(first), rest.split("\n")
+    if not found or found.group(1) not in lines or any(line.strip() for line in lines[lines.index(found.group(1)) + 1:]):
+        return command
+    return first
+
+
 def check(command: str) -> str | None:
     """Raison du refus, ou None si la commande passe. Tient la liste des fichiers téléchargés non lus."""
+    command = _without_routine_text(command)
     if MCP_CONFIG.search(command):
         return ("Noah refuse de changer les serveurs MCP depuis la machine de l'agent : une commande locale exécuterait du "
                 "code téléchargé. L'utilisateur ajoute ses outils dans Détails → Connexions.")
