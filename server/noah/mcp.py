@@ -809,7 +809,24 @@ _CUT = re.compile(r"… \[empreinte [0-9a-f]+\]$")
 _TITLE = re.compile(r'"(?:title|titre|name|nom)"\s*:\s*"([^"\\]{2,60})"', re.I)
 
 
+_TARGET = re.compile(r'"(?:to|recipient|recipients|destinataire|destinataires|email|cc|bcc)"\s*:\s*(\[[^\]]*\]?|"[^"\\]{1,120}")', re.I)
+_AMOUNT = re.compile(r'"(?:amount|montant|price|prix|total)"\s*:\s*"?(-?\d[\d\s.,]*\d|-?\d)"?', re.I)
+_CURRENCY = re.compile(r'"(?:currency|devise)"\s*:\s*"([A-Za-z€$£]{1,5})"', re.I)
+
+
 def _preview(shown: str) -> list[str]:
+    """À qui et combien d'abord, nommés : c'est ce qui se décide. Un montant est souvent un nombre, que le texte seul ne montrerait pas."""
+    values = list(dict.fromkeys(m.group(1) for found in _TARGET.findall(shown) for m in re.finditer(r'"((?:[^"\\]|\\.)*)"(\s*:)?', found) if m.group(1) and not m.group(2)))
+    targets = [t for t in values if "@" in t] or values  # dans une liste d'objets, l'adresse, pas son identifiant
+    amount, currency = _AMOUNT.search(shown), _CURRENCY.search(shown)
+    facts = [f"À : {', '.join(targets[:3])}{f' et {len(targets) - 3} de plus' if len(targets) > 3 else ''}"] if targets else []
+    if amount:
+        facts.append(f"Montant : {amount.group(1).strip()}{' ' + currency.group(1) if currency else ''}")
+    named = {*targets, currency.group(1) if currency else None, amount.group(1).strip() if amount else None}
+    return [*facts, *(t for t in _texts(shown) if t not in named)]
+
+
+def _texts(shown: str) -> list[str]:
     """Ce que l'action écrirait, en texte : le destinataire, le titre, le contenu, même dans une liste ou coupé par la limite du texte montré."""
     found: list[str] = []
     key = ""

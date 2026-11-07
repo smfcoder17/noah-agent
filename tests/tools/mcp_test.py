@@ -751,6 +751,8 @@ plain = plain_request(asked)
 assert plain["demande"] == "Ton agent veut créer « Mon post du jour » dans Notion.", plain
 assert plain["apercu"] == ["L'idée \"clé\""], plain
 assert "draft" not in plain_request('Outil « notion » : notion_create_pages\n{"creation_mode": "draft", "pages": [{"properties": {"title": "Essai"}, "content": "le texte"}]}')["apercu"], "un réglage technique n'est pas un aperçu"
+facts = plain_request('Outil « banque » : send_payment\n{"to": "compta@exemple.test", "amount": 1250.5, "currency": "EUR", "note": "facture"}')["apercu"]
+assert facts[:2] == ["À : compta@exemple.test", "Montant : 1250.5 EUR"] and "facture" in facts and facts.count("compta@exemple.test") == 0, facts
 assert plain_request('Outil « google-drive » : outil_inconnu\n{}') == {"demande": "Ton agent veut utiliser Google Drive.", "apercu": []}
 assert "supprimer" in plain_request('Outil « notion » : create_and_delete_page\n{}')["demande"], "créer et supprimer : c'est une suppression"
 assert plain_request('Outil « fiches » : envoie_fiche\n{}')["demande"] == "Ton agent veut envoyer quelque chose avec Fiches."
@@ -760,13 +762,13 @@ technical = ('Outil « notion » : x\n{"data": {"query": "SELECT * FROM x", "dat
              '"q1": "DELETE FROM clients", "q2": "UPDATE users SET a=1", "chemin": "/opt/data/.env", "h": "Authorization: secret"}')
 assert plain_request(technical)["apercu"] == [], plain_request(technical)
 kept = plain_request('Outil « mail » : send_mail\n{"to": ["paul@exemple.fr", "ana@exemple.fr"], "subject": "Devis", "body": "Bonjour"}')["apercu"]
-assert kept == ["paul@exemple.fr", "ana@exemple.fr", "Devis", "Bonjour"], "un destinataire dans une liste se voit"
+assert kept == ["À : paul@exemple.fr, ana@exemple.fr", "Devis", "Bonjour"], "un destinataire dans une liste se voit"
 mixed = plain_request('Outil « mail » : send_mail\n{"to": [{"email": "paul@exemple.fr", "id": "contact-1"}, "ana@exemple.fr"], "subject": "Devis"}')["apercu"]
-assert mixed == ["paul@exemple.fr", "ana@exemple.fr", "Devis"], ("une clé masquée ne cache pas la valeur d'après", mixed)
+assert mixed == ["À : paul@exemple.fr, ana@exemple.fr", "Devis"], ("une clé masquée ne cache pas la valeur d'après", mixed)
 listed = plain_request('Outil « mail » : send_mail\n{"attachment_ids": ["file-A", "file-B", "file-C", "file-D", "file-E"], "subject": "Devis", "body": "Bonjour Paul"}')["apercu"]
 assert listed == ["Devis", "Bonjour Paul"], ("une liste d'identifiants reste masquée en entier", listed)
 nested = plain_request('Outil « mail » : send_mail\n{"page_ids": [["a", "b"], ["c"]], "to": ["paul@exemple.fr"]}')["apercu"]
-assert nested == ["paul@exemple.fr"], ("une liste dans une liste aussi", nested)
+assert nested == ["À : paul@exemple.fr"], ("une liste dans une liste aussi", nested)
 cut = 'Outil « notion » : notion_update_page\n{"title": "Un titre", "content": "coupé en plein mil… [empreinte 0123ab]'
 assert plain_request(cut)["apercu"] == ["Un titre", "coupé en plein mil"], "un texte coupé se lit encore, sans la marque de coupure"
 for raw, command, expected in (("rm -rf /", True, "commande sensible"), ("Execute recursive delete: rm -rf /opt/data", False, "valider une action"),

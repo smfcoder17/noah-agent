@@ -68,6 +68,7 @@ const SABOTAGES = [
   ["Juge : une panne laisse passer", "noah/juge.py", 'diagnostics.record("juge", f"sans réponse : {type(e).__name__}")\n        return "accord", "panne", "panne"', 'diagnostics.record("juge", f"sans réponse : {type(e).__name__}")\n        return "passe", "panne", "panne"', JUGE],
   ["Juge : la routine attend un accord que personne ne donnera", "noah/juge.py", 'elif verdict == "accord" and turn.alone:', "elif False:", JUGE],
   ["Juge : il lit la réponse de l'agent", "noah/juge.py", "WHERE conversation_id = ? AND role = 'user' ORDER BY id DESC LIMIT ?", "WHERE conversation_id = ? ORDER BY id DESC LIMIT ?", JUGE],
+  ["Accord : le montant ne se voit pas", "noah/mcp.py", '    if amount:\n        facts.append(', '    if False:\n        facts.append(', MCP],
   ["Juge : le relevé d'une veille lui arrive", "noah/juge.py", 'return re.sub(r"<releve>.*</releve>", "[données de dehors retirées]", text, flags=re.S), data', "return text, data", JUGE],
   ["Juge : un autre agent lit une conversation", "noah/juge.py", '"SELECT id, origin FROM conversations WHERE id = ? AND agent_id = ?", (named.group(1), agent_id)', '"SELECT id, origin FROM conversations WHERE id = ?", (named.group(1),)', JUGE],
   ["Juge : « Me signaler » laisse agir", "noah/juge.py", 'if turn.mode == "signaler" and (body.outil not in', "if False and (body.outil not in", JUGE],
