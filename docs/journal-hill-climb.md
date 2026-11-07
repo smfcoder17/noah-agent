@@ -613,3 +613,25 @@ Premiers essais réels sur `noah.smfapps.cloud`, sans publier, avec le compte et
 - **Flotte :** 7 rôles FAIL au premier tour, sur 5 modèles Ollama et Haiku. Corrections dans le commit 8bd9eea, restes en tickets.
 - **Preuve :** niveau 2. Hermes réel avec un faux modèle pour la connexion et l'apprentissage (`tests/real/connexion_vraie.sh` vert, `tests/agents/apprendre_test.py`), Hermes simulé pour le reçu.
 - **Pas prouvé :** vraie publication, vrais identifiants, vrai gestionnaire de mots de passe, nombre de cartes du juge sur la durée, taux de fausses alertes du reçu, Android, bureau, voix, VPS neuf.
+
+## 2026-11-07, facilité des actions courantes (objectif 18/20)
+
+Cadre : [facilite.md](facilite.md). Objectif donné par la personne : 18/20 sur les actions les plus courantes, références Grok Bot et Muse. Gain minimal : 1 point par appareil, borne basse au-dessus de zéro. Budget : pas de plafond écrit ; environ 0,9 M de jetons de juges par tour (trois juges, deux lots). Lot réservé : pas encore construit (trou, voir plus bas).
+
+**Verdicts de la personne, arrivés en cours de route, passés en tête :**
+
+1. Le juge demandait son accord pour lancer `python3 -c …` d'une compétence, avec « Ton juge demande ton accord » et la commande brute. Attendu : l'agent et le juge règlent seuls ce qui sert la tâche ; la personne n'est dérangée que pour ce qui est nouveau ou sensible, avec une question claire.
+2. Sur téléphone, les réglages en fenêtre laissaient « Enregistrer » sous les boutons d'Android ; « À toi » occupait une place de la barre du bas pour ouvrir une petite fenêtre. Attendu : écrans entiers, et « À toi » en vraie page, comme Muse.
+
+| Tour | Hypothèse | Changement | Mesure | Décision |
+|---|---|---|---|---|
+| 1 | Les cartes du juge viennent d'actions locales qu'il ne relie pas à la demande | Le juge demande pourquoi à l'agent (« # pourquoi : »), retient un accord déjà donné pour la même sorte d'action ; carte « Autoriser ton agent à … ? » sans le mot juge (`96359e7`) | `juge_test.py` vert (section 11 bis), carte vue sur le banc réel | GARDÉ (verdict de la personne) |
+| 2 | Les fenêtres sont trop petites sur téléphone | Toute fenêtre devient un écran entier sur téléphone, retour en haut, marge pour les boutons du système (`68101cc`) | captures téléphone | GARDÉ (verdict de la personne) |
+| 3 | Les fichiers sont cachés sous Ordinateur, le modèle illisible, les onglets coupés | Onglet Fichiers, onglets à icônes, nom de modèle lisible (`24d1464`) | banc v2 : +0,5 sur les deux appareils, intervalle à cheval sur zéro ; fichiers +4,5, journal −2,5 (sous le pli) | AMBIGU : gardé avec le tour 4, qui corrige le recul |
+| 4 | Les portes de tous les jours ne se voient pas de l'accueil | Fichiers, Tâches, Connexions dans la barre latérale ; barre du bas du téléphone refaite ; modèle choisi sous la saisie ; journal en tête de l'Activité (`4648f25`) | banc v3 : ordinateur 12,9 → **15,9** (+3,0, 90 % : 1,5 à 4,8), téléphone 12,0 → **14,3** (+2,4, 0,9 à 4,0) ; tient sans chacun des trois juges | GARDÉ |
+| 5 | Restent du jargon, des noms bruts et un geste de trop pour relier | Mots simples, noms de fichiers lisibles, « Relier un téléphone » en tête des réglages (`d7ab8f4`) | banc v4 face à la même base : ordinateur **16,7** (90 % : 14,9 à 17,8), téléphone **15,5** (14,2 à 16,8) ; sans chacun des juges : 16,4 à 17,1 et 15,3 à 15,9. Gain sur le tour 4 lu entre deux passages de juges, donc non apparié : environ +0,8 et +1,2 | GARDÉ |
+| 6 | Le choix du modèle est coupé sur téléphone, l'en-tête a des icônes sans mot | Réflexion avant la liste, liste à la hauteur de l'écran, bouton panneau retiré du téléphone (le nom l'ouvre), « Surveiller un changement » | vu en image, pas encore noté par les juges | à mesurer |
+
+**Évaluation corrigée deux fois** (versions dans [facilite.md](facilite.md)) : la v1 mesurait l'état modifié sur le serveur de dev, qui se faisait refuser les écritures ; la v2 ne voyait pas les chargements à icône ; le banc choisissait parfois un bouton hors de l'écran. Chaque correction a été rejouée sur la base.
+
+**Ce qui n'est pas vérifié :** lot réservé absent (les huit actions servent à la fois à optimiser et à juger : risque de sur-apprentissage) ; envoyer un message, arrêter un travail et programmer à la voix non mesurés ; mesure faite sur l'adresse locale en HTTP (pas de QR pour relier un téléphone) ; aucun verdict humain à l'aveugle sur ces captures.

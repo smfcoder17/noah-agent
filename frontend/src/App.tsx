@@ -563,7 +563,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
               <Bug />
             </Button>
             {agent && (
-              <Button variant={panel && panel !== "computer" ? "outline" : "ghost"} size="sm" onClick={() => setPanel(panel && panel !== "computer" ? null : "activity")} aria-pressed={!!panel && panel !== "computer"}>
+              <Button variant={panel && panel !== "computer" ? "outline" : "ghost"} size="sm" className="max-sm:hidden" onClick={() => setPanel(panel && panel !== "computer" ? null : "activity")} aria-pressed={!!panel && panel !== "computer"}>
                 <PanelRight aria-label="Agent" /><span className="hidden sm:inline">Agent</span>
               </Button>
             )}

@@ -1513,7 +1513,7 @@ export function Watches({ agentId }: { agentId: string }) {
   };
 
   return (
-    <Section title="Veilles et routines à condition" count={list.length} defaultOpen>
+    <Section title="Surveiller un changement" count={list.length} defaultOpen>
       {data && !list.length && !adding && (
         <p className="text-sm text-muted-foreground">
           Surveille une page, un flux, tes courriels ou ton agenda sans faire travailler l'agent. Rien de nouveau : rien ne coûte.

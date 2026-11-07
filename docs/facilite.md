@@ -41,3 +41,9 @@ Le verdict de la personne passe avant les juges : s'il les contredit, la note a 
 ## Base
 
 Banc v1, juges Sonnet et Kimi, état avant les changements du 7 novembre : **12,9/20 sur ordinateur** (90 % : 11,1 à 14,9) et **12,2/20 sur téléphone** (10,7 à 13,9). Ce qui coûte le plus, selon les juges : relier un téléphone (jargon HTTPS et Tailscale, pas de QR), le modèle affiché par son identifiant technique sans sélecteur visible, les fichiers cachés sous Ordinateur, les onglets du panneau coupés sur téléphone, les routines longues à charger.
+
+## Palier du 7 novembre
+
+Banc v3, mêmes trois juges, état au commit `d7ab8f4` face à la base : **16,7/20 sur ordinateur** (90 % : 14,9 à 17,8) et **15,5/20 sur téléphone** (14,2 à 16,8). Le gain tient sans chacun des juges.
+
+Ce qui manque pour 18 : relier un téléphone (sans QR tant que l'adresse est en HTTP ; le banc tourne en local), créer un agent et connecter un outil en un geste de trop sur téléphone, aucune confirmation visible après « Créer l'agent » ou « Connecter » (le banc ne les joue pas), noms de modèles obscurs. Pas de lot réservé : à construire avant de déclarer l'objectif atteint.

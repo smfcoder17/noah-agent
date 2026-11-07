@@ -68,7 +68,7 @@ export function ModelSearch({ level, selected, onPick }: { level: Level; selecte
         <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input type="search" className="h-9 pl-9" placeholder={`Rechercher parmi ${models.length} modèles`} value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Rechercher un modèle" />
       </div>
-      <div role="radiogroup" aria-label="Modèles" className="flex max-h-64 flex-col overflow-y-auto">
+      <div role="radiogroup" aria-label="Modèles" className="flex max-h-64 flex-col overflow-y-auto max-md:max-h-[55dvh]">
         {list.map((m) => <ModelRow key={`${m.fournisseur}:${m.id}`} m={m} selected={selected === m.id} onPick={() => onPick(m)} />)}
         {!list.length && <p className="p-3 text-sm text-muted-foreground">Aucun modèle ne correspond.</p>}
       </div>

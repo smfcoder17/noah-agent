@@ -68,7 +68,6 @@ export function AgentBrain({ agentId, own, mode, reasoning, onChanged, openKey =
               <Button key={id} variant={mode === id ? "default" : "outline"} size="sm" disabled={busy || !usable(id)} onClick={() => pick({ mode: id })}>{MODE_NAMES[id]}</Button>
             ))}
           </div>
-          <ModelSearch level="cerveau" selected={!mode ? own : null} onPick={(m) => pick({ model: m.id })} />
           <label className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             Réflexion
             <select
@@ -81,6 +80,7 @@ export function AgentBrain({ agentId, own, mode, reasoning, onChanged, openKey =
               {REASONING.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
           </label>
+          <ModelSearch level="cerveau" selected={!mode ? own : null} onPick={(m) => pick({ model: m.id })} />
           {busy && <p className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" />Un instant…</p>}
           <ErrorText>{error}</ErrorText>
         </div>
