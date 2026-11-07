@@ -153,7 +153,7 @@ coffre.task_state = task_state
 apprentissage.setup(task_state=task_state, save=lambda conv, role, text: _save_message(conv, role, text))
 
 # Version du branchement des agents ; l'augmenter reconfigure tous les agents au démarrage.
-AGENT_SETUP_VERSION = "39-modes"  # 37 : plus de récit dans la réponse, réponses à toucher, réactions, publier partout, un fichier à la fois ; le réveil du navigateur ne bloque plus l'outil, l'heure de l'agent est celle de la personne ; 34 : joindre un fichier à une page, publier ce qui est prévu ; 33 : va au bout, cookies, tâche unique, plus de connexions par un tiers ; 31 : l'agent lit et change ses réglages non sensibles à condition, mémoire jugée, l'agent n'appelle plus de lui-même ; 29 : message sans rapport et contexte borné ; 28 : garde des profils de partage (G12.5) ; 27 : navigateur ; 26 : navigateur au premier usage
+AGENT_SETUP_VERSION = "40-juge-coffre-apprentissage"  # 40 : juge, coffre, apprentissage, reçu, connecteurs ; 37 : plus de récit dans la réponse, réponses à toucher, réactions, publier partout, un fichier à la fois ; le réveil du navigateur ne bloque plus l'outil, l'heure de l'agent est celle de la personne ; 34 : joindre un fichier à une page, publier ce qui est prévu ; 33 : va au bout, cookies, tâche unique, plus de connexions par un tiers ; 31 : l'agent lit et change ses réglages non sensibles à condition, mémoire jugée, l'agent n'appelle plus de lui-même ; 29 : message sans rapport et contexte borné ; 28 : garde des profils de partage (G12.5) ; 27 : navigateur ; 26 : navigateur au premier usage
 
 
 @app.on_event("startup")
