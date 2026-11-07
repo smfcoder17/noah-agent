@@ -312,3 +312,27 @@ Ensuite : C17 (heures calmes) et C14 (portée de l'accord). C7, C9 et C10 ont sa
 - **Non lus :** [ai.meta.com/muse](https://ai.meta.com/muse/) n'a rendu qu'un titre, [chatgpt.com/features/dots](https://chatgpt.com/features/dots/) un refus 403.
 - **État de Noah :** lu dans le code, sans lancer de service. Une absence veut dire « je ne l'ai pas trouvée » dans ce que j'ai lu : `Voice.tsx`, `Call.tsx`, `Thread.tsx`, quelques autres composants et des recherches par mots. Une revue du code pourra corriger un état.
 - **Pas de classement :** cette grille ne dit pas que Noah dépasse une référence, y compris sur C16.
+
+
+## Comparaison indépendante du 7 novembre, version v0.1.3
+
+Faite par un agent qui n'a écrit aucun code ici, sur la documentation publique et ce relevé. Aucun compte chez ces services, aucun essai côte à côte : c'est une lecture, pas une mesure. Plusieurs lignes reprennent ce relevé sans relire le code, et l'agent n'a pas ouvert le dossier `tests/`.
+
+**Verdict : Noah ne peut pas être déclaré au niveau des références aujourd'hui.** Aucun comportement n'a de preuve en conditions réelles.
+
+| Classement | Nombre | Comportements |
+|---|---|---|
+| Au niveau | 0 | |
+| Fait, non prouvé | 7 | C5, C6, C8, C13, C16, C18, C19 |
+| En dessous | 12 | C1, C2, C3, C4, C9, C10, C11, C12, C14, C15, C17, C20 |
+| Absent | 1 | C7 |
+
+Les écarts qui coûtent le plus à quelqu'un qui hésite :
+
+1. **C10.** Une correction ne réoriente pas un travail lancé : on patiente ou on arrête.
+2. **C9.** « Où ça en est » n'a de réponse qu'à la fin du travail.
+3. **C7.** Silence pendant une longue tâche en appel.
+4. **C12.** La carte d'accord n'a pas de champ de cible ni de montant.
+5. **C14.** Pas de portée « une fois, toujours, par site ».
+
+Correction de ce relevé : C2 dit qu'il n'y a pas de coupure du micro. Elle existe (`frontend/src/components/Voice.tsx`, `onMute`). C2 reste en dessous : ni vitesse, ni langue, ni transcription pendant l'appel.
