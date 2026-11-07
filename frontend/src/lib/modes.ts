@@ -92,3 +92,23 @@ export function scheduleLabel(raw: string): string {
   if (dow === "*" && whole.test(dom)) return `Le ${dom === "1" ? "1er" : Number(dom)} de chaque mois à ${h}`;
   return raw;
 }
+
+const BRANDS: Record<string, string> = {
+  deepseek: "DeepSeek", gpt: "GPT", openai: "OpenAI", claude: "Claude", gemini: "Gemini", gemma: "Gemma", llama: "Llama", qwen: "Qwen", glm: "GLM",
+  kimi: "Kimi", mistral: "Mistral", grok: "Grok", oss: "OSS", minimax: "MiniMax", sonnet: "Sonnet", opus: "Opus", haiku: "Haiku", nemotron: "Nemotron",
+};
+
+/** Un identifiant de modèle (« fournisseur/nom-version-date ») dit comme un nom ; un nom déjà lisible reste tel quel. */
+export function readableModel(id: string | null | undefined): string {
+  const raw = (id ?? "").trim();
+  if (!raw || /\s/.test(raw) || !/[/:_-]/.test(raw)) return raw;
+  const free = /:free$/i.test(raw);
+  const words = (raw.split("/").pop() ?? raw).replace(/:.*$/, "").split(/[-_]/).filter((w) => w && !/^\d{4,}$/.test(w));
+  const out: string[] = [];
+  for (const w of words) {
+    const prev = out[out.length - 1];
+    if (/^\d$/.test(w) && prev && /\d$/.test(prev)) out[out.length - 1] = prev + "." + w; // « 5-1 » se lit « 5.1 »
+    else out.push(BRANDS[w.toLowerCase()] ?? (/^v?\d/i.test(w) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1)));
+  }
+  return out.join(" ") + (free ? " (gratuit)" : "");
+}

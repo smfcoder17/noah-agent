@@ -496,10 +496,14 @@ function Shell({ onLogout }: { onLogout: () => void }) {
               <Button variant="ghost" size="icon-sm" onClick={() => setThreadId(null)} aria-label={`Revenir à la conversation avec ${agent?.name}`}>
                 <ArrowLeft />
               </Button>
-            ) : (
-              agent && <button type="button" className="cursor-pointer rounded-full" onClick={() => setPanel("activity")} aria-label={`Ouvrir le panneau de ${agent.name}`}><AgentFace agent={agent} className="size-9" /></button>
-            )}
-            <div className="min-w-0 flex-1">
+            ) : null}
+            {/* Le visage et le nom ouvrent la fiche de l'agent, comme chez Grok Bot et Muse : c'est là qu'on le cherche. */}
+            <div
+              className={cn("min-w-0 flex-1", agent && !thread && "-my-1 -ml-1 flex cursor-pointer items-center gap-2.5 rounded-xl py-1 pl-1 hover:bg-muted/60")}
+              {...(agent && !thread ? { role: "button", tabIndex: 0, "aria-label": `Ouvrir le panneau de ${agent.name}`, onClick: () => setPanel("activity"), onKeyDown: (e: React.KeyboardEvent) => (e.key === "Enter" || e.key === " ") && setPanel("activity") } : {})}
+            >
+              {agent && !thread && <AgentFace agent={agent} className="size-9 shrink-0" />}
+              <div className="min-w-0 flex-1">
               <p className="truncate font-semibold">{thread ? thread.title : agent?.name ?? "Aucun agent"}</p>
               <p className="truncate text-xs text-muted-foreground">
                 {!agent
@@ -510,6 +514,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
                       : `Fil de ${agent.name}${thread.archived ? " · archivé" : ""}`
                     : agent.step || liveStatus || (agent.online ? "En ligne" : "Sa machine ne répond pas")}
               </p>
+              </div>
             </div>
             {agent && !thread && <AgentMenu agent={agent} onOpen={setPanel} onEdit={() => setAgentDialog({ open: true, agent })} />}
             {agent && !agent.online && !agent.step && canAdmin(agent) && (

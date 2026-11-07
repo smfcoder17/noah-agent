@@ -229,14 +229,13 @@ export function PhonePairing() {
                 <p className="break-all font-mono text-xs">{pairing.serveur}</p>
               </>
             ) : (
-              <p className="text-xs text-muted-foreground">Code à saisir dans l'app, avec l'adresse HTTPS de ton Noah :</p>
+              <p className="text-xs text-muted-foreground">Code à saisir dans l'app :</p>
             )}
             <p className="font-mono text-2xl font-semibold tracking-widest">{pairing.code}</p>
             {!secure && (
               <p className="rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn">
-                Cette page n'est pas en HTTPS : un téléphone ne peut pas s'en servir. Donne à Noah une adresse HTTPS, avec
-                Tailscale (<code>tailscale serve 8080</code>) ou un VPS, ouvre-la ici, puis affiche le code depuis cette
-                adresse-là.
+                Ton téléphone ne peut se relier qu'à une adresse sécurisée (qui commence par https). Ouvre Noah depuis cette
+                adresse-là, celle de ton serveur, et reviens ici : le QR code s'affichera.
               </p>
             )}
             <Button variant="outline" size="sm" className="self-start" onClick={create} disabled={busy}>Nouveau code</Button>

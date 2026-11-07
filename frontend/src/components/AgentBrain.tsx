@@ -3,13 +3,13 @@
 import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { type CurrentModel, get, send } from "@/lib/api";
-import { MODE_NAMES, type ModeId, type ModesState, REASONING } from "@/lib/modes";
+import { MODE_NAMES, type ModeId, type ModesState, readableModel, REASONING } from "@/lib/modes";
 import { ModelSearch } from "./Modes";
 import { Button, ErrorText } from "./ui";
 
 const AGENT_MODES: ModeId[] = ["fast", "balanced", "smart", "gratuit", "custom"];
 
-export function AgentBrain({ agentId, own, mode, reasoning, onChanged }: { agentId: string; own: string | null | undefined; mode?: string | null; reasoning?: string | null; onChanged: () => void }) {
+export function AgentBrain({ agentId, own, mode, reasoning, onChanged, openKey = 0 }: { agentId: string; own: string | null | undefined; mode?: string | null; reasoning?: string | null; onChanged: () => void; openKey?: number }) {
   const [base, setBase] = useState<CurrentModel>(null);
   const [state, setState] = useState<ModesState | null>(null);
   const [open, setOpen] = useState(false);
@@ -19,6 +19,9 @@ export function AgentBrain({ agentId, own, mode, reasoning, onChanged }: { agent
   useEffect(() => {
     get<CurrentModel>("/api/model").then(setBase).catch(() => {});
   }, []);
+  useEffect(() => {
+    if (openKey) setOpen(true); // la carte « Modèle » du résumé ouvre directement le choix
+  }, [openKey]);
   useEffect(() => {
     if (open && !state) get<ModesState>("/api/modes/cerveau").then(setState).catch((e) => setError((e as Error).message));
   }, [open, state]);
@@ -51,8 +54,8 @@ export function AgentBrain({ agentId, own, mode, reasoning, onChanged }: { agent
   return (
     <div className="flex flex-col gap-2 text-sm">
       <div className="flex items-center gap-2">
-        <span className="text-muted-foreground">Cerveau :</span>
-        <span className="min-w-0 flex-1 truncate font-mono text-[13px]" title={current}>{mode ? MODE_NAMES[mode as ModeId] ?? mode : current}</span>
+        <span className="text-muted-foreground">Modèle :</span>
+        <span className="min-w-0 flex-1 truncate font-medium" title={current}>{mode ? MODE_NAMES[mode as ModeId] ?? mode : readableModel(current)}</span>
         {!own && !mode && base && <span className="text-xs text-muted-foreground">(celui de tous)</span>}
         <Button variant="ghost" size="sm" onClick={() => setOpen(!open)} aria-expanded={open}>{open ? "Fermer" : "Changer"}</Button>
       </div>

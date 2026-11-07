@@ -1,5 +1,5 @@
 // Panneau de l'agent : ce qu'il fait, à quoi il a accès, son ordinateur, ses routines, sa mémoire.
-import { Archive, ArchiveRestore, ChevronDown, ChevronRight, ExternalLink, Hand, Loader2, LogIn, MonitorPlay, Pencil, Power, RefreshCw, Sunrise, Users, X } from "lucide-react";
+import { Archive, ArchiveRestore, Brain, ChevronDown, ChevronRight, Clock, ExternalLink, FolderOpen, Hand, History, Loader2, LogIn, Monitor, MonitorPlay, Pencil, Plug, Power, RefreshCw, Sparkles, Sunrise, Users, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type Agent, canAdmin, canTalk, type Conversation, get, send, type Usage } from "@/lib/api";
 import { wireClipboard } from "@/lib/vncClipboard";
@@ -17,7 +17,7 @@ import { ShareDialog } from "./Sharing";
 import { STATE_WORD, StateShape } from "./Sidebar";
 import { Button, Dialog, DialogContent, Tabs, TabsContent, TabsList, TabsTrigger } from "./ui";
 
-export type PanelTab = "activity" | "connections" | "competences" | "computer" | "routines" | "memory";
+export type PanelTab = "activity" | "files" | "connections" | "competences" | "computer" | "routines" | "memory";
 
 export function SidePanel({
   agent,
@@ -62,13 +62,18 @@ export function SidePanel({
   return (
     <Tabs value={tab} onValueChange={(v) => onTab(v as PanelTab)} className="flex h-full min-h-0 flex-col gap-3 p-3 pt-[max(12px,env(safe-area-inset-top))]">
       <div className="flex items-center justify-between gap-2">
-        <TabsList className="max-w-full overflow-x-auto max-sm:[&>button]:px-1.5 max-sm:[&>button]:text-xs">
-          <TabsTrigger value="activity">Activité</TabsTrigger>
-          {admin && <TabsTrigger value="connections">Connexions</TabsTrigger>}
-          {admin && <TabsTrigger value="competences">Compétences</TabsTrigger>}
-          {canTalk(agent) && <TabsTrigger value="computer">Ordinateur</TabsTrigger>}
-          {admin && <TabsTrigger value="routines">Routines</TabsTrigger>}
-          {admin && <TabsTrigger value="memory">Mémoire</TabsTrigger>}
+        <TabsList className="max-w-full overflow-x-auto max-sm:grid max-sm:flex-1 max-sm:auto-cols-fr max-sm:grid-flow-col max-sm:overflow-visible max-sm:[&>button]:flex max-sm:[&>button]:flex-col max-sm:[&>button]:items-center max-sm:[&>button]:gap-0.5 max-sm:[&>button]:px-0.5 max-sm:[&>button]:text-[10.5px] [&_svg]:size-4 sm:[&_svg]:hidden">
+          {([
+            ["activity", "Activité", History, true],
+            ["files", "Fichiers", FolderOpen, canTalk(agent)],
+            ["routines", "Routines", Clock, admin],
+            ["connections", "Connexions", Plug, admin],
+            ["competences", "Compétences", Sparkles, admin],
+            ["computer", "Ordinateur", Monitor, canTalk(agent)],
+            ["memory", "Mémoire", Brain, admin],
+          ] as const).filter((t) => t[3]).map(([value, label, Icon]) => (
+            <TabsTrigger key={value} value={value} aria-label={label}><Icon aria-hidden /><span className="max-sm:max-w-full max-sm:truncate">{label}</span></TabsTrigger>
+          ))}
         </TabsList>
         <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Fermer le panneau"><X /></Button>
       </div>
@@ -83,6 +88,9 @@ export function SidePanel({
             <input type="checkbox" checked={technical} onChange={(e) => onTechnical(e.target.checked)} className="size-5 accent-[var(--accent)]" />
           </label>
         </Details>
+      </TabsContent>
+      <TabsContent value="files" className="min-h-0 flex-1 overflow-y-auto">
+        {tab === "files" && <Files key={agent.id} agentId={agent.id} refreshKey={refreshKey} canDelete={admin} onGiven={() => window.matchMedia("(max-width: 767px)").matches && onClose()} />}
       </TabsContent>
       <TabsContent value="connections" className="min-h-0 flex-1 overflow-y-auto px-1">
         {admin && <Connections agentId={agent.id} shared={agent.partage || !!agent.partage_par} owner={agent.droit === "proprietaire"} />}
@@ -239,6 +247,7 @@ function Details({ agent, onEdit, refreshKey, onAgentChanged, onTab, onGoals, ch
   const [sharing, setSharing] = useState(false);
   const [spendingOpen, setSpendingOpen] = useState(false);
   const brainBox = useRef<HTMLDivElement>(null);
+  const [brainOpen, setBrainOpen] = useState(0);
   const spendingBox = useRef<HTMLDivElement>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
   useEffect(() => {
@@ -263,7 +272,7 @@ function Details({ agent, onEdit, refreshKey, onAgentChanged, onTab, onGoals, ch
       {agent.role && <p className="text-sm whitespace-pre-wrap text-muted-foreground">{agent.role}</p>}
       <ShareDialog agent={agent} open={sharing} onOpenChange={setSharing} onChanged={onAgentChanged} />
       <AgentOverview agent={agent} refreshKey={refreshKey} spent={`${money(mine?.cost ?? 0)} $`} onTab={onTab} onEdit={onEdit} onGoals={onGoals}
-        onBrain={() => brainBox.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+        onBrain={() => { setBrainOpen((n) => n + 1); setTimeout(() => brainBox.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); }}
         onSpending={() => { setSpendingOpen(true); requestAnimationFrame(() => spendingBox.current?.scrollIntoView({ behavior: "smooth", block: "start" })); }} />
       {children}
       <div ref={spendingBox}>
@@ -277,7 +286,7 @@ function Details({ agent, onEdit, refreshKey, onAgentChanged, onTab, onGoals, ch
       {usage && <Spending usage={usage} agentId={agent.id} />}
       </Section>
       </div>
-      {canAdmin(agent) && <div ref={brainBox}><AgentBrain key={`cerveau-${agent.id}`} agentId={agent.id} own={agent.model} mode={agent.mode} reasoning={agent.raisonnement} onChanged={onAgentChanged} /></div>}
+      {canAdmin(agent) && <div ref={brainBox}><AgentBrain key={`cerveau-${agent.id}`} agentId={agent.id} own={agent.model} mode={agent.mode} reasoning={agent.raisonnement} onChanged={onAgentChanged} openKey={brainOpen} /></div>}
       {canAdmin(agent) && <AgentAppearance key={`visage-${agent.id}`} agent={agent} onChanged={onAgentChanged} />}
     </div>
   );

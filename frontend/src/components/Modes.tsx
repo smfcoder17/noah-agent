@@ -3,7 +3,7 @@
 import { ArrowDown, ArrowUp, Check, Eye, GripVertical, Loader2, Plus, Search, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { get, type Model, send } from "@/lib/api";
-import { type Level, type ListedModel, type ModeId, type ModeLink, type ModesState, TIERS } from "@/lib/modes";
+import { type Level, type ListedModel, type ModeId, type ModeLink, type ModesState, TIERS, readableModel } from "@/lib/modes";
 import { cn, contextSize, money } from "@/lib/utils";
 import { ProviderLogo } from "./ProviderLogo";
 import { Button, ErrorText, Input } from "./ui";
@@ -20,7 +20,7 @@ export const costLabel = (m: Priced) => {
   if (c == null) return "Prix inconnu";
   return c < 0.01 ? "moins d'1 centime par tâche" : `≈ ${money(c)} $ par tâche`;
 };
-export const shortName = (name: string) => name.replace(/^[^:]+:\s*/, "");
+export const shortName = (name: string) => readableModel(name.replace(/^[^:]+:\s*/, ""));
 
 export function ModelRow({ m, selected, onPick }: { m: Pick<Model, "id" | "name" | "vision" | "context"> & Priced; selected: boolean; onPick: () => void }) {
   return (
