@@ -164,6 +164,8 @@ async def agent_demand(body: Demand, request: Request):
     consigne = body.consigne.strip()
     if not consigne:
         raise HTTPException(400, "Consigne vide.")
+    from . import proactif  # à la demande : proactif lit ce module
+    proactif.no_new_work(me)
     # L'agent n'en sait pas plus sur la personne que son droit : une tâche lancée en partage ne passe pas par ses collègues,
     # qui n'ont pas été partagés et tiennent les comptes de leur propriétaire.
     if access.guest_task(me):

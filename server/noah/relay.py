@@ -565,7 +565,7 @@ async def relay(path: str, request: Request):
         head = b""
         if not last:
             try:
-                while not any(x.startswith(b"data:") for x in head.split(b"\n")):
+                while not any(x.startswith(b"data:") for x in head.split(b"\n")[:-1]):  # une ligne entière : une erreur peut arriver en deux morceaux
                     head += await chunks.__anext__()
             except StopAsyncIteration:
                 pass

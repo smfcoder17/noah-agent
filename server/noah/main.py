@@ -4041,6 +4041,7 @@ async def agent_thread(body: ThreadBody, request: Request):
     agent_id = relay._agent_from(request)
     if access.ambiguous(agent_id):
         raise HTTPException(409, "Plusieurs personnes te parlent en ce moment : fais ce travail dans ta conversation, sans ouvrir de fil.")
+    proactif.no_new_work(agent_id)
     who = access.launcher(agent_id)
     conv_id = _new_conversation(who, agent_id, body.titre, origin="agent")
     stream = await _run(_agent(agent_id), conv_id, body.consigne)

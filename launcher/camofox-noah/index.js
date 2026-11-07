@@ -331,6 +331,15 @@ function loginForm({ origine, action, identifiant, motDePasse, code }) {
   }
   // Un formulaire en GET mettrait le mot de passe dans l'adresse, que l'agent lit.
   if (password && password.form?.getAttribute("method")?.toLowerCase() === "get") return { refus: "get" };
+  // Sans attribut, la plupart des sites envoient par leur propre script. Si aucun script ne s'en charge, le navigateur partirait en GET : on l'arrête là.
+  if (password?.form) {
+    const form = password.form;
+    window.addEventListener("submit", (e) => {
+      if (e.target !== form || e.defaultPrevented || (e.submitter?.formMethod || form.method).toLowerCase() !== "get") return;
+      e.preventDefault();
+      password.value = "";
+    });
+  }
   const rempli = [];
   if (code) {
     if (codeField) write(codeField, code);
@@ -503,9 +512,7 @@ export default function register(app, ctx) {
       return req.path === "/noah/fichier" ? receiveFile(req, res) : attachFiles(req, res, ctx);
     }
     if (req.method === "POST" && req.path === "/noah/prive") {
-      if (!process.env.NOAH_PRIVATE_KEY || req.headers.authorization !== `Bearer ${process.env.NOAH_PRIVATE_KEY}`) {
-        return res.status(403).json({ error: "Forbidden" });
-      }
+      if (!serverKeyGiven(req)) return res.status(403).json({ error: "Forbidden" });
       const seconds = Math.max(0, Math.min(Number(req.query.secondes) || 0, 3 * 3600));
       privateUntil = seconds ? Date.now() + seconds * 1000 : 0;
       try {

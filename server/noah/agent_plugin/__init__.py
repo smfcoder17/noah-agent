@@ -646,7 +646,7 @@ REFUSED_CONFIG = "la configuration et les protections de l'agent ne se modifient
 # Ce qui n'agit sur rien dehors. Un brouillon, une recherche, une image à payer : compté ailleurs, pas de risque pour quelqu'un d'autre. Un sous-agent
 # passe : chacun de ses outils repasse ici. Les connexions et le navigateur qui agit n'y sont pas.
 NO_EFFECT = {"read_file", "search_files", "web_search", "web_extract", "x_search", "session_search", "skills_list", "skill_view", "vision_analyze", "video_analyze",
-             "clarify", "todo", "todo_list", "memory", "tool_search", "delegate_task", "image_generate", "video_generate", "text_to_speech",
+             "clarify", "todo", "todo_list", "memory", "tool_search", "tool_describe", "delegate_task", "image_generate", "video_generate", "text_to_speech",
              "browser_snapshot", "browser_scroll", "browser_back", "browser_vision", "browser_get_images", "browser_vault", "a2a_discover", "a2a_list", "a2a_history"}
 PLAIN_READERS = {"ls", "cat", "head", "tail", "less", "more", "grep", "egrep", "fgrep", "rg", "wc", "stat", "file", "du", "df", "pwd", "whoami", "id", "date", "echo",
                  "printf", "which", "type", "uname", "ps", "jq", "sort", "uniq", "cut", "tr", "diff", "tree", "basename", "dirname", "realpath", "readlink", "sleep",
@@ -908,6 +908,9 @@ def _in_workspace(path: str) -> bool:
     return full == WORKSPACE or full.startswith(WORKSPACE + "/") or full.startswith("/tmp/")
 
 
+RISKY_LESSON = re.compile(r"secret|mot de passe|password|passwd|token|jeton|cl[ée]s?|api[_ -]?key|curl|wget|https?://|envoie|envoyer|send|ignore", re.I)
+
+
 def no_effect(tool_name: str, args: dict | None) -> bool:
     """Sans effet dehors, d'après les règles seules : aucun appel au juge."""
     args = args if isinstance(args, dict) else {}
@@ -918,6 +921,9 @@ def no_effect(tool_name: str, args: dict | None) -> bool:
         return len(url.split("?", 1)[1]) <= 200 if "?" in url else True  # une adresse sert aussi à emporter des données
     if tool_name == "browser_press":
         return str(args.get("key") or "").lower() not in ("enter", "return")
+    if tool_name == "skill_manage":  # sa façon de travailler, gardée pour lui : le juge ne regarde que ce qui ressemble à une consigne dangereuse
+        text = json.dumps(args, ensure_ascii=False, default=str)
+        return ("content" in args or "operations" in args) and not RISKY_LESSON.search(text) and not signs_in(text)[0]
     if tool_name in ("write_file", "patch"):
         targets = _file_targets(tool_name, args)
         return bool(targets) and all(_in_workspace(t) for t in targets)
@@ -1150,8 +1156,9 @@ def _pre_tool_call(tool_name: str = "", args: dict | None = None, **hook) -> dic
     directive = _guard_tool(tool_name, args, **hook)
     if directive and directive.get("action") == "block":
         return directive
-    if reviewing:  # personne n'est là pour un accord, et elle n'a reçu que les mots de la personne : ni juge, ni carte
-        return directive
+    if reviewing:  # personne n'est là pour un accord, et elle n'a reçu que les mots de la personne : ni juge, ni carte. Les refus nets, eux, restent.
+        refused = refused_outright(tool_name, args if isinstance(args, dict) else {})
+        return {"action": "block", "message": f"Noah refuse : {refused}"} if refused else directive
     return check_juge(tool_name, args if isinstance(args, dict) else {}, directive, hook)
 
 

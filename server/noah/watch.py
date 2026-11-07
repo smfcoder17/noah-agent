@@ -331,6 +331,11 @@ def _picked(items: list[dict], numbers) -> list[str]:
 
 # --- Passage ---------------------------------------------------------------------------------
 
+def _outside(text: str) -> str:
+    """Ce qui vient de dehors ne ferme pas la balise qui l'entoure."""
+    return str(text or "").replace("<", "‹")
+
+
 WAKES_PER_DAY = 12  # un expéditeur inconnu ne fait pas tourner le cerveau sans fin ; au-delà, le résumé suffit
 WAKE = """Routine « {name} ». La condition « {criteria} » est remplie : Noah Agent l'a vérifié pour toi, tu n'as pas à relever la source.
 Fais maintenant ce que l'utilisateur a demandé pour ce cas : {instruction}
@@ -376,9 +381,9 @@ def _wake(w: dict, alert: dict, new: list[dict], now: float, save_message, main_
                   "wakes_today = CASE WHEN wakes_day = ? THEN wakes_today + 1 ELSE 1 END, wakes_day = ? WHERE id = ?",
                   (now, now, day, day, wid))
     kept = alert.get("retenues") or new[:5]
-    items = "\n".join("- " + " — ".join(x for x in (it["titre"], it["texte"][:600], it["lien"]) if x) for it in kept)
+    items = "\n".join("- " + " — ".join(_outside(x) for x in (it["titre"], it["texte"][:600], it["lien"]) if x) for it in kept)
     prompt = WAKE.format(name=w["name"], criteria=w["criteria"] or "toute nouveauté", instruction=w["instruction"], url=w["url"],
-                         resume=alert["resume"], items=items)
+                         resume=_outside(alert["resume"]), items=items)
 
     async def work():
         title = f"Routine « {w['name']} »"

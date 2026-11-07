@@ -238,6 +238,14 @@ agent_gets(ask_id)
 value = evaluate("location.href + '|' + document.querySelector('input[type=password]').value")
 check("et rien n'y est écrit", MOT_DE_PASSE not in str(value), value)
 
+go(SITE + "/sans")
+ask_id = agent_asks(conv=conv3)["attente"]
+person_answers(ask_id)
+agent_gets(ask_id)
+value = evaluate("location.href")
+check("formulaire sans attribut ni script : le mot de passe ne part pas dans l'adresse", MOT_DE_PASSE not in str(value), value)
+forget_all()
+
 # La page change de site après que la carte est ouverte : un agent piégé, ou une redirection.
 before = len(received())
 go(SITE + "/login")

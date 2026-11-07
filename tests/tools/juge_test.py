@@ -361,6 +361,10 @@ def proactive_turn(mode):
 with open(os.environ.get("NOAH_MCP_DROITS", "/tmp/droits-juge.json"), "w") as f:
     json.dump({"outil-agir": "agir", "outil-confirme": "confirmer"}, f)
 garde.MCP_RIGHTS = "/tmp/droits-juge.json"
+with db.connect() as c:  # le serveur lit le droit dans sa base : ce fichier est celui de la machine de l'agent
+    c.execute("INSERT INTO mcp_tools (agent_id, nom, auth, droit) VALUES ('a1', 'outil-agir', 'catalogue', 'agir'), ('a1', 'outil-confirme', 'catalogue', 'confirmer')")
+assert juge._real_right("a1", "mcp__outil_agir__send_email") == "agir" and juge._real_right("a1", "mcp__autre__send_email") is None, "un droit annoncé par la machine ne vaut rien"
+print("un droit annoncé par la machine de l'agent ne compte pas : le serveur lit le sien")
 report = proactive_turn("signaler")
 for tool, args in (("mcp__outil_agir__send_email", {"to": "a@b.c"}), ("mcp__outil_confirme__create_page", {}), ("browser_type", {"ref": "e1", "text": "x"}), ("browser_click", {"ref": "e1"}), ("browser_press", {"key": "Enter"}),
                    ("send_message", {"text": "x"}), ("write_file", {"path": "/etc/motd", "content": "x"})):

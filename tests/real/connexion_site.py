@@ -28,7 +28,9 @@ CASES = """<!doctype html><meta charset=utf-8><form id=f onsubmit="event.prevent
 <input maxlength=1><input maxlength=1><input maxlength=1><input maxlength=1><input maxlength=1><input maxlength=1><button type=submit>Valider</button></form>"""
 GET = """<!doctype html><meta charset=utf-8><form method=get action=/session><input name=u autocomplete=username><input name=p type=password><button>Go</button></form>"""
 CACHE = """<!doctype html><meta charset=utf-8><form method=post action=/session><input name=username autocomplete=username><input name=password type=password><input type=password name=leurre style="display:none" value="leurre"><button>Go</button></form>"""
-PAGES = {"/login": FORM, "/actif": ACTIF, "/refus": REFUS, "/deux": DEUX, "/code": CODE, "/cases": CASES, "/get": GET, "/cache": CACHE}
+# Sans attribut method ni script : le navigateur partirait en GET, avec le mot de passe dans l'adresse.
+SANS = GET.replace(" method=get", "")
+PAGES = {"/sans": SANS, "/login": FORM, "/actif": ACTIF, "/refus": REFUS, "/deux": DEUX, "/code": CODE, "/cases": CASES, "/get": GET, "/cache": CACHE}
 
 
 class H(http.server.BaseHTTPRequestHandler):

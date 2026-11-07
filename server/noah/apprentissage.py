@@ -270,4 +270,10 @@ def refusal(agent_id: str, session: str) -> str | None:
 @router.post("/agent-api/juge/apprendre")
 async def may_learn(body: MayLearn, request: Request):
     """Appelé par la garde avant d'écrire une note ou un skill. Elle laisse passer si Noah ne répond pas : une panne ne bloque rien."""
-    return {"refus": refusal(relay._agent_from(request), body.session)}
+    agent_id = relay._agent_from(request)
+    reason = refusal(agent_id, body.session)
+    if not reason and not body.session.startswith(REVIEW_SESSION):  # une routine, un sous-agent : son tour aussi peut être durci
+        turn = await juge._read_turn(agent_id, juge.Call(outil="memory", session=body.session), for_key_only=True)
+        if juge._is_hardened(agent_id, turn):
+            reason = "ce tour a lu un contenu de dehors qui donne des consignes."
+    return {"refus": reason}

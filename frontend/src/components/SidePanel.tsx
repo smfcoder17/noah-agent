@@ -497,7 +497,7 @@ function Computer({ agentId }: { agentId: string }) {
   );
   useEffect(() => {
     poll();
-    const t = setInterval(poll, 3000);
+    const t = setInterval(() => !document.hidden && poll(), 3000);
     return () => clearInterval(t);
   }, [poll]);
 

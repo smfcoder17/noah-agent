@@ -157,6 +157,7 @@ def _family_patterns() -> list[tuple[str, re.Pattern]]:
 
 
 _PATTERNS = _family_patterns()
+_IN_CHAT = re.compile(r"\b(?:voici|voil[àa]|ci-dessous)\b", re.I)  # le résultat est dans la réponse : aucun outil à prouver
 _DONE_WORDS = re.compile(r"\b(?:c'est\s+fait|tout\s+est\s+fait|c'est\s+termin[ée]|all\s+done)\b", re.I)
 _DOUBT_BEFORE = re.compile(r"\b(?:si|s'il|quand|lorsque|d[èe]s\s+que|une\s+fois\s+que|avant\s+que|apr[èe]s\s+que|pour\s+que|if|once|when|dit|dis|[ée]crit|r[ée]pond|indique|annonce|affirme|pr[ée]tend|says?|writes?|wrote|said)\b", re.I)
 _HERE = re.compile(r"\b(?:ci-dessus|ci-dessous|plus\s+haut|plus\s+bas|voici|ici|dans\s+(?:cette\s+conversation|ce\s+message|ce\s+fil)|above|below)\b", re.I)
@@ -227,7 +228,9 @@ def compare(text: str, ledger: Ledger, earlier: set[str] | None = None) -> dict 
     vague = [c for c in calls if c["etat"] != ECHEC and (c["famille"] == GENERIQUE or (c["famille"] != LECTURE and c["etat"] == LANCE))]
     for claim in claims:
         if claim["famille"] == FAIT:
-            if not effects and not earlier:
+            if not effects and earlier:
+                receipt["incertain"].append({"dit": claim["phrase"], "par": "un tour précédent"})
+            elif not effects and not _IN_CHAT.search(claim["phrase"]):
                 receipt["sans_trace"].append(claim["phrase"])
             continue
         wanted = _EVIDENCE[claim["famille"]]
@@ -240,7 +243,7 @@ def compare(text: str, ledger: Ledger, earlier: set[str] | None = None) -> dict 
         elif failed:
             receipt["echec"].append({"dit": claim["phrase"], "par": failed["par"]})
         elif wanted & earlier:
-            receipt["prouve"].append({"dit": claim["phrase"], "par": "un tour précédent"})
+            receipt["incertain"].append({"dit": claim["phrase"], "par": "un tour précédent"})  # même genre d'action, pas forcément la même
         elif claim["passe"]:
             receipt["incertain"].append({"dit": claim["phrase"], "par": "un moment passé"})
         else:

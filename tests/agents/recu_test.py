@@ -115,7 +115,8 @@ got = recu.compare(said, ledger(("browser_click", "tool.completed")))
 assert part(got, "incertain")[0]["par"] == "le navigateur" and not recu.needs_attention(got), "un clic a pu envoyer : non vérifiable, pas de fausse alerte"
 got = recu.compare(said, ledger(("mcp_gmail_send_message", None)))
 assert got.get("incertain") and not got.get("prouve"), f"lancé sans retour n'est pas une preuve : {got}"
-assert part(recu.compare(said, ledger(), {"envoyer"}), "prouve")[0]["par"] == "un tour précédent"
+assert part(recu.compare(said, ledger(), {"envoyer"}), "incertain")[0]["par"] == "un tour précédent"  # même genre d'action, pas forcément la même
+assert not recu.compare(said, ledger(), {"envoyer"}).get("prouve")
 assert "envoyer" not in recu.compare("Hier, j'ai envoyé le courriel.", ledger())["fait"]
 assert part(recu.compare("Hier, j'ai envoyé le courriel.", ledger()), "incertain"), "le passé lointain n'accuse pas"
 print("3. dit et pas fait : aucune trace, échec, refus, non vérifiable, tour précédent")
@@ -124,6 +125,7 @@ assert part(recu.compare("C'est fait !", ledger()), "sans_trace"), "« c'est fai
 assert part(recu.compare("C'est fait !", ledger(("web_search", "tool.completed", {"query": "x"}))), "sans_trace"), "lire n'est pas faire"
 assert not recu.compare("C'est fait !", ledger(("mcp_x_update_item", "tool.completed"))).get("sans_trace")
 assert not (recu.compare("C'est fait !", ledger(), {"creer"}) or {}).get("sans_trace"), "« c'est fait » peut parler du tour d'avant"
+assert not recu.needs_attention(recu.compare("C'est fait, voici la traduction.", ledger())), "le résultat est dans la réponse"
 print("4. « c'est fait » : il faut au moins une action, ici ou juste avant")
 
 got = recu.compare("Voici le résumé de ta journée.", ledger(("mcp_gmail_send_message", "tool.completed")))
@@ -230,7 +232,7 @@ print("10. dit et fait : vérifié, et l'Activité dit « Fait »")
 # Il en reparle au tour suivant : ce qui a été prouvé reste prouvé.
 turn(say("Oui, je l'ai envoyé à Marc."))
 stored = json.loads(last_message()["detail"])["recu"]
-assert part(stored, "prouve")[0]["par"] == "un tour précédent" and not recu.needs_attention(stored), stored
+assert part(stored, "incertain")[0]["par"] == "un tour précédent" and not recu.needs_attention(stored), stored
 print("11. il reparle d'une action prouvée au tour d'avant : pas de fausse alerte")
 
 # Échec.

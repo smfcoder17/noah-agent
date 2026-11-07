@@ -74,7 +74,7 @@ export function ConnectorScope({ agentId, nom, global, onChange }: { agentId: st
   const automatic = Object.values(waiting).includes("auto");
   useEffect(() => { // le fournisseur revient directement sur le serveur : on relit jusqu'à voir l'agent relié
     if (!automatic) return;
-    const again = setInterval(() => void read().catch(() => {}), 4000);
+    const again = setInterval(() => !document.hidden && void read().catch(() => {}), 8000);
     return () => clearInterval(again);
   }, [automatic, read]);
 

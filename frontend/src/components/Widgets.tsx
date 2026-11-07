@@ -187,7 +187,7 @@ function Grid({ spec }: { spec: GridSpec }) {
               {it.subtitle && <span className="text-xs text-muted-foreground tabular-nums">{it.subtitle}</span>}
             </>
           );
-          return it.url ? (
+          return it.url && /^https?:\/\//i.test(it.url) ? (
             <a key={i} href={it.url} target="_blank" rel="noopener noreferrer" className="group flex min-w-0 flex-col gap-1.5 no-underline">
               {body}
             </a>

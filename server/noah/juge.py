@@ -190,8 +190,8 @@ def _goals(agent_id: str) -> list[str]:
 
 def _without_outside_data(text: str) -> tuple[str, str]:
     """(consigne, données de dehors) : un relevé de veille ou de tour est lu par l'agent, jamais par le juge."""
-    data = " ".join(re.findall(r"<releve>(.*?)</releve>", text, re.S))
-    return re.sub(r"<releve>.*?</releve>", "[données de dehors retirées]", text, flags=re.S), data
+    data = " ".join(re.findall(r"<releve>(.*)</releve>", text, re.S))  # jusqu'à la dernière fermeture : une fermeture dans le relevé n'en sort pas
+    return re.sub(r"<releve>.*</releve>", "[données de dehors retirées]", text, flags=re.S), data
 
 
 async def _read_turn(agent_id: str, body: Call, for_key_only: bool = False) -> Turn:
@@ -336,7 +336,18 @@ async def _ask_model(agent_id: str, body: Call, turn: Turn) -> tuple[str, str, s
     return verdict, motif, "modele"
 
 
+def _real_right(agent_id: str, tool: str) -> str | None:
+    """Le droit d'une connexion se lit ici : ce que dit la machine de l'agent ne compte pas."""
+    from . import mcp
+    if tool.startswith("mcp__"):
+        for name, right in mcp._rights(agent_id).items():
+            if tool.startswith(f"mcp__{re.sub(r'[^A-Za-z0-9_]', '_', name)}__"):
+                return right
+    return None
+
+
 async def judge(agent_id: str, body: Call) -> dict:
+    body.droit = _real_right(agent_id, body.outil)
     turn = await _read_turn(agent_id, body)
     if body.durci or turn.hardened:
         _harden(agent_id, turn)

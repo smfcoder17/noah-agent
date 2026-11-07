@@ -7,6 +7,7 @@ Le réglage historique (« model », « media_image »…) reste le modèle en s
 n'est actif que tant que ce réglage vaut ce que le mode y a posé : choisir un modèle précis ailleurs (Réglages, l'agent) le quitte
 sans autre geste.
 """
+import asyncio
 import hashlib
 import json
 import re
@@ -261,9 +262,12 @@ async def agent_chain(agent_id: str) -> list[dict] | None:
     """La chaîne de cet agent ; None : un seul modèle, celui que le relais lit déjà (relay._current_brain)."""
     own = db.get_setting(f"model_mode_{agent_id}")
     mode = own or (None if db.get_setting(f"model_{agent_id}") else active(BRAIN))
-    if mode not in MODES or (mode in TIERS and not own):
+    if mode not in MODES:
         return None
-    return _keep_usable(await links_of(BRAIN, mode)) or None
+    links = _keep_usable(await links_of(BRAIN, mode))
+    if mode in TIERS and not own and all(link.get("fournisseur") in ("", None, db.get_setting("provider")) for link in links):
+        return None  # le fournisseur en service répond déjà : pas de chaîne à monter
+    return links or None
 
 
 async def media_chain(level: str) -> list[str] | None:
@@ -313,7 +317,8 @@ _cooling: dict[tuple[str, str], float] = {}
 def cool(link: dict, status: int = 0, retry_after: str | None = None) -> None:
     seconds: float = COOLDOWN.get(status, COOLDOWN_DEFAULT)
     try:
-        seconds = min(max(float(retry_after), 1), COOLDOWN_MAX) if retry_after else seconds
+        asked = float(retry_after) if retry_after else seconds
+        seconds = min(max(asked, 1), COOLDOWN_MAX) if asked == asked else seconds  # « nan » n'est égal à rien
     except ValueError:
         pass
     _cooling[(link.get("fournisseur", ""), link["modele"])] = time.time() + seconds
@@ -492,8 +497,16 @@ async def _apply(level: str, data: dict) -> None:
         media.forget_voice()
 
 
+_changing = asyncio.Lock()  # lecture, attentes, écriture : deux changements en même temps s'écraseraient
+
+
 @router.put("/api/modes/{level}")
 async def change_modes(level: str, body: ModeChange, _: int = Depends(access.owner_only)):
+    async with _changing:
+        return await _change_modes(level, body)
+
+
+async def _change_modes(level: str, body: ModeChange):
     _check_level(level)
     if level == BRAIN and not db.get_setting("provider"):
         raise HTTPException(400, "Choisis d'abord un cerveau.")

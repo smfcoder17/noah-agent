@@ -314,7 +314,7 @@ async def test_outcomes():
     await settle()
     assert delegation(did)["etat"] == "echec"
     resumed = run_for("a")
-    assert resumed["text"].startswith("[Échec de ta demande à Basile") and "Rien ne prouve" in resumed["text"]
+    assert "[Échec de ta demande à Basile" in resumed["text"] and "Rien ne prouve" in resumed["text"], resumed["text"][:500]
     finish(resumed)
     await settle()
     # Run terminé sans aucune réponse : c'est un échec aussi.
