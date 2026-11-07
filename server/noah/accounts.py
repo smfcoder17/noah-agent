@@ -302,7 +302,11 @@ async def _exchange(agent_id: str, flow: dict, code: str) -> None:
     granted = _granted(scopes)
     account = {"compte": _email(t.get("id_token", "")), "permissions": granted, "depuis": int(time.time())}
     db.set_setting(f"google_{agent_id}", json.dumps(account, ensure_ascii=False))
+    _forget_screen(agent_id)
     _tell_agent(agent_id, account)
+    from . import connecteurs
+
+    await connecteurs.google_renewed(agent_id)
 
 
 _hooks: dict = {}
@@ -313,6 +317,8 @@ RENEW_AFTER = 6 * 24 * 3600
 
 
 async def keep_google_fresh(every: float = 3600) -> None:
+    from . import connecteurs
+
     while True:
         await asyncio.sleep(every)
         with db.connect() as c:
@@ -320,8 +326,8 @@ async def keep_google_fresh(every: float = 3600) -> None:
         for agent_id in ids:
             account = _account(agent_id)
             flow = _flows.get(agent_id)
-            if not account or not _client() or (flow and flow.get("tache")):
-                continue
+            if not account or not _client() or (flow and flow.get("tache")) or connecteurs.google_copy(agent_id):
+                continue  # une copie suit l'accord de l'agent d'origine
             if time.time() - account.get("depuis", 0) > RENEW_AFTER:
                 try:
                     await start_consent(agent_id, account["permissions"])
@@ -340,7 +346,7 @@ def _tell_agent(agent_id: str, account: dict) -> None:
         return
     names = ", ".join(PERMS[p]["nom"].lower() for p in account["permissions"]) or "aucun accès"
     note = (f"Google est connecté ({account['compte'] or 'compte Google'}) : {names}. Utilise la compétence google-workspace ; "
-            "pour un accès qui manque, l'utilisateur l'ajoute dans Détails → Connexions. L'application reste en mode Test, "
+            "pour un accès qui manque, l'utilisateur l'ajoute dans l'onglet Connexions de l'agent. L'application reste en mode Test, "
             "c'est voulu : Noah Agent renouvelle l'accord tout seul avant les 7 jours. Ne cherche pas à la publier.")
     pending = json.loads(db.get_setting(f"contexte_{conv}") or "[]")
     db.set_setting(f"contexte_{conv}", json.dumps((pending + [note])[-5:], ensure_ascii=False))
@@ -408,6 +414,12 @@ def _valid(perms: list[str]) -> list[str]:
     return sorted(set(perms))
 
 
+def _forget_screen(agent_id: str) -> None:
+    from . import machine
+
+    machine.forget_connections(agent_id)
+
+
 @router.get("/api/agents/{agent_id}/google")
 async def google_state(agent_id: str, user: int = Depends(auth.current_user)):
     return _state(_check(agent_id, user))
@@ -418,6 +430,7 @@ async def google_connect(agent_id: str, body: Connect, user: int = Depends(auth.
     """Avec les identifiants : ouvre l'accord dans l'écran de l'agent. Sans : rend la consigne à envoyer à l'agent
     pour qu'il les crée (l'accord suivra tout seul)."""
     agent_id = _check(agent_id, user)
+    _forget_screen(agent_id)
     _own_client(agent_id)
     perms = _valid(body.permissions)
     db.set_setting(f"google_voulu_{agent_id}", json.dumps(perms))
@@ -431,6 +444,7 @@ async def google_connect(agent_id: str, body: Connect, user: int = Depends(auth.
 
 @router.post("/api/agents/{agent_id}/google/cancel")
 async def google_cancel(agent_id: str, user: int = Depends(auth.current_user)):
+    _forget_screen(agent_id)
     flow = _flows.pop(_check(agent_id, user), None)
     if flow and flow.get("tache"):
         flow["tache"].cancel()
@@ -443,8 +457,12 @@ async def google_disconnect(agent_id: str, user: int = Depends(auth.current_user
     """Efface le jeton de cet agent. Pas de révocation chez Google : elle retirerait l'accord de toute
     l'application, donc aussi aux autres agents. L'utilisateur peut tout retirer sur myaccount.google.com."""
     agent_id = _check(agent_id, user)
+    _forget_screen(agent_id)
     await admin(agent_id, "google_revoquer", {"local": True})
     db.set_setting(f"google_{agent_id}", "")
+    from . import connecteurs
+
+    await connecteurs.removed(agent_id, "google")
     return _state(agent_id)
 
 
@@ -494,7 +512,7 @@ async def agent_recipe(name: str, request: Request):
     perms = json.loads(db.get_setting(f"google_voulu_{agent_id}") or "[]") or [p["id"] for p in GOOGLE_PERMISSIONS]
     if _client():
         return {"recette": "L'accès Google existe déjà. Rien à créer : dis à l'utilisateur de cliquer sur « Connecter » "
-                           "dans Détails → Connexions → Google."}
+                           "dans l'onglet Connexions de l'agent → Google."}
     return {"recette": recipe(perms)}
 
 
@@ -505,7 +523,7 @@ async def agent_consent(request: Request):
     _own_client(agent_id)
     perms = json.loads(db.get_setting(f"google_voulu_{agent_id}") or "[]")
     if not _client() or not perms:
-        raise HTTPException(409, "Rien à relancer : l'utilisateur choisit ses accès dans Détails → Connexions → Google.")
+        raise HTTPException(409, "Rien à relancer : l'utilisateur choisit ses accès dans l'onglet Connexions de l'agent → Google.")
     await start_consent(agent_id, perms)
     return {"ok": True, "suite": "Noah Agent refait l'accord de Google dans ton navigateur : n'y touche pas et arrête-toi."}
 
@@ -517,11 +535,11 @@ async def agent_client_ids(body: ClientIds, request: Request):
     _save_client(body)
     perms = json.loads(db.get_setting(f"google_voulu_{agent_id}") or "[]")
     if not perms:
-        return {"ok": True, "suite": "Identifiants enregistrés. L'utilisateur choisit ses accès dans Détails → Connexions → Google."}
+        return {"ok": True, "suite": "Identifiants enregistrés. L'utilisateur choisit ses accès dans l'onglet Connexions de l'agent → Google."}
     try:
         await start_consent(agent_id, perms)
     except (httpx.HTTPError, HTTPException) as e:
         return {"ok": True, "suite": f"Identifiants enregistrés, mais la page d'accord n'a pas pu s'ouvrir ({e}). "
-                                     "Dis à l'utilisateur de cliquer sur « Connecter » dans Détails → Connexions → Google."}
+                                     "Dis à l'utilisateur de cliquer sur « Connecter » dans l'onglet Connexions de l'agent → Google."}
     return {"ok": True, "suite": "Identifiants enregistrés. Noah Agent valide maintenant l'accord de Google dans ton navigateur "
                                  "(onglet de la page d'accord) : n'y touche pas. Dis à l'utilisateur que l'accès est créé et arrête-toi."}

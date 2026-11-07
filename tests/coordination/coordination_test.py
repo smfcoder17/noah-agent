@@ -20,7 +20,7 @@ os.environ.setdefault("NOAH_SECRET_KEY", "y" * 32)
 sys.path.insert(0, "/app")
 import httpx  # noqa: E402
 
-from noah import auth, coordination, db, hermes, main, media, push, relay  # noqa: E402
+from noah import auth, coordination, db, hermes, machine, main, media, push, relay  # noqa: E402
 
 db.init()
 owner = auth.create_user("alice", "motdepasse-a")
@@ -314,7 +314,8 @@ async def test_outcomes():
     await settle()
     assert delegation(did)["etat"] == "echec"
     resumed = run_for("a")
-    assert resumed["text"].startswith("[Échec de ta demande à Basile") and "Rien ne prouve" in resumed["text"]
+    said = resumed["text"].split("[Fin. Message de l'utilisateur :]\n\n")[-1]  # machine.add_context place devant ce que l'agent doit savoir : la note vient juste après
+    assert said.startswith("[Échec de ta demande à Basile") and "Rien ne prouve" in said, said[:500]
     finish(resumed)
     await settle()
     # Run terminé sans aucune réponse : c'est un échec aussi.
@@ -410,6 +411,124 @@ async def _drain(stream):
 async def post_report(agent: str, texte: str) -> httpx.Response:
     async with as_agent(agent) as h:
         return await h.post("/agent-api/rappel", json={"texte": texte})
+
+
+def traces(agent: str) -> list[dict]:
+    with db.connect() as c:
+        rows = c.execute("SELECT text, detail FROM messages WHERE conversation_id = ? AND role = 'trace' ORDER BY id", (MAINS[agent],)).fetchall()
+    return [{"text": r["text"], **json.loads(r["detail"])} for r in rows]
+
+
+async def thread_list(agent: str, session: str) -> dict:
+    async with client(session) as h:
+        return {t["id"]: t for t in (await h.get(f"/api/agents/{agent}/conversations")).json()}
+
+
+async def test_trace():
+    """Le fil laisse une ligne dans la conversation principale de l'agent sollicité, pour la personne et elle seule."""
+    clear_demands()
+    rings.clear()
+    session = auth.new_session(owner, "test", "web")
+    known = len(traces("d"))
+    before, said = len(runs), len(messages(MAINS["d"]))
+    r = await ask("a", "d", "Résume le rapport de ventes\ndu trimestre")
+    assert r.status_code == 200, r.text
+    d = delegation(r.json()["id"])
+    fil = d["conversation_id"]
+    worker = run_for("d")
+    assert len(runs) == before + 1 and worker["conv"] == fil, "la seule relance est celle du fil, jamais la conversation principale"
+    shown = traces("d")[known:]
+    assert len(shown) == 1 and len(messages(MAINS["d"])) == said + 1, shown
+    assert shown[0]["fil"] == fil and shown[0]["etat"] == "en_cours" and shown[0]["text"].startswith("Alma m'a demandé : Résume le rapport de ventes du trimestre"), shown
+    assert not machine.pop_context(MAINS["d"]), "la trace n'entre pas dans le contexte de l'agent"
+    assert main.task_state.get(MAINS["d"]) not in ("work", "approve"), "la conversation principale n'a pas été lancée"
+    assert not rings, "la trace ne sonne ni ne notifie"
+    last = coordination._last_reply(MAINS["d"])
+    assert coordination._last_message(MAINS["d"]) != shown[0]["text"] and (last is None or last["role"] != "trace"), "une trace n'est pas une réponse de l'agent"
+    print("7. trace au départ : dans la principale, sans relance, sans contexte, sans notification")
+
+    # État réel du fil : il compte tant qu'il travaille ou attend un accord.
+    listed = await thread_list("d", session)
+    assert listed[fil]["en_cours"] is True and listed[fil]["state"] == "work", listed[fil]
+    worker["events"].put_nowait(("approval.request", {"request_id": "r1", "generation": 1, "summary": "Écrire un fichier"}))
+    await settle()
+    listed = await thread_list("d", session)
+    assert listed[fil]["state"] == "approve" and listed[fil]["en_cours"] is True, f"un accord attendu reste en cours : {listed[fil]}"
+    worker["events"].put_nowait(("tool.started", {"tool": "terminal"}))
+    await settle()
+    rings.clear()  # l'accord a sa notification, sans rapport avec la trace
+
+    # Conversation principale rendue visible à un autre profil : la trace reste à son auteur, et le fil aussi.
+    other = auth.new_session(stranger, "test", "web")
+    with db.connect() as c:
+        c.execute("INSERT INTO agent_shares (agent_id, user_id, droit) VALUES ('d', ?, 'lecture')", (stranger,))
+        c.execute("UPDATE conversations SET shared = 1 WHERE id = ?", (MAINS["d"],))
+    async with client(other) as h:
+        seen = (await h.get(f"/api/conversations/{MAINS['d']}/messages")).json()
+        assert all(m["role"] != "trace" for m in seen), f"une trace visible par un autre profil : {seen}"
+        assert (await h.get(f"/api/conversations/{MAINS['d']}/messages", params={"limit": 5})).status_code == 200
+        assert (await h.get(f"/api/conversations/{fil}/messages")).status_code == 404, "le fil reste privé"
+    async with client(session) as h:
+        mine = (await h.get(f"/api/conversations/{MAINS['d']}/messages")).json()
+    assert [m["role"] for m in mine].count("trace") == known + 1
+    with db.connect() as c:
+        c.execute("DELETE FROM agent_shares WHERE agent_id = 'd' AND user_id = ?", (stranger,))
+        c.execute("UPDATE conversations SET shared = 0 WHERE id = ?", (MAINS["d"],))
+
+    # À la fin : la même ligne dit l'issue, le fil ne compte plus, le résultat revient au demandeur.
+    finish(worker, "Les ventes montent de 12 %.\n```python\nprint('rien')\n```\nDétails dans le fil.")
+    await settle()
+    shown = traces("d")[known:]
+    assert len(shown) == 1 and shown[0]["etat"] == "fini" and shown[0]["issue"].startswith("Les ventes montent de 12 %."), shown
+    assert "print" not in shown[0]["issue"] and "Fini : Les ventes" in shown[0]["text"], shown
+    listed = await thread_list("d", session)
+    assert listed[fil]["en_cours"] is False and listed[fil]["state"] == "done", f"un fil fini ne ment pas : {listed[fil]}"
+    assert not machine.pop_context(MAINS["d"]) and len(messages(MAINS["d"])) == said + 1
+    finish(run_for("a"))
+    await settle()
+    assert len(runs) == before + 2 and not rings, "seul le demandeur repart, personne n'est prévenu en double"
+    print("8. trace à la fin : une seule ligne, l'issue, le fil sort des travaux en cours ; privée à son auteur")
+
+    # Un résultat qui finit par un choix : la demande a rendu sa réponse, plus rien n'y attend.
+    r = await ask("a", "d", "Propose un titre")
+    choisi = delegation(r.json()["id"])["conversation_id"]
+    worker = run_for("d")
+    finish(worker, '```noah\n{"type": "choice", "question": "Lequel ?", "options": ["A", "B"]}\n```')
+    await settle()
+    finish(run_for("a"))
+    await settle()
+    assert main.task_state[choisi] == "choice"
+    assert (await thread_list("d", session))[choisi]["en_cours"] is False
+    # Une conversation de la personne qui attend son choix, elle, reste en cours.
+    ouverte = main._new_conversation(owner, "d", "À choisir", origin="agent")
+    main.task_state[ouverte] = "choice"
+    assert (await thread_list("d", session))[ouverte]["en_cours"] is True
+    main.task_state[ouverte] = "error"
+    assert (await thread_list("d", session))[ouverte]["en_cours"] is False
+
+    # Un échec se dit aussi sur la ligne.
+    r = await ask("a", "d", "Tâche vouée à l'échec")
+    rate = delegation(r.json()["id"])["conversation_id"]
+    finish(run_for("d"), "", status="failed")
+    await settle()
+    finish(run_for("a"))
+    await settle()
+    line = [t for t in traces("d") if t["fil"] == rate][0]
+    assert line["etat"] == "echec" and "Pas terminé" in line["text"], line
+
+    # Un fil ouvert par l'agent lui-même : même mécanique.
+    async with as_agent("e") as h:
+        r = await h.post("/agent-api/fils", json={"titre": "Piste de recherche", "consigne": "Cherche"})
+    assert r.status_code == 200, r.text
+    own = r.json()["id"]
+    line = traces("e")[-1]
+    assert line["fil"] == own and line["etat"] == "en_cours" and line["text"].startswith("J'ai ouvert un fil : Piste de recherche"), line
+    finish(run_for("e"), "Trouvé trois pistes.")
+    await settle()
+    line = traces("e")[-1]
+    assert line["etat"] == "fini" and line["issue"] == "Trouvé trois pistes.", line
+    assert not machine.pop_context(MAINS["e"])
+    print("9. états réels : accord et choix en cours, résultat rendu et échec terminés ; fil de l'agent tracé pareil")
 
 
 async def test_calls():
@@ -640,6 +759,7 @@ async def everything():
     await test_depth_and_cycles()
     await test_limits()
     await test_outcomes()
+    await test_trace()
     await test_calls()
 
 

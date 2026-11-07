@@ -54,22 +54,20 @@ try {
 with db.connect() as c:
     c.execute("UPDATE watches SET checks = 12, wakes = 1, alerts = 1, decision_cost = 0.0008, brain_cost = 0.0012, last_error = ''")`);
   await page.reload();
-  await page.getByRole("button", { name: "Détails", exact: true }).click();
-  const section = page.getByRole("button", { name: /Veilles et routines à condition/ });
-  await section.click();
+  await page.getByRole("button", { name: "Agent", exact: true }).click();
+  await page.getByRole("tab", { name: "Routines" }).click();
   await page.getByText("12 passages, 1 réveil, 0,002 $").waitFor({ timeout: 8000 }).catch(async (e) => {
     await page.screenshot({ path: `${OUT}/details-echec.png` });
     throw e;
   });
   check(true, "Détails : « 12 passages, 1 réveil, 0,002 $ »");
   await page.screenshot({ path: `${OUT}/details-routine-condition.png` });
-  await section.click();
 
   // Mémoire : la relecture propose, sans rien retirer.
   await call("PUT", `/api/agents/${id}/memory`, { cible: "memory", entrees: ["Le jeton du client OAuth d'essai expire : détail d'installation à retrouver dans la console.", "Il a décidé que les rapports partent le vendredi."] });
   await page.reload();
-  await page.getByRole("button", { name: "Détails", exact: true }).click();
-  await page.getByRole("button", { name: /^Mémoire/ }).click();
+  await page.getByRole("button", { name: "Agent", exact: true }).click();
+  await page.getByRole("tab", { name: "Mémoire" }).click();
   await page.getByRole("button", { name: "Relire et proposer un nettoyage" }).click();
   await page.getByText(/propose de retirer|Rien à retirer/).waitFor({ timeout: 90000 });
   check(true, "Mémoire : la relecture répond à l'écran");

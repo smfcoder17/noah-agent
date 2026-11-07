@@ -256,13 +256,13 @@ def fixture() -> None:
             c.execute("INSERT INTO messages (conversation_id, role, text) VALUES (?, 'user', ?)", (CA, f"message {SECRET_A}"))
         c.execute("INSERT OR IGNORE INTO watches (id, agent_id, name, url) VALUES (?, ?, 'Veille', 'https://example.org')", (WID, A))
         c.execute("INSERT OR IGNORE INTO mcp_tools (agent_id, nom, url, auth) VALUES (?, 'notion', 'https://93.184.216.34/mcp', 'aucune')", (A,))
+        c.execute("INSERT OR IGNORE INTO connecteurs_globaux (user_id, nom, genre, url, source, created_at) VALUES (?, 'notion', 'oauth', 'https://93.184.216.34/mcp', ?, ?)", (ALICE, A, now))
         c.execute("INSERT OR REPLACE INTO voice_calls (id, agent_id, user_id, conversation_id, texte, etat, created_at) "
                   "VALUES (?, ?, ?, ?, ?, 'sonne', ?)", (CALL, A, ALICE, CA, f"rappel {SECRET_A}", now))
         c.execute("DELETE FROM agent_shares WHERE agent_id = ?", (A,))
         c.executemany("INSERT INTO agent_shares (agent_id, user_id, droit) VALUES (?, ?, ?)",
                       [(A, LEA, "lecture"), (A, UMA, "usage"), (A, ADA, "admin"), (A, ZED, "lecture")])
     handoff._calls[A] = {"id": HANDOFF, "message": "Connecte-toi", "depuis": now, "origine": "agent", "attente": FakeFuture(), "attentifs": 1}
-    desktop._waiting[RID] = (FakeFuture(), ALICE)
     media.drop_stream(AUDIO)
     stream = media.audio_stream(AUDIO)
     stream.owner = ALICE
@@ -281,6 +281,7 @@ ROUTES = {
     ("GET", "/api/agents/{agent_id}/conversations"): "lecture",
     ("POST", "/api/conversations/{conv_id}/archive"): "auteur",
     ("GET", "/api/conversations/{conv_id}/messages"): "auteur",
+    ("PUT", "/api/conversations/{conv_id}/messages/{message_id}/reaction"): "auteur",
     ("GET", "/api/conversations/{conv_id}/en-cours"): "auteur",
     ("POST", "/api/conversations/{conv_id}/regard"): "auteur",
     ("DELETE", "/api/conversations/{conv_id}"): "auteur",
@@ -292,6 +293,7 @@ ROUTES = {
     ("GET", "/api/agents/{agent_id}/media"): "usage",
     ("GET", "/api/agents/{agent_id}/files"): "usage",
     ("GET", "/api/agents/{agent_id}/files/raw/{path:path}"): "usage",
+    ("POST", "/api/agents/{agent_id}/files/supprimer"): "admin",
     ("POST", "/api/agents/{agent_id}/upload"): "usage",
     ("GET", "/api/agents/{agent_id}/screen-url"): "admin",
     ("POST", "/api/agents/{agent_id}/clipboard/paste"): "admin",
@@ -318,10 +320,21 @@ ROUTES = {
     ("POST", "/api/agents/{agent_id}/routines/{routine_id}/{action}"): "admin",
     ("GET", "/api/agents/{agent_id}/connections"): "admin",
     ("POST", "/api/agents/{agent_id}/connections/apps/{name}/{action}"): "admin",
+    ("GET", "/api/agents/{agent_id}/publication"): "admin",
+    ("GET", "/api/agents/{agent_id}/activite"): "lecture",
+    ("POST", "/api/agents/{agent_id}/publication/instagram"): "admin",
+    ("POST", "/api/agents/{agent_id}/publication/x"): "admin",
     ("POST", "/api/agents/{agent_id}/connections/tools/test"): "admin",
     ("POST", "/api/agents/{agent_id}/connections/tools"): "admin",
     ("PUT", "/api/agents/{agent_id}/connections/tools/{name}/droit"): "admin",
     ("POST", "/api/agents/{agent_id}/connections/tools/{name}/{action}"): "admin",
+    ("GET", "/api/agents/{agent_id}/connecteurs/{nom}"): "proprietaire",  # ses comptes, pour tous ses agents : lui seul décide
+    ("PUT", "/api/agents/{agent_id}/connecteurs/{nom}"): "proprietaire",
+    ("POST", "/api/agents/{agent_id}/connecteurs/{nom}/connecter"): "proprietaire",
+    ("GET", "/api/agents/{agent_id}/competences"): "admin",
+    ("POST", "/api/agents/{agent_id}/competences"): "admin",
+    ("PUT", "/api/agents/{agent_id}/competences/{name}"): "admin",
+    ("DELETE", "/api/agents/{agent_id}/competences/{name}"): "admin",
     ("GET", "/api/agents/{agent_id}/folders"): "admin",
     ("PUT", "/api/agents/{agent_id}/folders"): "proprietaire",  # et rôle owner : c'est son ordinateur (voir test_secrets)
     ("GET", "/api/agents/{agent_id}/google"): "admin",
@@ -331,19 +344,24 @@ ROUTES = {
     ("GET", "/api/agents/{agent_id}/watches"): "admin",
     ("POST", "/api/agents/{agent_id}/watches"): "admin",
     ("POST", "/api/agents/{agent_id}/watches/{wid}/{action}"): "admin",
+    ("GET", "/api/agents/{agent_id}/proactif"): "admin",
+    ("PUT", "/api/agents/{agent_id}/proactif"): "proprietaire",
+    ("POST", "/api/agents/{agent_id}/proactif/passer"): "proprietaire",
+    ("GET", "/api/agents/{agent_id}/coffre"): "admin",
     ("GET", "/api/agents/{agent_id}/appel"): "lecture",
     ("POST", "/api/agents/{agent_id}/appel/{call_id}"): "admin",
     ("GET", "/api/calls/{call_id}"): "auteur",
     ("POST", "/api/calls/{call_id}/answer"): "auteur",
     ("POST", "/api/calls/{call_id}/decline"): "auteur",
-    ("POST", "/api/desktop/result/{rid}"): "auteur",
     ("GET", "/api/agents/{agent_id}/shares"): "proprietaire",
     ("PUT", "/api/agents/{agent_id}/shares"): "proprietaire",
     ("DELETE", "/api/agents/{agent_id}/shares/{user_id}"): "proprietaire",
 }
-FILL = {"agent_id": A, "conv_id": CA, "run_id": RUN, "routine_id": "routine-1", "name": "notion", "wid": WID, "audio_id": AUDIO,
+FILL = {"agent_id": A, "conv_id": CA, "run_id": RUN, "routine_id": "routine-1", "name": "notion", "nom": "notion", "wid": WID, "audio_id": AUDIO,
         "rid": RID, "user_id": str(ZED), "path:path": "index.html"}
 BODIES = {
+    "/api/conversations/{conv_id}/messages/{message_id}/reaction": lambda: {"emoji": "👍"},
+    "/api/agents/{agent_id}/files/supprimer": lambda: {"chemins": ["uploads/a.txt"]},
     "/api/chat": lambda: {"agent_id": A, "text": "bonjour"},
     "/api/agents/{agent_id}/apercu": lambda: {"path": "apps/x/index.html"},
     "/api/agents/{agent_id}/plafond": lambda: {"daily": 1},
@@ -364,20 +382,39 @@ BODIES = {
     "/api/agents/{agent_id}/memory": lambda: {"cible": "memory", "entrees": []},
     "/api/agents/{agent_id}/routines": lambda: {"consigne": "x", "quand": "every day"},
     "/api/agents/{agent_id}/connections/tools/test": lambda: {"url": "https://93.184.216.34/mcp"},
+    "/api/agents/{agent_id}/publication/instagram": lambda: {"jeton": "jeton-refuse-pour-ce-test"},
+    "/api/agents/{agent_id}/publication/x": lambda: {"client_id": "client-pour-ce-test"},
     "/api/agents/{agent_id}/connections/tools": lambda: {"url": "https://93.184.216.34/mcp", "nom": "essai"},
     "/api/agents/{agent_id}/connections/tools/{name}/droit": lambda: {"droit": "agir"},
+    "/api/agents/{agent_id}/connecteurs/{nom}": lambda: {"pour_tous": False},
+    "/api/agents/{agent_id}/competences": lambda: {"titre": "t", "texte": "x"},
+    "/api/agents/{agent_id}/competences/{name}": lambda: {"titre": "t", "texte": "x"},
     "/api/agents/{agent_id}/folders": lambda: {"dossiers": []},
     "/api/agents/{agent_id}/google/connect": lambda: {"permissions": [next(iter(__import__("noah.accounts").accounts.PERMS))]},
     "/api/agents/{agent_id}/watches": lambda: {"nom": "n", "url": "https://example.org"},
+    "/api/agents/{agent_id}/proactif": lambda: {"mode": "signaler"},
     "/api/agents/{agent_id}/appel/{call_id}": lambda: {"reponse": "impossible"},
     "/api/agents/{agent_id}/shares": lambda: {"utilisateur": "zed", "droit": "lecture", "compris": True},
-    "/api/desktop/result/{rid}": lambda: {},
 }
 QUERIES = {"/api/agents/{agent_id}/media": {"path": "/x.png"}, "/api/agents/{agent_id}/upload": {"name": "x.txt"}, "/api/voice/transcribe": {"agent_id": A}}
 
 # Routes avec un identifiant qui n'appartient à aucun agent. Chacune a sa raison et, quand c'est possible, sa vérification.
 WHITELIST = {
+    ("POST", "/api/goals"): "Un objectif du compte connecté ; posé sur un agent, il faut en être le propriétaire (proactif_test).",
+    ("PATCH", "/api/goals/{goal_id}"): "Seulement l'auteur de l'objectif, 404 pour tout autre compte (proactif_test).",
+    ("DELETE", "/api/goals/{goal_id}"): "Seulement l'auteur de l'objectif, 404 pour tout autre compte (proactif_test).",
+    ("GET", "/api/modes/{level}"): "Niveau fixe, pas une ressource : le cerveau se lit sans clé, création et voix réservées au propriétaire (modes_test).",
+    ("GET", "/api/modes/{level}/modeles"): "Mêmes droits que la lecture du niveau (modes_test).",
+    ("PUT", "/api/modes/{level}"): "Réservé au propriétaire par access.owner_only (modes_test).",
+    ("POST", "/api/agents/{agent_id}/connexions/{ask_id}"): "Droit usage sur l'agent, refusé à un invité séparé, demande propre à cet agent (coffre_test).",
+    ("DELETE", "/api/agents/{agent_id}/coffre/{login_id}"): "Droit admin sur l'agent, et la ligne doit être à cet agent (coffre_test).",
+    ("GET", "/api/post-image/{name}"): "Publique : la plateforme vient chercher l'image. Adresse tirée au hasard, de courte durée, retirée après la publication (publication_test).",
     ("GET", "/api/apercu/{token}/{path:path}"): "Sans session : le lien signé porte le compte, le dossier et l'expiration, et suit les droits (apercu_test).",
+    ("POST", "/api/desktop/result/{rid}"): "Seulement l'appareil à qui la demande a été donnée (appareils_test et test_desktop).",
+    ("GET", "/api/desktop/encore/{rid}"): "Seulement l'appareil visé par la demande (appareils_test).",
+    ("GET", "/api/desktop/piece/{rid}"): "Seulement l'appareil visé par ce fichier (appareils_test).",
+    ("POST", "/api/desktop/piece/{rid}"): "Seulement l'appareil à qui la lecture a été demandée (appareils_test).",
+    ("GET", "/api/logos/{host}"): "Le logo public d'un site, le même pour tous : rien d'un autre compte (connexion_logos_test).",
     ("POST", "/api/chat/pendant"): "Mêmes droits que /api/chat : agent utilisable et conversation à ce compte (pendant_test).",
     ("POST", "/api/chat/file/{client_id}/maintenant"): "L'identifiant contient le compte : la demande d'un autre n'existe pas ici (pendant_test).",
     ("DELETE", "/api/chat/file/{client_id}"): "L'identifiant contient le compte : la demande d'un autre n'existe pas ici (pendant_test).",
@@ -403,6 +440,9 @@ OWNER_ROUTES = {
     ("GET", "/api/decision"): None,
     ("POST", "/api/decision"): {"modele": "auto"},
     ("POST", "/api/decision/mesurer"): {},
+    ("POST", "/api/decision/cle"): {"cle": ""},
+    ("GET", "/api/juge"): None,
+    ("POST", "/api/juge"): {"actif": True},
     ("GET", "/api/flux"): None,
     ("GET", "/api/media"): None,
     ("POST", "/api/media"): {"kind": "image", "model": "auto"},
@@ -434,6 +474,8 @@ OWNER_WITH_ID = {("PATCH", "/api/profiles/{profile_id}"): {"budget": None}, ("DE
                  ("POST", "/api/profiles/{profile_id}/mot-de-passe"): {"nouveau": "nouveau-motdepasse", "motdepasse": "motdepasse-d"}}
 # … et les routes ouvertes, chacune avec la raison pour laquelle elle ne montre rien d'un autre.
 OPEN_ROUTES = {
+    ("POST", "/api/connexion/retour"): "Publique, comme le retour lui-même : sans state valide, rien n'atteint l'agent (connexion_logos_test).",
+    ("GET", "/api/connexion/retour"): "Publique : le fournisseur y ramène parfois un navigateur sans session. Sans state valide, rien n'atteint l'agent (connexion_logos_test).",
     ("GET", "/api/status"): "Publique : l'écran à montrer, rien d'autre pour un inconnu une fois le compte créé (tests/exposition/public_test.py).",
     ("POST", "/api/setup/check"): "Publique : refusée dès qu'un compte existe.",
     ("POST", "/api/setup/restore"): "Refusée dès qu'un compte existe (code d'installation).",
@@ -469,6 +511,8 @@ OPEN_ROUTES = {
     ("GET", "/api/providers"): "Liste statique des fournisseurs connus, sans clé ; derrière la connexion (public_test).",
     ("POST", "/api/models"): "Un profil ne lit que le fournisseur en service, sans adresse ni clé à lui (vérifié par test_secrets).",
     ("GET", "/api/usage"): "Filtrée par profil (vérifié par test_lists).",
+    ("GET", "/api/goals"): "Les objectifs de ce compte, et rien d'autre (proactif_test).",
+    ("GET", "/api/a-toi"): "Filtrée par compte : celui qui a lancé le travail et le propriétaire de l'agent (chat_vivant_test).",
     ("GET", "/api/model"): "Le nom du cerveau, sans clé ni adresse pour un profil (vérifié par test_secrets).",
     ("GET", "/api/voice/ready"): "Une raison de refus, sans clé ni adresse ; un profil ne lit qu'une phrase générale (cle_refusee_test).",
     ("GET", "/api/agents"): "Filtrée par droit (vérifié par test_lists).",
@@ -477,6 +521,7 @@ OPEN_ROUTES = {
     ("GET", "/api/calls/wait"): "Même lecture que /api/calls/pending, en attente longue.",
     ("GET", "/api/desktop/next"): "File de ce compte (vérifié par test_desktop).",
     ("GET", "/api/desktop/status"): "État de l'application de bureau de ce compte (vérifié par test_desktop).",
+    ("POST", "/api/desktop/battement"): "La présence de son propre appareil : rien d'un autre compte (appareils_test).",
     ("GET", "/api/health/stream"): "Contrôle de bout en bout à travers le mandataire : deux nombres, aucune donnée.",
     ("GET", "/api/push/key"): "Clé publique du serveur.",
     ("POST", "/api/push/subscription"): "Abonnement de cette session.",
@@ -544,6 +589,9 @@ def call(web: TestClient, method: str, path: str):
         if f"/{key}/" in path:
             url = url.replace("{action}", verb)
     url = url.replace("{call_id}", HANDOFF if "/appel/" in path else CALL)
+    if "{message_id}" in url:
+        with db.connect() as c:
+            url = url.replace("{message_id}", str(c.execute("SELECT id FROM messages WHERE conversation_id = ? LIMIT 1", (CA,)).fetchone()["id"]))
     assert "{" not in url, url
     kw = {}
     if method != "GET" and path in BODIES and not (method == "DELETE"):
@@ -1043,6 +1091,9 @@ def test_desktop() -> None:
     fixture()
     desktop.WAIT = 0.05
     sessions = {u: auth.new_session(u, "bureau", "desktop") for u in (ALICE, BRUNO)}
+    # Partagé en admin, l'agent n'atteint plus les appareils de son propriétaire : essayé à part dans appareils_test.
+    with db.connect() as c:
+        c.execute("DELETE FROM agent_shares WHERE agent_id = ? AND droit = 'admin'", (A,))
 
     async def go():
         transport = httpx.ASGITransport(app=app)

@@ -71,6 +71,12 @@ CREATE TABLE IF NOT EXISTS messages (
   text TEXT NOT NULL,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS reactions (
+  message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  who TEXT NOT NULL,
+  emoji TEXT NOT NULL,
+  PRIMARY KEY (message_id, who)
+);
 """
 
 _fernet = Fernet(base64.urlsafe_b64encode(hashlib.sha256(SECRET_KEY.encode()).digest()))
@@ -111,6 +117,10 @@ def init() -> None:
         db.execute("CREATE INDEX IF NOT EXISTS messages_conversation ON messages(conversation_id)")
         db.execute("CREATE INDEX IF NOT EXISTS conversations_agent ON conversations(agent_id)")
         # Abonnements Web Push : un par appareil, rattaché à sa session (déconnecter l'appareil coupe ses notifications).
+        # Fichiers qu'un agent destine à un ordinateur éteint : le contenu dans DATA_DIR/attente, le temps de sa reconnexion.
+        db.execute("CREATE TABLE IF NOT EXISTS desktop_attente (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, appareil TEXT NOT NULL, "
+                   "agent TEXT NOT NULL, dossier TEXT NOT NULL, chemin TEXT NOT NULL, sha256 TEXT NOT NULL, taille INTEGER NOT NULL, "
+                   "remplacer INTEGER NOT NULL DEFAULT 0, cree TEXT NOT NULL, expire TEXT NOT NULL)")
         db.execute("CREATE TABLE IF NOT EXISTS push_subscriptions (endpoint TEXT PRIMARY KEY, session TEXT NOT NULL, "
                    "p256dh TEXT NOT NULL, auth TEXT NOT NULL, created_at TEXT)")
         # Envois repris plus tard (service de push indisponible, Retry-After) : survivent à un redémarrage.
@@ -171,6 +181,40 @@ def init() -> None:
                    "droit TEXT NOT NULL DEFAULT 'confirmer' CHECK (droit IN ('lire', 'agir', 'confirmer')), "
                    "outils TEXT NOT NULL DEFAULT '[]', etat TEXT NOT NULL DEFAULT '', erreur TEXT NOT NULL DEFAULT '', vu_a REAL, "
                    "created_at TEXT DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (agent_id, nom))")
+        # Une connexion « pour tous mes agents » (connecteurs.py) : à qui elle est, d'où elle vient, qui en est exclu. Jamais de jeton ici.
+        db.execute("CREATE TABLE IF NOT EXISTS connecteurs_globaux (user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
+                   "nom TEXT NOT NULL, genre TEXT NOT NULL, url TEXT NOT NULL DEFAULT '', source TEXT NOT NULL, exclus TEXT NOT NULL DEFAULT '[]', "
+                   "partages_ok TEXT NOT NULL DEFAULT '[]', poses TEXT NOT NULL DEFAULT '[]', created_at REAL NOT NULL, "
+                   "PRIMARY KEY (user_id, nom))")
+        # Les connexions à des sites que la personne a choisi de retenir (coffre.py) : `secret` scellé par seal(), hors de portée de l'agent.
+        db.execute("CREATE TABLE IF NOT EXISTS agent_logins (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, "
+                   "origine TEXT NOT NULL, secret TEXT NOT NULL, created_at REAL NOT NULL, used_at REAL)")
+        # Ce qui est parti par l'API d'une plateforme : un même post ne repart pas deux fois (publication.py).
+        # Sans lien vers l'agent : le post reste en ligne après sa suppression, et un autre agent peut tenir le même compte.
+        db.execute("CREATE TABLE IF NOT EXISTS publications (id INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL, "
+                   "plateforme TEXT NOT NULL, empreinte TEXT NOT NULL, etat TEXT NOT NULL, lien TEXT NOT NULL DEFAULT '', at REAL NOT NULL)")
+        # Ce qu'ont coûté les images générées sur l'heure écoulée : le plafond d'un post survit à un redémarrage (media.py).
+        db.execute("CREATE TABLE IF NOT EXISTS image_spend (agent_id TEXT NOT NULL, cost REAL NOT NULL, at REAL NOT NULL)")
+        # Ce que l'agent a fait, lisible par la personne : ses tâches et les accords donnés (onglet Activité).
+        db.execute("CREATE TABLE IF NOT EXISTS journal (id INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, "
+                   "conversation_id TEXT NOT NULL, kind TEXT NOT NULL, titre TEXT NOT NULL, resultat TEXT NOT NULL DEFAULT '', etat TEXT NOT NULL, at REAL NOT NULL)")
+        db.execute("CREATE INDEX IF NOT EXISTS journal_agent ON journal(agent_id, at)")
+        # Objectifs d'un compte (proactif.py) : pour un de ses agents, ou pour tous (agent_id vide).
+        db.execute("CREATE TABLE IF NOT EXISTS goals (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
+                   "agent_id TEXT REFERENCES agents(id) ON DELETE CASCADE, texte TEXT NOT NULL, "
+                   "etat TEXT NOT NULL DEFAULT 'actif' CHECK (etat IN ('actif', 'fait')), cree REAL NOT NULL, fait_a REAL)")
+        db.execute("CREATE INDEX IF NOT EXISTS goals_user ON goals(user_id, etat)")
+        # Ce que chaque agent regarde de lui-même : `mode` vide = le défaut, `seen` les empreintes déjà vues par source (proactif.py).
+        db.execute("CREATE TABLE IF NOT EXISTS proactive (agent_id TEXT PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE, mode TEXT, "
+                   "minutes INTEGER NOT NULL DEFAULT 30, seen TEXT NOT NULL DEFAULT '{}', last_pass REAL NOT NULL DEFAULT 0, "
+                   "last_error TEXT NOT NULL DEFAULT '', passes INTEGER NOT NULL DEFAULT 0, signals INTEGER NOT NULL DEFAULT 0, "
+                   "decision_cost REAL NOT NULL DEFAULT 0, brain_cost REAL NOT NULL DEFAULT 0, "
+                   "proposal_day TEXT NOT NULL DEFAULT '', proposals TEXT NOT NULL DEFAULT '[]')")
+        # Chaque tour lancé de lui-même : son fil et le mode qui valait alors, lisible par ce qui juge ses actions.
+        db.execute("CREATE TABLE IF NOT EXISTS proactive_turns (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, "
+                   "conversation_id TEXT NOT NULL, mode TEXT NOT NULL, titre TEXT NOT NULL, etat TEXT NOT NULL, at REAL NOT NULL)")
+        db.execute("CREATE INDEX IF NOT EXISTS proactive_turns_agent ON proactive_turns(agent_id, at)")
+        db.execute("CREATE INDEX IF NOT EXISTS publications_empreinte ON publications(plateforme, empreinte, at)")
         _adopt(db)
         db.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_one_owner ON users(role) WHERE role = 'owner'")
         db.commit()  # le changement de journal ne se fait pas au milieu d'une transaction

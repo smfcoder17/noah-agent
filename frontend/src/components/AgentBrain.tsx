@@ -1,22 +1,18 @@
-// Cerveau propre à un agent, dans Détails : par défaut celui de tous ; sinon un niveau (rapide, équilibré, le plus
-// fort) ou n'importe quel modèle du fournisseur. Le fournisseur et la clé restent ceux des Réglages.
-import { Loader2, Search } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { type Catalog, type CurrentModel, get, send } from "@/lib/api";
-import { cn } from "@/lib/utils";
-import { Button, ErrorText, Input } from "./ui";
+// Cerveau propre à un agent, dans Détails : par défaut celui de tous ; sinon un mode (celui des Réglages) ou n'importe quel modèle du
+// fournisseur, et son niveau de raisonnement. Le fournisseur et la clé restent ceux des Réglages.
+import { Loader2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { type CurrentModel, get, send } from "@/lib/api";
+import { MODE_NAMES, type ModeId, type ModesState, readableModel, REASONING } from "@/lib/modes";
+import { ModelSearch } from "./Modes";
+import { Button, ErrorText } from "./ui";
 
-const TIERS = [
-  { id: "fast", name: "Rapide" },
-  { id: "balanced", name: "Équilibré" },
-  { id: "smart", name: "Le plus fort" },
-];
+const AGENT_MODES: ModeId[] = ["fast", "balanced", "smart", "gratuit", "custom"];
 
-export function AgentBrain({ agentId, own, onChanged }: { agentId: string; own: string | null | undefined; onChanged: () => void }) {
+export function AgentBrain({ agentId, own, mode, reasoning, onChanged, openKey = 0, bare = false }: { agentId: string; own: string | null | undefined; mode?: string | null; reasoning?: string | null; onChanged: () => void; openKey?: number; bare?: boolean }) {
   const [base, setBase] = useState<CurrentModel>(null);
+  const [state, setState] = useState<ModesState | null>(null);
   const [open, setOpen] = useState(false);
-  const [catalog, setCatalog] = useState<Catalog | null>(null);
-  const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -24,74 +20,68 @@ export function AgentBrain({ agentId, own, onChanged }: { agentId: string; own: 
     get<CurrentModel>("/api/model").then(setBase).catch(() => {});
   }, []);
   useEffect(() => {
-    if (open && base && !catalog) send<Catalog>("/api/models", { provider: base.provider }).then(setCatalog).catch((e) => setError(e.message));
-  }, [open, base, catalog]);
+    if (openKey) setOpen(true); // la carte « Modèle » du résumé ouvre directement le choix
+  }, [openKey]);
+  useEffect(() => {
+    if (open && !state) get<ModesState>("/api/modes/cerveau").then(setState).catch((e) => setError((e as Error).message));
+  }, [open, state]);
 
-  const results = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return q && catalog ? catalog.models.filter((m) => `${m.id} ${m.name}`.toLowerCase().includes(q)).slice(0, 30) : [];
-  }, [catalog, query]);
-
-  const pick = async (model: string | null) => {
+  const change = async (body: object) => {
     setBusy(true);
     setError("");
     try {
-      await send(`/api/agents/${agentId}/model`, { model }, "PUT");
-      setOpen(false);
-      setQuery("");
+      await send(`/api/agents/${agentId}/model`, body, "PUT");
       onChanged();
+      return true;
     } catch (e) {
       setError((e as Error).message);
+      return false;
     } finally {
       setBusy(false);
     }
   };
+  const pick = async (body: object) => {
+    if (await change(body)) setOpen(false);
+  };
 
+  const usable = (id: ModeId) => {
+    if (!state) return false;
+    if (id === "gratuit") return state.gratuit.length > 0;
+    if (id === "custom") return state.custom.length > 0;
+    return !!state.modes.find((m) => m.id === id)?.modele;
+  };
   const current = own || base?.model || "—";
   return (
     <div className="flex flex-col gap-2 text-sm">
-      <div className="flex items-center gap-2">
-        <span className="text-muted-foreground">Cerveau :</span>
-        <span className="min-w-0 flex-1 truncate font-mono text-[13px]" title={current}>{current}</span>
-        {!own && base && <span className="text-xs text-muted-foreground">(celui de tous)</span>}
+      <div className={bare ? "hidden" : "flex items-center gap-2"}>
+        <span className="text-muted-foreground">Modèle :</span>
+        <span className="min-w-0 flex-1 truncate font-medium" title={current}>{mode ? MODE_NAMES[mode as ModeId] ?? mode : readableModel(current)}</span>
+        {!own && !mode && base && <span className="text-xs text-muted-foreground">(celui de tous)</span>}
         <Button variant="ghost" size="sm" onClick={() => setOpen(!open)} aria-expanded={open}>{open ? "Fermer" : "Changer"}</Button>
       </div>
       {open && (
-        <div className="flex flex-col gap-2 rounded-lg border border-border p-2.5">
-          <p className="text-xs text-muted-foreground">
-            Un cerveau pour cet agent seulement. Il redémarre avec, ses conversations restent.
-          </p>
+        <div className={bare ? "flex flex-col gap-2" : "flex flex-col gap-2 rounded-lg border border-border p-2.5"}>
+          {!bare && <p className="text-xs text-muted-foreground">Pour cet agent seulement. C'est immédiat : ses conversations restent.</p>}
           <div className="flex flex-wrap gap-1.5">
-            <Button variant={!own ? "default" : "outline"} size="sm" disabled={busy} onClick={() => pick(null)}>Celui de tous</Button>
-            {catalog &&
-              TIERS.map((t) => {
-                const models = catalog.groups.find((g) => g.id === t.id)?.models ?? [];
-                const m = t.id === "smart" ? models[0] : [...models].sort((a, b) => b.created - a.created)[0];
-                return m ? (
-                  <Button key={t.id} variant={own === m.id ? "default" : "outline"} size="sm" disabled={busy} title={m.id} onClick={() => pick(m.id)}>
-                    {t.name}
-                  </Button>
-                ) : null;
-              })}
+            <Button variant={!own && !mode ? "default" : "outline"} size="sm" disabled={busy} onClick={() => pick({ model: null })}>Celui de tous</Button>
+            {AGENT_MODES.map((id) => (
+              <Button key={id} variant={mode === id ? "default" : "outline"} size="sm" disabled={busy || !usable(id)} onClick={() => pick({ mode: id })}>{MODE_NAMES[id]}</Button>
+            ))}
           </div>
-          <div className="relative">
-            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input value={query} onChange={(e) => setQuery(e.target.value)} className="h-9 pl-8" placeholder="Chercher un modèle précis…" aria-label="Chercher un modèle" />
-          </div>
-          {!catalog && !error && <p className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" />Catalogue…</p>}
-          {results.length > 0 && (
-            <ul className="flex max-h-56 flex-col overflow-y-auto">
-              {results.map((m) => (
-                <li key={m.id}>
-                  <button type="button" disabled={busy} onClick={() => pick(m.id)}
-                    className={cn("w-full truncate rounded-md px-2 py-1.5 text-left font-mono text-[13px] hover:bg-muted", own === m.id && "bg-muted")}>
-                    {m.id}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          {busy && <p className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" />L'agent redémarre avec ce cerveau…</p>}
+          <label className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            Réflexion
+            <select
+              value={reasoning ?? ""}
+              disabled={busy}
+              onChange={(e) => change({ raisonnement: e.target.value || null })}
+              className="h-9 min-w-0 flex-1 cursor-pointer rounded-lg border border-border bg-background px-2 text-sm text-foreground"
+            >
+              <option value="">Par défaut</option>
+              {REASONING.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
+          </label>
+          <ModelSearch level="cerveau" selected={!mode ? own : null} onPick={(m) => pick({ model: m.id })} />
+          {busy && <p className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" />Un instant…</p>}
           <ErrorText>{error}</ErrorText>
         </div>
       )}

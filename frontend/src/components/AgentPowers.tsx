@@ -1,15 +1,22 @@
 // Ce que l'agent sait et fait de lui-même, réglable depuis Détails : routines, mémoire, connexions, logiciels, dossiers.
 import { Check, ChevronDown, ExternalLink, FolderOpen, HardDrive, Loader2, Pause, Pencil, Play, Plus, Trash2, Zap } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
-import { get, send } from "@/lib/api";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { get, request, send } from "@/lib/api";
+import { appLabel } from "@/lib/appLabel";
 import { askAgent } from "@/lib/askAgent";
-import { desktop } from "@/lib/desktop";
+import { type ListedModel, MODE_NAMES, type ModeId, scheduleLabel } from "@/lib/modes";
+import { SEEN, seenGeneration } from "@/lib/seen";
+import { type ComputerFolders, desktop } from "@/lib/desktop";
 import { cn, fileSize } from "@/lib/utils";
+import { ConnectorScope, PendingGlobal } from "./ConnectorScope";
+import { SavedLogins } from "./LoginCard";
+import { ModelSearch } from "./Modes";
 import { Button, ErrorText, Input, Textarea } from "./ui";
 
-/** Section repliable de Détails, avec un compteur à droite du titre. */
-export function Section({ title, count, defaultOpen = false, children }: { title: string; count?: number | string; defaultOpen?: boolean; children: React.ReactNode }) {
+/** Section repliable, avec un compteur à droite du titre. Seule dans son onglet (`alone`), elle n'a pas besoin de titre. */
+export function Section({ title, count, defaultOpen = false, alone = false, children }: { title: string; count?: number | string; defaultOpen?: boolean; alone?: boolean; children: React.ReactNode }) {
   const [open, setOpen] = useState(defaultOpen);
+  if (alone) return <section aria-label={title} className="flex flex-col gap-2">{children}</section>;
   return (
     <section className="flex flex-col gap-2">
       <button
@@ -29,22 +36,48 @@ export function Section({ title, count, defaultOpen = false, children }: { title
 
 /** Charge une ressource de l'agent et la recharge à la demande. */
 function useAgentData<T>(path: string) {
-  const [data, setData] = useState<T | null>(null);
+  const [data, setData] = useState<T | null>(() => (SEEN.get(path) as T) ?? null);
   const [error, setError] = useState("");
-  const load = useCallback(
-    () =>
-      get<T>(path)
+  const confirmed = useRef(false);
+  const reading = useRef(false);
+  const shownPath = useRef(path);
+  shownPath.current = path;
+  const read = useCallback(
+    (fresh: boolean) => {
+      const generation = seenGeneration();
+      const late = () => shownPath.current !== path || seenGeneration() !== generation;
+      return get<T>(fresh ? `${path}?frais=1` : path)
         .then((d) => {
+          if (late()) return;
+          confirmed.current = true;
+          SEEN.set(path, d);
           setData(d);
           setError("");
         })
-        .catch((e) => setError((e as Error).message)),
+        .catch((e) => {
+          if (late()) return;
+          SEEN.delete(path);
+          if (!confirmed.current) setData(null); // ce qu'on montrait n'est peut-être plus permis
+          setError((e as Error).message);
+        });
+    },
     [path],
   );
+  /** Pour les gestes et le suivi : lit l'état réel, une lecture à la fois. */
+  const load = useCallback(async () => {
+    if (reading.current) return;
+    reading.current = true;
+    try {
+      await read(true);
+    } finally {
+      reading.current = false;
+    }
+  }, [read]);
   useEffect(() => {
-    setData(null);
-    load();
-  }, [load]);
+    confirmed.current = false;
+    setData((SEEN.get(path) as T) ?? null);
+    void read(false);
+  }, [read, path]);
   return { data, setData, error, setError, load };
 }
 
@@ -72,6 +105,10 @@ type Routine = {
   last_run_at: string | null;
   last_status: string | null;
   last_error: string | null;
+  modele?: string | null;
+  fournisseur?: string | null;
+  outils?: string[] | null;
+  image?: string | null;
 };
 
 const PRESETS: [string, string][] = [
@@ -82,14 +119,105 @@ const PRESETS: [string, string][] = [
   ["every 1h", "Toutes les heures"],
 ];
 
-/** Horaire lisible : les formules prêtes en français, le reste tel quel. */
-const scheduleLabel = (s: string) => PRESETS.find(([v]) => v === s)?.[1] ?? s;
+type RoutineChoice = { modele: string | null; fournisseur?: string | null; outils: string[] | null; image: string | null };
+
+const ROUTINE_TOOLS: [string, string][] = [
+  ["internet", "Recherche sur internet"],
+  ["navigateur", "Navigateur"],
+  ["fichiers", "Fichiers"],
+  ["commandes", "Commandes et outils de Noah"],
+  ["memoire", "Mémoire"],
+  ["images_vues", "Lire des images"],
+  ["competences", "Compétences"],
+];
+const ROUTINE_MODES: ModeId[] = ["fast", "balanced", "smart", "gratuit", "custom"];
+
+/** Ce qu'une routine fixe pour elle seule. Tout vide : elle suit le réglage de l'agent. */
+function RoutineSettings({ value, onChange }: { value: RoutineChoice; onChange: (v: RoutineChoice) => void }) {
+  const [images, setImages] = useState<ListedModel[]>([]);
+  const [precise, setPrecise] = useState(false);
+  useEffect(() => {
+    get<{ modeles: ListedModel[] }>("/api/modes/image/modeles").then((r) => setImages(r.modeles)).catch(() => {}); // réservé au propriétaire : un invité n'a pas ce choix
+  }, []);
+  const isMode = !!value.modele && (ROUTINE_MODES as string[]).includes(value.modele);
+  const select = "h-9 min-w-0 flex-1 cursor-pointer rounded-lg border border-border bg-background px-2 text-sm text-foreground";
+  const tools = value.outils;
+  const toggle = (id: string) => {
+    const now = tools ?? ROUTINE_TOOLS.map(([t]) => t);
+    onChange({ ...value, outils: now.includes(id) ? now.filter((t) => t !== id) : [...now, id] });
+  };
+  return (
+    <div className="flex flex-col gap-2 rounded-lg bg-muted/50 p-2.5 text-xs">
+      <label className="flex flex-wrap items-center gap-2 text-muted-foreground">
+        Modèle
+        <select
+          aria-label="Modèle de la routine"
+          value={value.modele && !isMode ? "precis" : value.modele ?? ""}
+          onChange={(e) => {
+            if (e.target.value === "precis") return setPrecise(true);
+            setPrecise(false);
+            onChange({ ...value, modele: e.target.value || null, fournisseur: null });
+          }}
+          className={select}
+        >
+          <option value="">Comme l'agent</option>
+          {ROUTINE_MODES.map((m) => <option key={m} value={m}>{MODE_NAMES[m]}</option>)}
+          <option value="precis">{value.modele && !isMode ? value.modele : "Un modèle précis…"}</option>
+        </select>
+      </label>
+      {precise && <ModelSearch level="cerveau" selected={value.modele} onPick={(m) => { onChange({ ...value, modele: m.id, fournisseur: m.fournisseur }); setPrecise(false); }} />}
+      {images.length > 0 && (
+        <label className="flex flex-wrap items-center gap-2 text-muted-foreground">
+          Images
+          <select aria-label="Modèle d'image de la routine" value={value.image ?? ""} onChange={(e) => onChange({ ...value, image: e.target.value || null })} className={select}>
+            <option value="">Comme l'agent</option>
+            {images.map((m) => <option key={m.id} value={m.id}>{m.name}{m.prix ? ` · ${m.prix}` : ""}</option>)}
+          </select>
+        </label>
+      )}
+      <fieldset className="flex flex-col gap-1">
+        <legend className="text-muted-foreground">Outils permis</legend>
+        <label className="flex items-center gap-2"><input type="checkbox" checked={tools === null} onChange={() => onChange({ ...value, outils: tools === null ? ROUTINE_TOOLS.map(([t]) => t) : null })} />Tous ceux de l'agent</label>
+        {tools !== null && ROUTINE_TOOLS.map(([id, label]) => (
+          <label key={id} className="flex items-center gap-2 pl-5"><input type="checkbox" checked={tools.includes(id)} onChange={() => toggle(id)} />{label}</label>
+        ))}
+        {tools !== null && !tools.includes("commandes") && <p className="text-warn">Sans « Commandes et outils de Noah », la routine ne peut ni créer d'image ni te notifier elle-même.</p>}
+      </fieldset>
+    </div>
+  );
+}
+
+const choiceSummary = (r: Routine) => {
+  const parts = [
+    r.modele ? `Modèle : ${MODE_NAMES[r.modele as ModeId] ?? r.modele}` : "",
+    r.image ? `Images : ${r.image}` : "",
+    r.outils ? `${r.outils.length} outil${r.outils.length > 1 ? "s" : ""} permis` : "",
+  ].filter(Boolean);
+  return parts.join(" · ");
+};
 
 export function Routines({ agentId }: { agentId: string }) {
   const { data, error, setError, load } = useAgentData<{ routines: Routine[] }>(`/api/agents/${agentId}/routines`);
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [tuning, setTuning] = useState<{ id: string; value: RoutineChoice } | null>(null);
   const list = data?.routines ?? [];
+
+  const saveTuning = async () => {
+    if (!tuning) return;
+    setBusy(tuning.id + "regler");
+    setError("");
+    try {
+      const { modele, fournisseur, outils, image } = tuning.value;
+      await send(`/api/agents/${agentId}/routines/${tuning.id}/modifier`, { modele: modele ?? "", fournisseur, outils: outils ?? ["tous"], image: image ?? "" });
+      setTuning(null);
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const act = async (r: Routine, action: string) => {
     if (action === "supprimer" && !confirm(`Supprimer la routine « ${r.name || r.prompt.slice(0, 40)} » ?`)) return;
@@ -127,6 +255,7 @@ export function Routines({ agentId }: { agentId: string }) {
               </div>
             </div>
             {r.name && <p className="line-clamp-2 pl-4 text-xs text-muted-foreground">{r.prompt}</p>}
+            {choiceSummary(r) && <p className="pl-4 text-xs text-muted-foreground">{choiceSummary(r)}</p>}
             {r.last_error && <p className="pl-4 text-xs text-danger">Dernier passage en erreur : {r.last_error.slice(0, 160)}</p>}
             <div className="flex gap-1 pl-3">
               <Button size="sm" variant="ghost" onClick={() => act(r, paused ? "reprendre" : "pause")} disabled={!!busy}>
@@ -135,10 +264,22 @@ export function Routines({ agentId }: { agentId: string }) {
               <Button size="sm" variant="ghost" onClick={() => act(r, "lancer")} disabled={!!busy} title="Lancer au prochain passage du planificateur (moins d'une minute)">
                 {busy === r.id + "lancer" ? <Loader2 className="animate-spin" /> : <Zap />}Lancer
               </Button>
+              <Button size="sm" variant="ghost" aria-expanded={tuning?.id === r.id} disabled={!!busy}
+                onClick={() => setTuning(tuning?.id === r.id ? null : { id: r.id, value: { modele: r.modele ?? null, fournisseur: r.fournisseur ?? null, outils: r.outils ?? null, image: r.image ?? null } })}>
+                Réglages
+              </Button>
               <Button size="sm" variant="ghost" className="ml-auto text-muted-foreground" onClick={() => act(r, "supprimer")} disabled={!!busy} aria-label="Supprimer la routine">
                 <Trash2 />
               </Button>
             </div>
+            {tuning?.id === r.id && (
+              <div className="flex flex-col gap-2">
+                <RoutineSettings value={tuning.value} onChange={(value) => setTuning({ id: r.id, value })} />
+                <div className="flex justify-end">
+                  <Button size="sm" disabled={!!busy} onClick={saveTuning}>{busy === r.id + "regler" && <Loader2 className="animate-spin" />}Enregistrer</Button>
+                </div>
+              </div>
+            )}
           </div>
         );
       })}
@@ -159,12 +300,18 @@ function NewRoutine({ agentId, onDone }: { agentId: string; onDone: () => void }
   const [custom, setCustom] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [tune, setTune] = useState(false);
+  const [choice, setChoice] = useState<RoutineChoice>({ modele: null, fournisseur: null, outils: null, image: null });
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     setError("");
     try {
-      await send(`/api/agents/${agentId}/routines`, { nom: name, consigne: prompt, quand: preset === "custom" ? custom : preset });
+      const { modele, fournisseur, outils, image } = choice;
+      await send(`/api/agents/${agentId}/routines`, {
+        nom: name, consigne: prompt, quand: preset === "custom" ? custom : preset,
+        ...(modele ? { modele, fournisseur } : {}), ...(outils ? { outils } : {}), ...(image ? { image } : {}),
+      });
       onDone();
     } catch (err) {
       setError((err as Error).message);
@@ -197,6 +344,10 @@ function NewRoutine({ agentId, onDone }: { agentId: string; onDone: () => void }
           <Input value={custom} onChange={(e) => setCustom(e.target.value)} required className="h-9 flex-1" placeholder="every 30m, 0 7 * * 1-5…" aria-label="Horaire personnalisé" />
         )}
       </div>
+      <button type="button" className="cursor-pointer self-start text-xs text-muted-foreground underline" aria-expanded={tune} onClick={() => setTune(!tune)}>
+        Modèle et outils de cette routine
+      </button>
+      {tune && <RoutineSettings value={choice} onChange={setChoice} />}
       <ErrorText>{error}</ErrorText>
       <div className="flex justify-end gap-2">
         <Button type="button" variant="ghost" size="sm" onClick={onDone}>Annuler</Button>
@@ -249,7 +400,7 @@ export function Memory({ agentId }: { agentId: string }) {
   };
 
   return (
-    <Section title="Mémoire" count={total}>
+    <Section title="Mémoire" count={total} alone>
       {!data && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture…</p>}
       {data && (
         <>
@@ -337,8 +488,8 @@ function MemoryList({ title, entries, limit, empty, onSave }: { title: string; e
         ) : (
           <div key={i} className="group flex items-start gap-1 rounded-lg px-2 py-1 text-sm hover:bg-muted">
             <p className="min-w-0 flex-1 whitespace-pre-wrap">{e}</p>
-            <Button size="icon-sm" variant="ghost" className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100" onClick={() => start(i)} aria-label="Modifier ce souvenir"><Pencil /></Button>
-            <Button size="icon-sm" variant="ghost" className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100" onClick={() => onSave(entries.filter((_, j) => j !== i))} aria-label="Oublier ce souvenir"><Trash2 /></Button>
+            <Button size="icon-sm" variant="ghost" className="opacity-0 pointer-coarse:opacity-100 group-hover:opacity-100 focus-visible:opacity-100" onClick={() => start(i)} aria-label="Modifier ce souvenir"><Pencil /></Button>
+            <Button size="icon-sm" variant="ghost" className="opacity-0 pointer-coarse:opacity-100 group-hover:opacity-100 focus-visible:opacity-100" onClick={() => onSave(entries.filter((_, j) => j !== i))} aria-label="Oublier ce souvenir"><Trash2 /></Button>
           </div>
         ),
       )}
@@ -353,14 +504,14 @@ function MemoryList({ title, entries, limit, empty, onSave }: { title: string; e
 
 type GoogleState = { disponible: boolean; connecte?: boolean };
 
-type Droit = "lire" | "agir" | "confirmer";
+export type Droit = "lire" | "agir" | "confirmer";
 type Etat = "ok" | "injoignable" | "a_connecter" | "jeton_refuse" | "refuse" | "";
 type App = { nom: string; description: string; source: string | null; oauth: boolean; hote: string | null; installe: boolean; connecte: boolean; droit?: Droit; etat?: Etat; erreur?: string };
 type FoundTool = { nom: string; description: string; lecture_seule: boolean };
-type CustomTool = { nom: string; url: string; auth: "aucune" | "jeton" | "oauth"; jeton: boolean; droit: Droit; etat: Etat; erreur: string; connecte: boolean; outils: FoundTool[] };
-type ConnectionsState = { google: GoogleState; applications: App[]; outils?: CustomTool[] };
+type CustomTool = { nom: string; url: string; compte?: string; auth: "aucune" | "jeton" | "oauth"; jeton: boolean; droit: Droit; etat: Etat; erreur: string; connecte: boolean; outils: FoundTool[] };
+type GlobalConnector = { nom: string; genre: string; connecte: boolean; origine: boolean };
+type ConnectionsState = { google: GoogleState; applications: App[]; outils?: CustomTool[]; globaux?: GlobalConnector[]; age?: number };
 
-const appLabel = (name: string) => name.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
 const DROITS: [Droit, string][] = [
   ["confirmer", "Demander confirmation"],
@@ -369,7 +520,7 @@ const DROITS: [Droit, string][] = [
 ];
 
 /** Le droit vaut pour tout le serveur : MCP ne donne pas de quoi régler chaque action autrement que par sa déclaration de lecture. */
-function RightSelect({ agentId, name, droit, onChange, onError }: { agentId: string; name: string; droit: Droit; onChange: () => void; onError: (e: string) => void }) {
+export function RightSelect({ agentId, name, droit, onChange, onError }: { agentId: string; name: string; droit: Droit; onChange: () => void; onError: (e: string) => void }) {
   const [busy, setBusy] = useState(false);
   const change = async (next: string) => {
     setBusy(true);
@@ -391,12 +542,76 @@ function RightSelect({ agentId, name, droit, onChange, onError }: { agentId: str
   );
 }
 
-export function Connections({ agentId, shared = false }: { agentId: string; shared?: boolean }) {
+const LOGOS = new Map<string, string | null>();
+
+/** Le vrai logo, récupéré par le serveur Noah : le navigateur ne parle à aucun tiers. La lettre reste tant qu'il n'y en a pas. */
+function AppLogo({ host, name }: { host?: string | null; name: string }) {
+  const box = useRef<HTMLSpanElement>(null);
+  const [src, setSrc] = useState<string | null>(host ? LOGOS.get(host) ?? null : null);
+  useEffect(() => {
+    if (!host || LOGOS.has(host) || !box.current) return;
+    let gone = false;
+    const seen = new IntersectionObserver(([entry]) => {
+      if (!entry.isIntersecting) return;
+      seen.disconnect();
+      request(`/api/logos/${encodeURIComponent(host)}`).then((res) => (res.status === 200 ? res.blob() : null)).then((blob) => {
+        if (!blob) return void LOGOS.set(host, null);
+        const url = URL.createObjectURL(blob);
+        LOGOS.set(host, url);
+        if (!gone) setSrc(url);
+      }).catch(() => LOGOS.set(host, null));
+    });
+    seen.observe(box.current);
+    return () => { gone = true; seen.disconnect(); };
+  }, [host]);
+  return (
+    <span ref={box} className={cn("grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg text-sm font-bold", src ? "bg-white ring-1 ring-border" : "bg-muted")}>
+      {src ? <img src={src} alt="" className="size-6 object-contain" onError={() => setSrc(null)} /> : name[0].toUpperCase()}
+    </span>
+  );
+}
+
+const hostOf = (url?: string | null) => {
+  try {
+    return url ? new URL(url).hostname : null;
+  } catch {
+    return null;
+  }
+};
+
+type Waiting = Record<string, "auto" | "coller">; // connexions dont l'accord est en cours : le fournisseur revient seul, ou la personne colle
+
+export function Connections({ agentId, shared = false, owner = false }: { agentId: string; shared?: boolean; /** Son propriétaire : lui seul décide « pour tous mes agents ». */ owner?: boolean }) {
   const { data, error, setError, load } = useAgentData<ConnectionsState>(`/api/agents/${agentId}/connections`);
+  const [waiting, setWaiting] = useState<Waiting>({});
+  const wait = (name: string, mode?: "auto" | "coller") => setWaiting((w) => {
+    const next = { ...w };
+    if (mode) next[name] = mode;
+    else delete next[name];
+    return next;
+  });
+  const automatic = Object.entries(waiting).filter(([, m]) => m === "auto").map(([n]) => n).join(",");
+  useEffect(() => { // le fournisseur revient directement sur le serveur : cet écran le voit en relisant l'état
+    if (!automatic) return;
+    const started = Date.now();
+    const again = setInterval(() => {
+      if (Date.now() - started > 600_000) setWaiting({});
+      else void load();
+    }, 4000);
+    return () => clearInterval(again);
+  }, [automatic, load]);
+  useEffect(() => {
+    if (!data) return;
+    for (const a of [...(data.applications ?? []), ...(data.outils ?? [])]) if (a.connecte && waiting[a.nom]) wait(a.nom);
+  }, [data, waiting]);
+  // La réponse gardée par le serveur a vieilli : affichée tout de suite, relue derrière.
+  const age = data?.age;
+  useEffect(() => {
+    if (age) void load();
+  }, [age, load]);
   const [browsing, setBrowsing] = useState(false);
   const [adding, setAdding] = useState(false);
   const [query, setQuery] = useState("");
-  const [login, setLogin] = useState<string | null>(null); // outil OAuth qui vient d'être ajouté : l'onglet d'accord est ouvert
   const [arriving, setArriving] = useState("");
   const google = data?.google;
   const apps = data?.applications ?? [];
@@ -404,16 +619,24 @@ export function Connections({ agentId, shared = false }: { agentId: string; shar
   const connected = apps.filter((a) => a.installe);
   const q = query.trim().toLowerCase();
   const others = apps.filter((a) => !a.installe && (!q || `${a.nom} ${a.description}`.toLowerCase().includes(q)));
+  const globals = data?.globaux ?? [];
+  const here = new Set([...connected.map((a) => a.nom), ...tools.map((t) => t.nom)]);
+  const pending = owner ? globals.filter((g) => !g.connecte && g.nom !== "google" && !here.has(g.nom)) : [];
+  const scope = (nom: string) => owner && <ConnectorScope key={`portee-${agentId}-${nom}`} agentId={agentId} nom={nom} global={globals.some((g) => g.nom === nom)} onChange={load} />;
   return (
-    <Section title="Connexions" count={(google?.connecte ? 1 : 0) + connected.filter((a) => a.connecte).length + tools.filter((t) => t.connecte).length}>
+    <Section title="Connexions" count={(google?.connecte ? 1 : 0) + connected.filter((a) => a.connecte).length + tools.filter((t) => t.connecte).length} alone>
       {!data && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture…</p>}
       {google?.disponible && data && <GoogleCard agentId={agentId} onError={setError} />}
-      {connected.map((a) => <AppRow key={a.nom} agentId={agentId} app={a} onChange={load} onError={setError} />)}
-      {tools.map((t) => <ToolRow key={t.nom} agentId={agentId} tool={t} justAdded={login === t.nom} onChange={load} onError={setError} />)}
+      {google?.connecte && scope("google")}
+      {connected.map((a) => <AppRow key={a.nom} agentId={agentId} app={a} waiting={waiting[a.nom]} onWait={(m) => wait(a.nom, m)} onChange={load} onError={setError} extra={a.connecte ? scope(a.nom) : null} />)}
+      {tools.map((t) => <ToolRow key={t.nom} agentId={agentId} tool={t} waiting={waiting[t.nom]} onWait={(m) => wait(t.nom, m)} onChange={load} onError={setError} extra={t.connecte ? scope(t.nom) : null} />)}
+      {pending.map((g) => <PendingGlobal key={g.nom} agentId={agentId} nom={g.nom} waiting={waiting[g.nom]} onWait={(m) => wait(g.nom, m)} onChange={load} onError={setError} />)}
+      {data && <PublishCards agentId={agentId} shared={shared} tools={tools} onWait={wait} onChange={load} />}
+      <SavedLogins agentId={agentId} />
       {arriving && <p className="text-xs text-muted-foreground">« {arriving} » arrive chez l'agent en moins d'une minute.</p>}
       {data && (adding ? (
         <AddTool agentId={agentId} shared={shared} onClose={() => setAdding(false)}
-          onAdded={(name, oauth) => { setAdding(false); if (oauth) setLogin(name); else setArriving(name); load(); }} />
+          onAdded={(name, mode) => { setAdding(false); if (mode) wait(name, mode); else setArriving(name); load(); }} />
       ) : (
         <Button variant="outline" size="sm" className="self-start" onClick={() => setAdding(true)}><Plus />Ajouter un outil</Button>
       ))}
@@ -421,7 +644,7 @@ export function Connections({ agentId, shared = false }: { agentId: string; shar
         <div className="flex flex-col gap-1.5 rounded-xl border border-border p-2">
           <Input value={query} onChange={(e) => setQuery(e.target.value)} className="h-9" placeholder="Notion, Todoist, Linear, Figma…" aria-label="Chercher une application" autoFocus />
           <div className="flex max-h-72 flex-col gap-0.5 overflow-y-auto">
-            {others.map((a) => <AppRow key={a.nom} agentId={agentId} app={a} onChange={load} onError={setError} />)}
+            {others.map((a) => <AppRow key={a.nom} agentId={agentId} app={a} waiting={waiting[a.nom]} onWait={(m) => wait(a.nom, m)} onChange={load} onError={setError} />)}
             {!others.length && <p className="p-2 text-xs text-muted-foreground">Aucune application ne correspond.</p>}
           </div>
           <Button size="sm" variant="ghost" className="self-end" onClick={() => setBrowsing(false)}>Fermer</Button>
@@ -434,9 +657,83 @@ export function Connections({ agentId, shared = false }: { agentId: string; shar
   );
 }
 
-function AppRow({ agentId, app, onChange, onError }: { agentId: string; app: App; onChange: () => void; onError: (e: string) => void }) {
+/** Publier par l'API : Instagram et X. Sans elles, l'agent publie avec son navigateur : c'est un plus, jamais un passage obligé. */
+function PublishCards({ agentId, shared, tools, onWait, onChange }: { agentId: string; shared: boolean; tools: CustomTool[]; onWait: (name: string, mode?: "auto" | "coller") => void; onChange: () => void }) {
+  const [state, setState] = useState<{ retour: string; adresse_publique: boolean } | null>(null);
+  const [open, setOpen] = useState("");
+  const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
-  const [waiting, setWaiting] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    get<{ retour: string; adresse_publique: boolean }>(`/api/agents/${agentId}/publication`).then(setState).catch(() => setState(null));
+  }, [agentId]);
+  if (!state) return null;
+  const left = [["instagram", "Instagram", "instagram.com"], ["x", "X", "x.com"]].filter(([nom]) => !tools.some((t) => t.nom === nom));
+  if (!left.length) return null;
+  const toggle = (nom: string) => { setOpen((o) => (o === nom ? "" : nom)); setValue(""); setError(""); };
+  const submit = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      if (open === "instagram") {
+        await send(`/api/agents/${agentId}/publication/instagram`, { jeton: value.trim() });
+      } else {
+        const r = await send<{ adresse: string }>(`/api/agents/${agentId}/publication/x`, { client_id: value.trim() });
+        window.open(r.adresse, "_blank", "noopener");
+        onWait("x", "auto");
+      }
+      setOpen("");
+      setValue("");
+      onChange();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="flex flex-col gap-1.5">
+      <p className="text-xs text-muted-foreground">Publier plus vite et plus sûrement. Sans cela, l'agent publie avec son navigateur.</p>
+      {shared && <p className="text-xs font-medium text-warn">Cet agent est partagé : ceux qui l'utilisent pourront aussi publier sur ce compte.</p>}
+      {left.map(([nom, label, host]) => (
+        <div key={nom} className="flex flex-col gap-2 rounded-lg border border-border p-2.5">
+          <div className="flex items-center gap-2.5">
+            <AppLogo host={host} name={nom} />
+            <p className="min-w-0 flex-1 truncate text-sm font-medium">{label}</p>
+            <Button size="sm" variant="outline" onClick={() => toggle(nom)}>{open === nom ? "Fermer" : "Connecter"}</Button>
+          </div>
+          {open === nom && nom === "instagram" && (!state.adresse_publique ? (
+            <p className="text-xs text-muted-foreground">Instagram doit venir chercher les images sur une adresse publique, et ce Noah n'en a pas. L'agent passera par le navigateur.</p>
+          ) : (
+            <ol className="flex list-decimal flex-col gap-1 pl-4 text-xs text-muted-foreground">
+              <li>Ton compte Instagram doit être professionnel (créateur ou entreprise).</li>
+              <li>Sur <a className="underline" href="https://developers.facebook.com/apps" target="_blank" rel="noreferrer">Meta for Developers</a>, crée une application et ajoute-lui le produit Instagram.</li>
+              <li>Dans « API setup with Instagram login », ajoute ton compte, génère son jeton et colle-le ici.</li>
+            </ol>
+          ))}
+          {open === nom && nom === "x" && (
+            <ol className="flex list-decimal flex-col gap-1 pl-4 text-xs text-muted-foreground">
+              <li>Sur <a className="underline" href="https://console.x.com" target="_blank" rel="noreferrer">la console X</a>, crée une application avec OAuth 2.0, type « Native App ». X facture chaque post à ton compte développeur.</li>
+              <li>Comme adresse de retour, donne : <code className="break-all select-all">{state.retour || "ce serveur n'a pas encore d'adresse publique"}</code></li>
+              <li>Colle ici son « Client ID », puis accepte dans l'onglet qui s'ouvre.</li>
+            </ol>
+          )}
+          {open === nom && (nom === "x" ? !!state.retour : state.adresse_publique) && (
+            <div className="flex items-center gap-2">
+              <Input value={value} onChange={(e) => setValue(e.target.value)} type={nom === "x" ? "text" : "password"} autoComplete="off" className="h-9 min-w-0 flex-1"
+                placeholder={nom === "x" ? "Client ID" : "Jeton d'accès"} aria-label={nom === "x" ? "Client ID de X" : "Jeton d'accès Instagram"} />
+              <Button size="sm" onClick={submit} disabled={!value.trim() || busy}>{busy && <Loader2 className="animate-spin" />}{nom === "x" ? "Continuer" : "Vérifier"}</Button>
+            </div>
+          )}
+          {open === nom && <ErrorText>{error}</ErrorText>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AppRow({ agentId, app, waiting, onWait, onChange, onError, extra }: { agentId: string; app: App; waiting?: "auto" | "coller"; onWait: (mode?: "auto" | "coller") => void; onChange: () => void; onError: (e: string) => void; extra?: React.ReactNode }) {
+  const [busy, setBusy] = useState(false);
   const [back, setBack] = useState("");
   const base = `/api/agents/${agentId}/connections/apps/${app.nom}`;
   const run = async (fn: () => Promise<void>) => {
@@ -452,16 +749,16 @@ function AppRow({ agentId, app, onChange, onError }: { agentId: string; app: App
   };
   const connect = () =>
     run(async () => {
-      const r = await send<{ adresse?: string; connecte?: boolean }>(`${base}/connect`, {});
+      const r = await send<{ adresse?: string; connecte?: boolean; retour?: boolean }>(`${base}/connect`, {});
       if (r.adresse) {
         window.open(r.adresse, "_blank", "noopener");
-        setWaiting(true);
+        onWait(r.retour ? "auto" : "coller");
       } else onChange();
     });
   const finish = () =>
     run(async () => {
       await send(`${base}/finish`, { adresse: back });
-      setWaiting(false);
+      onWait();
       setBack("");
       onChange();
     });
@@ -474,7 +771,7 @@ function AppRow({ agentId, app, onChange, onError }: { agentId: string; app: App
   return (
     <div className={cn("flex flex-col gap-2 rounded-lg px-2 py-1.5", app.installe && "border border-border p-2.5")}>
       <div className="flex items-center gap-2.5">
-        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-muted text-sm font-bold">{app.nom[0].toUpperCase()}</span>
+        <AppLogo host={app.hote ?? hostOf(app.source)} name={app.nom} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{appLabel(app.nom)}</p>
           <p className="truncate text-xs text-muted-foreground" title={app.description}>{app.description}</p>
@@ -495,19 +792,30 @@ function AppRow({ agentId, app, onChange, onError }: { agentId: string; app: App
       {app.installe && app.connecte && app.erreur && <p className="text-xs text-danger">{app.erreur}</p>}
       {app.installe && app.connecte && (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>Droit de l'agent</span>
+          <span>Ce qu'il peut faire</span>
           <RightSelect agentId={agentId} name={app.nom} droit={app.droit ?? "confirmer"} onChange={onChange} onError={onError} />
         </div>
       )}
-      {waiting && (
-        <LoginBack label={appLabel(app.nom)} value={back} onValue={setBack} onReopen={connect} onFinish={finish} busy={busy} />
-      )}
+      {extra}
+      {waiting === "auto" && <LoginAuto onReopen={connect} busy={busy} />}
+      {waiting === "coller" && <LoginBack label={appLabel(app.nom)} value={back} onValue={setBack} onReopen={connect} onFinish={finish} busy={busy} />}
+    </div>
+  );
+}
+
+/** Le fournisseur revient directement sur le serveur Noah : rien à faire ici, l'état se met à jour seul. */
+export function LoginAuto({ onReopen, busy }: { onReopen: () => void; busy: boolean }) {
+  return (
+    <div className="flex items-center gap-2">
+      <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+      <p className="min-w-0 flex-1 text-xs text-muted-foreground">Accepte dans l'onglet ouvert. Noah termine seul.</p>
+      <Button size="sm" variant="ghost" onClick={onReopen} disabled={busy}>Rouvrir</Button>
     </div>
   );
 }
 
 /** Retour du fournisseur OAuth : l'adresse de la page de retour, qu'Hermes attend sur un port de la machine de l'agent. */
-function LoginBack({ label, value, onValue, onReopen, onFinish, busy }: { label: string; value: string; onValue: (v: string) => void; onReopen: () => void; onFinish: () => void; busy: boolean }) {
+export function LoginBack({ label, value, onValue, onReopen, onFinish, busy }: { label: string; value: string; onValue: (v: string) => void; onReopen: () => void; onFinish: () => void; busy: boolean }) {
   return (
     <div className="flex flex-col gap-2">
       <p className="text-xs text-muted-foreground">
@@ -525,9 +833,8 @@ function LoginBack({ label, value, onValue, onReopen, onFinish, busy }: { label:
 const ETATS: Partial<Record<Etat, string>> = { injoignable: "En panne", refuse: "Adresse refusée", jeton_refuse: "Jeton refusé", a_connecter: "À connecter" };
 
 /** Un outil ajouté par adresse : son état, son droit, et ce qu'il offre. */
-function ToolRow({ agentId, tool, justAdded, onChange, onError }: { agentId: string; tool: CustomTool; justAdded: boolean; onChange: () => void; onError: (e: string) => void }) {
+function ToolRow({ agentId, tool, waiting, onWait, onChange, onError, extra }: { agentId: string; tool: CustomTool; waiting?: "auto" | "coller"; onWait: (mode?: "auto" | "coller") => void; onChange: () => void; onError: (e: string) => void; extra?: React.ReactNode }) {
   const [busy, setBusy] = useState(false);
-  const [waiting, setWaiting] = useState(justAdded);
   const [back, setBack] = useState("");
   const base = `/api/agents/${agentId}/connections/tools/${tool.nom}`;
   const label = appLabel(tool.nom);
@@ -544,14 +851,14 @@ function ToolRow({ agentId, tool, justAdded, onChange, onError }: { agentId: str
   };
   const connect = () =>
     run(async () => {
-      const r = await send<{ adresse?: string }>(`${base}/connect`, {});
+      const r = await send<{ adresse?: string; retour?: boolean }>(`${base}/connect`, {});
       if (r.adresse) window.open(r.adresse, "_blank", "noopener");
-      setWaiting(true);
+      onWait(r.retour ? "auto" : "coller");
     });
   const finish = () =>
     run(async () => {
       await send(`${base}/finish`, { adresse: back });
-      setWaiting(false);
+      onWait();
       setBack("");
       onChange();
     });
@@ -565,10 +872,10 @@ function ToolRow({ agentId, tool, justAdded, onChange, onError }: { agentId: str
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-border p-2.5">
       <div className="flex items-center gap-2.5">
-        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-muted text-sm font-bold">{tool.nom[0].toUpperCase()}</span>
+        <AppLogo host={hostOf(tool.url)} name={tool.nom} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{label}</p>
-          <p className="truncate text-xs text-muted-foreground" title={tool.url}>{tool.url}</p>
+          <p className="truncate text-xs text-muted-foreground" title={tool.url}>{tool.compte ? `@${tool.compte}` : tool.url}</p>
         </div>
         {problem
           ? <span className={cn("text-xs font-medium", tool.etat === "a_connecter" ? "text-warn" : "text-danger")}>{problem}</span>
@@ -577,20 +884,22 @@ function ToolRow({ agentId, tool, justAdded, onChange, onError }: { agentId: str
       </div>
       {tool.erreur && <p className="text-xs text-danger">{tool.erreur} L'agent le sait et continue sans cet outil.</p>}
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        <span>Droit de l'agent</span>
+        <span>Ce qu'il peut faire</span>
         <RightSelect agentId={agentId} name={tool.nom} droit={tool.droit} onChange={onChange} onError={onError} />
         {tool.outils.length > 0 && <span title={tool.outils.map((o) => o.nom).join(", ")}>{tool.outils.length} outil{tool.outils.length > 1 ? "s" : ""}</span>}
       </div>
+      {extra}
       {tool.auth === "oauth" && !tool.connecte && !waiting && (
         <Button size="sm" className="self-start" onClick={connect} disabled={busy}>{busy && <Loader2 className="animate-spin" />}Terminer la connexion</Button>
       )}
-      {waiting && <LoginBack label={label} value={back} onValue={setBack} onReopen={connect} onFinish={finish} busy={busy} />}
+      {waiting === "auto" && <LoginAuto onReopen={connect} busy={busy} />}
+      {waiting === "coller" && <LoginBack label={label} value={back} onValue={setBack} onReopen={connect} onFinish={finish} busy={busy} />}
     </div>
   );
 }
 
 /** Ajouter un serveur MCP par son adresse : rien ne s'enregistre avant un test réussi, avec exactement ces réglages. */
-function AddTool({ agentId, shared, onClose, onAdded }: { agentId: string; shared: boolean; onClose: () => void; onAdded: (name: string, oauth: boolean) => void }) {
+function AddTool({ agentId, shared, onClose, onAdded }: { agentId: string; shared: boolean; onClose: () => void; onAdded: (name: string, mode?: "auto" | "coller") => void }) {
   const base = `/api/agents/${agentId}/connections/tools`;
   const [form, setForm] = useState({ url: "", nom: "", auth: "aucune", jeton: "", droit: "confirmer" });
   const [found, setFound] = useState<{ nom: string; oauth: boolean; outils: FoundTool[] } | null>(null);
@@ -615,9 +924,9 @@ function AddTool({ agentId, shared, onClose, onAdded }: { agentId: string; share
   const test = () => run(async () => setFound(await send<{ nom: string; oauth: boolean; outils: FoundTool[] }>(`${base}/test`, form)));
   const save = () =>
     run(async () => {
-      const r = await send<{ nom: string; adresse?: string }>(base, form);
+      const r = await send<{ nom: string; adresse?: string; retour?: boolean }>(base, form);
       if (r.adresse) window.open(r.adresse, "_blank", "noopener");
-      onAdded(r.nom, !!r.adresse);
+      onAdded(r.nom, r.adresse ? (r.retour ? "auto" : "coller") : undefined);
     });
   return (
     <form onSubmit={(e) => { e.preventDefault(); void (found ? save() : test()); }} className="flex flex-col gap-2 rounded-xl border border-border p-3">
@@ -637,7 +946,7 @@ function AddTool({ agentId, shared, onClose, onAdded }: { agentId: string; share
         <Input type="password" autoComplete="off" value={form.jeton} onChange={(e) => change({ jeton: e.target.value })} className="h-9" required placeholder="Jeton" aria-label="Jeton" />
       )}
       {form.auth === "jeton" && <p className="text-xs text-muted-foreground">Le jeton reste chiffré sur ton serveur : ni l'agent ni cet écran ne le reverront.</p>}
-      <p className="text-xs text-muted-foreground">Le droit vaut pour tout ce serveur. « Lire seulement » s'en remet à ce que le serveur déclare en lecture. Dans une routine, personne ne peut confirmer : l'appel y est refusé.</p>
+      <p className="text-xs text-muted-foreground">Le droit vaut pour tout ce serveur. « Lire seulement » s'en remet à ce que le serveur déclare en lecture. Avec « Confirmer », ce qu'il déclare en lecture passe sans accord. Dans une routine, personne ne peut confirmer : le reste y est refusé.</p>
       <p className="text-xs text-muted-foreground">Une commande locale n'est pas acceptée ici : elle reviendrait à exécuter du code téléchargé sur la machine de l'agent.</p>
       <p className={cn("text-xs", shared ? "font-medium text-warn" : "text-muted-foreground")}>
         {shared ? "Cet agent est partagé : cet outil servira aussi à ceux à qui tu donnes le droit admin." : "Si tu partages cet agent, cet outil servira aussi à ceux à qui tu donnes le droit admin."}
@@ -885,7 +1194,7 @@ export function Software({ agentId }: { agentId: string }) {
     }
   };
   return (
-    <Section title="Logiciels et disque">
+    <Section title="Logiciels et disque" alone>
       {!data && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture…</p>}
       {data && (
         <>
@@ -922,6 +1231,102 @@ type FoldersState = { racines: string[]; dossiers: SharedFolder[] };
  * Dossiers de l'ordinateur confiés à l'agent. En lecture seule par défaut ; « dossier de travail » : là où il range
  * ce qu'il crée, y compris pendant les routines. Chaque changement recrée sa machine (quelques secondes).
  */
+type DeviceFolders = { id: string; nom: string; type: string; en_ligne: boolean; coupe: boolean; attente: number; dossiers: { id: string; nom: string; ecriture: boolean; absent?: boolean }[] };
+
+/** Noah sur un serveur : les dossiers restent sur l'ordinateur et c'est l'application de bureau qui garde les droits. */
+function ComputerFolderList() {
+  const app = desktop();
+  const [state, setState] = useState<ComputerFolders | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    app?.dossiers?.().then(setState).catch((e) => setError((e as Error).message));
+  }, [app]);
+  const act = (work: Promise<ComputerFolders | null> | undefined) =>
+    work?.then((s) => s && setState(s)).catch((e) => setError((e as Error).message));
+  if (!state) return error ? <p className="text-xs text-destructive">{error}</p> : null;
+  return (
+    <>
+      <p className="text-xs text-muted-foreground">
+        Tes dossiers restent sur cet ordinateur. Tes agents les lisent et y écrivent à la demande, selon le droit que tu donnes, tant que l'application est ouverte.
+        Ce qu'ils lisent passe par le modèle que tu as choisi.
+      </p>
+      {state.coupe && (
+        <p role="status" className="rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn">
+          Accès coupé : aucun agent n'atteint cet ordinateur. Ce qui lui est destiné attend sur le serveur.
+        </p>
+      )}
+      {state.dossiers.length === 0 && <p className="text-xs">Aucun dossier confié pour l'instant.</p>}
+      {state.dossiers.map((f) => (
+        <div key={f.id} className="flex flex-col gap-1.5 rounded-lg border border-border p-2.5" data-dossier={f.nom}>
+          <div className="flex items-center gap-2">
+            <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">{f.nom}</p>
+              <p className="text-xs text-muted-foreground">{f.ecriture ? "Lecture et écriture" : "Lecture seule"}</p>
+            </div>
+            <Button variant="ghost" size="icon" aria-label={`Ouvrir ${f.nom}`} title="Ouvrir" onClick={() => app?.dossierOuvrir?.(f.id)}>
+              <ExternalLink />
+            </Button>
+            <Button variant="ghost" size="icon" aria-label={`Ne plus confier ${f.nom}`} title="Ne plus confier"
+              onClick={() => { if (confirm(`Ne plus confier « ${f.nom} » à tes agents ? Le dossier reste sur ton ordinateur.`)) void act(app?.dossierRetirer?.(f.id)); }}>
+              <Trash2 />
+            </Button>
+          </div>
+          <label className="flex cursor-pointer items-center gap-2 pl-6 text-xs">
+            <input type="checkbox" className="size-4" checked={f.ecriture} aria-label={`Tes agents peuvent écrire dans ${f.nom}`} onChange={(e) => act(app?.dossierDroit?.(f.id, e.target.checked))} />
+            Tes agents peuvent y écrire
+          </label>
+        </div>
+      ))}
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" size="sm" onClick={() => act(app?.dossierAjouter?.())}><FolderOpen />Choisir un dossier</Button>
+        <Button variant="outline" size="sm" onClick={() => act(app?.couper?.(!state.coupe))}>{state.coupe ? "Rendre l'accès" : "Couper l'accès"}</Button>
+      </div>
+      {state.toujours.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <p className="text-xs font-semibold text-muted-foreground">Commandes permises sans demander</p>
+          {state.toujours.map((t) => (
+            <div key={`${t.dossier}:${t.commande}`} className="flex items-center gap-2 text-xs">
+              <code className="min-w-0 flex-1 truncate">{t.commande}</code>
+              <span className="shrink-0 text-muted-foreground">{t.nom}</span>
+              <Button variant="ghost" size="sm" aria-label={`Oublier ${t.commande}`} onClick={() => act(app?.commandeOublier?.(t.commande, t.dossier))}>Oublier</Button>
+            </div>
+          ))}
+        </div>
+      )}
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </>
+  );
+}
+
+const waitingFiles = (n: number) => (n === 1 ? "Un fichier attend" : `${n} fichiers attendent`);
+
+/** Ailleurs que dans l'application de bureau : ce qui est confié, sans pouvoir le changer. */
+function RemoteFolderList() {
+  const [list, setList] = useState<DeviceFolders[] | null>(null);
+  useEffect(() => {
+    get<{ appareils: DeviceFolders[] }>("/api/devices").then((r) => setList(r.appareils.filter((d) => d.type === "desktop"))).catch(() => setList([]));
+  }, []);
+  if (!list) return null;
+  if (!list.length) {
+    return <p className="text-xs text-muted-foreground">Installe l'application de bureau sur ton ordinateur et relie-la à ce compte : tu pourras y confier des dossiers à tes agents.</p>;
+  }
+  return (
+    <>
+      {list.map((d) => (
+        <div key={d.id} className="flex flex-col gap-1 rounded-lg border border-border p-2.5">
+          <p className="truncate text-sm font-medium">{d.nom || "Ordinateur"}</p>
+          <p className="text-xs text-muted-foreground">{d.coupe ? "Accès coupé" : d.en_ligne ? "En ligne" : "Éteint, ou application fermée"}</p>
+          {d.dossiers.map((f) => <p key={f.id} className="truncate text-xs text-muted-foreground">{f.nom} · {f.absent ? "introuvable sur l'ordinateur" : f.ecriture ? "lecture et écriture" : "lecture seule"}</p>)}
+          {!d.dossiers.length && <p className="text-xs text-muted-foreground">{d.en_ligne ? "Aucun dossier confié." : "Ses dossiers s'afficheront quand il sera en ligne."}</p>}
+          {d.attente > 0 && <p className="text-xs">{waitingFiles(d.attente)} {d.coupe ? "que tu rendes l'accès depuis l'application de bureau." : "sa reconnexion."}</p>}
+        </div>
+      ))}
+      <p className="text-xs text-muted-foreground">Tu choisis ces dossiers et leurs droits depuis l'application de bureau.</p>
+    </>
+  );
+}
+
 export function Folders({ agentId }: { agentId: string }) {
   const { data, setData, error, setError } = useAgentData<FoldersState>(`/api/agents/${agentId}/folders`);
   const [path, setPath] = useState("");
@@ -955,14 +1360,9 @@ export function Folders({ agentId }: { agentId: string }) {
   };
 
   return (
-    <Section title="Dossiers" count={list.length}>
+    <Section title="Dossiers" count={list.length} alone>
       {!data && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture…</p>}
-      {data && data.racines.length === 0 && (
-        <p className="text-xs text-muted-foreground">
-          Possible quand Noah tourne sur ton ordinateur : l'application de bureau te laisse lui confier des dossiers
-          (documents à lire, dossier où ranger ce qu'il crée).
-        </p>
-      )}
+      {data && data.racines.length === 0 && (app?.dossiers ? <ComputerFolderList /> : <RemoteFolderList />)}
       {data && data.racines.length > 0 && (
         <>
           <p className="text-xs text-muted-foreground">
@@ -1113,7 +1513,7 @@ export function Watches({ agentId }: { agentId: string }) {
   };
 
   return (
-    <Section title="Veilles et routines à condition" count={list.length}>
+    <Section title="Surveiller un changement" count={list.length} defaultOpen>
       {data && !list.length && !adding && (
         <p className="text-sm text-muted-foreground">
           Surveille une page, un flux, tes courriels ou ton agenda sans faire travailler l'agent. Rien de nouveau : rien ne coûte.

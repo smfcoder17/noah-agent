@@ -131,7 +131,7 @@ async def real_admin(agent_id: str, action: str, body: dict | None = None, timeo
         return {"disponible": False}
     # Le vrai agent_admin lance la connexion d'Hermes en arrière-plan : ici, seul ce départ est remplacé.
     source = ADMIN_SOURCE.replace('sys.path.insert(0, "/opt/hermes")', f'sys.path.insert(0, {str(STUB)!r})', 1)
-    source = source.replace("def _start_login(name):", f"def _start_login(name):\n    return {{'adresse': {login_address!r}}}\n\n\ndef _unused(name):", 1)
+    source = source.replace('def _start_login(name, retour=""):', f"def _start_login(name, retour=''):\n    return {{'adresse': {login_address!r}}}\n\n\ndef _unused(name):", 1)
     r = subprocess.run([sys.executable, "-c", source, action, text], capture_output=True, text=True)
     out = json.loads(r.stdout.strip().splitlines()[-1]) if r.stdout.strip() else {}
     if r.returncode:
@@ -318,7 +318,7 @@ def test_token() -> None:
     assert stored and JETON not in stored and db.unseal(stored) == JETON, "le jeton doit être chiffré, et déchiffrable"
     for f in DATA.iterdir():
         assert JETON.encode() not in f.read_bytes(), f"jeton en clair dans {f}"
-    seen = alice.get(f"/api/agents/{A}/connections")
+    seen = alice.get(f"/api/agents/{A}/connections?frais=1")
     assert seen.status_code == 200 and JETON not in seen.text, seen.text[:300]
     row = [t for t in seen.json()["outils"] if t["nom"] == "fiches"][0]
     assert row["jeton"] is True and row["auth"] == "jeton" and row["etat"] == "ok", row
@@ -402,6 +402,18 @@ def test_rights() -> None:
     mcp.approval_seen(A, "q4", asked["message"])
     assert alice.post(f"/api/agents/{A}/runs/run-1/approval", json={"request_id": "q4", "generation": 1, "approve": True}).status_code >= 500
     assert not mcp._grants[(A, "libre")], "accord gardé alors qu'Hermes n'a pas la réponse"
+
+    # Déjà répondu, depuis un autre écran ou d'un double clic : pas d'erreur à l'écran, et aucun accord de plus.
+    async def already_answered(*a):
+        request = httpx.Request("POST", "http://agent/v1/runs/run-1/approval")
+        raise httpx.HTTPStatusError("409", request=request, response=httpx.Response(409, request=request))
+
+    hermes.answer_approval = already_answered
+    asked = plugin("libre", "creer_fiche")
+    mcp.approval_seen(A, "q5", asked["message"])
+    twice = alice.post(f"/api/agents/{A}/runs/run-1/approval", json={"request_id": "q5", "generation": 1, "approve": True})
+    assert twice.status_code == 200 and twice.json().get("deja") is True, twice.text
+    assert not mcp._grants[(A, "libre")], "second clic : aucun accord de plus"
     hermes.answer_approval = fake_answer
     # Un accord qui a expiré ne vaut plus.
     # Deux accords en attente de réponse : l'échec du premier ne retire pas le second.
@@ -433,6 +445,12 @@ def test_rights() -> None:
     assert action_of("libre", "lire_fiche") == "block", "sans Hermes pour confirmer la déclaration : refus"
     garde._read_only = lambda server, tool: tool == "lire_fiche"
     assert plugin("libre", "lire_fiche") is None and action_of("libre", "creer_fiche") == "block"
+    # confirmer : une lecture déclarée passe sans accord (une routine peut donc lire), une écriture reste bloquée.
+    set_right("libre", "confirmer")
+    assert plugin("libre", "lire_fiche") is None and action_of("libre", "creer_fiche") == "approve"
+    assert not call_tool("libre", "lire_fiche").get("isError") and len(libre.calls) == done + 2
+    assert call_tool("libre", "creer_fiche").get("isError") and len(libre.calls) == done + 2, "une écriture sans accord"
+    done += 1
     # agir : tout passe, sans rien demander.
     set_right("libre", "agir")
     assert plugin("libre", "creer_fiche") is None
@@ -476,7 +494,7 @@ def test_outage() -> None:
     assert took < 15, f"l'agent a attendu {took} s"
     assert own_ip not in text_of(result), "le message donne une adresse interne"
     # À l'écran : un état visible.
-    state = {t["nom"]: t for t in alice.get(f"/api/agents/{A}/connections").json()["outils"]}["fragile"]
+    state = {t["nom"]: t for t in alice.get(f"/api/agents/{A}/connections?frais=1").json()["outils"]}["fragile"]
     assert state["etat"] == "injoignable" and "Injoignable" in state["erreur"], state
     # Hermes redémarre pendant la panne : il se connecte quand même et garde la liste connue.
     hello = rpc(agent_a, "fragile", "initialize", {"protocolVersion": "2025-06-18"})
@@ -485,12 +503,12 @@ def test_outage() -> None:
     assert len(listed) == 3, listed
     # Les autres outils de l'agent ne sont pas touchés.
     assert not call_tool("fiches", "lire_fiche").get("isError")
-    states = {t["nom"]: t["etat"] for t in alice.get(f"/api/agents/{A}/connections").json()["outils"]}
+    states = {t["nom"]: t["etat"] for t in alice.get(f"/api/agents/{A}/connections?frais=1").json()["outils"]}
     assert states["fiches"] == "ok" and states["fragile"] == "injoignable", states
     # Le serveur revient : l'état revient, sans rien refaire.
     back = Server(port=int(url.rsplit(":", 1)[1].split("/")[0])).start()
     assert not call_tool("fragile", "lire_fiche").get("isError")
-    assert {t["nom"]: t for t in alice.get(f"/api/agents/{A}/connections").json()["outils"]}["fragile"]["etat"] == "ok"
+    assert {t["nom"]: t for t in alice.get(f"/api/agents/{A}/connections?frais=1").json()["outils"]}["fragile"]["etat"] == "ok"
     # Le serveur a oublié la session : une autre s'ouvre, sans erreur pour l'agent.
     back.forget_sessions = True
     assert not call_tool("fragile", "lire_fiche").get("isError")
@@ -505,16 +523,16 @@ def test_outage() -> None:
     FAKE_DNS["change.example.org"] = ["169.254.169.254"]
     result = call_tool("change", "creer_fiche")
     assert result.get("isError") and len(fixe.calls) == done, result
-    state = {t["nom"]: t for t in alice.get(f"/api/agents/{A}/connections").json()["outils"]}["change"]
+    state = {t["nom"]: t for t in alice.get(f"/api/agents/{A}/connections?frais=1").json()["outils"]}["change"]
     assert state["etat"] == "refuse" and "métadonnées" in state["erreur"], state
     # Le jeton retiré chez le fournisseur : dit clairement.
     fiches.expected = "un-autre-jeton-valide"
     mcp._sessions.pop((A, "fiches"), None)
-    state = {t["nom"]: t for t in alice.get(f"/api/agents/{A}/connections").json()["outils"]}["fiches"]
+    state = {t["nom"]: t for t in alice.get(f"/api/agents/{A}/connections?frais=1").json()["outils"]}["fiches"]
     assert state["etat"] == "jeton_refuse", state
     assert call_tool("fiches", "lire_fiche").get("isError")
     fiches.expected = JETON
-    assert alice.get(f"/api/agents/{A}/connections").json()["outils"], "un état illisible casserait la section"
+    assert alice.get(f"/api/agents/{A}/connections?frais=1").json()["outils"], "un état illisible casserait la section"
     print(f"5. panne : message clair à l'agent en {took:.2f} s, état visible, liste gardée, autres outils intacts, retour automatique ; rebinding refusé")
 
 
@@ -557,7 +575,7 @@ def test_oauth() -> None:
     FAKE_DNS["oauth.example.org"] = ["93.184.216.34"]
     with db.connect() as c:
         c.execute("UPDATE mcp_tools SET etat = 'ok', vu_a = ? WHERE nom = 'protege'", (time.time() + 60,))
-    seen = {t["nom"]: t for t in alice.get(f"/api/agents/{A}/connections").json()["outils"]}["protege"]
+    seen = {t["nom"]: t for t in alice.get(f"/api/agents/{A}/connections?frais=1").json()["outils"]}["protege"]
     assert seen["etat"] == "a_connecter" and not seen["connecte"], seen
     assert alice.post(f"{TOOLS}/protege/connect", json={}).json()["adresse"] == login_address
     assert alice.post(f"{TOOLS}/protege/finish", json={}).status_code == 400
@@ -724,6 +742,38 @@ test_access()
 test_sharing_warning()
 test_list_changed()
 test_everywhere()
+
+# La demande d'accord telle que la personne la lit : une phrase, jamais le texte technique.
+from noah.mcp import plain_request  # noqa: E402
+
+asked = 'Outil « notion » : notion_create_pages\n{"pages": [{"parent": {"data_source_id": "d4b95a89"}, "properties": {"Name": "Mon post du jour"}, "content": "L\'idée \\"clé\\""}], "telemetry": {"intent": "Create a post"}, "skill": "notion"}'
+plain = plain_request(asked)
+assert plain["demande"] == "Ton agent veut créer « Mon post du jour » dans Notion.", plain
+assert plain["apercu"] == ["L'idée \"clé\""], plain
+assert "draft" not in plain_request('Outil « notion » : notion_create_pages\n{"creation_mode": "draft", "pages": [{"properties": {"title": "Essai"}, "content": "le texte"}]}')["apercu"], "un réglage technique n'est pas un aperçu"
+assert plain_request('Outil « google-drive » : outil_inconnu\n{}') == {"demande": "Ton agent veut utiliser Google Drive.", "apercu": []}
+assert "supprimer" in plain_request('Outil « notion » : create_and_delete_page\n{}')["demande"], "créer et supprimer : c'est une suppression"
+assert plain_request('Outil « fiches » : envoie_fiche\n{}')["demande"] == "Ton agent veut envoyer quelque chose avec Fiches."
+for read_like in ("execute_query", "notion_search", "get_page", "read_page"):
+    assert plain_request(f'Outil « notion » : {read_like}\n{{}}')["demande"] == "Ton agent veut utiliser Notion.", "pas déclaré en lecture : ne jamais promettre une simple lecture"
+technical = ('Outil « notion » : x\n{"data": {"query": "SELECT * FROM x", "data_source_urls": ["collection://abc"]}, "url": "https://x.io/a", "page_id": "40dba45869e3819fafb1ec930c0fc128", '
+             '"q1": "DELETE FROM clients", "q2": "UPDATE users SET a=1", "chemin": "/opt/data/.env", "h": "Authorization: secret"}')
+assert plain_request(technical)["apercu"] == [], plain_request(technical)
+kept = plain_request('Outil « mail » : send_mail\n{"to": ["paul@exemple.fr", "ana@exemple.fr"], "subject": "Devis", "body": "Bonjour"}')["apercu"]
+assert kept == ["paul@exemple.fr", "ana@exemple.fr", "Devis", "Bonjour"], "un destinataire dans une liste se voit"
+mixed = plain_request('Outil « mail » : send_mail\n{"to": [{"email": "paul@exemple.fr", "id": "contact-1"}, "ana@exemple.fr"], "subject": "Devis"}')["apercu"]
+assert mixed == ["paul@exemple.fr", "ana@exemple.fr", "Devis"], ("une clé masquée ne cache pas la valeur d'après", mixed)
+listed = plain_request('Outil « mail » : send_mail\n{"attachment_ids": ["file-A", "file-B", "file-C", "file-D", "file-E"], "subject": "Devis", "body": "Bonjour Paul"}')["apercu"]
+assert listed == ["Devis", "Bonjour Paul"], ("une liste d'identifiants reste masquée en entier", listed)
+nested = plain_request('Outil « mail » : send_mail\n{"page_ids": [["a", "b"], ["c"]], "to": ["paul@exemple.fr"]}')["apercu"]
+assert nested == ["paul@exemple.fr"], ("une liste dans une liste aussi", nested)
+cut = 'Outil « notion » : notion_update_page\n{"title": "Un titre", "content": "coupé en plein mil… [empreinte 0123ab]'
+assert plain_request(cut)["apercu"] == ["Un titre", "coupé en plein mil"], "un texte coupé se lit encore, sans la marque de coupure"
+for raw, command, expected in (("rm -rf /", True, "commande sensible"), ("Execute recursive delete: rm -rf /opt/data", False, "valider une action"),
+                               ("Ton agent veut consulter Notion.", False, "valider une action"), ('{"a": 1}', False, "valider une action"), ("", False, "valider une action")):
+    said = plain_request(raw, command)["demande"]
+    assert expected in said and "rm -rf" not in said, (raw, said)
+print("accord : une phrase claire et ce qui serait envoyé, le technique reste pour les détails")
 assert not [line for line in LOGS if JETON in line], "jeton en clair dans les journaux"
 print("OK")
 # Tout a été vérifié. Une extension C plante parfois à la fermeture de Python (segfault après ce OK), sans lien avec le code testé :

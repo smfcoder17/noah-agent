@@ -19,7 +19,8 @@ APP_CSP = "; ".join((
     "media-src 'self' blob:",
     "font-src 'self' data:",
     "connect-src 'self'",
-    "frame-src 'self'",
+    # Les lecteurs des plateformes vidéo, seulement ces hôtes, et seulement après un clic (frontend/src/lib/chatMedia.ts).
+    "frame-src 'self' https://www.youtube-nocookie.com https://player.vimeo.com https://platform.twitter.com https://www.tiktok.com https://www.instagram.com",
     "worker-src 'self'",
     "manifest-src 'self'",
     "object-src 'none'",

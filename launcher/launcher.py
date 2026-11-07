@@ -83,8 +83,8 @@ BROWSER_IMAGE = os.environ.get("BROWSER_IMAGE", "ghcr.io/smfcoder17/noah-browser
 BROWSER_PREFIX = "noah-browser-"
 BROWSER_LABEL = "noah.browser"
 # Version des réglages du navigateur ; un conteneur plus ancien est recréé (le profil reste dans son volume).
-# 12 : image Noah avec bureau, sans uBlock ; 11 : toutes les routes sous clé ; 10 : clé du mode privé à part ; 9 : aucune capture pendant une prise en main ; 8 : jetons hors de la config Docker
-BROWSER_VERSION = "12"
+# 14 : remplir une page de connexion ; 12 : image Noah avec bureau, sans uBlock ; 11 : toutes les routes sous clé ; 10 : clé du mode privé à part ; 9 : aucune capture pendant une prise en main ; 8 : jetons hors de la config Docker
+BROWSER_VERSION = "14"
 
 
 def _frozen(agent_id: str):
@@ -339,6 +339,82 @@ if info.st_size > limit:
 with os.fdopen(fd, "rb") as f:
     sys.stdout.buffer.write(f.read())
 """
+
+
+# Supprime sans suivre de lien, pour la même raison : un dossier remplacé par un lien ne mène jamais hors de l'espace de travail.
+# Le lien lui-même, en fin de chemin, se supprime comme un fichier ; ce qu'il désigne reste. Les dossiers vidés partent aussi, sauf
+# ceux de premier niveau (outputs, uploads…), que l'agent et les envois s'attendent à trouver.
+DELETE_NO_LINK = r"""
+import json, os, stat, sys
+root, done, failed = sys.argv[1].rstrip("/"), [], []
+for rel in json.loads(sys.argv[2]):
+    parts = [p for p in rel.split("/") if p]
+    chain = []
+    try:
+        fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        for part in parts[:-1]:
+            chain.append((fd, part))
+            fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+        if stat.S_ISDIR(os.stat(parts[-1], dir_fd=fd, follow_symlinks=False).st_mode):
+            raise IsADirectoryError(rel)
+        os.unlink(parts[-1], dir_fd=fd)
+        done.append(rel)
+        for parent, name in reversed(chain[1:]):
+            os.rmdir(name, dir_fd=parent)
+    except FileNotFoundError:
+        done.append(rel) if rel not in done else None
+    except OSError:
+        failed.append(rel) if rel not in done else None
+print(json.dumps({"supprimes": done, "refuses": failed}))
+"""
+
+
+def _workspace_paths(paths: list[str]) -> list[str]:
+    """Des chemins relatifs, dans l'espace de travail, sans détour : le reste refuse toute la demande."""
+    if len(paths) > DELETE_MOST:
+        raise HTTPException(400, "Trop de fichiers d'un coup")
+    for rel in paths:
+        parts = rel.split("/")
+        if not rel or len(rel) > 1024 or rel.startswith("/") or "\x00" in rel or any(p in ("", ".", "..") for p in parts):
+            raise HTTPException(400, "Chemin refusé")
+    return paths
+
+
+class FilesToDelete(BaseModel):
+    chemins: list[str]
+
+
+DELETE_MOST = 1000
+DELETE_ARG_BYTES = 100_000  # un argument de commande ne dépasse pas 128 Kio sous Linux
+
+
+def _delete_batches(paths: list[str]):
+    """Des lots dont le JSON tient dans un argument. Un accent compte six octets une fois échappé : compter les chemins ne suffit pas."""
+    batch: list[str] = []
+    size = 2
+    for rel in paths:
+        cost = len(json.dumps(rel)) + 2
+        if batch and size + cost > DELETE_ARG_BYTES:
+            yield batch
+            batch, size = [], 2
+        batch.append(rel)
+        size += cost
+    if batch:
+        yield batch
+
+
+@app.post("/agents/{agent_id}/files/supprimer", dependencies=[Depends(auth), Depends(_frozen)])
+def delete_files(agent_id: str, body: FilesToDelete):
+    c = container(check_id(agent_id))
+    paths, out = _workspace_paths(body.chemins), {"supprimes": [], "refuses": []}
+    for batch in _delete_batches(paths):
+        res = c.exec_run(["python3", "-c", DELETE_NO_LINK, WORKSPACE, json.dumps(batch)], user="root", stdout=True, stderr=False)
+        if res.exit_code != 0:
+            raise HTTPException(500, "Suppression impossible")
+        part = json.loads(res.output)
+        out["supprimes"] += part["supprimes"]
+        out["refuses"] += part["refuses"]
+    return out
 
 
 def _read_no_link(c, root: str, rel: str, limit: int) -> bytes:

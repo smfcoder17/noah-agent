@@ -159,7 +159,7 @@ def main() -> int:
     if "--couper-courriel" in sys.argv[1:]:
         count = courriel.cut_all()
         _server_journal(f"Courriel de confirmation coupé depuis le serveur (python -m noah.recuperation) : {count} adresse(s) désactivée(s).")
-        print(f"\nCourriel de confirmation coupé : {count} adresse(s) désactivée(s). Chacun peut réactiver la sienne dans Réglages > Sécurité.\n")
+        print(f"\nCourriel de confirmation coupé : {count} adresse(s) désactivée(s). Chacun peut réactiver la sienne dans Réglages > Compte.\n")
         return 0
     if not owner():
         print("Aucun compte sur ce serveur : rien à récupérer. Crée le compte avec le code d'installation.")

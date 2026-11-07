@@ -1,6 +1,6 @@
 // Page de démonstration du visage, hors production : `npm run dev` puis /demo-visage.html. Le build ne l'embarque pas (une seule
 // entrée, index.html). Paramètres : ?face=gomme&detail=antenne&state=idle&size=240&seed=x&count=30&color=%23ff7a59&tile=0 pour un seul cas.
-import { AssistantRuntimeProvider, useLocalRuntime } from "@assistant-ui/react";
+import { AssistantRuntimeProvider, type ThreadMessageLike, useExternalStoreRuntime, useLocalRuntime } from "@assistant-ui/react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { CallStage } from "@/components/CallStage";
@@ -15,6 +15,10 @@ const STATES: { id: NoahState; name: string }[] = [
   { id: "listening", name: "Écoute" },
   { id: "thinking", name: "Réflexion" },
   { id: "speaking", name: "Parole" },
+  { id: "working", name: "Travail" },
+  { id: "waiting", name: "Attente" },
+  { id: "pleased", name: "Fini" },
+  { id: "upset", name: "Erreur" },
 ];
 const REACTIONS: NoahReaction[] = ["hop", "joy", "greet", "surprise", "attention", "aha", "nod", "shake", "lookLeft", "lookRight", "wiggle", "sad", "confused", "sigh", "puff"];
 
@@ -161,7 +165,7 @@ function Gallery() {
   );
 }
 
-const AGENT = { agentId: "demo", agentName: "Noah", agentColor: NOAH_COLORS[3].hex, agentShape: params.get("shape") ?? "gomme", agentDetail: params.get("detail") ?? "lunettes", hint: "Démonstration", conversationId: null, say: () => {}, readOnly: false, canWatch: false };
+const AGENT = { agentId: "demo", agentName: "Noah", agentColor: NOAH_COLORS[3].hex, agentShape: params.get("shape") ?? "gomme", agentDetail: params.get("detail") ?? "lunettes", details: false, hint: "Démonstration", conversationId: null, say: () => {}, readOnly: false, canWatch: false };
 
 /** Le vrai écran d'appel, sans Voice.tsx : la phase et les niveaux viennent de la page, comme ils viendront de la voix. */
 function CallScene() {
@@ -204,5 +208,45 @@ function TurnScene() {
   );
 }
 
+type DemoPart = { type: string; [key: string]: unknown };
+const tool = (toolName: string, args: Record<string, unknown>, result?: unknown): DemoPart => ({ type: "tool-call", toolCallId: toolName, toolName, args, ...(result === undefined ? {} : { result }) });
+const TRACE = tool("trace", { fil: "abc", entete: "Noah m'a demandé", consigne: "Résume les nouveautés de la semaine sur les agents et propose trois angles", etat: "fini", issue: "Trois angles : prix, confiance, vitesse. Le détail et les sources sont dans le fil." }, true);
+const TRACE_RUNNING = tool("trace", { fil: "def", entete: "Noah m'a demandé", consigne: "Vérifie les liens du dernier article", etat: "en_cours", issue: "" }, true);
+const MOODS: Record<string, { running: boolean; content: DemoPart[] }> = {
+  repos: { running: false, content: [{ type: "text", text: "Voilà, c'est fait." }] },
+  reflechit: { running: true, content: [] },
+  travaille: { running: true, content: [tool("activity", { label: "Lance une commande" })] },
+  accord: { running: true, content: [tool("approval", { summary: "rm -rf build", demande: "Ton agent veut lancer une commande.", apercu: ["rm -rf build"], request_id: "r", generation: 1, run_id: "x" })] },
+  choix: { running: false, content: [{ type: "text", text: "Lequel préfères-tu ?\n\n```noah\n{\"type\": \"choice\", \"question\": \"Lequel ?\", \"options\": [\"A\", \"B\"]}\n```" }] },
+  fini: { running: false, content: [{ type: "text", text: "Voilà, c'est fait." }] },
+  erreur: { running: false, content: [tool("error", { message: "L'agent ne répond plus. Il redémarre peut-être : réessaie dans un instant.", detail: "" }, true)] },
+};
+
+/** Le message en cours dans chaque humeur, avec les traces d'un fil au-dessus : `noahDemo.mood("travaille")`. */
+function MoodScene() {
+  const [mood, setMood] = useState(params.get("mood") ?? "reflechit");
+  useEffect(() => {
+    window.noahDemo = { mood: setMood, faces: noahFaces, active: noahActive, stats: noahStats, setPaused: setNoahPaused };
+  }, []);
+  const now = MOODS[mood];
+  const messages = [
+    { id: "t1", role: "assistant", content: [TRACE], status: { type: "complete", reason: "stop" } },
+    { id: "t2", role: "assistant", content: [TRACE_RUNNING], status: { type: "complete", reason: "stop" } },
+    { id: "a0", role: "assistant", content: [{ type: "text", text: "Une réponse plus ancienne, avec son visage immobile." }], status: { type: "complete", reason: "stop" } },
+    { id: "u1", role: "user", content: [{ type: "text", text: "Lance le rapport." }] },
+    { id: "a1", role: "assistant", content: now.content, status: now.running ? { type: "running" } : { type: "complete", reason: "stop" } },
+  ] as unknown as ThreadMessageLike[];
+  const runtime = useExternalStoreRuntime<ThreadMessageLike>({ messages, isRunning: now.running, onNew: async () => {}, convertMessage: (m) => m });
+  return (
+    <AssistantRuntimeProvider runtime={runtime}>
+      <AgentContext.Provider value={AGENT}>
+        <div className="h-screen">
+          <Thread report={null} onReportRead={() => {}} onCall={() => {}} />
+        </div>
+      </AgentContext.Provider>
+    </AssistantRuntimeProvider>
+  );
+}
+
 const scene = params.get("scene");
-createRoot(document.getElementById("root")!).render(scene === "appel" ? <CallScene /> : scene === "tour" ? <TurnScene /> : solo ? <Solo /> : <Gallery />);
+createRoot(document.getElementById("root")!).render(scene === "appel" ? <CallScene /> : scene === "tour" ? <TurnScene /> : scene === "humeurs" ? <MoodScene /> : solo ? <Solo /> : <Gallery />);

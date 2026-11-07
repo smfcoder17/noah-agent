@@ -608,6 +608,43 @@ function vector(seed, seconds = 30, state = "idle", shape = "gomme") {
   row("L3", "fin de parole, bouche fermée en ms (<150)", close2 * 1000, close2 < 0.15);
 }
 
+// ── H1 à H4 : le visage pendant une tâche ─────────────────────────────────────────────────────────────────────────────
+{
+  const after = (state, seconds = 6, shape = "gomme") => {
+    const s = sim(shape, "tache", { state: "idle" });
+    for (let i = 0; i < 60; i++) s.advance(FRAME);
+    s.setState(state);
+    const poses = [];
+    for (let i = 0; i < 60 * seconds; i++) {
+      s.advance(FRAME);
+      poses.push({ ...s.pose });
+    }
+    return { s, poses };
+  };
+  const mean = (poses, key) => poses.reduce((n, p) => n + p[key], 0) / poses.length;
+  const swing = (poses, key) => Math.max(...poses.map((p) => p[key])) - Math.min(...poses.map((p) => p[key]));
+  const think = after("thinking").poses;
+  const work = after("working").poses;
+  const wait = after("waiting").poses;
+  row("H1", "au travail, regard en bas (>0.8), en réflexion en haut (<0)", mean(work, "gazeY"), mean(work, "gazeY") > 0.8 && mean(think, "gazeY") < 0);
+  row("H1", "au travail, le corps bat (amplitude de la tête >0.1)", swing(work, "pitch"), swing(work, "pitch") > 0.1);
+  row("H2", "en attente, les yeux grands ouverts et vers toi (|regard|<1)", Math.abs(mean(wait, "gazeY")), mean(wait, "wide") > 1.05 && Math.abs(mean(wait, "gazeY")) < 1);
+  row("H2", "en attente, il se redresse plus qu'au travail", mean(wait, "squash"), mean(wait, "squash") < mean(work, "squash"));
+  const end = after("pleased", 2);
+  row("H3", "fini : sourire et yeux en croissant, puis un seul saut qui retombe", end.poses[end.poses.length - 1].crescent, end.poses[end.poses.length - 1].crescent > 0.6 && Math.max(...end.poses.map((p) => p.alt)) > 2 && end.poses[end.poses.length - 1].alt === 0);
+  const bad = after("upset", 2);
+  row("H3", "erreur : la bouche tombe, le corps s'affaisse, sans saut", bad.poses[bad.poses.length - 1].smile, bad.poses[bad.poses.length - 1].smile < 0 && Math.max(...bad.poses.map((p) => p.alt)) === 0);
+  for (const state of ["working", "waiting", "pleased", "upset"]) {
+    const a = sim("cube", "fige", { state: "idle" });
+    a.settle(state);
+    const before = { ...a.pose };
+    row("H4", `mouvement réduit, ${state} : l'expression sans le corps`, a.pose.squash, a.pose.squash === 0 && a.pose.lean === 0 && before.alt === 0);
+    const x = after(state, 2, "bulle").poses;
+    const y = after(state, 2, "bulle").poses;
+    row("H4", `${state} : même graine, même trajectoire`, x[x.length - 1].pitch, x[x.length - 1].pitch === y[y.length - 1].pitch);
+  }
+}
+
 console.log(`\n${fails} ligne(s) hors seuil.`);
 if (process.argv[2]) writeFileSync(process.argv[2], JSON.stringify(out, null, 1));
 process.exitCode = fails ? 1 : 0;

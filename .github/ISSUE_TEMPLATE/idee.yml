@@ -1,0 +1,10 @@
+name: Une idée
+description: Ce que Noah devrait savoir faire.
+body:
+  - type: textarea
+    id: besoin
+    attributes:
+      label: Ce que tu veux obtenir
+      description: Le besoin d'abord, la solution ensuite si tu en as une.
+    validations:
+      required: true

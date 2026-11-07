@@ -24,6 +24,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Retour d'une connexion (Notion…) depuis le navigateur du téléphone. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="noah" android:host="connexion" />
+            </intent-filter>
+
         </activity>
 
         <!-- Écran d'appel d'un agent : au-dessus de l'écran verrouillé, sans la conversation (voir CallActivity). -->

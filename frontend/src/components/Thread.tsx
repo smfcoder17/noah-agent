@@ -11,18 +11,26 @@ import {
   useAuiState,
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
-import { ArrowDown, ArrowUp, Check, Copy, FileText, Loader2, Paperclip, Reply, Square, TriangleAlert, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, ChevronRight, ChevronUp, Copy, FileText, Loader2, Paperclip, Reply, SmilePlus, Square, TriangleAlert, X, ChevronDown, Plug } from "lucide-react";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import remarkGfm from "remark-gfm";
-import { WhileBusyContext, AgentContext } from "@/lib/agentContext";
-import { mediaUrl, rawFileUrl, send } from "@/lib/api";
+import { WhileBusyContext, AgentContext, HistoryContext } from "@/lib/agentContext";
+import { MOOD_FACE, moodLabel, moodOf, usePanelEnd, useMood, useWide } from "@/lib/chatMood";
+import { get, type LoginAsked, mediaUrl, rawFileUrl, send, type TraceDetail } from "@/lib/api";
+import { linkMessage, plainWidgets } from "@/lib/chatMedia";
 import { imageQuote, splitQuotes, useQuotes } from "@/lib/quotes";
+import { ConversationRail } from "./ConversationRail";
+import { giveFilesEvent } from "./Files";
+import { LoginCard, LoginDone, type LoginResult } from "./LoginCard";
 import { NoahTile, type NoahHandle } from "./Noah";
-import { cn, safeMedia } from "@/lib/utils";
+import { Recu } from "./Recu";
+import { StateShape } from "./Sidebar";
+import { cn, dayLabel, messageMoment, safeMedia } from "@/lib/utils";
 import { Button } from "./ui";
 import { canFrame, useDownload, useViewer } from "./Viewer";
 import { AttachPosition } from "./PhoneSettings";
 import { DictateButton, useDictation, VoiceMode, VoiceModeButton } from "./Voice";
+import { readableModel } from "@/lib/modes";
 import { NoahWidget } from "./Widgets";
 
 // Sur téléphone, le focus ouvrirait le clavier à chaque conversation, et par-dessus un appel.
@@ -30,34 +38,13 @@ const FINE_POINTER = window.matchMedia("(pointer: fine)").matches;
 
 export { AgentContext };
 
-// « MEDIA:/chemin.png » ou un chemin d'image de la machine devient une image markdown servie par Noah Agent.
-const MEDIA_RE = /(?:MEDIA:\s*)?(\/(?:opt\/data|tmp)\/[^\s"'`)\]]+\.(?:png|jpe?g|gif|webp))/gi;
-// Un autre fichier de l'espace de travail devient un lien qui s'ouvre dans la visionneuse.
-const FILE_RE = /`?(\/opt\/data\/workspace\/[^\s"'`)\]]+\.[a-z0-9]{1,6})`?/gi;
+const PART_EDGE = "\u0000";
 
-// Une app, un PDF, un son ou une vidéo se montre en aperçu intégré, même si l'agent n'a donné que le chemin.
-const PREVIEW_EXT = /\.(html?|pdf|mp3|wav|ogg|m4a|mp4|webm|mov)$/i;
-
-/** Transforme les chemins hors des blocs de code (les widgets gardent leur JSON intact). */
-function linkPaths(text: string, agentId: string) {
-  const previewed = new Set(text.match(/"path"\s*:\s*"([^"]+)"/g)?.map((m) => m.replace(/^"path"\s*:\s*"|"$/g, "")) ?? []);
-  return text
-    .split(/(```[\s\S]*?(?:```|$))/)
-    .map((chunk, i) =>
-      i % 2
-        ? chunk
-        : chunk
-            .replace(MEDIA_RE, (_m, path: string) => `\n\n![${path.split("/").pop()}](${mediaUrl(agentId, path)})\n\n`)
-            .replace(FILE_RE, (m, path: string, offset: number, all: string) => {
-              if (all.slice(Math.max(0, offset - 2), offset).includes("](") || all[offset - 1] === "(") return m;
-              if (PREVIEW_EXT.test(path) && !previewed.has(path)) {
-                previewed.add(path);
-                return `\n\n\`\`\`noah\n${JSON.stringify({ type: "preview", path })}\n\`\`\`\n\n`;
-              }
-              return `[${path.split("/").pop()}](${rawFileUrl(agentId, path)})`;
-            }),
-    )
-    .join("");
+/** Le texte des parties d'un message avant et après celle-ci, en une seule chaîne : une sélection d'état se compare par valeur. */
+function partsAround(parts: readonly { type: string; text?: string }[], me: { type: string; text?: string }) {
+  const at = parts.findIndex((p) => p === me || (p.type === "text" && p.text === me.text));
+  const text = (from: number, to: number) => parts.slice(from, to).map((p) => (p.type === "text" ? p.text ?? "" : "")).join("\n");
+  return at < 0 ? text(0, parts.length) + PART_EDGE : text(0, at) + PART_EDGE + text(at + 1, parts.length);
 }
 
 const widget = { SyntaxHighlighter: NoahWidget, CodeHeader: () => null };
@@ -71,7 +58,17 @@ function MarkdownText() {
   const download = useDownload();
   const { add: addQuote } = useQuotes();
   // Props stables : sans ça, chaque jeton reçu refait l'analyse Markdown de tous les messages du fil.
-  const preprocess = useCallback((text: string) => linkPaths(text, agentId), [agentId]);
+  // Une réponse se coupe en parties à chaque outil : la même image ne se montre pas une fois dans chacune. Ces chaînes ne changent
+  // pas quand seule la dernière partie grandit : l'analyse des précédentes n'est pas refaite.
+  const around = useAuiState((s) => partsAround(s.message.parts, s.part));
+  const streaming = useAuiState((s) => s.message.status?.type === "running");
+  const preprocess = useCallback(
+    (text: string) => {
+      const [before, after] = around.split(PART_EDGE);
+      return linkMessage(text, { fileUrl: (path) => rawFileUrl(agentId, path), before, after, streaming });
+    },
+    [agentId, around, streaming],
+  );
   const components = useMemo<NonNullable<React.ComponentProps<typeof MarkdownTextPrimitive>["components"]>>(
     () => ({
         a: ({ node: _node, href, children, ...props }) =>
@@ -101,7 +98,7 @@ function MarkdownText() {
               <Button
                 variant="outline"
                 size="sm"
-                className="absolute top-2 right-2 h-7 bg-surface/90 text-xs opacity-0 shadow-sm group-hover/img:opacity-100 focus-visible:opacity-100"
+                className="absolute top-2 right-2 h-7 bg-surface/90 text-xs opacity-0 pointer-coarse:opacity-100 shadow-sm group-hover/img:opacity-100 focus-visible:opacity-100"
                 onClick={() => addQuote(imageQuote(String(props.src), props.alt))}
               >
                 <Reply />Répondre à ceci
@@ -127,11 +124,42 @@ function MarkdownText() {
 
 // --- Parties « outil » : activité, approbation, erreur, détails techniques -------------
 
+/** Le modèle de l'agent sous la saisie : un geste ouvre le choix. Seulement pour qui peut le changer. */
+let generalModel: Promise<string> | null = null; // le modèle de tous, lu une fois
+function ModelChip() {
+  const { agentModel, canWatch, readOnly } = useContext(AgentContext);
+  const [general, setGeneral] = useState("");
+  useEffect(() => {
+    if (agentModel) return;
+    generalModel ??= get<{ model?: string } | null>("/api/model").then((m) => readableModel(m?.model ?? "")).catch(() => "");
+    generalModel.then(setGeneral);
+  }, [agentModel]);
+  if (!canWatch || readOnly) return null;
+  return (
+    <button type="button" onClick={() => window.dispatchEvent(new Event("noah:choisir-modele"))} title="Changer de modèle"
+      className="flex h-9 max-w-40 shrink-0 cursor-pointer items-center gap-1 truncate max-sm:max-w-28 rounded-lg px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground">
+      <span className="truncate">{agentModel || general || "Modèle"}</span><ChevronDown className="size-3.5 shrink-0" />
+    </button>
+  );
+}
+
+/** Ses outils sous la saisie, à côté du modèle : un geste ouvre ses connexions, comme le « + » de ChatGPT ou « Connect apps » de Grok Bot. */
+function ToolsChip() {
+  const { canWatch, readOnly } = useContext(AgentContext);
+  if (!canWatch || readOnly) return null;
+  return (
+    <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("noah:ouvrir-panneau", { detail: "connections" }))} title="Connecter un outil"
+      className="flex h-9 shrink-0 cursor-pointer items-center gap-1 rounded-lg px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground">
+      <Plug className="size-3.5 shrink-0 max-sm:size-5" /><span className="max-sm:sr-only">Outils</span>
+    </button>
+  );
+}
+
 /** La ligne de travail : une seule, remplacée à chaque étape, retirée quand l'agent a fini. */
 function Activity({ args }: ToolCallMessagePartProps) {
   const label = String(args.label);
   return (
-    <div className="flex items-center gap-2 py-0.5 text-[13px] text-muted-foreground" aria-live="polite">
+    <div className="flex items-center gap-2 py-0.5 text-[13px] text-muted-foreground max-md:hidden" aria-live="polite">
       <Loader2 className="size-3.5 shrink-0 animate-spin text-accent" />
       <span className="truncate">{/[….!?]$/.test(label) ? label : `${label}…`}</span>
     </div>
@@ -139,8 +167,10 @@ function Activity({ args }: ToolCallMessagePartProps) {
 }
 
 function Approval({ args, result, addResult }: ToolCallMessagePartProps) {
-  const { agentId } = useContext(AgentContext);
+  const { agentId, details } = useContext(AgentContext);
   const [error, setError] = useState("");
+  const preview = Array.isArray(args.apercu) ? (args.apercu as string[]) : [];
+  const [open, setOpen] = useState(false);
   const answer = async (approve: boolean) => {
     try {
       await send(`/api/agents/${agentId}/runs/${args.run_id}/approval`, {
@@ -149,24 +179,79 @@ function Approval({ args, result, addResult }: ToolCallMessagePartProps) {
         approve,
       });
       addResult(approve ? "approved" : "denied");
+      window.dispatchEvent(new Event("noah:accord-repondu"));
     } catch (e) {
       setError((e as Error).message);
     }
   };
+  if (result !== undefined) {
+    return (
+      <p className="my-1 flex items-center gap-1.5 text-[13px] text-muted-foreground">
+        {result === "approved" ? <Check className="size-3.5 text-ok" /> : <X className="size-3.5" />}
+        <span className="min-w-0 truncate">{result === "approved" ? "Autorisé" : "Refusé"} · {String(args.action || args.demande || "cette action").replace(/^Ton agent veut /, "")}</span>
+      </p>
+    );
+  }
   return (
     <div className="my-2 flex flex-col gap-3 rounded-xl border border-warn bg-warn-soft p-3.5">
       <span className="text-xs font-semibold uppercase tracking-wide text-warn">À valider</span>
-      <p className="text-sm whitespace-pre-wrap">{String(args.summary)}</p>
-      {result === undefined ? (
-        <div className="flex gap-2">
-          <Button variant="warn" size="sm" onClick={() => answer(true)}>Autoriser</Button>
-          <Button variant="outline" size="sm" onClick={() => answer(false)}>Refuser</Button>
-        </div>
-      ) : (
-        <p className="text-sm font-medium">{result === "approved" ? "Autorisé" : "Refusé"}</p>
+      <p className="text-sm font-medium">{String(args.demande || "Ton agent te demande de valider une action.")}</p>
+      {typeof args.pourquoi === "string" && args.pourquoi && <p className="-mt-2 text-[13px] text-muted-foreground">{args.pourquoi}</p>}
+      {preview.length > 0 && (
+        <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
+          {preview.map((line) => <li key={line} className="truncate">« {line} »</li>)}
+        </ul>
       )}
+      {!details && (
+        <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="cursor-pointer self-start text-xs font-medium underline underline-offset-2">
+          {open ? "Masquer les détails" : "Voir les détails"}
+        </button>
+      )}
+      {(details || open) && <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-background p-2 font-mono text-[11.5px] text-muted-foreground">{String(args.summary)}</pre>}
+      <div className="flex gap-2">
+        <Button variant="warn" size="sm" onClick={() => answer(true)}>Autoriser</Button>
+        <Button variant="outline" size="sm" onClick={() => answer(false)}>Refuser</Button>
+      </div>
+      {args.retenu === true && <p className="-mt-1 text-xs text-muted-foreground">Si tu autorises, les actions de ce genre passeront ensuite sans te demander.</p>}
       {error && <p className="text-sm text-danger">La réponse n'a pas été prise en compte : {error}</p>}
     </div>
+  );
+}
+
+function LoginPart({ args, result, addResult }: ToolCallMessagePartProps) {
+  const { agentId } = useContext(AgentContext);
+  const asked = args as unknown as LoginAsked;
+  if (result !== undefined) return <LoginDone asked={asked} result={result as LoginResult} />;
+  return (
+    <LoginCard
+      agentId={agentId}
+      asked={asked}
+      onDone={(done) => {
+        addResult(done);
+        window.dispatchEvent(new Event("noah:accord-repondu"));
+      }}
+    />
+  );
+}
+
+/** Dans la conversation principale : un fil en cours ou fini. Une ligne discrète, qui l'ouvre ; rien pour l'agent. */
+function TraceLine({ args }: ToolCallMessagePartProps) {
+  const { agentId } = useContext(AgentContext);
+  const t = args as unknown as TraceDetail;
+  const issue = t.etat === "en_cours" ? "En cours" : `${t.etat === "fini" ? "Fini" : "Pas terminé"}${t.issue ? ` : ${t.issue}` : ""}`;
+  return (
+    <a
+      href={`#agent=${agentId}&conversation=${t.fil}`}
+      title="Ouvrir ce fil"
+      className="-mx-2 flex w-fit max-w-full items-center gap-2.5 rounded-lg px-2 py-1 text-[13px] text-muted-foreground hover:bg-muted hover:text-foreground"
+    >
+      <StateShape state={t.etat === "fini" ? "done" : t.etat === "echec" ? "error" : "work"} />
+      <span className="min-w-0">
+        <span className="block truncate">{t.entete} : {t.consigne}</span>
+        <span className="block truncate text-xs">{issue}</span>
+      </span>
+      <ChevronRight className="size-3.5 shrink-0" />
+    </a>
   );
 }
 
@@ -251,7 +336,25 @@ function SendAside({ args }: { args: { id: string } }) {
   );
 }
 
-const TOOLS = { by_name: { activity: Activity, approval: Approval, error: ErrorPart, detail: Detail, send_aside: SendAside } };
+/** Le récit du travail : replié, pour qui veut vérifier. Pendant le travail, sa dernière phrase reste lisible. */
+function Steps({ args }: ToolCallMessagePartProps) {
+  const steps = (args.steps as string[]) ?? [];
+  const running = useAuiState((s) => s.message.status?.type === "running");
+  const [open, setOpen] = useState(false);
+  if (!steps.length) return null;
+  return (
+    <div className="my-1 flex flex-col gap-1 text-[13px] text-muted-foreground">
+      {running && !open && <p className="truncate">{steps[steps.length - 1]}</p>}
+      <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className="flex w-fit cursor-pointer items-center gap-1 rounded-md hover:text-foreground">
+        <ChevronUp className={cn("size-3.5 transition-transform", !open && "rotate-180")} />
+        {steps.length} étape{steps.length > 1 ? "s" : ""}
+      </button>
+      {open && <ol className="flex list-decimal flex-col gap-1 pl-5">{steps.map((s, i) => <li key={i}>{s}</li>)}</ol>}
+    </div>
+  );
+}
+
+const TOOLS = { by_name: { activity: Activity, approval: Approval, connexion: LoginPart, error: ErrorPart, detail: Detail, steps: Steps, recu: Recu, send_aside: SendAside, trace: TraceLine } };
 
 // --- Messages ------------------------------------------------------------------------
 
@@ -282,16 +385,107 @@ function UserText({ text }: TextMessagePartProps) {
   );
 }
 
-function UserMessage() {
+const dayOf = (d?: Date) => (d ? d.toDateString() : "");
+
+/** Entre deux journées : la date, pour se repérer en remontant. */
+function DayDivider() {
+  const when = useAuiState((s) => s.message.createdAt);
+  const first = useAuiState((s) => dayOf(s.thread.messages[s.message.index - 1]?.createdAt) !== dayOf(s.message.createdAt));
+  if (!first || !when) return null;
   return (
-    <MessagePrimitive.Root className="flex flex-col items-end gap-1.5 py-2">
+    <div className="my-3 flex items-center gap-3 text-xs text-muted-foreground">
+      <span className="h-px flex-1 bg-border" />
+      <span className="first-letter:uppercase">{dayLabel(when)}</span>
+      <span className="h-px flex-1 bg-border" />
+    </div>
+  );
+}
+
+const QUICK_EMOJI = ["👍", "❤️", "👎", "😂", "😮", "😢", "🙏", "🔥", "🎉"];
+
+/** Les réactions d'un message, et de quoi y réagir : visible au survol, toujours là sur un écran tactile. */
+function MessageReactions() {
+  const id = useAuiState((s) => s.message.id);
+  const custom = useAuiState((s) => s.message.metadata?.custom) as { storedId?: number; reactions?: { user?: string; agent?: string; retenu?: string } } | undefined;
+  const { react } = useContext(HistoryContext);
+  const { readOnly } = useContext(AgentContext);
+  const [open, setOpen] = useState(false);
+  const mine = custom?.reactions?.user;
+  const theirs = custom?.reactions?.agent;
+  const stored = custom?.storedId;
+  const set = (emoji: string | null) => {
+    if (stored) react(id, stored, emoji);
+    setOpen(false);
+  };
+  return (
+    <span className="relative flex items-center gap-1">
+      {theirs && <span role="img" aria-label={`Réaction de l'agent : ${theirs}`} className="rounded-full border border-border bg-surface px-1.5 text-sm leading-6">{theirs}</span>}
+      {custom?.reactions?.retenu && <span title="L'agent l'a retenu pour la suite" className="text-[11px] text-muted-foreground">retenu</span>}
+      {mine && (
+        <button type="button" onClick={() => set(null)} disabled={readOnly} aria-label={`Retirer ta réaction ${mine}`} className="cursor-pointer rounded-full border border-accent/40 bg-accent-soft px-1.5 text-sm leading-6">{mine}</button>
+      )}
+      {stored && !readOnly && (
+        <Button variant="ghost" size="icon-sm" onClick={() => setOpen(!open)} aria-expanded={open} aria-label="Réagir" className={cn("opacity-0 pointer-coarse:opacity-70 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-60", open && "opacity-100")}>
+          <SmilePlus />
+        </Button>
+      )}
+      {open && (
+        <span role="group" aria-label="Choisir une réaction" className="absolute bottom-full left-0 z-20 mb-1 flex gap-0.5 rounded-full border border-border bg-surface p-1 shadow-md">
+          {QUICK_EMOJI.map((e) => (
+            <button key={e} type="button" onClick={() => set(e)} aria-label={`Réagir ${e}`} className="grid size-8 cursor-pointer place-items-center rounded-full text-lg hover:bg-muted">{e}</button>
+          ))}
+        </span>
+      )}
+    </span>
+  );
+}
+
+function MessageTime() {
+  const when = useAuiState((s) => s.message.createdAt);
+  if (!when) return null;
+  return <time dateTime={when.toISOString()} title={when.toLocaleString("fr-CA", { dateStyle: "long", timeStyle: "short" })} className="text-[11px] text-muted-foreground tabular-nums">{messageMoment(when)}</time>;
+}
+
+/** En haut du fil : les messages plus anciens ne se chargent qu'à la demande, sans faire sauter la lecture. */
+function OlderMessages() {
+  const { hasOlder, loading, loadOlder } = useContext(HistoryContext);
+  const self = useRef<HTMLDivElement>(null);
+  if (!hasOlder) return null;
+  const load = async () => {
+    const viewport = self.current?.closest<HTMLElement>("[data-noah-viewport]");
+    const before = viewport ? viewport.scrollHeight - viewport.scrollTop : 0;
+    await loadOlder().catch(() => {});
+    requestAnimationFrame(() => {
+      if (viewport) viewport.scrollTop = viewport.scrollHeight - before;
+    });
+  };
+  return (
+    <div ref={self} className="flex justify-center pb-3">
+      <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+        {loading ? <Loader2 className="animate-spin" /> : <ChevronUp />}Charger les messages précédents
+      </Button>
+    </div>
+  );
+}
+
+function UserMessage() {
+  const id = useAuiState((s) => s.message.id);
+  return (
+    <>
+    <DayDivider />
+    <MessagePrimitive.Root data-noah-msg={id} className="group flex scroll-mt-4 flex-col items-end gap-1.5 py-2">
       <div className="flex flex-wrap justify-end gap-1.5">
         <MessagePrimitive.Attachments components={{ Attachment: AttachmentChip }} />
       </div>
       <div className="max-w-[85%] rounded-2xl rounded-br-md bg-surface px-4 py-2.5 whitespace-pre-wrap shadow-sm ring-1 ring-border">
         <MessagePrimitive.Parts components={{ Text: UserText }} />
       </div>
+      <div className="flex items-center gap-2">
+        <MessageReactions />
+        <MessageTime />
+      </div>
     </MessagePrimitive.Root>
+    </>
   );
 }
 
@@ -361,14 +555,43 @@ function AssistantMessage() {
   const running = useAuiState((s) => s.message.status?.type === "running");
   const empty = useAuiState((s) => s.message.content.length === 0);
   const isLast = useAuiState((s) => s.thread.messages[s.thread.messages.length - 1]?.id === s.message.id);
+  const id = useAuiState((s) => s.message.id);
+  const isTrace = useAuiState((s) => s.message.content.some((p) => p.type === "tool-call" && p.toolName === "trace"));
+  // Seul le dernier message peut vivre : les autres ne recalculent rien.
+  const base = useAuiState((s) => (s.thread.messages[s.thread.messages.length - 1]?.id === s.message.id ? moodOf(s.message) : "rest"));
+  const mood = useMood(base, isLast, !!busyActivity);
+  const label = useAuiState((s) => (isLast ? moodLabel(s.message, mood) : ""));
+  const wide = useWide();
+  if (isTrace) {
+    return (
+      <>
+      <DayDivider />
+      <MessagePrimitive.Root data-noah-msg={id} className="flex min-w-0 scroll-mt-4 flex-col py-1 md:pl-11">
+        <MessagePrimitive.Parts components={{ tools: TOOLS }} />
+      </MessagePrimitive.Root>
+      </>
+    );
+  }
+  // Le travail suivi près de la saisie a son propre visage : un seul bouge à la fois.
+  const live = isLast && !busyActivity && mood !== "rest";
+  const face = (className: string) => (
+    <NoahTile color={agentColor} shape={agentShape} detail={agentDetail} state={live ? MOOD_FACE[mood] : "idle"} still={!isLast || !!busyActivity} className={className} />
+  );
   return (
-    <MessagePrimitive.Root data-reply-source className="group relative flex flex-col gap-1 py-2 md:pl-11">
-      <NoahTile color={agentColor} shape={agentShape} detail={agentDetail} state={running ? "thinking" : "idle"} still={!isLast} className="absolute top-2 left-0 hidden size-8 md:grid" />
+    <>
+    <DayDivider />
+    <MessagePrimitive.Root data-noah-msg={id} data-reply-source className="group relative flex scroll-mt-4 flex-col gap-1 py-2 md:pl-11">
+      {/* Dans la marge, il reste en vue quand une longue réponse défile. */}
+      {wide && !(empty && running && busyActivity) && (
+        <span className="absolute inset-y-2 left-0">
+          <span className="sticky top-2 block">{face(cn("transition-[width,height,margin] duration-200", live ? "-ml-1 size-10" : "size-8"))}</span>
+        </span>
+      )}
       <div className="max-w-[92%] min-w-0">
         {empty && running ? (
           // Un travail repris (app rouverte) dit déjà ce qu'il fait au-dessus de la saisie : pas deux indicateurs.
           !busyActivity && (
-            <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
+            <div className="flex items-center gap-2 text-[13px] text-muted-foreground max-md:hidden">
               <Loader2 className="size-3.5 animate-spin text-accent" /> Réflexion…
             </div>
           )
@@ -376,12 +599,21 @@ function AssistantMessage() {
           <MessagePrimitive.Parts components={{ Text: MarkdownText, tools: TOOLS }} />
         )}
       </div>
+      {/* Sur un téléphone, pas de marge : le visage se tient sous le travail, tout près de la saisie, son statut à côté. */}
+      {!wide && live && (
+        <div className="flex items-center gap-2.5 pt-1 text-[13px] text-muted-foreground" aria-live="polite">
+          {face("size-10")}
+          <span className="min-w-0 truncate">{label}</span>
+        </div>
+      )}
       {/* Place réservée : le bouton apparaît au survol sans décaler le texte en dessous. */}
-      <div className="h-8">
+      <div className="flex h-8 items-center gap-2">
+        {!running && <MessageTime />}
+        {!running && <MessageReactions />}
         {!running && (
           <ActionBarPrimitive.Root
             className={cn(
-              "flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100",
+              "flex gap-1 opacity-0 pointer-coarse:opacity-70 transition-opacity group-hover:opacity-100 focus-within:opacity-100",
               isLast && "opacity-70",
             )}
           >
@@ -395,6 +627,7 @@ function AssistantMessage() {
         )}
       </div>
     </MessagePrimitive.Root>
+    </>
   );
 }
 
@@ -423,20 +656,22 @@ function Composer({ onVoiceMode, inCall }: { onVoiceMode: () => void; inCall: bo
       <div className="flex flex-wrap gap-1.5 empty:hidden">
         <ComposerPrimitive.Attachments components={{ Attachment: AttachmentChip }} />
       </div>
-      {/* Sur un téléphone, le texte a toute la largeur et les boutons passent dessous, comme dans les apps de chat. */}
-      <div className="flex items-end gap-1.5 max-sm:flex-wrap">
+      {/* Le texte a toute la largeur et les boutons passent dessous, comme dans les apps de chat : les puces ne l'écrasent jamais. */}
+      <div className="flex flex-wrap items-end gap-1.5">
         <ComposerPrimitive.AddAttachment asChild multiple>
-          <Button variant="ghost" size="icon" aria-label="Joindre des fichiers" className="text-muted-foreground max-sm:mr-auto">
+          <Button variant="ghost" size="icon" aria-label="Joindre des fichiers" className="mr-auto text-muted-foreground">
             <Paperclip />
           </Button>
         </ComposerPrimitive.AddAttachment>
         <AttachPosition />
+        <ModelChip />
+        <ToolsChip />
         <ComposerPrimitive.Input
           data-composer-input
           rows={1}
           autoFocus={FINE_POINTER}
           placeholder={dictating ? "Parle, le texte arrive ici…" : running ? "Précise, pose une question, ou ajoute une demande…" : "Écris à ton agent…"}
-          className="max-h-48 min-h-9 flex-1 resize-none bg-transparent px-1 py-2 text-[15px] outline-none placeholder:text-muted-foreground max-sm:order-first max-sm:basis-full max-sm:px-2 max-sm:text-base"
+          className="max-h-48 min-h-9 flex-1 resize-none bg-transparent py-2 text-[15px] outline-none placeholder:text-muted-foreground order-first basis-full px-2 max-sm:text-base"
           onKeyDown={(e) => {
             // Entrée pendant la dictée : on termine la transcription, puis le message part.
             if (dictating && e.key === "Enter" && !e.shiftKey) {
@@ -487,10 +722,12 @@ function Composer({ onVoiceMode, inCall }: { onVoiceMode: () => void; inCall: bo
 /** Au-dessus de la saisie : ce que fait un travail lancé ailleurs, et les demandes qui attendent leur tour. */
 function WhileBusyPanel() {
   const busy = useContext(WhileBusyContext);
+  const { agentColor, agentShape, agentDetail } = useContext(AgentContext);
+  usePanelEnd(!!busy.activity);
   if (!busy.activity && !busy.waiting.length && !busy.sending.length) return null;
   return (
     <div className="mb-2 flex w-full flex-col gap-1 text-xs text-muted-foreground">
-      {busy.activity && <div className="flex items-center gap-2 px-1"><Loader2 className="size-3.5 shrink-0 animate-spin text-accent" /><span className="truncate">{busy.activity}…</span></div>}
+      {busy.activity && <div className="flex items-center gap-2.5 px-1 text-[13px]"><NoahTile color={agentColor} shape={agentShape} detail={agentDetail} state="working" className="size-10" /><span className="truncate">{busy.activity}…</span></div>}
       {busy.sending.map((item) => (
         <div key={item.id} className="flex items-center gap-2 rounded-lg border border-border bg-surface px-2 py-1.5">
           <span className="shrink-0">{item.late ? "Réception à vérifier" : "Envoi"}</span>
@@ -533,10 +770,24 @@ function EmptyNoah() {
 export function Thread({ report, onReportRead, onCall }: { report: { id: string; text: string } | null; onReportRead: () => void; onCall: (on: boolean) => void }) {
   const { agentId, agentName, hint, readOnly } = useContext(AgentContext);
   const [voice, setVoice] = useState(false);
+  // Des fichiers choisis dans le panneau : joints au prochain message, comme un passage cité.
+  const { add: addQuote } = useQuotes();
+  const threadRoot = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const give = (e: Event) => {
+      const { agentId: to, label, text } = (e as CustomEvent<{ agentId: string; label: string; text: string }>).detail;
+      // Un fil caché (un appel en cours ailleurs) reste monté : seul celui qu'on voit reçoit le don.
+      if (to !== agentId || !threadRoot.current?.getClientRects().length) return;
+      addQuote({ label, text });
+      threadRoot.current.querySelector<HTMLTextAreaElement>("[data-composer-input]")?.focus();
+    };
+    window.addEventListener(giveFilesEvent, give);
+    return () => window.removeEventListener(giveFilesEvent, give);
+  }, [addQuote, agentId]);
   // Pour l'appel : un aperçu intégré compte aussi comme un artefact à ouvrir.
   const link = useCallback(
     (text: string) =>
-      linkPaths(text, agentId).replace(/```noah\s*\{"type":"preview","path":"([^"]+)"\}\s*```/g, (_m, path: string) => `[${path.split("/").pop()}](${rawFileUrl(agentId, path)})`),
+      plainWidgets(linkMessage(text, { fileUrl: (path) => rawFileUrl(agentId, path) }), (path) => rawFileUrl(agentId, path), (path) => mediaUrl(agentId, path)),
     [agentId],
   );
   // Rappel pris : le mode vocal s'ouvre et lit le compte rendu.
@@ -548,11 +799,13 @@ export function Thread({ report, onReportRead, onCall }: { report: { id: string;
     onCall(voice); // l'application garde cette conversation ouverte tant que l'appel dure
   }, [voice, onCall]);
   return (
-    <ThreadPrimitive.Root className="flex h-full min-h-0 flex-col">
+    <ThreadPrimitive.Root ref={threadRoot} data-noah-thread className="relative flex h-full min-h-0 flex-col">
+      <ConversationRail />
       <SelectionReply />
       <ComposerPrimitive.AttachmentDropzone className="flex min-h-0 flex-1 flex-col data-[dragging=true]:bg-accent-soft/40">
-        <ThreadPrimitive.Viewport className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 [container-type:inline-size]">
+        <ThreadPrimitive.Viewport data-noah-viewport className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 [container-type:inline-size]">
           <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col pt-6">
+            <OlderMessages />
             <ThreadPrimitive.Empty>
               <div className="m-auto flex max-w-md flex-col items-center gap-2 text-center">
                 <EmptyNoah />

@@ -21,10 +21,23 @@ jobs:
         run: |
           docker run --rm -v "$PWD:/repo:ro" eclipse-temurin:21-jdk-alpine \
             sh -c "apk add -q --no-cache python3 py3-cryptography py3-yaml && sh /repo/tests/publication/publication_test.sh"
+      - name: "Médias du fil : adresses de vidéos piégées, image montrée une seule fois, hôtes du CSP"
+        run: docker run --rm -v "$PWD:/repo:ro" node:22-alpine node /repo/tests/chat/medias_test.mjs
       - name: Logique
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim \
             sh -c "pip install -q -r /app/requirements.txt && python /tests/updates/logic_test.py"
+      - name: Configuration écrite dans l'agent
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/agents/config_agent_test.py"
+      - name: Connexions sans copier-coller et logos
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim             sh -c "pip install -q -r /app/requirements.txt && python /tests/agents/connexion_logos_test.py"
+      - name: Dossiers de l'ordinateur et appareils
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/desktop/appareils_test.py"
+          docker run --rm -v "$PWD:/repo:ro" node:22-alpine node /repo/tests/desktop/dossiers_test.mjs
+          node tests/desktop/pont_reel.mjs
       - name: Appairage
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" \
@@ -72,7 +85,7 @@ jobs:
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \
             "pip install -q -r /app/requirements.txt && python /tests/budget/budget_test.py"
-      - name: Fournisseurs (Ollama, Ollama Cloud, service compatible OpenAI)
+      - name: Fournisseurs (Ollama, Ollama Cloud, Mammouth, service compatible OpenAI)
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c             "pip install -q -r /app/requirements.txt && python /tests/providers/provider_test.py"
       - name: "Relais : flux compressé par le fournisseur"
@@ -87,6 +100,15 @@ jobs:
       - name: "Lanceur sur un petit VPS"
         run: |
           docker run --rm -v "$PWD/launcher:/launcher:ro" -v "$PWD/tests:/tests:ro" python:3.12-slim sh -c "pip install -q fastapi pydantic httpx && python /tests/agents/petit_vps_test.py"
+      - name: "Publication : Instagram et X par leur API, un post part une seule fois, le jeton reste sur le serveur"
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/tools/publication_test.py"
+      - name: "Chat vivant : réponse sans récit du travail, réactions, réponses à toucher"
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/agents/chat_vivant_test.py"
+      - name: "Fil et fichiers : conversation par tranches, suppression selon le droit, sans suivre de lien"
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/launcher:/l:ro" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/agents/fil_fichiers_test.py"
       - name: "Aperçu : une app charge ses fichiers sans sortir de son dossier"
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/agents/apercu_test.py"
@@ -99,6 +121,15 @@ jobs:
       - name: "Chat : un message sans rapport n'est pas une reprise, et le premier message après un redémarrage est chaud"
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/voice/reprise_test.py"
+      - name: "Objectifs et tour de lui-même : rien de neuf ne coûte rien, un seul tour à la fois, budget, tâche en cours, invité refusé"
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/agents/proactif_test.py"
+      - name: "Il apprend sans qu'on le demande : une relecture par correction, plafond, 👎 qui demande, une réaction n'autorise rien, rien de dehors ni d'un invité"
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/agents/apprendre_test.py"
+      - name: "Le reçu : ce que l'agent dit est comparé à ce que ses outils ont fait, dans les deux sens, sans fausse alerte sur un doute"
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/agents/recu_test.py"
       - name: Veilles sans appel au modèle quand la page ne bouge pas
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \
@@ -126,6 +157,12 @@ jobs:
           docker run --rm -v "$PWD/server:/app" -v "$PWD/launcher:/l" -v "$PWD/tests:/tests" \
             -v "$PWD/frontend/src/components:/front:ro" python:3.12-slim sh -c \
             "pip install -q -r /app/requirements.txt && python /tests/tools/mcp_test.py"
+      - name: "Juge des actions et tri des entrées : règles sans modèle, panne = accord, aveugle au contenu, corpus d'attaques"
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/tools/juge_test.py"
+      - name: "Connecteurs globaux et compétences : exclusion réelle, agent neuf, droits par agent, invités, autre compte"
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/launcher:/l" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/tools/connecteurs_test.py"
       - name: Restauration (archive refusée si elle sort de backup.sh)
         run: |
           docker run --rm -e NOAH_TOOL=1 -v "$PWD/launcher:/l" -v "$PWD/tests:/tests" python:3.12-slim sh -c \
@@ -133,6 +170,16 @@ jobs:
       - name: Garde des skills dans chaque agent
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim python /tests/skills/guard_test.py
+      - name: Joindre un fichier à une page (clé, plafonds, champ jamais deviné, fichiers de travail seulement)
+        run: |
+          docker run --rm -v "$PWD/launcher/camofox-noah:/p:ro" -v "$PWD/tests:/tests:ro" node:22-alpine \
+            sh -c "mkdir -p /data && node /tests/navigateur/envoi_test.mjs"
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim python /tests/navigateur/envoi_outil_test.py
+      - name: "Se connecter à un site : l'agent ne voit jamais le mot de passe (usage unique, expiration, droits, origine de la page)"
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/tools/coffre_test.py"
+          docker run --rm -v "$PWD/launcher/camofox-noah:/p:ro" -v "$PWD/tests:/tests:ro" node:22-alpine \
+            sh -c "mkdir -p /data && node /tests/navigateur/connexion_test.mjs"
       - name: Aucune capture pendant une prise en main (clé à part, gardée au redémarrage)
         run: |
           docker run --rm -v "$PWD/launcher/camofox-noah:/p:ro" -v "$PWD/tests:/tests:ro" node:22-alpine \
@@ -159,6 +206,9 @@ jobs:
       - name: Changer de modèle est instantané, sans redémarrage
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/agents/modele_instantane_test.py"
+      - name: Modes, chaîne de modèles, routines et vrais modèles de décision
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/agents/modes_test.py"
       - name: L'agent change ses réglages non sensibles, et rien d'autre
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/agents/reglages_test.py"

@@ -45,18 +45,18 @@ Aucune vidéo n'a été regardée en continu ni écoutée. Pour les dix, j'ai ou
 | C8 | Ce qu'on voit pendant qu'un outil travaille | Dots, Muse, Hermes, Grok Bot | Tenu |
 | C9 | Demander où ça en est et obtenir un état vrai | Dots | Partiel |
 | C10 | Corriger le travail en cours | Dots, Grok Bot, Duet | Partiel |
-| C11 | Journal consultable de ce qui a été fait et accordé | Muse, Dots, Grok Bot | Absent |
+| C11 | Journal consultable de ce qui a été fait et accordé | Muse, Dots, Grok Bot | Partiel |
 | C12 | Carte de confirmation avec le détail de l'action | Muse, Duet, Grok Bot | Partiel |
 | C13 | Confirmation pendant la voix : à l'écran, jamais à l'oral | ChatGPT Voice | Tenu |
 | C14 | Portée de l'accord : une fois, toujours, par site | Muse, Grok Bot, Dots | Partiel |
 | C15 | Programmer une tâche à la voix | Dots, Grok Bot, Muse | Partiel |
 | C16 | Comment il rappelle | Dots, Duet, Muse, Grok Bot | Tenu |
-| C17 | Heures calmes et fréquence des alertes | Duet, Dots, Grok Bot | Absent |
+| C17 | Heures calmes et fréquence des alertes | Duet, Dots, Grok Bot | Partiel |
 | C18 | Relier un appareil | OpenClaw, Dots, Grok Bot, Hermes | Tenu |
 | C19 | Prendre la main sur l'ordinateur de l'agent | Dots, Grok Bot (Duet s'en passe) | Tenu |
 | C20 | Premier contact : nom, visage, première proposition | Duet, Muse, Dots, OpenClaw | Partiel |
 
-**Noah : 7 tenus, 10 partiels, 3 absents.** « Tenu » veut seulement dire que le code existe : je n'ai lancé aucun service. Rien ici ne dit que Noah fait aussi bien qu'une référence.
+**Noah : 7 tenus, 12 partiels, 1 absent.** « Tenu » veut seulement dire que le code existe : je n'ai lancé aucun service. Rien ici ne dit que Noah fait aussi bien qu'une référence.
 
 ## Grille
 
@@ -183,7 +183,7 @@ Aucune vidéo n'a été regardée en continu ni écoutée. Pour les dix, j'ai ou
   - [D] Dots : Activité et Programmé, [contrôles](https://learn.chatgpt.com/codex/dots/controls).
   - [D] Grok Bot : historique des routines, les 20 dernières exécutions, [routines](https://docs.x.ai/grok-bot/skills-routines-and-automations).
 - **Vérifier dans Noah.** Vrai navigateur : après une tâche avec un accord, retrouver les étapes et l'accord dans l'interface, une heure et une semaine plus tard.
-- **État : absent.** La ligne d'activité est remplacée puis retirée ([Thread.tsx:124](../frontend/src/components/Thread.tsx#L124)). Aucun composant ne porte « journal » ou « audit ». Le serveur note les accords vus ([main.py:1634](../server/noah/main.py#L1634)), je n'ai pas trouvé d'écran qui les montre. Le panneau de coût ne remplace pas ce journal ([SidePanel.tsx:147](../frontend/src/components/SidePanel.tsx#L147)).
+- **État : partiel (6 novembre).** L'onglet Activité du panneau montre les tâches et les accords donnés, par jour ([SidePanel.tsx:147](../frontend/src/components/SidePanel.tsx#L147)). Ce qu'il fait de lui-même y figure, marqué « De lui-même » ([proactif.py](../server/noah/proactif.py)). Manque : les routines n'y écrivent pas encore, et rien de cela n'a été essayé sur le VPS.
 
 ### Confirmation
 
@@ -252,7 +252,7 @@ Aucune vidéo n'a été regardée en continu ni écoutée. Pour les dix, j'ai ou
   - [D] Dots : pour une tâche planifiée, il n'écrit que si un délai est en danger ou si une décision manque, [tâches](https://learn.chatgpt.com/codex/dots/tasks-and-memory).
   - [D] Grok Bot : interrupteur de notifications par Bot, [discussion](https://docs.x.ai/grok-bot/chat-and-collaboration).
 - **Vérifier dans Noah.** Test simulé puis téléphone : régler une plage calme, déclencher un rappel et une alerte, vérifier ce qui passe et ce qui attend.
-- **État : absent.** Recherche de « quiet », « heures calmes », « silencieux » sans résultat dans `frontend/src` et `server`. On peut seulement couper tout par appareil ([PushToggle.tsx:47-68](../frontend/src/components/PushToggle.tsx#L47)), et les rappels sont limités à 6 par heure ([coordination.py:24](../server/noah/coordination.py#L24)).
+- **État : partiel (7 novembre).** Fréquence et sujet par agent : ce qu'il fait de lui-même se règle sur Coupé, Me signaler ou Agir et me dire, avec un intervalle de 15 min à 6 h, et il n'écrit que s'il y a quelque chose ([Proactive.tsx](../frontend/src/components/Proactive.tsx), [proactif.py](../server/noah/proactif.py)). Essayé par un test simulé seulement, sans vrai courriel. Toujours pas d'heures calmes : seule son idée du jour attend la journée chez la personne ; une alerte passe à toute heure. On peut aussi couper tout par appareil ([PushToggle.tsx:47-68](../frontend/src/components/PushToggle.tsx#L47)), et les rappels sont limités à 6 par heure ([coordination.py:24](../server/noah/coordination.py#L24)).
 
 ### Appareils
 
@@ -290,14 +290,14 @@ Aucune vidéo n'a été regardée en continu ni écoutée. Pour les dix, j'ai ou
   - [D] OpenClaw : aucune suite avant une vraie réponse du modèle, [onboarding](https://docs.openclaw.ai/start/onboarding-overview).
   - [S] OpenClaw : interroge sur la personnalité dans les premiers messages, [DdSRXsKkHOg à 5:21](https://www.youtube.com/watch?v=DdSRXsKkHOg&t=321s).
 - **Vérifier dans Noah.** Personne réelle, chronométrée : de l'installation à la première tâche utile, sans aide. Compter les écrans et noter le premier message de l'agent.
-- **État : partiel.** Nom, rôle, couleur, puis premier essai réel ([Onboarding.tsx:284](../frontend/src/components/Onboarding.tsx#L284), [343](../frontend/src/components/Onboarding.tsx#L343), [AgentDialog.tsx:68-81](../frontend/src/components/AgentDialog.tsx#L68)). L'accueil attend une consigne : « Que doit faire {agentName} ? » ([Thread.tsx:412](../frontend/src/components/Thread.tsx#L412)). L'agent ne se présente pas et ne propose rien de lui-même d'après ce que j'ai lu.
+- **État : partiel.** Nom, rôle, couleur, puis premier essai réel ([Onboarding.tsx:284](../frontend/src/components/Onboarding.tsx#L284), [343](../frontend/src/components/Onboarding.tsx#L343), [AgentDialog.tsx:68-81](../frontend/src/components/AgentDialog.tsx#L68)). L'accueil attend une consigne : « Que doit faire {agentName} ? » ([Thread.tsx:412](../frontend/src/components/Thread.tsx#L412)). L'agent ne se présente pas d'après ce que j'ai lu. Avec un objectif écrit, il propose une chose concrète une fois par jour au plus ([proactif.py](../server/noah/proactif.py), test simulé).
 
 ## Écarts les plus importants de Noah
 
 1. **C7, le silence pendant le travail.** Sur une longue tâche en appel, on n'entend plus rien entre l'accusé et le résumé.
 2. **C10, la correction attend.** À la voix comme à l'écrit, on ne réoriente pas un travail lancé : on patiente ou on arrête.
 3. **C9, l'état n'arrive qu'à la fin.** Noah ne ment pas, mais « où ça en est » n'a de vraie réponse qu'une fois le travail terminé.
-4. **C11, pas de journal.** Après coup, on ne peut pas relire les étapes ni les accords donnés.
+4. **C11, journal incomplet.** Les tâches et les accords se relisent, pas encore ce que font les routines.
 5. **C3, l'appel est fragile.** Pas de pastille, pas de service au premier plan : d'après le code, l'appel tient à la page ouverte et au téléphone allumé.
 
 Ensuite : C17 (heures calmes) et C14 (portée de l'accord). C7, C9 et C10 ont sans doute une cause commune : la voix ne reçoit pas les étapes de l'agent et ne peut pas lui parler pendant un tour. C'est une hypothèse à tester, pas un diagnostic.
@@ -312,3 +312,27 @@ Ensuite : C17 (heures calmes) et C14 (portée de l'accord). C7, C9 et C10 ont sa
 - **Non lus :** [ai.meta.com/muse](https://ai.meta.com/muse/) n'a rendu qu'un titre, [chatgpt.com/features/dots](https://chatgpt.com/features/dots/) un refus 403.
 - **État de Noah :** lu dans le code, sans lancer de service. Une absence veut dire « je ne l'ai pas trouvée » dans ce que j'ai lu : `Voice.tsx`, `Call.tsx`, `Thread.tsx`, quelques autres composants et des recherches par mots. Une revue du code pourra corriger un état.
 - **Pas de classement :** cette grille ne dit pas que Noah dépasse une référence, y compris sur C16.
+
+
+## Comparaison indépendante du 7 novembre, version v0.1.3
+
+Faite par un agent qui n'a écrit aucun code ici, sur la documentation publique et ce relevé. Aucun compte chez ces services, aucun essai côte à côte : c'est une lecture, pas une mesure. Plusieurs lignes reprennent ce relevé sans relire le code, et l'agent n'a pas ouvert le dossier `tests/`.
+
+**Verdict : Noah ne peut pas être déclaré au niveau des références aujourd'hui.** Aucun comportement n'a de preuve en conditions réelles.
+
+| Classement | Nombre | Comportements |
+|---|---|---|
+| Au niveau | 0 | |
+| Fait, non prouvé | 7 | C5, C6, C8, C13, C16, C18, C19 |
+| En dessous | 12 | C1, C2, C3, C4, C9, C10, C11, C12, C14, C15, C17, C20 |
+| Absent | 1 | C7 |
+
+Les écarts qui coûtent le plus à quelqu'un qui hésite :
+
+1. **C10.** Une correction ne réoriente pas un travail lancé : on patiente ou on arrête.
+2. **C9.** « Où ça en est » n'a de réponse qu'à la fin du travail.
+3. **C7.** Silence pendant une longue tâche en appel.
+4. **C12.** La carte d'accord n'a pas de champ de cible ni de montant.
+5. **C14.** Pas de portée « une fois, toujours, par site ».
+
+Correction de ce relevé : C2 dit qu'il n'y a pas de coupure du micro. Elle existe (`frontend/src/components/Voice.tsx`, `onMute`). C2 reste en dessous : ni vitesse, ni langue, ni transcription pendant l'appel.

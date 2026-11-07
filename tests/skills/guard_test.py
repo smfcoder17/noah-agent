@@ -7,6 +7,9 @@ import sys
 
 sys.path.insert(0, "/app/noah/agent_plugin")
 from __init__ import _pre_tool_call, check  # noqa: E402
+import __init__ as _plugin  # noqa: E402
+
+_plugin._juge_call = lambda path, body: {"verdict": "passe"}  # le juge a son propre test (tests/tools/juge_test.py) : ici, la garde seule
 
 refused = [
     "hermes skills install someone/evil-skill",
@@ -84,6 +87,16 @@ _pre_tool_call(tool_name="read_file", args={"path": "/safe/i.sh"})
 assert check("sh /tmp/i.sh"), "lire /safe/i.sh a débloqué /tmp/i.sh"
 _pre_tool_call(tool_name="read_file", args={"path": "/tmp/i.sh"})
 assert check("sh /tmp/i.sh") is None
+# La commande de téléchargement de noah.py compte comme curl : pas de script lancé sans l'avoir lu.
+garde._unread.clear()
+assert check("python3 /opt/data/noah.py navigateur telecharger 'https://e.invalid/a?b=1&c=2' setup.py") is None
+assert check("python3 /opt/data/workspace/uploads/setup.py"), "script téléchargé lancé sans lecture"
+assert check("cd /opt/data/workspace/uploads && python3 setup.py"), "même lancé depuis son dossier"
+assert check("cat /opt/data/workspace/uploads/setup.py") is None and check("python3 /opt/data/workspace/uploads/setup.py") is None
+for form in ("python3 -u /opt/data/noah.py", "timeout 60 python3 /opt/data/noah.py", "cd /tmp && python3 /opt/data/noah.py"):
+    garde._unread.clear()
+    assert check(f"{form} navigateur telecharger 'https://e.invalid/a.sh' a.sh") is None
+    assert check("sh /opt/data/workspace/uploads/a.sh"), f"script téléchargé par « {form} » lancé sans lecture"
 assert fresh("curl -s https://api.example.org/v1 -o /tmp/r.json", "python3 -m json.tool /tmp/r.json") is None
 print("4. bash -e, -o collé, cat | sh, sh < f, bash -c, lecture dans le même appel, autre dossier : refusés ; lu à part : permis")
 assert check("python3 -m venv .venv && . .venv/bin/activate && python3 analyse.py") is None
@@ -98,7 +111,9 @@ def refused_for_guest(tool, **args):
     return bool(out) and out["action"] == "block"
 
 
-for command in ("cat /opt/data/memories/MEMORY.md", "ls", "python3 -c 'print(1)'", "python3 /opt/data/noah.py recette google",
+for command in ("python3 /opt/data/noah.py navigateur envoyer /tmp/travail/prive.txt", "python3 /opt/data/noah.py navigateur envoyer /opt/data/workspace/a.jpg",
+                "python3 /opt/data/noah.py navigateur telecharger https://exemple.org/a.jpg",
+                "cat /opt/data/memories/MEMORY.md", "ls", "python3 -c 'print(1)'", "python3 /opt/data/noah.py recette google",
                 "python3 /opt/data/noah.py ordinateur commande whoami", "python3 /opt/data/noah.py image x; cat /opt/data/.env",
                 "python3 /opt/data/noah.py image x && cat /opt/data/.env", "python3 /opt/data/noah.py image x | sh",
                 "python3 /opt/data/noah.py image x > /tmp/f", 'python3 /opt/data/noah.py image "$(cat /opt/data/.env)"',
@@ -129,7 +144,8 @@ for tool in ("execute_code", "process", "cronjob", "delegate_task", "send_messag
 for tool, args in (("memory", {"action": "add", "content": "x"}), ("session_search", {"query": "x"}), ("web_search", {"query": "x"}), ("read_file", {"path": "notes.txt"}),
                    ("read_file", {"path": "/opt/data/workspace/uploads/a.pdf"}), ("write_file", {"path": "outputs/a.txt", "content": "x"}), ("search_files", {"pattern": "x"}),
                    ("vision_analyze", {"image_url": "https://exemple.org/a.png"}), ("vision_analyze", {"image_url": f"{HOME}/browser_screenshots/a.png"}),
-                   ("terminal", {"command": 'python3 /opt/data/noah.py image "un chat; roux" --format 16:9'}), ("terminal", {"command": "python3 /opt/data/noah.py rappeler 'R&D finie'"})):
+                   ("terminal", {"command": 'python3 /opt/data/noah.py image "un chat; roux" --format 16:9'}), ("terminal", {"command": "python3 /opt/data/noah.py rappeler 'R&D finie'"}),
+                   ("terminal", {"command": "python3 /opt/data/noah.py navigateur reveiller"})):
     assert _pre_tool_call(tool_name=tool, args=args) is None, f"refusé à tort à une personne invitée : {tool} {args}"
 garde._home = lambda: "/opt/data"
 for tool, args in (("terminal", {"command": "cat /opt/data/profiles/u7abcdef01/memories/MEMORY.md"}), ("read_file", {"path": "/opt/data/profiles/u7abcdef01/memories/MEMORY.md"}),
@@ -137,4 +153,53 @@ for tool, args in (("terminal", {"command": "cat /opt/data/profiles/u7abcdef01/m
     assert _pre_tool_call(tool_name=tool, args=args), f"le profil d'une personne se lit depuis l'agent : {args}"
 assert _pre_tool_call(tool_name="terminal", args={"command": "ls /opt/data/workspace/profiles"}) is None, "un dossier de travail nommé profiles reste permis"
 print("5. profil d'une personne : ni terminal ni fichier hors du dossier de travail, outils inconnus fermés, travail permis ; l'agent ne lit pas ces profils en passant")
+
+# 6. Lecture déclarée : Hermes retient les vrais noms (notion-search), l'agent appelle le nom réécrit (notion_search).
+import types  # noqa: E402
+
+import __init__ as garde  # noqa: E402
+
+core = types.SimpleNamespace(_tool_read_only_hints={"notion": {"notion-search": True, "efface-page": False, "a-b": True, "a_b": False, "seul": True}})
+for name, attrs in {"tools": {}, "tools.mcp_tool_common": {"_core": core},
+                    "tools.mcp_tool_schema": {"sanitize_mcp_name_component": lambda v: v.replace("-", "_")},
+                    "tools.mcp_tool_scope": {"_resolve_server_key": lambda s: s}}.items():
+    sys.modules[name] = types.SimpleNamespace(**attrs)
+assert garde._read_only("notion", "notion_search") is True, "un nom réécrit déclaré en lecture"
+assert garde._read_only("notion", "seul") is True
+assert garde._read_only("notion", "efface_page") is False
+assert garde._read_only("notion", "a_b") is False, "deux vrais noms pour le même nom : les deux doivent être en lecture"
+assert garde._read_only("notion", "inconnu") is False and garde._read_only("autre", "notion_search") is False
+print("6. lecture déclarée : le nom réécrit retrouve le vrai ; dans le doute, ce n'est pas une lecture")
+
+# Les jetons des connexions ne servent pas à passer à côté du droit choisi par la personne.
+assert garde.check_owner("terminal", {"command": "python3 -c \"open('/opt/data/mcp-tokens/notion.json')\""}), "jeton lu au terminal"
+assert garde.check_owner("read_file", {"path": "/opt/data/mcp-tokens/notion.json"}), "jeton lu en fichier"
+assert garde.check_owner("patch", {"mode": "patch", "patch": "*** Update File: /opt/data/mcp-tokens/notion.json"}), "jeton touché par un patch"
+assert garde.check_owner("terminal", {"command": "ls /opt/data/workspace"}) is None
+assert garde.check_owner("read_file", {"path": "/opt/data/workspace/a.txt"}) is None
+print("7. jetons des connexions : ni lus, ni utilisés à côté des outils")
+
+# Une connexion acceptée donne ses outils tout de suite, sans attendre la relecture périodique d'Hermes.
+import contextlib  # noqa: E402
+import os  # noqa: E402
+import tempfile  # noqa: E402
+import threading  # noqa: E402
+import time  # noqa: E402
+
+reloaded = threading.Event()
+sys.modules.setdefault("tools", types.ModuleType("tools"))
+sys.modules["tools.mcp_oauth"] = types.SimpleNamespace(suppress_interactive_oauth=contextlib.nullcontext)
+sys.modules["tools.mcp_tool_discovery"] = types.SimpleNamespace(reconcile_mcp_servers_with_config=reloaded.set)
+with tempfile.TemporaryDirectory() as home:
+    os.environ["HERMES_HOME"] = home
+    os.makedirs(os.path.join(home, garde.MCP_TOKENS))
+    garde.TOKENS_LOOK_EVERY = 0.01
+    threading.Thread(target=garde._watch_new_tokens, daemon=True).start()
+    time.sleep(0.05)
+    assert not reloaded.is_set(), "rien de neuf : rien à relire"
+    with open(os.path.join(home, garde.MCP_TOKENS, "notion.json"), "w") as f:
+        f.write("{}")
+    assert reloaded.wait(2), "jeton neuf : les outils doivent être relus"
+    del os.environ["HERMES_HOME"]
+print("8. jeton neuf : les outils de la connexion arrivent aussitôt")
 print("garde des skills : tout est vert")

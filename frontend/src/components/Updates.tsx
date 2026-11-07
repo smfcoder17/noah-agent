@@ -1,4 +1,4 @@
-// Réglages > Mises à jour : version en service, la prochaine (installée seule pendant le créneau calme), l'historique.
+// Réglages > Serveur > Mises à jour : version en service, la prochaine (installée seule pendant le créneau calme), l'historique.
 // Modèle : Home Assistant (« Mettre à jour » / « Passer ») et Synology DSM (créneau choisi, report automatique).
 import { CheckCircle2, Loader2, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -7,7 +7,7 @@ import { Button, ErrorText } from "./ui";
 
 type Summary = {
   version: string;
-  disponible: { version: string; notes: string; majeure: boolean; migration: boolean; ignoree: boolean; composants: string[] } | null;
+  disponible: { version: string; correction?: boolean; notes: string; majeure: boolean; migration: boolean; ignoree: boolean; composants: string[] } | null;
   attente: string | null;
   occupe: string | null;
   auto: boolean;
@@ -27,7 +27,7 @@ const NAMES: Record<string, string> = {
   "noah-server": "Noah", "noah-launcher": "lanceur des agents", hermes: "agents (Hermes)", navigateur: "navigateur des agents", caddy: "HTTPS (Caddy)",
 };
 
-const when = (t: number) => new Date(t * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+const when = (t: number) => new Date(t * 1000).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" });
 
 export function Updates() {
   const [s, setS] = useState<Summary | null>(null);
@@ -99,7 +99,7 @@ export function Updates() {
         <p className="flex items-center gap-2 text-muted-foreground"><CheckCircle2 className="size-4 text-accent" />Noah est à jour (une version ignorée attend la suivante).</p>
       ) : next ? (
         <div className="flex flex-col gap-3 rounded-xl border border-accent/40 p-4">
-          <p className="font-medium">Noah {next.version} est prête{next.majeure ? " (version majeure)" : ""}</p>
+          <p className="font-medium">{next.correction ? "Une correction est prête" : <>Noah {next.version} est prête{next.majeure ? " (version majeure)" : ""}</>}</p>
           {next.composants.length > 0 && <p className="text-xs text-muted-foreground">Change : {next.composants.map((c) => NAMES[c] || c).join(", ")}</p>}
           {next.notes && <p className="whitespace-pre-line text-xs text-muted-foreground">{next.notes}</p>}
           <p className="text-xs text-muted-foreground">

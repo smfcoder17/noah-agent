@@ -80,6 +80,8 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - id: affichee  # le numéro que voit la personne : il ne monte que si on change ce fichier
+        run: echo "version=$(cat version-affichee.txt)" >> "$GITHUB_OUTPUT"
       - id: meta
         uses: docker/metadata-action@v5
         with:
@@ -102,6 +104,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             NOAH_VERSION=${{ steps.meta.outputs.version }}
+            NOAH_DISPLAY_VERSION=${{ steps.affichee.outputs.version }}
             NOAH_UPDATE_KEY=${{ vars.NOAH_UPDATE_KEY }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
@@ -172,7 +175,7 @@ jobs:
           pip install --quiet cryptography==44.0.0
           git for-each-ref "refs/tags/${GITHUB_REF_NAME}" --format="%(contents)" > notes.md  # « [migration] » s'il change les données
           cd dist
-          python ../scripts/release-manifest.py signer "$VERSION" ../notes.md $(cat ../refs.txt)
+          NOAH_AFFICHEE="$(cat ../version-affichee.txt)" python ../scripts/release-manifest.py signer "$VERSION" ../notes.md $(cat ../refs.txt)
       - name: Applications jointes
         run: |
           # Seul l'APK signé est joint : celui de débogage demanderait de désinstaller l'app à chaque version.
@@ -203,7 +206,7 @@ jobs:
             gh release upload "$GITHUB_REF_NAME" dist/* --clobber
             gh release edit "$GITHUB_REF_NAME" --notes-file note.md
           else
-            gh release create "$GITHUB_REF_NAME" dist/* --draft --verify-tag --title "Noah Agent $VERSION" --notes-file note.md
+            gh release create "$GITHUB_REF_NAME" dist/* --draft --verify-tag --title "Noah Agent $(cat version-affichee.txt)" --notes-file note.md
           fi
       - name: Étiquette stable, seulement maintenant
         if: needs.controle.outputs.stable == 'true'

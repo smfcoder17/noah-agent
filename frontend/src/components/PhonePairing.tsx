@@ -11,7 +11,7 @@ import { minutes } from "./PairingTime";
 import { Button, ErrorText } from "./ui";
 
 type Pairing = { adresse: string; serveur: string; code: string; expire: number };
-type Device = { id: string; nom: string; type: string; depuis: string | null; vu: string | null; ip: string; version: string; actuel: boolean };
+type Device = { id: string; nom: string; type: string; depuis: string | null; vu: string | null; ip: string; version: string; en_ligne?: boolean; attente?: number; actuel: boolean };
 
 type Pending = { id: string; appareil: string; type: string; ip: string; age: number; expire: number; autre_reseau: boolean };
 
@@ -130,10 +130,12 @@ function DeviceList({ refresh }: { refresh: number }) {
             <Icon className="size-4 shrink-0 text-muted-foreground" />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm">{d.nom || "Appareil"}{d.actuel && <span className="ml-2 text-xs text-ok">cet appareil</span>}</p>
+              {(d.en_ligne || d.type === "desktop") && !d.actuel && <p className={d.en_ligne ? "text-xs text-ok" : "text-xs text-muted-foreground"}>{d.en_ligne ? "En ligne" : "Éteint, ou application fermée"}</p>}
+              {!!d.attente && <p className="text-xs">{d.attente === 1 ? "Un fichier attend cet ordinateur" : `${d.attente} fichiers attendent cet ordinateur`}</p>}
               <p className="text-xs text-muted-foreground">{[KINDS[d.type] ?? d.type, since(d.depuis), ago(d.vu), d.ip, d.version && `version ${d.version}`].filter(Boolean).join(" · ")}</p>
             </div>
             {!d.actuel && (
-              <Button size="sm" variant="ghost" onClick={() => revoke(d)} aria-label="Déconnecter"><Trash2 /></Button>
+              <Button size="sm" variant="ghost" onClick={() => revoke(d)} aria-label={`Déconnecter ${d.nom || "cet appareil"}`}><Trash2 /></Button>
             )}
           </div>
         );
@@ -158,7 +160,8 @@ export function QR({ text }: { text: string }) {
   return <div className="size-56 shrink-0 rounded-xl bg-white p-2 [&>svg]:size-full" dangerouslySetInnerHTML={{ __html: svg }} />;
 }
 
-export function PhonePairing() {
+/** `start` : on vient pour relier un appareil, le code s'affiche sans geste de plus. */
+export function PhonePairing({ start = false }: { start?: boolean } = {}) {
   const [refresh, setRefresh] = useState(0);
   const shell = appShell();
   const forget = () => {
@@ -191,6 +194,10 @@ export function PhonePairing() {
 
   // Dans l'app Android, la fenêtre n'a qu'une session courte : elle ne relie pas d'appareil (le serveur le refuse aussi).
   const pairs = shell?.kind !== "android";
+  useEffect(() => {
+    if (start && pairs) void create();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (pairs) return () => void del("/api/pairing").catch(() => {});
@@ -211,7 +218,7 @@ export function PhonePairing() {
     <div className="flex flex-col gap-4">
       <p className="text-sm text-muted-foreground">
         {pairs
-          ? "Pour relier un téléphone, scanne le QR code avec l'app Noah ou l'appareil photo. Pour l'app de bureau ou un autre appareil, saisis l'adresse et le code court, puis autorise l'appareil ici. Le code sert une seule fois ; le laisser expirer ne déconnecte aucun appareil déjà relié."
+          ? "Scanne le QR code avec l'app Noah, ou saisis le code dans l'app de bureau. Il sert une seule fois."
           : "Pour relier un autre appareil, ouvre Réglages → Appareils dans un navigateur où tu es connecté."}
       </p>
       {!pairs ? null : pairing && left > 0 && !used ? (
@@ -227,14 +234,13 @@ export function PhonePairing() {
                 <p className="break-all font-mono text-xs">{pairing.serveur}</p>
               </>
             ) : (
-              <p className="text-xs text-muted-foreground">Code à saisir dans l'app, avec l'adresse HTTPS de ton Noah :</p>
+              <p className="text-xs text-muted-foreground">Code à saisir dans l'app :</p>
             )}
             <p className="font-mono text-2xl font-semibold tracking-widest">{pairing.code}</p>
             {!secure && (
               <p className="rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn">
-                Cette page n'est pas en HTTPS : un téléphone ne peut pas s'en servir. Donne à Noah une adresse HTTPS, avec
-                Tailscale (<code>tailscale serve 8080</code>) ou un VPS, ouvre-la ici, puis affiche le code depuis cette
-                adresse-là.
+                Ton téléphone ne peut se relier qu'à une adresse sécurisée (qui commence par https). Ouvre Noah depuis cette
+                adresse-là, celle de ton serveur, et reviens ici : le QR code s'affichera.
               </p>
             )}
             <Button variant="outline" size="sm" className="self-start" onClick={create} disabled={busy}>Nouveau code</Button>

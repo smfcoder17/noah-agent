@@ -5,6 +5,7 @@ navigateur, sans clé. La transmission à un vrai Hermes a sa preuve à part (st
       python:3.12-slim sh -c "pip install -q -r /app/requirements.txt uvicorn && python /tests/real/chat_pendant_serveur.py"
 """
 import asyncio
+import json
 import os
 import sys
 import tempfile
@@ -42,6 +43,21 @@ async def run_events(agent, run_id):
     yield "tool.started", {"tool": "read_file", "args": {"path": "/opt/data/workspace/rapport.pdf"}}
     await asyncio.sleep(0.5)
     yield "tool.started", {"tool": "web_search", "args": {"query": "prix du cuivre"}}
+    if "NOTION" in started[n - 1]:
+        accord.clear()
+        yield "approval.request", {"request_id": "demande-2", "execution_generation": 1, "description": 'Outil « notion » : notion_create_pages\n{"pages": [{"parent": {"data_source_id": "d4b95a89-5612-40c9-842f-12d4f25e415c"}, "properties": {"Name": "Mon post du jour"}}], "telemetry": {"intent": "Create a post"}}'}
+        await accord.wait()
+    if "DEUX" in started[n - 1]:
+        for request_id, title in (("demande-a", "Premier"), ("demande-b", "Second")):
+            accord.clear()
+            yield "approval.request", {"request_id": request_id, "execution_generation": 1, "description": 'Outil « notion » : create_page\n{"title": "' + title + '"}'}
+            await accord.wait()
+    if "JUGE" in started[n - 1]:  # l'accord demandé par le juge pour une commande : la carte doit poser une question claire
+        accord.clear()
+        command = "python3 -c \"import sys; sys.path.insert(0,'/opt/data/skills/productivity/google-workspace/scripts'); import auth; print(auth.ok())\""
+        yield "approval.request", {"request_id": "demande-j", "execution_generation": 1,
+                                   "description": "Ton juge demande ton accord : tu n'as pas demandé cette action.\nOutil : terminal\n" + json.dumps({"command": command})}
+        await accord.wait()
     if "ACCORD" in started[n - 1]:
         accord.clear()
         yield "approval.request", {"request_id": "demande-1", "execution_generation": 1, "description": "Supprimer le dossier ?"}
@@ -56,6 +72,8 @@ accord = asyncio.Event()
 
 async def answer_approval(agent, run_id, request_id, generation, approve):
     accord.set()
+    if request_id == "demande-a":  # la réponse met du temps à revenir : le second accord arrive entre-temps
+        await asyncio.sleep(5)
 
 
 async def steer_run(agent, run_id, text):
@@ -90,11 +108,24 @@ async def end_runs():
     return {"steered": steered, "started": started}
 
 
+@main.app.post("/_essai/reprendre")
+async def resume_without_screen():
+    """Comme « C'est fait » sur un appel : le travail repart côté serveur, aucun écran ne suit son flux."""
+    await main._resume_agent("a1", "NOTION suite")
+    return {"ok": True}
+
+
+@main.app.post("/_essai/deux")
+async def two_approvals():
+    await main._resume_agent("a1", "DEUX suite")
+    return {"ok": True}
+
+
 @main.app.get("/_essai/etat")
 def state():
     return {"steered": steered, "started": started}
 
 
 # Sans ce déplacement, la route d'envoi de la page d'accueil répondrait avant les deux routes d'essai.
-main.app.router.routes[:0] = [main.app.router.routes.pop(), main.app.router.routes.pop()]
+main.app.router.routes[:0] = [main.app.router.routes.pop(), main.app.router.routes.pop(), main.app.router.routes.pop(), main.app.router.routes.pop()]
 uvicorn.run(main.app, host="0.0.0.0", port=8099, log_level="warning")

@@ -1,8 +1,10 @@
 // Choix du cerveau : fournisseur (replié une fois la clé enregistrée), puis un niveau ou un modèle précis, puis le budget.
-import { Eye, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { type Catalog, type CurrentModel, get, type Model, type Provider, send, type Usage } from "@/lib/api";
-import { cn, contextSize, money } from "@/lib/utils";
+import { type Catalog, type CurrentModel, get, type Provider, send, type Usage } from "@/lib/api";
+import { TIERS } from "@/lib/modes";
+import { cn, money } from "@/lib/utils";
+import { costLabel, ModelRow, ModeRows, shortName } from "./Modes";
 import { ProviderLogo } from "./ProviderLogo";
 import { Button, ErrorText, Input, Label } from "./ui";
 
@@ -14,54 +16,12 @@ const HINTS: Record<string, string> = {
   ollama: "Modèles locaux et cloud",
 };
 
-// Coût d'une tâche type : ~20 000 jetons lus, ~2 000 écrits.
-const taskCost = (m: Model) =>
-  m.free ? 0 : m.price_in == null ? null : (m.price_in * 20000 + (m.price_out ?? m.price_in) * 2000) / 1e6;
-const costLabel = (m: Model) => {
-  const c = taskCost(m);
-  if (c === 0) return "Gratuit";
-  if (c == null) return "Prix inconnu";
-  return c < 0.01 ? "moins d'1 centime par tâche" : `≈ ${money(c)} $ par tâche`;
-};
-const shortName = (m: Model) => m.name.replace(/^[^:]+:\s*/, "");
-
-// Les trois niveaux, dans l'ordre où on les lit.
-const TIER_ORDER = [
-  { id: "fast", name: "Rapide", desc: "Trier, résumer, répondre vite.", speed: "Réponses en quelques secondes" },
-  { id: "balanced", name: "Équilibré", desc: "Le bon choix pour presque tout.", speed: "Navigue, écrit, analyse des fichiers" },
-  { id: "smart", name: "Le plus fort", desc: "Longues recherches, code, décisions délicates.", speed: "Mène des tâches de plusieurs heures" },
-];
-
 /** Le modèle proposé pour un niveau. « Le plus fort » : le modèle phare du premier grand labo (ordre du catalogue).
  * Les autres : le plus récent de la gamme, pour ne pas proposer une génération dépassée. */
 const tierModel = (catalog: Catalog, tier: string) => {
   const models = catalog.groups.find((g) => g.id === tier)?.models ?? [];
   return tier === "smart" ? models[0] : [...models].sort((a, b) => b.created - a.created)[0];
 };
-
-function ModelRow({ m, selected, onPick }: { m: Model; selected: boolean; onPick: () => void }) {
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={selected}
-      onClick={onPick}
-      className={cn(
-        "flex w-full cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-muted",
-        selected && "bg-accent-soft ring-2 ring-accent hover:bg-accent-soft",
-      )}
-    >
-      <ProviderLogo modelId={m.id} />
-      <span className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate font-medium">{shortName(m)}</span>
-        <span className="truncate font-mono text-[11px] text-muted-foreground">{m.id}</span>
-      </span>
-      {m.vision && <Eye className="size-3.5 shrink-0 text-muted-foreground" aria-label="Voit les images" />}
-      {m.context ? <span className="hidden w-14 shrink-0 text-right text-xs text-muted-foreground tabular-nums sm:block">{contextSize(m.context)}</span> : null}
-      <span className="w-36 shrink-0 text-right text-xs tabular-nums">{costLabel(m)}</span>
-    </button>
-  );
-}
 
 export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDone: () => void; onCancel?: () => void }) {
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -99,7 +59,7 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
       // Premier lancement : aucun fournisseur choisi d'avance (l'utilisateur choisit où partent ses données).
       setProvider(p.find((x) => x.id === c?.provider) || (first ? null : p[0]));
       setBaseUrl(c?.base_url || "");
-      if (c) setPicked({ id: c.model, name: c.model });
+      if (c?.model) setPicked({ id: c.model, name: c.model });
     })().catch((e) => setError(e.message));
   }, [first]);
 
@@ -152,12 +112,15 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
   };
 
   const keySaved = current?.provider === provider?.id && current?.has_key;
+  // Fournisseur déjà en service : une rangée par mode, réglable. Sinon (premier choix, autre fournisseur), les niveaux proposés.
+  const rows = !first && !!keySaved && !changingProvider;
+  const onModeChanged = useCallback((model: string) => setPicked({ id: model, name: model }), []);
   // Le modèle actuel n'est pas un niveau proposé : on ouvre directement la liste précise.
   useEffect(() => {
-    if (catalog && picked && !TIER_ORDER.some((t) => tierModel(catalog, t.id)?.id === picked.id)) setMode("precise");
+    if (!rows && catalog && picked && !TIERS.some((t) => tierModel(catalog, t.id)?.id === picked.id)) setMode("precise");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [catalog]);
-  const tiers = TIER_ORDER.map((t) => ({ ...t, model: catalog ? tierModel(catalog, t.id) : undefined })).filter((t) => t.model);
+  const tiers = TIERS.map((t) => ({ ...t, model: catalog ? tierModel(catalog, t.id) : undefined })).filter((t) => t.model);
   const pickedTier = tiers.find((t) => t.model!.id === picked?.id)?.id;
   const precise = mode === "precise" || !tiers.length;
   const list = useMemo(() => {
@@ -261,13 +224,15 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
                     mode === m && "bg-accent-soft text-accent ring-2 ring-accent",
                   )}
                 >
-                  {m === "tier" ? "Un niveau" : "Un modèle précis"}
+                  {m === "tier" ? "Un mode" : "Un modèle précis"}
                 </button>
               ))}
             </div>
           )}
 
-          {!precise ? (
+          {rows && !precise ? (
+            <ModeRows level="cerveau" onChanged={onModeChanged} />
+          ) : !precise ? (
             <div role="radiogroup" aria-label="Niveau" className="grid gap-2.5 sm:grid-cols-3">
               {tiers.map((t) => {
                 const on = pickedTier === t.id;
@@ -287,7 +252,7 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
                     <span className="min-h-9 text-[13px] leading-snug text-muted-foreground">{t.desc}</span>
                     <span className="text-xs">{t.speed}</span>
                     <span className="text-xs font-medium tabular-nums">{costLabel(t.model!)}</span>
-                    <span className="flex w-full items-center gap-1.5 truncate text-xs text-muted-foreground"><ProviderLogo modelId={t.model!.id} className="size-5" />{shortName(t.model!)}</span>
+                    <span className="flex w-full items-center gap-1.5 truncate text-xs text-muted-foreground"><ProviderLogo modelId={t.model!.id} className="size-5" />{shortName(t.model!.name)}</span>
                   </button>
                 );
               })}
@@ -349,6 +314,7 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
           </label>
           {usage && <span className="text-muted-foreground">Dépensé ce mois-ci : <span className="font-mono text-foreground">{money(usage.month_cost)} $</span></span>}
         </div>
+        {usage?.non_suivi && <p className="text-xs text-warn">Certains appels n'ont pas de prix connu ce mois-ci : ce plafond ne les compte pas. Surveille aussi ta dépense chez le fournisseur.</p>}
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <label className="flex items-center gap-2">
             Par agent
@@ -373,7 +339,9 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
               : "Application aux agents…"
             : !picked
               ? "Choisis un modèle"
-              : `Utiliser ${pickedTier ? TIER_ORDER.find((t) => t.id === pickedTier)!.name : picked.name.replace(/^[^:]+:\s*/, "")}`}
+              : rows && !precise
+                ? "Enregistrer le budget"
+                : `Utiliser ${pickedTier ? TIERS.find((t) => t.id === pickedTier)!.name : shortName(picked.name)}`}
         </Button>
       </div>
     </div>

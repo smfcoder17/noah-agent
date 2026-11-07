@@ -18,7 +18,7 @@ const CHOICES: { id: CallChoice; label: string; detail: string }[] = [
 const KINDS: { id: Kind; label: string; detail: string }[] = [
   { id: "fin", label: "Fin de tâche", detail: "Un travail de plus de 30 secondes finit ou échoue, et tu n'es pas sur la conversation." },
   { id: "accord", label: "Accord demandé", detail: "L'agent attend ton accord, ou une étape que toi seul peux faire." },
-  { id: "routines", label: "Routines et veilles", detail: "Une routine a un résultat, une veille a trouvé quelque chose." },
+  { id: "routines", label: "Routines et veilles", detail: "Une routine a un résultat, une veille a trouvé quelque chose, un agent t'écrit de lui-même." },
   { id: "appels", label: "Appels", detail: "Ton téléphone sonne quand un agent t'appelle. Coupé, aucun agent ne peut te faire sonner." },
   { id: "plafond", label: "Plafond de dépense", detail: "Un agent approche de son plafond, ou l'a atteint." },
 ];

@@ -27,7 +27,7 @@ for (const [label, viewport] of [["ordinateur", { width: 1280, height: 800 }], [
   const call = page.getByRole("region", { name: "Appel vocal" });
   const time = async () => (await call.innerText()).match(/\d+:\d\d/)?.[0];
   const openSidebar = async () => {
-    const menu = page.getByRole("button", { name: "Ouvrir le menu" });
+    const menu = page.getByRole("button", { name: "Agents" });
     if (await menu.isVisible()) await menu.click();
   };
 

@@ -25,8 +25,12 @@ RIGHTS.parent.mkdir()
 os.environ["NOAH_MCP_DROITS"] = str(RIGHTS)
 sys.path[:0] = ["/opt/hermes", "/check"]
 
-from mcp_server import Server  # noqa: E402
+from mcp_server import TOOLS, Server  # noqa: E402
 
+# Des noms à tiret, comme ceux de Notion : Hermes les réécrit avec « _ » dans le nom qu'il donne à l'agent.
+TOOLS += [{"name": "cherche-fiche", "description": "Cherche une fiche.", "inputSchema": {"type": "object", "properties": {"q": {"type": "string"}}},
+           "annotations": {"readOnlyHint": True}},
+          {"name": "efface-fiche", "description": "Efface une fiche.", "inputSchema": {"type": "object", "properties": {"id": {"type": "string"}}}}]
 srv = Server(session=False).start()
 (HOME / "plugins/noah-garde").mkdir(parents=True)
 for name in ("plugin.yaml", "__init__.py"):
@@ -79,9 +83,18 @@ assert gate(READ) is None, "readOnlyHint de lire_fiche non vu"
 blocked = gate(WRITE)
 assert blocked and "lecture seule" in blocked, blocked
 print("lire : lire_fiche passe (readOnlyHint lu par Hermes), creer_fiche refusé")
+HYPHEN_READ, HYPHEN_WRITE = "mcp__mes_fiches__cherche_fiche", "mcp__mes_fiches__efface_fiche"
+assert gate(HYPHEN_READ) is None, "un nom à tiret (comme notion-search) : sa lecture déclarée n'est pas reconnue"
+blocked = gate(HYPHEN_WRITE)
+assert blocked and "lecture seule" in blocked, blocked
+print("lire : un nom à tiret déclaré en lecture passe, l'autre reste refusé")
 
 rights("confirmer")
+assert gate(READ) is None, "confirmer : une lecture déclarée passe, même sans personne"
 blocked = gate(WRITE, {"titre": "x"})
+assert blocked and "BLOCKED" in blocked, blocked
+assert gate(HYPHEN_READ) is None, "confirmer : une lecture déclarée à tiret passe sans accord"
+blocked = gate(HYPHEN_WRITE)
 assert blocked and "BLOCKED" in blocked, blocked
 print("confirmer sans personne pour répondre : refusé (fermé par défaut)")
 
@@ -133,4 +146,23 @@ srv.server_close()
 out = run(WRITE, {"titre": "x"})
 assert "error" in out.lower(), out
 print("panne : résultat d'outil, pas d'exception :", out[:160])
+
+# Le premier outil du navigateur attend son réveil, dans le crochet : Hermes bloque l'outil si ce crochet dépasse son délai.
+os.makedirs("/opt/data", exist_ok=True)
+Path("/opt/data/noah.py").write_text('import time; time.sleep(3); print("{}")')
+
+
+def hook_seconds(value: float) -> None:
+    path = HOME / "config.yaml"
+    path.write_text(json.dumps({**CONFIG, "plugins": {**CONFIG["plugins"], "hook_callback_timeout": value}}))
+    os.utime(path, (time.time() + value, time.time() + value))  # Hermes relit le fichier quand sa date change
+
+
+hook_seconds(20)
+assert gate("browser_navigate", {"url": "https://example.org"}) is None, "un réveil dans le délai réglé : l'outil passe"
+print("réveil de 3 s, délai réglé plus long : l'outil passe")
+hook_seconds(1)
+blocked = gate("browser_navigate", {"url": "https://example.org"})
+assert blocked and "timed out" in blocked, blocked
+print("le même réveil, délai trop court : Hermes bloque l'outil, c'est bien ce réglage qui compte")
 print("OK")

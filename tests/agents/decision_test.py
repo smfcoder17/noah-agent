@@ -114,7 +114,12 @@ OPENROUTER = [m("anthropic/claude-sonnet", 3, 15), m("google/gemini-lite", 0.05,
 async def fake_or():
     return OPENROUTER
 
+async def no_typed():
+    return []
+
+
 catalog.openrouter_catalog = fake_or
+catalog.decision_catalog = decision._typed_choose = no_typed  # les vrais modèles de décision ont leur test : modes_test.py
 configure("openrouter", "anthropic/claude-sonnet")
 behavior["openai/nano-casse"] = "désolé, je ne sais pas faire du JSON"
 behavior["mistralai/petit-faux"] = json.dumps({"pertinent": True, "retenues": [1, 2]})

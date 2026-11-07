@@ -106,7 +106,7 @@ await page.screenshot({ path: `${OUT}/6-suite.png` });
 // 7 bis. Un travail de la file demande un accord : aucun flux ici, le bouton s'affiche quand même et débloque.
 await page.reload();
 await input.waitFor({ timeout: 20000 });
-await sees("Supprimer le dossier ?", 15000);
+await sees("Ton agent te demande de valider une action.", 15000);
 await page.screenshot({ path: `${OUT}/6-accord.png` });
 await page.getByRole("button", { name: "Autoriser" }).click();
 await sees("Lit apres-accord.txt", 10000);

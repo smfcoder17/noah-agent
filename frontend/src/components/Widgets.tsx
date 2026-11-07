@@ -2,7 +2,7 @@
 // Graphique, tableau, grille d'éléments, question à choix. Le JSON invalide retombe en bloc de code.
 import type { SyntaxHighlighterProps } from "@assistant-ui/react-markdown";
 import { useAuiState } from "@assistant-ui/react";
-import { Check, Download, ExternalLink, FileText, Maximize2, Reply } from "lucide-react";
+import { Check, Download, ExternalLink, FileText, Maximize2, Moon, Play, Reply } from "lucide-react";
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { mediaUrl, previewRenewIn, previewUrl, rawFileUrl } from "@/lib/api";
 import { inAndroidApp, nativeSave } from "@/lib/platform";
@@ -10,7 +10,8 @@ import { cn, safeMedia } from "@/lib/utils";
 import { AgentContext } from "@/lib/agentContext";
 import { useQuotes, widgetQuote } from "@/lib/quotes";
 import { Button } from "./ui";
-import { canFrame, isImagePath, useDownload, useViewer } from "./Viewer";
+import { VideoEmbed } from "./VideoEmbed";
+import { canFrame, CopyImageButton, isImagePath, useDownload, useViewer } from "./Viewer";
 
 type Series = { name?: string; values: number[] };
 type ChartSpec = { type: "chart"; title?: string; kind?: "bar" | "line"; labels: string[]; series: Series[]; note?: string };
@@ -19,7 +20,8 @@ type GridItem = { title: string; subtitle?: string; image?: string; url?: string
 type GridSpec = { type: "grid"; title?: string; items: GridItem[]; note?: string };
 type ChoiceSpec = { type: "choice"; question: string; options: string[] };
 type PreviewSpec = { type: "preview"; path: string; title?: string; note?: string };
-type Spec = ChartSpec | TableSpec | GridSpec | ChoiceSpec | PreviewSpec;
+type VideoSpec = { type: "video"; url: unknown; title?: unknown };
+type Spec = ChartSpec | TableSpec | GridSpec | ChoiceSpec | PreviewSpec | VideoSpec;
 
 // Palette des séries (distincte des couleurs d'état).
 const SERIES = ["#2a47c9", "#0f766e", "#b4541a", "#7c3aed"];
@@ -145,12 +147,12 @@ function TableBody({ columns, rows }: { columns: string[]; rows: (string | numbe
     <div className="max-h-96 overflow-auto">
       <table className="w-full border-collapse text-sm">
         <thead className="sticky top-0 bg-surface">
-          <tr>{columns.map((c, i) => <th key={i} className="border-b border-border px-4 py-2 text-left text-xs font-medium text-muted-foreground">{c}</th>)}</tr>
+          <tr>{columns.map((c, i) => <th key={i} className="whitespace-nowrap border-b border-border px-4 py-2 text-left text-xs font-medium text-muted-foreground">{c}</th>)}</tr>
         </thead>
         <tbody>
           {rows.map((r, i) => (
             <tr key={i} className="border-b border-border/50 last:border-0">
-              {r.map((v, j) => <td key={j} className={cn("px-4 py-2", typeof v === "number" && "text-right tabular-nums")}>{typeof v === "number" ? fmt(v) : v}</td>)}
+              {r.map((v, j) => <td key={j} className={cn("px-4 py-2 [overflow-wrap:normal]", String(v).length <= 12 && "whitespace-nowrap", typeof v === "number" && "text-right tabular-nums")}>{typeof v === "number" ? fmt(v) : v}</td>)}
             </tr>
           ))}
         </tbody>
@@ -185,7 +187,7 @@ function Grid({ spec }: { spec: GridSpec }) {
               {it.subtitle && <span className="text-xs text-muted-foreground tabular-nums">{it.subtitle}</span>}
             </>
           );
-          return it.url ? (
+          return it.url && /^https?:\/\//i.test(it.url) ? (
             <a key={i} href={it.url} target="_blank" rel="noopener noreferrer" className="group flex min-w-0 flex-col gap-1.5 no-underline">
               {body}
             </a>
@@ -208,9 +210,31 @@ function Grid({ spec }: { spec: GridSpec }) {
 const AUDIO_RE = /\.(mp3|wav|ogg|m4a|aac|flac)$/i;
 const VIDEO_RE = /\.(mp4|webm|mov)$/i;
 
+// Une page ou une vidéo déjà loin dans la conversation n'a plus à tourner : elle dort sous une vitre, et se recharge d'un clic.
+const STALE_BEHIND = 6;
+const STALE_AFTER = 30 * 60_000;
+const ON_SCREEN_RECHECK = 15_000;
+
+function Frozen({ onWake, page }: { onWake: () => void; page: boolean }) {
+  return (
+    <div className="relative flex h-36 flex-col items-center justify-center gap-2 overflow-hidden bg-gradient-to-br from-muted via-surface to-muted px-4 text-center">
+      <div aria-hidden className="absolute inset-0 bg-[repeating-linear-gradient(135deg,transparent_0_14px,var(--border)_14px_15px)] opacity-40" />
+      <p className="relative text-xs text-muted-foreground">{page ? "En veille pour ne rien consommer." : "En veille."}</p>
+      <Button size="sm" variant="outline" className="relative bg-surface" onClick={onWake}><Play />Recharger</Button>
+    </div>
+  );
+}
+
 /** Un fichier créé par l'agent, montré dans la conversation : application, page, PDF, image, son, vidéo ou carte de téléchargement. */
 function Preview({ spec }: { spec: PreviewSpec }) {
   const { agentId } = useContext(AgentContext);
+  const when = useAuiState((s) => s.message.createdAt);
+  const working = useAuiState((s) => s.message.status?.type === "running");
+  const farBehind = useAuiState((s) => s.thread.messages.length - 1 - s.message.index > STALE_BEHIND);
+  const [aged, setAged] = useState(() => !!when && Date.now() - when.getTime() > STALE_AFTER);
+  const stale = !working && (farBehind || aged);
+  const [woken, setWoken] = useState(false);
+  const shell = useRef<HTMLDivElement>(null);
   const view = useViewer();
   const download = useDownload();
   const path = String(spec.path || "");
@@ -219,6 +243,21 @@ function Preview({ spec }: { spec: PreviewSpec }) {
   const title = spec.title || (/^index.html?$/i.test(name) ? path.split("/").slice(-2)[0] : name);
   const raw = rawFileUrl(agentId, path);
   const page = /\.html?$/i.test(path);
+  const heavy = !isImagePath(path) && (canFrame(path) || VIDEO_RE.test(path));
+  const frozen = heavy && stale && !woken;
+  useEffect(() => {
+    if (!heavy || aged || !when) return;
+    let timer: ReturnType<typeof setTimeout>;
+    // Qui joue ou regarde depuis 30 minutes n'est pas coupé : on attend que la page ne soit plus à l'écran.
+    const check = () => {
+      const box = shell.current?.getBoundingClientRect();
+      const onScreen = !document.hidden && !!box && box.width > 0 && box.bottom > 0 && box.top < innerHeight;
+      if (onScreen) timer = setTimeout(check, ON_SCREEN_RECHECK);
+      else setAged(true);
+    };
+    timer = setTimeout(check, Math.max(when.getTime() + STALE_AFTER - Date.now(), 0));
+    return () => clearTimeout(timer);
+  }, [heavy, aged, when]);
   const [link, setLink] = useState<string | null>(null);
   // La page déjà ouverte garde son lien : le changer la rechargerait et lui ferait perdre son état. Les boutons prennent le plus récent.
   const opened = useRef<string | null>(null);
@@ -231,48 +270,61 @@ function Preview({ spec }: { spec: PreviewSpec }) {
       setLink(u);
       renew = setTimeout(ask, previewRenewIn(agentId, path));
     }, () => live && setLink(raw));
-    if (page) ask();
+    if (page && !frozen) ask();
     return () => {
       live = false;
       clearTimeout(renew);
     };
-  }, [agentId, path, page, raw]);
+  }, [agentId, path, page, raw, frozen]);
   const url = page ? link ?? raw : raw;
   if (page && link && !opened.current) opened.current = link;
   const image = isImagePath(path);
   const frame = !image && canFrame(path);
-  const open = () => (image ? view({ kind: "image", src: mediaUrl(agentId, path), title }) : view({ kind: "file", url, title }));
+  const media = mediaUrl(agentId, path);
+  const [broken, setBroken] = useState(false);
+  const open = () => (image ? view({ kind: "image", src: media, title }) : view({ kind: "file", url, title }));
+  // Une image peut venir d'ailleurs que de l'espace de travail (/tmp) : elle se télécharge par la même route que son affichage.
+  const save = image ? `${media}&download=1` : `${raw}?download=1`;
   return (
+    <div ref={shell}>
     <Frame
       title={title}
-      note={spec.note ?? name}
+      note={spec.note ?? (title === name ? undefined : name)}
       // Une application a besoin de place : elle déborde de la colonne de lecture quand la fenêtre le permet.
       style={page ? { width: PAGE_WIDTH, marginLeft: `calc((100% - ${PAGE_WIDTH}) / 2)` } : undefined}
       actions={
         <div className="flex shrink-0 gap-1">
-          {(image || frame) && (
-            <Button size="sm" variant="outline" onClick={open}><Maximize2 />Agrandir</Button>
+          {heavy && stale && woken && (
+            <Button size="sm" variant="ghost" onClick={() => setWoken(false)}><Moon />Mettre en veille</Button>
           )}
-          {frame && !inAndroidApp() && (
+          {image && !broken && <CopyImageButton src={media} compact />}
+          {(image || frame) && !frozen && !broken && (
+            <Button size="sm" variant="outline" onClick={open} aria-label="Agrandir"><Maximize2 /><span className={image ? "max-sm:hidden" : undefined}>Agrandir</span></Button>
+          )}
+          {(frame || image) && !inAndroidApp() && !broken && (
             <Button size="icon-sm" variant="ghost" asChild>
-              <a href={url} target="_blank" rel="noopener" aria-label="Ouvrir dans un onglet"><ExternalLink /></a>
+              <a href={image ? media : url} target="_blank" rel="noopener" aria-label="Ouvrir dans un onglet"><ExternalLink /></a>
             </Button>
           )}
           <Button size="icon-sm" variant="ghost" asChild>
-            <a href={`${raw}?download=1`} onClick={(e) => { e.preventDefault(); download(`${raw}?download=1`, name); }} aria-label={`Télécharger ${name}`}><Download /></a>
+            <a href={save} onClick={(e) => { e.preventDefault(); download(save, name); }} aria-label={`Télécharger ${name}`}><Download /></a>
           </Button>
         </div>
       }
     >
-      {AUDIO_RE.test(path) ? (
+      {frozen ? (
+        <Frozen page={page} onWake={() => setWoken(true)} />
+      ) : AUDIO_RE.test(path) ? (
         <div className="px-4 py-3">
           <audio controls preload="metadata" src={url} className="w-full" />
         </div>
       ) : VIDEO_RE.test(path) ? (
         <video controls preload="metadata" src={url} className="block max-h-[480px] w-full bg-black" />
+      ) : image && broken ? (
+        <p className="px-4 py-3 text-sm text-muted-foreground">Cette image n'est plus disponible.</p>
       ) : image ? (
         <button type="button" onClick={open} className="block w-full cursor-zoom-in bg-muted">
-          <img src={mediaUrl(agentId, path)} alt={title} loading="lazy" className="mx-auto max-h-96 object-contain" />
+          <img src={media} alt={title} loading="lazy" onError={() => setBroken(true)} className="mx-auto max-h-96 object-contain" />
         </button>
       ) : frame && page && !link ? (
         <div className="h-[560px] bg-muted" />
@@ -294,6 +346,7 @@ function Preview({ spec }: { spec: PreviewSpec }) {
         </a>
       )}
     </Frame>
+    </div>
   );
 }
 
@@ -302,48 +355,34 @@ function Choice({ spec }: { spec: ChoiceSpec }) {
   const running = useAuiState((s) => s.thread.isRunning);
   // La question n'attend plus de réponse dès qu'un message suit celui-ci.
   const isLast = useAuiState((s) => s.thread.messages[s.thread.messages.length - 1]?.id === s.message.id);
-  const [picked, setPicked] = useState<string | null>(null);
   const [sent, setSent] = useState<string | null>(null);
   const open = isLast && !sent && !running;
   return (
-    <section className={cn("my-3 flex flex-col gap-3 rounded-2xl border bg-surface p-4", open ? "border-warn shadow-sm" : "border-border")}>
-      <span className={cn("text-[11px] font-semibold uppercase tracking-wide", open ? "text-warn" : "text-muted-foreground")}>
-        {open ? "Attend ton choix" : "Choix"}
-      </span>
-      <p className="text-[15px] font-semibold">{spec.question}</p>
-      <div role="radiogroup" aria-label={spec.question} className="flex flex-wrap gap-2">
+    <section className="my-3 flex flex-col gap-2">
+      {spec.question && <p className="text-[15px] font-semibold">{spec.question}</p>}
+      <div role="group" aria-label={spec.question || "Réponses proposées"} className="flex flex-col gap-2">
         {(spec.options ?? []).map((o) => (
           <button
             key={o}
             type="button"
-            role="radio"
-            aria-checked={(sent ?? picked) === o}
+            aria-pressed={sent === o}
             disabled={!open}
-            onClick={() => setPicked(o)}
+            onClick={() => {
+              setSent(o);
+              say(o); // un toucher suffit : c'est la réponse
+            }}
             className={cn(
-              "inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-full border border-muted-foreground/50 bg-surface px-3.5 text-[13px] font-medium disabled:cursor-default",
-              (sent ?? picked) === o && "border-2 border-accent bg-accent-soft px-[13px] text-accent",
-              !open && (sent ?? picked) !== o && "opacity-60",
+              "flex min-h-11 w-full max-w-md cursor-pointer items-center justify-between gap-2 rounded-xl border border-border bg-surface px-4 py-2 text-left text-[14px] transition-colors",
+              open && "hover:border-accent hover:bg-accent-soft",
+              sent === o && "border-accent bg-accent-soft font-medium text-accent",
+              !open && sent !== o && "opacity-50",
             )}
           >
-            {sent === o && <Check className="size-3.5" />}{o}
+            {o}
+            {sent === o && <Check className="size-4 shrink-0" />}
           </button>
         ))}
       </div>
-      {open && (
-        <div className="flex justify-end">
-          <Button
-            disabled={!picked}
-            onClick={() => {
-              if (!picked) return;
-              setSent(picked);
-              say(picked);
-            }}
-          >
-            Valider ce choix
-          </Button>
-        </div>
-      )}
     </section>
   );
 }
@@ -360,7 +399,7 @@ function Quotable({ spec, children }: { spec: Spec; children: React.ReactNode })
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 text-xs text-muted-foreground opacity-0 group-hover/quote:opacity-100 focus-visible:opacity-100"
+            className="h-7 text-xs text-muted-foreground opacity-0 pointer-coarse:opacity-100 group-hover/quote:opacity-100 focus-visible:opacity-100"
             onClick={() => add(quote)}
           >
             <Reply />Répondre à ceci
@@ -388,6 +427,7 @@ export function NoahWidget({ code, components }: SyntaxHighlighterProps) {
     case "grid": return <Quotable spec={spec}><Grid spec={spec} /></Quotable>;
     case "choice": return <Choice spec={spec} />;
     case "preview": return <Quotable spec={spec}><Preview spec={spec} /></Quotable>;
+    case "video": return <Quotable spec={spec}><VideoEmbed url={spec.url} title={spec.title} /></Quotable>;
     default:
       return <components.Pre><components.Code>{code}</components.Code></components.Pre>;
   }

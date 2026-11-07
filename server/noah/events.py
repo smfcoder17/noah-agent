@@ -8,6 +8,7 @@
 Le détail brut (appels d'outils, arguments) n'est envoyé que si l'interface demande le mode détails.
 """
 import re
+import unicodedata
 from urllib.parse import urlsplit
 
 from .diagnostics import mask
@@ -145,19 +146,19 @@ _OWN = re.compile(r"^(Budget |Plafond du jour|Le modèle est injoignable|Aucun m
 _KNOWN = (
     (r"unknown_execution", "Un redémarrage a coupé le travail précédent et cette conversation reste bloquée. Réessaie dans un instant."),
     (r"content.?(policy|filter)|moderation|flagged|safety (system|polic)",
-     "Le fournisseur a refusé ce contenu selon ses règles. Reformule la demande, ou choisis un autre modèle dans Réglages > Cerveau."),
+     "Le fournisseur a refusé ce contenu selon ses règles. Reformule la demande, ou choisis un autre modèle dans Réglages > Modèles et budget > Cerveau."),
     # Une panne chez lui, même si elle parle de clé : la tienne n'y est pour rien.
     (r"(http|status|code|error)\D{0,10}5\d\d\b", "Le fournisseur est surchargé ou en panne pour le moment. Réessaie dans quelques minutes."),
     (r"\b429\b|rate.?limit|too many requests",
      "Le fournisseur limite les requêtes ou le quota de ce compte est atteint. Réessaie dans une minute ; si ça continue, regarde ton compte chez lui."),
     (r"(key|token|credential).{0,30}expired|expired.{0,30}(key|token|credential)",
-     "Ta clé API a expiré. Crée-en une nouvelle chez ton fournisseur, puis colle-la dans Réglages > Cerveau."),
+     "Ta clé API a expiré. Crée-en une nouvelle chez ton fournisseur, puis colle-la dans Réglages > Modèles et budget > Cerveau."),
     (r"\b40[13]\b|authenticat|unauthorized|api key|x-api-key|invalid.{0,12}key|forbidden",
-     "Le fournisseur a refusé ta clé API : elle est invalide ou n'a plus accès. Remplace-la dans Réglages > Cerveau."),
+     "Le fournisseur a refusé ta clé API : elle est invalide ou n'a plus accès. Remplace-la dans Réglages > Modèles et budget > Cerveau."),
     (r"\b402\b|credit|quota|insufficient|billing",
-     "Le compte du fournisseur n'a plus de crédit ou a atteint sa limite. Recharge-le, ou choisis un autre modèle dans Réglages > Cerveau."),
+     "Le compte du fournisseur n'a plus de crédit ou a atteint sa limite. Recharge-le, ou choisis un autre modèle dans Réglages > Modèles et budget > Cerveau."),
     (r"no endpoints|model.{0,40}(not found|not exist|unavailable|invalid)|not a valid model|\b404\b",
-     "Ce modèle n'est plus disponible chez le fournisseur. Choisis-en un autre dans Réglages > Cerveau."),
+     "Ce modèle n'est plus disponible chez le fournisseur. Choisis-en un autre dans Réglages > Modèles et budget > Cerveau."),
     (r"context.{0,20}(length|window|size)|too (long|large)|token limit",
      "Cette conversation est devenue trop longue pour ce modèle. Commence une nouvelle conversation ou choisis un modèle plus grand."),
     (r"overloaded|\b(500|502|503|504|529)\b|bad gateway|service unavailable",
@@ -220,6 +221,7 @@ def translate(kind: str, data: dict, details: bool) -> dict | None:
             "request_id": data.get("prompt_id") or data.get("request_id"),
             "generation": data.get("execution_generation"),
             "summary": data.get("description") or data.get("command") or data.get("preview") or "Action à valider",
+            "commande": bool(data.get("command")),
         }
 
     if kind in ("run.completed", "run.failed", "run.cancelled", "run.interrupted"):
@@ -236,3 +238,43 @@ def translate(kind: str, data: dict, details: bool) -> dict | None:
 
     # message.interim, subagent.*, keepalive… : rien pour l'utilisateur, sauf en mode détails.
     return {"type": "raw", "kind": kind, "data": data} if details else None
+
+
+# Une réaction se donne d'un mot : l'agent commence sa réponse par [[👍]], la personne ne voit que l'emoji posé sur son message.
+REACTIONS = ("👍", "❤️", "😂", "😮", "😢", "🙏", "🔥", "🎉", "👎")
+_REACTION_HEAD = re.compile(r"^\s*\[\[([^\[\]]{1,12})\]\]\s*")
+_MOST_HEAD = 24
+
+
+def _is_emoji(text: str) -> bool:
+    """L'agent réagit avec l'emoji qui convient, pas seulement ceux du sélecteur : sinon « [[👂]] » s'afficherait dans son texte."""
+    return any(unicodedata.category(ch) == "So" for ch in text) \
+        and all(unicodedata.category(ch) in ("So", "Sk") or ch in "‍️" for ch in text)
+
+
+class ReactionHead:
+    """Retient le début du flux le temps de savoir s'il commence par une réaction. Ce qui n'en est pas une repart tel quel."""
+
+    def __init__(self) -> None:
+        self.held = ""
+        self.done = False
+
+    def feed(self, text: str) -> tuple[str | None, str]:
+        if self.done:
+            return None, text
+        self.held += text
+        start = self.held.lstrip()
+        if start and "[[".startswith(start[:2]) and "]]" not in start and len(self.held) < _MOST_HEAD:
+            return None, ""
+        if not start and len(self.held) < _MOST_HEAD:
+            return None, ""
+        return self._decide()
+
+    def flush(self) -> tuple[str | None, str]:
+        return (None, "") if self.done else self._decide()
+
+    def _decide(self) -> tuple[str | None, str]:
+        self.done = True
+        found = _REACTION_HEAD.match(self.held)
+        rest, self.held = self.held, ""
+        return (found.group(1), rest[found.end():]) if found and _is_emoji(found.group(1)) else (None, rest)

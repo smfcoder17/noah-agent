@@ -1,34 +1,42 @@
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import { QuoteContext, useQuoteState } from "@/lib/quotes";
-import { ArrowLeft, Bug, Menu, MonitorPlay, PanelRight, Plus } from "lucide-react";
+import { ArrowLeft, Bug, MonitorPlay, PanelRight, Plus, MessageCircle, Inbox as InboxIcon, Settings as SettingsIcon, Users, Clock, FolderOpen } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AuthScreen, TemporaryPassword } from "@/components/AuthScreen";
 import { CallScreen, type CallReport } from "@/components/Call";
 import { CALL_SLOT } from "@/components/CallStage";
 import { Onboarding } from "@/components/Onboarding";
+import { ConnectedBanner } from "@/components/ConnectedBanner";
 import { DeviceApproval, keepApprovalRequest } from "@/components/DeviceApproval";
 import { NewDeviceAlert } from "@/components/NewDeviceAlert";
 import { HandoffBanner } from "@/components/Handoff";
 import { AgentFace, agentColor } from "@/components/Noah";
+import { AgentMenu } from "@/components/AgentOverview";
+import { Boundary } from "@/components/Boundary";
+import { Inbox } from "@/components/Inbox";
 import type { PanelTab } from "@/components/SidePanel";
 import { STATE_WORD, Sidebar, StateShape } from "@/components/Sidebar";
 import { Thread } from "@/components/Thread";
 import type { SettingsTab } from "@/components/Settings";
 import { ViewerProvider } from "@/components/Viewer";
 import { Button } from "@/components/ui";
-import { type Agent, ApiError, canAdmin, canTalk, type Conversation, type CurrentModel, currentAuthEpoch, get, type Me, request, send, setClientVersion, type Status, type Usage } from "@/lib/api";
-import { WhileBusyContext, AgentContext } from "@/lib/agentContext";
+import { type Agent, ApiError, canAdmin, canTalk, type Conversation, type InboxItem, currentAuthEpoch, get, type Me, request, send, setClientVersion, type Status, type Usage } from "@/lib/api";
+import { WhileBusyContext, AgentContext, HistoryContext } from "@/lib/agentContext";
 import { takeAsk } from "@/lib/askAgent";
 import { clearShare, pendingShare } from "@/lib/share";
 import { appShell, tooOld } from "@/lib/platform";
 import { forgetPushSession, reconcilePush } from "@/lib/push";
 import { useAgentChat } from "@/lib/useAgentChat";
+import { MODE_NAMES, type ModeId, readableModel } from "@/lib/modes";
+import { AgentBrain } from "./components/AgentBrain";
+import { Dialog, DialogContent } from "./components/ui";
 import { cn } from "@/lib/utils";
 
 // Chargés à la première ouverture : le premier écran n'attend que le chat.
 const AgentDialog = lazy(() => import("@/components/AgentDialog").then((m) => ({ default: m.AgentDialog })));
 const SidePanel = lazy(() => import("@/components/SidePanel").then((m) => ({ default: m.SidePanel })));
 const SettingsDialog = lazy(() => import("@/components/Settings").then((m) => ({ default: m.SettingsDialog })));
+const Goals = lazy(() => import("@/components/Goals").then((m) => ({ default: m.Goals })));
 
 type Screen = "loading" | "onboarding" | "login" | "password" | "app" | "error" | "pairing" | "linked" | "update";
 const WAITING = "noah:appairage";
@@ -286,13 +294,16 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const conversations = listed.agent === agentId ? listed.list : agentId ? conversationsCache.get(agentId) ?? null : null;
   // Fil ouvert à la place de la conversation principale (null = conversation principale).
   const [threadId, setThreadId] = useState<string | null>(null);
-  const [model, setModel] = useState<CurrentModel>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [panel, setPanel] = useState<PanelTab | null>(null);
+  const [liveStatus, setLiveStatus] = useState<string | null>(null);
   const [agentDialog, setAgentDialog] = useState<{ open: boolean; agent: Agent | null }>({ open: false, agent: null });
+  const [modelDialog, setModelDialog] = useState(false);
   const [settings, setSettings] = useState<SettingsTab | null>(null);
   const [details, setDetails] = useState(false);
+  const [inbox, setInbox] = useState(false);
+  const [goals, setGoals] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [report, setReport] = useState<CallReport | null>(null); // rappel pris : lu dans le mode vocal de cet agent
   const reportRead = useCallback(() => setReport(null), []);
@@ -365,9 +376,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     }
   }, []);
   const refreshModel = useCallback(async () => {
-    const [m, u] = await Promise.all([get<CurrentModel>("/api/model"), get<Usage>("/api/usage")]).catch(() => [null, null]);
-    setModel(m as CurrentModel);
-    setUsage(u as Usage | null);
+    setUsage(await get<Usage>("/api/usage").catch(() => null));
   }, []);
   const refreshConversations = useCallback(async () => {
     if (!agentId) return setListed({ agent: null, list: [] });
@@ -394,6 +403,14 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     setSidebarOpen(false);
   };
 
+  useEffect(() => {
+    const answered = () => {
+      refreshAgents();
+      refreshConversations();
+    };
+    window.addEventListener("noah:accord-repondu", answered);
+    return () => window.removeEventListener("noah:accord-repondu", answered);
+  }, [refreshAgents, refreshConversations]);
   useEffect(() => {
     const watch = () => setPanel("computer");
     window.addEventListener("noah:voir-ecran", watch);
@@ -424,9 +441,26 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   };
 
   const state = shown?.state ?? "idle";
+  useEffect(() => {
+    const open = () => setModelDialog(true);
+    const tab = (e: Event) => { setSidebarOpen(false); setPanel((e as CustomEvent<PanelTab>).detail); };
+    window.addEventListener("noah:choisir-modele", open);
+    window.addEventListener("noah:ouvrir-panneau", tab);
+    return () => { window.removeEventListener("noah:choisir-modele", open); window.removeEventListener("noah:ouvrir-panneau", tab); };
+  }, []);
+  const door = settings ? "Réglages" : sidebarOpen ? "Agents" : panel === "files" ? "Fichiers" : panel === "routines" ? "Tâches" : "Discussion";
+  const waiting = agents.reduce((n, a) => n + (a.tasks?.approve ?? 0) + (a.tasks?.choice ?? 0), 0);
+  const openFromInbox = (item: InboxItem) => {
+    setInbox(false);
+    setAgentId(item.agent_id);
+    setThreadId(item.main && item.a_moi ? null : item.conversation_id); // la principale d'un autre profil n'est pas la sienne
+    setSidebarOpen(false);
+    setPanel(null);
+  };
   return (
     <ViewerProvider>
       <DeviceApproval />
+      <ConnectedBanner />
       <NewDeviceAlert onChangePassword={() => setSettings("security")} />
       <CallScreen
         agents={agents}
@@ -447,8 +481,17 @@ function Shell({ onLogout }: { onLogout: () => void }) {
           <Sidebar
             agents={agents}
             agentId={agentId}
-            model={model}
             usage={usage}
+            waiting={waiting}
+            onInbox={() => setInbox(true)}
+            onGoals={() => {
+              setGoals(true);
+              setSidebarOpen(false);
+            }}
+            onOpen={(tab) => {
+              setPanel(tab);
+              setSidebarOpen(false);
+            }}
             owner={me?.role === "owner"}
             onClose={() => setSidebarOpen(false)}
             onSelectAgent={selectAgent}
@@ -464,15 +507,18 @@ function Shell({ onLogout }: { onLogout: () => void }) {
         {/* Conversation avec l'agent (ou l'un de ses fils) */}
         <main className="flex min-h-0 min-w-0 flex-col">
           <header className="flex items-center gap-2.5 border-b border-border px-3 py-2 pt-[max(8px,env(safe-area-inset-top))]">
-            <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setSidebarOpen(true)} aria-label="Ouvrir le menu"><Menu /></Button>
             {thread ? (
               <Button variant="ghost" size="icon-sm" onClick={() => setThreadId(null)} aria-label={`Revenir à la conversation avec ${agent?.name}`}>
                 <ArrowLeft />
               </Button>
-            ) : (
-              agent && <AgentFace agent={agent} className="size-9" />
-            )}
-            <div className="min-w-0 flex-1">
+            ) : null}
+            {/* Le visage et le nom ouvrent la fiche de l'agent, comme chez Grok Bot et Muse : c'est là qu'on le cherche. */}
+            <div
+              className={cn("min-w-0 flex-1", agent && !thread && "-my-1 -ml-1 flex cursor-pointer items-center gap-2.5 rounded-xl py-1 pl-1 hover:bg-muted/60")}
+              {...(agent && !thread ? { role: "button", tabIndex: 0, "aria-label": `Ouvrir le panneau de ${agent.name}`, onClick: () => setPanel("activity"), onKeyDown: (e: React.KeyboardEvent) => (e.key === "Enter" || e.key === " ") && setPanel("activity") } : {})}
+            >
+              {agent && !thread && <AgentFace agent={agent} className="size-9 shrink-0" />}
+              <div className="min-w-0 flex-1">
               <p className="truncate font-semibold">{thread ? thread.title : agent?.name ?? "Aucun agent"}</p>
               <p className="truncate text-xs text-muted-foreground">
                 {!agent
@@ -481,9 +527,17 @@ function Shell({ onLogout }: { onLogout: () => void }) {
                     ? thread.de
                       ? `Conversation de ${thread.de} · en lecture`
                       : `Fil de ${agent.name}${thread.archived ? " · archivé" : ""}`
-                    : agent.step || (agent.online ? "En ligne" : "Sa machine ne répond pas")}
+                    : agent.step || liveStatus || (agent.online ? "En ligne" : "Sa machine ne répond pas")}
               </p>
+              </div>
             </div>
+            {/* Créer un agent depuis l'accueil du téléphone, comme le « + » de Grok Bot. */}
+            {!thread && <Button variant="ghost" size="icon-sm" className="md:hidden" onClick={() => setAgentDialog({ open: true, agent: null })} aria-label="Créer un agent" title="Créer un agent"><Plus /></Button>}
+            <Button variant="ghost" size="icon-sm" className="relative md:hidden" onClick={() => setInbox(true)} aria-label={waiting ? `À toi : ${waiting} en attente` : "À toi"} title="À toi">
+              <InboxIcon />
+              {waiting > 0 && <span className="absolute -top-0.5 -right-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-warn px-1 text-[10px] font-semibold text-surface">{waiting}</span>}
+            </Button>
+            {agent && !thread && <AgentMenu agent={agent} onOpen={setPanel} onEdit={() => setAgentDialog({ open: true, agent })} />}
             {agent && !agent.online && !agent.step && canAdmin(agent) && (
               <Button variant="outline" size="sm" className="shrink-0" onClick={() => send(`/api/agents/${agent.id}/repair`, {}).then(refreshAgents).catch(() => {})}>
                 Redémarrer
@@ -513,8 +567,8 @@ function Shell({ onLogout }: { onLogout: () => void }) {
               <Bug />
             </Button>
             {agent && (
-              <Button variant={panel && panel !== "computer" ? "outline" : "ghost"} size="sm" onClick={() => setPanel(panel && panel !== "computer" ? null : "details")} aria-pressed={!!panel && panel !== "computer"}>
-                <PanelRight /><span className="hidden sm:inline">Détails</span>
+              <Button variant={panel && panel !== "computer" ? "outline" : "ghost"} size="sm" className="max-sm:hidden" onClick={() => setPanel(panel && panel !== "computer" ? null : "activity")} aria-pressed={!!panel && panel !== "computer"}>
+                <PanelRight aria-label="Agent" /><span className="hidden sm:inline">Agent</span>
               </Button>
             )}
             {agent && canAdmin(agent) && (
@@ -529,6 +583,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
             {inCall && (inCall.chatKey !== liveKey || !conversations) && <div key={inCall.chatKey} hidden><AgentChat {...inCall} /></div>}
             {agent && conversations ? (
               <div key={liveKey} className="h-full">
+                <Boundary label="Cette conversation">
                 <AgentChat
                   chatKey={liveKey}
                   onCallChange={setInCall}
@@ -542,7 +597,9 @@ function Shell({ onLogout }: { onLogout: () => void }) {
                   onRunFinished={onRunFinished}
                   report={!threadId && report?.agentId === agent.id ? report : null}
                   onReportRead={reportRead}
+                  onStatus={setLiveStatus}
                 />
+                </Boundary>
               </div>
             ) : agent ? (
               <p className="p-10 text-center text-sm text-muted-foreground">Chargement de la conversation…</p>
@@ -555,19 +612,36 @@ function Shell({ onLogout }: { onLogout: () => void }) {
               </div>
             )}
           </div>
+          {/* Sur un téléphone : les quatre portes, toujours au même endroit. Elles laissent la place au clavier. */}
+          <nav aria-label="Navigation" className="grid grid-cols-5 border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] md:hidden [body:has(textarea:focus)_&]:hidden">
+            {([
+              ["Discussion", MessageCircle, () => { setPanel(null); setSidebarOpen(false); }, 0],
+              ["Fichiers", FolderOpen, () => { setSidebarOpen(false); setPanel("files"); }, 0],
+              ["Tâches", Clock, () => { setSidebarOpen(false); setPanel("routines"); }, 0],
+              ["Agents", Users, () => setSidebarOpen(true), 0],
+              ["Réglages", SettingsIcon, () => setSettings("home"), 0],
+            ] as const).map(([label, Icon, go, count]) => (
+              <button key={label} type="button" onClick={go} aria-current={door === label ? "page" : undefined} className={cn("relative flex cursor-pointer flex-col items-center gap-0.5 py-2 text-[11px] font-medium", door === label ? "text-accent" : "text-muted-foreground")}>
+                <Icon className="size-5" />{label}
+                {count > 0 && <span className="absolute top-1 left-1/2 ml-1 grid h-4 min-w-4 place-items-center rounded-full bg-warn px-1 text-[10px] font-semibold text-surface">{count}</span>}
+              </button>
+            ))}
+          </nav>
         </main>
 
-        {/* Panneau Détails / Fichiers / Ordinateur */}
+        {/* Panneau de l'agent */}
         {panel && agent && (
           <Suspense fallback={null}>
-          <aside className="fixed inset-y-0 right-0 z-30 min-h-0 w-full border-l border-border bg-surface shadow-2xl sm:w-[min(520px,92vw)] xl:static xl:z-auto xl:w-auto xl:shadow-none">
+          <aside className="fixed inset-y-0 right-0 z-30 min-h-0 w-full max-md:bottom-[calc(54px+env(safe-area-inset-bottom))] border-l border-border bg-surface shadow-2xl sm:w-[min(520px,92vw)] xl:static xl:z-auto xl:w-auto xl:shadow-none">
+            <Boundary label="Le panneau de l'agent">
             <SidePanel
               agent={agent}
               onAgentChanged={refreshAgents}
-              tab={panel === "computer" && !canAdmin(agent) ? "details" : panel}
+              tab={(panel === "computer" ? canTalk(agent) : panel === "activity" || canAdmin(agent)) ? panel : "activity"}
               onTab={setPanel}
               onClose={() => setPanel(null)}
               onEditAgent={() => setAgentDialog({ open: true, agent })}
+              onGoals={() => setGoals(true)}
               refreshKey={refreshKey}
               threads={(conversations ?? []).filter((c) => !c.main)}
               main={main}
@@ -582,11 +656,21 @@ function Shell({ onLogout }: { onLogout: () => void }) {
               technical={details}
               onTechnical={setDetails}
             />
+            </Boundary>
           </aside>
           </Suspense>
         )}
 
         <Suspense fallback={null}>
+        {agent && (
+          <Dialog open={modelDialog} onOpenChange={setModelDialog}>
+            {modelDialog && (
+              <DialogContent title={`Modèle de ${agent.name}`} description={`Aujourd'hui : ${agent.mode ? MODE_NAMES[agent.mode as ModeId] ?? agent.mode : readableModel(agent.model) || "celui de tous tes agents"}. Le changement vaut pour cet agent seulement, tout de suite.`} className="max-w-xl">
+                <AgentBrain agentId={agent.id} own={agent.model} mode={agent.mode} reasoning={agent.raisonnement} onChanged={() => { refreshAgents(); setModelDialog(false); }} openKey={1} bare />
+              </DialogContent>
+            )}
+          </Dialog>
+        )}
         {agentDialog.open && <AgentDialog
           open={agentDialog.open}
           agent={agentDialog.agent}
@@ -602,6 +686,8 @@ function Shell({ onLogout }: { onLogout: () => void }) {
             refreshAgents();
           }}
         />}
+        <Inbox open={inbox} agents={agents} onOpenChange={setInbox} onOpenConversation={openFromInbox} />
+        {goals && <Goals open={goals} agents={agents} agentId={agentId} onOpenChange={setGoals} />}
         {settings && <SettingsDialog
           open={!!settings}
           tab={settings ?? "brain"}
@@ -633,6 +719,7 @@ type ChatProps = {
   onRunFinished: () => void;
   report: CallReport | null;
   onReportRead: () => void;
+  onStatus?: (status: string | null) => void;
 };
 
 function AgentChat(props: ChatProps) {
@@ -648,9 +735,10 @@ function AgentChat(props: ChatProps) {
     [],
   );
   useEffect(() => followConversation(props.conversationId), [followConversation, props.conversationId]);
-  const { runtime, whileBusy } = useAgentChat({
+  const { runtime, whileBusy, history, status } = useAgentChat({
     agentId: props.agent.id,
     ...props,
+    agentBusy: Boolean(props.agent.tasks.work || props.agent.tasks.approve), // « choice » attend la personne, sans travail en cours
     takeQuotes: useCallback(() => {
       clearShare(); // le partage part avec ce message
       return takeQuotes();
@@ -660,6 +748,9 @@ function AgentChat(props: ChatProps) {
       self.current.onConversationCreated();
     }, [followConversation]),
   });
+  useEffect(() => {
+    self.current.onStatus?.(status);
+  }, [status]);
   const say = useCallback(
     (text: string, clientId?: string) => runtime.thread.append({ role: "user", content: [{ type: "text", text }], metadata: { custom: { clientId } } }),
     [runtime],
@@ -695,6 +786,7 @@ function AgentChat(props: ChatProps) {
   const { readOnly } = props;
   const color = agentColor(props.agent);
   const { shape, detail } = props.agent;
+  const model = props.agent.mode ? MODE_NAMES[props.agent.mode as ModeId] ?? props.agent.mode : readableModel(props.agent.model);
   const context = useMemo(
     () => ({
       say,
@@ -703,22 +795,26 @@ function AgentChat(props: ChatProps) {
       agentColor: color,
       agentShape: shape ?? "",
       agentDetail: detail ?? "",
+      agentModel: model,
+      details: props.details,
       conversationId: props.conversationId,
       hint: role ? role.slice(0, 180) : "Pose une question, confie une tâche ou envoie un fichier.",
       readOnly,
       canWatch: canAdmin(props.agent),
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [say, id, name, color, shape, detail, role, readOnly, props.conversationId, canAdmin(props.agent)],
+    [say, id, name, color, shape, detail, model, props.details, role, readOnly, props.conversationId, canAdmin(props.agent)],
   );
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <WhileBusyContext.Provider value={whileBusy}>
+      <HistoryContext.Provider value={history}>
       <AgentContext.Provider value={context}>
         <QuoteContext.Provider value={quotes.value}>
           <Thread report={props.report} onReportRead={props.onReportRead} onCall={onCall} />
         </QuoteContext.Provider>
       </AgentContext.Provider>
+      </HistoryContext.Provider>
       </WhileBusyContext.Provider>
     </AssistantRuntimeProvider>
   );

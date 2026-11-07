@@ -7,6 +7,7 @@ const os = require("node:os");
 const path = require("node:path");
 const noah = require("./noah");
 const actions = require("./actions");
+const dossiers = require("./dossiers");
 
 let win = null;
 let tray = null;
@@ -490,11 +491,13 @@ function createWindow() {
     if (/^https?:/.test(url)) shell.openExternal(url);
     return { action: "deny" };
   });
-  win.webContents.on("will-navigate", (e, url) => {
+  const stayHome = (e, url) => {
     if (url.startsWith("data:") || url.startsWith("file:") || sameOrigin(url)) return;
     e.preventDefault();
     if (/^https?:/.test(url)) shell.openExternal(url);
-  });
+  };
+  win.webContents.on("will-navigate", stayHome);
+  win.webContents.on("will-redirect", stayHome); // une redirection du serveur ne passe pas par will-navigate
   // Page du serveur qui ne charge plus (serveur coupé, réseau perdu) : écran d'attente, puis reconnexion seule.
   win.webContents.on("did-fail-load", (_e, code, _desc, url, mainFrame) => {
     if (!mainFrame || code === -3 || readConfig().mode !== "remote" || !sameOrigin(url)) return; // -3 : navigation annulée
@@ -536,6 +539,45 @@ const quit = () => {
   app.quit();
 };
 
+// Dossiers de l'ordinateur confiés à un agent, gardés et appliqués ici (dossiers.js) : la page demande, l'application décide.
+let foldersStore = null;
+const folders = () => (foldersStore ??= dossiers.createStore(path.join(app.getPath("userData"), "dossiers.json")));
+let listening = null;
+
+async function askSystem(message, detail, yes) {
+  const r = await dialog.showMessageBox(win?.isVisible() ? win : undefined, { type: "warning", title: "Noah Agent", message, detail, buttons: [yes, "Annuler"], defaultId: 1, cancelId: 1, noLink: true });
+  return r.response === 0;
+}
+
+/** Ce que la page voit. Jamais un chemin : elle vient du serveur. Les noms de dossier des commandes permises remplacent leur identifiant. */
+function foldersState() {
+  const all = folders().all();
+  return {
+    dossiers: all.map(({ id, nom, ecriture }) => ({ id, nom, ecriture })),
+    coupe: folders().isCut(),
+    toujours: folders().always().map((t) => ({ commande: t.commande, dossier: t.dossier, nom: all.find((d) => d.id === t.dossier)?.nom ?? "" })),
+  };
+}
+
+/** Couper va tout de suite. Rouvrir passe par une fenêtre du système : une page ne rend pas l'accès toute seule. */
+async function setCut(cut) {
+  if (!cut && folders().isCut() && !(await askSystem("Rendre l'accès à l'agent ?", "Il pourra de nouveau lire et écrire dans les dossiers confiés, et demander à agir sur cet ordinateur.", "Rendre l'accès"))) {
+    createTrayMenuState();
+    return foldersState();
+  }
+  folders().setCut(cut);
+  createTrayMenuState();
+  listening?.beat();
+  return foldersState();
+}
+
+function createTrayMenuState() {
+  if (!tray) return;
+  tray.destroy();
+  tray = null;
+  createTray();
+}
+
 function createTray() {
   const icon = nativeImage.createFromPath(path.join(__dirname, "icon.png")).resize({ width: 16, height: 16 });
   tray = new Tray(icon);
@@ -544,6 +586,8 @@ function createTray() {
     Menu.buildFromTemplate([
       { label: "Ouvrir Noah Agent", click: show },
       { label: "Changer de serveur…", click: changeServer },
+      { type: "separator" },
+      { id: "couper", label: "Couper l'accès de l'agent", type: "checkbox", checked: folders().isCut(), click: (item) => setCut(item.checked) },
       { type: "separator" },
       { label: "Quitter", click: quit },
     ]),
@@ -627,32 +671,93 @@ ipcMain.handle("noah:forget-server", async (e) => {
   if (!origin || !sameOrigin(e.senderFrame.url)) return;
   await forgetServer(); // en mode local aussi : l'écran « Relier de nouveau » doit toujours mener quelque part
 });
+ipcMain.handle("noah:dossiers", (e) => (origin && sameOrigin(e.senderFrame.url) ? foldersState() : null));
+ipcMain.handle("noah:dossier-ajouter", async (e) => {
+  if (!origin || !sameOrigin(e.senderFrame.url)) return null;
+  const asked = folders().binding();
+  const r = await dialog.showOpenDialog(win, { title: "Dossier à confier à ton agent", properties: ["openDirectory"] });
+  if (r.canceled) return foldersState();
+  const chosen = r.filePaths[0];
+  if (dossiers.refusedRoot(chosen)) {
+    await dialog.showMessageBox(win, { type: "warning", title: "Noah Agent", message: "Ce dossier ne se confie pas.", detail: "Ni un disque entier, ni un dossier de clés. Choisis un dossier précis.", noLink: true });
+    return foldersState();
+  }
+  const ok = await askSystem(
+    `Confier « ${path.basename(chosen)} » à tes agents, en lecture seule ?`,
+    `${chosen}\n\n${chosen === os.homedir() ? "C'est tout ton dossier personnel : mieux vaut un dossier précis.\n\n" : ""}Tes agents pourront le lire quand l'application est ouverte. Ce qu'ils lisent passe par le modèle que tu as choisi. Les fichiers sensibles (.env, clés, mots de passe, profils de navigateur) restent refusés.`,
+    "Confier",
+  );
+  if (ok && folders().binding() === asked && origin && sameOrigin(e.senderFrame.url)) folders().add(chosen);
+  listening?.beat();
+  return foldersState();
+});
+ipcMain.handle("noah:dossier-retirer", (e, id) => {
+  if (!origin || !sameOrigin(e.senderFrame.url)) return null;
+  folders().remove(String(id));
+  listening?.beat();
+  return foldersState();
+});
+// Donner le droit d'écrire passe par une fenêtre du système ; le retirer est immédiat.
+ipcMain.handle("noah:dossier-droit", async (e, id, ecriture) => {
+  if (!origin || !sameOrigin(e.senderFrame.url)) return null;
+  const folder = folders().find(String(id));
+  if (!folder) return foldersState();
+  const asked = folders().binding();
+  if (ecriture && !(await askSystem(`Permettre à tes agents d'écrire dans « ${folder.nom} » ?`, `${folder.chemin}\n\nIls y créent des documents sans te demander. Ils ne remplacent jamais un fichier sans ton accord.`, "Permettre"))) return foldersState();
+  if (folders().binding() !== asked) return foldersState();
+  folders().setWrite(folder.id, Boolean(ecriture));
+  listening?.beat();
+  return foldersState();
+});
+ipcMain.handle("noah:couper", (e, cut) => (origin && sameOrigin(e.senderFrame.url) ? setCut(Boolean(cut)) : null));
+ipcMain.handle("noah:dossier-ouvrir", async (e, id) => {
+  if (!origin || !sameOrigin(e.senderFrame.url)) return;
+  const folder = folders().find(String(id));
+  if (folder && fs.existsSync(folder.chemin) && fs.statSync(folder.chemin).isDirectory()) await shell.openPath(folder.chemin);
+});
+ipcMain.handle("noah:commande-oublier", (e, commande, dossier) => {
+  if (!origin || !sameOrigin(e.senderFrame.url)) return null;
+  folders().forgetAlways(String(commande), String(dossier));
+  return foldersState();
+});
 ipcMain.handle("noah:open-path", async (e, p) => {
   if (!origin || !sameOrigin(e.senderFrame.url)) return;
-  // Dossiers seulement : ouvrir un fichier pourrait lancer un programme.
+  // Dossiers seulement : ouvrir un fichier pourrait lancer un programme. Pas de chemin réseau : il contacte l'hôte dès qu'on le touche.
+  if (/^[\\/]{2}/.test(String(p))) return;
   if (fs.existsSync(p) && fs.statSync(p).isDirectory()) await shell.openPath(p);
 });
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on("second-instance", show);
+  app.on("second-instance", show); // aussi au retour d'une connexion : noah://connexion, proposé par le navigateur
+  app.setAsDefaultProtocolClient("noah");
+  app.on("open-url", (e) => { // macOS : le retour d'une connexion arrive ainsi
+    e.preventDefault();
+    show();
+  });
   // Sous Windows, le nom sur les notifications et le groupe dans la barre des tâches (sinon « electron.app.Noah Agent »).
   app.setAppUserModelId("agent.noah.desktop");
   app.whenReady().then(() => {
     createMenu();
-    // Micro (dictée, mode vocal) : accordé à l'interface de Noah, refusé à toute autre page.
-    session.defaultSession.setPermissionRequestHandler((wc, permission, done) => {
-      done(permission === "media" && !!origin && sameOrigin(wc.getURL()));
+    // Micro (dictée, mode vocal) : accordé à l'interface de Noah, refusé à toute autre page. Écrire une image dans le presse-papiers
+    // aussi : la page qui le demande doit être Noah, pas le lecteur d'une vidéo. Le plein écran sert au lecteur, dans la fenêtre de Noah.
+    const allowed = (wc, permission, asking) => {
+      if (!origin || !wc || !sameOrigin(wc.getURL())) return false;
+      if (permission === "clipboard-sanitized-write") return !!asking && sameOrigin(asking);
+      return permission === "media" || permission === "fullscreen";
+    };
+    session.defaultSession.setPermissionRequestHandler((wc, permission, done, details) => {
+      done(allowed(wc, permission, details?.requestingUrl));
     });
-    session.defaultSession.setPermissionCheckHandler((wc, permission) => permission === "media" && !!origin && !!wc && sameOrigin(wc.getURL()));
+    session.defaultSession.setPermissionCheckHandler((wc, permission, asking) => allowed(wc, permission, asking));
     createTray();
     // Sessions oubliées hors ligne : révoquées dès que le serveur répond (l'app peut rester des jours ouverte).
     flushRevocations().catch(() => {});
     setInterval(() => flushRevocations().catch(() => {}), 10 * 60 * 1000);
     createWindow();
-    // Demandes de l'agent (ouvrir, notifier, lancer, commande), confirmées par l'utilisateur.
-    actions.listen(() => origin);
+    // Demandes de l'agent (ouvrir, notifier, lancer, commande, fichiers des dossiers confiés).
+    listening = actions.listen(() => origin, folders());
   });
   app.on("before-quit", (e) => {
     quitting = true;

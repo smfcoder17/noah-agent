@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Une faille de sécurité
+    url: https://github.com/smfcoder17/noah-agent/blob/main/SECURITY.md
+    about: Ne la décris pas dans un ticket public. Lis d'abord cette page.
+  - name: Le guide d'installation
+    url: https://github.com/smfcoder17/noah-agent/blob/main/docs/installation.md
+    about: Toutes les voies d'installation et la section « En cas de souci ».

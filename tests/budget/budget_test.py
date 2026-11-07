@@ -75,6 +75,21 @@ u = web.get("/api/usage").json()
 assert u["daily"] == 0.10 and u["today"]["a1"]["plafond"] == 0.10 and u["today"]["a1"]["depense"] >= 0.10, u
 assert web.post("/api/budget", json={"monthly": 50}).status_code == 200
 assert web.get("/api/usage").json()["daily"] == 0.10, "réglage du budget mensuel qui efface le plafond quotidien"
+with db.connect() as c:
+    already = c.execute("SELECT COUNT(*) AS n FROM usage WHERE cost = 0 AND prompt_tokens > 0").fetchone()["n"]
+    c.execute("INSERT INTO usage (agent_id, model, prompt_tokens, completion_tokens, cost, cached_tokens, owner_id) VALUES ('a1', 'gratuit:free', 10, 10, 0, 0, NULL)")
+assert web.get("/api/usage").json()["non_suivi"] == bool(already), "un modèle gratuit n'est pas une dépense sans prix"
+with db.connect() as c:
+    c.execute("INSERT INTO usage (agent_id, model, prompt_tokens, completion_tokens, cost, cached_tokens, owner_id) VALUES ('a1', 'sans-prix', 10, 10, 0, 0, NULL)")
+assert web.get("/api/usage").json()["non_suivi"] is True, "des jetons sans coût : l'écran doit le dire"
+with db.connect() as c:
+    c.execute("DELETE FROM usage WHERE model IN ('gratuit:free', 'sans-prix')")
+somebody = auth.create_user("autre-compte-budget", "motdepasse-autre")
+with db.connect() as c:
+    c.execute("INSERT INTO usage (agent_id, model, prompt_tokens, completion_tokens, cost, cached_tokens, owner_id) VALUES ('a1', 'sans-prix', 10, 10, 0, 0, ?)", (somebody,))
+assert web.get("/api/usage").json()["non_suivi"] is True, "le budget du propriétaire couvre tout le serveur"
+with db.connect() as c:
+    c.execute("DELETE FROM usage WHERE model = 'sans-prix'")
 print("4. dépense du jour et plafond visibles par agent ; régler le mensuel garde le quotidien")
 # 5. G8.2 : chaque appel compte pour la tâche (conversation) dont le run est en cours ; plusieurs runs à la fois ou
 # aucun = travail de fond. Vu par jour et par tâche dans /api/usage.

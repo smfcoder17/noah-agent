@@ -3,6 +3,9 @@ import { type Agent, del, send } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { NOAH_COLORS, NoahTile, agentColor } from "./Noah";
 import { Button, Dialog, DialogContent, ErrorText, Input, Label, Textarea } from "./ui";
+import { DictateButton, NO_AGENT, useCanDictate, useFieldDictation } from "./Voice";
+
+const ROLE_MAX = 4000;
 
 export function AgentDialog({
   open,
@@ -38,6 +41,9 @@ function AgentForm({ agent, onSaved, onDeleted, onCancel }: { agent: Agent | nul
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(false);
+  const canDictate = useCanDictate();
+  // Un agent pas encore créé n'a pas d'identifiant : la dictée est celle du compte qui parle.
+  const dictation = useFieldDictation(agent?.id ?? NO_AGENT, (text) => setRole((cur) => (cur.trim() ? `${cur.trimEnd()} ${text}` : text).slice(0, ROLE_MAX)));
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -84,23 +90,31 @@ function AgentForm({ agent, onSaved, onDeleted, onCancel }: { agent: Agent | nul
               />
             ))}
           </div>
-          <span className="text-xs text-muted-foreground">Forme du visage et détails : dans Détails, section Apparence.</span>
+          <span className="text-xs text-muted-foreground">Forme du visage et détails : dans le panneau de l'agent, section Apparence.</span>
         </fieldset>
       </div>
       <Label>
         Nom
-        <Input required maxLength={40} placeholder="Ex. Noah, Dots, Grok Bot" value={name} onChange={(e) => setName(e.target.value)} />
+        <Input required maxLength={40} placeholder="Ex. Léa, Assistant courriels, Veille" value={name} onChange={(e) => setName(e.target.value)} />
       </Label>
-      <Label>
-        Rôle et consignes
-        <Textarea
-          rows={5}
-          maxLength={4000}
-          placeholder="Ex. Tu tries mes courriels chaque matin et tu me signales seulement ce qui demande une réponse."
-          value={role}
-          onChange={(e) => setRole(e.target.value)}
-        />
-      </Label>
+      <div className="relative">
+        <Label>
+          Rôle et consignes
+          <Textarea
+            rows={5}
+            maxLength={ROLE_MAX}
+            placeholder={dictation.state === "idle" ? "Ex. Tu tries mes courriels chaque matin et tu me signales seulement ce qui demande une réponse." : "Parle, le texte arrive ici…"}
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+            className={canDictate ? "pr-12" : undefined}
+          />
+        </Label>
+        {canDictate && (
+          <span className="absolute right-1 bottom-1">
+            <DictateButton dictation={dictation} what="le rôle" field />
+          </span>
+        )}
+      </div>
       <ErrorText>{error}</ErrorText>
       <div className="flex flex-wrap justify-end gap-2">
         {agent?.droit === "proprietaire" && (
@@ -109,7 +123,8 @@ function AgentForm({ agent, onSaved, onDeleted, onCancel }: { agent: Agent | nul
           </Button>
         )}
         <Button type="button" variant="outline" onClick={onCancel}>Annuler</Button>
-        <Button type="submit" disabled={busy}>{agent ? "Enregistrer" : "Créer l'agent"}</Button>
+        {/* Une dictée en cours écrit encore dans le rôle : l'enregistrer maintenant en perdrait la fin. */}
+        <Button type="submit" disabled={busy || dictation.state !== "idle"}>{agent ? "Enregistrer" : "Créer l'agent"}</Button>
       </div>
     </form>
   );

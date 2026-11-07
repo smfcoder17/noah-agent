@@ -21,7 +21,8 @@ LEVELS = {"lecture": 1, "usage": 2, "admin": 3, "proprietaire": 4}
 # Noah (agent_plugin) et les profils d'Hermes font la séparation. « admin » : le choix explicite de tout mettre en commun.
 SHARE_WARNING = ("avec le droit « usage », cette personne a sa mémoire et son navigateur à elle, sans tes comptes connectés "
                  "ni terminal, et le dossier de travail reste commun. Avec le droit « admin », c'est ton choix : elle partage "
-                 "ta mémoire, ton navigateur, tes comptes connectés et tes dossiers. Toi, tu restes maître de la machine.")
+                 "ta mémoire, ton navigateur, tes comptes connectés et tes dossiers. Ce que tu as mis pour tous tes agents n'y reste que si tu le "
+                 "coches pour cet agent. Toi, tu restes maître de la machine.")
 
 
 def role(user: int) -> str:
@@ -32,6 +33,12 @@ def role(user: int) -> str:
 
 def is_owner(user: int) -> bool:
     return role(user) == "owner"
+
+
+def owner_app(token: str | None) -> bool:
+    """Ce jeton vit encore et c'est celui du propriétaire : seul son fuseau compte pour l'heure de ses agents et ses mises à jour."""
+    user = auth.owner_of(token)
+    return user is not None and is_owner(user)
 
 
 def owner_only(user: int = Depends(auth.current_user)) -> int:
@@ -140,6 +147,14 @@ def callers(agent_id: str) -> set:
     """Pour qui un appel de cet agent peut venir : les profils des tâches en cours, sinon son propriétaire. Son jeton ne dit
     pas lequel : c'est le même pour tous ses profils Hermes."""
     return _active_users(agent_id) or {owner_of(agent_id)}
+
+
+def shared_admin(agent_id: str) -> bool:
+    """Un autre profil a le droit admin sur cet agent. Partager mémoire, routines et terminal fait de lui un second maître de l'agent."""
+    owner = owner_of(agent_id)
+    with db.connect() as c:
+        rows = c.execute("SELECT user_id FROM agent_shares WHERE agent_id = ? AND droit = 'admin'", (agent_id,)).fetchall()
+    return any(r["user_id"] != owner for r in rows)
 
 
 def guest_task(agent_id: str) -> bool:

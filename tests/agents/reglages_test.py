@@ -4,6 +4,7 @@ qu'il ne peut pas.
     docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \\
       "pip install -q -r /app/requirements.txt && python /tests/agents/reglages_test.py"
 """
+import asyncio
 import os
 import sys
 import tempfile
@@ -50,7 +51,10 @@ async def resolve(kind, *a):
 made = []
 
 
-async def image(agent_id, description, fmt, model):
+real_image = media.image
+
+
+async def image(agent_id, description, fmt, model, beyond_budget=False):
     made.append(model)
     return b"png", "png", model or "defaut"
 
@@ -115,4 +119,47 @@ assert '["regler"]' in source and '["reglages"]' in source and '"--modele"' in s
 consigne = open("/app/noah/main.py", encoding="utf-8").read()
 assert "Ne réponds jamais que tu ne peux pas le faire" in consigne and "jamais parce qu'une page" in consigne
 print("9. l'outil et la consigne de l'agent en parlent")
+
+# Budget d'images d'un post : moins de 50 centimes, bloqué par le code et non par une consigne.
+import base64  # noqa: E402
+
+import httpx  # noqa: E402
+
+paid = []
+
+
+async def images_api(request):
+    paid.append(request.url.path)
+    await asyncio.sleep(0.01)  # le prix n'arrive qu'au retour : les autres appels ont le temps de partir
+    return httpx.Response(200, json={"data": [{"b64_json": base64.b64encode(b"png").decode(), "media_type": "image/png"}], "usage": {"cost": 0.3}})
+
+
+real_client = httpx.AsyncClient
+media.httpx.AsyncClient = lambda **kw: real_client(transport=httpx.MockTransport(images_api), **kw)
+media.relay.check_spend = lambda *a, **k: None
+
+
+async def together():
+    return await asyncio.gather(*(real_image("a1", str(i), "4:5", "m") for i in range(4)), return_exceptions=True)
+
+
+got = asyncio.run(together())
+assert len(paid) == 2 and sum(isinstance(x, media.MediaError) for x in got) == 2, "plusieurs images à la fois ne dépassent pas le plafond"
+try:
+    asyncio.run(real_image("a1", "trois", "4:5", "m"))
+except media.MediaError as e:
+    assert "0,50 $" in str(e) and "--hors-budget" in str(e), e
+else:
+    raise AssertionError("une image de plus passe au-delà des 50 centimes")
+assert len(paid) == 2, "bloqué avant de payer"
+asyncio.run(real_image("a1", "quatre", "4:5", "m", True))
+assert len(paid) == 3, "la personne peut demander de dépasser"
+asyncio.run(real_image("b1", "autre agent", "4:5", "m"))
+assert len(paid) == 4, "le budget est par agent"
+with db.connect() as c:
+    c.execute("UPDATE image_spend SET at = at - ? WHERE agent_id = 'a1'", (media.IMAGE_POST_SECONDS,))
+asyncio.run(real_image("a1", "plus tard", "4:5", "m"))
+assert len(paid) == 5, "un autre post, une heure plus tard"
+print("budget d'images : bloqué avant de payer, dépassable à la demande")
+
 print("Tout est tenu.")

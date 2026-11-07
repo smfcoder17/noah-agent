@@ -540,3 +540,102 @@ Audit indépendant sur `f59e736..8de90fc`, sans mes conclusions. 11 défauts ann
 | Deux appels entrants : boutons échangés | Chaque bouton a son identité | Lecture du code |
 
 « Lecture du code » veut dire qu'aucun test n'a provoqué ce cas.
+
+### Joindre un fichier à une page (démo Instagram)
+
+- **Hypothèse :** la démo « publie les posts prévus dans mon Notion » échoue avant même Instagram : aucun outil n'envoie de fichier, et l'agent et son navigateur n'ont pas de dossier commun.
+- **Fait :** `noah.py navigateur envoyer`, deux routes dans l'extension du navigateur (`/noah/fichier`, `/noah/joindre`), protégées par la clé de l'agent. La route de Camofox prend le premier champ de la page, qui peut être la photo de profil : la nôtre prend celui de la fenêtre ouverte, le seul de la page, ou celui que l'agent désigne, et refuse sinon.
+- **Preuve :** niveau 2. `tests/navigateur/envoi_reel.mjs` : conteneur créé par le vrai lanceur, vrai Firefox, vrai `noah.py` depuis une autre machine, réseau sans sortie ; la page calcule l'empreinte de ce qu'elle reçoit (photo, carrousel, vidéo de 60 Mo, bouton, panneau, référence). 13 sabotages tous vus.
+- **Consignes :** publier seulement ce qui est prévu, marquer pour ne pas publier deux fois, session expirée en routine : prévenir sans réessayer.
+- **Droits :** `confirmer` laisse passer une lecture déclarée, sans quoi une routine ne pouvait même pas lire Notion. La déclaration vient du serveur de l'outil, comme pour le droit `lire`.
+- **Pas prouvé :** Instagram lui-même, sa réaction à l'adresse du VPS, le fichier d'une vraie page Notion, une routine sans personne devant.
+- **Revue Codex, deux tours, FAIL puis corrigé :** adresse de téléchargement interprétée par le shell (nouvelle commande `navigateur telecharger`, https seulement, sans passer par le terminal) ; fichiers du `/tmp` commun et identité d'un invité (envoi et téléchargement fermés aux profils invités) ; bouton sans effet qui remplissait un champ déjà là ; fenêtre ou cadre cachés ; republication après une panne du marquage (journal `/opt/data/publications.txt`, écrit avant le clic) ; plafond non réservé entre deux envois ; script téléchargé lancé sans lecture ; téléchargement coupé déclaré réussi.
+- **Limite assumée :** une remise déjà engagée au moment où la personne prend la main ne s'annule pas ; l'agent le sait et attend. Un invité ne peut pas encore joindre de fichier.
+
+### Démo jouée sur le VPS (6 novembre, v0.1.2)
+
+Premiers essais réels sur `noah.smfapps.cloud`, sans publier, avec le compte et la clé de la personne conservés par la mise à jour.
+
+| Essai | Résultat | Suite |
+|---|---|---|
+| « Ouvre-moi Instagram » | Page ouverte, mais premier outil bloqué et 71 s de réponse : le crochet qui réveille le navigateur peut attendre 15 min, Hermes le coupe à 30 s et bloque l'outil | `plugins.hook_callback_timeout` à 600 s, réveil arrêté avant, prouvé sur le vrai Hermes |
+| « Quels posts aujourd'hui dans Notion ? » | Bonne base, bonne réponse (vérifiée dans Notion), mais un accord par lecture : `notion_search` (nom réécrit) n'était pas comparé à `notion-search` (vrai nom) | Le nom réécrit retrouve le vrai ; deux vrais noms pour un seul : les deux doivent être en lecture |
+| « Dans 5 minutes, écris-moi… » | Reçu à 6 min 12 dans la conversation | Prouvé niveau 3 |
+| Accord dans une conversation reprise (retour de la personne, capture) | Invisible sans rafraîchir, puis du JSON brut | L'écran suit aussi un travail lancé sans lui ; une phrase claire et ce qui serait envoyé, le brut seulement dans les détails techniques |
+| Heure annoncée | « Heure de Paris » pour une personne à Toronto : l'agent suivait l'adresse du serveur | Fuseau vu par les apps, celui du serveur tant qu'aucune app n'a parlé ; pris à chaque reconfiguration, pas à chaud |
+| « Crée une routine chaque jour à 9 h » | Créée et vérifiée en 2 min, mais une apostrophe a coupé la consigne ; l'agent l'a vu et refaite | Consigne lue sur l'entrée standard (`-`) |
+| « Refuse les cookies optionnels » | Fait, routine supprimée, bandeau « L'agent a besoin de toi » pour la connexion Instagram | Rien à corriger |
+
+**Revue Codex, deux tours, FAIL puis corrigé :** un invité pouvait imposer son fuseau : seule l'app du propriétaire compte. La consigne de routine en `<<'FIN'` faussait la garde, et l'exception ajoutée pour l'éviter masquait de vraies commandes (guillemet non fermé, ligne en commentaire) : retirée, la consigne passe par un fichier écrit avec `write_file`. Sur la carte d'accord : plus de « consulter » (ce qui arrive sur une carte n'est pas déclaré en lecture), jamais la description d'Hermes, destinataires d'une liste visibles, « Voir les détails » toujours là pour décider en connaissance de cause ; consigne limitée au dossier de travail ; plus de sondage pour un choix en attente ; pas de seconde carte pour le même accord. Laissé : les 600 s valent pour toute la garde, une autre branche figée ferait attendre 10 min, mais hors réveil tout y est borné à quelques secondes.
+
+**Pas prouvé :** la connexion à Instagram depuis l'adresse du VPS, une vraie publication, une routine qui publie sans personne, la voix sur cette démo.
+
+### Longue conversation et fichiers (6 novembre)
+
+- **Demande :** se repérer et remonter dans une conversation unique qui ne finit jamais, sans que tout reste chargé ; des fichiers qu'on navigue, qu'on donne au chat et qu'on supprime.
+- **Fait :** date sur chaque message ; repères de demandes au survol ; 60 messages à l'ouverture, le reste sur demande ; pages, PDF et vidéos à plus de 6 messages du bas ou de plus de 30 min en veille, sans iframe ni lien renouvelé ; panneau en vrais dossiers (tri, recherche, sélection, don au chat par chemin, suppression). Les rubriques étaient fixes dans le code, pas décidées par l'IA.
+- **Contexte de l'agent :** Noah n'envoie que le nouveau message et la session ; Hermes résume au-delà de 64 000 jetons. Borné mais lourd : à abaisser et à mesurer, pas changé ici.
+- **Droits :** supprimer demande le droit admin ; le lanceur ouvre chaque dossier sans suivre de lien, refuse tout chemin avec détour, et garde les dossiers de premier niveau.
+- **Preuve :** niveau 2. `tests/agents/fil_fichiers_test.py` (droits, vrai script sur un vrai dossier avec liens) ; `tests/real/fil_long.mjs` (vrai Chrome, 150 messages sur plusieurs jours) ; contre-épreuve : veille coupée, le banc échoue ; 9 sabotages vus.
+- **Démo Instagram, relue dans le journal de l'agent :** post en ligne sur le compte, image comprise, mais légende absente, Notion et registre pas à jour. La routine (15 min après une demande « dans 5 minutes ») a échoué sur « Media type invalid » sans réessayer. L'explication de l'agent, un JPEG non standard, ne tient pas : les fichiers refusés sont des JPEG de base, 4:2:0, avec des tables classiques. Sur 5 fichiers, les 4 refusés ont la structure de Pillow et le seul accepté est le seul réencodé par ffmpeg ; l'envoi réussi utilisait aussi un autre sélecteur, donc le lien reste à prouver. En local, la page lit bien `image/jpeg` : un type de fichier vide est écarté. Le post a ensuite été supprimé à la demande de la personne, et le carrousel suivant refusé deux fois : rien en ligne après 48 minutes. Le même matin, Muse a publié un carrousel complet 12 à 21 minutes après la première heure lisible : plan et comparaison dans l'artefact « Plan Noah face à Muse ».
+- **Pas prouvé :** tout cela sur le VPS, une conversation réelle de plusieurs milliers de messages, le téléphone réel.
+
+### Instagram : le vrai motif du refus, et le chat vivant (6 novembre)
+
+- **Essai sur le compte de la personne, avec son accord, sans rien publier :** 4 envois d'un seul fichier acceptés (tel quel, autre nom, ffmpeg, Pillow) ; plusieurs fichiers d'un coup refusés, avec une erreur générale de Noah. **L'hypothèse du JPEG est réfutée.** Le champ d'Instagram n'a pas `multiple`.
+- **Second essai, même règle :** fichier par fichier, avec « Ouvrir la galerie média », 3 images jusqu'à l'écran Légende, puis « Abandonner ». Rien publié, 166 posts avant et après.
+- **Fait :** l'envoi dit qu'un champ ne prend qu'un fichier à la fois (vrai Firefox), et les consignes le disent aussi.
+- **Toujours sans cause :** le « Media type invalid » de 10 h 07 sur un seul fichier de 1920×1080. Non reproduit.
+- **Chat vivant :** ce qui est écrit avant un outil quitte la réponse pour un volet « N étapes » ; statut près du nom ; réactions emoji des deux côtés ; un toucher répond à un choix ; une question reçoit des réponses à toucher par le petit modèle. Preuve : `tests/agents/chat_vivant_test.py`, `tests/real/fil_long.mjs`, 9 sabotages vus.
+- **Mammouth :** fournisseur par clé, liste et prix publics. Preuve : `tests/providers/provider_test.py`, liste réelle lue une fois. Pas essayé avec une vraie clé : elle appartient à la personne. Images par Mammouth : pas fait.
+- **Revue Codex :** deux tours FAIL, 8 défauts corrigés (dont une suppression dans le mauvais agent, une tranche effacée par une lecture tardive).
+- **Pas prouvé :** ces consignes sur un vrai modèle (l'agent raconte-t-il moins ?), tout cela sur le VPS, une vraie publication de carrousel complète.
+
+### Publier par l'API, interface repensée (6 novembre)
+
+- **Publication :** Instagram et X se branchent comme un outil : même droit, même carte d'accord, jeton gardé sur le serveur. L'empreinte du post est notée avant l'appel : le même post est refusé pendant 24 h, et un envoi resté incertain ne repart que sur demande, donc avec un nouvel accord. L'image part d'une adresse tirée au hasard, de 10 minutes au plus, retirée après la publication. X passe par OAuth 2.0 PKCE à travers le retour commun de Noah.
+- **Défaut trouvé par le test :** httpx écrivait dans le journal l'adresse de renouvellement d'Instagram, jeton compris. Corrigé pour tout le serveur.
+- **Interface :** Réglages en 6 rubriques, panneau de l'agent en 5 onglets, « À toi » pour tout ce qui attend, barre du bas sur téléphone, actions visibles au toucher, plafond qui dit quand des appels n'ont pas de prix connu, dépense retirée de la barre latérale tant qu'elle ne demande pas un regard.
+- **Défauts trouvés en vrai navigateur :** une panne dans un écran blanchissait toute l'application (garde-fou par écran) ; deux clés React identiques doublaient la ligne Cerveau ; un fournisseur sans modèle faisait planter Cerveau.
+- **Revue Codex du chat vivant :** 7 défauts, tous corrigés ; l'écran finit maintenant sur le texte que la conversation garde.
+- **Preuve :** niveau 2. `tests/tools/publication_test.py` (plateformes simulées d'après leur documentation), `tests/agents/chat_vivant_test.py`, `tests/real/portes.mjs`, `tests/real/accord_visible.mjs`, `tests/real/fil_long.mjs` (vrai Chrome, ordinateur et téléphone simulé).
+- **Critique visuelle indépendante, notes de 4,5 à 6 sur 10 :** pas de trace après un accord, onglet Activité sans activité, barre du bas sans repère, Réglages qui ouvrent sur un formulaire, carte floue. Corrigé : décision lisible et badge qui tombe, journal des tâches et des accords, repère actif, sommaire sur téléphone, courriel rangé au serveur, phrase qui dit quoi, accord donné depuis À toi. Reste : vrais écrans pleins sur téléphone, carte de résultat, statut sous le visage.
+- **Codex, trois tours sur ce lot :** 6 puis 8 défauts retenus, tous corrigés (droit retiré pendant l'accord chez X, compte remplacé, panne à la publication traitée comme incertaine, plafond d'images tenu à plusieurs et après un redémarrage). Écarté : sa limite de 10 images par carrousel, tirée d'un ancien exemple, contre 20 dans la documentation actuelle de Meta. À trancher au premier vrai essai.
+- **Codex, deux tours de plus :** 4 puis 5 défauts corrigés (second accord arrivé pendant la réponse au premier, carte du fil après une réponse donnée dans « À toi », journal d'un autre agent après un changement rapide, titre annoncé d'après l'ordre des champs, droit retiré pendant la vérification du jeton Instagram, même post republié par un autre agent sur le même compte, renouvellement simultané du jeton refusé). Tour 5 : les cinq corrections tiennent, 3 nouveaux défauts corrigés (registre effacé avec l'agent, second accord absent d'« À toi », cartes de publication absentes sur un agent partagé). Ces 3 dernières n'ont pas été revues par Codex.
+- **Vérification complète :** 53 étapes vertes sur 54, puis 154 défauts provoqués vus sur 159. Trois cibles de sabotage étaient périmées, un test tombait sur une autre exception qu'une assertion, et surtout le plafond d'images à plusieurs n'était pas vraiment testé : la fausse API répondait sans laisser les autres appels partir. Corrigé et rejoué un par un, avec un sabotage de plus sur la connexion X. La suite entière n'a pas été rejouée après ces retouches de tests.
+- **Pas prouvé :** une vraie publication par l'API sur un vrai compte (l'envoi d'image à X n'est documenté que pour la vidéo ; `Disallow: /` de robots.txt pourrait gêner Instagram), un vrai téléphone, tout cela sur le VPS.
+
+### Modes, juge, reçu, apprentissage, carte de connexion (7 novembre)
+
+- **Livré :** modes de modèles à trois niveaux, Gratuit et Custom en chaîne ; objectifs et tour proactif ; juge d'actions et tri isolé ; reçu ; apprentissage par corrections et réactions ; carte de connexion dont le mot de passe reste sur le serveur ; connecteurs pour tous les agents, résumé de l'agent, compétences ; vidéos dans le fil ; activité par périodes.
+- **Essai dans Chrome, vrai modèle :** réponse, reçu « 1 vérifié », carte de connexion sur instagram.com sans rien saisir, modèle de décision réel (Clef Flash, 0,038 $/M, 324 ms). Trouvé : le juge demandait un accord pour un outil d'accès aux outils et bloquait les compétences de la relecture automatique. Corrigé.
+- **Audit Codex gpt-6.1-sol en xhigh :** 7 défauts, tous corrigés (mot de passe en GET sur un formulaire sans méthode, relectures hors refus nets, fil enfant qui contournait « Me signaler », nouveautés perdues au-delà de 30, mode d'un autre fournisseur ignoré, ancienne action prise pour une preuve, erreur de flux en deux morceaux).
+- **Flotte :** 7 rôles FAIL au premier tour, sur 5 modèles Ollama et Haiku. Corrections dans le commit 8bd9eea, restes en tickets.
+- **Preuve :** niveau 2. Hermes réel avec un faux modèle pour la connexion et l'apprentissage (`tests/real/connexion_vraie.sh` vert, `tests/agents/apprendre_test.py`), Hermes simulé pour le reçu.
+- **Pas prouvé :** vraie publication, vrais identifiants, vrai gestionnaire de mots de passe, nombre de cartes du juge sur la durée, taux de fausses alertes du reçu, Android, bureau, voix, VPS neuf.
+
+## 2026-11-07, facilité des actions courantes (objectif 18/20)
+
+Cadre : [facilite.md](facilite.md). Objectif donné par la personne : 18/20 sur les actions les plus courantes, références Grok Bot et Muse. Gain minimal : 1 point par appareil, borne basse au-dessus de zéro. Budget : pas de plafond écrit ; environ 0,9 M de jetons de juges par tour (trois juges, deux lots). Lot réservé : pas encore construit (trou, voir plus bas).
+
+**Verdicts de la personne, arrivés en cours de route, passés en tête :**
+
+1. Le juge demandait son accord pour lancer `python3 -c …` d'une compétence, avec « Ton juge demande ton accord » et la commande brute. Attendu : l'agent et le juge règlent seuls ce qui sert la tâche ; la personne n'est dérangée que pour ce qui est nouveau ou sensible, avec une question claire.
+2. Sur téléphone, les réglages en fenêtre laissaient « Enregistrer » sous les boutons d'Android ; « À toi » occupait une place de la barre du bas pour ouvrir une petite fenêtre. Attendu : écrans entiers, et « À toi » en vraie page, comme Muse.
+
+| Tour | Hypothèse | Changement | Mesure | Décision |
+|---|---|---|---|---|
+| 1 | Les cartes du juge viennent d'actions locales qu'il ne relie pas à la demande | Le juge demande pourquoi à l'agent (« # pourquoi : »), retient un accord déjà donné pour la même sorte d'action ; carte « Autoriser ton agent à … ? » sans le mot juge (`96359e7`) | `juge_test.py` vert (section 11 bis), carte vue sur le banc réel | GARDÉ (verdict de la personne) |
+| 2 | Les fenêtres sont trop petites sur téléphone | Toute fenêtre devient un écran entier sur téléphone, retour en haut, marge pour les boutons du système (`68101cc`) | captures téléphone | GARDÉ (verdict de la personne) |
+| 3 | Les fichiers sont cachés sous Ordinateur, le modèle illisible, les onglets coupés | Onglet Fichiers, onglets à icônes, nom de modèle lisible (`24d1464`) | banc v2 : +0,5 sur les deux appareils, intervalle à cheval sur zéro ; fichiers +4,5, journal −2,5 (sous le pli) | AMBIGU : gardé avec le tour 4, qui corrige le recul |
+| 4 | Les portes de tous les jours ne se voient pas de l'accueil | Fichiers, Tâches, Connexions dans la barre latérale ; barre du bas du téléphone refaite ; modèle choisi sous la saisie ; journal en tête de l'Activité (`4648f25`) | banc v3 : ordinateur 12,9 → **15,9** (+3,0, 90 % : 1,5 à 4,8), téléphone 12,0 → **14,3** (+2,4, 0,9 à 4,0) ; tient sans chacun des trois juges | GARDÉ |
+| 5 | Restent du jargon, des noms bruts et un geste de trop pour relier | Mots simples, noms de fichiers lisibles, « Relier un téléphone » en tête des réglages (`d7ab8f4`) | banc v4 face à la même base : ordinateur **16,7** (90 % : 14,9 à 17,8), téléphone **15,5** (14,2 à 16,8) ; sans chacun des juges : 16,4 à 17,1 et 15,3 à 15,9. Gain sur le tour 4 lu entre deux passages de juges, donc non apparié : environ +0,8 et +1,2 | GARDÉ |
+| 6 | Le choix du modèle est coupé sur téléphone, l'en-tête a des icônes sans mot | Réflexion avant la liste, liste à la hauteur de l'écran, bouton panneau retiré du téléphone (le nom l'ouvre), « Surveiller un changement » | noté avec le tour 7 | GARDÉ |
+| 7 | Relier un appareil demande encore trois gestes sur ordinateur | Bouton « Relier un appareil » au-dessus des rubriques des Réglages ; lot réservé R1 à R4 ajouté au banc (`504f19e`) | banc v5, juges v5, base de départ face à l'état du tour 7 : ordinateur 13,1 → **15,8** (−2,8 écart, 90 % : 1,3 à 4,3), téléphone 12,5 → **15,1** (1,3 à 4,1). Actions travaillées seules : 16,6 et 15,6. **Lot réservé** (première consultation) : 13,3 → 14,4 sur ordinateur, 13,1 → 14,2 sur téléphone, aucun geste réservé en recul de plus de 0,3 | GARDÉ |
+| 8 | Sur téléphone, créer un agent et connecter un outil demandent un geste de plus que Grok Bot | « + » Créer un agent dans l'en-tête du téléphone ; puce « Outils » sous la saisie, à côté du modèle, qui ouvre les connexions ; la saisie passe au-dessus des boutons sur tous les écrans (les puces l'écrasaient quand le panneau était ouvert) | banc v3, juges v6, ordre inversé, face au tour 7 : téléphone A3 12,3 → **16,7**, A4 12,0 → **16,3**, gestes à la référence ; moyenne des actions travaillées +1,1 (90 % : 0,0 à 2,2), +0,7 sur les 12 actions, même écart sans chacun des juges ; lot réservé inchangé. Ordinateur −0,3 : recul d'A4 dû au banc (capture prise avant le chargement de la liste des outils, corrigé et vérifié en image), le reste identique | GARDÉ : les deux actions visées montent de 4 points chez chaque juge et atteignent la référence ; borne basse de la moyenne à zéro, écrite comme telle |
+
+**Évaluation corrigée deux fois** (versions dans [facilite.md](facilite.md)) : la v1 mesurait l'état modifié sur le serveur de dev, qui se faisait refuser les écritures ; la v2 ne voyait pas les chargements à icône ; le banc choisissait parfois un bouton hors de l'écran. Chaque correction a été rejouée sur la base.
+
+**Lot réservé :** quatre gestes jamais travaillés (voir la dépense du mois, changer la couleur, déconnecter un appareil, mettre en pause une tâche). Consultation 1 au tour 7. Le résumé d'un juge a cité au passage trois de leurs défauts ; ils ne seront pas corrigés pour eux-mêmes, et le lot sera renouvelé avant de déclarer l'objectif atteint.
+
+**Ce qui n'est pas vérifié :** envoyer un message, arrêter un travail et programmer à la voix non mesurés ; mesure faite sur l'adresse locale en HTTP (pas de QR pour relier un téléphone) ; aucun verdict humain à l'aveugle sur ces captures.

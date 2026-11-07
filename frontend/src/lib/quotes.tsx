@@ -68,6 +68,9 @@ export function widgetQuote(spec: Record<string, unknown>): Quote | null {
   if (spec.type === "preview" && typeof spec.path === "string") {
     return { label: title || spec.path.split("/").pop()!, text: `Fichier : ${spec.path}` };
   }
+  if (spec.type === "video" && typeof spec.url === "string") {
+    return { label: title || "Vidéo", text: `Vidéo : ${spec.url}` };
+  }
   return null;
 }
 

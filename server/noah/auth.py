@@ -336,6 +336,19 @@ def devices(user_id: int, current: str | None) -> list[dict]:
              "ip": r["last_ip"] or "", "version": r["version"] or "", "actuel": r["token"] == mine} for r in rows]
 
 
+def user_of_session(key: str) -> int | None:
+    with db.connect() as c:
+        row = c.execute("SELECT user_id FROM sessions WHERE token = ?", (key,)).fetchone()
+    return row["user_id"] if row else None
+
+
+def session_of_device(user_id: int, public_id: str) -> str | None:
+    """L'empreinte de session de cet appareil de ce compte. Sert à viser ses notifications, jamais à s'y connecter."""
+    with db.connect() as c:
+        rows = c.execute("SELECT token FROM sessions WHERE user_id = ? AND expires_at > ?", (user_id, datetime.now(timezone.utc).isoformat())).fetchall()
+    return next((r["token"] for r in rows if device_id(r["token"]) == public_id), None)
+
+
 def revoke_others(user_id: int, current: str) -> int:
     with db.connect() as c:
         return c.execute("DELETE FROM sessions WHERE user_id = ? AND token != ?", (user_id, session_key(current))).rowcount

@@ -1,4 +1,5 @@
 """Client des agents : le lanceur (cycle de vie, fichiers) et la gateway Hermes de chaque agent."""
+import asyncio
 import hashlib
 import hmac
 import json
@@ -185,6 +186,10 @@ async def list_files(agent_id: str) -> list[dict]:
     return await _launcher("GET", f"/agents/{agent_id}/files")
 
 
+async def delete_files(agent_id: str, paths: list[str]) -> dict:
+    return await _launcher("POST", f"/agents/{agent_id}/files/supprimer", json={"chemins": paths})
+
+
 async def read_file(agent_id: str, path: str) -> httpx.Response:
     async with httpx.AsyncClient(timeout=120) as c:
         return await c.get(f"{LAUNCHER_URL}/agents/{agent_id}/file", params={"path": path}, headers=LAUNCHER)
@@ -214,6 +219,7 @@ PROVIDERS = {
     "anthropic": {"label": "Anthropic (Claude)", "env": "ANTHROPIC_API_KEY", "model": "claude-sonnet-4-5"},
     "openai": {"label": "OpenAI", "env": "OPENAI_API_KEY", "model": "gpt-5"},
     "gemini": {"label": "Google Gemini", "env": "GEMINI_API_KEY", "model": "gemini-2.5-pro"},
+    "mammouth": {"label": "Mammouth", "env": "MAMMOUTH_API_KEY", "model": "mammouth-recommended"},
     "ollama": {"label": "Ollama (cette machine ou une adresse)", "env": None, "model": "gpt-oss:20b"},
     "ollama-cloud": {"label": "Ollama Cloud", "env": "OLLAMA_API_KEY", "model": "gpt-oss:120b"},
     # Tout service qui parle l'API OpenAI : LM Studio, vLLM, LiteLLM, llama.cpp… La clé est facultative.
@@ -287,15 +293,27 @@ async def configure(agent_id: str, model: dict, role: str | None = None, restart
     compression["threshold_tokens"] = CONTEXT_LIMIT
     compression["target_ratio"] = 0.3
     compression["idle_compact_after_seconds"] = 0
-    # Les routines (« chaque matin à 8 h ») suivent l'heure de l'utilisateur, pas UTC.
-    tz = (await browser_identity()).get("timezone")
+    # Hermes propose par défaut des connexions hébergées par son éditeur (Nous Portal), et se crée pour cela un compte
+    # anonyme chez lui : les comptes de la personne passeraient par un tiers. Chez Noah, tout passe par Détails > Connexions.
+    tools_cfg = cfg.get("tools") if isinstance(cfg.get("tools"), dict) else {}
+    cfg["tools"] = {**tools_cfg, "connectors": {"enabled": False}}
+    cfg["nous"] = {**(cfg.get("nous") if isinstance(cfg.get("nous"), dict) else {}), "guest": False}
+    # Les routines (« chaque matin à 8 h ») et « aujourd'hui » suivent l'heure de la personne, vue par ses apps. Le fuseau du
+    # navigateur, lui, suit l'adresse du serveur : un site comparerait les deux. Il ne sert que tant qu'aucune app n'a parlé.
+    from .updates import client_zone  # ici : updates importe machine, qui importe ce module
+    tz = client_zone() or (await browser_identity()).get("timezone")
     if tz:
         cfg["timezone"] = tz
-    _set_helpers(cfg, agent_id, model_id)
+    _set_helpers(cfg, agent_id, model_id, await cheap_brain(model_id))
+    # Hermes crée un agent neuf à chaque run : ce compteur repart de zéro à chaque tour et dit donc « un tour de tant d'étapes ». Une vraie tâche, faite une fois, doit s'apprendre.
+    cfg.setdefault("skills", {})["creation_nudge_interval"] = SKILL_REVIEW_AFTER
     # Garde de Noah (G7.6) : skills tiers seulement depuis les dépôts vérifiés, aucun script téléchargé exécuté d'un
     # trait, et jamais de commandes shell dans le texte d'un skill.
     plugins = cfg.setdefault("plugins", {})
     plugins["enabled"] = sorted(set(plugins.get("enabled") or []) | {"noah-garde"})
+    plugins["hook_callback_timeout"] = 600  # réveiller le navigateur dépasse les 30 s d'Hermes, qui bloquerait l'outil
+    # La garde remplace browser_vault : celui d'Hermes pilote un Chromium à lui, pas Camofox (voir coffre.py). Le consentement qu'Hermes exige pour cela.
+    plugins.setdefault("entries", {}).setdefault("noah-garde", {})["allow_tool_override"] = True
     cfg.setdefault("skills", {})["inline_shell"] = False
     # Une routine n'a personne pour dire oui : un outil en « confirmer » y est refusé, jamais accepté tout seul (G13.2).
     cfg.setdefault("approvals", {})["cron_mode"] = "deny"
@@ -316,10 +334,30 @@ async def configure(agent_id: str, model: dict, role: str | None = None, restart
         await restart(agent_id)
 
 
-def _set_helpers(cfg: dict, agent_id: str, brain: str) -> None:
+SKILL_REVIEW_AFTER = 6  # étapes d'outils dans un même tour
+CHEAP_BRAIN = 1.0  # $ par million de jetons lus : en dessous, relire avec le cerveau coûte moins qu'une relecture ratée
+
+
+async def cheap_brain(model_id: str) -> bool:
+    """Le cerveau peut-il relire lui-même ? Un petit modèle rapide ne sait pas toujours appeler les outils : gpt-oss-120b chez Groq envoie category:null à skills_list, Groq
+    refuse l'appel et la relecture s'arrête sans rien retenir. Un service payé autrement qu'au jeton : oui. Prix inconnu ou panne du catalogue : non."""
+    from . import catalog, db, relay
+    if not model_id:
+        return False
+    provider = db.get_setting("provider")
+    if provider in (*relay.OWN_URL, "ollama-cloud"):
+        return True
+    try:
+        price = catalog.price_of(await asyncio.wait_for(catalog.mammouth_prices() if provider == "mammouth" else catalog.price_index(), 5), model_id)
+    except Exception:  # noqa: BLE001
+        return False
+    return bool(price) and price.get("price_in") is not None and price["price_in"] <= CHEAP_BRAIN
+
+
+def _set_helpers(cfg: dict, agent_id: str, brain: str, review_on_brain: bool = False) -> None:
     """Les petits travaux qu'Hermes fait seul passent par le modèle de décision, toujours à travers le relais (comptés, plafonnés) :
     la relecture de mémoire après un tour (sinon ~30 000 jetons du cerveau toutes les 10 passes) et le titre des conversations.
-    Le résumé d'une longue conversation reste au cerveau : il décide de ce que l'agent saura ensuite."""
+    Un cerveau peu cher relit lui-même, sur le cache de la conversation. Le résumé d'une longue conversation reste au cerveau : il décide de ce que l'agent saura ensuite."""
     from . import decision
     from .relay import RELAY_URL, token_for
 
@@ -331,6 +369,8 @@ def _set_helpers(cfg: dict, agent_id: str, brain: str) -> None:
             aux[task] = {"provider": "custom", "model": helper, "base_url": RELAY_URL, "api_key": token_for(agent_id)}
     if "background_review" in aux:
         aux["background_review"]["max_input_tokens"] = 30000  # une relecture ne doit jamais coûter plus que le tour qu'elle relit
+    if review_on_brain:
+        aux["background_review"] = {"max_input_tokens": CONTEXT_LIMIT + 30000}  # toute la conversation, lue en cache, et de quoi écrire
     cfg["auxiliary"] = aux
 
 
@@ -338,7 +378,7 @@ async def set_helpers(agent_id: str) -> None:
     """Hermes relit ces réglages à chaque relecture : un nouveau modèle de décision ne redémarre pas l'agent ni ne coupe un tour."""
     cfg = yaml.safe_load(await _read(agent_id, "config.yaml") or "{}") or {}
     brain = ((cfg.get("model") or {}).get("default") or "") if isinstance(cfg.get("model"), dict) else ""
-    _set_helpers(cfg, agent_id, brain)
+    _set_helpers(cfg, agent_id, brain, await cheap_brain(brain))
     await _launcher("PUT", f"/agents/{agent_id}/files", json={"files": {"config.yaml": yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True)}})
 
 
@@ -347,22 +387,31 @@ AGENT_PLUGIN = Path(__file__).parent / "agent_plugin"
 # Outil en ligne de commande (noah.py) posé dans la machine de l'agent : il parle au serveur avec le jeton de relais.
 AGENT_TOOL = r'''#!/usr/bin/env python3
 """Outil de l'agent pour parler à Noah Agent : diagnostic, navigateur, fils, médias."""
+import hashlib
+import http.client
 import json
+import os
+import re
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 URL = "http://noah-server:8080/agent-api"
 TOKEN = "__TOKEN__"
+MAX_SEND = 300 * 2**20
 AIDE = """Utilisation : python3 /opt/data/noah.py <commande>
   etat                         diagnostic (navigateur, écran, budget) avec un conseil
   reglages [type]              réglages non sensibles ; avec un type (image, video, musique, voix-modele, dictee, voix) : les choix possibles
   regler <type> <valeur>       change un réglage (type ci-dessus, ou gouts) ; auto revient au choix automatique
   navigateur reveiller         rallume le navigateur et son écran
   navigateur redemarrer        redémarre le navigateur (écran noir, figé, injoignable) ; profil et cookies gardés
+  navigateur telecharger 'https://…' nom.jpg   range un fichier en ligne dans /opt/data/workspace/uploads/ ; rend son chemin
+  navigateur envoyer <fichier> [fichier…] [--selecteur "css"] [--ref e12] [--onglet <id>]
+                               joint des fichiers de /opt/data/workspace/ à la page ouverte ; regarde ensuite l'écran
   fil "Titre" "consigne"       ouvre un fil de travail parallèle, visible par l'utilisateur dans Détails
   fil-etat <id>                état et dernière réponse d'un fil
-  image "description" [--format 16:9] [--contexte "goûts connus"] [--generer]
+  image "description" [--format 16:9] [--contexte "goûts connus"] [--generer] [--hors-budget]
                                                     crée une image (ou conseille SVG/code si plus adapté)
   video "description" [--duree 5] [--format 16:9]   crée une vidéo (quelques minutes)
   musique "description"                             crée un morceau de musique
@@ -373,9 +422,12 @@ AIDE = """Utilisation : python3 /opt/data/noah.py <commande>
                                relève sans modèle, un petit modèle juge la condition, et tu n'es réveillé que si elle est remplie
                                <source> : https://… (page ou flux), gmail ou gmail:<recherche Gmail> (gmail:from:paul@exemple.fr),
                                agenda ou agenda:<heures à venir>, outil:<serveur>/<outil> (outil connecté, en lecture)
-  routine "Nom" "horaire" "consigne complète et autonome"   un travail à chaque passage, sans condition
+  routine "Nom" "horaire" --fichier consigne.txt   un travail à chaque passage, sans condition ; la consigne, complète et autonome, est dans ce fichier
                                horaire : "every day at 8am", "every monday 9am", "0 9 * * 1", "every 2h"
   routines                                      liste les routines ; routine-action <id> pause|reprendre|lancer|supprimer
+  routine-regler <id> [--modele <modèle ou mode>] [--outils internet,navigateur,fichiers,commandes,memoire,images_vues,competences] [--image <modèle>]
+                               pour cette routine seule ; mêmes options à la création avec « routine » ; « --modele auto » ou « --outils tous » y revient
+                               modes : fast (Rapide), balanced (Équilibré), smart (Le plus fort), gratuit, custom. Liste : reglages cerveau
   veilles                                       liste les veilles et les routines à condition
   veille-action <id> pause|reprendre|verifier|supprimer
   appeler "ce qu'il doit faire" [--quand-quitte accounts.google.com]
@@ -397,7 +449,13 @@ Sur l'ordinateur de l'utilisateur (application de bureau ouverte ; il confirme l
   ordinateur notifier "titre" "texte"    notification sur son écran (fin d'une tâche, rappel, résultat de routine)
   ordinateur copier "texte"              met un texte dans son presse-papiers
   ordinateur lancer "application"        ouvre une application (ex. « Calculatrice », « Visual Studio Code »)
-  ordinateur commande "commande"         exécute une commande (PowerShell sous Windows) dans son dossier de travail
+  ordinateur commande "commande"         exécute une commande (PowerShell sous Windows) dans son dossier de travail ou --dossier <dossier>
+  ordinateur lister <dossier> [chemin]   liste un dossier qu'il t'a confié
+  ordinateur lire <dossier> <chemin>     copie ce fichier dans /opt/data/workspace/ordinateur/ ; rend le chemin de la copie
+  ordinateur ecrire <dossier> <chemin> <fichier> [--remplacer]   y dépose ton fichier ; ordinateur éteint : il attend sa reconnexion
+  (chaque ordre d'ordinateur accepte --appareil <id ou nom>)
+  appareils                              ses appareils : en ligne ou non, dossiers confiés, notifications possibles
+  notifier "titre" "texte" [--appareil <id ou nom>]   notification sur cet appareil seulement, ou sur tous sans --appareil
 Les fichiers créés vont dans /opt/data/workspace/outputs/ ; la réponse donne le widget à montrer."""
 
 
@@ -414,6 +472,238 @@ def call(method, path, body=None):
         return {"erreur": "Noah Agent injoignable : %s" % e}
 
 
+def routine_choices(words):
+    """Les réglages propres à une routine, retirés de sa consigne."""
+    rest, choices, i = [], {}, 0
+    while i < len(words):
+        name = words[i]
+        if name in ("--modele", "--outils", "--image") and i + 1 < len(words):
+            value = words[i + 1]
+            if name == "--outils":
+                choices["outils"] = [v.strip() for v in value.split(",") if v.strip()]
+            else:
+                choices[name[2:]] = "" if value == "auto" else value
+            i += 2
+        else:
+            rest.append(name)
+            i += 1
+    return rest, choices
+
+
+def routine_text(words):
+    """La consigne d'une routine : dans un fichier écrit à part (ni apostrophe ni guillemet n'y coupe rien), ou en toutes lettres."""
+    if words[:1] != ["--fichier"]:
+        return {"consigne": " ".join(words)}
+    root = os.path.realpath(os.path.join(os.environ.get("HERMES_HOME") or "/opt/data", "workspace"))
+    try:
+        real = os.path.realpath(words[1])
+        if not real.startswith(root + os.sep):  # un texte lu en ligne ne doit pas faire partir la configuration dans une consigne
+            return {"erreur": "La consigne doit être un fichier de %s." % root}
+        with open(real, encoding="utf-8") as f:
+            text = f.read().strip()
+    except (IndexError, OSError, ValueError) as e:
+        return {"erreur": "Consigne illisible : %s" % e}
+    return {"consigne": text} if text else {"erreur": "Le fichier de la consigne est vide."}
+
+
+def option(words, name, valued=True):
+    """Retire « --nom valeur » (ou « --nom ») de la liste ; rend sa valeur."""
+    if name not in words:
+        return "" if valued else False
+    i = words.index(name)
+    if not valued:
+        del words[i]
+        return True
+    if i + 1 >= len(words) or words[i + 1].startswith("--"):
+        print(json.dumps({"erreur": "%s attend une valeur." % name}, ensure_ascii=False))
+        sys.exit(1)
+    value = words[i + 1]
+    del words[i : i + 2]
+    return value
+
+
+def save_download(response, path, expected):
+    """Enregistre et vérifie : un serveur qui redémarre en route donne un fichier tronqué, sans autre signe."""
+    base = os.path.basename(path.replace("\\", "/"))[:120] or "fichier"
+    os.makedirs("/opt/data/workspace/ordinateur", exist_ok=True)
+    stem, ext = os.path.splitext(base)
+    target, n = "/opt/data/workspace/ordinateur/" + base, 2
+    while os.path.exists(target):
+        target, n = "/opt/data/workspace/ordinateur/%s (%d)%s" % (stem, n, ext), n + 1
+    digest = hashlib.sha256()
+    try:
+        with open(target, "wb") as out:
+            while True:
+                chunk = response.read(1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+                out.write(chunk)
+    except http.client.HTTPException as e:
+        digest = None
+    if digest is None or digest.hexdigest() != expected:
+        if os.path.exists(target):
+            os.unlink(target)
+        return {"erreur": "Le fichier n'est pas arrivé entier : réessaie."}
+    return {"ok": True, "fichier": target, "taille": os.path.getsize(target)}
+
+
+def computer_read(device, folder, path):
+    data = json.dumps({"appareil": device, "dossier": folder, "chemin": path}).encode()
+    req = urllib.request.Request(URL + "/ordinateur/lire", data=data, method="POST",
+                                 headers={"Authorization": "Bearer " + TOKEN, "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=600) as r:
+            if not r.headers.get("Content-Type", "").startswith("application/octet-stream"):
+                return json.load(r)
+            try:
+                return save_download(r, path, r.headers.get("X-Noah-Empreinte", ""))
+            except OSError as e:
+                return {"erreur": "Impossible d'enregistrer ce fichier dans ta machine : %s" % e.strerror}
+    except urllib.error.HTTPError as e:
+        return {"erreur": e.read().decode(errors="replace")[:500]}
+    except OSError as e:
+        return {"erreur": "Noah Agent injoignable : %s" % e}
+
+
+def computer_write(device, folder, path, local, replace):
+    if not os.path.isfile(local):
+        return {"erreur": "Ce fichier n'existe pas dans ta machine : %s" % local}
+    query = urllib.parse.urlencode({"dossier": folder, "chemin": path, "appareil": device, "remplacer": "true" if replace else "false"})
+    with open(local, "rb") as f:
+        req = urllib.request.Request(URL + "/ordinateur/ecrire?" + query, data=f, method="POST",
+                                     headers={"Authorization": "Bearer " + TOKEN, "Content-Type": "application/octet-stream",
+                                              "Content-Length": str(os.path.getsize(local))})
+        try:
+            with urllib.request.urlopen(req, timeout=600) as r:
+                return json.load(r)
+        except urllib.error.HTTPError as e:
+            return {"erreur": e.read().decode(errors="replace")[:500]}
+        except OSError as e:
+            return {"erreur": "Noah Agent injoignable : %s. Le fichier a peut-être été déposé quand même : regarde avec « ordinateur lister » avant de réessayer." % e}
+
+
+def browser_access():
+    """L'adresse et la clé du navigateur de ce profil, et son identité (un invité a la sienne)."""
+    home = os.environ.get("HERMES_HOME") or "/opt/data"
+    env = {}
+    try:
+        with open(os.path.join(home, ".env"), encoding="utf-8") as f:
+            for line in f:
+                key, _, value = line.strip().partition("=")
+                env[key] = value.strip().strip("\"'")
+    except OSError:
+        pass
+    user = "noah"
+    try:
+        with open(os.path.join(home, "config.yaml"), encoding="utf-8") as f:
+            found = re.search(r"camofox:[ \t]*\n(?:[ \t]+.*\n)*?[ \t]+user_id:\s*[\"']?([\w-]+)", f.read())
+            user = found.group(1) if found else user
+    except OSError:
+        pass
+    return home, env.get("CAMOFOX_URL") or os.environ.get("CAMOFOX_URL"), env.get("CAMOFOX_API_KEY") or os.environ.get("CAMOFOX_API_KEY"), user
+
+
+def browser_post(base, key, path, query, data=None, size=0, timeout=60):
+    req = urllib.request.Request(base + path + "?" + urllib.parse.urlencode(query), data=data if data is not None else b"", method="POST",
+                                 headers={"Authorization": "Bearer " + key, "Content-Type": "application/octet-stream", "Content-Length": str(size)})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.load(r)
+    except urllib.error.HTTPError as e:
+        if e.code == 404 and path == "/noah/fichier":
+            return {"erreur": "Ce navigateur ne sait pas encore recevoir de fichier : lance « noah.py navigateur redemarrer », puis réessaie."}
+        text = e.read().decode(errors="replace")[:2000]
+        try:
+            body = json.loads(text)
+        except ValueError:
+            return {"erreur": text[:500]}
+        return {"erreur": body.get("error", text[:500]), **({"champs": body["champs"]} if "champs" in body else {})}
+    except OSError as e:
+        return {"erreur": "Navigateur injoignable : %s. Lance « noah.py navigateur reveiller »." % e}
+
+
+class HttpsOnly(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not newurl.lower().startswith("https://"):
+            raise urllib.error.URLError("redirection hors de https")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def browser_download(words):
+    """Sans passer par le terminal : une adresse venue d'un outil ou d'une page reste une adresse, jamais une commande."""
+    home = os.environ.get("HERMES_HOME") or "/opt/data"
+    if "/profiles/" in home:
+        return {"erreur": "Réservé au propriétaire de l'agent."}
+    if len(words) != 2 or not words[0].lower().startswith("https://"):
+        return {"erreur": "Il faut une adresse en https:// et un nom de fichier."}
+    url, name = words
+    # Le nom exact : la garde de l'agent retient ce fichier comme « téléchargé, pas encore lu » avant de le laisser lancer.
+    if not re.fullmatch(r"[^\W_][\w .()-]{0,119}", name):
+        return {"erreur": "Nom de fichier invalide : lettres, chiffres, espaces, . ( ) - et _ seulement, sans dossier."}
+    folder = os.path.join(home, "workspace", "uploads")
+    final = os.path.join(folder, name)
+    os.makedirs(folder, exist_ok=True)
+    temporary = os.path.join(folder, ".telechargement-%d.tmp" % os.getpid())
+    size = 0
+    try:
+        opener = urllib.request.build_opener(HttpsOnly)
+        with opener.open(urllib.request.Request(url, headers={"User-Agent": "Noah"}), timeout=120) as r, open(temporary, "wb") as f:
+            expected = r.headers.get("Content-Length")
+            while chunk := r.read(1 << 20):
+                size += len(chunk)
+                if size > MAX_SEND:
+                    return {"erreur": "Fichier trop lourd (300 Mo au plus)."}
+                f.write(chunk)
+        if not size:
+            return {"erreur": "Fichier vide : l'adresse a peut-être expiré. Redemande-la à l'outil."}
+        if expected and expected.isdigit() and int(expected) != size:
+            return {"erreur": "Téléchargement coupé en route : recommence."}
+        os.link(temporary, final)  # échoue si le nom existe : rien n'est écrasé
+        return {"chemin": final, "octets": size}
+    except FileExistsError:
+        return {"erreur": "Ce nom existe déjà dans uploads/ : choisis-en un autre."}
+    except urllib.error.HTTPError as e:
+        return {"erreur": "Téléchargement refusé (%s) : l'adresse a peut-être expiré. Redemande-la à l'outil." % e.code}
+    except (OSError, ValueError) as e:
+        return {"erreur": "Téléchargement impossible : %s" % e}
+    finally:
+        try:
+            os.remove(temporary)
+        except OSError:
+            pass
+
+
+def browser_send(words):
+    selector, ref, tab = option(words, "--selecteur"), option(words, "--ref"), option(words, "--onglet")
+    if not words:
+        return {"erreur": "Quel fichier joindre ?"}
+    home, base, key, user = browser_access()
+    if "/profiles/" in home:
+        return {"erreur": "Réservé au propriétaire de l'agent."}
+    if not base or not key:
+        return {"erreur": "Navigateur non configuré sur cette machine."}
+    # Seulement les fichiers de travail : un texte lu en ligne ne doit pas pouvoir faire déposer la configuration sur un site.
+    root = os.path.realpath(os.path.join(home, "workspace"))
+    ids = []
+    for local in words:
+        real = os.path.realpath(local)
+        if not real.startswith(root + os.sep):
+            return {"erreur": "Seuls les fichiers de %s se joignent à une page : %s" % (root, local)}
+        if not os.path.isfile(real):
+            return {"erreur": "Ce fichier n'existe pas dans ta machine : %s" % local}
+        with open(real, "rb") as f:
+            sent = browser_post(base, key, "/noah/fichier", {"nom": os.path.basename(real)}, f, os.path.getsize(real), 600)
+        if "id" not in sent:
+            return sent
+        ids.append(sent["id"])
+    query = {"userId": user, "fichiers": ",".join(ids)}
+    for name, value in (("selecteur", selector), ("ref", ref), ("onglet", tab)):
+        if value:
+            query[name] = value
+    return browser_post(base, key, "/noah/joindre", query, timeout=90)
+
+
 def media(kind, args):
     opts, words, i = {}, [], 0
     while i < len(args):
@@ -422,6 +712,9 @@ def media(kind, args):
             i += 2
         elif args[i] == "--generer":
             opts["generer"] = True
+            i += 1
+        elif args[i] == "--hors-budget":
+            opts["hors_budget"] = True
             i += 1
         else:
             words.append(args[i])
@@ -442,19 +735,46 @@ elif a[:2] == ["navigateur", "reveiller"]:
     out = call("POST", "/navigateur/reveiller")
 elif a[:2] == ["navigateur", "redemarrer"]:
     out = call("POST", "/navigateur/redemarrer")
+elif a[:2] == ["navigateur", "envoyer"]:
+    out = browser_send(a[2:])
+elif a[:2] == ["navigateur", "telecharger"]:
+    out = browser_download(a[2:])
 elif a[:1] == ["fil"] and len(a) >= 3:
     out = call("POST", "/fils", {"titre": a[1], "consigne": " ".join(a[2:])})
 elif a[:1] == ["installer"] and len(a) >= 2:
     out = call("POST", "/installer", {"paquets": a[1:]})
+elif a[:1] == ["appareils"]:
+    out = call("GET", "/appareils")
+elif a[:1] == ["notifier"] and len(a) >= 2:
+    rest = a[1:]
+    device = option(rest, "--appareil")
+    out = call("POST", "/notifier", {"titre": rest[0], "texte": " ".join(rest[1:]), "appareil": device}) if rest else {"erreur": "Donne un titre."}
+elif a[:1] == ["ordinateur"] and (len(a) < 3 or (a[1] not in ("lister", "lire", "ecrire", "ouvrir", "notifier", "copier", "lancer", "commande"))):
+    out = {"erreur": "Usage : ordinateur lister|lire|ecrire|ouvrir|notifier|copier|lancer|commande … (voir l'aide de noah.py)"}
+elif a[:1] == ["ordinateur"] and a[1] in ("lister", "lire", "ecrire"):
+    rest = a[2:]
+    device = option(rest, "--appareil")
+    replace = option(rest, "--remplacer", False)
+    if a[1] == "lister" and rest:
+        out = call("POST", "/ordinateur", {"action": "lister", "appareil": device, "dossier": rest[0], "chemin": " ".join(rest[1:])})
+    elif a[1] == "lire" and len(rest) >= 2:
+        out = computer_read(device, rest[0], " ".join(rest[1:]))
+    elif a[1] == "ecrire" and len(rest) == 3:
+        out = computer_write(device, rest[0], rest[1], rest[2], replace)
+    else:
+        out = {"erreur": "Usage : ordinateur lister <dossier> [chemin] | lire <dossier> <chemin> | ecrire <dossier> <chemin> <fichier>"}
 elif a[:1] == ["ordinateur"] and len(a) >= 3 and a[1] in ("ouvrir", "notifier", "copier", "lancer", "commande"):
+    rest = a[2:]
+    device = option(rest, "--appareil")
+    folder = option(rest, "--dossier")
     action = {"copier": "presse_papiers"}.get(a[1], a[1])
     if a[1] == "notifier":
-        body = {"action": action, "titre": a[2], "texte": " ".join(a[3:])}
+        body = {"action": action, "titre": rest[0] if rest else "", "texte": " ".join(rest[1:])}
     elif a[1] == "copier":
-        body = {"action": action, "texte": " ".join(a[2:])}
+        body = {"action": action, "texte": " ".join(rest)}
     else:
-        body = {"action": action, "cible": " ".join(a[2:])}
-    out = call("POST", "/ordinateur", body)
+        body = {"action": action, "cible": " ".join(rest)}
+    out = call("POST", "/ordinateur", {**body, "appareil": device, "dossier": folder})
 elif a[:1] == ["veille"] and len(a) >= 3:
     rest, minutes = a[1:], 60
     if "--minutes" in rest:
@@ -463,7 +783,12 @@ elif a[:1] == ["veille"] and len(a) >= 3:
         rest = rest[:i] + rest[i + 2:]
     out = call("POST", "/veilles", {"nom": rest[0], "url": rest[1], "critere": " ".join(rest[2:]), "minutes": minutes})
 elif a[:1] == ["routine"] and len(a) >= 4:
-    out = call("POST", "/routines", {"nom": a[1], "quand": a[2], "consigne": " ".join(a[3:])})
+    rest, choices = routine_choices(a[3:])
+    out = routine_text(rest)
+    if "consigne" in out:
+        out = call("POST", "/routines", {"nom": a[1], "quand": a[2], "consigne": out["consigne"], **choices})
+elif a[:1] == ["routine-regler"] and len(a) >= 4:
+    out = call("POST", "/routines/" + a[1] + "/regler", routine_choices(a[2:])[1])
 elif a[:1] == ["routines"]:
     out = call("GET", "/routines")
 elif a[:1] == ["routine-action"] and len(a) == 3:
@@ -474,9 +799,17 @@ elif a[:1] == ["routine-si"] and len(a) >= 5:
         i = rest.index("--minutes")
         minutes = int(rest[i + 1]) if i + 1 < len(rest) else 30
         rest = rest[:i] + rest[i + 2:]
-    out = call("POST", "/veilles", {"nom": rest[0], "url": rest[1], "critere": rest[2], "consigne": " ".join(rest[3:]), "minutes": minutes})
+    out = routine_text(rest[3:])
+    if "consigne" in out:
+        out = call("POST", "/veilles", {"nom": rest[0], "url": rest[1], "critere": rest[2], "consigne": out["consigne"], "minutes": minutes})
 elif a[:1] == ["memoire-juger"] and len(a) == 2:  # la garde de l'agent, avant qu'une note n'entre en mémoire
     out = call("POST", "/memoire/juger", json.loads(a[1]))
+elif a[:1] == ["coffre"] and len(a) == 2:  # l'outil browser_vault de la garde : aucun secret ne passe par ici
+    out = call("POST", "/coffre", json.loads(a[1]))
+elif a[:1] == ["coffre-attendre"] and len(a) == 2:
+    out = call("GET", "/coffre/" + urllib.parse.quote(a[1], safe=""))
+elif a[:1] == ["coffre-annuler"] and len(a) == 2:
+    out = call("DELETE", "/coffre/" + urllib.parse.quote(a[1], safe=""))
 elif a[:1] == ["veilles"]:
     out = call("GET", "/veilles")
 elif a[:1] == ["veille-action"] and len(a) == 3:
@@ -534,6 +867,17 @@ async def start_run(agent: Agent, text: str, session_id: str) -> str:
     r = await http().post(f"{agent.url}/v1/runs", headers=agent.headers, json={"input": text, "session_id": session_id}, timeout=30)
     r.raise_for_status()
     return r.json()["run_id"]
+
+
+async def start_review_run(agent: Agent, text: str, session_id: str, model: str | None) -> str:
+    """Un tour caché qui relit (apprentissage.py). Hermes garde son fournisseur, le relais : seul le nom du modèle change."""
+    r = await http().post(f"{agent.url}/v1/runs", headers=agent.headers, json={"input": text, "session_id": session_id, **({"model": model} if model else {})}, timeout=30)
+    r.raise_for_status()
+    return r.json()["run_id"]
+
+
+async def drop_session(agent: Agent, session_id: str) -> None:
+    (await http().delete(f"{agent.url}/api/sessions/{session_id}", headers=agent.headers, timeout=30)).raise_for_status()
 
 
 LOST_TURN = "unknown_execution"  # refus d'Hermes : un redémarrage a coupé un tour, et la session attend qu'on en prenne acte

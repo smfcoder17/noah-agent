@@ -7,7 +7,7 @@ import {
   useExternalStoreRuntime,
 } from "@assistant-ui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ApiError, type ChatEvent, get, send, type StoredMessage, request, StreamLost, streamChat, uploadFile } from "./api";
+import { ApiError, type ChatEvent, get, type LoginAsked, send, type Reactions, type Recu, type StoredMessage, request, StreamLost, streamChat, uploadFile } from "./api";
 
 type TextPart = { type: "text"; text: string };
 type ToolPart = { type: "tool-call"; toolCallId: string; toolName: string; args: Record<string, unknown>; result?: unknown };
@@ -18,14 +18,55 @@ export type ChatMessage = {
   content: Part[];
   attachments?: string[];
   running?: boolean;
+  createdAt?: Date;
+  storedId?: number;
+  reactions?: Reactions;
+  /** Détail tel que stocké d'une trace de fil : sa ligne change à la fin du fil, sans changer le nombre de messages. */
+  trace?: string;
 };
+
+function traceArgs(m: StoredMessage): Record<string, unknown> {
+  try {
+    return JSON.parse(m.detail ?? "");
+  } catch {
+    return { consigne: m.text };
+  }
+}
+
+/** Une trace dont l'issue vient d'être écrite : le même nombre de messages, mais pas le même écran. */
+const traceMoved = (rows: StoredMessage[], cur: ChatMessage[]) => rows.some((r, i) => r.role === "trace" && r.detail !== cur[i]?.trace);
 
 let seq = 0;
 const uid = (p: string) => `${p}-${Date.now().toString(36)}-${(seq++).toString(36)}`;
 
 const ATTACHED_RE = /\n\nFichiers joints par l'utilisateur :\n((?:- .+\n?)+)$/;
 
-function fromStored(m: StoredMessage, i: number): ChatMessage {
+/** La conversation par tranches : au départ les derniers messages, plus haut sur demande. Une fois lue, une tranche reste à l'écran. */
+const PAGE = 60;
+const windows = new Map<string, { from: number; more: boolean }>();
+const windowUrl = (conv: string) => {
+  const open = windows.get(conv);
+  return `/api/conversations/${conv}/messages?${open ? `depuis=${open.from}` : `limit=${PAGE}`}`;
+};
+const anchorOf = (conv: string) => windows.get(conv)?.from;
+/** Vrai si cette lecture décrit encore la fenêtre : celle lancée avant de remonter plus haut ne doit rien remplacer. */
+function current(conv: string, asked: number | undefined, rows: StoredMessage[]) {
+  const open = windows.get(conv);
+  if (open && open.from !== asked && rows[0]?.id !== open.from) return false;
+  if (!rows.length) windows.delete(conv); // conversation vidée : l'ancre n'existe plus
+  else if (!open && rows[0].id !== undefined) windows.set(conv, { from: rows[0].id, more: rows.length >= PAGE });
+  return true;
+}
+
+// Le serveur écrit en UTC, sans le dire.
+const storedDate = (at: string | undefined) => (at ? new Date(`${at.replace(" ", "T")}Z`) : undefined);
+
+function fromStored(stored: StoredMessage, i: number): ChatMessage {
+  const m = stored;
+  return { ...fromStoredContent(m, m.id ?? i), createdAt: storedDate(m.created_at), storedId: m.id, reactions: m.reactions };
+}
+
+function fromStoredContent(m: StoredMessage, i: number): ChatMessage {
   if (m.role === "user") {
     const match = m.text.match(ATTACHED_RE);
     const files = match ? match[1].trim().split("\n").map((l) => l.replace(/^- /, "").split("/").pop()!) : [];
@@ -34,8 +75,30 @@ function fromStored(m: StoredMessage, i: number): ChatMessage {
   if (m.role === "error") {
     return { id: `h${i}`, role: "assistant", content: [{ type: "tool-call", toolCallId: `e${i}`, toolName: "error", args: { message: m.text, detail: m.detail ?? "" }, result: true }] };
   }
-  return { id: `h${i}`, role: "assistant", content: [{ type: "text", text: m.text }] };
+  if (m.role === "trace") {
+    return { id: `h${i}`, role: "assistant", trace: m.detail ?? "", content: [{ type: "tool-call", toolCallId: `t${i}`, toolName: "trace", args: traceArgs(m), result: true }] };
+  }
+  const { steps, recu } = stored(m.detail);
+  return { id: `h${i}`, role: "assistant", content: [{ type: "text", text: m.text }, ...recuParts(recu), ...(steps.length ? [stepsPart(steps)] : [])] };
 }
+
+const stepsPart = (steps: string[]): Part => ({ type: "tool-call", toolCallId: "steps", toolName: "steps", args: { steps } as never, result: true });
+const recuParts = (recu?: Recu | null): Part[] => (recu ? [{ type: "tool-call", toolCallId: "recu", toolName: "recu", args: { recu } as never, result: true }] : []);
+function stored(detail: unknown): { steps: string[]; recu?: Recu } {
+  if (typeof detail !== "string" || !detail.startsWith('{"etapes"')) return { steps: [] };
+  try {
+    const data = JSON.parse(detail);
+    return { steps: data.etapes ?? [], recu: data.recu };
+  } catch {
+    return { steps: [] };
+  }
+}
+const stepsOf = (parts: Part[]): string[] => {
+  const found = parts.find((p) => p.type === "tool-call" && p.toolName === "steps");
+  return found ? ((found as unknown as { args: { steps: string[] } }).args.steps ?? []) : [];
+};
+const withoutSteps = (parts: Part[]) => parts.filter((p) => !(p.type === "tool-call" && p.toolName === "steps"));
+const SHOWS_SOMETHING = /```noah|^MEDIA:|\/opt\/data\/workspace\/(?:outputs|apps|captures)\/\S+\.\w/m;
 
 /** Retire la ligne de travail : elle ne sert que pendant que l'agent agit. */
 const settle = (parts: Part[]): Part[] => parts.filter((p) => !(p.type === "tool-call" && p.toolName === "activity"));
@@ -47,6 +110,13 @@ function apply(msg: ChatMessage, ev: ChatEvent, runId: string | null): ChatMessa
       const last = parts[parts.length - 1];
       if (last?.type === "text") return { ...msg, content: [...parts.slice(0, -1), { type: "text", text: last.text + ev.text }] };
       return { ...msg, content: [...settle(parts), { type: "text", text: ev.text.replace(/^\n+/, "") }] };
+    }
+    case "etape": {
+      // Ce qu'il a écrit avant de lancer un outil est le récit de son travail : il quitte la réponse. Un widget ou une image reste.
+      const last = parts[parts.length - 1];
+      if (last?.type !== "text" || SHOWS_SOMETHING.test(last.text)) return msg;
+      const said = last.text.trim();
+      return { ...msg, content: [stepsPart([...stepsOf(parts), ...(said ? [said] : [])]), ...withoutSteps(parts.slice(0, -1))] };
     }
     case "activity": {
       // Une seule ligne de travail, toujours en bas : la nouvelle étape remplace l'ancienne.
@@ -70,13 +140,26 @@ function apply(msg: ChatMessage, ev: ChatEvent, runId: string | null): ChatMessa
             type: "tool-call",
             toolCallId: uid("p"),
             toolName: "approval",
-            args: { summary: ev.summary, request_id: ev.request_id, generation: ev.generation, run_id: runId ?? "" },
+            args: { summary: ev.summary, demande: ev.demande, apercu: ev.apercu, request_id: ev.request_id, generation: ev.generation, run_id: runId ?? "" },
           },
         ],
       };
     case "done": {
+      // Le serveur donne ce que la conversation garde : l'écran finit dessus, même si des détails ont coupé le texte en morceaux.
+      if (ev.status === "completed" && ev.reponse) {
+        const others = withoutSteps(settle(parts)).filter((p) => p.type !== "text");
+        return { ...msg, content: [...others, { type: "text", text: ev.reponse }, ...recuParts(ev.recu), ...(ev.etapes?.length ? [stepsPart(ev.etapes)] : [])], running: false };
+      }
       let next = settle(parts);
       if (!next.some((p) => p.type === "text") && ev.output) next = [...next, { type: "text", text: ev.output }];
+      // Les étapes passent sous la réponse. S'il a tout dit avant son dernier outil, sa dernière phrase est la réponse.
+      let steps = stepsOf(next);
+      next = withoutSteps(next);
+      if (ev.status === "completed" && !next.some((p) => p.type === "text") && steps.length) {
+        next = [...next, { type: "text", text: steps[steps.length - 1] }];
+        steps = steps.slice(0, -1);
+      }
+      if (steps.length) next = [...next, stepsPart(steps)];
       if (ev.status !== "completed" && ev.error) {
         next = [...next, { type: "tool-call", toolCallId: uid("e"), toolName: "error", args: { message: ev.error, detail: ev.details ?? "" }, result: true }];
       }
@@ -101,8 +184,8 @@ export type WhileBusyApi = {
   cancel: (id: string) => void;
   giveUp: (id: string) => void;
 };
-type Approval = { summary: string; request_id: string; generation: number; run_id: string };
-type Now = { occupe: boolean; activite: string | null; run_id: string | null; file: { id: string; text: string }[]; accord: Approval | null };
+type Approval = { summary: string; demande?: string; apercu?: string[]; request_id: string; generation: number; run_id: string };
+type Now = { occupe: boolean; activite: string | null; run_id: string | null; file: { id: string; text: string }[]; accord: Approval | null; connexion?: LoginAsked | null };
 const IDLE: Now = { occupe: false, activite: null, run_id: null, file: [], accord: null };
 
 // Boîte d'envoi : un message reste ici, avec son identifiant, tant que le serveur n'a pas répondu. Une réponse perdue ne fait donc ni
@@ -132,6 +215,8 @@ const convertMessage = (m: ChatMessage): ThreadMessageLike => ({
   id: m.id,
   role: m.role,
   content: m.content as ThreadMessageLike["content"],
+  createdAt: m.createdAt,
+  metadata: { custom: { storedId: m.storedId, reactions: m.reactions } },
   status: m.role === "assistant" ? (m.running ? { type: "running" } : { type: "complete", reason: "stop" }) : undefined,
   attachments: (m.attachments ?? []).map((name, i) => ({
     id: `${m.id}-att-${i}`,
@@ -150,15 +235,20 @@ export function useAgentChat(opts: {
   onRunFinished: () => void;
   /** Dernière mise à jour connue côté serveur : un message arrivé sans nous (routine) déclenche un rechargement. */
   updatedAt?: string;
+  /** L'agent travaille quelque part, d'après sa fiche : même lancé sans cet écran (réponse à un appel, routine). */
+  agentBusy?: boolean;
   /** Citations à mettre devant le message (vidées à l'envoi). */
   takeQuotes?: () => string;
 }) {
-  const { agentId, conversationId, details, onConversationCreated, onRunFinished, updatedAt } = opts;
+  const { agentId, conversationId, details, onConversationCreated, onRunFinished, updatedAt, agentBusy } = opts;
   const takeQuotes = useRef(opts.takeQuotes);
   takeQuotes.current = opts.takeQuotes;
   // Conversation déjà ouverte : ses messages s'affichent tout de suite, la version du serveur arrive derrière.
   const [messages, setMessages] = useState<ChatMessage[]>(() => (conversationId && messagesCache.get(conversationId)) || []);
   const [isRunning, setRunning] = useState(false);
+  const [more, setMore] = useState(false);
+  const [liveLabel, setLiveLabel] = useState<string | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const runRef = useRef<{ runId: string | null; abort: AbortController | null }>({ runId: null, abort: null });
   // Conversation créée pendant ce run : on ne recharge pas l'historique par-dessus le flux en cours.
   const ownConversation = useRef<string | null>(null);
@@ -179,9 +269,16 @@ export function useAgentChat(opts: {
       return;
     }
     setMessages(messagesCache.get(conversationId) ?? []);
+    setMore(windows.get(conversationId)?.more ?? false);
     let cancelled = false;
-    get<StoredMessage[]>(`/api/conversations/${conversationId}/messages`)
-      .then((rows) => !cancelled && setMessages(rows.map(fromStored)))
+    const asked = anchorOf(conversationId);
+    get<StoredMessage[]>(windowUrl(conversationId))
+      .then((rows) => {
+        if (cancelled) return;
+        if (!current(conversationId, asked, rows)) return setMore(windows.get(conversationId)?.more ?? false);
+        setMore(windows.get(conversationId)?.more ?? false);
+        setMessages(rows.map(fromStored));
+      })
       .catch(() => !cancelled && setMessages((cur) => (cur.length ? cur : [])));
     return () => {
       cancelled = true;
@@ -196,10 +293,13 @@ export function useAgentChat(opts: {
   useEffect(() => {
     if (!conversationId || !updatedAt || running.current) return;
     let cancelled = false;
-    get<StoredMessage[]>(`/api/conversations/${conversationId}/messages`)
+    const asked = anchorOf(conversationId);
+    get<StoredMessage[]>(windowUrl(conversationId))
       .then((rows) => {
+        if (!current(conversationId, asked, rows)) return;
+        if (!cancelled) setMore(windows.get(conversationId)?.more ?? false);
         // Seulement s'il y a du nouveau, pour ne pas redessiner la conversation pour rien.
-        if (!cancelled && !running.current) setMessages((cur) => (rows.length > cur.length ? rows.map(fromStored) : cur));
+        if (!cancelled && !running.current) setMessages((cur) => (rows.length > cur.length || (rows.length === cur.length && traceMoved(rows, cur)) ? rows.map(fromStored) : cur));
       })
       .catch(() => {});
     return () => {
@@ -215,12 +315,15 @@ export function useAgentChat(opts: {
       if (i) await new Promise((r) => setTimeout(r, 3000));
       if (gone.aborted || ownConversation.current !== conv) return;
       try {
+        const asked = anchorOf(conv);
         const rows = (await (
-          await request(`/api/conversations/${conv}/messages`, { signal: AbortSignal.timeout(8000) })
+          await request(windowUrl(conv), { signal: AbortSignal.timeout(8000) })
         ).json()) as StoredMessage[];
+        if (!current(conv, asked, rows)) continue;
+        if (ownConversation.current === conv) setMore(windows.get(conv)?.more ?? false);
         if (ownConversation.current === conv && !running.current) setMessages(rows.map(fromStored));
-        // Réponse encore en cours côté serveur : on recharge encore jusqu'à la voir arrivée.
-        if (rows[rows.length - 1]?.role !== "user") return;
+        // Réponse encore en cours côté serveur : on recharge encore jusqu'à la voir arrivée. La trace d'un fil n'en est pas une.
+        if (rows.filter((r) => r.role !== "trace").pop()?.role !== "user") return;
       } catch {
         /* serveur toujours absent */
       }
@@ -229,6 +332,8 @@ export function useAgentChat(opts: {
 
   // --- Pendant le travail : la saisie reste ouverte, et ce qui attend se voit. ---
   const [serverNow, setServerNow] = useState<Now>(IDLE);
+  const [login, setLogin] = useState<(LoginAsked & { result?: unknown }) | null>(null);
+  const askedNow = useRef<Approval | null>(null);
   const [sending, setSending] = useState<WhileBusyApi["sending"]>([]);
   const givenUp = useRef(new Set<string>());
   const serverBusy = useRef(false);
@@ -237,8 +342,18 @@ export function useAgentChat(opts: {
   serverRun.current = serverNow.run_id;
 
   const reload = useCallback(async (conv: string) => {
-    const rows = await get<StoredMessage[]>(`/api/conversations/${conv}/messages`);
-    if (ownConversation.current === conv && !running.current) setMessages((cur) => (rows.length !== cur.length ? rows.map(fromStored) : cur));
+    const asked = anchorOf(conv);
+    const rows = await get<StoredMessage[]>(windowUrl(conv));
+    if (!current(conv, asked, rows)) return;
+    if (ownConversation.current === conv) setMore(windows.get(conv)?.more ?? false);
+    if (ownConversation.current === conv && !running.current) {
+      setMessages((cur) => {
+        if (rows.length !== cur.length || traceMoved(rows, cur)) return rows.map(fromStored);
+        // Même nombre : on garde l'affichage, en apprenant le numéro des messages écrits ici (pour pouvoir y réagir) et leurs réactions.
+        const changed = rows.some((r, i) => r.id !== cur[i].storedId || JSON.stringify(r.reactions ?? null) !== JSON.stringify(cur[i].reactions ?? null));
+        return changed ? cur.map((m, i) => ({ ...m, storedId: rows[i].id, reactions: rows[i].reactions })) : cur;
+      });
+    }
   }, []);
 
   const refreshNow = useCallback(async () => {
@@ -254,9 +369,16 @@ export function useAgentChat(opts: {
     setServerNow(IDLE);
     void refreshNow();
   }, [conversationId, refreshNow]);
-  const watching = isRunning || serverNow.occupe || serverNow.file.length > 0 || sending.length > 0;
+  // Une relecture finit après le tour : le petit « retenu » arrive sans rafraîchir la page.
+  useEffect(() => {
+    if (isRunning) return;
+    const later = setTimeout(() => !document.hidden && void refreshNow(), 30000);
+    return () => clearTimeout(later);
+  }, [isRunning, refreshNow]);
+  const watching = isRunning || serverNow.occupe || serverNow.file.length > 0 || sending.length > 0 || !!agentBusy;
   useEffect(() => {
     if (!watching) return;
+    if (!running.current) void refreshNow(); // un travail lancé sans cet écran : son accord s'affiche sans rafraîchir la page
     // Écran caché : personne ne regarde, et le serveur le sait à ce silence (il notifie alors la fin de la tâche).
     const timer = setInterval(() => !document.hidden && void refreshNow(), 3000);
     return () => clearInterval(timer);
@@ -329,7 +451,7 @@ export function useAgentChat(opts: {
   const whileBusy = useMemo<WhileBusyApi>(
     () => ({
       active: isRunning || serverNow.occupe,
-      activity: !isRunning && serverNow.occupe ? serverNow.activite || "Travaille sur ta demande" : null,
+      activity: !isRunning && serverNow.occupe && !serverNow.accord ? serverNow.activite || "Travaille sur ta demande" : null,
       waiting: serverNow.file,
       sending,
       send: (text, files = []) =>
@@ -378,8 +500,9 @@ export function useAgentChat(opts: {
         role: "user",
         content: [{ type: "text", text }],
         attachments: attachments.map((p) => p.split("/").pop()!),
+        createdAt: new Date(),
       };
-      const reply: ChatMessage = { id: uid("r"), role: "assistant", content: [], running: true };
+      const reply: ChatMessage = { id: uid("r"), role: "assistant", content: [], running: true, createdAt: new Date() };
       setMessages((m) => [...m, userMsg, reply]);
       setRunning(true);
       const abort = new AbortController();
@@ -396,6 +519,12 @@ export function useAgentChat(opts: {
         if (evs.length) update((m) => evs.reduce((acc, ev) => apply(acc, ev, runRef.current.runId), m));
       };
       const queue = (ev: ChatEvent) => {
+        if (ev.type === "reaction") {
+          setMessages((cur) => cur.map((m) => (m.id === userMsg.id ? { ...m, reactions: { ...m.reactions, agent: ev.emoji } } : m)));
+          return;
+        }
+        if (ev.type === "activity") setLiveLabel(ev.label);
+        if (ev.type === "done") setLiveLabel(null);
         pending.push(ev);
         if (ev.type === "done") {
           cancelAnimationFrame(frame);
@@ -449,7 +578,16 @@ export function useAgentChat(opts: {
 
   // Les approbations renvoient leur réponse ici, une fois transmise à l'agent.
   const onAddToolResult = useCallback((o: { messageId: string; toolCallId: string; result: unknown }) => {
-    if (o.messageId.startsWith("accord-")) return setServerNow((s) => ({ ...s, accord: null }));
+    if (o.messageId.startsWith("connexion-")) {
+      setLogin((cur) => (cur ? { ...cur, result: o.result } : cur));
+      return;
+    }
+    if (o.messageId.startsWith("accord-")) {
+      const id = o.messageId.slice("accord-".length); // un second accord a pu arriver pendant l'envoi : il reste à donner
+      if (askedNow.current?.request_id === id) setGiven({ ...askedNow.current, result: o.result });
+      setServerNow((s) => (s.accord?.request_id === id ? { ...s, accord: null } : s));
+      return;
+    }
     setMessages((all) =>
       all.map((m) =>
         m.id !== o.messageId
@@ -483,21 +621,82 @@ export function useAgentChat(opts: {
   );
 
   // Un accord demandé par un travail que cet écran ne suit pas : il s'affiche quand même, et se donne de la même façon.
-  const pendingApproval = !isRunning ? serverNow.accord : null;
-  const shown = useMemo<ChatMessage[]>(
-    () =>
-      pendingApproval
+  // Encore à répondre dans le fil (flux perdu, historique en retard) : pas de seconde carte pour ce même accord. Une carte déjà
+  // répondue ne masque jamais une nouvelle demande : la personne resterait sans bouton.
+  const asked = serverNow.accord;
+  const alreadyThere = (a: Approval) =>
+    messages.some((m) =>
+      m.content.some((p) => {
+        if (p.type !== "tool-call" || p.toolName !== "approval" || p.result !== undefined) return false;
+        const local = p.args as { request_id?: string; generation?: number };
+        return local.request_id === a.request_id && local.generation === a.generation;
+      }),
+    );
+  const pendingApproval = !isRunning && asked && !alreadyThere(asked) ? asked : null;
+  // Après la réponse, la décision reste lisible à sa place jusqu'au message suivant.
+  const [given, setGiven] = useState<(Approval & { result: unknown }) | null>(null);
+  useEffect(() => setGiven(null), [messages.length]);
+  // Répondu depuis « À toi » : la carte de ce fil le sait aussi.
+  askedNow.current = asked;
+  useEffect(() => {
+    const answered = (e: Event) => {
+      const { request_id: id, result } = (e as CustomEvent<{ request_id?: string; result?: string }>).detail ?? {};
+      if (!id) return;
+      setMessages((all) =>
+        all.map((m) => ({
+          ...m,
+          content: m.content.map((p) =>
+            p.type === "tool-call" && p.toolName === "approval" && p.result === undefined && (p.args as { request_id?: string }).request_id === id ? { ...p, result } : p,
+          ),
+        })),
+      );
+      if (askedNow.current?.request_id === id) setGiven({ ...askedNow.current, result });
+      setServerNow((s) => (s.accord?.request_id === id ? { ...s, accord: null } : s));
+    };
+    window.addEventListener("noah:accord-repondu", answered);
+    return () => window.removeEventListener("noah:accord-repondu", answered);
+  }, []);
+  // Une connexion à donner : la carte reste à la même place tant que le serveur la demande. La personne y écrit, rien ne doit la refaire.
+  const askedLogin = serverNow.connexion ?? null;
+  const askedLoginId = askedLogin?.id;
+  useEffect(() => {
+    setLogin((cur) => (askedLogin ? (cur?.id === askedLogin.id ? cur : askedLogin) : cur?.result ? cur : null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- la même demande revient à chaque relevé : seul son identifiant compte
+  }, [askedLoginId]);
+  // Répondue : la ligne reste lisible jusqu'au message suivant.
+  useEffect(() => setLogin((cur) => (cur?.result ? null : cur)), [messages.length]);
+  useEffect(() => {
+    const answered = (e: Event) => {
+      const { id, result } = (e as CustomEvent<{ id: string; result: string }>).detail;
+      setLogin((cur) => (cur?.id === id ? { ...cur, result } : cur));
+    };
+    window.addEventListener("noah:connexion-repondue", answered);
+    return () => window.removeEventListener("noah:connexion-repondue", answered);
+  }, []);
+  const shown = useMemo<ChatMessage[]>(() => {
+    const base: ChatMessage[] = pendingApproval
+      ? [
+          ...messages,
+          {
+            id: `accord-${pendingApproval.request_id}`,
+            role: "assistant",
+            content: [{ type: "tool-call", toolCallId: `a-${pendingApproval.request_id}`, toolName: "approval", args: { ...pendingApproval } }],
+          },
+        ]
+      : given && !messages.some((m) => m.content.some((p) => p.type === "tool-call" && p.toolName === "approval" && (p.args as { request_id?: string }).request_id === given.request_id))
         ? [
             ...messages,
             {
-              id: `accord-${pendingApproval.request_id}`,
+              id: `accord-${given.request_id}`,
               role: "assistant",
-              content: [{ type: "tool-call", toolCallId: `a-${pendingApproval.request_id}`, toolName: "approval", args: { ...pendingApproval } }],
+              content: [{ type: "tool-call", toolCallId: `a-${given.request_id}`, toolName: "approval", args: { ...given }, result: given.result }],
             },
           ]
-        : messages,
-    [messages, pendingApproval],
-  );
+        : messages;
+    if (!login) return base;
+    const { result, ...asked } = login;
+    return [...base, { id: `connexion-${login.id}`, role: "assistant", content: [{ type: "tool-call", toolCallId: `c-${login.id}`, toolName: "connexion", args: asked, ...(result ? { result } : {}) }] }];
+  }, [messages, pendingApproval, given, login]);
 
   const runtime = useExternalStoreRuntime<ChatMessage>({
     messages: shown,
@@ -509,5 +708,40 @@ export function useAgentChat(opts: {
     adapters: { attachments },
   });
 
-  return { runtime, whileBusy };
+  const history = useMemo(
+    () => ({
+      hasOlder: more,
+      loading: loadingOlder,
+      loadOlder: async () => {
+        const conv = ownConversation.current;
+        const open = conv ? windows.get(conv) : undefined;
+        if (!conv || !open) return;
+        setLoadingOlder(true);
+        try {
+          const rows = await get<StoredMessage[]>(`/api/conversations/${conv}/messages?avant=${open.from}&limit=${PAGE}`);
+          if (ownConversation.current !== conv) return;
+          const next = { from: rows[0]?.id ?? open.from, more: rows.length >= PAGE };
+          windows.set(conv, next);
+          setMore(next.more);
+          setMessages((cur) => [...rows.map(fromStored), ...cur]);
+        } finally {
+          setLoadingOlder(false);
+        }
+      },
+      react: (id: string, stored: number, emoji: string | null) => {
+        const conv = ownConversation.current;
+        if (!conv) return;
+        setMessages((cur) => cur.map((m) => (m.id === id ? { ...m, reactions: { ...m.reactions, user: emoji ?? undefined } } : m)));
+        void send<{ question?: boolean }>(`/api/conversations/${conv}/messages/${stored}/reaction`, { emoji }, "PUT")
+          .then((r) => (r?.question ? refreshNow() : undefined)) // 👎 : sa question arrive tout de suite dans le fil
+          .catch(() => {});
+      },
+    }),
+    [more, loadingOlder, refreshNow],
+  );
+
+  // En deux mots, ce que fait l'agent : affiché près de son nom, sur le web, le bureau et le téléphone.
+  const status = serverNow.accord ? null : isRunning ? liveLabel : serverNow.occupe ? serverNow.activite : null;
+
+  return { runtime, whileBusy, history, status };
 }

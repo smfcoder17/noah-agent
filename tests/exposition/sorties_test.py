@@ -58,7 +58,12 @@ print(f"1. {read} manifestes et verrous de paquets lus : aucun paquet de télém
 KNOWN = {
     # Grille : fournisseur de modèle choisi (un seul à la fois, voir plus bas)
     "openrouter.ai": "fournisseur", "api.openai.com": "fournisseur", "api.anthropic.com": "fournisseur",
-    "generativelanguage.googleapis.com": "fournisseur", "ollama.com": "fournisseur",
+    "generativelanguage.googleapis.com": "fournisseur", "ollama.com": "fournisseur", "api.mammouth.ai": "fournisseur",
+    # Modèle de décision choisi par le propriétaire, avec sa clé (decision.py)
+    "api.typesafe.ai": "fournisseur",
+    # Lecteurs de vidéo dans le fil : rien ne se charge avant le clic de la personne (chatMedia.ts, exposition.py)
+    "www.youtube-nocookie.com": "vidéo au clic", "player.vimeo.com": "vidéo au clic", "platform.twitter.com": "vidéo au clic",
+    "www.tiktok.com": "vidéo au clic", "www.youtube.com": "vidéo au clic", "vimeo.com": "vidéo au clic", "www.instagram.com": "vidéo au clic",
     # Grille : manifeste et registre des mises à jour
     "github.com": "mises à jour", "raw.githubusercontent.com": "installation (get.sh)", "get.docker.com": "installation (get.sh)",
     # Déclarés dans /api/flux, hors de la liste de la grille
@@ -66,6 +71,9 @@ KNOWN = {
     # Seulement si l'utilisateur branche son compte Google à un agent (déclaré dans /api/flux)
     "accounts.google.com": "à la demande", "oauth2.googleapis.com": "à la demande", "www.googleapis.com": "à la demande",
     "gmail.googleapis.com": "à la demande",  # relevé d'une veille ou d'une routine, depuis la machine de l'agent
+    # Seulement si la personne connecte Instagram ou X à un agent (déclaré dans /api/flux, ligne de l'outil)
+    "graph.instagram.com": "à la demande", "api.x.com": "à la demande", "x.com": "lien montré",
+    "developers.facebook.com": "lien montré", "console.x.com": "lien montré",
     "console.cloud.google.com": "lien montré", "mail.google.com": "lien montré",
     # Noms sans trafic : adresses d'exemple, espaces de noms, liens de documentation
     "noah.exemple.com": "exemple", "noah.invalid": "exemple", "mcp.exemple.fr": "exemple",

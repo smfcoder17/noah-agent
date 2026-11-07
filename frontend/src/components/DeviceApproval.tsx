@@ -1,7 +1,8 @@
+import type React from "react";
 // « Autoriser cet appareil » : l'app de bureau (ou une autre app) a ouvert Noah dans le navigateur avec #autoriser=<id>.
 // L'utilisateur, déjà connecté ici, voit quel appareil demande l'accès et décide. Le mot de passe ne passe jamais par l'app.
 import { Laptop, Loader2, Smartphone } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { ApiError, get, send } from "@/lib/api";
 import { Button, ErrorText } from "./ui";
 import { GrantProof } from "./GrantProof";
@@ -62,6 +63,8 @@ export function DeviceApproval() {
       await send(`/api/pairing/flow/${id}/${decision}`, { verification: code, motdepasse: password, code: secondCode });
       sessionStorage.removeItem(KEY);
       setState(decision === "autoriser" ? "ok" : "no");
+      // Plus rien à faire ici quand l'app n'attend aucun nombre : l'onglet se ferme si le navigateur le permet.
+      if (decision === "refuser" || !req?.verification) setTimeout(() => window.close(), 1500);
     } catch (e) {
       setSecondCode(""); // un code ne sert qu'une fois : le suivant, s'il faut recommencer
       if (e instanceof ApiError && e.status === 428) { // page restée ouverte plus de 15 minutes : le serveur veut la preuve
@@ -73,12 +76,32 @@ export function DeviceApproval() {
     }
   };
   const proven = !req?.preuve_requise || (password !== "" && (!req.code_requis || secondCode !== ""));
+  // Le clavier reste dans la fenêtre : le chat derrière n'est pas atteignable.
+  const box = useRef<HTMLDivElement>(null);
+  const shown = !(!id || state === "no" || (!req && !error));
+  useEffect(() => {
+    if (shown) box.current?.focus();
+  }, [shown]);
+  const keys = (e: React.KeyboardEvent) => {
+    if (e.key === "Escape") return close();
+    if (e.key !== "Tab" || !box.current) return;
+    const all = [...box.current.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), a[href]")];
+    if (!all.length) return;
+    const [first, last] = [all[0], all[all.length - 1]];
+    if (e.shiftKey && (document.activeElement === first || document.activeElement === box.current)) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
 
   if (!id || state === "no" || (!req && !error)) return null;
   const Icon = req?.type === "android" || req?.type === "ios" ? Smartphone : Laptop;
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
-      <div role="dialog" aria-modal="true" aria-labelledby="approval-title" className="flex w-full max-w-sm flex-col gap-4 rounded-2xl border border-border bg-surface p-6 shadow-lg">
+      <div ref={box} tabIndex={-1} onKeyDown={keys} role="dialog" aria-modal="true" aria-labelledby="approval-title" className="outline-none flex w-full max-w-sm flex-col gap-4 rounded-2xl border border-border bg-surface p-6 shadow-lg">
         {state === "ok" ? (
           <>
             <h2 id="approval-title" className="text-lg font-semibold">Appareil autorisé</h2>
@@ -134,7 +157,7 @@ export function DeviceApproval() {
           </>
         ) : (
           <>
-            <h2 id="approval-title" className="text-lg font-semibold">Demande expirée</h2>
+            <h2 id="approval-title" className="text-lg font-semibold">Demande impossible</h2>
             <ErrorText>{error}</ErrorText>
             <Button className="self-end" onClick={close}>Fermer</Button>
           </>

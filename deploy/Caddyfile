@@ -29,6 +29,8 @@
 		format filter {
 			request>uri query {
 				delete installation
+				delete code
+				delete state
 			}
 			request>headers>Referer delete
 		}

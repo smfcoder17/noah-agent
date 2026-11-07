@@ -10,7 +10,8 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/api": { target: "http://localhost:8080", ws: true, changeOrigin: true },
+      // L'origine devient celle du serveur : sinon il refuse les requêtes qui changent quelque chose (« elle ne vient pas de Noah »).
+      "/api": { target: "http://localhost:8080", ws: true, changeOrigin: true, headers: { origin: "http://localhost:8080" } },
     },
   },
   build: { outDir: "dist", assetsDir: "assets" },

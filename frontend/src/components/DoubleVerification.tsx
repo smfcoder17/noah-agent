@@ -1,4 +1,4 @@
-// Réglages > Sécurité : la double vérification de ce compte. Activer demande le mot de passe, puis un premier code ; les codes
+// Réglages > Compte : la double vérification de ce compte. Activer demande le mot de passe, puis un premier code ; les codes
 // de secours ne se montrent qu'une fois. Couper demande le mot de passe et un code (server/noah/double_verification.py).
 import { Check, Copy, ShieldCheck } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
