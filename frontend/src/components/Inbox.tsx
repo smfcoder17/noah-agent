@@ -52,7 +52,7 @@ export function Inbox({ open, agents, onOpenChange, onOpenConversation }: {
           <ErrorText>{error}</ErrorText>
           {!items && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture…</p>}
           {items?.length === 0 && <p className="py-4 text-sm text-muted-foreground">Rien ne t'attend pour le moment.</p>}
-          <ul className="flex max-h-[60vh] flex-col gap-2 overflow-y-auto">
+          <ul className="flex max-h-[60vh] flex-col gap-2 overflow-y-auto max-md:max-h-none max-md:overflow-visible">
             {items?.map((item) => {
               const agent = agents.find((a) => a.id === item.agent_id);
               return (
@@ -65,6 +65,7 @@ export function Inbox({ open, agents, onOpenChange, onOpenConversation }: {
                         {item.connexion ? "Attend ta connexion" : item.etat === "approve" ? "Attend ton accord" : "Attend ton choix"}
                       </span>
                       <span className="text-sm font-medium">{item.demande}</span>
+                      {item.pourquoi && <span className="text-xs text-muted-foreground">{item.pourquoi}</span>}
                       {item.apercu.map((line) => <span key={line} className="truncate text-xs text-muted-foreground">« {line} »</span>)}
                       <span className="truncate text-xs text-muted-foreground">{item.agent}{item.main ? "" : ` · ${item.titre}`}</span>
                     </span>

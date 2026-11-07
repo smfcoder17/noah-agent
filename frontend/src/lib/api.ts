@@ -211,7 +211,7 @@ export type AgentUsage = {
 };
 /** L'agent a besoin d'une connexion : ce que la carte montre vient de la vraie page, jamais d'un texte de l'agent. */
 export type LoginAsked = { id: string; type: "connexion" | "code"; site: string; origine: string; chiffre: boolean; identifiant_requis: boolean };
-export type InboxItem = { agent_id: string; agent: string; conversation_id: string; titre: string; main: boolean; a_moi: boolean; etat: "approve" | "choice"; demande: string; apercu: string[]; request_id?: string; generation?: number; run_id?: string; connexion?: LoginAsked | null };
+export type InboxItem = { agent_id: string; agent: string; conversation_id: string; titre: string; main: boolean; a_moi: boolean; etat: "approve" | "choice"; demande: string; pourquoi?: string; apercu: string[]; request_id?: string; generation?: number; run_id?: string; connexion?: LoginAsked | null };
 export type Usage = {
   month_cost: number;
   budget: number | null;

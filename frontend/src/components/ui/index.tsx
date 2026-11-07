@@ -3,7 +3,7 @@ import * as DialogPrimitive from "@radix-ui/react-dialog";
 import * as TabsPrimitive from "@radix-ui/react-tabs";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
-import { X } from "lucide-react";
+import { ChevronLeft, X } from "lucide-react";
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
@@ -83,8 +83,11 @@ export function DialogContent({
   children,
   title,
   description,
+  onBack,
   ...props
-}: React.ComponentProps<typeof DialogPrimitive.Content> & { title: string; description?: string }) {
+}: React.ComponentProps<typeof DialogPrimitive.Content> & { title: string; description?: string; onBack?: () => void }) {
+  // Sur un téléphone, une fenêtre est un écran entier : la flèche en haut à gauche revient en arrière (ou ferme), et le bas
+  // laisse la place aux boutons du système, pour que « Enregistrer » reste à portée du doigt.
   return (
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/45 data-[state=open]:animate-in" />
@@ -92,11 +95,19 @@ export function DialogContent({
         className={cn(
           "fixed left-1/2 top-1/2 z-50 flex max-h-[calc(100dvh-24px)] w-[calc(100vw-24px)] max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-y-auto rounded-2xl border border-border bg-surface p-6 shadow-2xl",
           className,
+          "max-md:inset-0 max-md:h-dvh max-md:max-h-none max-md:w-full max-md:max-w-none max-md:translate-x-0 max-md:translate-y-0 max-md:rounded-none max-md:border-0 max-md:px-4 max-md:pt-[max(12px,env(safe-area-inset-top))] max-md:pb-[max(32px,calc(env(safe-area-inset-bottom)+24px))] max-md:shadow-none",
         )}
         {...props}
       >
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex flex-col gap-1">
+        <div className="flex items-start justify-between gap-4 max-md:sticky max-md:-top-3 max-md:z-10 max-md:-mx-4 max-md:-mt-3 max-md:justify-start max-md:gap-2 max-md:bg-surface max-md:px-2 max-md:pt-3 max-md:pb-1">
+          {onBack ? (
+            <Button variant="ghost" size="icon-sm" aria-label="Retour" onClick={onBack} className="md:hidden"><ChevronLeft /></Button>
+          ) : (
+            <DialogPrimitive.Close asChild>
+              <Button variant="ghost" size="icon-sm" aria-label="Retour" className="md:hidden"><ChevronLeft /></Button>
+            </DialogPrimitive.Close>
+          )}
+          <div className="flex min-w-0 flex-col gap-1 max-md:pt-0.5">
             <DialogPrimitive.Title className="text-lg font-semibold">{title}</DialogPrimitive.Title>
             {description ? (
               <DialogPrimitive.Description className="text-sm text-muted-foreground">{description}</DialogPrimitive.Description>
@@ -105,7 +116,7 @@ export function DialogContent({
             )}
           </div>
           <DialogPrimitive.Close asChild>
-            <Button variant="ghost" size="icon-sm" aria-label="Fermer">
+            <Button variant="ghost" size="icon-sm" aria-label="Fermer" className="max-md:hidden">
               <X />
             </Button>
           </DialogPrimitive.Close>

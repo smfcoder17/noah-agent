@@ -1359,7 +1359,7 @@ def inbox(user: int = Depends(auth.current_user)):
         asked = task_approval.get(conv_id) or {}
         out.append({"agent_id": row["agent_id"], "agent": row["name"], "conversation_id": conv_id, "titre": row["title"], "main": bool(row["main"]), "a_moi": row["user_id"] == user, "etat": state,
                     "demande": str(asked.get("demande") or ("Une action demande ton accord." if state == "approve" else "Une question attend ta réponse.")),
-                    "apercu": list(asked.get("apercu") or [])[:3],
+                    "apercu": list(asked.get("apercu") or [])[:3], "pourquoi": str(asked.get("pourquoi") or ""),
                     **{k: asked[k] for k in ("request_id", "generation", "run_id") if k in asked}})
     return out
 

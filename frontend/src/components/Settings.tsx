@@ -1,6 +1,6 @@
 // Réglages : le cerveau des agents, les modèles de création (image, vidéo, musique), la voix et le téléphone.
 // Chaque type peut rester en « Automatique » : Noah Agent prend le meilleur modèle disponible avec la clé.
-import { ArrowLeft, Check, ChevronRight, Loader2, Play } from "lucide-react";
+import { Check, ChevronRight, Loader2, Play } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { get, request, send } from "@/lib/api";
 import { noahPaused, setNoahPaused } from "@/lib/noahFace";
@@ -71,7 +71,7 @@ export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainS
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {open && (
-        <DialogContent title="Réglages" description={rubric.id === "models" && !home ? "Les clés restent chiffrées sur cette machine. Les agents ne les voient jamais : ils passent par Noah Agent." : undefined} className="max-w-4xl">
+        <DialogContent title={home ? "Réglages" : rubric.label} onBack={home ? undefined : () => onTab("home")} description={rubric.id === "models" && !home ? "Les clés restent chiffrées sur cette machine. Les agents ne les voient jamais : ils passent par Noah Agent." : undefined} className="max-w-4xl">
           {home ? (
             <nav aria-label="Rubriques" className="flex flex-col">
               {all.map((r) => (
@@ -81,7 +81,6 @@ export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainS
               ))}
             </nav>
           ) : (<>
-          <button type="button" onClick={() => onTab("home")} className="flex cursor-pointer items-center gap-1.5 self-start text-sm font-medium md:hidden"><ArrowLeft className="size-4" />{rubric.label}</button>
           <Tabs value={rubric.id} onValueChange={(id) => onTab(all.find((r) => r.id === id)!.tabs[0][0])} className="self-start max-md:hidden">
             <TabsList aria-label="Rubriques" className="flex-wrap">
               {all.map((r) => <TabsTrigger key={r.id} value={r.id}>{r.label}</TabsTrigger>)}
