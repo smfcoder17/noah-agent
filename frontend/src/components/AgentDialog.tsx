@@ -95,7 +95,7 @@ function AgentForm({ agent, onSaved, onDeleted, onCancel }: { agent: Agent | nul
       </div>
       <Label>
         Nom
-        <Input required maxLength={40} placeholder="Ex. Noah, Dots, Grok Bot" value={name} onChange={(e) => setName(e.target.value)} />
+        <Input required maxLength={40} placeholder="Ex. Léa, Assistant courriels, Veille" value={name} onChange={(e) => setName(e.target.value)} />
       </Label>
       <div className="relative">
         <Label>

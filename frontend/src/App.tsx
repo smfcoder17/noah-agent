@@ -1,6 +1,6 @@
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import { QuoteContext, useQuoteState } from "@/lib/quotes";
-import { ArrowLeft, Bug, MonitorPlay, PanelRight, Plus, MessageCircle, Inbox as InboxIcon, Settings as SettingsIcon, Users } from "lucide-react";
+import { ArrowLeft, Bug, MonitorPlay, PanelRight, Plus, MessageCircle, Inbox as InboxIcon, Settings as SettingsIcon, Users, Clock, FolderOpen } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AuthScreen, TemporaryPassword } from "@/components/AuthScreen";
 import { CallScreen, type CallReport } from "@/components/Call";
@@ -27,6 +27,9 @@ import { clearShare, pendingShare } from "@/lib/share";
 import { appShell, tooOld } from "@/lib/platform";
 import { forgetPushSession, reconcilePush } from "@/lib/push";
 import { useAgentChat } from "@/lib/useAgentChat";
+import { MODE_NAMES, type ModeId, readableModel } from "@/lib/modes";
+import { AgentBrain } from "./components/AgentBrain";
+import { Dialog, DialogContent } from "./components/ui";
 import { cn } from "@/lib/utils";
 
 // Chargés à la première ouverture : le premier écran n'attend que le chat.
@@ -296,6 +299,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const [panel, setPanel] = useState<PanelTab | null>(null);
   const [liveStatus, setLiveStatus] = useState<string | null>(null);
   const [agentDialog, setAgentDialog] = useState<{ open: boolean; agent: Agent | null }>({ open: false, agent: null });
+  const [modelDialog, setModelDialog] = useState(false);
   const [settings, setSettings] = useState<SettingsTab | null>(null);
   const [details, setDetails] = useState(false);
   const [inbox, setInbox] = useState(false);
@@ -437,7 +441,12 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   };
 
   const state = shown?.state ?? "idle";
-  const door = settings ? "Réglages" : inbox ? "À toi" : sidebarOpen ? "Agents" : "Discussion";
+  useEffect(() => {
+    const open = () => setModelDialog(true);
+    window.addEventListener("noah:choisir-modele", open);
+    return () => window.removeEventListener("noah:choisir-modele", open);
+  }, []);
+  const door = settings ? "Réglages" : sidebarOpen ? "Agents" : panel === "files" ? "Fichiers" : panel === "routines" ? "Tâches" : "Discussion";
   const waiting = agents.reduce((n, a) => n + (a.tasks?.approve ?? 0) + (a.tasks?.choice ?? 0), 0);
   const openFromInbox = (item: InboxItem) => {
     setInbox(false);
@@ -475,6 +484,10 @@ function Shell({ onLogout }: { onLogout: () => void }) {
             onInbox={() => setInbox(true)}
             onGoals={() => {
               setGoals(true);
+              setSidebarOpen(false);
+            }}
+            onOpen={(tab) => {
+              setPanel(tab);
               setSidebarOpen(false);
             }}
             owner={me?.role === "owner"}
@@ -516,6 +529,10 @@ function Shell({ onLogout }: { onLogout: () => void }) {
               </p>
               </div>
             </div>
+            <Button variant="ghost" size="icon-sm" className="relative md:hidden" onClick={() => setInbox(true)} aria-label={waiting ? `À toi : ${waiting} en attente` : "À toi"} title="À toi">
+              <InboxIcon />
+              {waiting > 0 && <span className="absolute -top-0.5 -right-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-warn px-1 text-[10px] font-semibold text-surface">{waiting}</span>}
+            </Button>
             {agent && !thread && <AgentMenu agent={agent} onOpen={setPanel} onEdit={() => setAgentDialog({ open: true, agent })} />}
             {agent && !agent.online && !agent.step && canAdmin(agent) && (
               <Button variant="outline" size="sm" className="shrink-0" onClick={() => send(`/api/agents/${agent.id}/repair`, {}).then(refreshAgents).catch(() => {})}>
@@ -592,10 +609,11 @@ function Shell({ onLogout }: { onLogout: () => void }) {
             )}
           </div>
           {/* Sur un téléphone : les quatre portes, toujours au même endroit. Elles laissent la place au clavier. */}
-          <nav aria-label="Navigation" className="grid grid-cols-4 border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] md:hidden [body:has(textarea:focus)_&]:hidden">
+          <nav aria-label="Navigation" className="grid grid-cols-5 border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] md:hidden [body:has(textarea:focus)_&]:hidden">
             {([
               ["Discussion", MessageCircle, () => { setPanel(null); setSidebarOpen(false); }, 0],
-              ["À toi", InboxIcon, () => setInbox(true), waiting],
+              ["Fichiers", FolderOpen, () => { setSidebarOpen(false); setPanel("files"); }, 0],
+              ["Tâches", Clock, () => { setSidebarOpen(false); setPanel("routines"); }, 0],
               ["Agents", Users, () => setSidebarOpen(true), 0],
               ["Réglages", SettingsIcon, () => setSettings("home"), 0],
             ] as const).map(([label, Icon, go, count]) => (
@@ -610,7 +628,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
         {/* Panneau de l'agent */}
         {panel && agent && (
           <Suspense fallback={null}>
-          <aside className="fixed inset-y-0 right-0 z-30 min-h-0 w-full border-l border-border bg-surface shadow-2xl sm:w-[min(520px,92vw)] xl:static xl:z-auto xl:w-auto xl:shadow-none">
+          <aside className="fixed inset-y-0 right-0 z-30 min-h-0 w-full max-md:bottom-[calc(54px+env(safe-area-inset-bottom))] border-l border-border bg-surface shadow-2xl sm:w-[min(520px,92vw)] xl:static xl:z-auto xl:w-auto xl:shadow-none">
             <Boundary label="Le panneau de l'agent">
             <SidePanel
               agent={agent}
@@ -640,6 +658,15 @@ function Shell({ onLogout }: { onLogout: () => void }) {
         )}
 
         <Suspense fallback={null}>
+        {agent && (
+          <Dialog open={modelDialog} onOpenChange={setModelDialog}>
+            {modelDialog && (
+              <DialogContent title={`Modèle de ${agent.name}`} description={`Aujourd'hui : ${agent.mode ? MODE_NAMES[agent.mode as ModeId] ?? agent.mode : readableModel(agent.model) || "celui de tous tes agents"}. Le changement vaut pour cet agent seulement, tout de suite.`} className="max-w-xl">
+                <AgentBrain agentId={agent.id} own={agent.model} mode={agent.mode} reasoning={agent.raisonnement} onChanged={() => { refreshAgents(); setModelDialog(false); }} openKey={1} bare />
+              </DialogContent>
+            )}
+          </Dialog>
+        )}
         {agentDialog.open && <AgentDialog
           open={agentDialog.open}
           agent={agentDialog.agent}
@@ -755,6 +782,7 @@ function AgentChat(props: ChatProps) {
   const { readOnly } = props;
   const color = agentColor(props.agent);
   const { shape, detail } = props.agent;
+  const model = props.agent.mode ? MODE_NAMES[props.agent.mode as ModeId] ?? props.agent.mode : readableModel(props.agent.model);
   const context = useMemo(
     () => ({
       say,
@@ -763,6 +791,7 @@ function AgentChat(props: ChatProps) {
       agentColor: color,
       agentShape: shape ?? "",
       agentDetail: detail ?? "",
+      agentModel: model,
       details: props.details,
       conversationId: props.conversationId,
       hint: role ? role.slice(0, 180) : "Pose une question, confie une tâche ou envoie un fichier.",
@@ -770,7 +799,7 @@ function AgentChat(props: ChatProps) {
       canWatch: canAdmin(props.agent),
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [say, id, name, color, shape, detail, props.details, role, readOnly, props.conversationId, canAdmin(props.agent)],
+    [say, id, name, color, shape, detail, model, props.details, role, readOnly, props.conversationId, canAdmin(props.agent)],
   );
   return (
     <AssistantRuntimeProvider runtime={runtime}>

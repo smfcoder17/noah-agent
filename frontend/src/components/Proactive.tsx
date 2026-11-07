@@ -7,9 +7,9 @@ import { Section } from "./AgentPowers";
 import { Button, ErrorText } from "./ui";
 
 const MODES: [ProactiveMode, string, string][] = [
-  ["coupe", "Coupé", "Il attend que tu lui parles. Tes routines et tes veilles continuent."],
-  ["signaler", "Me signaler", "Il regarde ce qu'il peut lire et tes objectifs. Il prépare et te propose, sans rien changer dehors."],
-  ["agir", "Agir et me dire", "Il s'en occupe et te dit ce qu'il a fait. Les droits de tes connexions et les accords restent valables."],
+  ["coupe", "Rien", "Il attend que tu lui parles. Tes routines et tes veilles continuent."],
+  ["signaler", "Me prévenir", "Il regarde ce qu'il peut lire et tes objectifs. Il prépare et te propose, sans rien changer dehors."],
+  ["agir", "Agir et me prévenir", "Il s'en occupe et te dit ce qu'il a fait. Les droits de tes connexions et les accords restent valables."],
 ];
 const EVERY: [number, string][] = [[15, "Toutes les 15 min"], [30, "Toutes les 30 min"], [60, "Toutes les heures"], [120, "Toutes les 2 h"], [180, "Toutes les 3 h"], [360, "Toutes les 6 h"]];
 const OUTCOME: Record<string, string> = {
@@ -73,7 +73,7 @@ export function Proactive({ agentId }: { agentId: string }) {
   };
 
   return (
-    <Section title="De lui-même" defaultOpen>
+    <Section title="Quand tu ne lui parles pas" defaultOpen>
       {!s && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture…</p>}
       {s && (
         <>

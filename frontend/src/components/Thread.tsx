@@ -11,12 +11,12 @@ import {
   useAuiState,
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
-import { ArrowDown, ArrowUp, Check, ChevronRight, ChevronUp, Copy, FileText, Loader2, Paperclip, Reply, SmilePlus, Square, TriangleAlert, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, ChevronRight, ChevronUp, Copy, FileText, Loader2, Paperclip, Reply, SmilePlus, Square, TriangleAlert, X, ChevronDown } from "lucide-react";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import remarkGfm from "remark-gfm";
 import { WhileBusyContext, AgentContext, HistoryContext } from "@/lib/agentContext";
 import { MOOD_FACE, moodLabel, moodOf, usePanelEnd, useMood, useWide } from "@/lib/chatMood";
-import { type LoginAsked, mediaUrl, rawFileUrl, send, type TraceDetail } from "@/lib/api";
+import { get, type LoginAsked, mediaUrl, rawFileUrl, send, type TraceDetail } from "@/lib/api";
 import { linkMessage, plainWidgets } from "@/lib/chatMedia";
 import { imageQuote, splitQuotes, useQuotes } from "@/lib/quotes";
 import { ConversationRail } from "./ConversationRail";
@@ -30,6 +30,7 @@ import { Button } from "./ui";
 import { canFrame, useDownload, useViewer } from "./Viewer";
 import { AttachPosition } from "./PhoneSettings";
 import { DictateButton, useDictation, VoiceMode, VoiceModeButton } from "./Voice";
+import { readableModel } from "@/lib/modes";
 import { NoahWidget } from "./Widgets";
 
 // Sur téléphone, le focus ouvrirait le clavier à chaque conversation, et par-dessus un appel.
@@ -122,6 +123,25 @@ function MarkdownText() {
 }
 
 // --- Parties « outil » : activité, approbation, erreur, détails techniques -------------
+
+/** Le modèle de l'agent sous la saisie : un geste ouvre le choix. Seulement pour qui peut le changer. */
+let generalModel: Promise<string> | null = null; // le modèle de tous, lu une fois
+function ModelChip() {
+  const { agentModel, canWatch, readOnly } = useContext(AgentContext);
+  const [general, setGeneral] = useState("");
+  useEffect(() => {
+    if (agentModel) return;
+    generalModel ??= get<{ model?: string } | null>("/api/model").then((m) => readableModel(m?.model ?? "")).catch(() => "");
+    generalModel.then(setGeneral);
+  }, [agentModel]);
+  if (!canWatch || readOnly) return null;
+  return (
+    <button type="button" onClick={() => window.dispatchEvent(new Event("noah:choisir-modele"))} title="Changer de modèle"
+      className="flex h-9 max-w-40 shrink-0 cursor-pointer items-center gap-1 truncate rounded-lg px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground">
+      <span className="truncate">{agentModel || general || "Modèle"}</span><ChevronDown className="size-3.5 shrink-0" />
+    </button>
+  );
+}
 
 /** La ligne de travail : une seule, remplacée à chaque étape, retirée quand l'agent a fini. */
 function Activity({ args }: ToolCallMessagePartProps) {
@@ -632,6 +652,7 @@ function Composer({ onVoiceMode, inCall }: { onVoiceMode: () => void; inCall: bo
           </Button>
         </ComposerPrimitive.AddAttachment>
         <AttachPosition />
+        <ModelChip />
         <ComposerPrimitive.Input
           data-composer-input
           rows={1}

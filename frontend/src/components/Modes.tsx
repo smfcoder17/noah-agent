@@ -37,7 +37,7 @@ export function ModelRow({ m, selected, onPick }: { m: Pick<Model, "id" | "name"
       <ProviderLogo modelId={m.id} />
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="truncate font-medium">{shortName(m.name)}</span>
-        <span className="truncate font-mono text-[11px] text-muted-foreground">{m.id}</span>
+        {m.id.includes("/") && <span className="truncate text-xs text-muted-foreground" title={m.id}>{readableModel(m.id.split("/")[0]).replace(/^./, (c) => c.toUpperCase())}</span>}
       </span>
       {m.vision && <Eye className="size-3.5 shrink-0 text-muted-foreground" aria-label="Voit les images" />}
       {m.context ? <span className="hidden w-14 shrink-0 text-right text-xs text-muted-foreground tabular-nums sm:block">{contextSize(m.context)}</span> : null}

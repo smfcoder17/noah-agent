@@ -792,7 +792,7 @@ function AppRow({ agentId, app, waiting, onWait, onChange, onError, extra }: { a
       {app.installe && app.connecte && app.erreur && <p className="text-xs text-danger">{app.erreur}</p>}
       {app.installe && app.connecte && (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>Droit de l'agent</span>
+          <span>Ce qu'il peut faire</span>
           <RightSelect agentId={agentId} name={app.nom} droit={app.droit ?? "confirmer"} onChange={onChange} onError={onError} />
         </div>
       )}
@@ -884,7 +884,7 @@ function ToolRow({ agentId, tool, waiting, onWait, onChange, onError, extra }: {
       </div>
       {tool.erreur && <p className="text-xs text-danger">{tool.erreur} L'agent le sait et continue sans cet outil.</p>}
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        <span>Droit de l'agent</span>
+        <span>Ce qu'il peut faire</span>
         <RightSelect agentId={agentId} name={tool.nom} droit={tool.droit} onChange={onChange} onError={onError} />
         {tool.outils.length > 0 && <span title={tool.outils.map((o) => o.nom).join(", ")}>{tool.outils.length} outil{tool.outils.length > 1 ? "s" : ""}</span>}
       </div>

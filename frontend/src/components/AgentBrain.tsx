@@ -9,7 +9,7 @@ import { Button, ErrorText } from "./ui";
 
 const AGENT_MODES: ModeId[] = ["fast", "balanced", "smart", "gratuit", "custom"];
 
-export function AgentBrain({ agentId, own, mode, reasoning, onChanged, openKey = 0 }: { agentId: string; own: string | null | undefined; mode?: string | null; reasoning?: string | null; onChanged: () => void; openKey?: number }) {
+export function AgentBrain({ agentId, own, mode, reasoning, onChanged, openKey = 0, bare = false }: { agentId: string; own: string | null | undefined; mode?: string | null; reasoning?: string | null; onChanged: () => void; openKey?: number; bare?: boolean }) {
   const [base, setBase] = useState<CurrentModel>(null);
   const [state, setState] = useState<ModesState | null>(null);
   const [open, setOpen] = useState(false);
@@ -53,15 +53,15 @@ export function AgentBrain({ agentId, own, mode, reasoning, onChanged, openKey =
   const current = own || base?.model || "—";
   return (
     <div className="flex flex-col gap-2 text-sm">
-      <div className="flex items-center gap-2">
+      <div className={bare ? "hidden" : "flex items-center gap-2"}>
         <span className="text-muted-foreground">Modèle :</span>
         <span className="min-w-0 flex-1 truncate font-medium" title={current}>{mode ? MODE_NAMES[mode as ModeId] ?? mode : readableModel(current)}</span>
         {!own && !mode && base && <span className="text-xs text-muted-foreground">(celui de tous)</span>}
         <Button variant="ghost" size="sm" onClick={() => setOpen(!open)} aria-expanded={open}>{open ? "Fermer" : "Changer"}</Button>
       </div>
       {open && (
-        <div className="flex flex-col gap-2 rounded-lg border border-border p-2.5">
-          <p className="text-xs text-muted-foreground">Pour cet agent seulement. C'est immédiat : ses conversations restent.</p>
+        <div className={bare ? "flex flex-col gap-2" : "flex flex-col gap-2 rounded-lg border border-border p-2.5"}>
+          {!bare && <p className="text-xs text-muted-foreground">Pour cet agent seulement. C'est immédiat : ses conversations restent.</p>}
           <div className="flex flex-wrap gap-1.5">
             <Button variant={!own && !mode ? "default" : "outline"} size="sm" disabled={busy} onClick={() => pick({ model: null })}>Celui de tous</Button>
             {AGENT_MODES.map((id) => (

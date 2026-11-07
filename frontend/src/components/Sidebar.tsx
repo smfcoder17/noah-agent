@@ -1,5 +1,5 @@
 // Colonne de gauche : ce qui attend la personne, puis les agents. Clic droit (ou « ⋯ ») pour épingler ou personnaliser.
-import { Inbox as InboxIcon, LogOut, MoreHorizontal, Palette, Pin, PinOff, Plus, Settings, Target, Users, X } from "lucide-react";
+import { Clock, FolderOpen, Inbox as InboxIcon, LogOut, MoreHorizontal, Palette, Pin, PinOff, Plug, Plus, Settings, Target, Users, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { type Agent, canAdmin, type TaskState, type Usage } from "@/lib/api";
 import { cn, money } from "@/lib/utils";
@@ -63,6 +63,8 @@ export function Sidebar(props: {
   waiting: number;
   onInbox: () => void;
   onGoals: () => void;
+  /** Ouvre un onglet du panneau de l'agent affiché : fichiers, routines, connexions. */
+  onOpen?: (tab: "files" | "routines" | "connections") => void;
   owner: boolean;
   onClose: () => void;
   onSelectAgent: (id: string) => void;
@@ -112,6 +114,16 @@ export function Sidebar(props: {
         <span className="grid size-10 place-items-center"><Target className="size-4" /></span>
         <span className="flex-1">Objectifs</span>
       </button>
+      {props.onOpen && ([
+        ["files", "Fichiers", FolderOpen],
+        ["routines", "Tâches programmées", Clock],
+        ["connections", "Connexions", Plug],
+      ] as const).map(([tab, label, Icon]) => (
+        <button key={tab} type="button" onClick={() => props.onOpen?.(tab)} className="-mt-3 flex cursor-pointer items-center gap-3 rounded-xl px-2 py-2 text-left text-sm font-medium hover:bg-surface/70">
+          <span className="grid size-10 place-items-center"><Icon className="size-4" /></span>
+          <span className="flex-1">{label}</span>
+        </button>
+      ))}
       <nav aria-label="Agents" className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
         <h2 className="mb-1 px-2 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">Tes agents</h2>
         {agents.map((a, i) => {

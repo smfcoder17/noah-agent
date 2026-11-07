@@ -72,7 +72,7 @@ export function SidePanel({
             ["computer", "Ordinateur", Monitor, canTalk(agent)],
             ["memory", "Mémoire", Brain, admin],
           ] as const).filter((t) => t[3]).map(([value, label, Icon]) => (
-            <TabsTrigger key={value} value={value} aria-label={label}><Icon aria-hidden /><span className="max-sm:max-w-full max-sm:truncate">{label}</span></TabsTrigger>
+            <TabsTrigger key={value} value={value} aria-label={label} className={value === "competences" || value === "memory" ? "max-sm:hidden!" : undefined}><Icon aria-hidden /><span className="max-sm:max-w-full max-sm:truncate">{label}</span></TabsTrigger>
           ))}
         </TabsList>
         <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Fermer le panneau"><X /></Button>
@@ -248,6 +248,11 @@ function Details({ agent, onEdit, refreshKey, onAgentChanged, onTab, onGoals, ch
   const [spendingOpen, setSpendingOpen] = useState(false);
   const brainBox = useRef<HTMLDivElement>(null);
   const [brainOpen, setBrainOpen] = useState(0);
+  useEffect(() => {
+    const open = () => { setBrainOpen((n) => n + 1); setTimeout(() => brainBox.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); };
+    window.addEventListener("noah:ouvrir-modele", open);
+    return () => window.removeEventListener("noah:ouvrir-modele", open);
+  }, []);
   const spendingBox = useRef<HTMLDivElement>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
   useEffect(() => {
@@ -269,12 +274,12 @@ function Details({ agent, onEdit, refreshKey, onAgentChanged, onTab, onGoals, ch
           {agent.droit === "proprietaire" && <Button variant="outline" size="sm" onClick={() => setSharing(true)}><Users />Partager</Button>}
         </div>
       </div>
-      {agent.role && <p className="text-sm whitespace-pre-wrap text-muted-foreground">{agent.role}</p>}
       <ShareDialog agent={agent} open={sharing} onOpenChange={setSharing} onChanged={onAgentChanged} />
+      {/* Ce qu'il fait et ce qu'il a fait d'abord, comme le fil de Grok Bot ; la fiche (rôle, modèle, connexions…) ensuite. */}
+      {children}
       <AgentOverview agent={agent} refreshKey={refreshKey} spent={`${money(mine?.cost ?? 0)} $`} onTab={onTab} onEdit={onEdit} onGoals={onGoals}
         onBrain={() => { setBrainOpen((n) => n + 1); setTimeout(() => brainBox.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); }}
         onSpending={() => { setSpendingOpen(true); requestAnimationFrame(() => spendingBox.current?.scrollIntoView({ behavior: "smooth", block: "start" })); }} />
-      {children}
       <div ref={spendingBox}>
       <Section key={spendingOpen ? "ouverte" : "repliee"} defaultOpen={spendingOpen} title="Dépense" count={`${money(mine?.cost ?? 0)} $ ce mois-ci`}>
       <div className="grid grid-cols-2 gap-2">

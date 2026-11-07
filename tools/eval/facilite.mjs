@@ -60,7 +60,7 @@ const results = {};
 let cur;
 const shot = (name) => page.screenshot({ path: `${OUT}/${cur.id}/${String(cur.steps.length).padStart(2, "0")}-${name}.png` });
 // Un geste : ce que la personne fait, puis ce qu'elle voit une fois l'écran chargé (au plus 12 s). L'attente se compte à part.
-const LOADING = /^(Lecture|Chargement|Connexion à l'écran)…?$/;
+const LOADING = /^(?:(Lecture|Chargement|Connexion à l'écran)…?|…)$/;
 const act = async (what, fn, settle = 700) => {
   await fn();
   cur.steps.push(what);
@@ -76,9 +76,13 @@ const act = async (what, fn, settle = 700) => {
 const visible = async (loc) => {
   // Visible veut dire à l'écran : un tiroir replié hors de l'écran ne compte pas.
   try {
-    const box = (await loc.first().isVisible({ timeout: 1500 })) && (await loc.first().boundingBox());
+    await loc.first().waitFor({ state: "attached", timeout: 1500 });
     const width = page.viewportSize().width;
-    return !!box && box.x >= 0 && box.x + box.width <= width + 1;
+    for (const one of await loc.all()) {
+      const box = (await one.isVisible()) && (await one.boundingBox());
+      if (box && box.x >= 0 && box.x + box.width <= width + 1) return true;
+    }
+    return false;
   } catch { return false; }
 };
 const home = async () => {
@@ -91,6 +95,23 @@ const home = async () => {
     await page.locator("[data-composer-input]").waitFor({ timeout: 30000 });
     await page.waitForTimeout(1200);
   }
+};
+
+const door = (name) => page.getByRole("button", { name }).and(page.locator(":not([role=tab])"));
+const clickOnScreen = async (loc) => {
+  const width = page.viewportSize().width;
+  for (const one of await loc.all()) {
+    const box = (await one.isVisible()) && (await one.boundingBox());
+    if (box && box.x >= 0 && box.x + box.width <= width + 1) return one.click();
+  }
+  throw new Error("rien à l'écran");
+};
+const viaPanel = async (doorName, tabName, label) => {
+  const d = door(doorName);
+  cur.entree = await visible(d);
+  if (cur.entree) return act(label, () => clickOnScreen(d));
+  await act("panneau de l'agent", () => page.getByRole("button", { name: /Ouvrir le panneau/ }).first().click());
+  await act(`onglet ${label}`, () => page.getByRole("tab", { name: tabName }).first().click());
 };
 
 const RUNS = {
@@ -132,11 +153,8 @@ const RUNS = {
     await page.keyboard.press("Escape");
   },
   async A4() {
-    const panel = page.getByRole("button", { name: /Ouvrir le panneau/ });
-    cur.entree = await visible(page.getByRole("button", { name: /Connexions|Connecter un outil/ }));
-    await act("panneau de l'agent", () => panel.first().click());
-    await act("onglet Connexions", () => page.getByRole("tab", { name: /Connexions/ }).first().click());
-    const drive = page.getByText(/Google Drive/).first();
+    await viaPanel(/^Connexions$/, /Connexions/, "Connexions");
+    const drive = page.getByText(/^Google( Drive)?$/).first();
     if (!(await visible(drive))) await act("chercher Google", () => page.getByRole("textbox").last().fill("Google"));
     const btn = page.getByRole("button", { name: /Connecter|Ajouter/ }).first();
     cur.retour = await visible(btn);
@@ -156,17 +174,19 @@ const RUNS = {
     if (made) await api("POST", `/api/agents/${cur.agent}/routines/${made.id}/supprimer`);
   },
   async A6() {
-    cur.entree = await visible(page.getByRole("button", { name: /Routines/ }));
-    await act("panneau de l'agent", () => page.getByRole("button", { name: /Ouvrir le panneau/ }).first().click());
-    await act("onglet Routines", () => page.getByRole("tab", { name: /Routines/ }).first().click());
+    await viaPanel(/^(Tâches programmées|Tâches|Routines)$/, /Routines/, "Routines");
     cur.retour = await visible(page.getByText(/routine|Chaque|Tous les|Aucune/i));
   },
   async A7() {
-    cur.entree = await visible(page.getByRole("button", { name: /Fichiers/ }));
-    await act("panneau de l'agent", () => page.getByRole("button", { name: /Ouvrir le panneau/ }).first().click());
-    const tab = page.getByRole("tab", { name: /Fichiers/ });
-    if (!(await visible(tab))) await act("onglet Ordinateur", () => page.getByRole("tab", { name: /Ordinateur/ }).first().click());
-    else await act("onglet Fichiers", () => tab.first().click());
+    const d = door(/^Fichiers$/);
+    cur.entree = await visible(d);
+    if (cur.entree) await act("Fichiers", () => clickOnScreen(d));
+    else {
+      await act("panneau de l'agent", () => page.getByRole("button", { name: /Ouvrir le panneau/ }).first().click());
+      const tab = page.getByRole("tab", { name: /Fichiers/ });
+      if (!(await visible(tab))) await act("onglet Ordinateur", () => page.getByRole("tab", { name: /Ordinateur/ }).first().click());
+      else await act("onglet Fichiers", () => tab.first().click());
+    }
     const inner = page.getByRole("tab", { name: /^Fichiers$/ }).first(); // dans l'Ordinateur, quand le panneau n'a pas d'onglet Fichiers à lui
     if (cur.steps.includes("onglet Ordinateur") && (await visible(inner))) await act("Fichiers", () => inner.click());
     cur.retour = await visible(page.getByText(/essai-recu\.txt|\.png|\.txt|\.pdf/));
@@ -180,12 +200,15 @@ const RUNS = {
     if (cur.retour) await hang.first().click();
   },
   async A9() {
-    cur.entree = await visible(page.getByRole("button", { name: /Modèle/ }));
-    await act("panneau de l'agent", () => page.getByRole("button", { name: /Ouvrir le panneau/ }).first().click());
+    const chip = page.locator('button[title="Changer de modèle"]');
+    cur.entree = await visible(chip);
+    if (cur.entree) await act("modèle sous la saisie", () => clickOnScreen(chip), 1500);
+    else await act("panneau de l'agent", () => page.getByRole("button", { name: /Ouvrir le panneau/ }).first().click());
     const card = page.getByRole("button", { name: /^Modèle/ });
-    if (await visible(card)) await act("carte Modèle", () => card.first().click());
+    if (cur.entree) { /* déjà ouvert */ } else if (await visible(card)) await act("carte Modèle", () => card.first().click());
     else await act("Changer (Cerveau)", () => page.getByRole("button", { name: /^Changer$/ }).first().click());
-    const pick = page.getByRole("combobox").or(page.getByRole("listbox")).or(page.getByRole("radio"));
+    const pick = page.getByRole("button", { name: "Celui de tous" });
+    if (!(await visible(pick)) && (await visible(page.getByRole("button", { name: /^Changer$/ })))) await act("Changer", () => clickOnScreen(page.getByRole("button", { name: /^Changer$/ })));
     cur.retour = await visible(pick);
     if (cur.retour) cur.steps.push("choisir le modèle");
   },
