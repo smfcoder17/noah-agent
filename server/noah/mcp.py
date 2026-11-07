@@ -1,4 +1,4 @@
-"""Outils au choix (G13) : l'utilisateur branche un serveur MCP par son adresse, depuis Détails → Connexions.
+"""Outils au choix (G13) : l'utilisateur branche un serveur MCP par son adresse, depuis l'onglet Connexions de l'agent.
 
 Sans OAuth, Hermes ne parle pas au serveur : il parle à Noah (/agent-api/mcp/<nom>), qui parle au serveur. C'est le même
 schéma que le relais du modèle :
@@ -32,7 +32,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
-from . import access, auth, connexion, db, machine, relay
+from . import access, auth, connexion, db, machine, public, publication, relay
 
 router = APIRouter()
 
@@ -314,6 +314,11 @@ async def _open(url: str, token: str | None) -> str | None:
 
 
 async def _request(key: tuple, url: str, token: str | None, method: str, params: dict, seconds: float) -> dict:
+    if publication.ours(url):  # une plateforme que Noah sert lui-même : pas de serveur à joindre, le même droit et le même accord
+        try:
+            return await publication.request(key[0], url, token, method, params)
+        except publication.TokenRefused:
+            raise AuthNeeded() from None
     if key not in _sessions:
         _sessions[key] = await _open(url, token)
     payload = {"jsonrpc": "2.0", "id": 2, "method": method, "params": params}
@@ -373,7 +378,7 @@ def _rows(agent_id: str) -> list:
 
 def outbound(agent_id: str) -> list[dict]:
     """Les outils branchés sur cet agent et leur adresse, pour la liste de ce qui sort du serveur. Jamais le jeton."""
-    return [{"nom": r["nom"], "url": r["url"]} for r in _rows(agent_id)]
+    return [{"nom": r["nom"], "url": publication.real_url(r["url"])} for r in _rows(agent_id)]
 
 
 def _token(row) -> str | None:
@@ -635,7 +640,7 @@ async def set_networks(body: Networks, user: int = Depends(access.owner_only)):
     return {"reseaux": out}
 
 
-# --- État, lu par Détails → Connexions ---------------------------------------------------------------------------------
+# --- État, lu par l'onglet Connexions de l'agent ---------------------------------------------------------------------------------
 
 _MESSAGES = {"a_connecter": "Connexion à terminer.", "jeton_refuse": "Ce serveur refuse le jeton enregistré."}
 
@@ -675,7 +680,7 @@ async def connections_state(agent_id: str, apps: list[dict], personal: dict) -> 
         etat = health["etat"]
         if row["auth"] == "oauth" and not connected and etat == "ok":
             etat = "a_connecter"
-        tools.append({"nom": row["nom"], "url": row["url"], "auth": row["auth"], "jeton": bool(row["jeton"]), "droit": row["droit"],
+        tools.append({"nom": row["nom"], "url": publication.real_url(row["url"]), "compte": publication.account_of(_token(row)) if publication.ours(row["url"]) else "", "auth": row["auth"], "jeton": bool(row["jeton"]), "droit": row["droit"],
                       "etat": etat, "erreur": health["erreur"] or _MESSAGES.get(etat, ""), "connecte": connected,
                       "outils": _public_tools(json.loads(fresh["outils"] or "[]"))})
     installed = [a for a in apps if a.get("installe")]
@@ -702,6 +707,78 @@ async def connections_state(agent_id: str, apps: list[dict], personal: dict) -> 
     return {"outils": tools}
 
 
+# --- Publier par l'API : Instagram et X, branchés comme un outil -------------------------------------------------------
+
+class InstagramToken(BaseModel):
+    jeton: str = Field(min_length=20, max_length=4096)
+
+
+class XClient(BaseModel):
+    client_id: str = Field(min_length=8, max_length=200, pattern=r"^[\w.~-]+$")
+
+
+@router.get("/api/agents/{agent_id}/publication")
+async def publication_state(agent_id: str, request: Request, user: int = Depends(auth.current_user)):
+    """Ce que la personne doit savoir pour connecter une plateforme : l'adresse de retour à déclarer à X, et si Instagram peut venir chercher les images."""
+    access.access(user, agent_id, "admin")
+    return {"retour": connexion.callback_url(request), "adresse_publique": bool(public.main_url()),
+            "connectees": [p for p in (publication.INSTAGRAM, publication.X) if _row(agent_id, p)]}
+
+
+async def _plug(agent_id: str, name: str, creds: dict) -> None:
+    """Le branche comme un outil par jeton : Hermes parle à Noah, le jeton reste ici."""
+    if _row(agent_id, name):
+        raise HTTPException(400, f"{name.capitalize()} est déjà connecté sur cet agent.")
+    tools = publication.TOOLS[name]
+    machine.forget_connections(agent_id)
+    with db.connect() as c:
+        c.execute("INSERT INTO mcp_tools (agent_id, nom, url, auth, jeton, droit, outils, etat, vu_a) VALUES (?, ?, ?, 'jeton', ?, 'confirmer', ?, 'ok', ?)",
+                  (agent_id, name, publication.tool_url(name), db.seal(json.dumps(creds)), json.dumps(tools, ensure_ascii=False), time.time()))
+    try:
+        await machine.admin(agent_id, "outil_poser", {"nom": name, "config": _agent_config(agent_id, name), "droits": _rights(agent_id), "retour": ""})
+    except Exception:
+        with db.connect() as c:
+            c.execute("DELETE FROM mcp_tools WHERE agent_id = ? AND nom = ?", (agent_id, name))
+        raise
+    tell_agent(agent_id, name, _public_tools(tools))
+
+
+@router.post("/api/agents/{agent_id}/publication/instagram")
+async def connect_instagram(agent_id: str, body: InstagramToken, user: int = Depends(auth.current_user)):
+    access.access(user, agent_id, "admin")
+    try:
+        creds = await publication.instagram_check(body.jeton.strip().removeprefix("Bearer ").strip())
+    except publication.TokenRefused:
+        raise HTTPException(400, "Instagram refuse ce jeton. Génère-le de nouveau et colle-le en entier.") from None
+    except publication.Refused:
+        raise HTTPException(400, "Instagram refuse ce jeton pour ce compte. Vérifie que le compte est professionnel.") from None
+    except httpx.HTTPError:
+        raise HTTPException(502, "Instagram ne répond pas pour le moment. Rien n'a été enregistré.") from None
+    access.access(user, agent_id, "admin")  # le droit a pu être retiré pendant la vérification : rien ne se branche sans lui
+    await _plug(agent_id, publication.INSTAGRAM, creds)
+    return {"connecte": True, "compte": creds["compte"]}
+
+
+@router.post("/api/agents/{agent_id}/publication/x")
+async def connect_x(agent_id: str, body: XClient, request: Request, user: int = Depends(auth.current_user)):
+    access.access(user, agent_id, "admin")
+    callback = connexion.callback_url(request)
+    if not callback:
+        raise HTTPException(400, "X doit pouvoir revenir sur ce serveur, et il n'a pas encore d'adresse publique.")
+    if _row(agent_id, publication.X):
+        raise HTTPException(400, "X est déjà connecté sur cet agent.")
+    address, verifier = publication.x_start(body.client_id, callback)
+
+    async def finish(query: str) -> None:
+        access.access(user, agent_id, "admin")  # le droit a pu être retiré pendant que la personne acceptait chez X
+        creds = await publication.x_finish(body.client_id, callback, verifier, query)
+        access.access(user, agent_id, "admin")  # et pendant l'échange avec X : rien ne se branche sans le droit
+        await _plug(agent_id, publication.X, creds)
+
+    connexion.expect({"adresse": address, "retour": True}, agent_id, publication.X, finish, connexion.from_app(request), user)
+    return {"adresse": address, "retour": True}
+
+
 # --- Confirmation : l'accord donné dans la conversation ouvre un seul appel ------------------------------------------
 
 # Le plugin de garde écrit ce début dans la demande d'accord d'Hermes ; c'est ce qui relie l'accord au serveur.
@@ -715,7 +792,8 @@ _grants: dict[tuple[str, str], list[tuple]] = {}  # (échéance, ce qui a été 
 # qui arrive jusqu'à une carte n'est pas déclaré en lecture par son serveur, et une phrase rassurante pourrait être fausse.
 _ACTIONS = (
     ("supprimer", {"delete", "remove", "trash", "cancel", "destroy", "archive", "supprimer", "supprime", "effacer", "efface"}, "supprimer quelque chose dans {}"),
-    ("envoyer", {"send", "post", "publish", "reply", "share", "envoyer", "envoie", "publier", "publie"}, "envoyer quelque chose avec {}"),
+    ("publier", {"publish", "publier", "publie"}, "publier sur {}"),
+    ("envoyer", {"send", "post", "reply", "share", "envoyer", "envoie"}, "envoyer quelque chose avec {}"),
     ("modifier", {"update", "edit", "set", "patch", "move", "rename", "modify", "change", "resolve", "modifier", "modifie", "changer"}, "modifier quelque chose dans {}"),
     ("créer", {"create", "add", "new", "insert", "upload", "duplicate", "write", "creer", "cree", "ajouter", "ajoute", "ecrire"}, "créer quelque chose dans {}"),
 )
@@ -723,6 +801,7 @@ _HIDDEN = {"intent", "feedback", "skill", "id", "url", "mode", "type", "operator
 _TECHNICAL = re.compile(r"^(?:[a-z][a-z0-9+.-]*://|[0-9a-f-]{32,36}$|[/~]|[a-z]:\\|bearer\s|authorization:|select\s.+\sfrom\s|insert\s+into\s|update\s+\S+\s+set\s|delete\s+from\s|(?:drop|alter|create)\s+table\s)", re.I)
 _STRING = re.compile(r'"((?:[^"\\]|\\.)*)("\s*:|"|$)')
 _CUT = re.compile(r"… \[empreinte [0-9a-f]+\]$")
+_TITLE = re.compile(r'"(?:title|titre|name|nom)"\s*:\s*"([^"\\]{2,60})"', re.I)
 
 
 def _preview(shown: str) -> list[str]:
@@ -771,8 +850,13 @@ def plain_request(summary: str, command: bool = False) -> dict:
         if words & verbs:
             wish = sentence.format(app)
             break
-    plain = f"Ton agent veut {wish}."
-    return {"demande": plain, "apercu": _preview(shown)}
+    preview = _preview(shown)
+    title = _TITLE.search(shown)
+    if wish.startswith("créer ") and title:  # autant dire quoi, si l'action le nomme
+        named = " ".join(title.group(1).split())
+        wish = f"créer « {named} » dans {app}"
+        preview = [p for p in preview if p != named]
+    return {"demande": f"Ton agent veut {wish}.", "apercu": preview}
 
 
 def _shown(tool: str, args) -> str:
@@ -849,12 +933,12 @@ def _gate(row, tool: str, args=None) -> str | None:
         return None
     if row["droit"] == "lire":
         return (f"Refusé : « {name} » est en lecture seule sur cet agent et « {tool} » n'est pas déclaré en lecture. "
-                "Dis-le à l'utilisateur ; il peut changer ce droit dans Détails → Connexions.")
+                "Dis-le à l'utilisateur ; il peut changer ce droit dans l'onglet Connexions de l'agent.")
     if _take_grant(row["agent_id"], name, _shown(tool, args if args is not None else {})):
         return None
     return (f"Refusé : « {name} » demande la confirmation de l'utilisateur pour cette action et elle n'a pas été donnée. "
             "Dans une routine personne ne peut l'accorder : pour s'en servir là, il doit passer ce droit à « agir » dans "
-            "Détails → Connexions. Dis-le-lui et continue sans cet outil.")
+            "l'onglet Connexions de l'agent. Dis-le-lui et continue sans cet outil.")
 
 
 # Le droit « lire » cache les outils d'écriture. Hermes garde sa liste tant que le serveur reste connecté : le flux MCP lui dit

@@ -80,7 +80,7 @@ const stepsOf = (parts: Part[]): string[] => {
   return found ? ((found as unknown as { args: { steps: string[] } }).args.steps ?? []) : [];
 };
 const withoutSteps = (parts: Part[]) => parts.filter((p) => !(p.type === "tool-call" && p.toolName === "steps"));
-const SHOWS_SOMETHING = /```noah|^MEDIA:/m;
+const SHOWS_SOMETHING = /```noah|^MEDIA:|\/opt\/data\/workspace\/(?:outputs|apps|captures)\/\S+\.\w/m;
 
 /** Retire la ligne de travail : elle ne sert que pendant que l'agent agit. */
 const settle = (parts: Part[]): Part[] => parts.filter((p) => !(p.type === "tool-call" && p.toolName === "activity"));
@@ -127,6 +127,11 @@ function apply(msg: ChatMessage, ev: ChatEvent, runId: string | null): ChatMessa
         ],
       };
     case "done": {
+      // Le serveur donne ce que la conversation garde : l'écran finit dessus, même si des détails ont coupé le texte en morceaux.
+      if (ev.status === "completed" && ev.reponse) {
+        const others = withoutSteps(settle(parts)).filter((p) => p.type !== "text");
+        return { ...msg, content: [...others, { type: "text", text: ev.reponse }, ...(ev.etapes?.length ? [stepsPart(ev.etapes)] : [])], running: false };
+      }
       let next = settle(parts);
       if (!next.some((p) => p.type === "text") && ev.output) next = [...next, { type: "text", text: ev.output }];
       // Les étapes passent sous la réponse. S'il a tout dit avant son dernier outil, sa dernière phrase est la réponse.
@@ -309,6 +314,7 @@ export function useAgentChat(opts: {
 
   // --- Pendant le travail : la saisie reste ouverte, et ce qui attend se voit. ---
   const [serverNow, setServerNow] = useState<Now>(IDLE);
+  const askedNow = useRef<Approval | null>(null);
   const [sending, setSending] = useState<WhileBusyApi["sending"]>([]);
   const givenUp = useRef(new Set<string>());
   const serverBusy = useRef(false);
@@ -420,7 +426,7 @@ export function useAgentChat(opts: {
   const whileBusy = useMemo<WhileBusyApi>(
     () => ({
       active: isRunning || serverNow.occupe,
-      activity: !isRunning && serverNow.occupe ? serverNow.activite || "Travaille sur ta demande" : null,
+      activity: !isRunning && serverNow.occupe && !serverNow.accord ? serverNow.activite || "Travaille sur ta demande" : null,
       waiting: serverNow.file,
       sending,
       send: (text, files = []) =>
@@ -547,7 +553,12 @@ export function useAgentChat(opts: {
 
   // Les approbations renvoient leur réponse ici, une fois transmise à l'agent.
   const onAddToolResult = useCallback((o: { messageId: string; toolCallId: string; result: unknown }) => {
-    if (o.messageId.startsWith("accord-")) return setServerNow((s) => ({ ...s, accord: null }));
+    if (o.messageId.startsWith("accord-")) {
+      const id = o.messageId.slice("accord-".length); // un second accord a pu arriver pendant l'envoi : il reste à donner
+      if (askedNow.current?.request_id === id) setGiven({ ...askedNow.current, result: o.result });
+      setServerNow((s) => (s.accord?.request_id === id ? { ...s, accord: null } : s));
+      return;
+    }
     setMessages((all) =>
       all.map((m) =>
         m.id !== o.messageId
@@ -593,6 +604,29 @@ export function useAgentChat(opts: {
       }),
     );
   const pendingApproval = !isRunning && asked && !alreadyThere(asked) ? asked : null;
+  // Après la réponse, la décision reste lisible à sa place jusqu'au message suivant.
+  const [given, setGiven] = useState<(Approval & { result: unknown }) | null>(null);
+  useEffect(() => setGiven(null), [messages.length]);
+  // Répondu depuis « À toi » : la carte de ce fil le sait aussi.
+  askedNow.current = asked;
+  useEffect(() => {
+    const answered = (e: Event) => {
+      const { request_id: id, result } = (e as CustomEvent<{ request_id?: string; result?: string }>).detail ?? {};
+      if (!id) return;
+      setMessages((all) =>
+        all.map((m) => ({
+          ...m,
+          content: m.content.map((p) =>
+            p.type === "tool-call" && p.toolName === "approval" && p.result === undefined && (p.args as { request_id?: string }).request_id === id ? { ...p, result } : p,
+          ),
+        })),
+      );
+      if (askedNow.current?.request_id === id) setGiven({ ...askedNow.current, result });
+      setServerNow((s) => (s.accord?.request_id === id ? { ...s, accord: null } : s));
+    };
+    window.addEventListener("noah:accord-repondu", answered);
+    return () => window.removeEventListener("noah:accord-repondu", answered);
+  }, []);
   const shown = useMemo<ChatMessage[]>(
     () =>
       pendingApproval
@@ -604,8 +638,17 @@ export function useAgentChat(opts: {
               content: [{ type: "tool-call", toolCallId: `a-${pendingApproval.request_id}`, toolName: "approval", args: { ...pendingApproval } }],
             },
           ]
-        : messages,
-    [messages, pendingApproval],
+        : given && !messages.some((m) => m.content.some((p) => p.type === "tool-call" && p.toolName === "approval" && (p.args as { request_id?: string }).request_id === given.request_id))
+          ? [
+              ...messages,
+              {
+                id: `accord-${given.request_id}`,
+                role: "assistant",
+                content: [{ type: "tool-call", toolCallId: `a-${given.request_id}`, toolName: "approval", args: { ...given }, result: given.result }],
+              },
+            ]
+          : messages,
+    [messages, pendingApproval, given],
   );
 
   const runtime = useExternalStoreRuntime<ChatMessage>({
@@ -649,7 +692,7 @@ export function useAgentChat(opts: {
   );
 
   // En deux mots, ce que fait l'agent : affiché près de son nom, sur le web, le bureau et le téléphone.
-  const status = isRunning ? liveLabel : serverNow.occupe ? serverNow.activite : null;
+  const status = serverNow.accord ? null : isRunning ? liveLabel : serverNow.occupe ? serverNow.activite : null;
 
   return { runtime, whileBusy, history, status };
 }

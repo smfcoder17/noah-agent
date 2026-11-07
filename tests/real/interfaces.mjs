@@ -123,7 +123,7 @@ try {
   await step("Réglages > Profils : créer un profil", async () => {
     await page.getByRole("button", { name: /Réglages/ }).first().click();
     await page.waitForTimeout(800);
-    await page.getByRole("tab", { name: "Profils" }).click();
+    await page.getByRole("tab", { name: "Personnes" }).click();
     await page.waitForTimeout(500);
     await page.getByLabel("Nom d'utilisateur").fill(PROFILE);
     await page.getByLabel("Mot de passe initial").fill(PASSWORD);
@@ -137,7 +137,7 @@ try {
   await step("Partager Noah depuis le panneau", async () => {
     await page.getByRole("button", { name: /^Noah/ }).first().click();
     await page.waitForTimeout(800);
-    await page.getByRole("button", { name: "Détails", exact: true }).first().click();
+    await page.getByRole("button", { name: "Agent", exact: true }).first().click();
     await page.waitForTimeout(800);
     await page.getByRole("button", { name: "Partager", exact: true }).first().click();
     await page.waitForTimeout(500);
@@ -199,7 +199,7 @@ try {
     check("Réseau privé accepté par le propriétaire", (await api(page, "PUT", "/api/mcp/reseaux", { reseaux: ["192.168.65.0/24"] })).status === 200);
     await page.reload();
     await page.waitForTimeout(2000);
-    await page.getByRole("button", { name: "Détails", exact: true }).first().click();
+    await page.getByRole("button", { name: "Agent", exact: true }).first().click();
     await page.waitForTimeout(800);
     await page.getByText("Connexions", { exact: true }).first().click();
     await page.waitForTimeout(400);
@@ -262,11 +262,11 @@ print(relay.token_for(${JSON.stringify(noah)}))`);
     check("Panne : l'agent répond encore", /TOUJOURS/i.test(alive.output), alive.output.slice(0, 80));
     await page.reload();
     await page.waitForTimeout(1500);
-    await page.getByRole("button", { name: "Détails", exact: true }).first().click();
+    await page.getByRole("button", { name: "Agent", exact: true }).first().click();
     await page.waitForTimeout(23000); // relevé d'état au plus toutes les 20 s
     await page.reload();
     await page.waitForTimeout(1500);
-    await page.getByRole("button", { name: "Détails", exact: true }).first().click();
+    await page.getByRole("button", { name: "Agent", exact: true }).first().click();
     await page.getByText("Connexions", { exact: true }).first().click();
     await page.waitForTimeout(3000);
     await shot(page, "16-outil-en-panne");

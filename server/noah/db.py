@@ -181,6 +181,17 @@ def init() -> None:
                    "droit TEXT NOT NULL DEFAULT 'confirmer' CHECK (droit IN ('lire', 'agir', 'confirmer')), "
                    "outils TEXT NOT NULL DEFAULT '[]', etat TEXT NOT NULL DEFAULT '', erreur TEXT NOT NULL DEFAULT '', vu_a REAL, "
                    "created_at TEXT DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (agent_id, nom))")
+        # Ce qui est parti par l'API d'une plateforme : un même post ne repart pas deux fois (publication.py).
+        # Sans lien vers l'agent : le post reste en ligne après sa suppression, et un autre agent peut tenir le même compte.
+        db.execute("CREATE TABLE IF NOT EXISTS publications (id INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL, "
+                   "plateforme TEXT NOT NULL, empreinte TEXT NOT NULL, etat TEXT NOT NULL, lien TEXT NOT NULL DEFAULT '', at REAL NOT NULL)")
+        # Ce qu'ont coûté les images générées sur l'heure écoulée : le plafond d'un post survit à un redémarrage (media.py).
+        db.execute("CREATE TABLE IF NOT EXISTS image_spend (agent_id TEXT NOT NULL, cost REAL NOT NULL, at REAL NOT NULL)")
+        # Ce que l'agent a fait, lisible par la personne : ses tâches et les accords donnés (onglet Activité).
+        db.execute("CREATE TABLE IF NOT EXISTS journal (id INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, "
+                   "conversation_id TEXT NOT NULL, kind TEXT NOT NULL, titre TEXT NOT NULL, resultat TEXT NOT NULL DEFAULT '', etat TEXT NOT NULL, at REAL NOT NULL)")
+        db.execute("CREATE INDEX IF NOT EXISTS journal_agent ON journal(agent_id, at)")
+        db.execute("CREATE INDEX IF NOT EXISTS publications_empreinte ON publications(plateforme, empreinte, at)")
         _adopt(db)
         db.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_one_owner ON users(role) WHERE role = 'owner'")
         db.commit()  # le changement de journal ne se fait pas au milieu d'une transaction

@@ -202,9 +202,11 @@ export type AgentUsage = {
   prompt_tokens: number;
   cached_tokens: number;
 };
+export type InboxItem = { agent_id: string; agent: string; conversation_id: string; titre: string; main: boolean; a_moi: boolean; etat: "approve" | "choice"; demande: string; apercu: string[]; request_id?: string; generation?: number; run_id?: string };
 export type Usage = {
   month_cost: number;
   budget: number | null;
+  non_suivi?: boolean; // des appels sans prix connu ce mois-ci : le plafond ne les compte pas
   agents: AgentUsage[];
   daily?: number | null; // plafond par agent et par jour
   today?: Record<string, { depense: number; plafond: number | null }>;
@@ -235,7 +237,7 @@ export type ChatEvent =
   | { type: "activity_detail"; detail: unknown }
   | { type: "raw"; kind: string; data: unknown }
   | { type: "approval"; request_id: string; generation: number; summary: string; demande?: string; apercu?: string[] }
-  | { type: "done"; status: string; output?: string; error?: string; details?: string };
+  | { type: "done"; status: string; output?: string; error?: string; details?: string; reponse?: string; etapes?: string[] };
 
 export type VoiceReady = { dictation: string | null; call: string | null };
 

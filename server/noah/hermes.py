@@ -384,7 +384,7 @@ AIDE = """Utilisation : python3 /opt/data/noah.py <commande>
                                joint des fichiers de /opt/data/workspace/ à la page ouverte ; regarde ensuite l'écran
   fil "Titre" "consigne"       ouvre un fil de travail parallèle, visible par l'utilisateur dans Détails
   fil-etat <id>                état et dernière réponse d'un fil
-  image "description" [--format 16:9] [--contexte "goûts connus"] [--generer]
+  image "description" [--format 16:9] [--contexte "goûts connus"] [--generer] [--hors-budget]
                                                     crée une image (ou conseille SVG/code si plus adapté)
   video "description" [--duree 5] [--format 16:9]   crée une vidéo (quelques minutes)
   musique "description"                             crée un morceau de musique
@@ -664,6 +664,9 @@ def media(kind, args):
             i += 2
         elif args[i] == "--generer":
             opts["generer"] = True
+            i += 1
+        elif args[i] == "--hors-budget":
+            opts["hors_budget"] = True
             i += 1
         else:
             words.append(args[i])

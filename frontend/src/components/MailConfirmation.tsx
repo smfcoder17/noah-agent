@@ -1,4 +1,4 @@
-// Réglages > Sécurité : le code reçu par courriel, facultatif. Chaque compte active son adresse ; le propriétaire règle l'envoi.
+// Réglages > Compte : le code reçu par courriel, facultatif. Chaque compte active son adresse ; le propriétaire règle l'envoi.
 // Le mot de passe du serveur de courriel ne revient jamais du serveur (server/noah/courriel.py).
 import { Mail } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";

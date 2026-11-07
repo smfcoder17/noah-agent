@@ -139,7 +139,7 @@ def check(command: str) -> str | None:
     """Raison du refus, ou None si la commande passe. Tient la liste des fichiers téléchargés non lus."""
     if MCP_CONFIG.search(command):
         return ("Noah refuse de changer les serveurs MCP depuis la machine de l'agent : une commande locale exécuterait du "
-                "code téléchargé. L'utilisateur ajoute ses outils dans Détails → Connexions.")
+                "code téléchargé. L'utilisateur ajoute ses outils dans l'onglet Connexions de l'agent.")
     if PIPE_TO_SHELL.search(command):
         return ("Noah refuse d'exécuter un script téléchargé d'un trait. Télécharge-le dans un fichier, lis-le, puis "
                 "lance-le en expliquant à l'utilisateur ce qu'il fait.")
@@ -238,14 +238,14 @@ def check_mcp(tool_name: str, args: dict) -> dict | None:
             return None
         return {"action": "block", "message": (
             f"Noah refuse : « {server} » est en lecture seule sur cet agent et « {tool} » n'est pas déclaré en lecture. "
-            "Dis-le à l'utilisateur ; il peut changer ce droit dans Détails → Connexions.")}
+            "Dis-le à l'utilisateur ; il peut changer ce droit dans l'onglet Connexions de l'agent.")}
     if _read_only(server, tool):  # ce que le serveur déclare en lecture : pas d'accord, ni de routine bloquée pour une lecture
         return None
     if _unattended():
         return {"action": "block", "message": (
             f"Noah refuse : « {server} » demande la confirmation de l'utilisateur et personne ne peut la donner pendant une "
             "routine. Continue sans cet outil et signale-le dans ton compte rendu ; l'utilisateur peut passer ce droit à "
-            "« agir » dans Détails → Connexions.")}
+            "« agir » dans l'onglet Connexions de l'agent.")}
     shown = json.dumps(args, ensure_ascii=False, default=str)
     if len(shown) > 600:  # le serveur compare à ce qui a été montré : ce qui dépasse compte aussi, par son empreinte
         shown = f"{shown[:600]}… [empreinte {hashlib.sha256(shown.encode()).hexdigest()[:16]}]"

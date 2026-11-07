@@ -367,7 +367,7 @@ async def apply_to_agents() -> None:
     await asyncio.gather(*(hermes.set_helpers(i) for i in ids), return_exceptions=True)
 
 
-# --- Réglages > Cerveau -----------------------------------------------------------------------------------------------
+# --- Réglages > Modèles et budget > Cerveau -----------------------------------------------------------------------------------------------
 
 def public() -> dict:
     state = _saved()

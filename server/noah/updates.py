@@ -100,7 +100,7 @@ def _tell(title: str, text: str) -> None:
     if announce:
         try:
             announce(f"**{title}**\n\n{text}")
-        except Exception:  # noqa: BLE001 - pas encore d'agent : la carte de Réglages > Mises à jour reste
+        except Exception:  # noqa: BLE001 - pas encore d'agent : la carte de Réglages > Serveur > Mises à jour reste
             pass
 
 
@@ -270,7 +270,7 @@ async def _check() -> dict:
             sig = (await c.get(MANIFEST_URL + ".sig")).raise_for_status().text
         manifest = verify(raw, sig)
     except (httpx.HTTPError, ValueError) as e:
-        # Messages lisibles dans Réglages > Mises à jour (pas l'erreur brute de la bibliothèque HTTP).
+        # Messages lisibles dans Réglages > Serveur > Mises à jour (pas l'erreur brute de la bibliothèque HTTP).
         if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 404:
             text = "Aucune version publiée pour l'instant"
         elif isinstance(e, httpx.HTTPStatusError):
@@ -312,9 +312,9 @@ async def _check() -> dict:
     if fresh:
         same_number = _shown(manifest) == shown_version() and not manifest.get("migration")
         if manifest.get("migration"):
-            when = " attend ton accord : elle transforme tes données. Installe-la depuis Réglages > Mises à jour quand tu veux."
+            when = " attend ton accord : elle transforme tes données. Installe-la depuis Réglages > Serveur > Mises à jour quand tu veux."
         elif major:
-            when = " est une version majeure : elle s'installera seule dans 7 jours, pendant ta nuit (ou dès maintenant d'un clic dans Réglages > Mises à jour)."
+            when = " est une version majeure : elle s'installera seule dans 7 jours, pendant ta nuit (ou dès maintenant d'un clic dans Réglages > Serveur > Mises à jour)."
         else:
             when = " s'installera seule pendant ta nuit."
         if not same_number:

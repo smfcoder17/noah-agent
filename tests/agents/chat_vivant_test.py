@@ -14,6 +14,8 @@ os.environ.setdefault("NOAH_SECRET_KEY", "y" * 32)
 sys.path.insert(0, "/app")
 import httpx  # noqa: E402
 
+from fastapi.testclient import TestClient  # noqa: E402
+
 from noah import auth, db, events, hermes, machine, main, media  # noqa: E402
 
 db.init()
@@ -103,6 +105,127 @@ asyncio.run(chat("prépare"))
 row = last_agent()
 assert row["text"] == "Le fichier est prêt." and json.loads(row["detail"])["etapes"] == ["Je regarde."], row
 print("3. sans phrase après le dernier outil, la dernière écrite fait la réponse")
+
+# L'écran finit sur ce que la conversation garde.
+PREVIEW = '```noah\n{"type": "preview", "path": "a.html"}\n```'
+script[:] = [delta(PREVIEW), TOOL, delta("Le rapport est prêt."), TOOL, DONE]
+sent = asyncio.run(chat("aperçu puis conclusion"))
+row = last_agent()
+assert row["text"].endswith("Le rapport est prêt.") and PREVIEW in row["text"] and row["detail"] is None, row
+assert sent[-1]["reponse"] == row["text"] and sent[-1]["etapes"] == [], sent[-1]
+script[:] = [delta("Le rapport "), ("reasoning.delta", {"text": "détail"}), delta("est prêt."), TOOL, delta("Puis la fin."), DONE]
+sent = asyncio.run(chat("texte coupé"))
+assert sent[-1]["reponse"] == "Puis la fin." and sent[-1]["etapes"] == ["Le rapport est prêt."], sent[-1]
+script[:] = [delta("Voici : /opt/data/workspace/outputs/rapport.pdf"), TOOL, delta("Fini."), DONE]
+asyncio.run(chat("fichier livré"))
+row = last_agent()
+assert "/opt/data/workspace/outputs/rapport.pdf" in row["text"] and row["detail"] is None, "un fichier livré ne se perd pas dans le récit"
+script[:] = [delta("Je lis /opt/data/workspace/uploads/a.txt"), TOOL, delta("Fini."), DONE]
+asyncio.run(chat("fichier lu"))
+assert last_agent()["text"] == "Fini.", "lire un fichier reste du récit"
+print("3 bis. l'écran finit sur ce qui est gardé ; un fichier livré reste dans la réponse")
+
+# Deux questions à la suite : un seul choix.
+next_replies[0] = ["Oui", "Non"]
+asked_replies.clear()
+script[:] = [delta('```noah\n{"type": "choice", "question": "x", "options": ["a", "b"]}\n```'), TOOL, delta("On publie ?"), DONE]
+asyncio.run(chat("deux choix"))
+assert last_agent()["text"].count('"choice"') == 1 and not asked_replies, last_agent()
+next_replies[0] = []
+print("3 ter. un choix déjà posé en chemin n'en appelle pas un second")
+
+# Coupure avant de savoir si le début retenu était une réaction : le texte reste.
+script[:] = [delta("[[pas fini")]
+asyncio.run(chat("coupure"))
+assert "[[pas fini" in last_agent()["text"], last_agent()
+print("3 quater. un début retenu n'est pas perdu si le flux s'arrête")
+
+# La réaction va au message auquel il répond, pas à la question posée pendant le travail.
+async def run_with_aside(agent, run_id):
+    main._save_message(conv, "user", "Une question pendant le travail")
+    yield delta("[[👍]] Bien reçu.")
+    yield DONE
+plain_events = hermes.run_events
+hermes.run_events = run_with_aside
+asyncio.run(chat("Message d'origine"))
+hermes.run_events = plain_events
+with db.connect() as c:
+    target = c.execute("SELECT m.text FROM reactions r JOIN messages m ON m.id = r.message_id WHERE r.who = 'agent' AND r.emoji = '👍' ORDER BY r.rowid DESC LIMIT 1").fetchone()
+assert target and target["text"] == "Message d'origine", target and dict(target)
+print("3 quinquies. la réaction va au message auquel il répond")
+
+# À toi : ce qui attend la personne, et seulement elle.
+web = TestClient(main.app, headers={"Authorization": f"Bearer {session}"})
+other = TestClient(main.app, headers={"Authorization": f"Bearer {auth.new_session(eve, 'test', 'web')}"})
+main.task_state[conv] = "approve"
+main.task_approval[conv] = {"demande": "Ton agent veut publier sur Instagram.", "apercu": ["Mon post"], "request_id": "r", "generation": 1, "run_id": "x"}
+items = web.get("/api/a-toi").json()
+assert [i["conversation_id"] for i in items] == [conv] and items[0]["demande"].startswith("Ton agent veut publier") and items[0]["apercu"] == ["Mon post"] and items[0]["main"], items
+assert items[0]["request_id"] == "r" and items[0]["run_id"] == "x", "À toi répond sans ouvrir le fil"
+assert other.get("/api/a-toi").json() == [], "rien des autres"
+main.task_state[conv] = "choice"
+main.task_approval.pop(conv)
+assert web.get("/api/a-toi").json()[0]["demande"] == "Une question attend ta réponse."
+main.task_state[conv] = "done"
+assert web.get("/api/a-toi").json() == []
+with db.connect() as c:
+    c.execute("INSERT INTO agent_shares (agent_id, user_id, droit) VALUES ('a1', ?, 'usage')", (eve,))
+hers = main._new_conversation(eve, "a1", "Mon secret", main=True)
+main.task_state[hers] = "approve"
+main.task_approval[hers] = {"demande": "Ton agent veut publier sur Instagram.", "apercu": ["Texte privé"]}
+assert [i["conversation_id"] for i in other.get("/api/a-toi").json()] == [hers]
+assert "Mon secret" not in web.get("/api/a-toi").text and "Texte privé" not in web.get("/api/a-toi").text, "une conversation privée reste à son autrice"
+with db.connect() as c:
+    c.execute("UPDATE conversations SET shared = 1 WHERE id = ?", (hers,))
+assert [i["conversation_id"] for i in web.get("/api/a-toi").json()] == [hers], "rendue lisible : le propriétaire la voit"
+with db.connect() as c:
+    c.execute("DELETE FROM agent_shares WHERE user_id = ?", (eve,))
+assert other.get("/api/a-toi").json() == [], "accès retiré : plus rien"
+main.task_state[hers] = "done"
+print("3 sexies. À toi : ce qui t'attend, et rien des autres")
+
+# Activité : ce qu'il a fait, et les accords donnés.
+log = web.get("/api/agents/a1/activite").json()
+assert any(r["kind"] == "tache" and r["titre"] == "Message d'origine" and r["resultat"] == "Bien reçu." and r["etat"] == "fait" for r in log), log[:2]
+assert all("noah" not in r["resultat"] for r in log), "pas de widget dans le journal"
+main._journal("a1", hers, "tache", "Secret d'Ève", "", "fait")
+with db.connect() as c:
+    c.execute("UPDATE conversations SET shared = 0 WHERE id = ?", (hers,))
+assert "Secret d'Ève" not in web.get("/api/agents/a1/activite").text, "une conversation privée reste à son autrice"
+assert other.get("/api/agents/a1/activite").status_code in (403, 404), "sans accès à l'agent, rien"
+
+
+async def answered(*a, **k):
+    return None
+
+
+hermes.answer_approval = answered
+main._runs["run-x"] = {"agent": "a1", "user": alice, "conv": conv, "profil": None}
+main.task_state[conv] = "approve"
+main.task_approval[conv] = {"demande": "Ton agent veut publier sur Instagram."}
+r = web.post("/api/agents/a1/runs/run-x/approval", json={"request_id": "r", "generation": 1, "approve": True})
+assert r.status_code == 200, r.text
+assert main.task_state[conv] == "work" and web.get("/api/a-toi").json() == [], "le badge tombe dès la réponse"
+assert any(e["kind"] == "accord" and e["etat"] == "autorise" and "publier sur Instagram" in e["titre"] for e in web.get("/api/agents/a1/activite").json()), "l'accord laisse une trace"
+# Un second accord arrive pendant que Hermes reçoit la réponse au premier : il reste à la personne.
+
+
+async def second_arrives(*a, **k):
+    main.task_state[conv] = "approve"
+    main.task_approval[conv] = {"demande": "Ton agent veut envoyer un second message.", "request_id": "r2"}
+
+
+hermes.answer_approval = second_arrives
+main.task_state[conv] = "approve"
+main.task_approval[conv] = {"demande": "Ton agent veut publier une première fois.", "request_id": "r1"}
+assert web.post("/api/agents/a1/runs/run-x/approval", json={"request_id": "r1", "generation": 1, "approve": False}).status_code == 200
+assert [i["request_id"] for i in web.get("/api/a-toi").json()] == ["r2"], "le second accord reste à donner"
+newest = web.get("/api/agents/a1/activite").json()[0]
+assert newest["etat"] == "refuse" and "première fois" in newest["titre"], newest
+main.task_state[conv] = "done"
+main.task_approval.pop(conv)
+main._runs.pop("run-x")
+print("3 septies. Activité : tâches et accords, sans les conversations privées ; le badge tombe dès la réponse")
 
 # Une erreur n'est pas masquée par une phrase de travail.
 script[:] = [delta("Je regarde."), TOOL, ("run.failed", {"error": "panne"})]

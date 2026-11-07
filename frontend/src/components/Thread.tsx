@@ -103,7 +103,7 @@ function MarkdownText() {
               <Button
                 variant="outline"
                 size="sm"
-                className="absolute top-2 right-2 h-7 bg-surface/90 text-xs opacity-0 shadow-sm group-hover/img:opacity-100 focus-visible:opacity-100"
+                className="absolute top-2 right-2 h-7 bg-surface/90 text-xs opacity-0 pointer-coarse:opacity-100 shadow-sm group-hover/img:opacity-100 focus-visible:opacity-100"
                 onClick={() => addQuote(imageQuote(String(props.src), props.alt))}
               >
                 <Reply />Répondre à ceci
@@ -153,10 +153,19 @@ function Approval({ args, result, addResult }: ToolCallMessagePartProps) {
         approve,
       });
       addResult(approve ? "approved" : "denied");
+      window.dispatchEvent(new Event("noah:accord-repondu"));
     } catch (e) {
       setError((e as Error).message);
     }
   };
+  if (result !== undefined) {
+    return (
+      <p className="my-1 flex items-center gap-1.5 text-[13px] text-muted-foreground">
+        {result === "approved" ? <Check className="size-3.5 text-ok" /> : <X className="size-3.5" />}
+        <span className="min-w-0 truncate">{result === "approved" ? "Autorisé" : "Refusé"} · {String(args.demande || "cette action").replace(/^Ton agent veut /, "")}</span>
+      </p>
+    );
+  }
   return (
     <div className="my-2 flex flex-col gap-3 rounded-xl border border-warn bg-warn-soft p-3.5">
       <span className="text-xs font-semibold uppercase tracking-wide text-warn">À valider</span>
@@ -172,14 +181,10 @@ function Approval({ args, result, addResult }: ToolCallMessagePartProps) {
         </button>
       )}
       {(details || open) && <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-background p-2 font-mono text-[11.5px] text-muted-foreground">{String(args.summary)}</pre>}
-      {result === undefined ? (
-        <div className="flex gap-2">
-          <Button variant="warn" size="sm" onClick={() => answer(true)}>Autoriser</Button>
-          <Button variant="outline" size="sm" onClick={() => answer(false)}>Refuser</Button>
-        </div>
-      ) : (
-        <p className="text-sm font-medium">{result === "approved" ? "Autorisé" : "Refusé"}</p>
-      )}
+      <div className="flex gap-2">
+        <Button variant="warn" size="sm" onClick={() => answer(true)}>Autoriser</Button>
+        <Button variant="outline" size="sm" onClick={() => answer(false)}>Refuser</Button>
+      </div>
       {error && <p className="text-sm text-danger">La réponse n'a pas été prise en compte : {error}</p>}
     </div>
   );
@@ -354,7 +359,7 @@ function MessageReactions() {
         <button type="button" onClick={() => set(null)} disabled={readOnly} aria-label={`Retirer ta réaction ${mine}`} className="cursor-pointer rounded-full border border-accent/40 bg-accent-soft px-1.5 text-sm leading-6">{mine}</button>
       )}
       {stored && !readOnly && (
-        <Button variant="ghost" size="icon-sm" onClick={() => setOpen(!open)} aria-expanded={open} aria-label="Réagir" className={cn("opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-60", open && "opacity-100")}>
+        <Button variant="ghost" size="icon-sm" onClick={() => setOpen(!open)} aria-expanded={open} aria-label="Réagir" className={cn("opacity-0 pointer-coarse:opacity-70 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-60", open && "opacity-100")}>
           <SmilePlus />
         </Button>
       )}
@@ -509,7 +514,7 @@ function AssistantMessage() {
         {!running && (
           <ActionBarPrimitive.Root
             className={cn(
-              "flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100",
+              "flex gap-1 opacity-0 pointer-coarse:opacity-70 transition-opacity group-hover:opacity-100 focus-within:opacity-100",
               isLast && "opacity-70",
             )}
           >

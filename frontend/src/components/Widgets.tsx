@@ -390,7 +390,7 @@ function Quotable({ spec, children }: { spec: Spec; children: React.ReactNode })
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 text-xs text-muted-foreground opacity-0 group-hover/quote:opacity-100 focus-visible:opacity-100"
+            className="h-7 text-xs text-muted-foreground opacity-0 pointer-coarse:opacity-100 group-hover/quote:opacity-100 focus-visible:opacity-100"
             onClick={() => add(quote)}
           >
             <Reply />Répondre à ceci

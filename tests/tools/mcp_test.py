@@ -736,8 +736,8 @@ from noah.mcp import plain_request  # noqa: E402
 
 asked = 'Outil « notion » : notion_create_pages\n{"pages": [{"parent": {"data_source_id": "d4b95a89"}, "properties": {"Name": "Mon post du jour"}, "content": "L\'idée \\"clé\\""}], "telemetry": {"intent": "Create a post"}, "skill": "notion"}'
 plain = plain_request(asked)
-assert plain["demande"] == "Ton agent veut créer quelque chose dans Notion.", plain
-assert plain["apercu"] == ["Mon post du jour", "L'idée \"clé\""], plain
+assert plain["demande"] == "Ton agent veut créer « Mon post du jour » dans Notion.", plain
+assert plain["apercu"] == ["L'idée \"clé\""], plain
 assert plain_request('Outil « google-drive » : outil_inconnu\n{}') == {"demande": "Ton agent veut utiliser Google Drive.", "apercu": []}
 assert "supprimer" in plain_request('Outil « notion » : create_and_delete_page\n{}')["demande"], "créer et supprimer : c'est une suppression"
 assert plain_request('Outil « fiches » : envoie_fiche\n{}')["demande"] == "Ton agent veut envoyer quelque chose avec Fiches."

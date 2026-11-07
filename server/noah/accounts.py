@@ -341,7 +341,7 @@ def _tell_agent(agent_id: str, account: dict) -> None:
         return
     names = ", ".join(PERMS[p]["nom"].lower() for p in account["permissions"]) or "aucun accès"
     note = (f"Google est connecté ({account['compte'] or 'compte Google'}) : {names}. Utilise la compétence google-workspace ; "
-            "pour un accès qui manque, l'utilisateur l'ajoute dans Détails → Connexions. L'application reste en mode Test, "
+            "pour un accès qui manque, l'utilisateur l'ajoute dans l'onglet Connexions de l'agent. L'application reste en mode Test, "
             "c'est voulu : Noah Agent renouvelle l'accord tout seul avant les 7 jours. Ne cherche pas à la publier.")
     pending = json.loads(db.get_setting(f"contexte_{conv}") or "[]")
     db.set_setting(f"contexte_{conv}", json.dumps((pending + [note])[-5:], ensure_ascii=False))
@@ -504,7 +504,7 @@ async def agent_recipe(name: str, request: Request):
     perms = json.loads(db.get_setting(f"google_voulu_{agent_id}") or "[]") or [p["id"] for p in GOOGLE_PERMISSIONS]
     if _client():
         return {"recette": "L'accès Google existe déjà. Rien à créer : dis à l'utilisateur de cliquer sur « Connecter » "
-                           "dans Détails → Connexions → Google."}
+                           "dans l'onglet Connexions de l'agent → Google."}
     return {"recette": recipe(perms)}
 
 
@@ -515,7 +515,7 @@ async def agent_consent(request: Request):
     _own_client(agent_id)
     perms = json.loads(db.get_setting(f"google_voulu_{agent_id}") or "[]")
     if not _client() or not perms:
-        raise HTTPException(409, "Rien à relancer : l'utilisateur choisit ses accès dans Détails → Connexions → Google.")
+        raise HTTPException(409, "Rien à relancer : l'utilisateur choisit ses accès dans l'onglet Connexions de l'agent → Google.")
     await start_consent(agent_id, perms)
     return {"ok": True, "suite": "Noah Agent refait l'accord de Google dans ton navigateur : n'y touche pas et arrête-toi."}
 
@@ -527,11 +527,11 @@ async def agent_client_ids(body: ClientIds, request: Request):
     _save_client(body)
     perms = json.loads(db.get_setting(f"google_voulu_{agent_id}") or "[]")
     if not perms:
-        return {"ok": True, "suite": "Identifiants enregistrés. L'utilisateur choisit ses accès dans Détails → Connexions → Google."}
+        return {"ok": True, "suite": "Identifiants enregistrés. L'utilisateur choisit ses accès dans l'onglet Connexions de l'agent → Google."}
     try:
         await start_consent(agent_id, perms)
     except (httpx.HTTPError, HTTPException) as e:
         return {"ok": True, "suite": f"Identifiants enregistrés, mais la page d'accord n'a pas pu s'ouvrir ({e}). "
-                                     "Dis à l'utilisateur de cliquer sur « Connecter » dans Détails → Connexions → Google."}
+                                     "Dis à l'utilisateur de cliquer sur « Connecter » dans l'onglet Connexions de l'agent → Google."}
     return {"ok": True, "suite": "Identifiants enregistrés. Noah Agent valide maintenant l'accord de Google dans ton navigateur "
                                  "(onglet de la page d'accord) : n'y touche pas. Dis à l'utilisateur que l'accès est créé et arrête-toi."}

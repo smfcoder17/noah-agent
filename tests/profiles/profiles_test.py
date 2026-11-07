@@ -319,6 +319,10 @@ ROUTES = {
     ("POST", "/api/agents/{agent_id}/routines/{routine_id}/{action}"): "admin",
     ("GET", "/api/agents/{agent_id}/connections"): "admin",
     ("POST", "/api/agents/{agent_id}/connections/apps/{name}/{action}"): "admin",
+    ("GET", "/api/agents/{agent_id}/publication"): "admin",
+    ("GET", "/api/agents/{agent_id}/activite"): "lecture",
+    ("POST", "/api/agents/{agent_id}/publication/instagram"): "admin",
+    ("POST", "/api/agents/{agent_id}/publication/x"): "admin",
     ("POST", "/api/agents/{agent_id}/connections/tools/test"): "admin",
     ("POST", "/api/agents/{agent_id}/connections/tools"): "admin",
     ("PUT", "/api/agents/{agent_id}/connections/tools/{name}/droit"): "admin",
@@ -366,6 +370,8 @@ BODIES = {
     "/api/agents/{agent_id}/memory": lambda: {"cible": "memory", "entrees": []},
     "/api/agents/{agent_id}/routines": lambda: {"consigne": "x", "quand": "every day"},
     "/api/agents/{agent_id}/connections/tools/test": lambda: {"url": "https://93.184.216.34/mcp"},
+    "/api/agents/{agent_id}/publication/instagram": lambda: {"jeton": "jeton-refuse-pour-ce-test"},
+    "/api/agents/{agent_id}/publication/x": lambda: {"client_id": "client-pour-ce-test"},
     "/api/agents/{agent_id}/connections/tools": lambda: {"url": "https://93.184.216.34/mcp", "nom": "essai"},
     "/api/agents/{agent_id}/connections/tools/{name}/droit": lambda: {"droit": "agir"},
     "/api/agents/{agent_id}/folders": lambda: {"dossiers": []},
@@ -378,6 +384,7 @@ QUERIES = {"/api/agents/{agent_id}/media": {"path": "/x.png"}, "/api/agents/{age
 
 # Routes avec un identifiant qui n'appartient à aucun agent. Chacune a sa raison et, quand c'est possible, sa vérification.
 WHITELIST = {
+    ("GET", "/api/post-image/{name}"): "Publique : la plateforme vient chercher l'image. Adresse tirée au hasard, de courte durée, retirée après la publication (publication_test).",
     ("GET", "/api/apercu/{token}/{path:path}"): "Sans session : le lien signé porte le compte, le dossier et l'expiration, et suit les droits (apercu_test).",
     ("POST", "/api/desktop/result/{rid}"): "Seulement l'appareil à qui la demande a été donnée (appareils_test et test_desktop).",
     ("GET", "/api/desktop/encore/{rid}"): "Seulement l'appareil visé par la demande (appareils_test).",
@@ -477,6 +484,7 @@ OPEN_ROUTES = {
     ("GET", "/api/providers"): "Liste statique des fournisseurs connus, sans clé ; derrière la connexion (public_test).",
     ("POST", "/api/models"): "Un profil ne lit que le fournisseur en service, sans adresse ni clé à lui (vérifié par test_secrets).",
     ("GET", "/api/usage"): "Filtrée par profil (vérifié par test_lists).",
+    ("GET", "/api/a-toi"): "Filtrée par compte : celui qui a lancé le travail et le propriétaire de l'agent (chat_vivant_test).",
     ("GET", "/api/model"): "Le nom du cerveau, sans clé ni adresse pour un profil (vérifié par test_secrets).",
     ("GET", "/api/voice/ready"): "Une raison de refus, sans clé ni adresse ; un profil ne lit qu'une phrase générale (cle_refusee_test).",
     ("GET", "/api/agents"): "Filtrée par droit (vérifié par test_lists).",

@@ -1,4 +1,4 @@
-// Réglages > Mises à jour : version en service, la prochaine (installée seule pendant le créneau calme), l'historique.
+// Réglages > Serveur > Mises à jour : version en service, la prochaine (installée seule pendant le créneau calme), l'historique.
 // Modèle : Home Assistant (« Mettre à jour » / « Passer ») et Synology DSM (créneau choisi, report automatique).
 import { CheckCircle2, Loader2, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";

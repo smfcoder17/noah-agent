@@ -1,19 +1,20 @@
-// Panneau de droite : Détails de l'agent, ses Fichiers, et son Ordinateur (écran du navigateur en direct).
-import { Archive, ArchiveRestore, ChevronDown, ExternalLink, Hand, Loader2, LogIn, MonitorPlay, Power, RefreshCw, Sunrise, Users, X } from "lucide-react";
+// Panneau de l'agent : ce qu'il fait, à quoi il a accès, son ordinateur, ses routines, sa mémoire.
+import { Archive, ArchiveRestore, ChevronDown, ExternalLink, Hand, Loader2, LogIn, MonitorPlay, Pencil, Power, RefreshCw, Sunrise, Users, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { type Agent, canAdmin, canTalk, type Conversation, get, send, type Usage } from "@/lib/api";
 import { wireClipboard } from "@/lib/vncClipboard";
-import { cn, money } from "@/lib/utils";
+import { cn, dayLabel, money } from "@/lib/utils";
 import { AgentAppearance } from "./AgentAppearance";
 import { AgentBrain } from "./AgentBrain";
-import { Connections, Folders, Memory, Routines, Software, Watches } from "./AgentPowers";
+import { Connections, Folders, Memory, Routines, Section, Software, Watches } from "./AgentPowers";
+import { Boundary } from "./Boundary";
 import { Files } from "./Files";
 import { AgentFace } from "./Noah";
 import { ShareDialog } from "./Sharing";
 import { STATE_WORD, StateShape } from "./Sidebar";
 import { Button, Dialog, DialogContent, Tabs, TabsContent, TabsList, TabsTrigger } from "./ui";
 
-export type PanelTab = "details" | "files" | "computer";
+export type PanelTab = "activity" | "connections" | "computer" | "routines" | "memory";
 
 export function SidePanel({
   agent,
@@ -55,40 +56,112 @@ export function SidePanel({
   return (
     <Tabs value={tab} onValueChange={(v) => onTab(v as PanelTab)} className="flex h-full min-h-0 flex-col gap-3 p-3 pt-[max(12px,env(safe-area-inset-top))]">
       <div className="flex items-center justify-between gap-2">
-        <TabsList>
-          <TabsTrigger value="details">Détails</TabsTrigger>
-          {canTalk(agent) && <TabsTrigger value="files">Fichiers</TabsTrigger>}
-          {admin && <TabsTrigger value="computer">Ordinateur</TabsTrigger>}
+        <TabsList className="max-w-full overflow-x-auto max-sm:[&>button]:px-1.5 max-sm:[&>button]:text-xs">
+          <TabsTrigger value="activity">Activité</TabsTrigger>
+          {admin && <TabsTrigger value="connections">Connexions</TabsTrigger>}
+          {canTalk(agent) && <TabsTrigger value="computer">Ordinateur</TabsTrigger>}
+          {admin && <TabsTrigger value="routines">Routines</TabsTrigger>}
+          {admin && <TabsTrigger value="memory">Mémoire</TabsTrigger>}
         </TabsList>
         <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Fermer le panneau"><X /></Button>
       </div>
-      <TabsContent value="details" className="min-h-0 flex-1 overflow-y-auto">
+      <Boundary key={tab} label="Cet onglet">
+      <TabsContent value="activity" className="min-h-0 flex-1 overflow-y-auto">
         <Details agent={agent} onEdit={onEditAgent} refreshKey={refreshKey} onAgentChanged={onAgentChanged}>
           <Threads threads={threads} threadId={threadId} onOpen={onOpenThread} onArchive={onArchiveThread} />
           {agent.partage && main && <ConversationVisibility conversation={main} onChanged={onConversationChanged} />}
-          {admin && (
-            <>
-              <Routines agentId={agent.id} />
-              <Watches agentId={agent.id} />
-              <Memory agentId={agent.id} />
-              <Connections agentId={agent.id} shared={agent.partage || !!agent.partage_par} />
-              <Folders agentId={agent.id} />
-              <Software agentId={agent.id} />
-            </>
-          )}
+          <ActivityLog agentId={agent.id} refreshKey={refreshKey} onOpen={(id, isMain) => onOpenThread(isMain && id === main?.id ? null : id)} />
           <label className="flex items-center justify-between gap-3 py-1 text-sm sm:hidden">
             Afficher les détails techniques
             <input type="checkbox" checked={technical} onChange={(e) => onTechnical(e.target.checked)} className="size-5 accent-[var(--accent)]" />
           </label>
         </Details>
       </TabsContent>
+      <TabsContent value="connections" className="min-h-0 flex-1 overflow-y-auto px-1">
+        {admin && <Connections agentId={agent.id} shared={agent.partage || !!agent.partage_par} />}
+      </TabsContent>
+      <TabsContent value="computer" className="flex min-h-0 flex-1 flex-col">
+        {tab === "computer" && <ComputerTab agent={agent} admin={admin} refreshKey={refreshKey} onClose={onClose} />}
+      </TabsContent>
+      <TabsContent value="routines" className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1">
+        {admin && <><Routines agentId={agent.id} /><Watches agentId={agent.id} /></>}
+      </TabsContent>
+      <TabsContent value="memory" className="min-h-0 flex-1 overflow-y-auto px-1">
+        {admin && <Memory agentId={agent.id} />}
+      </TabsContent>
+      </Boundary>
+    </Tabs>
+  );
+}
+
+/** L'ordinateur de l'agent : son écran, ses fichiers, les dossiers qu'il peut toucher, ses logiciels. */
+function ComputerTab({ agent, admin, refreshKey, onClose }: { agent: Agent; admin: boolean; refreshKey: number; onClose: () => void }) {
+  // Le choix reste en passant d'un agent à l'autre ; sans les droits d'administration, seuls les fichiers.
+  const [chosen, setPart] = useState("screen");
+  const part = admin ? chosen : "files";
+  return (
+    <Tabs value={part} onValueChange={setPart} className="flex min-h-0 flex-1 flex-col gap-3">
+      {admin && (
+        <TabsList className="max-w-full self-start overflow-x-auto">
+          <TabsTrigger value="screen">Écran</TabsTrigger>
+          <TabsTrigger value="files">Fichiers</TabsTrigger>
+          <TabsTrigger value="folders">Dossiers</TabsTrigger>
+          <TabsTrigger value="software">Logiciels</TabsTrigger>
+        </TabsList>
+      )}
+      <TabsContent value="screen" className="flex min-h-0 flex-1 flex-col gap-3">{part === "screen" && <Computer agentId={agent.id} />}</TabsContent>
       <TabsContent value="files" className="min-h-0 flex-1 overflow-y-auto">
         <Files key={agent.id} agentId={agent.id} refreshKey={refreshKey} canDelete={admin} onGiven={() => window.matchMedia("(max-width: 767px)").matches && onClose()} />
       </TabsContent>
-      <TabsContent value="computer" className="flex min-h-0 flex-1 flex-col gap-3">
-        {tab === "computer" && <Computer agentId={agent.id} />}
-      </TabsContent>
+      <TabsContent value="folders" className="min-h-0 flex-1 overflow-y-auto px-1"><Folders agentId={agent.id} /></TabsContent>
+      <TabsContent value="software" className="min-h-0 flex-1 overflow-y-auto px-1"><Software agentId={agent.id} /></TabsContent>
     </Tabs>
+  );
+}
+
+type LogRow = { kind: "tache" | "accord"; titre: string; resultat: string; etat: "fait" | "erreur" | "arrete" | "autorise" | "refuse"; at: number; conversation_id: string; main: boolean };
+const LOG_WORD: Record<LogRow["etat"], [string, string]> = {
+  fait: ["Fait", "text-ok"], erreur: ["A échoué", "text-danger"], arrete: ["Arrêté", "text-muted-foreground"], autorise: ["Autorisé", "text-ok"], refuse: ["Refusé", "text-muted-foreground"],
+};
+
+/** Ce que l'agent a fait, jour par jour : la réponse à « qu'a-t-il fait ? ». */
+function ActivityLog({ agentId, refreshKey, onOpen }: { agentId: string; refreshKey: number; onOpen: (conversation: string, main: boolean) => void }) {
+  const [log, setLog] = useState<{ agent: string; rows: LogRow[] } | null>(null);
+  const rows = log?.agent === agentId ? log.rows : null; // jamais le journal d'un autre agent, même le temps de charger
+  useEffect(() => {
+    let current = true; // la réponse tardive d'un autre agent n'écrase pas celle-ci
+    get<LogRow[]>(`/api/agents/${agentId}/activite`)
+      .then((r) => current && setLog({ agent: agentId, rows: r }))
+      .catch(() => current && setLog({ agent: agentId, rows: [] }));
+    return () => {
+      current = false;
+    };
+  }, [agentId, refreshKey]);
+  if (!rows) return null;
+  const days = new Map<string, LogRow[]>();
+  for (const r of rows) {
+    const label = dayLabel(new Date(r.at * 1000));
+    days.set(label, [...(days.get(label) ?? []), r]);
+  }
+  return (
+    <section aria-label="Activité" className="flex flex-col gap-3">
+      <h3 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Ce qu'il a fait</h3>
+      {!rows.length && <p className="text-sm text-muted-foreground">Rien pour l'instant. Ses tâches et les accords que tu donnes s'afficheront ici.</p>}
+      {[...days].map(([day, list]) => (
+        <div key={day} className="flex flex-col gap-1">
+          <p className="text-xs font-medium text-muted-foreground">{day}</p>
+          {list.map((r, i) => (
+            <button key={i} type="button" onClick={() => onOpen(r.conversation_id, r.main)} className="flex cursor-pointer flex-col gap-0.5 rounded-lg px-2 py-1.5 text-left hover:bg-muted">
+              <span className="flex items-baseline justify-between gap-2 text-sm">
+                <span className="min-w-0 truncate">{r.titre}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">{new Date(r.at * 1000).toLocaleTimeString("fr-CA", { hour: "2-digit", minute: "2-digit" })}</span>
+              </span>
+              <span className="truncate text-xs text-muted-foreground"><span className={cn("font-medium", LOG_WORD[r.etat][1])}>{LOG_WORD[r.etat][0]}</span>{r.resultat ? ` · ${r.resultat}` : ""}</span>
+            </button>
+          ))}
+        </div>
+      ))}
+    </section>
   );
 }
 
@@ -132,14 +205,15 @@ function Details({ agent, onEdit, refreshKey, onAgentChanged, children }: { agen
           <p className="text-sm text-muted-foreground">{agent.step || (agent.online ? "En ligne" : "Hors ligne")}</p>
           {agent.partage_par && <p className="text-xs text-muted-foreground">Partagé par {agent.partage_par} · droit : {agent.droit}</p>}
         </div>
-        {agent.droit === "proprietaire" && (
-          <Button variant="outline" size="sm" className="ml-auto shrink-0" onClick={() => setSharing(true)}><Users />Partager</Button>
-        )}
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          {canAdmin(agent) && <Button variant="ghost" size="icon-sm" onClick={onEdit} aria-label="Personnaliser (nom, couleur, rôle)" title="Personnaliser (nom, couleur, rôle)"><Pencil /></Button>}
+          {agent.droit === "proprietaire" && <Button variant="outline" size="sm" onClick={() => setSharing(true)}><Users />Partager</Button>}
+        </div>
       </div>
+      {agent.role && <p className="text-sm whitespace-pre-wrap text-muted-foreground">{agent.role}</p>}
       <ShareDialog agent={agent} open={sharing} onOpenChange={setSharing} onChanged={onAgentChanged} />
       {children}
-      {canAdmin(agent) && <AgentBrain key={agent.id} agentId={agent.id} own={agent.model} onChanged={onAgentChanged} />}
-      {canAdmin(agent) && <AgentAppearance key={agent.id} agent={agent} onChanged={onAgentChanged} />}
+      <Section title="Dépense" count={`${money(mine?.cost ?? 0)} $ ce mois-ci`}>
       <div className="grid grid-cols-2 gap-2">
         <Stat label="Coût ce mois-ci" value={`${money(mine?.cost ?? 0)} $`} />
         <Stat label="Appels au modèle" value={mine?.calls ?? 0} />
@@ -147,11 +221,9 @@ function Details({ agent, onEdit, refreshKey, onAgentChanged, children }: { agen
         <Stat label="Lus depuis le cache" value={`${cacheRate} %`} />
       </div>
       {usage && <Spending usage={usage} agentId={agent.id} />}
-      <div className="flex flex-col gap-1">
-        <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Rôle</span>
-        <p className="text-sm whitespace-pre-wrap">{agent.role || "Aucun rôle précis."}</p>
-      </div>
-      {canAdmin(agent) && <Button variant="outline" onClick={onEdit}>Personnaliser (nom, couleur, rôle)</Button>}
+      </Section>
+      {canAdmin(agent) && <AgentBrain key={`cerveau-${agent.id}`} agentId={agent.id} own={agent.model} onChanged={onAgentChanged} />}
+      {canAdmin(agent) && <AgentAppearance key={`visage-${agent.id}`} agent={agent} onChanged={onAgentChanged} />}
     </div>
   );
 }
@@ -171,7 +243,7 @@ function Spending({ usage, agentId }: { usage: Usage; agentId: string }) {
   return (
     <section className="flex flex-col gap-2">
       <h3 className="flex items-baseline justify-between text-xs font-medium tracking-wide text-muted-foreground uppercase">
-        Dépense
+        14 derniers jours
         <span className="normal-case tracking-normal">
           Aujourd'hui : <b className="font-mono text-foreground">{money(today?.depense ?? 0)} $</b>
           {today?.plafond != null && ` / ${money(today.plafond)} $`}
@@ -242,7 +314,7 @@ function Threads({
       {!t.de && <Button
         variant="ghost"
         size="icon-sm"
-        className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+        className="opacity-0 pointer-coarse:opacity-100 group-hover:opacity-100 focus-visible:opacity-100"
         onClick={() => onArchive(t.id, !t.archived)}
         aria-label={t.archived ? `Désarchiver « ${t.title} »` : `Archiver « ${t.title} »`}
         title={t.archived ? "Désarchiver" : "Archiver"}
@@ -254,7 +326,7 @@ function Threads({
   return (
     <section className="flex flex-col gap-1">
       <h3 className="flex items-baseline justify-between text-xs font-medium tracking-wide text-muted-foreground uppercase">
-        Fils de travail <span className="normal-case tracking-normal">{active.length || ""}</span>
+        Travaux en cours <span className="normal-case tracking-normal">{active.length || ""}</span>
       </h3>
       {active.length ? (
         active.map(row)

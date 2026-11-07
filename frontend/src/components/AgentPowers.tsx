@@ -9,9 +9,10 @@ import { type ComputerFolders, desktop } from "@/lib/desktop";
 import { cn, fileSize } from "@/lib/utils";
 import { Button, ErrorText, Input, Textarea } from "./ui";
 
-/** Section repliable de Détails, avec un compteur à droite du titre. */
-export function Section({ title, count, defaultOpen = false, children }: { title: string; count?: number | string; defaultOpen?: boolean; children: React.ReactNode }) {
+/** Section repliable, avec un compteur à droite du titre. Seule dans son onglet (`alone`), elle n'a pas besoin de titre. */
+export function Section({ title, count, defaultOpen = false, alone = false, children }: { title: string; count?: number | string; defaultOpen?: boolean; alone?: boolean; children: React.ReactNode }) {
   const [open, setOpen] = useState(defaultOpen);
+  if (alone) return <section aria-label={title} className="flex flex-col gap-2">{children}</section>;
   return (
     <section className="flex flex-col gap-2">
       <button
@@ -277,7 +278,7 @@ export function Memory({ agentId }: { agentId: string }) {
   };
 
   return (
-    <Section title="Mémoire" count={total}>
+    <Section title="Mémoire" count={total} alone>
       {!data && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture…</p>}
       {data && (
         <>
@@ -365,8 +366,8 @@ function MemoryList({ title, entries, limit, empty, onSave }: { title: string; e
         ) : (
           <div key={i} className="group flex items-start gap-1 rounded-lg px-2 py-1 text-sm hover:bg-muted">
             <p className="min-w-0 flex-1 whitespace-pre-wrap">{e}</p>
-            <Button size="icon-sm" variant="ghost" className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100" onClick={() => start(i)} aria-label="Modifier ce souvenir"><Pencil /></Button>
-            <Button size="icon-sm" variant="ghost" className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100" onClick={() => onSave(entries.filter((_, j) => j !== i))} aria-label="Oublier ce souvenir"><Trash2 /></Button>
+            <Button size="icon-sm" variant="ghost" className="opacity-0 pointer-coarse:opacity-100 group-hover:opacity-100 focus-visible:opacity-100" onClick={() => start(i)} aria-label="Modifier ce souvenir"><Pencil /></Button>
+            <Button size="icon-sm" variant="ghost" className="opacity-0 pointer-coarse:opacity-100 group-hover:opacity-100 focus-visible:opacity-100" onClick={() => onSave(entries.filter((_, j) => j !== i))} aria-label="Oublier ce souvenir"><Trash2 /></Button>
           </div>
         ),
       )}
@@ -385,7 +386,7 @@ type Droit = "lire" | "agir" | "confirmer";
 type Etat = "ok" | "injoignable" | "a_connecter" | "jeton_refuse" | "refuse" | "";
 type App = { nom: string; description: string; source: string | null; oauth: boolean; hote: string | null; installe: boolean; connecte: boolean; droit?: Droit; etat?: Etat; erreur?: string };
 type FoundTool = { nom: string; description: string; lecture_seule: boolean };
-type CustomTool = { nom: string; url: string; auth: "aucune" | "jeton" | "oauth"; jeton: boolean; droit: Droit; etat: Etat; erreur: string; connecte: boolean; outils: FoundTool[] };
+type CustomTool = { nom: string; url: string; compte?: string; auth: "aucune" | "jeton" | "oauth"; jeton: boolean; droit: Droit; etat: Etat; erreur: string; connecte: boolean; outils: FoundTool[] };
 type ConnectionsState = { google: GoogleState; applications: App[]; outils?: CustomTool[]; age?: number };
 
 
@@ -496,11 +497,12 @@ export function Connections({ agentId, shared = false }: { agentId: string; shar
   const q = query.trim().toLowerCase();
   const others = apps.filter((a) => !a.installe && (!q || `${a.nom} ${a.description}`.toLowerCase().includes(q)));
   return (
-    <Section title="Connexions" count={(google?.connecte ? 1 : 0) + connected.filter((a) => a.connecte).length + tools.filter((t) => t.connecte).length}>
+    <Section title="Connexions" count={(google?.connecte ? 1 : 0) + connected.filter((a) => a.connecte).length + tools.filter((t) => t.connecte).length} alone>
       {!data && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture…</p>}
       {google?.disponible && data && <GoogleCard agentId={agentId} onError={setError} />}
       {connected.map((a) => <AppRow key={a.nom} agentId={agentId} app={a} waiting={waiting[a.nom]} onWait={(m) => wait(a.nom, m)} onChange={load} onError={setError} />)}
       {tools.map((t) => <ToolRow key={t.nom} agentId={agentId} tool={t} waiting={waiting[t.nom]} onWait={(m) => wait(t.nom, m)} onChange={load} onError={setError} />)}
+      {data && <PublishCards agentId={agentId} shared={shared} tools={tools} onWait={wait} onChange={load} />}
       {arriving && <p className="text-xs text-muted-foreground">« {arriving} » arrive chez l'agent en moins d'une minute.</p>}
       {data && (adding ? (
         <AddTool agentId={agentId} shared={shared} onClose={() => setAdding(false)}
@@ -522,6 +524,81 @@ export function Connections({ agentId, shared = false }: { agentId: string; shar
       ))}
       <ErrorText>{error}</ErrorText>
     </Section>
+  );
+}
+
+/** Publier par l'API : Instagram et X. Sans elles, l'agent publie avec son navigateur : c'est un plus, jamais un passage obligé. */
+function PublishCards({ agentId, shared, tools, onWait, onChange }: { agentId: string; shared: boolean; tools: CustomTool[]; onWait: (name: string, mode?: "auto" | "coller") => void; onChange: () => void }) {
+  const [state, setState] = useState<{ retour: string; adresse_publique: boolean } | null>(null);
+  const [open, setOpen] = useState("");
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    get<{ retour: string; adresse_publique: boolean }>(`/api/agents/${agentId}/publication`).then(setState).catch(() => setState(null));
+  }, [agentId]);
+  if (!state) return null;
+  const left = [["instagram", "Instagram", "instagram.com"], ["x", "X", "x.com"]].filter(([nom]) => !tools.some((t) => t.nom === nom));
+  if (!left.length) return null;
+  const toggle = (nom: string) => { setOpen((o) => (o === nom ? "" : nom)); setValue(""); setError(""); };
+  const submit = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      if (open === "instagram") {
+        await send(`/api/agents/${agentId}/publication/instagram`, { jeton: value.trim() });
+      } else {
+        const r = await send<{ adresse: string }>(`/api/agents/${agentId}/publication/x`, { client_id: value.trim() });
+        window.open(r.adresse, "_blank", "noopener");
+        onWait("x", "auto");
+      }
+      setOpen("");
+      setValue("");
+      onChange();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="flex flex-col gap-1.5">
+      <p className="text-xs text-muted-foreground">Publier plus vite et plus sûrement. Sans cela, l'agent publie avec son navigateur.</p>
+      {shared && <p className="text-xs font-medium text-warn">Cet agent est partagé : ceux qui l'utilisent pourront aussi publier sur ce compte.</p>}
+      {left.map(([nom, label, host]) => (
+        <div key={nom} className="flex flex-col gap-2 rounded-lg border border-border p-2.5">
+          <div className="flex items-center gap-2.5">
+            <AppLogo host={host} name={nom} />
+            <p className="min-w-0 flex-1 truncate text-sm font-medium">{label}</p>
+            <Button size="sm" variant="outline" onClick={() => toggle(nom)}>{open === nom ? "Fermer" : "Connecter"}</Button>
+          </div>
+          {open === nom && nom === "instagram" && (!state.adresse_publique ? (
+            <p className="text-xs text-muted-foreground">Instagram doit venir chercher les images sur une adresse publique, et ce Noah n'en a pas. L'agent passera par le navigateur.</p>
+          ) : (
+            <ol className="flex list-decimal flex-col gap-1 pl-4 text-xs text-muted-foreground">
+              <li>Ton compte Instagram doit être professionnel (créateur ou entreprise).</li>
+              <li>Sur <a className="underline" href="https://developers.facebook.com/apps" target="_blank" rel="noreferrer">Meta for Developers</a>, crée une application et ajoute-lui le produit Instagram.</li>
+              <li>Dans « API setup with Instagram login », ajoute ton compte, génère son jeton et colle-le ici.</li>
+            </ol>
+          ))}
+          {open === nom && nom === "x" && (
+            <ol className="flex list-decimal flex-col gap-1 pl-4 text-xs text-muted-foreground">
+              <li>Sur <a className="underline" href="https://console.x.com" target="_blank" rel="noreferrer">la console X</a>, crée une application avec OAuth 2.0, type « Native App ». X facture chaque post à ton compte développeur.</li>
+              <li>Comme adresse de retour, donne : <code className="break-all select-all">{state.retour || "ce serveur n'a pas encore d'adresse publique"}</code></li>
+              <li>Colle ici son « Client ID », puis accepte dans l'onglet qui s'ouvre.</li>
+            </ol>
+          )}
+          {open === nom && (nom === "x" ? !!state.retour : state.adresse_publique) && (
+            <div className="flex items-center gap-2">
+              <Input value={value} onChange={(e) => setValue(e.target.value)} type={nom === "x" ? "text" : "password"} autoComplete="off" className="h-9 min-w-0 flex-1"
+                placeholder={nom === "x" ? "Client ID" : "Jeton d'accès"} aria-label={nom === "x" ? "Client ID de X" : "Jeton d'accès Instagram"} />
+              <Button size="sm" onClick={submit} disabled={!value.trim() || busy}>{busy && <Loader2 className="animate-spin" />}{nom === "x" ? "Continuer" : "Vérifier"}</Button>
+            </div>
+          )}
+          {open === nom && <ErrorText>{error}</ErrorText>}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -667,7 +744,7 @@ function ToolRow({ agentId, tool, waiting, onWait, onChange, onError }: { agentI
         <AppLogo host={hostOf(tool.url)} name={tool.nom} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{label}</p>
-          <p className="truncate text-xs text-muted-foreground" title={tool.url}>{tool.url}</p>
+          <p className="truncate text-xs text-muted-foreground" title={tool.url}>{tool.compte ? `@${tool.compte}` : tool.url}</p>
         </div>
         {problem
           ? <span className={cn("text-xs font-medium", tool.etat === "a_connecter" ? "text-warn" : "text-danger")}>{problem}</span>
@@ -985,7 +1062,7 @@ export function Software({ agentId }: { agentId: string }) {
     }
   };
   return (
-    <Section title="Logiciels et disque">
+    <Section title="Logiciels et disque" alone>
       {!data && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture…</p>}
       {data && (
         <>
@@ -1151,7 +1228,7 @@ export function Folders({ agentId }: { agentId: string }) {
   };
 
   return (
-    <Section title="Dossiers" count={list.length}>
+    <Section title="Dossiers" count={list.length} alone>
       {!data && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture…</p>}
       {data && data.racines.length === 0 && (app?.dossiers ? <ComputerFolderList /> : <RemoteFolderList />)}
       {data && data.racines.length > 0 && (
@@ -1304,7 +1381,7 @@ export function Watches({ agentId }: { agentId: string }) {
   };
 
   return (
-    <Section title="Veilles et routines à condition" count={list.length}>
+    <Section title="Veilles et routines à condition" count={list.length} defaultOpen>
       {data && !list.length && !adding && (
         <p className="text-sm text-muted-foreground">
           Surveille une page, un flux, tes courriels ou ton agenda sans faire travailler l'agent. Rien de nouveau : rien ne coûte.

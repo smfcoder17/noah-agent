@@ -1,4 +1,4 @@
-// Réglages > Profils : le propriétaire crée, plafonne et supprime les profils de ce serveur, réinitialise un mot de passe, voit et
+// Réglages > Personnes : le propriétaire crée, plafonne et supprime les profils de ce serveur, réinitialise un mot de passe, voit et
 // coupe les appareils de chacun. Écrit pour marcher à largeur de téléphone. Le serveur reste seul juge.
 import { Globe, KeyRound, Laptop, Loader2, MonitorSmartphone, Smartphone, Trash2, UserPlus } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";

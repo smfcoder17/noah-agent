@@ -1,9 +1,10 @@
 // Réglages : le cerveau des agents, les modèles de création (image, vidéo, musique), la voix et le téléphone.
 // Chaque type peut rester en « Automatique » : Noah Agent prend le meilleur modèle disponible avec la clé.
-import { Check, Loader2, Play } from "lucide-react";
+import { ArrowLeft, Check, ChevronRight, Loader2, Play } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { get, request, send } from "@/lib/api";
 import { noahPaused, setNoahPaused } from "@/lib/noahFace";
+import { Boundary } from "./Boundary";
 import { DoubleVerification } from "./DoubleVerification";
 import { MailConfirmation } from "./MailConfirmation";
 import { ModelPicker } from "./ModelPicker";
@@ -18,7 +19,7 @@ import { type MediaModel, ModelSelect } from "./ModelSelect";
 import { Dialog, DialogContent, Tabs, TabsContent, TabsList, TabsTrigger } from "./ui";
 import { Button, Input, Label } from "./ui";
 
-export type SettingsTab = "brain" | "create" | "voice" | "phone" | "notifications" | "telephone" | "security" | "updates" | "privacy" | "profiles" | "diagnostic";
+export type SettingsTab = "home" | "mail" | "brain" | "create" | "voice" | "phone" | "notifications" | "telephone" | "security" | "updates" | "privacy" | "profiles" | "diagnostic";
 
 type Kind = { label: string; setting: string; auto: string | null; routed?: boolean; models: MediaModel[] };
 type MediaState = {
@@ -29,6 +30,20 @@ type MediaState = {
   preferences?: string;
   has_key?: boolean;
 };
+
+// Six rubriques, rangées par ce que la personne vient faire. Les anciens noms restent à l'intérieur : un message d'erreur qui dit « Réglages > Modèles et budget > Cerveau » reste vrai.
+function rubrics(owner: boolean): { id: string; label: string; tabs: [SettingsTab, string][] }[] {
+  return [
+    { id: "account", label: "Compte", tabs: [["security", "Sécurité"]] },
+    { id: "devices", label: "Appareils", tabs: [["phone", "Appareils reliés"], ...(phoneSettingsAvailable() ? [["telephone", "Ce téléphone"] as [SettingsTab, string]] : [])] },
+    { id: "notifications", label: "Notifications", tabs: [["notifications", "Notifications"]] },
+    ...(owner ? [
+      { id: "models", label: "Modèles et budget", tabs: [["brain", "Cerveau"], ["create", "Création"], ["voice", "Voix"]] as [SettingsTab, string][] },
+      { id: "people", label: "Personnes", tabs: [["profiles", "Personnes"]] as [SettingsTab, string][] },
+      { id: "server", label: "Serveur", tabs: [["updates", "Mises à jour"], ["mail", "Courriel"], ["privacy", "Confidentialité"], ["diagnostic", "Diagnostic"]] as [SettingsTab, string][] },
+    ] : []),
+  ];
+}
 
 const HINTS: Record<string, string> = {
   image: "Illustrations, photos, logos, miniatures. En automatique, un logo va à un modèle vectoriel et une affiche avec du texte à un modèle fort en typographie.",
@@ -47,24 +62,35 @@ export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainS
   onOpenChange: (o: boolean) => void;
   onBrainSaved: () => void;
 }) {
+  const all = rubrics(owner);
+  const rubric = all.find((r) => r.tabs.some(([t]) => t === tab)) ?? all[0];
+  const home = tab === "home"; // le sommaire du téléphone
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {open && (
-        <DialogContent title="Réglages" description="Les clés restent chiffrées sur cette machine. Les agents ne les voient jamais : ils passent par Noah Agent." className="max-w-4xl">
-          <Tabs value={tab} onValueChange={(v) => onTab(v as SettingsTab)} className="flex min-h-0 flex-col gap-4">
-            <TabsList className="flex-wrap self-start">
-              {owner && <TabsTrigger value="brain">Cerveau</TabsTrigger>}
-              {owner && <TabsTrigger value="create">Création</TabsTrigger>}
-              {owner && <TabsTrigger value="voice">Voix</TabsTrigger>}
-              <TabsTrigger value="phone">Appareils</TabsTrigger>
-              <TabsTrigger value="notifications">Notifications</TabsTrigger>
-              {phoneSettingsAvailable() && <TabsTrigger value="telephone">Téléphone</TabsTrigger>}
-              <TabsTrigger value="security">Sécurité</TabsTrigger>
-              {owner && <TabsTrigger value="profiles">Profils</TabsTrigger>}
-              {owner && <TabsTrigger value="updates">Mises à jour</TabsTrigger>}
-              {owner && <TabsTrigger value="privacy">Confidentialité</TabsTrigger>}
-              {owner && <TabsTrigger value="diagnostic">Diagnostic</TabsTrigger>}
+        <DialogContent title="Réglages" description={rubric.id === "models" && !home ? "Les clés restent chiffrées sur cette machine. Les agents ne les voient jamais : ils passent par Noah Agent." : undefined} className="max-w-4xl">
+          {home ? (
+            <nav aria-label="Rubriques" className="flex flex-col">
+              {all.map((r) => (
+                <button key={r.id} type="button" onClick={() => onTab(r.tabs[0][0])} className="flex cursor-pointer items-center justify-between border-b border-border py-3.5 text-left text-sm font-medium last:border-b-0">
+                  {r.label}<ChevronRight className="size-4 text-muted-foreground" />
+                </button>
+              ))}
+            </nav>
+          ) : (<>
+          <button type="button" onClick={() => onTab("home")} className="flex cursor-pointer items-center gap-1.5 self-start text-sm font-medium md:hidden"><ArrowLeft className="size-4" />{rubric.label}</button>
+          <Tabs value={rubric.id} onValueChange={(id) => onTab(all.find((r) => r.id === id)!.tabs[0][0])} className="self-start max-md:hidden">
+            <TabsList aria-label="Rubriques" className="flex-wrap">
+              {all.map((r) => <TabsTrigger key={r.id} value={r.id}>{r.label}</TabsTrigger>)}
             </TabsList>
+          </Tabs>
+          <Tabs value={tab} onValueChange={(v) => onTab(v as SettingsTab)} className="flex min-h-0 flex-col gap-4">
+            {rubric.tabs.length > 1 && (
+              <TabsList aria-label={rubric.label} className="flex-wrap self-start">
+                {rubric.tabs.map(([t, label]) => <TabsTrigger key={t} value={t}>{label}</TabsTrigger>)}
+              </TabsList>
+            )}
+            <Boundary key={tab} label="Cette rubrique">
             <TabsContent value="brain">
               <div className="flex flex-col gap-3">
                 <DecisionModel />
@@ -82,7 +108,6 @@ export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainS
             </TabsContent>
             <TabsContent value="phone">
               <PhonePairing />
-              <FaceMotion />
             </TabsContent>
             <TabsContent value="notifications">
               <NotificationSettings />
@@ -93,6 +118,10 @@ export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainS
             <TabsContent value="security">
               <MyPassword />
               <DoubleVerification />
+              {!owner && <MailConfirmation owner={false} />}
+              <FaceMotion />
+            </TabsContent>
+            <TabsContent value="mail">
               <MailConfirmation owner={owner} />
             </TabsContent>
             <TabsContent value="profiles">
@@ -107,7 +136,9 @@ export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainS
             <TabsContent value="diagnostic">
               <Diagnostic />
             </TabsContent>
+            </Boundary>
           </Tabs>
+          </>)}
         </DialogContent>
       )}
     </Dialog>

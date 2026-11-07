@@ -183,7 +183,7 @@ def reset_profile_password(profile_id: int, body: ProfilePassword, request: Requ
     """Mot de passe oublié d'un profil : le propriétaire en donne un temporaire, à changer à la connexion. Toutes ses sessions se ferment."""
     row = _profile(profile_id)
     if row["role"] == "owner":
-        raise HTTPException(400, "Pour ton propre mot de passe : Réglages > Sécurité.")
+        raise HTTPException(400, "Pour ton propre mot de passe : Réglages > Compte.")
     _h["critical"](request, me, f"reinitialiser:{profile_id}", body.motdepasse, body.code, body.courriel,
                    f"Confirme ton mot de passe pour réinitialiser celui de {row['username']}.")
     # Avant de fermer ses sessions : ses appareils ne reçoivent plus rien ensuite. Cet accès est permis, mais jamais en silence.

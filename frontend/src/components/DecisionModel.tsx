@@ -1,4 +1,4 @@
-// Réglages > Cerveau : le petit modèle qui décide à la place du cerveau (tri du chat, veilles, routines, mémoire).
+// Réglages > Modèles et budget > Cerveau : le petit modèle qui décide à la place du cerveau (tri du chat, veilles, routines, mémoire).
 // Noah le choisit seul à la pose de la clé, puis chaque semaine ; la personne voit pourquoi et peut en changer.
 import { Loader2, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";

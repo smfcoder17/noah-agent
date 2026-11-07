@@ -1,7 +1,7 @@
-// Colonne de gauche : uniquement les agents. Clic droit (ou « ⋯ ») pour épingler ou personnaliser.
-import { LogOut, MoreHorizontal, Palette, Pin, PinOff, Plus, Settings, Users, X } from "lucide-react";
+// Colonne de gauche : ce qui attend la personne, puis les agents. Clic droit (ou « ⋯ ») pour épingler ou personnaliser.
+import { Inbox as InboxIcon, LogOut, MoreHorizontal, Palette, Pin, PinOff, Plus, Settings, Users, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { type Agent, canAdmin, type CurrentModel, type TaskState, type Usage } from "@/lib/api";
+import { type Agent, canAdmin, type TaskState, type Usage } from "@/lib/api";
 import { cn, money } from "@/lib/utils";
 import { AgentFace } from "./Noah";
 import type { SettingsTab } from "./Settings";
@@ -59,8 +59,9 @@ type Menu = { agent: Agent; x: number; y: number };
 export function Sidebar(props: {
   agents: Agent[];
   agentId: string | null;
-  model: CurrentModel;
   usage: Usage | null;
+  waiting: number;
+  onInbox: () => void;
   owner: boolean;
   onClose: () => void;
   onSelectAgent: (id: string) => void;
@@ -100,6 +101,11 @@ export function Sidebar(props: {
         <Button variant="ghost" size="icon-sm" className="md:hidden" onClick={props.onClose} aria-label="Fermer le menu"><X /></Button>
       </div>
 
+      <button type="button" onClick={props.onInbox} className="hidden cursor-pointer items-center gap-3 rounded-xl px-2 py-2 text-left text-sm font-medium hover:bg-surface/70 md:flex">
+        <span className="grid size-10 place-items-center"><InboxIcon className="size-4" /></span>
+        <span className="flex-1">À toi</span>
+        {props.waiting > 0 && <span className="grid h-5 min-w-5 place-items-center rounded-full bg-warn px-1.5 text-xs font-semibold text-surface">{props.waiting}</span>}
+      </button>
       <nav aria-label="Agents" className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
         <h2 className="mb-1 px-2 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">Tes agents</h2>
         {agents.map((a, i) => {
@@ -148,7 +154,7 @@ export function Sidebar(props: {
               {canAdmin(a) && <button
                 type="button"
                 aria-label={`Options de ${a.name}`}
-                className="absolute top-1/2 right-1.5 hidden -translate-y-1/2 cursor-pointer rounded-md p-1 text-muted-foreground group-hover:block hover:bg-muted hover:text-foreground focus-visible:block"
+                className="absolute top-1/2 right-1.5 hidden -translate-y-1/2 cursor-pointer rounded-md p-1 text-muted-foreground pointer-coarse:block group-hover:block hover:bg-muted hover:text-foreground focus-visible:block"
                 onClick={(e) => {
                   const r = e.currentTarget.getBoundingClientRect();
                   openMenu(a, r.left, r.bottom + 4);
@@ -202,7 +208,8 @@ export function Sidebar(props: {
       )}
 
       <div className="flex flex-col gap-2">
-        <button type="button" onClick={() => props.onSettings(props.owner ? "brain" : "phone")} className="flex cursor-pointer flex-col gap-2 rounded-xl border border-border bg-surface p-3 text-left hover:border-muted-foreground/50">
+        {/* La dépense ne vient ici que lorsqu'elle demande un regard : le reste du temps, elle est dans le panneau de l'agent et les réglages. */}
+        {usage?.budget != null && pct != null && (pct >= 80 || usage.non_suivi) && <button type="button" onClick={() => props.onSettings(props.owner ? "brain" : "security")} className="flex cursor-pointer flex-col gap-2 rounded-xl border border-border bg-surface p-3 text-left hover:border-muted-foreground/50">
           <span className="flex items-baseline justify-between gap-2 text-xs">
             <span className="text-muted-foreground">Ce mois-ci</span>
             <span className="font-mono font-medium tabular-nums">
@@ -214,10 +221,10 @@ export function Sidebar(props: {
               <span className={cn("block h-full rounded-full", pct >= 90 ? "bg-warn" : "bg-foreground/70")} style={{ width: `${pct}%` }} />
             </span>
           )}
-          <span className="truncate text-xs text-muted-foreground">Cerveau : <span className="font-mono text-foreground">{props.model?.model ?? "aucun"}</span></span>
-        </button>
+          {usage.non_suivi && <span className="text-xs text-warn">Une partie de la dépense n'est pas suivie.</span>}
+        </button>}
         <div className="flex gap-1">
-          <Button variant="ghost" size="sm" className="flex-1 justify-start text-muted-foreground" onClick={() => props.onSettings(props.owner ? "create" : "phone")}><Settings />Réglages</Button>
+          <Button variant="ghost" size="sm" className="flex-1 justify-start text-muted-foreground max-md:invisible" onClick={() => props.onSettings("security")}><Settings />Réglages</Button>
           <Button variant="ghost" size="icon-sm" className="text-muted-foreground" onClick={props.onLogout} aria-label="Se déconnecter" title="Se déconnecter"><LogOut /></Button>
         </div>
       </div>

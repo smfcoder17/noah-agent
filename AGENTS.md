@@ -8,7 +8,7 @@ Parle à la personne en français clair, sans jargon. Toute commande ci-dessous 
 
 ## Ce qui appartient à la personne
 
-- **Mot de passe, clés d'API, choix du modèle :** elle les saisit elle-même dans son navigateur. Si elle te donne une clé dans la conversation, ne t'en sers pas : renvoie-la vers Réglages > Cerveau et conseille-lui de la renouveler. Seule exception, si elle le demande : un compte de départ et son mot de passe provisoire (voir la dernière ligne du tableau).
+- **Mot de passe, clés d'API, choix du modèle :** elle les saisit elle-même dans son navigateur. Si elle te donne une clé dans la conversation, ne t'en sers pas : renvoie-la vers Réglages > Modèles et budget > Cerveau et conseille-lui de la renouveler. Seule exception, si elle le demande : un compte de départ et son mot de passe provisoire (voir la dernière ligne du tableau).
 - **Lien d'installation :** il porte un code à usage unique. Remets-le à la personne seule, dans la conversation. Il reste hors des fichiers, des tickets et des commits. Elle l'ouvre elle-même.
 - **Données :** les volumes `noah_noah-*` et `noah-agent-*` portent son compte et ses clés. Avant tout geste qui efface (Delete du projet, `docker compose down -v`, `docker volume rm`), obtiens son accord explicite.
 
@@ -155,7 +155,7 @@ Pas de fichier sur la page des versions : signale-le, cette étape attendra.
 
 ## Déjà installé
 
-Noah se met à jour seul ; ne réinstalle rien pour le mettre à jour. Sers-toi de Réglages > Mises à jour pour voir son état.
+Noah se met à jour seul ; ne réinstalle rien pour le mettre à jour. Sers-toi de Réglages > Serveur > Mises à jour pour voir son état.
 
 - **Changer l'adresse, installation par `get.sh` :** relance la commande de la branche A depuis le même serveur. Les données restent.
 - **Changer l'adresse, installation par Hostinger :** demande à la personne de modifier la ligne `NOAH_DOMAIN` dans le YAML Editor. Par l'API, relis le projet (`GET .../docker/noah`) avant tout envoi, et garde son contenu.

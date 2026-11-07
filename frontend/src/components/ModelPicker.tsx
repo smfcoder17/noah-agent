@@ -99,7 +99,7 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
       // Premier lancement : aucun fournisseur choisi d'avance (l'utilisateur choisit où partent ses données).
       setProvider(p.find((x) => x.id === c?.provider) || (first ? null : p[0]));
       setBaseUrl(c?.base_url || "");
-      if (c) setPicked({ id: c.model, name: c.model });
+      if (c?.model) setPicked({ id: c.model, name: c.model });
     })().catch((e) => setError(e.message));
   }, [first]);
 
@@ -349,6 +349,7 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
           </label>
           {usage && <span className="text-muted-foreground">Dépensé ce mois-ci : <span className="font-mono text-foreground">{money(usage.month_cost)} $</span></span>}
         </div>
+        {usage?.non_suivi && <p className="text-xs text-warn">Certains appels n'ont pas de prix connu ce mois-ci : ce plafond ne les compte pas. Surveille aussi ta dépense chez le fournisseur.</p>}
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <label className="flex items-center gap-2">
             Par agent

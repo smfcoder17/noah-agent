@@ -112,7 +112,7 @@ Un sous-domaine ne cache rien : un nom est public, et il mène à l'IP. Seul un 
 
 ## Mot de passe oublié
 
-Qui a la main sur le serveur peut changer le mot de passe du propriétaire. Un profil qui a oublié le sien demande au propriétaire : Réglages > Profils > Mot de passe, un mot de passe temporaire à changer à la connexion. Sur la page de connexion, « Mot de passe oublié ? », puis « Créer un code ». Le code se lit dans les journaux du service `server`. Il sert une fois, pendant 15 minutes.
+Qui a la main sur le serveur peut changer le mot de passe du propriétaire. Un profil qui a oublié le sien demande au propriétaire : Réglages > Personnes > Mot de passe, un mot de passe temporaire à changer à la connexion. Sur la page de connexion, « Mot de passe oublié ? », puis « Créer un code ». Le code se lit dans les journaux du service `server`. Il sert une fois, pendant 15 minutes.
 
 - **Hostinger :** VPS > Manage > Docker Manager > Projects, menu ⋮ de ton projet > View logs. Cherche « Code de récupération ».
 - **Avec un terminal sur le serveur :** `docker exec noah-server python -m noah.recuperation` crée un nouveau code et l'affiche. L'ancien ne sert plus.
@@ -125,16 +125,16 @@ La double vérification du propriétaire reste active, sauf si tu coches la case
 
 En plus du mot de passe, Noah peut demander un code à 6 chiffres donné par une application sur ton téléphone (Google Authenticator, Aegis, 1Password…). Chaque compte l'active pour lui-même : propriétaire comme profil.
 
-- **Activer :** Réglages > Sécurité > « Activer la double vérification ». Noah demande ton mot de passe, affiche un QR code et sa clé en clair, puis attend un premier code. Il montre ensuite 8 codes de secours, une seule fois : note-les ailleurs que sur ce téléphone.
+- **Activer :** Réglages > Compte > « Activer la double vérification ». Noah demande ton mot de passe, affiche un QR code et sa clé en clair, puis attend un premier code. Il montre ensuite 8 codes de secours, une seule fois : note-les ailleurs que sur ce téléphone.
 - **Se connecter :** après le mot de passe, saisis le code de l'application, ou un code de secours si tu n'as plus ton téléphone. Un même code ne sert qu'une fois.
 - **Tes applications reliées :** elles gardent leur accès et ne demandent aucun code à l'usage.
 - **Codes faux :** 5 codes faux en 30 minutes bloquent le compte pendant ce délai, quelle que soit l'adresse, et tes appareils abonnés aux notifications sont prévenus. Seul qui a le bon mot de passe atteint cette limite : si cela arrive sans toi, change-le.
 - **Désactiver :** même endroit, avec ton mot de passe et un code. Changer de mot de passe ne la coupe pas.
-- **Plus de téléphone ni de code de secours :** le propriétaire passe par [Mot de passe oublié](#mot-de-passe-oublié). Pour un profil, le propriétaire la coupe dans Réglages > Profils.
+- **Plus de téléphone ni de code de secours :** le propriétaire passe par [Mot de passe oublié](#mot-de-passe-oublié). Pour un profil, le propriétaire la coupe dans Réglages > Personnes.
 
 ## Le code reçu par courriel
 
-Facultatif, dans Réglages > Sécurité. Le propriétaire règle l'envoi (serveur SMTP, port, identifiant, mot de passe, expéditeur, STARTTLS ou SSL) et vérifie avec « Envoyer un essai » ; la connexion est toujours chiffrée et le certificat vérifié. Chaque compte active ensuite son adresse avec un code reçu dessus.
+Facultatif, dans Réglages > Compte. Le propriétaire règle l'envoi (serveur SMTP, port, identifiant, mot de passe, expéditeur, STARTTLS ou SSL) et vérifie avec « Envoyer un essai » ; la connexion est toujours chiffrée et le certificat vérifié. Chaque compte active ensuite son adresse avec un code reçu dessus.
 
 - **Ce qui le demande alors :** changer le mot de passe, supprimer un compte, ajouter un utilisateur, réinitialiser un mot de passe, couper la double vérification, changer l'adresse ou le réglage d'envoi, déconnecter tous les autres appareils. D'abord ton mot de passe, puis le code.
 - **Le code :** il sert une fois, pendant 10 minutes, avec 5 essais, et 5 envois au plus par heure. Il ne vaut que pour cette action et cet écran.
@@ -149,7 +149,7 @@ Chaque nouvelle session (mot de passe depuis un navigateur inconnu, QR code acco
 
 ## Choisir le modèle
 
-Réglages > Cerveau, un seul choix pour tous tes agents.
+Réglages > Modèles et budget > Cerveau, un seul choix pour tous tes agents.
 
 | Fournisseur | Il te faut | Pour qui |
 |---|---|---|
@@ -162,7 +162,7 @@ Choisis un modèle qui sait utiliser des outils. Une clé ne suit jamais un autr
 
 ## La voix
 
-Le modèle ne suffit pas pour parler : il faut aussi transcrire et synthétiser. Réglages > Voix propose deux chemins :
+Le modèle ne suffit pas pour parler : il faut aussi transcrire et synthétiser. Réglages > Modèles et budget > Voix propose deux chemins :
 
 - **Une clé OpenRouter,** le plus simple : tout marche tout de suite. Elle ne sert qu'à la voix et aux images si ton cerveau est ailleurs.
 - **Ton propre serveur de voix,** compatible OpenAI (par exemple [Speaches](https://speaches.ai/)) : son adresse, sa clé facultative, ses modèles. Aucune donnée vocale ne part alors chez un tiers.
@@ -192,7 +192,7 @@ Installateur Windows sur la [page des versions](https://github.com/smfcoder17/no
 
 **En local.** « Sur cet ordinateur » démarre Noah avec Docker Desktop. `cd desktop && npm install && npm start`, depuis une copie du dépôt, va directement dans ce mode, sans montrer le choix : pour relier un VPS, passe par l'installateur.
 
-**Dossiers (en local seulement).** Détails > Dossiers donne le vrai sélecteur de dossier : tu confies à un agent des dossiers de ton ordinateur, en lecture seule ou en écriture, et l'un d'eux devient son dossier de travail. Le partage n'est possible que sous les racines de `NOAH_SHARE_ROOTS` dans `.env` (l'application y met ton dossier personnel au premier lancement ; plusieurs racines séparées par `;`). Les dossiers de clés et de réglages (`.ssh`, `.aws`, `AppData`, `.config`…) sont toujours refusés. Sur un VPS, la variable reste vide : le partage est coupé.
+**Dossiers (en local seulement).** Panneau de l'agent > Ordinateur > Dossiers donne le vrai sélecteur de dossier : tu confies à un agent des dossiers de ton ordinateur, en lecture seule ou en écriture, et l'un d'eux devient son dossier de travail. Le partage n'est possible que sous les racines de `NOAH_SHARE_ROOTS` dans `.env` (l'application y met ton dossier personnel au premier lancement ; plusieurs racines séparées par `;`). Les dossiers de clés et de réglages (`.ssh`, `.aws`, `AppData`, `.config`…) sont toujours refusés. Sur un VPS, la variable reste vide : le partage est coupé.
 
 L'application fermée reste dans la zone de notification, pour que les routines continuent.
 
@@ -201,9 +201,10 @@ L'application fermée reste dans la zone de notification, pour que les routines 
 - **Créer un agent :** « Créer un agent », un nom et un rôle. Il répond en moins d'une minute. Le tout premier prend plus longtemps si son image est encore en téléchargement.
 - **Lui parler :** le bouton de voix à côté du champ, sans rien appuyer ensuite. Parle pour l'interrompre.
 - **Faire travailler un agent pour un autre :** « Demande à Rita de… ». Ajoute « et rappelle-moi quand c'est fini » pour qu'il te rappelle.
-- **Brancher un outil :** Détails > Connexions > Ajouter un outil, l'adresse d'un serveur MCP, un test, puis Enregistrer. Choisis son droit : lire, agir, ou demander confirmation (par défaut). L'agent l'a en moins d'une minute.
-- **Ajouter une personne :** Réglages > Profils. Chacun a ses agents, ses appareils et son plafond de dépenses.
-- **Partager un agent :** Détails > Partager, avec le droit lecture, usage ou admin. Avec le droit usage, la personne a sa propre mémoire et son propre navigateur, sans tes comptes connectés ni terminal ; le dossier de travail reste commun. Le droit admin est le choix de tout mettre en commun : ta mémoire, ton navigateur, tes comptes connectés et tes dossiers.
+- **Brancher un outil :** Panneau de l'agent > Connexions > Ajouter un outil, l'adresse d'un serveur MCP, un test, puis Enregistrer. Choisis son droit : lire, agir, ou demander confirmation (par défaut). L'agent l'a en moins d'une minute.
+- **Ajouter une personne :** Réglages > Personnes. Chacun a ses agents, ses appareils et son plafond de dépenses.
+- **Publier par l'API (Instagram, X) :** Panneau de l'agent > Connexions. Sans cela, l'agent publie avec son navigateur. Instagram demande un compte professionnel, une application sur Meta for Developers et un jeton à coller ; X demande une application OAuth 2.0 de type Native App, facturée à ton compte développeur. Le jeton reste chiffré sur ton serveur et n'entre jamais dans la machine de l'agent. Publier passe par la carte d'accord, sauf si tu mets le droit à « agir », ce qu'il faut pour une routine. Un même post ne repart pas deux fois en 24 h.
+- **Partager un agent :** Panneau de l'agent > Partager, avec le droit lecture, usage ou admin. Avec le droit usage, la personne a sa propre mémoire et son propre navigateur, sans tes comptes connectés ni terminal ; le dossier de travail reste commun. Le droit admin est le choix de tout mettre en commun : ta mémoire, ton navigateur, tes comptes connectés et tes dossiers.
 
 ## En cas de souci
 
@@ -217,7 +218,7 @@ L'application fermée reste dans la zone de notification, pour que les routines 
 | « Docker ne répond pas » | Démarre Docker Desktop, puis `sh install.sh` |
 | Un outil « En panne » | Vérifie son serveur. L'agent continue sans lui |
 | Un outil sur ton réseau privé est refusé | Ajoute le réseau dans « Serveur sur ton réseau privé », sous l'ajout d'un outil |
-| La voix ne répond pas | Réglages > Voix : une clé OpenRouter ou un serveur de voix est nécessaire |
+| La voix ne répond pas | Réglages > Modèles et budget > Voix : une clé OpenRouter ou un serveur de voix est nécessaire |
 | Pas de notification sur le téléphone | Autorise les notifications de Noah dans les réglages du téléphone |
 
 ## Sauvegarder
@@ -250,7 +251,7 @@ Pour migrer, l'assistant de premier lancement propose aussi « Restaurer une sau
 
 Noah se met à jour seul sur un VPS, dépendances comprises (Hermes, le navigateur, Caddy) : chaque version publiée fixe leurs images par empreinte, dans un manifeste signé. Le serveur le lit toutes les heures, télécharge la nouvelle version à l'avance et l'installe pendant ton créneau calme, dans ton fuseau (de 3 h à 6 h, ou les heures où tu n'utilises pas Noah). Jamais pendant une tâche, une validation, un écran ouvert ou juste avant une routine.
 
-Tout est sauvegardé avant (bases SQLite vérifiées) ; si un composant ne répond plus, l'ancienne version revient avec ses données. Une version majeure attend 7 jours (ou un clic), et une version qui transforme les données attend toujours un clic. Tout se règle dans Réglages > Mises à jour.
+Tout est sauvegardé avant (bases SQLite vérifiées) ; si un composant ne répond plus, l'ancienne version revient avec ses données. Une version majeure attend 7 jours (ou un clic), et une version qui transforme les données attend toujours un clic. Tout se règle dans Réglages > Serveur > Mises à jour.
 
 En local, les images sont compilées chez toi : `git pull && sh install.sh`.
 
@@ -295,7 +296,7 @@ Si tu installes Noah à côté d'autres projets sur un VPS de Hostinger, garde-l
 
 ### Ce qui sort de ton serveur
 
-Réglages > Confidentialité liste chaque flux sortant, construit depuis la configuration en service : le fournisseur et le modèle de chaque agent, les sites que visitent les agents, les mises à jour, les notifications. Aucune télémétrie. Pendant que tu as la main sur l'écran d'un agent (connexion, code), son navigateur refuse toute capture.
+Réglages > Serveur > Confidentialité liste chaque flux sortant, construit depuis la configuration en service : le fournisseur et le modèle de chaque agent, les sites que visitent les agents, les mises à jour, les notifications. Aucune télémétrie. Pendant que tu as la main sur l'écran d'un agent (connexion, code), son navigateur refuse toute capture.
 
 ## Comment ça marche
 
@@ -311,7 +312,7 @@ L'onglet « Ordinateur » ouvre l'écran du navigateur en direct (noVNC, relayé
 
 ### Comptes : Google
 
-Détails > Connexions > Google : tu coches ce que l'agent peut faire (lire ou écrire tes courriels, voir ou modifier ton agenda, lire ou modifier Drive, Docs et Sheets, voir tes contacts). Ce choix vaut accord : tu n'as ensuite qu'à te connecter à ton compte Google. Noah Agent étant auto-hébergé, il passe par ta propre application Google :
+Panneau de l'agent > Connexions > Google : tu coches ce que l'agent peut faire (lire ou écrire tes courriels, voir ou modifier ton agenda, lire ou modifier Drive, Docs et Sheets, voir tes contacts). Ce choix vaut accord : tu n'as ensuite qu'à te connecter à ton compte Google. Noah Agent étant auto-hébergé, il passe par ta propre application Google :
 
 1. La première fois, l'agent la crée dans son navigateur en suivant une recette (`noah.py recette google`) : projet Google Cloud, API utiles, écran d'accord, toi comme testeur, ID client « Application de bureau ». Il accepte lui-même les conditions de Google Cloud et ne t'appelle que pour te connecter ; l'appel se ferme seul une fois connecté.
 2. Noah Agent ouvre la page d'accord dans le navigateur de l'agent et la valide lui-même (compte, avertissement, accès cochés). Google renvoie vers une adresse locale qui ne répond pas ; Noah Agent lit le code dans la barre d'adresse et l'échange, sans rien à recopier.

@@ -84,7 +84,7 @@ function AgentForm({ agent, onSaved, onDeleted, onCancel }: { agent: Agent | nul
               />
             ))}
           </div>
-          <span className="text-xs text-muted-foreground">Forme du visage et détails : dans Détails, section Apparence.</span>
+          <span className="text-xs text-muted-foreground">Forme du visage et détails : dans le panneau de l'agent, section Apparence.</span>
         </fieldset>
       </div>
       <Label>

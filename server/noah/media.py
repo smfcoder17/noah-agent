@@ -370,22 +370,42 @@ async def voice_for(model: str) -> str | None:
 EXT = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/svg+xml": "svg"}
 
 
-async def image(agent_id: str, prompt: str, aspect_ratio: str | None = None, model: str | None = None) -> tuple[bytes, str, str]:
+# Le prix d'un visuel : 50 centimes pour un post, sur une heure glissante (un carrousel se fait d'une traite). L'agent rend le reste en HTML.
+IMAGE_POST_CAP = 0.50
+IMAGE_POST_SECONDS = 3600
+_image_locks: dict[str, asyncio.Lock] = {}  # une image à la fois par agent : le prix n'est connu qu'au retour
+
+
+def _image_budget_left(agent_id: str) -> float:
+    with db.connect() as c:
+        c.execute("DELETE FROM image_spend WHERE at < ?", (time.time() - IMAGE_POST_SECONDS,))
+        spent = c.execute("SELECT COALESCE(SUM(cost), 0) AS total FROM image_spend WHERE agent_id = ?", (agent_id,)).fetchone()["total"]
+    return IMAGE_POST_CAP - spent
+
+
+async def image(agent_id: str, prompt: str, aspect_ratio: str | None = None, model: str | None = None, beyond_budget: bool = False) -> tuple[bytes, str, str]:
     """Rend (octets, extension, modèle)."""
     _check_budget(agent_id)
     model = model or await resolve("image", prompt)
     body = {"model": model, "prompt": prompt}
     if aspect_ratio:
         body["aspect_ratio"] = aspect_ratio
-    async with httpx.AsyncClient(timeout=300, headers=_headers()) as c:
-        r = await c.post(f"{BASE}/images", json=body)
-    if r.status_code != 200:
-        raise _fail(r)
-    j = r.json()
-    item = (j.get("data") or [{}])[0]
-    if not item.get("b64_json"):
-        raise MediaError("Le modèle n'a renvoyé aucune image.")
-    _record(agent_id, model, (j.get("usage") or {}).get("cost"))
+    async with _image_locks.setdefault(agent_id, asyncio.Lock()):
+        if not beyond_budget and _image_budget_left(agent_id) <= 0:
+            raise MediaError(f"Budget d'images atteint : {IMAGE_POST_CAP:.2f} $ en une heure. Fais la suite en HTML rendu par ton navigateur. "
+                             "Dépasse seulement si la personne te le demande, avec --hors-budget.".replace(".", ",", 1))
+        async with httpx.AsyncClient(timeout=300, headers=_headers()) as c:
+            r = await c.post(f"{BASE}/images", json=body)
+        if r.status_code != 200:
+            raise _fail(r)
+        j = r.json()
+        item = (j.get("data") or [{}])[0]
+        if not item.get("b64_json"):
+            raise MediaError("Le modèle n'a renvoyé aucune image.")
+        cost = (j.get("usage") or {}).get("cost")
+        _record(agent_id, model, cost)
+        with db.connect() as c:
+            c.execute("INSERT INTO image_spend (agent_id, cost, at) VALUES (?, ?, ?)", (agent_id, float(cost or 0), time.time()))
     return base64.b64decode(item["b64_json"]), EXT.get(item.get("media_type", ""), "png"), model
 
 
@@ -692,7 +712,7 @@ async def quick_replies(agent_id: str, text: str) -> list[str]:
     if r.status_code != 200:
         return []
     answer = r.json()
-    _record(agent_id, fallbacks[0], (answer.get("usage") or {}).get("cost"))
+    await relay._record(agent_id, fallbacks[0], answer.get("usage"))  # sans coût annoncé, le prix du catalogue compte dans les plafonds
     content = answer["choices"][0]["message"]["content"]
     options = json.loads(content[content.find("{"): content.rfind("}") + 1]).get("options") or []
     clean = list(dict.fromkeys(" ".join(str(o).split())[:40] for o in options if str(o).strip()))

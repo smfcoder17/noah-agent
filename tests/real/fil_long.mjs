@@ -170,7 +170,8 @@ check(told.includes("a réagi 🔥"), "un toucher envoie la réponse, et l'agent
 check(!(await choiceYes.isEnabled()), "la question ne se rejoue pas");
 
 // Fichiers : vrais dossiers.
-await page.getByRole("button", { name: /^Détails( Détails)?$/ }).click();
+await page.getByRole("button", { name: /^Agent( Agent)?$/ }).click();
+await page.getByRole("tab", { name: "Ordinateur" }).click();
 await page.getByRole("tab", { name: "Fichiers" }).click();
 const folder = (name) => page.getByRole("checkbox", { name: `Choisir le dossier ${name}` });
 await folder("Livrables").waitFor({ timeout: 8000 });

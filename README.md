@@ -103,7 +103,7 @@ Sur ton serveur, dans des volumes Docker : ton compte et l'historique, les clés
 
 ### Ce qui sort du serveur
 
-Noah n'envoie rien à ses développeurs. Il n'a aucune télémétrie. Réglages > Confidentialité affiche la liste réelle chez toi.
+Noah n'envoie rien à ses développeurs. Il n'a aucune télémétrie. Réglages > Serveur > Confidentialité affiche la liste réelle chez toi.
 
 | Quoi | Vers où | Quand |
 |---|---|---|
@@ -125,7 +125,7 @@ Chacun de ces services voit l'IP de ton serveur. Un test vérifie le serveur de 
 ### Comment tu restes le seul à entrer
 
 - **Le compte.** Il se crée avec le code à usage unique du lien, puis ce code est effacé, ou au déploiement avec [`NOAH_ADMIN_USER` et `NOAH_ADMIN_PASSWORD`](docs/installation.md#choisir-son-compte-au-déploiement), un mot de passe à changer à la première connexion. Il n'y a pas d'inscription publique : toi seul peux ajouter un profil.
-- **Les profils.** Depuis Réglages > Profils, sur l'ordinateur comme sur le téléphone, tu crées, réinitialises ou supprimes un profil, et tu vois et coupes ses appareils ; chaque geste demande ton mot de passe.
+- **Les profils.** Depuis Réglages > Personnes, sur l'ordinateur comme sur le téléphone, tu crées, réinitialises ou supprimes un profil, et tu vois et coupes ses appareils ; chaque geste demande ton mot de passe.
 - **La connexion.** En HTTPS, avec 10 essais ratés au plus par réseau toutes les 10 minutes. Tu peux ajouter une double vérification, un code à 6 chiffres donné par une application sur ton téléphone : [activer](docs/installation.md#la-double-vérification). Tu peux aussi faire confirmer les actions critiques par un [code reçu par courriel](docs/installation.md#le-code-reçu-par-courriel).
 - **Les appareils.** Un QR code ou un code court sert une fois et expire en 10 minutes. Il ne suffit pas : tu acceptes sur un appareil déjà relié, avec le nombre à 3 chiffres. Accepter demande aussi ton mot de passe, sauf depuis un navigateur où tu viens de le saisir (moins de 15 minutes) : un téléphone volé ne relie pas un autre appareil. Réglages > Appareils les liste, et tu peux en retirer un ; un jeton volé ne le peut pas, car déconnecter un autre appareil demande ton mot de passe. Un nouvel appareil se signale sur les autres, avec « C'est moi » et « [Ce n'est pas moi](docs/installation.md#nouvel-appareil-sur-ton-compte) », qui le coupe aussitôt.
 - **Le réseau.** Seul Caddy publie des ports, le 80 et le 443. Le serveur, le lanceur, les agents et leurs navigateurs n'en publient aucun ([exposition_test.py](tests/exposition/exposition_test.py) lit les fichiers et les appels à Docker ; le scan depuis Internet reste à faire).

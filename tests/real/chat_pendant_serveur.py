@@ -46,6 +46,11 @@ async def run_events(agent, run_id):
         accord.clear()
         yield "approval.request", {"request_id": "demande-2", "execution_generation": 1, "description": 'Outil « notion » : notion_create_pages\n{"pages": [{"parent": {"data_source_id": "d4b95a89-5612-40c9-842f-12d4f25e415c"}, "properties": {"Name": "Mon post du jour"}}], "telemetry": {"intent": "Create a post"}}'}
         await accord.wait()
+    if "DEUX" in started[n - 1]:
+        for request_id, title in (("demande-a", "Premier"), ("demande-b", "Second")):
+            accord.clear()
+            yield "approval.request", {"request_id": request_id, "execution_generation": 1, "description": 'Outil « notion » : create_page\n{"title": "' + title + '"}'}
+            await accord.wait()
     if "ACCORD" in started[n - 1]:
         accord.clear()
         yield "approval.request", {"request_id": "demande-1", "execution_generation": 1, "description": "Supprimer le dossier ?"}
@@ -60,6 +65,8 @@ accord = asyncio.Event()
 
 async def answer_approval(agent, run_id, request_id, generation, approve):
     accord.set()
+    if request_id == "demande-a":  # la réponse met du temps à revenir : le second accord arrive entre-temps
+        await asyncio.sleep(5)
 
 
 async def steer_run(agent, run_id, text):
@@ -101,11 +108,17 @@ async def resume_without_screen():
     return {"ok": True}
 
 
+@main.app.post("/_essai/deux")
+async def two_approvals():
+    await main._resume_agent("a1", "DEUX suite")
+    return {"ok": True}
+
+
 @main.app.get("/_essai/etat")
 def state():
     return {"steered": steered, "started": started}
 
 
 # Sans ce déplacement, la route d'envoi de la page d'accueil répondrait avant les deux routes d'essai.
-main.app.router.routes[:0] = [main.app.router.routes.pop(), main.app.router.routes.pop(), main.app.router.routes.pop()]
+main.app.router.routes[:0] = [main.app.router.routes.pop(), main.app.router.routes.pop(), main.app.router.routes.pop(), main.app.router.routes.pop()]
 uvicorn.run(main.app, host="0.0.0.0", port=8099, log_level="warning")

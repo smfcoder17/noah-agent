@@ -18,7 +18,7 @@ sys.path.insert(0, "/app")
 import httpx  # noqa: E402
 import uvicorn  # noqa: E402
 
-from noah import auth, db, hermes, main, media  # noqa: E402
+from noah import auth, db, hermes, machine, main, media  # noqa: E402
 
 db.init()
 alice = auth.create_user("alice", "motdepasse-essai")
@@ -119,6 +119,13 @@ async def healthy(*a, **k):
 
 hermes.list_files, hermes.read_file, hermes.delete_files = list_files, read_file, delete_files
 hermes.start_run, hermes.run_events, hermes.health = start_run, run_events, healthy
+
+
+async def admin(agent_id, action, payload=None):
+    return {"memoire": {"memory": [], "user": [], "limites": {"memory": 2200, "user": 1375}}}.get(action, {"applications": [], "google": {}})
+
+
+machine.admin = admin
 media.quick_replies = quick_replies
 
 

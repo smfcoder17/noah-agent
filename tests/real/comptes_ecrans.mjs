@@ -109,9 +109,8 @@ try {
     await page.locator("#username").fill("alice");
     await page.locator("#password").fill("motdepasse-a");
     await page.getByRole("button", { name: "Se connecter" }).click();
-    await page.getByRole("button", { name: /Ouvrir le menu|Réglages/ }).first().waitFor({ timeout: 20000 });
+    await page.getByRole("button", { name: /Réglages/ }).first().waitFor({ timeout: 20000 });
     const openSettings = async (tab) => {
-      if (viewport.width < 768) await page.getByRole("button", { name: "Ouvrir le menu" }).click();
       await page.getByRole("button", { name: /Réglages/ }).first().click();
       await page.getByRole("tab", { name: tab }).click();
     };
@@ -148,7 +147,7 @@ try {
     check(true, `${label} : adresse activée avec le code reçu`);
 
     // Une action critique : la fenêtre demande le code reçu par courriel.
-    await page.getByRole("tab", { name: "Profils" }).click();
+    await page.getByRole("tab", { name: "Personnes" }).click();
     await page.locator("li[data-profil=nina]").waitFor();
     await page.screenshot({ path: stem("8-profils") });
     await overflow(page, "Profils");
@@ -189,7 +188,7 @@ try {
     await other.locator("#username").fill("alice");
     await other.locator("#password").fill("motdepasse-a");
     await other.getByRole("button", { name: "Se connecter" }).click();
-    await other.getByRole("button", { name: /Ouvrir le menu|Réglages/ }).first().waitFor({ timeout: 20000 });
+    await other.getByRole("button", { name: /Réglages/ }).first().waitFor({ timeout: 20000 });
     await page.reload();
     await page.getByText("Nouvel appareil sur ton compte").waitFor({ timeout: 15000 });
     const shown = await page.locator("[role=alertdialog]").innerText();
@@ -222,10 +221,9 @@ try {
     await stolen.addCookies([{ name: "noah_session", value: made, url: base }]);
     await tokenPage.goto(base);
     const dismiss = tokenPage.getByRole("alertdialog").getByRole("button", { name: "Fermer", exact: true });
-    await tokenPage.getByRole("button", { name: /Ouvrir le menu|Réglages/ }).first().waitFor({ timeout: 20000 });
+    await tokenPage.getByRole("button", { name: /Réglages/ }).first().waitFor({ timeout: 20000 });
     await tokenPage.waitForTimeout(800);
     if (await dismiss.isVisible().catch(() => false)) await dismiss.click();
-    if (viewport.width < 768) await tokenPage.getByRole("button", { name: "Ouvrir le menu" }).click();
     await tokenPage.getByRole("button", { name: /Réglages/ }).first().click();
     await tokenPage.getByRole("tab", { name: "Appareils" }).click();
     tokenPage.on("dialog", (d) => d.accept());

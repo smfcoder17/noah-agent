@@ -303,7 +303,7 @@ def check_spend(agent_id: str) -> None:
 
 
 # Fournisseur injoignable, par agent : Hermes réessaie plusieurs minutes sans rien dire, la tâche le dit à sa place (main._run).
-UNREACHABLE = "Le modèle est injoignable. Vérifie son adresse dans Réglages > Cerveau, ou réessaie dans un instant."
+UNREACHABLE = "Le modèle est injoignable. Vérifie son adresse dans Réglages > Modèles et budget > Cerveau, ou réessaie dans un instant."
 _failing: dict[str, float] = {}  # depuis quand les appels de cet agent échouent
 _reached: dict[str, float] = {}  # dernier appel qui a eu une réponse
 
@@ -411,7 +411,7 @@ async def relay(path: str, request: Request):
     api_key = db.get_setting("api_key", secret=True) if db.get_setting("api_key") else None
     base = upstream_base(provider, db.get_setting("base_url"))
     if not base:
-        raise HTTPException(503, "Ce fournisseur n'a pas d'adresse : renseigne-la dans Réglages > Cerveau.")
+        raise HTTPException(503, "Ce fournisseur n'a pas d'adresse : renseigne-la dans Réglages > Modèles et budget > Cerveau.")
     url = f"{base}/{path}"
     headers = _upstream_headers(provider, api_key)
 
