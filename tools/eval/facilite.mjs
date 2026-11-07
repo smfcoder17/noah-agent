@@ -41,6 +41,10 @@ export const ACTIONS = {
   A9: { but: "Changer le modèle d'IA qu'utilise ton agent", ref: 2 },
   A10: { but: "Voir ce que ton agent a fait aujourd'hui", ref: 1 },
   A11: { but: "Relier ton téléphone à ton compte", ref: 2 },
+  R1: { but: "Voir combien ton agent a coûté ce mois-ci", ref: 2 },
+  R2: { but: "Changer la couleur de ton agent", ref: 2 },
+  R3: { but: "Déconnecter un appareil relié à ton compte", ref: 3 },
+  R4: { but: "Mettre en pause une tâche programmée", ref: 3 },
 };
 
 const browser = await chromium.launch({ channel: "chrome", headless: true, args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"] });
@@ -144,7 +148,7 @@ const RUNS = {
     const create = page.getByRole("button", { name: /Créer un agent|Nouvel agent/ });
     cur.entree = await visible(create);
     if (!cur.entree) await act("Agents", () => page.getByRole("navigation", { name: "Navigation" }).getByRole("button", { name: "Agents" }).click());
-    await act("Créer un agent", () => create.first().click());
+    await act("Créer un agent", () => clickOnScreen(create));
     await act("nom", () => page.getByPlaceholder(/Ex\./).first().fill("Essai facilité"));
     // On s'arrête avant de lancer une machine : le dernier geste serait « Créer l'agent ».
     const go = page.getByRole("button", { name: /Créer l'agent|Créer$/ });
@@ -153,7 +157,7 @@ const RUNS = {
     await page.keyboard.press("Escape");
   },
   async A4() {
-    await viaPanel(/^Connexions$/, /Connexions/, "Connexions");
+    await viaPanel(/^(Connexions|Outils)$/, /Connexions/, "Connexions");
     const drive = page.getByText(/^Google( Drive)?$/).first();
     if (!(await visible(drive))) await act("chercher Google", () => page.getByRole("textbox").last().fill("Google"));
     const btn = page.getByRole("button", { name: /Connecter|Ajouter/ }).first();
@@ -220,12 +224,45 @@ const RUNS = {
   async A11() {
     cur.entree = await visible(page.getByRole("button", { name: /Relier|téléphone/i }));
     await act("Réglages", () => page.getByRole("button", { name: /^Réglages$/ }).locator("visible=true").first().click());
-    const direct = page.getByRole("button", { name: /^Relier un téléphone ou un ordinateur/ });
-    if (await visible(direct)) await act("Relier un téléphone ou un ordinateur", () => clickOnScreen(direct), 1500);
+    const direct = page.getByRole("button", { name: /^Relier un (téléphone ou un ordinateur|appareil)$/ });
+    if (await visible(direct)) await act("Relier (raccourci)", () => clickOnScreen(direct), 1500);
     else await act("Appareils", () => page.getByRole("tab", { name: /Appareils/ }).or(page.getByRole("button", { name: /^Appareils$/ })).locator("visible=true").first().click());
     const link = page.getByRole("button", { name: /Relier un appareil|Relier un téléphone/ });
-    if (!cur.steps.some((x) => x.startsWith("Relier un téléphone")) && (await visible(link))) await act("Relier un appareil", () => link.first().click(), 1500);
+    if (!cur.steps.some((x) => x.startsWith("Relier (raccourci)")) && (await visible(link))) await act("Relier un appareil", () => link.first().click(), 1500);
     cur.retour = await visible(page.locator("canvas, svg[role=img], img[alt*=QR]"));
+  },
+  async R1() {
+    cur.entree = await visible(page.getByText(/Dépense|coût/i));
+    await act("panneau de l'agent", () => page.getByRole("button", { name: /Ouvrir le panneau/ }).first().click());
+    const tile = page.getByRole("button", { name: /^Dépense du mois/ });
+    if (await visible(tile)) await act("Dépense du mois", () => clickOnScreen(tile), 1200);
+    cur.retour = await visible(page.getByText(/Coût ce mois-ci|ce mois-ci/));
+  },
+  async R2() {
+    cur.entree = false;
+    await act("panneau de l'agent", () => page.getByRole("button", { name: /Ouvrir le panneau/ }).first().click());
+    await act("Personnaliser", () => clickOnScreen(page.getByRole("button", { name: /Personnaliser/ })));
+    cur.retour = await visible(page.getByText(/Couleur/));
+    if (cur.retour) cur.steps.push("choisir la couleur (non cliqué)");
+    await page.keyboard.press("Escape");
+  },
+  async R3() {
+    cur.entree = false;
+    await act("Réglages", () => page.getByRole("button", { name: /^Réglages$/ }).locator("visible=true").first().click());
+    await act("Appareils", () => page.getByRole("tab", { name: /Appareils/ }).or(page.getByRole("button", { name: /^Appareils$/ })).locator("visible=true").first().click());
+    cur.retour = await visible(page.getByText(/Appareils connectés/));
+    if (cur.retour) cur.steps.push("supprimer l'appareil (non cliqué)");
+  },
+  async R4() {
+    await viaPanel(/^(Tâches programmées|Tâches|Routines)$/, /Routines/, "Routines");
+    const pause = page.getByRole("button", { name: /pause/i }).or(page.getByRole("switch"));
+    cur.retour = await visible(pause);
+    if (!cur.retour) {
+      const row = page.getByText(/Veille modèles/).first();
+      if (await visible(row)) await act("ouvrir la tâche", () => row.click());
+      cur.retour = await visible(pause);
+    }
+    if (cur.retour) cur.steps.push("Pause (non cliqué)");
   },
 };
 

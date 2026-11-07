@@ -70,8 +70,8 @@ export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainS
   const home = tab === "home"; // le sommaire du téléphone
   const [pairNow, setPairNow] = useState(false);
   useEffect(() => {
-    if (home) setPairNow(false); // le code ne s'affiche d'office que quand on vient pour ça
-  }, [home]);
+    if (tab !== "phone") setPairNow(false); // le code ne s'affiche d'office que quand on vient pour ça
+  }, [tab]);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {open && (
@@ -88,11 +88,15 @@ export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainS
               ))}
             </nav>
           ) : (<>
-          <Tabs value={rubric.id} onValueChange={(id) => onTab(all.find((r) => r.id === id)!.tabs[0][0])} className="self-start max-md:hidden">
-            <TabsList aria-label="Rubriques" className="flex-wrap">
-              {all.map((r) => <TabsTrigger key={r.id} value={r.id}>{r.label}</TabsTrigger>)}
-            </TabsList>
-          </Tabs>
+          <div className="flex flex-wrap items-center justify-between gap-2 max-md:hidden">
+            <Tabs value={rubric.id} onValueChange={(id) => onTab(all.find((r) => r.id === id)!.tabs[0][0])} className="self-start">
+              <TabsList aria-label="Rubriques" className="flex-wrap">
+                {all.map((r) => <TabsTrigger key={r.id} value={r.id}>{r.label}</TabsTrigger>)}
+              </TabsList>
+            </Tabs>
+            {/* Le geste qu'on vient faire le plus souvent ici : un clic, et le code s'affiche. */}
+            {tab !== "phone" && <button type="button" onClick={() => { setPairNow(true); onTab("phone"); }} className="cursor-pointer rounded-lg bg-accent-soft px-3 py-1.5 text-sm font-medium text-accent">Relier un appareil</button>}
+          </div>
           <Tabs value={tab} onValueChange={(v) => onTab(v as SettingsTab)} className="flex min-h-0 flex-col gap-4">
             {rubric.tabs.length > 1 && (
               <TabsList aria-label={rubric.label} className="flex-wrap self-start">
