@@ -314,7 +314,8 @@ async def test_outcomes():
     await settle()
     assert delegation(did)["etat"] == "echec"
     resumed = run_for("a")
-    assert "[Échec de ta demande à Basile" in resumed["text"] and "Rien ne prouve" in resumed["text"], resumed["text"][:500]
+    said = resumed["text"].split("[Fin. Message de l'utilisateur :]\n\n")[-1]  # machine.add_context place devant ce que l'agent doit savoir : la note vient juste après
+    assert said.startswith("[Échec de ta demande à Basile") and "Rien ne prouve" in said, said[:500]
     finish(resumed)
     await settle()
     # Run terminé sans aucune réponse : c'est un échec aussi.

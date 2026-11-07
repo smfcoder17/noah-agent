@@ -43,7 +43,7 @@ function why(s: DecisionState) {
 }
 
 function typedWhy(t: NonNullable<DecisionState["type"]>) {
-  const facts = [price(t.prix_entree), t.ms !== null && t.ms !== undefined ? `${t.ms} ms` : null, `par ${WHERE[t.service] ?? t.service}`].filter(Boolean);
+  const facts = [`par ${WHERE[t.service] ?? t.service}`];
   return [t.choisi_par === "toi" ? "choisi par toi" : "choisi parce qu'il est le moins cher à répondre juste", ...facts].join(", ");
 }
 

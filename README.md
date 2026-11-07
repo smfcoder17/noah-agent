@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Des agents IA qui travaillent jour et nuit sur ton propre serveur, et que tu joins de l'ordinateur et du téléphone.</strong><br>
-  Auto-hébergé, code source disponible, interface en français. Il te faut un VPS, ou Docker sur ton ordinateur pour essayer.
+  Pour toi si tu veux tes agents sur ton propre serveur, sans confier tes conversations à un service. Code source disponible, interface en français. Il te faut un VPS, ou Docker sur ton ordinateur pour essayer.
 </p>
 
 <p align="center">
@@ -26,12 +26,9 @@
   <a href="docs/installation.md">Guide complet</a>
 </p>
 
-<!-- À FAIRE AVANT PUBLICATION. Boucle attendue en tête : docs/assets/boucle-noah.gif (ou .webp, 10 Mo au plus ; GitHub ne lit pas un .mp4 du dépôt dans un README).
-     Une demande, l'agent travaille, la carte d'accord, le résultat. Quand elle existe, elle remplace conversation.png ci-dessous.
-     conversation.png date d'avant l'interface repensée : à refaire si elle ne correspond plus. -->
 <p align="center">
-  <img src="docs/images/conversation.png" alt="Noah Agent : trois agents à gauche, une conversation à droite. L'agent travaille, et on peut lui écrire pendant ce temps." width="760"><br>
-  <sub>Capture de la vraie interface, avec des réponses écrites d'avance et aucune donnée réelle.</sub>
+  <img src="docs/assets/conversation.jpg" alt="Noah Agent : deux agents à gauche, une conversation à droite. L'agent a préparé un plan de repas, et le fichier s'ouvre dans le fil." width="760"><br>
+  <sub>Capture de la vraie interface, sur une installation locale, avec un vrai modèle.</sub>
 </p>
 
 > [!IMPORTANT]
@@ -41,7 +38,7 @@
 
 Pour un agent joignable partout. Pour essayer sans serveur, passe à [Installer sur ton ordinateur](#installer-sur-ton-ordinateur).
 
-Il te faut un VPS Ubuntu ou Debian, 4 Go de mémoire au moins (plutôt 8 Go si plusieurs agents naviguent), 10 Go libres et les ports 80 et 443 libres. Choisis une voie : le téléchargement prend ensuite quelques minutes.
+Il te faut un VPS Ubuntu ou Debian, 4 Go de mémoire au moins (plutôt 8 Go si plusieurs agents naviguent), 10 Go libres et les ports 80 et 443 libres. Choisis une voie : compte une dizaine de minutes, téléchargement compris. À la fin, un lien te permet de créer ton compte.
 
 **Un clic chez Hostinger.** Le bouton mène à l'achat d'un VPS, avec Noah préchargé. Nomme le projet `noah`, exactement, puis Deploy. Ce bouton suit la [documentation de Hostinger](https://www.hostinger.com/support/deploy-on-hostinger-button/), mais nous ne l'avons pas encore essayé.
 
@@ -81,7 +78,6 @@ Ouvre http://localhost:8080. Tout se compile chez toi, et Noah n'est pas ouvert 
 
 ## Relier le bureau et le téléphone
 
-<!-- Capture attendue : docs/assets/relier-appareil.png, le QR code sur l'ordinateur et le nombre à 3 chiffres sur le téléphone, sans donnée réelle. -->
 Les applications ne font rien sans un serveur Noah : elles s'y relient. Chaque appareil demande ton accord, avec un nombre à 3 chiffres à recopier, et tu ne tapes pas ton mot de passe dans l'application pour la relier.
 
 | Appareil | À installer | Pour le relier |
@@ -116,23 +112,31 @@ Le modèle reste ton choix : Ollama, un serveur compatible OpenAI, OpenRouter, A
 
 ### Il ne peut pas te dire que c'est fait sans que ça se voie
 
+<p><img src="docs/assets/recu.jpg" alt="Une réponse de l'agent, et dessous la ligne : Reçu, 1 vérifié." width="560"></p>
+
 Sous chaque réponse, un reçu compare ce que l'agent affirme à ce que ses outils ont vraiment fait. Une affirmation sans trace, ou une action qu'il n'a pas mentionnée, se voit tout de suite. Il compare le type d'action, pas sa cible : c'est un signal, pas une preuve que tout est juste.
 
 ### Nouveau dans cette version
 
 Essayé en local. Pas encore en usage sur la durée.
 
-<!-- Captures attendues : docs/assets/modes-modeles.png, docs/assets/objectifs-de-lui-meme.png, docs/assets/carte-connexion.png -->
+<table><tr><td width="56%"><img src="docs/assets/modes-modeles.jpg" alt="Réglages, Modèles et budget : les modes Rapide, Équilibré et Le plus fort, chacun avec son modèle et son prix."></td><td><img src="docs/assets/carte-connexion.jpg" alt="Carte de connexion à instagram.com dans la conversation : le mot de passe va directement dans la page, ton agent ne le voit pas."><br><br><img src="docs/assets/resume-agent.jpg" alt="Résumé de l'agent : personnalité, modèle, objectifs, connexions, compétences, routines, mémoire et dépense."></td></tr></table>
+
 - **Modes de modèles.** Rapide, Équilibré, Le plus fort, Gratuit et Custom, pour le cerveau, la création et la voix, par agent et par tâche. Gratuit et Custom sont des chaînes : si un modèle est épuisé ou en panne, le suivant prend le relais.
 - **Objectifs.** Tu écris ce que tu veux atteindre. Tes agents le gardent en tête et peuvent te proposer une chose concrète, une fois par jour au plus.
 - **Agent proactif.** Par agent : Coupé, Me signaler ou Agir et me dire, de 15 min à 6 h. Sans rien de neuf dans ses sources, il n'appelle aucun modèle. Testé par simulation, pas encore sur une vraie boîte de courriel.
 - **Connexion sécurisée dans le chat.** L'agent demande à se connecter à un site, et tu saisis tes identifiants dans une carte de la conversation. Il ne les voit pas : voir [Coffre](#sécurité).
 - **Il apprend de toi.** Une correction, une préférence, une réaction 👍 ou 👎 ou un accord refusé : l'agent le retient pour la prochaine fois, sans rien t'afficher de plus qu'un petit « retenu ».
+- **Tout voir de ton agent.** Le menu à trois points et un résumé montrent sa personnalité, son modèle, ses connexions, ses compétences, ses routines, sa mémoire et sa dépense.
+- **Connexions pour tous.** Une connexion vaut pour un agent ou pour tous, avec une case pour en exclure. Compétences : ce que tu lui enseignes, à part de ce qu'il apprend seul.
 - **Vidéos dans le fil.** YouTube et d'autres se lisent dans la conversation, et un lien externe ouvre la vraie application.
 
 ## Noah face à Muse, Grok Bot et Dots
 
 Muse (Meta), Grok Bot (xAI) et Dots (OpenAI) sont des services : tu crées un compte, et ils tournent chez leur éditeur. Noah tourne chez toi, et cela se paie en entretien.
+
+<details>
+<summary>Le tableau, point par point</summary>
 
 | | Noah | Muse, Grok Bot, Dots |
 |---|---|---|
@@ -147,6 +151,8 @@ Muse (Meta), Grok Bot (xAI) et Dots (OpenAI) sont des services : tu crées un co
 | **Si ça tombe en panne** | C'est ton serveur, à toi de réparer | L'éditeur s'en occupe |
 | **Si tu pars** | Ta sauvegarde va sur un autre serveur | Selon ce que le service permet d'exporter |
 
+</details>
+
 **Prends l'un d'eux** si tu veux que ça marche ce soir, sans serveur à gérer. **Prends Noah** si garder la main sur tes données et ton modèle vaut cet entretien.
 
 Ce tableau vient d'un [relevé du 4 novembre 2026](docs/comportements.md), fait sur leur documentation et sur des vidéos publiques, sans compte chez eux. Ce n'est pas un classement.
@@ -157,7 +163,6 @@ Noah est construit sur [Hermes Agent](https://github.com/NousResearch/hermes-age
 
 Un agent peut être trompé par une page ou un message piégé. Noah part de là : quatre gardes limitent ce qu'il peut faire, et aucune ne suffit seule.
 
-<!-- Capture attendue : docs/assets/carte-accord.png, une carte d'accord avec l'action et sa cible. -->
 | Garde | Ce qu'elle fait | Sa limite |
 |---|---|---|
 | **Machine isolée** | Chaque agent a son conteneur et son navigateur, sans accès à Docker ni à la clé du fournisseur | C'est un conteneur, pas une machine virtuelle |
@@ -173,7 +178,6 @@ Aucun audit externe n'a été fait. Le détail de chaque garde, ce qui sort du s
 
 ## État
 
-<!-- À RELIRE À LA PUBLICATION : reprendre ces deux chiffres dans docs/etat.md, généré par tools/eval/score.mjs. -->
 Noah compte une preuve seulement si elle atteint le niveau exigé, en général les conditions réelles : VPS neuf, téléphone, 4G. Selon [docs/etat.md](docs/etat.md), **0 parcours sur 10 est tenu à ce niveau, et 1 objectif sur 17 atteint son seuil** : les mises à jour. Huit parcours sur dix tournent déjà en local, avec de vrais conteneurs ou un vrai navigateur. Deux n'y sont pas encore : la mise à jour majeure avec panne provoquée, et l'appel vocal depuis le téléphone.
 
 Pas encore vérifié :

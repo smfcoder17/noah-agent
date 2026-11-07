@@ -98,7 +98,7 @@ export function LoginCard({ agentId, asked, onDone }: { agentId: string; asked: 
       )}
       <ErrorText>{error}</ErrorText>
       <div className="flex flex-wrap gap-2">
-        <Button type="submit" variant="warn" size="sm" disabled={busy}>{busy ? "Connexion…" : "Connecter"}</Button>
+        <Button type="submit" variant="warn" size="sm" disabled={busy}>{busy ? "Connexion…" : "Se connecter"}</Button>
         <Button type="button" variant="outline" size="sm" disabled={busy} onClick={decline}>Pas maintenant</Button>
         <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => window.dispatchEvent(new Event("noah:voir-ecran"))}><MonitorPlay />Prendre le contrôle du navigateur</Button>
       </div>

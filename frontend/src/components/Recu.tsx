@@ -39,7 +39,7 @@ export function Recu({ args }: ToolCallMessagePartProps) {
             <ul className="flex flex-col gap-1 pl-5">
               {proven.map((p) => <li key={p.dit} className="flex items-start gap-1.5"><Check className="mt-0.5 size-3.5 shrink-0 text-ok" /><span>« {p.dit} » : vu passer par {p.par}.</span></li>)}
               {unsure.map((u) => <li key={u.dit} className="flex items-start gap-1.5"><CircleHelp className="mt-0.5 size-3.5 shrink-0" /><span>« {u.dit} » : passé par {u.par}, Noah ne peut pas dire ce que ça a fait.</span></li>)}
-              <li className="text-xs">Noah compare ce qui est écrit à ce que les outils ont rapporté. Il ne sait pas ce qui est arrivé chez le destinataire.</li>
+              <li className="text-xs">Noah compare ce qui est écrit à ce que ses actions ont donné. Il ne sait pas ce qui est arrivé chez le destinataire.</li>
             </ul>
           )}
         </div>

@@ -63,11 +63,11 @@ export function AgentOverview({ agent, refreshKey, spent, onTab, onEdit, onBrain
   }, [agent.id, admin, owner, refreshKey]);
   const show = (n: number | undefined, one: string, many?: string) => (n === undefined ? "…" : n ? plural(n, one, many) : "Aucune");
   const reasoning = REASONING.find((r) => r.id === agent.raisonnement)?.name;
-  const brain = [agent.mode ? MODE_NAMES[agent.mode as ModeId] ?? agent.mode : agent.model || "Celui de tous", reasoning].filter(Boolean).join(" · ");
+  const brain = [agent.mode ? MODE_NAMES[agent.mode as ModeId] ?? agent.mode : agent.model || "Le réglage général", reasoning].filter(Boolean).join(" · ");
   return (
     <section aria-label="Ce qui constitue cet agent" className="grid grid-cols-2 gap-1.5">
       <Tile label="Personnalité et rôle" value={agent.role.trim() ? agent.role.trim().split("\n")[0] : "À écrire"} onClick={admin ? onEdit : undefined} />
-      <Tile label="Modèle et raisonnement" value={brain} onClick={admin ? onBrain : undefined} />
+      <Tile label="Modèle" value={brain} onClick={admin ? onBrain : undefined} />
       {owner && <Tile label="Objectifs" value={counts.objectifs === undefined ? "…" : counts.objectifs ? plural(counts.objectifs, "en cours", "en cours") : "Aucun"} onClick={onGoals} />}
       {admin && <Tile label="Connexions" value={counts.connexions ?? "…"} onClick={() => onTab("connections")} />}
       {admin && <Tile label="Compétences" value={show(counts.competences, "enseignée", "enseignées")} onClick={() => onTab("competences")} />}
