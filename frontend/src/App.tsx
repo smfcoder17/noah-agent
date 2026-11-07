@@ -443,8 +443,10 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const state = shown?.state ?? "idle";
   useEffect(() => {
     const open = () => setModelDialog(true);
+    const tab = (e: Event) => { setSidebarOpen(false); setPanel((e as CustomEvent<PanelTab>).detail); };
     window.addEventListener("noah:choisir-modele", open);
-    return () => window.removeEventListener("noah:choisir-modele", open);
+    window.addEventListener("noah:ouvrir-panneau", tab);
+    return () => { window.removeEventListener("noah:choisir-modele", open); window.removeEventListener("noah:ouvrir-panneau", tab); };
   }, []);
   const door = settings ? "Réglages" : sidebarOpen ? "Agents" : panel === "files" ? "Fichiers" : panel === "routines" ? "Tâches" : "Discussion";
   const waiting = agents.reduce((n, a) => n + (a.tasks?.approve ?? 0) + (a.tasks?.choice ?? 0), 0);
@@ -529,6 +531,8 @@ function Shell({ onLogout }: { onLogout: () => void }) {
               </p>
               </div>
             </div>
+            {/* Créer un agent depuis l'accueil du téléphone, comme le « + » de Grok Bot. */}
+            {!thread && <Button variant="ghost" size="icon-sm" className="md:hidden" onClick={() => setAgentDialog({ open: true, agent: null })} aria-label="Créer un agent" title="Créer un agent"><Plus /></Button>}
             <Button variant="ghost" size="icon-sm" className="relative md:hidden" onClick={() => setInbox(true)} aria-label={waiting ? `À toi : ${waiting} en attente` : "À toi"} title="À toi">
               <InboxIcon />
               {waiting > 0 && <span className="absolute -top-0.5 -right-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-warn px-1 text-[10px] font-semibold text-surface">{waiting}</span>}

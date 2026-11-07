@@ -158,6 +158,9 @@ const RUNS = {
   },
   async A4() {
     await viaPanel(/^(Connexions|Outils)$/, /Connexions/, "Connexions");
+    // La liste des outils à connecter arrive après celle des connexions : on l'attend avant de juger l'écran.
+    await page.getByText(/^Google( Drive)?$/).first().waitFor({ timeout: 12000 }).catch(() => {});
+    await shot(cur.steps.at(-1).replace(/[^\p{L}\p{N}]+/gu, "-").slice(0, 40)); // remplace la capture prise trop tôt
     const drive = page.getByText(/^Google( Drive)?$/).first();
     if (!(await visible(drive))) await act("chercher Google", () => page.getByRole("textbox").last().fill("Google"));
     const btn = page.getByRole("button", { name: /Connecter|Ajouter/ }).first();

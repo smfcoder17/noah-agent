@@ -11,7 +11,7 @@ import {
   useAuiState,
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
-import { ArrowDown, ArrowUp, Check, ChevronRight, ChevronUp, Copy, FileText, Loader2, Paperclip, Reply, SmilePlus, Square, TriangleAlert, X, ChevronDown } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, ChevronRight, ChevronUp, Copy, FileText, Loader2, Paperclip, Reply, SmilePlus, Square, TriangleAlert, X, ChevronDown, Plug } from "lucide-react";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import remarkGfm from "remark-gfm";
 import { WhileBusyContext, AgentContext, HistoryContext } from "@/lib/agentContext";
@@ -137,8 +137,20 @@ function ModelChip() {
   if (!canWatch || readOnly) return null;
   return (
     <button type="button" onClick={() => window.dispatchEvent(new Event("noah:choisir-modele"))} title="Changer de modèle"
-      className="flex h-9 max-w-40 shrink-0 cursor-pointer items-center gap-1 truncate rounded-lg px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground">
+      className="flex h-9 max-w-40 shrink-0 cursor-pointer items-center gap-1 truncate max-sm:max-w-28 rounded-lg px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground">
       <span className="truncate">{agentModel || general || "Modèle"}</span><ChevronDown className="size-3.5 shrink-0" />
+    </button>
+  );
+}
+
+/** Ses outils sous la saisie, à côté du modèle : un geste ouvre ses connexions, comme le « + » de ChatGPT ou « Connect apps » de Grok Bot. */
+function ToolsChip() {
+  const { canWatch, readOnly } = useContext(AgentContext);
+  if (!canWatch || readOnly) return null;
+  return (
+    <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("noah:ouvrir-panneau", { detail: "connections" }))} title="Connecter un outil"
+      className="flex h-9 shrink-0 cursor-pointer items-center gap-1 rounded-lg px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground">
+      <Plug className="size-3.5 shrink-0 max-sm:size-5" /><span className="max-sm:sr-only">Outils</span>
     </button>
   );
 }
@@ -644,21 +656,22 @@ function Composer({ onVoiceMode, inCall }: { onVoiceMode: () => void; inCall: bo
       <div className="flex flex-wrap gap-1.5 empty:hidden">
         <ComposerPrimitive.Attachments components={{ Attachment: AttachmentChip }} />
       </div>
-      {/* Sur un téléphone, le texte a toute la largeur et les boutons passent dessous, comme dans les apps de chat. */}
-      <div className="flex items-end gap-1.5 max-sm:flex-wrap">
+      {/* Le texte a toute la largeur et les boutons passent dessous, comme dans les apps de chat : les puces ne l'écrasent jamais. */}
+      <div className="flex flex-wrap items-end gap-1.5">
         <ComposerPrimitive.AddAttachment asChild multiple>
-          <Button variant="ghost" size="icon" aria-label="Joindre des fichiers" className="text-muted-foreground max-sm:mr-auto">
+          <Button variant="ghost" size="icon" aria-label="Joindre des fichiers" className="mr-auto text-muted-foreground">
             <Paperclip />
           </Button>
         </ComposerPrimitive.AddAttachment>
         <AttachPosition />
         <ModelChip />
+        <ToolsChip />
         <ComposerPrimitive.Input
           data-composer-input
           rows={1}
           autoFocus={FINE_POINTER}
           placeholder={dictating ? "Parle, le texte arrive ici…" : running ? "Précise, pose une question, ou ajoute une demande…" : "Écris à ton agent…"}
-          className="max-h-48 min-h-9 flex-1 resize-none bg-transparent px-1 py-2 text-[15px] outline-none placeholder:text-muted-foreground max-sm:order-first max-sm:basis-full max-sm:px-2 max-sm:text-base"
+          className="max-h-48 min-h-9 flex-1 resize-none bg-transparent py-2 text-[15px] outline-none placeholder:text-muted-foreground order-first basis-full px-2 max-sm:text-base"
           onKeyDown={(e) => {
             // Entrée pendant la dictée : on termine la transcription, puis le message part.
             if (dictating && e.key === "Enter" && !e.shiftKey) {
