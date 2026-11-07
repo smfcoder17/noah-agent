@@ -1,6 +1,9 @@
 name: noah-garde
 version: 1.0.0
-description: "Noah Agent : skills tiers seulement depuis les dépôts vérifiés, aucun script téléchargé exécuté d'un trait, droits par outil MCP."
+description: "Noah Agent : skills tiers seulement depuis les dépôts vérifiés, aucun script téléchargé exécuté d'un trait, droits par outil MCP, connexions aux sites sans mot de passe dans la machine."
 author: "Noah Agent"
 provides_hooks:
   - pre_tool_call
+  - transform_tool_result
+provides_tools:
+  - browser_vault

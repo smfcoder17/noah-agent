@@ -8,6 +8,7 @@
 Le détail brut (appels d'outils, arguments) n'est envoyé que si l'interface demande le mode détails.
 """
 import re
+import unicodedata
 from urllib.parse import urlsplit
 
 from .diagnostics import mask
@@ -241,8 +242,14 @@ def translate(kind: str, data: dict, details: bool) -> dict | None:
 
 # Une réaction se donne d'un mot : l'agent commence sa réponse par [[👍]], la personne ne voit que l'emoji posé sur son message.
 REACTIONS = ("👍", "❤️", "😂", "😮", "😢", "🙏", "🔥", "🎉", "👎")
-_REACTION_HEAD = re.compile(r"^\s*\[\[(" + "|".join(REACTIONS) + r")\]\]\s*")
+_REACTION_HEAD = re.compile(r"^\s*\[\[([^\[\]]{1,12})\]\]\s*")
 _MOST_HEAD = 24
+
+
+def _is_emoji(text: str) -> bool:
+    """L'agent réagit avec l'emoji qui convient, pas seulement ceux du sélecteur : sinon « [[👂]] » s'afficherait dans son texte."""
+    return any(unicodedata.category(ch) == "So" for ch in text) \
+        and all(unicodedata.category(ch) in ("So", "Sk") or ch in "‍️" for ch in text)
 
 
 class ReactionHead:
@@ -270,4 +277,4 @@ class ReactionHead:
         self.done = True
         found = _REACTION_HEAD.match(self.held)
         rest, self.held = self.held, ""
-        return (found.group(1), rest[found.end():]) if found else (None, rest)
+        return (found.group(1), rest[found.end():]) if found and _is_emoji(found.group(1)) else (None, rest)

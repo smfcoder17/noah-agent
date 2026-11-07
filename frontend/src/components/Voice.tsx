@@ -3,9 +3,9 @@
 // personne continue de parler, et le texte apparaît au fur et à mesure (modèle choisi dans Réglages > Voix).
 import { useAui, useAuiState } from "@assistant-ui/react";
 import { AudioLines, Loader2, Mic } from "lucide-react";
-import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AgentContext } from "@/lib/agentContext";
-import { ApiError, request, send, voiceRefusal } from "@/lib/api";
+import { ApiError, get, request, send, type VoiceReady, voiceRefusal } from "@/lib/api";
 import { appShell, nativeCall } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import { CallStage } from "./CallStage";
@@ -282,13 +282,23 @@ function Level({ level }: { level: { current: number } }) {
 export function useDictation() {
   const { agentId } = useContext(AgentContext);
   const aui = useAui();
-  const mic = useMic();
-  const [state, setState] = useState<"idle" | "recording" | "finishing">("idle");
-  const recording = useRef(false);
-  const t = useTranscripts(agentId, (text) => {
+  const dictation = useFieldDictation(agentId, (text) => {
     const current = aui.composer.getState().text;
     aui.composer.setText(current.trim() ? `${current.trimEnd()} ${text}` : text);
   });
+  const finish = async (thenSend: boolean) => {
+    if ((await dictation.finish(false)) && thenSend && aui.composer.getState().text.trim()) aui.composer.send();
+    return true;
+  };
+  return { ...dictation, finish };
+}
+
+/** La même dictée pour n'importe quel champ : chaque morceau transcrit va à `onText`. Rend `false` s'il n'y avait rien à arrêter. */
+export function useFieldDictation(agentId: string, onText: (text: string) => void) {
+  const mic = useMic();
+  const [state, setState] = useState<"idle" | "recording" | "finishing">("idle");
+  const recording = useRef(false);
+  const t = useTranscripts(agentId, onText);
 
   mic.onTick.current = ({ speech, silence }) => {
     if (recording.current && speech >= 250 && silence >= PAUSE) {
@@ -309,8 +319,8 @@ export function useDictation() {
     }
   };
 
-  const finish = async (thenSend: boolean) => {
-    if (!recording.current) return;
+  const finish = async (_thenSend: boolean) => {
+    if (!recording.current) return false;
     recording.current = false;
     setState("finishing");
     const { blob, speech } = await mic.cut(false);
@@ -318,7 +328,7 @@ export function useDictation() {
     if (blob && speech >= 150) t.submit(blob); // un dernier morceau sans voix donnerait un texte inventé
     await t.settle();
     setState("idle");
-    if (thenSend && aui.composer.getState().text.trim()) aui.composer.send();
+    return true;
   };
 
   return { state, level: mic.level, pending: t.pending, error: t.error, start, finish };
@@ -326,8 +336,24 @@ export function useDictation() {
 
 export type Dictation = ReturnType<typeof useDictation>;
 
+export const NO_AGENT = "voix"; // comme NO_AGENT côté serveur
+
+/** La dictée est-elle possible ici : une clé, un modèle de voix, un navigateur qui donne le micro. Dans le doute (serveur muet), non. */
+export function useCanDictate() {
+  const [can, setCan] = useState(false);
+  useEffect(() => {
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") return;
+    let gone = false;
+    get<VoiceReady>("/api/voice/ready").then((r) => !gone && setCan(!r.dictation), () => {});
+    return () => {
+      gone = true;
+    };
+  }, []);
+  return can;
+}
+
 /** Bouton du compositeur : appuyer pour dicter, appuyer à nouveau pour arrêter (le texte reste à relire). */
-export function DictateButton({ dictation }: { dictation: Dictation }) {
+export function DictateButton({ dictation, what = "un message", field = false }: { dictation: Dictation; what?: string; field?: boolean }) {
   const { state, level, pending, error, start, finish } = dictation;
   return (
     <span className="relative">
@@ -338,8 +364,8 @@ export function DictateButton({ dictation }: { dictation: Dictation }) {
         onClick={() => (state === "idle" ? start() : finish(false))}
         disabled={state === "finishing"}
         aria-pressed={state === "recording"}
-        aria-label={state === "recording" ? "Arrêter la dictée" : "Dicter un message"}
-        title={state === "recording" ? "Arrêter la dictée (Envoyer envoie directement)" : "Dicter"}
+        aria-label={state === "recording" ? "Arrêter la dictée" : `Dicter ${what}`}
+        title={state === "recording" ? (field ? "Arrêter la dictée" : "Arrêter la dictée (Envoyer envoie directement)") : "Dicter"}
         className={cn(state === "idle" && "text-muted-foreground")}
       >
         {state === "finishing" ? <Loader2 className="animate-spin" /> : state === "recording" ? <Level level={level} /> : <Mic />}
@@ -348,7 +374,7 @@ export function DictateButton({ dictation }: { dictation: Dictation }) {
         <Loader2 aria-label="Transcription en cours" className="absolute -right-0.5 -top-0.5 size-3 animate-spin text-accent" />
       )}
       {error && (
-        <span role="alert" className="absolute bottom-full left-0 mb-2 w-64 rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn shadow">
+        <span role="alert" className={cn("absolute bottom-full mb-2 w-64 rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn shadow", field ? "right-0" : "left-0")}>
           {error}
         </span>
       )}
@@ -526,7 +552,8 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
 }) {
   const { agentId, agentName, agentColor, agentShape, agentDetail, conversationId, say } = useContext(AgentContext);
   const running = useAuiState((s) => s.thread.isRunning);
-  const messages = useAuiState((s) => s.thread.messages);
+  const allMessages = useAuiState((s) => s.thread.messages);
+  const messages = useMemo(() => allMessages.filter((m) => !m.content.some((p) => p.type === "tool-call" && p.toolName === "trace")), [allMessages]);
   const mic = useMic();
   const [speaking, setSpeaking] = useState(false);
   const [muted, setMuted] = useState(false);

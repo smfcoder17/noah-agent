@@ -7,6 +7,9 @@ import sys
 
 sys.path.insert(0, "/app/noah/agent_plugin")
 from __init__ import _pre_tool_call, check  # noqa: E402
+import __init__ as _plugin  # noqa: E402
+
+_plugin._juge_call = lambda path, body: {"verdict": "passe"}  # le juge a son propre test (tests/tools/juge_test.py) : ici, la garde seule
 
 refused = [
     "hermes skills install someone/evil-skill",
@@ -167,4 +170,36 @@ assert garde._read_only("notion", "efface_page") is False
 assert garde._read_only("notion", "a_b") is False, "deux vrais noms pour le même nom : les deux doivent être en lecture"
 assert garde._read_only("notion", "inconnu") is False and garde._read_only("autre", "notion_search") is False
 print("6. lecture déclarée : le nom réécrit retrouve le vrai ; dans le doute, ce n'est pas une lecture")
+
+# Les jetons des connexions ne servent pas à passer à côté du droit choisi par la personne.
+assert garde.check_owner("terminal", {"command": "python3 -c \"open('/opt/data/mcp-tokens/notion.json')\""}), "jeton lu au terminal"
+assert garde.check_owner("read_file", {"path": "/opt/data/mcp-tokens/notion.json"}), "jeton lu en fichier"
+assert garde.check_owner("patch", {"mode": "patch", "patch": "*** Update File: /opt/data/mcp-tokens/notion.json"}), "jeton touché par un patch"
+assert garde.check_owner("terminal", {"command": "ls /opt/data/workspace"}) is None
+assert garde.check_owner("read_file", {"path": "/opt/data/workspace/a.txt"}) is None
+print("7. jetons des connexions : ni lus, ni utilisés à côté des outils")
+
+# Une connexion acceptée donne ses outils tout de suite, sans attendre la relecture périodique d'Hermes.
+import contextlib  # noqa: E402
+import os  # noqa: E402
+import tempfile  # noqa: E402
+import threading  # noqa: E402
+import time  # noqa: E402
+
+reloaded = threading.Event()
+sys.modules.setdefault("tools", types.ModuleType("tools"))
+sys.modules["tools.mcp_oauth"] = types.SimpleNamespace(suppress_interactive_oauth=contextlib.nullcontext)
+sys.modules["tools.mcp_tool_discovery"] = types.SimpleNamespace(reconcile_mcp_servers_with_config=reloaded.set)
+with tempfile.TemporaryDirectory() as home:
+    os.environ["HERMES_HOME"] = home
+    os.makedirs(os.path.join(home, garde.MCP_TOKENS))
+    garde.TOKENS_LOOK_EVERY = 0.01
+    threading.Thread(target=garde._watch_new_tokens, daemon=True).start()
+    time.sleep(0.05)
+    assert not reloaded.is_set(), "rien de neuf : rien à relire"
+    with open(os.path.join(home, garde.MCP_TOKENS, "notion.json"), "w") as f:
+        f.write("{}")
+    assert reloaded.wait(2), "jeton neuf : les outils doivent être relus"
+    del os.environ["HERMES_HOME"]
+print("8. jeton neuf : les outils de la connexion arrivent aussitôt")
 print("garde des skills : tout est vert")

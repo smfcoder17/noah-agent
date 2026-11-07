@@ -204,6 +204,8 @@ public class MainActivity extends BridgeActivity {
 
             @Override
             public boolean shouldOverrideUrlLoading(android.webkit.WebView view, android.webkit.WebResourceRequest request) {
+                // Le lecteur d'une vidéo reste dans son cadre : il ne lance aucune app tout seul (vnd.youtube:, snssdk…).
+                if (!request.isForMainFrame()) return !"https".equalsIgnoreCase(request.getUrl().getScheme());
                 if (!home.equals(origin(request.getUrl().toString()))) {
                     try {
                         startActivity(new Intent(Intent.ACTION_VIEW, request.getUrl()));

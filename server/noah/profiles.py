@@ -237,6 +237,16 @@ def list_shares(agent_id: str, user: int = Depends(auth.current_user)):
     return {"partages": _shares(agent_id), "avertissement": access.SHARE_WARNING}
 
 
+async def _reseat_connectors(agent_id: str) -> None:
+    """Un partage en admin met les comptes en commun : les connecteurs globaux n'y restent que cochés exprès pour cet agent."""
+    from . import connecteurs
+
+    try:
+        await connecteurs.share_changed(agent_id)
+    except Exception as e:  # noqa: BLE001 - le partage est fait : la machine rattrapera à son redémarrage
+        print(f"[connecteurs] {agent_id} : {type(e).__name__}", flush=True)
+
+
 @router.put("/api/agents/{agent_id}/shares")
 async def set_share(agent_id: str, body: Share, user: int = Depends(auth.current_user)):
     access.access(user, agent_id, "proprietaire")
@@ -255,6 +265,7 @@ async def set_share(agent_id: str, body: Share, user: int = Depends(auth.current
     # Droit retiré : ses tâches en cours s'arrêtent, comme à la révocation. Admin retiré : elles ne gardent pas la mémoire de l'agent.
     if body.droit == "lecture" or (before and before["droit"] == "admin" and body.droit != "admin"):
         await _h["stop_runs"](target["id"], agent_id)
+    await _reseat_connectors(agent_id)
     return {"partages": _shares(agent_id), "avertissement": access.SHARE_WARNING}
 
 
@@ -271,4 +282,5 @@ async def revoke_share(agent_id: str, user_id: int, user: int = Depends(auth.cur
         c.execute("DELETE FROM push_queue WHERE session IN (SELECT token FROM sessions WHERE user_id = ?)", (user_id,))
     await _h["stop_runs"](user_id, agent_id)
     await _h["forget_guest"](agent_id, user_id)
+    await _reseat_connectors(agent_id)
     return {"partages": _shares(agent_id)}

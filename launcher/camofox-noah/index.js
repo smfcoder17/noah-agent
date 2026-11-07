@@ -19,6 +19,12 @@
 // commun, et le « input[type=file] » que Camofox choisit seul est le premier de la page, qui peut être celui de la photo
 // de profil. POST /noah/fichier reçoit le fichier ; POST /noah/joindre le met dans le champ visé, sans jamais deviner :
 // celui de la fenêtre ouverte, le seul de la page, ou celui que l'agent désigne. Plusieurs candidats : refus, avec la liste.
+//
+// Se connecter à un site (voir server/noah/coffre.py) : la personne donne ses identifiants à Noah Agent, qui les pose ici par
+// POST /noah/remplir, avec la clé que l'agent n'a pas. L'agent ne les reçoit donc à aucun moment. L'origine exacte est vérifiée
+// avant, puis dans le script même qui écrit, sans attente entre les deux. Le formulaire part aussitôt ; s'il reste affiché,
+// le champ est vidé. Pendant ce temps, personne ne lit l'onglet (423). Si l'agent a lancé un script dans l'onglet, la page est
+// rechargée avant d'écrire : un script posé là pour écouter la saisie ne survit pas. Rien de ce corps de requête ne va au journal.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -32,6 +38,13 @@ const MAX_TOTAL = 2 ** 30;
 const KEEP_MS = 3600 * 1000;
 const TRIGGER_MS = 12000;
 const FILE_INPUT = 'input[type="file"]';
+const MAX_LOGIN_BODY = 8192;
+const LOGIN_FILL_MS = 6000; // le temps qu'une page en cours de chargement montre son formulaire
+const LOGIN_NEXT_MS = 8000; // identifiant d'abord, mot de passe sur l'écran suivant
+const LOGIN_LEFT_MS = 6000; // au-delà, le formulaire est resté là : le champ est vidé
+const TAB_READS = /^\/(?:tabs\/[^/]+\/.+|snapshot|act|navigate)$/;
+let filling = 0;
+const scripted = new Set(); // onglets où un script a tourné depuis le dernier remplissage
 const reserved = new Map(); // dossier d'un envoi en cours → octets qu'il peut encore prendre
 let receiving = 0;
 let privateUntil = 0;
@@ -43,6 +56,13 @@ const fail = (status, message) => Object.assign(new Error(message), { status });
 
 function agentKeyGiven(req) {
   const key = process.env.CAMOFOX_API_KEY;
+  if (!key) return false;
+  const hash = (text) => crypto.createHash("sha256").update(text).digest();
+  return crypto.timingSafeEqual(hash(req.headers.authorization || ""), hash(`Bearer ${key}`));
+}
+
+function serverKeyGiven(req) {
+  const key = process.env.NOAH_PRIVATE_KEY;
   if (!key) return false;
   const hash = (text) => crypto.createHash("sha256").update(text).digest();
   return crypto.timingSafeEqual(hash(req.headers.authorization || ""), hash(`Bearer ${key}`));
@@ -270,8 +290,214 @@ async function attachFiles(req, res, ctx) {
   }
 }
 
+// --- Se connecter à un site ---------------------------------------------------------------------------------------------
+
+// Tourne dans la page : se suffit à elle-même, et tient tout en une fois (lecture des champs, vérification de l'origine, écriture).
+function loginForm({ origine, action, identifiant, motDePasse, code }) {
+  if (location.origin !== origine) return { refus: "origine" };
+  const shown = (el) => !el.disabled && !el.readOnly && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== "hidden";
+  const words = (el) => [el.name, el.id, el.placeholder, el.getAttribute("aria-label"), el.autocomplete, ...[...(el.labels || [])].map((l) => l.textContent)].join(" ").toLowerCase();
+  const inputs = [...document.querySelectorAll("input")].filter(shown);
+  const textual = (el) => ["text", "email", "tel", "number", ""].includes(el.type);
+  const password = inputs.find((el) => el.type === "password" && !/new-password|one-time-code/.test(el.autocomplete) && !/\b(new|nouveau|confirm|repeat|retape|again)|création|create/.test(words(el)));
+  const isCode = (el) => el.autocomplete === "one-time-code" || /otp|one.?time|2fa|totp|verif|\bcode\b/.test(words(el));
+  const inScope = inputs.filter((el) => textual(el) && (!password || el.form === password.form) && !/search|recherche/.test(words(el)));
+  const before = (el) => Boolean(password && el.compareDocumentPosition(password) & Node.DOCUMENT_POSITION_FOLLOWING);
+  const login = inScope.find((el) => /^(username|email|tel)/.test(el.autocomplete)) || inScope.find((el) => el.type === "email")
+    || inScope.find((el) => !isCode(el) && /user|login|mail|identifiant|utilisateur|phone|t[ée]l[ée]phone|compte|account|pseudo/.test(words(el)))
+    || inScope.filter((el) => !isCode(el) && before(el)).pop() || null;
+  const boxes = inputs.filter((el) => textual(el) && el.maxLength === 1);
+  const codeBoxes = !password && boxes.length >= 4 && boxes.length <= 8 ? boxes : [];
+  const codeField = password ? null : inputs.find((el) => textual(el) && el.maxLength !== 1 && isCode(el)) || null;
+  const secretField = password || codeField || codeBoxes[0] || null;
+  const write = (el, value) => {
+    el.focus();
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, value);
+    el.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  };
+  if (action === "lire") return { identifiant: Boolean(login), motDePasse: Boolean(password), code: Boolean(codeField || codeBoxes.length) };
+  if (action === "reste") return [password, codeField, ...codeBoxes].some((el) => el && el.value);
+  if (action === "vider") {
+    for (const el of [password, codeField, ...codeBoxes]) if (el) write(el, "");
+    return true;
+  }
+  if (action === "champ") return secretField || login;
+  if (action === "bouton") {
+    const form = (secretField || login)?.form;
+    const buttons = [...(form || document).querySelectorAll('button, input[type="submit"]')].filter((b) => shown(b));
+    return (form && buttons.find((b) => b.type === "submit"))
+      || buttons.find((b) => /log.?in|sign.?in|connex|connect|continu|suivant|next|entrer|valider|verif|vérifi/i.test(b.textContent || b.value)) || null;
+  }
+  // Un formulaire en GET mettrait le mot de passe dans l'adresse, que l'agent lit.
+  if (password && password.form?.getAttribute("method")?.toLowerCase() === "get") return { refus: "get" };
+  const rempli = [];
+  if (code) {
+    if (codeField) write(codeField, code);
+    else if (codeBoxes.length) [...code].slice(0, codeBoxes.length).forEach((digit, i) => write(codeBoxes[i], digit));
+    if (codeField || codeBoxes.length) rempli.push("code");
+    return { rempli };
+  }
+  if (identifiant && login) {
+    write(login, identifiant);
+    rempli.push("identifiant");
+  }
+  if (motDePasse && password) {
+    write(password, motDePasse);
+    rempli.push("motDePasse");
+  }
+  return { rempli };
+}
+
+function sameOriginFrames(page, origine) {
+  return page.frames().filter((frame) => {
+    try {
+      return new URL(frame.url()).origin === origine;
+    } catch {
+      return false;
+    }
+  });
+}
+
+async function fillWhenReady(page, origine, values, ms) {
+  const end = Date.now() + ms;
+  do {
+    const here = await page.evaluate(() => location.origin).catch(() => null);
+    if (here && here !== origine) throw fail(409, "La page a changé de site : rien n'y a été écrit.");
+    for (const frame of sameOriginFrames(page, origine)) {
+      const done = await frame.evaluate(loginForm, { origine, action: "remplir", ...values }).catch(() => null);
+      if (done?.refus === "get") throw fail(422, "Ce formulaire mettrait le mot de passe dans l'adresse de la page : rien n'a été écrit.");
+      if (done?.rempli?.length) return { frame, rempli: done.rempli };
+    }
+    await page.waitForTimeout(250);
+  } while (Date.now() < end);
+  return null;
+}
+
+async function pointAt(frame, origine, action) {
+  const handle = await frame.evaluateHandle(loginForm, { origine, action }).catch(() => null);
+  return handle?.asElement?.() || null;
+}
+
+async function sendForm(frame, origine) {
+  await frame.page().waitForTimeout(250); // un bouton s'active souvent juste après la saisie
+  const button = await pointAt(frame, origine, "bouton");
+  if (button && (await button.click({ timeout: 3000 }).then(() => true, () => false))) return;
+  const field = await pointAt(frame, origine, "champ");
+  await field?.press("Enter", { timeout: 3000 }).catch(() => {});
+}
+
+// Le formulaire est parti : la page a changé, ou le mot de passe resté dans le champ est retiré.
+async function afterSending(page, origine) {
+  const end = Date.now() + LOGIN_LEFT_MS;
+  const stillThere = async () => {
+    const left = [];
+    for (const frame of sameOriginFrames(page, origine)) {
+      if (await frame.evaluate(loginForm, { origine, action: "reste" }).catch(() => false)) left.push(frame);
+    }
+    return left;
+  };
+  while (Date.now() < end) {
+    await page.waitForTimeout(300);
+    if (!(await stillThere()).length) return "changee";
+  }
+  for (const frame of await stillThere()) await frame.evaluate(loginForm, { origine, action: "vider" }).catch(() => {});
+  return "meme";
+}
+
+async function connect(page, { origine, identifiant, motDePasse, code }, reload) {
+  if (reload) await page.reload({ waitUntil: "domcontentloaded", timeout: 20000 });
+  const values = code ? { code } : { identifiant, motDePasse };
+  const first = await fillWhenReady(page, origine, values, LOGIN_FILL_MS);
+  if (!first) throw fail(422, reload ? "La page a été rechargée et le formulaire n'y est plus : rouvre-le." : "Aucun champ à remplir sur cette page.");
+  const rempli = new Set(first.rempli);
+  await sendForm(first.frame, origine);
+  let complet = true;
+  if (motDePasse && !rempli.has("motDePasse")) {
+    const next = await fillWhenReady(page, origine, { motDePasse }, LOGIN_NEXT_MS).catch(() => null);
+    if (next) {
+      rempli.add("motDePasse");
+      await sendForm(next.frame, origine);
+    } else {
+      complet = false;
+    }
+  }
+  return { rempli: [...rempli], complet, page: await afterSending(page, origine) };
+}
+
+async function readBody(req) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > MAX_LOGIN_BODY) throw fail(413, "Demande trop longue.");
+    chunks.push(chunk);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    throw fail(400, "Demande illisible.");
+  }
+}
+
+function agentTab(ctx, userId, wanted) {
+  const session = ctx.sessions.get(ctx.normalizeUserId(userId));
+  const tabState = findAgentTab(session, wanted, userId);
+  if (!tabState) return null;
+  session.lastAccess = Date.now();
+  for (const group of session.tabGroups.values()) {
+    for (const [id, state] of group) if (state === tabState) return { id, tabState };
+  }
+  return null;
+}
+
+// Ce que la page est vraiment : l'origine montrée à la personne vient d'ici, jamais d'un texte de l'agent.
+async function readPage(req, res, ctx) {
+  try {
+    const tab = agentTab(ctx, String(req.query.userId), req.query.onglet ? String(req.query.onglet) : "");
+    if (!tab) return res.status(404).json({ error: "Aucun onglet ouvert : ouvre d'abord la page." });
+    const page = tab.tabState.page;
+    const url = new URL(await page.evaluate(() => location.href));
+    if (!["http:", "https:"].includes(url.protocol)) return res.json({ ok: true, onglet: tab.id, origine: null, champs: {} });
+    const champs = { identifiant: false, motDePasse: false, code: false };
+    for (const frame of sameOriginFrames(page, url.origin)) {
+      const seen = await frame.evaluate(loginForm, { origine: url.origin, action: "lire" }).catch(() => null);
+      for (const name of Object.keys(champs)) champs[name] ||= Boolean(seen?.[name]);
+    }
+    res.json({ ok: true, onglet: tab.id, origine: url.origin, champs });
+  } catch {
+    res.status(500).json({ error: "La page ne répond pas : relis-la, puis réessaie." });
+  }
+}
+
+async function fillPage(req, res, ctx) {
+  filling++;
+  try {
+    notTakenOver();
+    const body = await readBody(req);
+    const userId = String(body.userId || "");
+    const tab = agentTab(ctx, userId, String(body.onglet || ""));
+    if (!tab) throw fail(404, "L'onglet n'existe plus.");
+    if (typeof body.origine !== "string" || !/^https?:\/\//.test(body.origine)) throw fail(400, "Origine invalide.");
+    const reload = scripted.delete(tab.id);
+    res.json({ ok: true, ...(await ctx.withUserLimit(userId, () => connect(tab.tabState.page, body, reload))) });
+  } catch (e) {
+    ctx.log?.("info", "noah: connexion non remplie", { status: e.status || 500 }); // jamais le message d'un script, qui pourrait citer la valeur
+    if (!res.headersSent) res.status(e.status || 500).json({ error: e.status ? e.message : "La page n'a pas accepté la saisie : relis-la, puis réessaie." });
+  } finally {
+    filling--;
+  }
+}
+
 export default function register(app, ctx) {
   app.use((req, res, next) => {
+    if (req.method === "POST" && (req.path === "/noah/page" || req.path === "/noah/remplir")) {
+      if (!serverKeyGiven(req)) return res.status(403).json({ error: "Forbidden" });
+      return req.path === "/noah/page" ? readPage(req, res, ctx) : fillPage(req, res, ctx);
+    }
+    if (filling && TAB_READS.test(req.path)) {
+      return res.status(423).json({ error: "Une connexion est en cours sur cet onglet : réessaie dans quelques secondes." });
+    }
     if (req.method === "POST" && (req.path === "/noah/fichier" || req.path === "/noah/joindre")) {
       if (!agentKeyGiven(req)) return res.status(403).json({ error: "Forbidden" });
       return req.path === "/noah/fichier" ? receiveFile(req, res) : attachFiles(req, res, ctx);
@@ -302,6 +528,9 @@ export default function register(app, ctx) {
   const stack = app.router?.stack || app._router?.stack;
   if (stack) stack.unshift(stack.pop());
 
+  ctx.events.on("tab:evaluate", ({ tabId, expression }) => {
+    if (expression !== "window.location.href") scripted.add(tabId); // la seule lecture qu'Hermes fait de lui-même, à chaque étape
+  });
   ctx.events.on("browser:launching", ({ options }) => {
     options.firefoxUserPrefs = {
       ...(options.firefoxUserPrefs || {}),

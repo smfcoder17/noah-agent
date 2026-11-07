@@ -1,20 +1,23 @@
 // Panneau de l'agent : ce qu'il fait, à quoi il a accès, son ordinateur, ses routines, sa mémoire.
-import { Archive, ArchiveRestore, ChevronDown, ExternalLink, Hand, Loader2, LogIn, MonitorPlay, Pencil, Power, RefreshCw, Sunrise, Users, X } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { Archive, ArchiveRestore, ChevronDown, ChevronRight, ExternalLink, Hand, Loader2, LogIn, MonitorPlay, Pencil, Power, RefreshCw, Sunrise, Users, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { type Agent, canAdmin, canTalk, type Conversation, get, send, type Usage } from "@/lib/api";
 import { wireClipboard } from "@/lib/vncClipboard";
-import { cn, dayLabel, money } from "@/lib/utils";
+import { cn, money } from "@/lib/utils";
 import { AgentAppearance } from "./AgentAppearance";
 import { AgentBrain } from "./AgentBrain";
+import { AgentOverview } from "./AgentOverview";
+import { Competences } from "./Competences";
 import { Connections, Folders, Memory, Routines, Section, Software, Watches } from "./AgentPowers";
 import { Boundary } from "./Boundary";
+import { Proactive } from "./Proactive";
 import { Files } from "./Files";
 import { AgentFace } from "./Noah";
 import { ShareDialog } from "./Sharing";
 import { STATE_WORD, StateShape } from "./Sidebar";
 import { Button, Dialog, DialogContent, Tabs, TabsContent, TabsList, TabsTrigger } from "./ui";
 
-export type PanelTab = "activity" | "connections" | "computer" | "routines" | "memory";
+export type PanelTab = "activity" | "connections" | "competences" | "computer" | "routines" | "memory";
 
 export function SidePanel({
   agent,
@@ -23,6 +26,7 @@ export function SidePanel({
   onTab,
   onClose,
   onEditAgent,
+  onGoals,
   refreshKey,
   threads,
   main,
@@ -40,6 +44,8 @@ export function SidePanel({
   onTab: (t: PanelTab) => void;
   onClose: () => void;
   onEditAgent: () => void;
+  /** Ouvre les objectifs de la personne. */
+  onGoals?: () => void;
   refreshKey: number;
   threads: Conversation[];
   /** La conversation principale de ce compte avec l'agent. */
@@ -59,6 +65,7 @@ export function SidePanel({
         <TabsList className="max-w-full overflow-x-auto max-sm:[&>button]:px-1.5 max-sm:[&>button]:text-xs">
           <TabsTrigger value="activity">Activité</TabsTrigger>
           {admin && <TabsTrigger value="connections">Connexions</TabsTrigger>}
+          {admin && <TabsTrigger value="competences">Compétences</TabsTrigger>}
           {canTalk(agent) && <TabsTrigger value="computer">Ordinateur</TabsTrigger>}
           {admin && <TabsTrigger value="routines">Routines</TabsTrigger>}
           {admin && <TabsTrigger value="memory">Mémoire</TabsTrigger>}
@@ -67,7 +74,7 @@ export function SidePanel({
       </div>
       <Boundary key={tab} label="Cet onglet">
       <TabsContent value="activity" className="min-h-0 flex-1 overflow-y-auto">
-        <Details agent={agent} onEdit={onEditAgent} refreshKey={refreshKey} onAgentChanged={onAgentChanged}>
+        <Details agent={agent} onEdit={onEditAgent} refreshKey={refreshKey} onAgentChanged={onAgentChanged} onTab={onTab} onGoals={onGoals}>
           <Threads threads={threads} threadId={threadId} onOpen={onOpenThread} onArchive={onArchiveThread} />
           {agent.partage && main && <ConversationVisibility conversation={main} onChanged={onConversationChanged} />}
           <ActivityLog agentId={agent.id} refreshKey={refreshKey} onOpen={(id, isMain) => onOpenThread(isMain && id === main?.id ? null : id)} />
@@ -78,13 +85,16 @@ export function SidePanel({
         </Details>
       </TabsContent>
       <TabsContent value="connections" className="min-h-0 flex-1 overflow-y-auto px-1">
-        {admin && <Connections agentId={agent.id} shared={agent.partage || !!agent.partage_par} />}
+        {admin && <Connections agentId={agent.id} shared={agent.partage || !!agent.partage_par} owner={agent.droit === "proprietaire"} />}
+      </TabsContent>
+      <TabsContent value="competences" className="min-h-0 flex-1 overflow-y-auto px-1">
+        {admin && <Competences key={agent.id} agentId={agent.id} />}
       </TabsContent>
       <TabsContent value="computer" className="flex min-h-0 flex-1 flex-col">
         {tab === "computer" && <ComputerTab agent={agent} admin={admin} refreshKey={refreshKey} onClose={onClose} />}
       </TabsContent>
       <TabsContent value="routines" className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1">
-        {admin && <><Routines agentId={agent.id} /><Watches agentId={agent.id} /></>}
+        {admin && <><Proactive agentId={agent.id} /><Routines agentId={agent.id} /><Watches agentId={agent.id} /></>}
       </TabsContent>
       <TabsContent value="memory" className="min-h-0 flex-1 overflow-y-auto px-1">
         {admin && <Memory agentId={agent.id} />}
@@ -119,12 +129,61 @@ function ComputerTab({ agent, admin, refreshKey, onClose }: { agent: Agent; admi
   );
 }
 
-type LogRow = { kind: "tache" | "accord"; titre: string; resultat: string; etat: "fait" | "erreur" | "arrete" | "autorise" | "refuse"; at: number; conversation_id: string; main: boolean };
+type LogRow = { kind: "tache" | "accord" | "juge"; titre: string; resultat: string; etat: "fait" | "a_verifier" | "erreur" | "arrete" | "autorise" | "refuse"; at: number; conversation_id: string; main: boolean };
 const LOG_WORD: Record<LogRow["etat"], [string, string]> = {
-  fait: ["Fait", "text-ok"], erreur: ["A échoué", "text-danger"], arrete: ["Arrêté", "text-muted-foreground"], autorise: ["Autorisé", "text-ok"], refuse: ["Refusé", "text-muted-foreground"],
+  fait: ["Fait", "text-ok"], a_verifier: ["À vérifier", "text-warn"], erreur: ["A échoué", "text-danger"], arrete: ["Arrêté", "text-muted-foreground"], autorise: ["Autorisé", "text-ok"], refuse: ["Refusé", "text-muted-foreground"],
 };
 
-/** Ce que l'agent a fait, jour par jour : la réponse à « qu'a-t-il fait ? ». */
+/** Le temps se resserre en s'éloignant : aujourd'hui, hier, les jours de la semaine, puis des périodes de plus en plus larges. */
+function activityPeriod(at: Date, now = new Date()): string {
+  const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((day(now) - day(at)) / 86400000);
+  if (days <= 0) return "Aujourd'hui";
+  if (days === 1) return "Hier";
+  if (days < 7) {
+    const label = at.toLocaleDateString("fr-CA", { weekday: "long", day: "numeric", month: "long" });
+    return label.charAt(0).toUpperCase() + label.slice(1);
+  }
+  if (days < 14) return "La semaine dernière";
+  const months = (now.getFullYear() - at.getFullYear()) * 12 + now.getMonth() - at.getMonth();
+  if (months === 0) return "Plus tôt ce mois-ci";
+  if (months === 1) return "Le mois dernier";
+  const month = at.toLocaleDateString("fr-CA", { month: "long", year: "numeric" });
+  return month.charAt(0).toUpperCase() + month.slice(1);
+}
+
+const LOG_FIRST = 5;
+
+/** Une période : repliée sauf la plus récente, et jamais plus de quelques lignes d'un coup. */
+function ActivityPeriod({ label, rows, first, onOpen }: { label: string; rows: LogRow[]; first: boolean; onOpen: (conversation: string, main: boolean) => void }) {
+  const [open, setOpen] = useState(first);
+  const [shown, setShown] = useState(LOG_FIRST);
+  return (
+    <div className="flex flex-col gap-1">
+      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex cursor-pointer items-center gap-1.5 rounded-lg py-1 text-left text-xs font-medium text-muted-foreground hover:text-foreground">
+        <ChevronRight className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-90")} />
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+        <span className="shrink-0 tabular-nums">{rows.length}</span>
+      </button>
+      {open && rows.slice(0, shown).map((r, i) => (
+        <button key={i} type="button" onClick={() => onOpen(r.conversation_id, r.main)} className="flex cursor-pointer flex-col gap-0.5 rounded-lg px-2 py-1.5 text-left hover:bg-muted">
+          <span className="flex items-baseline justify-between gap-2 text-sm">
+            <span className="min-w-0 truncate">{r.titre}</span>
+            <span className="shrink-0 text-xs text-muted-foreground">{new Date(r.at * 1000).toLocaleTimeString("fr-CA", { hour: "2-digit", minute: "2-digit" })}</span>
+          </span>
+          <span className="truncate text-xs text-muted-foreground"><span className={cn("font-medium", LOG_WORD[r.etat][1])}>{LOG_WORD[r.etat][0]}</span>{r.resultat ? ` · ${r.resultat}` : ""}</span>
+        </button>
+      ))}
+      {open && rows.length > shown && (
+        <button type="button" onClick={() => setShown(shown + 10)} className="cursor-pointer self-start rounded-lg px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground">
+          … voir {Math.min(10, rows.length - shown)} de plus
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Un aperçu de ce que l'agent a fait dernièrement, pas une archive : plus ancien, il le retrouve quand on le lui demande. */
 function ActivityLog({ agentId, refreshKey, onOpen }: { agentId: string; refreshKey: number; onOpen: (conversation: string, main: boolean) => void }) {
   const [log, setLog] = useState<{ agent: string; rows: LogRow[] } | null>(null);
   const rows = log?.agent === agentId ? log.rows : null; // jamais le journal d'un autre agent, même le temps de charger
@@ -138,29 +197,17 @@ function ActivityLog({ agentId, refreshKey, onOpen }: { agentId: string; refresh
     };
   }, [agentId, refreshKey]);
   if (!rows) return null;
-  const days = new Map<string, LogRow[]>();
+  const periods = new Map<string, LogRow[]>();
   for (const r of rows) {
-    const label = dayLabel(new Date(r.at * 1000));
-    days.set(label, [...(days.get(label) ?? []), r]);
+    const label = activityPeriod(new Date(r.at * 1000));
+    periods.set(label, [...(periods.get(label) ?? []), r]);
   }
   return (
-    <section aria-label="Activité" className="flex flex-col gap-3">
+    <section aria-label="Activité" className="flex flex-col gap-1.5">
       <h3 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Ce qu'il a fait</h3>
       {!rows.length && <p className="text-sm text-muted-foreground">Rien pour l'instant. Ses tâches et les accords que tu donnes s'afficheront ici.</p>}
-      {[...days].map(([day, list]) => (
-        <div key={day} className="flex flex-col gap-1">
-          <p className="text-xs font-medium text-muted-foreground">{day}</p>
-          {list.map((r, i) => (
-            <button key={i} type="button" onClick={() => onOpen(r.conversation_id, r.main)} className="flex cursor-pointer flex-col gap-0.5 rounded-lg px-2 py-1.5 text-left hover:bg-muted">
-              <span className="flex items-baseline justify-between gap-2 text-sm">
-                <span className="min-w-0 truncate">{r.titre}</span>
-                <span className="shrink-0 text-xs text-muted-foreground">{new Date(r.at * 1000).toLocaleTimeString("fr-CA", { hour: "2-digit", minute: "2-digit" })}</span>
-              </span>
-              <span className="truncate text-xs text-muted-foreground"><span className={cn("font-medium", LOG_WORD[r.etat][1])}>{LOG_WORD[r.etat][0]}</span>{r.resultat ? ` · ${r.resultat}` : ""}</span>
-            </button>
-          ))}
-        </div>
-      ))}
+      {[...periods].map(([label, list], i) => <ActivityPeriod key={label} label={label} rows={list} first={i === 0} onOpen={onOpen} />)}
+      {rows.length > 0 && <p className="pt-1 text-xs text-muted-foreground">Trois mois sont gardés ici. Pour remonter plus loin, demande-le à ton agent.</p>}
     </section>
   );
 }
@@ -188,8 +235,11 @@ function ConversationVisibility({ conversation, onChanged }: { conversation: Con
   );
 }
 
-function Details({ agent, onEdit, refreshKey, onAgentChanged, children }: { agent: Agent; onEdit: () => void; refreshKey: number; onAgentChanged: () => void; children: React.ReactNode }) {
+function Details({ agent, onEdit, refreshKey, onAgentChanged, onTab, onGoals, children }: { agent: Agent; onEdit: () => void; refreshKey: number; onAgentChanged: () => void; onTab: (t: PanelTab) => void; onGoals?: () => void; children: React.ReactNode }) {
   const [sharing, setSharing] = useState(false);
+  const [spendingOpen, setSpendingOpen] = useState(false);
+  const brainBox = useRef<HTMLDivElement>(null);
+  const spendingBox = useRef<HTMLDivElement>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
   useEffect(() => {
     get<Usage>("/api/usage").then(setUsage).catch(() => {});
@@ -212,8 +262,12 @@ function Details({ agent, onEdit, refreshKey, onAgentChanged, children }: { agen
       </div>
       {agent.role && <p className="text-sm whitespace-pre-wrap text-muted-foreground">{agent.role}</p>}
       <ShareDialog agent={agent} open={sharing} onOpenChange={setSharing} onChanged={onAgentChanged} />
+      <AgentOverview agent={agent} refreshKey={refreshKey} spent={`${money(mine?.cost ?? 0)} $`} onTab={onTab} onEdit={onEdit} onGoals={onGoals}
+        onBrain={() => brainBox.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+        onSpending={() => { setSpendingOpen(true); requestAnimationFrame(() => spendingBox.current?.scrollIntoView({ behavior: "smooth", block: "start" })); }} />
       {children}
-      <Section title="Dépense" count={`${money(mine?.cost ?? 0)} $ ce mois-ci`}>
+      <div ref={spendingBox}>
+      <Section key={spendingOpen ? "ouverte" : "repliee"} defaultOpen={spendingOpen} title="Dépense" count={`${money(mine?.cost ?? 0)} $ ce mois-ci`}>
       <div className="grid grid-cols-2 gap-2">
         <Stat label="Coût ce mois-ci" value={`${money(mine?.cost ?? 0)} $`} />
         <Stat label="Appels au modèle" value={mine?.calls ?? 0} />
@@ -222,7 +276,8 @@ function Details({ agent, onEdit, refreshKey, onAgentChanged, children }: { agen
       </div>
       {usage && <Spending usage={usage} agentId={agent.id} />}
       </Section>
-      {canAdmin(agent) && <AgentBrain key={`cerveau-${agent.id}`} agentId={agent.id} own={agent.model} onChanged={onAgentChanged} />}
+      </div>
+      {canAdmin(agent) && <div ref={brainBox}><AgentBrain key={`cerveau-${agent.id}`} agentId={agent.id} own={agent.model} mode={agent.mode} reasoning={agent.raisonnement} onChanged={onAgentChanged} /></div>}
       {canAdmin(agent) && <AgentAppearance key={`visage-${agent.id}`} agent={agent} onChanged={onAgentChanged} />}
     </div>
   );
@@ -275,7 +330,28 @@ function Spending({ usage, agentId }: { usage: Usage; agentId: string }) {
   );
 }
 
-/** Fils de l'agent : travaux parallèles qu'il a ouverts. Les vieux et les archivés restent repliés. */
+/** Un groupe de fils replié ; il s'ouvre seul s'il contient celui qu'on regarde. */
+function FoldedThreads({ label, threads, threadId, row }: { label: string; threads: Conversation[]; threadId: string | null; row: (t: Conversation) => React.ReactNode }) {
+  const [asked, setAsked] = useState<boolean | null>(null);
+  const open = asked ?? threads.some((t) => t.id === threadId);
+  if (!threads.length) return null;
+  return (
+    <>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setAsked(!open)}
+        className="mt-1 flex cursor-pointer items-center gap-1.5 self-start rounded-md px-1 py-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+      >
+        <ChevronDown className={cn("size-3.5 transition-transform", !open && "-rotate-90")} />
+        {label} ({threads.length})
+      </button>
+      {open && <div className="flex flex-col gap-0.5 opacity-80">{threads.map(row)}</div>}
+    </>
+  );
+}
+
+/** Fils de l'agent. En cours : ce qui travaille vraiment, ou attend la personne. Le reste se replie : les finis, puis les archivés. */
 function Threads({
   threads,
   threadId,
@@ -287,8 +363,8 @@ function Threads({
   onOpen: (id: string | null) => void;
   onArchive: (id: string, archived: boolean) => void;
 }) {
-  const [showArchived, setShowArchived] = useState(false);
-  const active = threads.filter((t) => !t.archived);
+  const running = threads.filter((t) => !t.archived && t.en_cours);
+  const finished = threads.filter((t) => !t.archived && !t.en_cours);
   const archived = threads.filter((t) => t.archived);
   const row = (t: Conversation) => (
     <div key={t.id} className={cn("group flex items-center gap-1 rounded-lg hover:bg-muted", t.id === threadId && "bg-muted")}>
@@ -306,7 +382,7 @@ function Threads({
           )}
         >
           <StateShape state={t.state} />
-          {STATE_WORD[t.state] || "en pause"}
+          {STATE_WORD[t.state] || "à l'arrêt"}
           {t.de ? <span className="text-muted-foreground"> · conversation de {t.de}</span>
             : t.origin === "agent" && <span className="text-muted-foreground"> · ouvert par l'agent</span>}
         </span>
@@ -326,27 +402,15 @@ function Threads({
   return (
     <section className="flex flex-col gap-1">
       <h3 className="flex items-baseline justify-between text-xs font-medium tracking-wide text-muted-foreground uppercase">
-        Travaux en cours <span className="normal-case tracking-normal">{active.length || ""}</span>
+        Travaux en cours <span className="normal-case tracking-normal">{running.length || ""}</span>
       </h3>
-      {active.length ? (
-        active.map(row)
+      {running.length ? (
+        running.map(row)
       ) : (
-        <p className="text-sm text-muted-foreground">Aucun fil en cours. L'agent en ouvre un quand il mène un travail en parallèle.</p>
+        <p className="text-sm text-muted-foreground">Rien en cours. L'agent ouvre un fil quand il mène un travail en parallèle.</p>
       )}
-      {archived.length > 0 && (
-        <>
-          <button
-            type="button"
-            aria-expanded={showArchived}
-            onClick={() => setShowArchived(!showArchived)}
-            className="mt-1 flex cursor-pointer items-center gap-1.5 self-start rounded-md px-1 py-1 text-xs font-medium text-muted-foreground hover:text-foreground"
-          >
-            <ChevronDown className={cn("size-3.5 transition-transform", !showArchived && "-rotate-90")} />
-            Archivés ({archived.length})
-          </button>
-          {showArchived && <div className="flex flex-col gap-0.5 opacity-80">{archived.map(row)}</div>}
-        </>
-      )}
+      <FoldedThreads label="Terminés" threads={finished} threadId={threadId} row={row} />
+      <FoldedThreads label="Archivés" threads={archived} threadId={threadId} row={row} />
     </section>
   );
 }

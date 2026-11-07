@@ -21,7 +21,8 @@ LEVELS = {"lecture": 1, "usage": 2, "admin": 3, "proprietaire": 4}
 # Noah (agent_plugin) et les profils d'Hermes font la séparation. « admin » : le choix explicite de tout mettre en commun.
 SHARE_WARNING = ("avec le droit « usage », cette personne a sa mémoire et son navigateur à elle, sans tes comptes connectés "
                  "ni terminal, et le dossier de travail reste commun. Avec le droit « admin », c'est ton choix : elle partage "
-                 "ta mémoire, ton navigateur, tes comptes connectés et tes dossiers. Toi, tu restes maître de la machine.")
+                 "ta mémoire, ton navigateur, tes comptes connectés et tes dossiers. Ce que tu as mis pour tous tes agents n'y reste que si tu le "
+                 "coches pour cet agent. Toi, tu restes maître de la machine.")
 
 
 def role(user: int) -> str:

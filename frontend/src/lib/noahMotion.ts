@@ -4,7 +4,8 @@
 // Le temps avance par pas fixes et chaque ressort se résout exactement : même graine, même trajectoire, quelle que soit la cadence.
 
 export type NoahShape = "gomme" | "bulle" | "cube" | "goutte" | "pastille";
-export type NoahState = "idle" | "listening" | "thinking" | "speaking";
+/** `working` : outil en cours. `waiting` : attend un accord ou un choix. `pleased` et `upset` : la fin d'un travail, réussi ou non. */
+export type NoahState = "idle" | "listening" | "thinking" | "speaking" | "working" | "waiting" | "pleased" | "upset";
 export type NoahReaction =
   | "hop" | "joy" | "greet" | "surprise" | "attention" | "aha" | "nod" | "shake"
   | "lookLeft" | "lookRight" | "wiggle" | "sad" | "confused" | "sigh" | "puff";
@@ -264,6 +265,10 @@ const FACE_FADE = 0.1;
 const IDLE = [0, 0, 0, 0, 0, 0.97, 1, 1, 0, 0, 0];
 const LISTEN = [-0.05, 0.022, 5, 0.2, 0, 1.06, 1.08, 0.62, 0, 0.6, 0];
 const SPEAK = [-0.02, 0, 0, 0, 0, 0.98, 1.02, 0.85, 0, 0.2, 0];
+const WORK = [0.03, 0, 0, 0.2, 0, 0.8, 0.96, 0.3, 0, 0.4, 0]; // penché sur sa tâche, paupières basses
+const WAIT = [-0.05, 0.015, 6, -0.12, 0, 1.1, 1.1, 0.75, 0, 0.95, 0]; // redressé, la tête penchée, il te regarde
+const PLEASED = [-0.02, 0, 0, 0, 0, 1, 1, 1.45, 0.85, 0.35, 1];
+const UPSET = [0.09, 0, 0, 0.32, 0, 0.92, 1.03, -1.5, 0, -0.85, 0];
 // La réflexion dépend du temps : regard levé et sourcil, puis balancement, puis changement de posture, puis signe d'effort.
 const THINK: number[][] = [
   [0.005, 0, 3, -0.25, 0, 0.9, 1, 0.45, 0, 0.65, 0],
@@ -349,6 +354,8 @@ export class NoahSim {
   private doubleBlink = false;
   private nextTic = 14;
   private nextMicro = 2;
+  private nextNudge = 0;
+  private scanX = -2;
   private ticKinds: NoahReaction[];
 
   // Regard
@@ -457,6 +464,17 @@ export class NoahSim {
       this.nextSaccade = this.t + 0.05;
       this.nodDone = true;
       this.nextIdleNod = this.t + 5 + this.rand() * 4;
+    } else if (next === "waiting") {
+      this.dirL = side;
+      this.nextSaccade = this.t + 0.05;
+      this.nextNudge = this.t + 3.5;
+      this.react("attention");
+    } else if (next === "pleased") {
+      this.nextSaccade = this.t + 0.05;
+      this.react("hop");
+    } else if (next === "upset") {
+      this.nextSaccade = this.t + 0.1;
+      this.sq.v += 0.9; // il s'affaisse d'un coup, sans geste : la phrase d'erreur dit le reste
     } else if (next === "speaking") {
       this.inhaleUntil = this.t + 0.17;
       this.sylEnd = this.inhaleUntil;
@@ -498,6 +516,11 @@ export class NoahSim {
     return this.jump !== 0 || this.g !== null || this.state === "speaking" || this.micEnv > 0.02 || t - this.blinkT < 0.25 || t < this.sEnd || t - this.tState < 0.5;
   }
 
+  /** Au travail ou en attente : ses petits mouvements doivent se voir, même en petite taille. Jamais plus d'un visage à la fois dans le chat. */
+  busy() {
+    return this.state === "working" || this.state === "waiting";
+  }
+
   /** Avance la simulation du temps écoulé, par pas fixes. */
   advance(dt: number) {
     this.acc += Math.min(Math.max(dt, 0), MAX_CATCHUP);
@@ -534,8 +557,9 @@ export class NoahSim {
       sp.t = x;
       sp.v = 0;
     }
+    if (state === "upset") this.slant.x = this.slant.t = 1;
     this.gx = state === "thinking" ? this.dirT * 2 : 0;
-    this.gy = state === "thinking" ? -2.2 : 0;
+    this.gy = state === "thinking" ? -2.2 : state === "working" ? 1.6 : state === "upset" ? 2.2 : 0;
     this.sToX = this.gx;
     this.sToY = this.gy;
     this.sDur = 0;
@@ -560,6 +584,7 @@ export class NoahSim {
     if (!this.quiet) {
       breath = this.background();
       this.runVoices();
+      this.runChore(age);
     }
     this.runGesture();
     const airS = this.runJump();
@@ -585,7 +610,7 @@ export class NoahSim {
     this.smile.t = m[SMILE] + this.oSmile;
     this.cres.t = clamp(m[CRES] + this.oCres, 0, 1);
     this.brow.t = m[BROW] + this.oBrow;
-    this.slant.t = this.oSlant;
+    this.slant.t = this.oSlant + (this.state === "upset" ? 1 : 0);
     this.cheek.t = clamp(m[CHEEK] + this.oCheek, 0, 1);
     this.open.t = clamp(this.openT + this.oOpen, 0, 1);
     this.round.t = clamp(this.roundT + this.oRound, 0, 1);
@@ -675,9 +700,10 @@ export class NoahSim {
       g[LEAN] *= this.dirT;
       return;
     }
-    const row = this.state === "listening" ? LISTEN : this.state === "speaking" ? SPEAK : IDLE;
+    const st = this.state;
+    const row = st === "listening" ? LISTEN : st === "speaking" ? SPEAK : st === "working" ? WORK : st === "waiting" ? WAIT : st === "pleased" ? PLEASED : st === "upset" ? UPSET : IDLE;
     for (let i = 0; i < NP; i++) g[i] = row[i];
-    if (this.state === "listening") {
+    if (st === "listening" || st === "waiting") {
       g[TILT] *= this.dirL;
       g[LEAN] *= this.dirL;
     }
@@ -735,6 +761,26 @@ export class NoahSim {
 
   private exp(mean: number) {
     return -Math.log(1 - this.rand() * 0.98) * mean;
+  }
+
+  // ── Pendant une tâche : au travail, des séries de petits coups réguliers ; en attente, il se balance et te fait signe ──────
+  private runChore(age: number) {
+    if (this.state === "working") {
+      const burst = window01(age % 2.6, 0.12, 1.75, 0.22); // une série, puis un temps pour relire
+      const tap = Math.abs(Math.sin(age * 8.5)) * burst;
+      this.oS += 0.032 * tap;
+      this.oPitch += 0.2 * tap;
+      this.oArm += 3.4 * tap;
+      this.oLean += 0.012 * Math.sin(age * 1.3);
+    } else if (this.state === "waiting") {
+      const sway = Math.sin(age * 1.5);
+      this.oTilt += 2.6 * sway;
+      this.oBrow += 0.25 * Math.max(0, sway);
+      if (this.t >= this.nextNudge && !this.g) {
+        this.nextNudge = this.t + 4.5 + this.rand() * 2.5;
+        this.react("attention");
+      }
+    }
   }
 
   private blinkAmount() {
@@ -943,6 +989,25 @@ export class NoahSim {
           y = (this.rand() - 0.65) * 2;
         }
         wait = 0.8 + this.exp(0.9);
+        break;
+      case "working":
+        // Il lit ce qu'il fait : le regard, baissé, avance par petits sauts de gauche à droite, puis revient.
+        this.scanX = this.scanX > 2 ? -2.6 : this.scanX + 0.9 + this.rand() * 0.7;
+        x = this.scanX;
+        y = 1.3 + this.rand() * 0.7;
+        wait = 0.22 + this.rand() * 0.3;
+        break;
+      case "waiting":
+      case "pleased":
+        // Vers toi, et il y reste.
+        x = (this.rand() - 0.5) * 0.5;
+        y = (this.rand() - 0.5) * 0.4 - 0.2;
+        wait = 1.4 + this.exp(1.2);
+        break;
+      case "upset":
+        x = (this.rand() - 0.5) * 1.2;
+        y = 1.8 + this.rand() * 0.6;
+        wait = 1.6 + this.exp(1);
         break;
     }
     this.nextSaccade = t + wait;

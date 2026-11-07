@@ -64,6 +64,31 @@ async def openrouter_catalog() -> list[dict]:
     return models
 
 
+# Vrais modèles de décision (Jev, Clef…) : réponses typées, sans texte. OpenRouter les publie à part, avec leurs prix, et les sert tous
+# par la même route et la clé qu'on a déjà.
+OPENROUTER_DECISIONS = OPENROUTER_MODELS + "?output_modalities=decisions"
+_WEB_DECISION = re.compile(r"live web|web-grounded", re.I)  # lit le web en plus de ce qu'on lui confie : pas pour un courriel
+
+
+async def decision_catalog() -> list[dict]:
+    hit = _cache.get("decisions")
+    if hit and time.time() - hit[0] < CACHE_SECONDS:
+        return hit[1]
+    async with httpx.AsyncClient(timeout=20) as c:
+        r = await c.get(OPENROUTER_DECISIONS)
+    r.raise_for_status()
+    models = []
+    for m in r.json().get("data", []):
+        mid = str(m.get("id") or "")
+        if not mid or mid.startswith("~") or "/api/alpha/decisions" not in (m.get("endpoints") or []) or _WEB_DECISION.search(m.get("description") or ""):
+            continue
+        pricing = m.get("pricing") or {}
+        models.append({"id": mid, "name": re.sub(r"^[^:]+:\s*", "", m.get("name") or mid), "created": m.get("created") or 0,
+                       "context": m.get("context_length") or 0, "price_in": round(float(pricing.get("prompt") or 0) * 1e6, 4)})
+    _cache["decisions"] = (time.time(), models)
+    return models
+
+
 # Suffixes de version des identifiants natifs, absents du catalogue : claude-haiku-4-5-20251001, gpt-5-mini-2025-08-07, gemini-3-flash-latest.
 _DATED = re.compile(r"-(?:\d{4}-?\d{2}-?\d{2}|latest|preview(?:-[\w.-]+)?|exp(?:-[\w.-]+)?)$")
 

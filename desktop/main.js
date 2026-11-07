@@ -740,11 +740,17 @@ if (!app.requestSingleInstanceLock()) {
   app.setAppUserModelId("agent.noah.desktop");
   app.whenReady().then(() => {
     createMenu();
-    // Micro (dictée, mode vocal) : accordé à l'interface de Noah, refusé à toute autre page.
-    session.defaultSession.setPermissionRequestHandler((wc, permission, done) => {
-      done(permission === "media" && !!origin && sameOrigin(wc.getURL()));
+    // Micro (dictée, mode vocal) : accordé à l'interface de Noah, refusé à toute autre page. Écrire une image dans le presse-papiers
+    // aussi : la page qui le demande doit être Noah, pas le lecteur d'une vidéo. Le plein écran sert au lecteur, dans la fenêtre de Noah.
+    const allowed = (wc, permission, asking) => {
+      if (!origin || !wc || !sameOrigin(wc.getURL())) return false;
+      if (permission === "clipboard-sanitized-write") return !!asking && sameOrigin(asking);
+      return permission === "media" || permission === "fullscreen";
+    };
+    session.defaultSession.setPermissionRequestHandler((wc, permission, done, details) => {
+      done(allowed(wc, permission, details?.requestingUrl));
     });
-    session.defaultSession.setPermissionCheckHandler((wc, permission) => permission === "media" && !!origin && !!wc && sameOrigin(wc.getURL()));
+    session.defaultSession.setPermissionCheckHandler((wc, permission, asking) => allowed(wc, permission, asking));
     createTray();
     // Sessions oubliées hors ligne : révoquées dès que le serveur répond (l'app peut rester des jours ouverte).
     flushRevocations().catch(() => {});

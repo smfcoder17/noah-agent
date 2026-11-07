@@ -95,7 +95,7 @@ def memory_write(body):
 # --- Routines (cron d'Hermes) --------------------------------------------------------------
 
 ROUTINE_FIELDS = ("id", "name", "prompt", "schedule_display", "enabled", "state", "next_run_at", "last_run_at",
-                  "last_status", "last_error", "created_at", "paused_reason", "deliver")
+                  "last_status", "last_error", "created_at", "paused_reason", "deliver", "model", "enabled_toolsets")
 
 
 def _routine(job):
@@ -114,8 +114,10 @@ def routine_create(body):
     if not prompt or not schedule:
         fail("Il faut une consigne et un moment")
     try:
+        # Le modèle est un jeton du relais, et les outils un sous-ensemble vérifié par le serveur (noah/modes.py).
         job = jobs.create_job(prompt, schedule, name=(body.get("nom") or None), deliver="local",
-                              paused=bool(body.get("en_pause")))
+                              paused=bool(body.get("en_pause")), model=body.get("model") or None,
+                              enabled_toolsets=body.get("enabled_toolsets"))
     except ValueError as e:
         fail(f"Moment non compris : {e}")
     return _routine(job)
@@ -134,6 +136,9 @@ def routine_action(body):
         return {"ok": jobs.remove_job(job_id)}
     elif action == "modifier":
         updates = {k: v for k, v in (("name", body.get("nom")), ("prompt", body.get("consigne"))) if v}
+        for field in ("model", "enabled_toolsets"):  # absent : on n'y touche pas ; None : retour au réglage de l'agent
+            if field in body:
+                updates[field] = body[field]
         job = jobs.update_job(job_id, updates)
     else:
         fail("Action inconnue")
@@ -202,6 +207,15 @@ def google_install(body):
         f.chmod(0o600)
     (DATA / "google_oauth_pending.json").unlink(missing_ok=True)
     return {"ok": True}
+
+
+def google_read(_):
+    """Pour un connecteur global (server/noah/connecteurs.py) : Google ne fait pas tourner ses jetons, cette copie ne casse rien."""
+    try:
+        return {"client": json.loads((DATA / "google_client_secret.json").read_text(encoding="utf-8")),
+                "token": json.loads((DATA / "google_token.json").read_text(encoding="utf-8"))}
+    except (OSError, ValueError):
+        fail("Google n'est pas connecté à cet agent.")
 
 
 def google_revoke(body):
@@ -532,6 +546,120 @@ def tool_remove(body):
     return {"connecte": False}
 
 
+# --- Compétences : ce que la personne a enseigné. Des skills d'Hermes, dans une catégorie à nous ------------------------------
+# Les seuls skills que l'écran voit et touche : ceux que l'agent apprend seul restent hors de portée de ces actions.
+# Épinglés : le tri automatique d'Hermes ne les archive ni ne les fusionne.
+
+COMPETENCES = "competences"
+COMPETENCE_NAME = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
+COMPETENCE_DESC_MAX = 60  # au-delà, Hermes refuse à la création : la description sert à choisir le skill
+
+
+def _competences_dir():
+    from tools.skill_manager_tool import _skills_dir
+    return _skills_dir() / COMPETENCES
+
+
+def _competence_slug(titre):
+    import unicodedata
+    text = unicodedata.normalize("NFKD", titre).encode("ascii", "ignore").decode().lower()
+    return re.sub(r"[^a-z0-9]+", "-", text).strip("-")[:50].strip("-") or "competence"
+
+
+def _competence_md(name, titre, texte):
+    desc = ("Façon de faire voulue : " + titre)[:COMPETENCE_DESC_MAX - 1].rstrip(" .") + "."
+    return (f"---\nname: {name}\ndescription: {json.dumps(desc, ensure_ascii=False)}\ntitre: {json.dumps(titre, ensure_ascii=False)}\n---\n\n"
+            f"# {titre}\n\n{texte.strip()}\n")
+
+
+def _competence_read(folder):
+    raw = (folder / "SKILL.md").read_text(encoding="utf-8")
+    _, _, rest = raw.lstrip("\ufeff").partition("---")
+    head, _, body = rest.partition("\n---")
+    found = re.search(r"^titre:\s*(.+)$", head, re.M)
+    try:
+        titre = str(json.loads(found.group(1))) if found else folder.name
+    except ValueError:
+        titre = found.group(1).strip().strip("'\"")
+    body = body.strip()
+    if body.startswith(f"# {titre}"):
+        body = body[len(titre) + 2:].strip()
+    return {"nom": folder.name, "titre": titre, "texte": body}
+
+
+def _competence_folder(name):
+    if not COMPETENCE_NAME.fullmatch(str(name or "")):
+        fail("Cette compétence n'existe pas")
+    folder = _competences_dir() / name
+    if not (folder / "SKILL.md").is_file():  # ni un skill que l'agent a appris seul, ni un chemin ailleurs
+        fail("Cette compétence n'existe pas")
+    return folder
+
+
+def _skill_call(action, name, content=None, category=None):
+    from tools.skill_manager_tool import skill_manage
+    answer = json.loads(skill_manage(action=action, name=name, content=content, category=category))
+    return answer if isinstance(answer, dict) else {}
+
+
+def _pin(name, pinned):
+    try:
+        from tools import skill_usage
+        skill_usage.set_pinned(name, pinned)
+    except Exception:  # le tri automatique peut seulement le voir comme un autre : la compétence reste
+        pass
+
+
+def competence_list(_):
+    root = _competences_dir()
+    if not root.is_dir():
+        return {"competences": []}
+    found = [_competence_read(f) for f in sorted(root.iterdir()) if f.is_dir() and (f / "SKILL.md").is_file()]
+    return {"competences": sorted(found, key=lambda c: c["titre"].lower())}
+
+
+def _competence_text(body):
+    titre, texte = " ".join(str(body.get("titre") or "").split()), str(body.get("texte") or "").strip()
+    if not titre or not texte:
+        fail("Il faut un titre et un texte")
+    return titre, texte
+
+
+def competence_add(body):
+    titre, texte = _competence_text(body)
+    base = _competence_slug(titre)
+    for i in range(1, 30):  # un skill appris par l'agent peut déjà porter ce nom : on ne le touche pas
+        name = base if i == 1 else f"{base[:46]}-{i}"
+        answer = _skill_call("create", name, _competence_md(name, titre, texte), COMPETENCES)
+        if answer.get("success"):
+            _pin(name, True)
+            return _competence_read(_competences_dir() / name)
+        if "already exists" not in str(answer.get("error") or ""):
+            fail(f"Compétence refusée : {str(answer.get('error') or answer)[:300]}")
+    fail("Trop de compétences portent ce nom")
+
+
+def competence_edit(body):
+    folder = _competence_folder(body.get("nom"))
+    titre, texte = _competence_text(body)
+    _pin(folder.name, False)
+    answer = _skill_call("edit", folder.name, _competence_md(folder.name, titre, texte))
+    _pin(folder.name, True)
+    if not answer.get("success"):
+        fail(f"Compétence refusée : {str(answer.get('error') or answer)[:300]}")
+    return _competence_read(folder)
+
+
+def competence_remove(body):
+    folder = _competence_folder(body.get("nom"))
+    _pin(folder.name, False)
+    answer = _skill_call("delete", folder.name)
+    if not answer.get("success"):
+        _pin(folder.name, True)
+        fail(f"Compétence non retirée : {str(answer.get('error') or answer)[:300]}")
+    return {"ok": True}
+
+
 # --- Profil d'une personne avec qui l'agent est partagé (G12.5) ----------------------------------------------------------
 # Un vrai profil Hermes dans la même machine : sa mémoire, ses sessions, ses compétences et son identité de navigateur à lui.
 # Il reçoit le modèle et le rôle de l'agent, jamais ses comptes : ni serveurs MCP, ni jetons Google, ni le .env en entier.
@@ -619,7 +747,9 @@ ACTIONS = {
     "routines": routines, "routine_creer": routine_create, "routine_action": routine_action,
     "routines_sorties": routine_outputs,
     "google": google, "google_revoquer": google_revoke,
-    "google_installer": google_install, "source_google": source_google,
+    "google_installer": google_install, "google_lire": google_read, "source_google": source_google,
+    "competences": competence_list, "competence_ajouter": competence_add, "competence_modifier": competence_edit,
+    "competence_retirer": competence_remove,
 }
 
 if __name__ == "__main__":

@@ -585,6 +585,9 @@ async def tool_action(agent_id: str, name: str, action: str, request: Request, b
     if action == "remove":
         await machine.admin(agent_id, "outil_retirer", {"nom": name, "droits": {k: v for k, v in _rights(agent_id).items() if k != name}})
         forget(agent_id, name)
+        from . import connecteurs
+
+        await connecteurs.removed(agent_id, name)  # retirée d'ici : cet agent sort aussi du connecteur global, les autres gardent le leur
         return {"connecte": False}
     if row["auth"] != "oauth":
         raise HTTPException(400, "Action inconnue")
@@ -783,6 +786,8 @@ async def connect_x(agent_id: str, body: XClient, request: Request, user: int = 
 
 # Le plugin de garde écrit ce début dans la demande d'accord d'Hermes ; c'est ce qui relie l'accord au serveur.
 ASKED = re.compile(r"^Outil « ([a-z0-9-]{1,31}) » : ")
+# Le juge (juge.py) peut ajouter sa raison en tête : elle se montre à la personne, mais ne fait pas partie de ce que l'accord ouvre.
+JUDGE_ASKS = re.compile(r"^(Ton juge demande ton accord : [^\n]{1,300})\n")
 _asked: dict[tuple[str, str], tuple[str, str, float]] = {}  # (serveur, ce qui a été montré à la personne, quand)
 _grants: dict[tuple[str, str], list[tuple]] = {}  # (échéance, ce qui a été montré, identifiant)
 
@@ -823,7 +828,7 @@ def _preview(shown: str) -> list[str]:
         if end.endswith(":"):
             key = raw
             continue
-        hidden, key = key in _HIDDEN or key.endswith(("_id", "_ids", "_url", "_urls")), ""  # la clé vaut pour la valeur qui la suit, pas pour la suivante
+        hidden, key = key in _HIDDEN or key.endswith(("_id", "_ids", "_url", "_urls", "_mode")), ""  # la clé vaut pour la valeur qui la suit, pas pour la suivante
         if hidden:
             inside = max(between.count("[") - between.count("]"), 0)
             continue
@@ -839,6 +844,13 @@ def _preview(shown: str) -> list[str]:
 def plain_request(summary: str, command: bool = False) -> dict:
     """{demande, apercu} : ce qu'une personne sans notion technique lit pour décider. La description d'Hermes n'y entre jamais :
     elle est technique, en anglais, et peut venir d'un texte que l'agent a écrit."""
+    judge = JUDGE_ASKS.match(summary)
+    if judge:
+        rest = summary[judge.end():]
+        if not ASKED.match(rest):
+            return {"demande": judge.group(1), "apercu": _preview(rest.partition("\n")[2])}
+        plain = plain_request(rest)  # la phrase qui dit l'action reste, sous la raison du juge
+        return {"demande": judge.group(1), "apercu": [plain["demande"].removeprefix("Ton agent veut ").removesuffix("."), *plain["apercu"]]}
     m = ASKED.match(summary)
     if not m:
         return {"demande": "Ton agent veut lancer une commande sensible sur sa machine." if command else "Ton agent te demande de valider une action.", "apercu": []}
@@ -868,7 +880,8 @@ def _shown(tool: str, args) -> str:
 
 
 def approval_seen(agent_id: str, request_id: str | None, summary: str) -> None:
-    m = ASKED.match(str(summary or ""))
+    summary = JUDGE_ASKS.sub("", str(summary or ""), count=1)
+    m = ASKED.match(summary)
     if m and request_id:
         now = time.time()
         for key in [k for k, (_, _, at) in _asked.items() if now - at > 3600]:

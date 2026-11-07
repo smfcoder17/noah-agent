@@ -15,7 +15,7 @@ from pathlib import Path
 
 import httpx
 
-from . import catalog, db, decision, diagnostics, relay
+from . import catalog, db, decision, diagnostics, modes, relay
 
 BASE = "https://openrouter.ai/api/v1"
 CACHE_SECONDS = 3600
@@ -310,6 +310,30 @@ def _table(kind: str, ms: list[dict]) -> str:
     return "\n".join(rows[:45])
 
 
+async def _route_typed(kind: str, user: str, ms: list[dict]) -> dict | None:
+    """Le routage est un vrai choix fermé : au vrai modèle de décision s'il y en a un. Une réponse incomplète repasse par le routeur."""
+    rows = {m["id"]: f"qualité {m['quality']}/5, vitesse {m['speed']}/5, {', '.join(m['strengths'])}, {(m.get('cost') or {}).get('label', 'prix inconnu')}"
+            for m in ms if m.get("quality")}
+    if not rows:
+        return None
+    questions = {"modele": {"type": "choice", "instructions": "Quel modèle convient le mieux à cette demande ?", "criteria": dict(list(rows.items())[:45])}}
+    if kind == "image":
+        questions["methode"] = {"type": "choice", "instructions": "Comment produire cette image ?", "criteria": {
+            "svg": "Un dessin simple à écrire en SVG : logo, icône, schéma.", "code": "Un graphique ou une composition produite par programme.",
+            "generation": "Tout le reste : une image à générer avec un modèle."}}
+    try:
+        decided = await decision.decide("routeur", {"guide": GUIDE, "demande": user}, questions)
+    except decision.DecisionError:
+        return None
+    if decided is None:
+        return None
+    methode = (decided.answers.get("methode") or {}).get("choice") or "generation"
+    modele = (decided.answers.get("modele") or {}).get("choice")
+    if methode not in ("svg", "code", "generation") or (methode == "generation" and modele not in rows):
+        return None
+    return {"methode": methode, "modele": modele if methode == "generation" else None, "raison": "Choisi par le modèle de décision."}
+
+
 async def route(kind: str, request: str, context: str = "") -> dict:
     """{methode, modele, raison}. Ne lève pas : en cas de souci, retombe sur le classement fixe. Un modèle à raisonnement
     peut finir sans texte, et aucun détail de sa réponse ne doit empêcher l'image."""
@@ -320,15 +344,20 @@ async def route(kind: str, request: str, context: str = "") -> dict:
             f"Préférences de l'utilisateur : {prefs[:800] or 'aucune'}\nContexte de l'agent : {context[:800] or 'aucun'}\n"
             f"Modèles disponibles :\n{_table(kind, ms)}")
     try:
+        typed = await _route_typed(kind, user, ms)
+        if typed:
+            return typed
+        name = await voice_model()
+        body = {"model": name, "temperature": 0, "max_tokens": 200, "response_format": {"type": "json_object"},
+                "messages": [{"role": "system", "content": GUIDE}, {"role": "user", "content": user}]}
+        decision.tune(body, "openrouter", name, 200)  # un modèle à raisonnement dépenserait tout en réflexion, et finirait sans texte
         async with httpx.AsyncClient(timeout=20, headers=_headers()) as c:
-            r = await c.post(f"{BASE}/chat/completions", json={
-                "model": await voice_model(), "temperature": 0, "max_tokens": 200,
-                "response_format": {"type": "json_object"}, "provider": {"sort": "latency"},
-                "messages": [{"role": "system", "content": GUIDE}, {"role": "user", "content": user}],
-            })
+            r = await c.post(f"{BASE}/chat/completions", json=body)
         j = r.json()
         _record("routeur", j.get("model", "routeur"), (j.get("usage") or {}).get("cost"))
-        content = j["choices"][0]["message"]["content"]
+        content = j["choices"][0]["message"].get("content") or ""
+        if "{" not in content:
+            return {"methode": "generation", "modele": await auto_choice(kind, request), "raison": "Choix par défaut (routeur sans réponse)."}
         d = json.loads(content[content.find("{"): content.rfind("}") + 1])
         methode = d.get("methode") if d.get("methode") in ("svg", "code", "generation") else "generation"
         if kind != "image":
@@ -383,8 +412,29 @@ def _image_budget_left(agent_id: str) -> float:
     return IMAGE_POST_CAP - spent
 
 
+async def _chained(kind: str, model: str | None, call):
+    """Mode Gratuit ou Custom : si le modèle est épuisé ou en panne, le suivant prend le relais. Un modèle demandé précisément reste
+    seul, et un refus définitif (clé, crédit, demande refusée) s'arrête là : le suivant échouerait pareil."""
+    names = ([model] if model else None) or await modes.media_chain(kind)
+    if not names:
+        return await call(None)
+    for i, name in enumerate(names):
+        try:
+            return await call(name)
+        except (MediaError, httpx.TransportError) as e:
+            temporary = e.temporary if isinstance(e, MediaError) else True
+            if not temporary or i == len(names) - 1:
+                raise
+            print(f"[création] {name} indisponible, le suivant prend le relais", flush=True)
+    raise MediaError("Aucun modèle disponible.")  # jamais atteint : la boucle rend ou lève
+
+
 async def image(agent_id: str, prompt: str, aspect_ratio: str | None = None, model: str | None = None, beyond_budget: bool = False) -> tuple[bytes, str, str]:
     """Rend (octets, extension, modèle)."""
+    return await _chained("image", model, lambda name: _image(agent_id, prompt, aspect_ratio, name, beyond_budget))
+
+
+async def _image(agent_id: str, prompt: str, aspect_ratio: str | None, model: str | None, beyond_budget: bool) -> tuple[bytes, str, str]:
     _check_budget(agent_id)
     model = model or await resolve("image", prompt)
     body = {"model": model, "prompt": prompt}
@@ -410,6 +460,10 @@ async def image(agent_id: str, prompt: str, aspect_ratio: str | None = None, mod
 
 
 async def music(agent_id: str, prompt: str, model: str | None = None) -> tuple[bytes, str, str]:
+    return await _chained("music", model, lambda name: _music(agent_id, prompt, name))
+
+
+async def _music(agent_id: str, prompt: str, model: str | None) -> tuple[bytes, str, str]:
     """Lyria passe par chat/completions en flux : l'audio arrive en base64 dans les deltas."""
     _check_budget(agent_id)
     model = model or await resolve("music", prompt)
@@ -442,6 +496,10 @@ async def music(agent_id: str, prompt: str, model: str | None = None) -> tuple[b
 
 
 async def video(agent_id: str, prompt: str, duration: int | None = None, aspect_ratio: str | None = None, model: str | None = None) -> tuple[bytes, str, str]:
+    return await _chained("video", model, lambda name: _video(agent_id, prompt, duration, aspect_ratio, name))
+
+
+async def _video(agent_id: str, prompt: str, duration: int | None, aspect_ratio: str | None, model: str | None) -> tuple[bytes, str, str]:
     """Tâche asynchrone : on soumet, on attend la fin (jusqu'à 10 min), puis on télécharge le MP4."""
     _check_budget(agent_id)
     model = model or await resolve("video", prompt)
@@ -545,7 +603,10 @@ RETRYABLE = {408, 409, 425, 429, 500, 502, 503, 504, 529}
 
 async def backups(kind: str, limit: int = 3) -> list[str]:
     """Le modèle choisi (ou automatique), suivi des meilleurs autres modèles du classement disponibles chez le
-    fournisseur : la voix et la dictée ne s'arrêtent pas parce qu'un modèle est saturé."""
+    fournisseur : la voix et la dictée ne s'arrêtent pas parce qu'un modèle est saturé. En mode Gratuit ou Custom, la chaîne de la personne."""
+    chain = await modes.media_chain(kind)
+    if chain:
+        return chain
     first = await resolve(kind)
     available = {m["id"] for m in await models(kind)}
     return [first] + [m for m in RANKING.get(kind, []) if m in available and m != first][:limit]

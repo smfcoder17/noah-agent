@@ -2,6 +2,7 @@
 import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { type Agent, get, type InboxItem, send } from "@/lib/api";
+import { LoginCard } from "./LoginCard";
 import { AgentFace } from "./Noah";
 import { StateShape } from "./Sidebar";
 import { Button, Dialog, DialogContent, ErrorText } from "./ui";
@@ -24,6 +25,12 @@ export function Inbox({ open, agents, onOpenChange, onOpenConversation }: {
     const timer = setInterval(() => get<InboxItem[]>("/api/a-toi").then(setItems).catch(() => {}), 3000);
     return () => clearInterval(timer);
   }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    const close = () => onOpenChange(false); // l'écran du navigateur s'ouvre derrière cette fenêtre
+    window.addEventListener("noah:voir-ecran", close);
+    return () => window.removeEventListener("noah:voir-ecran", close);
+  }, [open, onOpenChange]);
   const answer = async (item: InboxItem, approve: boolean) => {
     setBusy(item.conversation_id);
     setError("");
@@ -55,13 +62,24 @@ export function Inbox({ open, agents, onOpenChange, onOpenConversation }: {
                     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                       <span className="flex items-center gap-1.5 text-xs font-medium text-warn">
                         <StateShape state={item.etat} />
-                        {item.etat === "approve" ? "Attend ton accord" : "Attend ton choix"}
+                        {item.connexion ? "Attend ta connexion" : item.etat === "approve" ? "Attend ton accord" : "Attend ton choix"}
                       </span>
                       <span className="text-sm font-medium">{item.demande}</span>
                       {item.apercu.map((line) => <span key={line} className="truncate text-xs text-muted-foreground">« {line} »</span>)}
                       <span className="truncate text-xs text-muted-foreground">{item.agent}{item.main ? "" : ` · ${item.titre}`}</span>
                     </span>
                   </button>
+                  {item.connexion && (
+                    <LoginCard
+                      agentId={item.agent_id}
+                      asked={item.connexion}
+                      onDone={(result) => {
+                        setItems((cur) => cur?.filter((i) => i.conversation_id !== item.conversation_id) ?? null);
+                        window.dispatchEvent(new CustomEvent("noah:connexion-repondue", { detail: { id: item.connexion?.id, result } }));
+                        window.dispatchEvent(new Event("noah:accord-repondu"));
+                      }}
+                    />
+                  )}
                   {item.etat === "approve" && item.run_id && (
                     <div className="flex justify-end gap-2">
                       <Button variant="outline" size="sm" disabled={busy === item.conversation_id} onClick={() => answer(item, false)}>Refuser</Button>

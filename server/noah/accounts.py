@@ -304,6 +304,9 @@ async def _exchange(agent_id: str, flow: dict, code: str) -> None:
     db.set_setting(f"google_{agent_id}", json.dumps(account, ensure_ascii=False))
     _forget_screen(agent_id)
     _tell_agent(agent_id, account)
+    from . import connecteurs
+
+    await connecteurs.google_renewed(agent_id)
 
 
 _hooks: dict = {}
@@ -314,6 +317,8 @@ RENEW_AFTER = 6 * 24 * 3600
 
 
 async def keep_google_fresh(every: float = 3600) -> None:
+    from . import connecteurs
+
     while True:
         await asyncio.sleep(every)
         with db.connect() as c:
@@ -321,8 +326,8 @@ async def keep_google_fresh(every: float = 3600) -> None:
         for agent_id in ids:
             account = _account(agent_id)
             flow = _flows.get(agent_id)
-            if not account or not _client() or (flow and flow.get("tache")):
-                continue
+            if not account or not _client() or (flow and flow.get("tache")) or connecteurs.google_copy(agent_id):
+                continue  # une copie suit l'accord de l'agent d'origine
             if time.time() - account.get("depuis", 0) > RENEW_AFTER:
                 try:
                     await start_consent(agent_id, account["permissions"])
@@ -455,6 +460,9 @@ async def google_disconnect(agent_id: str, user: int = Depends(auth.current_user
     _forget_screen(agent_id)
     await admin(agent_id, "google_revoquer", {"local": True})
     db.set_setting(f"google_{agent_id}", "")
+    from . import connecteurs
+
+    await connecteurs.removed(agent_id, "google")
     return _state(agent_id)
 
 

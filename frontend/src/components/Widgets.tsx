@@ -10,7 +10,8 @@ import { cn, safeMedia } from "@/lib/utils";
 import { AgentContext } from "@/lib/agentContext";
 import { useQuotes, widgetQuote } from "@/lib/quotes";
 import { Button } from "./ui";
-import { canFrame, isImagePath, useDownload, useViewer } from "./Viewer";
+import { VideoEmbed } from "./VideoEmbed";
+import { canFrame, CopyImageButton, isImagePath, useDownload, useViewer } from "./Viewer";
 
 type Series = { name?: string; values: number[] };
 type ChartSpec = { type: "chart"; title?: string; kind?: "bar" | "line"; labels: string[]; series: Series[]; note?: string };
@@ -19,7 +20,8 @@ type GridItem = { title: string; subtitle?: string; image?: string; url?: string
 type GridSpec = { type: "grid"; title?: string; items: GridItem[]; note?: string };
 type ChoiceSpec = { type: "choice"; question: string; options: string[] };
 type PreviewSpec = { type: "preview"; path: string; title?: string; note?: string };
-type Spec = ChartSpec | TableSpec | GridSpec | ChoiceSpec | PreviewSpec;
+type VideoSpec = { type: "video"; url: unknown; title?: unknown };
+type Spec = ChartSpec | TableSpec | GridSpec | ChoiceSpec | PreviewSpec | VideoSpec;
 
 // Palette des séries (distincte des couleurs d'état).
 const SERIES = ["#2a47c9", "#0f766e", "#b4541a", "#7c3aed"];
@@ -145,12 +147,12 @@ function TableBody({ columns, rows }: { columns: string[]; rows: (string | numbe
     <div className="max-h-96 overflow-auto">
       <table className="w-full border-collapse text-sm">
         <thead className="sticky top-0 bg-surface">
-          <tr>{columns.map((c, i) => <th key={i} className="border-b border-border px-4 py-2 text-left text-xs font-medium text-muted-foreground">{c}</th>)}</tr>
+          <tr>{columns.map((c, i) => <th key={i} className="whitespace-nowrap border-b border-border px-4 py-2 text-left text-xs font-medium text-muted-foreground">{c}</th>)}</tr>
         </thead>
         <tbody>
           {rows.map((r, i) => (
             <tr key={i} className="border-b border-border/50 last:border-0">
-              {r.map((v, j) => <td key={j} className={cn("px-4 py-2", typeof v === "number" && "text-right tabular-nums")}>{typeof v === "number" ? fmt(v) : v}</td>)}
+              {r.map((v, j) => <td key={j} className={cn("px-4 py-2 [overflow-wrap:normal]", String(v).length <= 12 && "whitespace-nowrap", typeof v === "number" && "text-right tabular-nums")}>{typeof v === "number" ? fmt(v) : v}</td>)}
             </tr>
           ))}
         </tbody>
@@ -278,12 +280,16 @@ function Preview({ spec }: { spec: PreviewSpec }) {
   if (page && link && !opened.current) opened.current = link;
   const image = isImagePath(path);
   const frame = !image && canFrame(path);
-  const open = () => (image ? view({ kind: "image", src: mediaUrl(agentId, path), title }) : view({ kind: "file", url, title }));
+  const media = mediaUrl(agentId, path);
+  const [broken, setBroken] = useState(false);
+  const open = () => (image ? view({ kind: "image", src: media, title }) : view({ kind: "file", url, title }));
+  // Une image peut venir d'ailleurs que de l'espace de travail (/tmp) : elle se télécharge par la même route que son affichage.
+  const save = image ? `${media}&download=1` : `${raw}?download=1`;
   return (
     <div ref={shell}>
     <Frame
       title={title}
-      note={spec.note ?? name}
+      note={spec.note ?? (title === name ? undefined : name)}
       // Une application a besoin de place : elle déborde de la colonne de lecture quand la fenêtre le permet.
       style={page ? { width: PAGE_WIDTH, marginLeft: `calc((100% - ${PAGE_WIDTH}) / 2)` } : undefined}
       actions={
@@ -291,16 +297,17 @@ function Preview({ spec }: { spec: PreviewSpec }) {
           {heavy && stale && woken && (
             <Button size="sm" variant="ghost" onClick={() => setWoken(false)}><Moon />Mettre en veille</Button>
           )}
-          {(image || frame) && !frozen && (
-            <Button size="sm" variant="outline" onClick={open}><Maximize2 />Agrandir</Button>
+          {image && !broken && <CopyImageButton src={media} compact />}
+          {(image || frame) && !frozen && !broken && (
+            <Button size="sm" variant="outline" onClick={open} aria-label="Agrandir"><Maximize2 /><span className={image ? "max-sm:hidden" : undefined}>Agrandir</span></Button>
           )}
-          {frame && !inAndroidApp() && (
+          {(frame || image) && !inAndroidApp() && !broken && (
             <Button size="icon-sm" variant="ghost" asChild>
-              <a href={url} target="_blank" rel="noopener" aria-label="Ouvrir dans un onglet"><ExternalLink /></a>
+              <a href={image ? media : url} target="_blank" rel="noopener" aria-label="Ouvrir dans un onglet"><ExternalLink /></a>
             </Button>
           )}
           <Button size="icon-sm" variant="ghost" asChild>
-            <a href={`${raw}?download=1`} onClick={(e) => { e.preventDefault(); download(`${raw}?download=1`, name); }} aria-label={`Télécharger ${name}`}><Download /></a>
+            <a href={save} onClick={(e) => { e.preventDefault(); download(save, name); }} aria-label={`Télécharger ${name}`}><Download /></a>
           </Button>
         </div>
       }
@@ -313,9 +320,11 @@ function Preview({ spec }: { spec: PreviewSpec }) {
         </div>
       ) : VIDEO_RE.test(path) ? (
         <video controls preload="metadata" src={url} className="block max-h-[480px] w-full bg-black" />
+      ) : image && broken ? (
+        <p className="px-4 py-3 text-sm text-muted-foreground">Cette image n'est plus disponible.</p>
       ) : image ? (
         <button type="button" onClick={open} className="block w-full cursor-zoom-in bg-muted">
-          <img src={mediaUrl(agentId, path)} alt={title} loading="lazy" className="mx-auto max-h-96 object-contain" />
+          <img src={media} alt={title} loading="lazy" onError={() => setBroken(true)} className="mx-auto max-h-96 object-contain" />
         </button>
       ) : frame && page && !link ? (
         <div className="h-[560px] bg-muted" />
@@ -418,6 +427,7 @@ export function NoahWidget({ code, components }: SyntaxHighlighterProps) {
     case "grid": return <Quotable spec={spec}><Grid spec={spec} /></Quotable>;
     case "choice": return <Choice spec={spec} />;
     case "preview": return <Quotable spec={spec}><Preview spec={spec} /></Quotable>;
+    case "video": return <Quotable spec={spec}><VideoEmbed url={spec.url} title={spec.title} /></Quotable>;
     default:
       return <components.Pre><components.Code>{code}</components.Code></components.Pre>;
   }

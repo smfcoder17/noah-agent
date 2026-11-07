@@ -11,15 +11,20 @@ import {
   useAuiState,
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
-import { ArrowDown, ArrowUp, Check, ChevronUp, Copy, FileText, Loader2, Paperclip, Reply, SmilePlus, Square, TriangleAlert, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, ChevronRight, ChevronUp, Copy, FileText, Loader2, Paperclip, Reply, SmilePlus, Square, TriangleAlert, X } from "lucide-react";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import remarkGfm from "remark-gfm";
 import { WhileBusyContext, AgentContext, HistoryContext } from "@/lib/agentContext";
-import { mediaUrl, rawFileUrl, send } from "@/lib/api";
+import { MOOD_FACE, moodLabel, moodOf, usePanelEnd, useMood, useWide } from "@/lib/chatMood";
+import { type LoginAsked, mediaUrl, rawFileUrl, send, type TraceDetail } from "@/lib/api";
+import { linkMessage, plainWidgets } from "@/lib/chatMedia";
 import { imageQuote, splitQuotes, useQuotes } from "@/lib/quotes";
 import { ConversationRail } from "./ConversationRail";
 import { giveFilesEvent } from "./Files";
+import { LoginCard, LoginDone, type LoginResult } from "./LoginCard";
 import { NoahTile, type NoahHandle } from "./Noah";
+import { Recu } from "./Recu";
+import { StateShape } from "./Sidebar";
 import { cn, dayLabel, messageMoment, safeMedia } from "@/lib/utils";
 import { Button } from "./ui";
 import { canFrame, useDownload, useViewer } from "./Viewer";
@@ -32,34 +37,13 @@ const FINE_POINTER = window.matchMedia("(pointer: fine)").matches;
 
 export { AgentContext };
 
-// « MEDIA:/chemin.png » ou un chemin d'image de la machine devient une image markdown servie par Noah Agent.
-const MEDIA_RE = /(?:MEDIA:\s*)?(\/(?:opt\/data|tmp)\/[^\s"'`)\]]+\.(?:png|jpe?g|gif|webp))/gi;
-// Un autre fichier de l'espace de travail devient un lien qui s'ouvre dans la visionneuse.
-const FILE_RE = /`?(\/opt\/data\/workspace\/[^\s"'`)\]]+\.[a-z0-9]{1,6})`?/gi;
+const PART_EDGE = "\u0000";
 
-// Une app, un PDF, un son ou une vidéo se montre en aperçu intégré, même si l'agent n'a donné que le chemin.
-const PREVIEW_EXT = /\.(html?|pdf|mp3|wav|ogg|m4a|mp4|webm|mov)$/i;
-
-/** Transforme les chemins hors des blocs de code (les widgets gardent leur JSON intact). */
-function linkPaths(text: string, agentId: string) {
-  const previewed = new Set(text.match(/"path"\s*:\s*"([^"]+)"/g)?.map((m) => m.replace(/^"path"\s*:\s*"|"$/g, "")) ?? []);
-  return text
-    .split(/(```[\s\S]*?(?:```|$))/)
-    .map((chunk, i) =>
-      i % 2
-        ? chunk
-        : chunk
-            .replace(MEDIA_RE, (_m, path: string) => `\n\n![${path.split("/").pop()}](${mediaUrl(agentId, path)})\n\n`)
-            .replace(FILE_RE, (m, path: string, offset: number, all: string) => {
-              if (all.slice(Math.max(0, offset - 2), offset).includes("](") || all[offset - 1] === "(") return m;
-              if (PREVIEW_EXT.test(path) && !previewed.has(path)) {
-                previewed.add(path);
-                return `\n\n\`\`\`noah\n${JSON.stringify({ type: "preview", path })}\n\`\`\`\n\n`;
-              }
-              return `[${path.split("/").pop()}](${rawFileUrl(agentId, path)})`;
-            }),
-    )
-    .join("");
+/** Le texte des parties d'un message avant et après celle-ci, en une seule chaîne : une sélection d'état se compare par valeur. */
+function partsAround(parts: readonly { type: string; text?: string }[], me: { type: string; text?: string }) {
+  const at = parts.findIndex((p) => p === me || (p.type === "text" && p.text === me.text));
+  const text = (from: number, to: number) => parts.slice(from, to).map((p) => (p.type === "text" ? p.text ?? "" : "")).join("\n");
+  return at < 0 ? text(0, parts.length) + PART_EDGE : text(0, at) + PART_EDGE + text(at + 1, parts.length);
 }
 
 const widget = { SyntaxHighlighter: NoahWidget, CodeHeader: () => null };
@@ -73,7 +57,17 @@ function MarkdownText() {
   const download = useDownload();
   const { add: addQuote } = useQuotes();
   // Props stables : sans ça, chaque jeton reçu refait l'analyse Markdown de tous les messages du fil.
-  const preprocess = useCallback((text: string) => linkPaths(text, agentId), [agentId]);
+  // Une réponse se coupe en parties à chaque outil : la même image ne se montre pas une fois dans chacune. Ces chaînes ne changent
+  // pas quand seule la dernière partie grandit : l'analyse des précédentes n'est pas refaite.
+  const around = useAuiState((s) => partsAround(s.message.parts, s.part));
+  const streaming = useAuiState((s) => s.message.status?.type === "running");
+  const preprocess = useCallback(
+    (text: string) => {
+      const [before, after] = around.split(PART_EDGE);
+      return linkMessage(text, { fileUrl: (path) => rawFileUrl(agentId, path), before, after, streaming });
+    },
+    [agentId, around, streaming],
+  );
   const components = useMemo<NonNullable<React.ComponentProps<typeof MarkdownTextPrimitive>["components"]>>(
     () => ({
         a: ({ node: _node, href, children, ...props }) =>
@@ -133,7 +127,7 @@ function MarkdownText() {
 function Activity({ args }: ToolCallMessagePartProps) {
   const label = String(args.label);
   return (
-    <div className="flex items-center gap-2 py-0.5 text-[13px] text-muted-foreground" aria-live="polite">
+    <div className="flex items-center gap-2 py-0.5 text-[13px] text-muted-foreground max-md:hidden" aria-live="polite">
       <Loader2 className="size-3.5 shrink-0 animate-spin text-accent" />
       <span className="truncate">{/[….!?]$/.test(label) ? label : `${label}…`}</span>
     </div>
@@ -187,6 +181,43 @@ function Approval({ args, result, addResult }: ToolCallMessagePartProps) {
       </div>
       {error && <p className="text-sm text-danger">La réponse n'a pas été prise en compte : {error}</p>}
     </div>
+  );
+}
+
+function LoginPart({ args, result, addResult }: ToolCallMessagePartProps) {
+  const { agentId } = useContext(AgentContext);
+  const asked = args as unknown as LoginAsked;
+  if (result !== undefined) return <LoginDone asked={asked} result={result as LoginResult} />;
+  return (
+    <LoginCard
+      agentId={agentId}
+      asked={asked}
+      onDone={(done) => {
+        addResult(done);
+        window.dispatchEvent(new Event("noah:accord-repondu"));
+      }}
+    />
+  );
+}
+
+/** Dans la conversation principale : un fil en cours ou fini. Une ligne discrète, qui l'ouvre ; rien pour l'agent. */
+function TraceLine({ args }: ToolCallMessagePartProps) {
+  const { agentId } = useContext(AgentContext);
+  const t = args as unknown as TraceDetail;
+  const issue = t.etat === "en_cours" ? "En cours" : `${t.etat === "fini" ? "Fini" : "Pas terminé"}${t.issue ? ` : ${t.issue}` : ""}`;
+  return (
+    <a
+      href={`#agent=${agentId}&conversation=${t.fil}`}
+      title="Ouvrir ce fil"
+      className="-mx-2 flex w-fit max-w-full items-center gap-2.5 rounded-lg px-2 py-1 text-[13px] text-muted-foreground hover:bg-muted hover:text-foreground"
+    >
+      <StateShape state={t.etat === "fini" ? "done" : t.etat === "echec" ? "error" : "work"} />
+      <span className="min-w-0">
+        <span className="block truncate">{t.entete} : {t.consigne}</span>
+        <span className="block truncate text-xs">{issue}</span>
+      </span>
+      <ChevronRight className="size-3.5 shrink-0" />
+    </a>
   );
 }
 
@@ -289,7 +320,7 @@ function Steps({ args }: ToolCallMessagePartProps) {
   );
 }
 
-const TOOLS = { by_name: { activity: Activity, approval: Approval, error: ErrorPart, detail: Detail, steps: Steps, send_aside: SendAside } };
+const TOOLS = { by_name: { activity: Activity, approval: Approval, connexion: LoginPart, error: ErrorPart, detail: Detail, steps: Steps, recu: Recu, send_aside: SendAside, trace: TraceLine } };
 
 // --- Messages ------------------------------------------------------------------------
 
@@ -336,12 +367,12 @@ function DayDivider() {
   );
 }
 
-const QUICK_EMOJI = ["👍", "❤️", "😂", "😮", "😢", "🙏", "🔥", "🎉"];
+const QUICK_EMOJI = ["👍", "❤️", "👎", "😂", "😮", "😢", "🙏", "🔥", "🎉"];
 
 /** Les réactions d'un message, et de quoi y réagir : visible au survol, toujours là sur un écran tactile. */
 function MessageReactions() {
   const id = useAuiState((s) => s.message.id);
-  const custom = useAuiState((s) => s.message.metadata?.custom) as { storedId?: number; reactions?: { user?: string; agent?: string } } | undefined;
+  const custom = useAuiState((s) => s.message.metadata?.custom) as { storedId?: number; reactions?: { user?: string; agent?: string; retenu?: string } } | undefined;
   const { react } = useContext(HistoryContext);
   const { readOnly } = useContext(AgentContext);
   const [open, setOpen] = useState(false);
@@ -355,6 +386,7 @@ function MessageReactions() {
   return (
     <span className="relative flex items-center gap-1">
       {theirs && <span role="img" aria-label={`Réaction de l'agent : ${theirs}`} className="rounded-full border border-border bg-surface px-1.5 text-sm leading-6">{theirs}</span>}
+      {custom?.reactions?.retenu && <span title="L'agent l'a retenu pour la suite" className="text-[11px] text-muted-foreground">retenu</span>}
       {mine && (
         <button type="button" onClick={() => set(null)} disabled={readOnly} aria-label={`Retirer ta réaction ${mine}`} className="cursor-pointer rounded-full border border-accent/40 bg-accent-soft px-1.5 text-sm leading-6">{mine}</button>
       )}
@@ -490,16 +522,42 @@ function AssistantMessage() {
   const empty = useAuiState((s) => s.message.content.length === 0);
   const isLast = useAuiState((s) => s.thread.messages[s.thread.messages.length - 1]?.id === s.message.id);
   const id = useAuiState((s) => s.message.id);
+  const isTrace = useAuiState((s) => s.message.content.some((p) => p.type === "tool-call" && p.toolName === "trace"));
+  // Seul le dernier message peut vivre : les autres ne recalculent rien.
+  const base = useAuiState((s) => (s.thread.messages[s.thread.messages.length - 1]?.id === s.message.id ? moodOf(s.message) : "rest"));
+  const mood = useMood(base, isLast, !!busyActivity);
+  const label = useAuiState((s) => (isLast ? moodLabel(s.message, mood) : ""));
+  const wide = useWide();
+  if (isTrace) {
+    return (
+      <>
+      <DayDivider />
+      <MessagePrimitive.Root data-noah-msg={id} className="flex min-w-0 scroll-mt-4 flex-col py-1 md:pl-11">
+        <MessagePrimitive.Parts components={{ tools: TOOLS }} />
+      </MessagePrimitive.Root>
+      </>
+    );
+  }
+  // Le travail suivi près de la saisie a son propre visage : un seul bouge à la fois.
+  const live = isLast && !busyActivity && mood !== "rest";
+  const face = (className: string) => (
+    <NoahTile color={agentColor} shape={agentShape} detail={agentDetail} state={live ? MOOD_FACE[mood] : "idle"} still={!isLast || !!busyActivity} className={className} />
+  );
   return (
     <>
     <DayDivider />
     <MessagePrimitive.Root data-noah-msg={id} data-reply-source className="group relative flex scroll-mt-4 flex-col gap-1 py-2 md:pl-11">
-      <NoahTile color={agentColor} shape={agentShape} detail={agentDetail} state={running ? "thinking" : "idle"} still={!isLast} className="absolute top-2 left-0 hidden size-8 md:grid" />
+      {/* Dans la marge, il reste en vue quand une longue réponse défile. */}
+      {wide && !(empty && running && busyActivity) && (
+        <span className="absolute inset-y-2 left-0">
+          <span className="sticky top-2 block">{face(cn("transition-[width,height,margin] duration-200", live ? "-ml-1 size-10" : "size-8"))}</span>
+        </span>
+      )}
       <div className="max-w-[92%] min-w-0">
         {empty && running ? (
           // Un travail repris (app rouverte) dit déjà ce qu'il fait au-dessus de la saisie : pas deux indicateurs.
           !busyActivity && (
-            <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
+            <div className="flex items-center gap-2 text-[13px] text-muted-foreground max-md:hidden">
               <Loader2 className="size-3.5 animate-spin text-accent" /> Réflexion…
             </div>
           )
@@ -507,6 +565,13 @@ function AssistantMessage() {
           <MessagePrimitive.Parts components={{ Text: MarkdownText, tools: TOOLS }} />
         )}
       </div>
+      {/* Sur un téléphone, pas de marge : le visage se tient sous le travail, tout près de la saisie, son statut à côté. */}
+      {!wide && live && (
+        <div className="flex items-center gap-2.5 pt-1 text-[13px] text-muted-foreground" aria-live="polite">
+          {face("size-10")}
+          <span className="min-w-0 truncate">{label}</span>
+        </div>
+      )}
       {/* Place réservée : le bouton apparaît au survol sans décaler le texte en dessous. */}
       <div className="flex h-8 items-center gap-2">
         {!running && <MessageTime />}
@@ -621,10 +686,12 @@ function Composer({ onVoiceMode, inCall }: { onVoiceMode: () => void; inCall: bo
 /** Au-dessus de la saisie : ce que fait un travail lancé ailleurs, et les demandes qui attendent leur tour. */
 function WhileBusyPanel() {
   const busy = useContext(WhileBusyContext);
+  const { agentColor, agentShape, agentDetail } = useContext(AgentContext);
+  usePanelEnd(!!busy.activity);
   if (!busy.activity && !busy.waiting.length && !busy.sending.length) return null;
   return (
     <div className="mb-2 flex w-full flex-col gap-1 text-xs text-muted-foreground">
-      {busy.activity && <div className="flex items-center gap-2 px-1"><Loader2 className="size-3.5 shrink-0 animate-spin text-accent" /><span className="truncate">{busy.activity}…</span></div>}
+      {busy.activity && <div className="flex items-center gap-2.5 px-1 text-[13px]"><NoahTile color={agentColor} shape={agentShape} detail={agentDetail} state="working" className="size-10" /><span className="truncate">{busy.activity}…</span></div>}
       {busy.sending.map((item) => (
         <div key={item.id} className="flex items-center gap-2 rounded-lg border border-border bg-surface px-2 py-1.5">
           <span className="shrink-0">{item.late ? "Réception à vérifier" : "Envoi"}</span>
@@ -684,7 +751,7 @@ export function Thread({ report, onReportRead, onCall }: { report: { id: string;
   // Pour l'appel : un aperçu intégré compte aussi comme un artefact à ouvrir.
   const link = useCallback(
     (text: string) =>
-      linkPaths(text, agentId).replace(/```noah\s*\{"type":"preview","path":"([^"]+)"\}\s*```/g, (_m, path: string) => `[${path.split("/").pop()}](${rawFileUrl(agentId, path)})`),
+      plainWidgets(linkMessage(text, { fileUrl: (path) => rawFileUrl(agentId, path) }), (path) => rawFileUrl(agentId, path), (path) => mediaUrl(agentId, path)),
     [agentId],
   );
   // Rappel pris : le mode vocal s'ouvre et lit le compte rendu.

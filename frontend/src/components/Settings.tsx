@@ -14,7 +14,10 @@ import { PhoneSettings, phoneSettingsAvailable } from "./PhoneSettings";
 import { MyPassword, Profiles } from "./Profiles";
 import { Updates } from "./Updates";
 import { Flows } from "./Flows";
+import { JudgeSetting } from "./Juge";
 import { DecisionModel } from "./DecisionModel";
+import { ModeRows } from "./Modes";
+import type { Level } from "@/lib/modes";
 import { type MediaModel, ModelSelect } from "./ModelSelect";
 import { Dialog, DialogContent, Tabs, TabsContent, TabsList, TabsTrigger } from "./ui";
 import { Button, Input, Label } from "./ui";
@@ -131,7 +134,10 @@ export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainS
               <Updates />
             </TabsContent>
             <TabsContent value="privacy">
-              <Flows />
+              <div className="flex flex-col gap-4">
+                <JudgeSetting />
+                <Flows />
+              </div>
             </TabsContent>
             <TabsContent value="diagnostic">
               <Diagnostic />
@@ -207,7 +213,13 @@ function MediaPanel({ kinds, withVoice, withPreferences }: { kinds: string[]; wi
               <p className="text-xs text-muted-foreground">{HINTS[kind]}</p>
             </div>
             {k.models.length ? (
-              <ModelSelect label={k.label} models={k.models} value={k.setting} auto={k.auto} routed={k.routed} onChange={(id) => choose(kind, id)} />
+              <div className="flex min-w-0 flex-col gap-2">
+                <ModelSelect label={k.label} models={k.models} value={k.setting} auto={k.auto} routed={k.routed} onChange={(id) => choose(kind, id)} />
+                <details>
+                  <summary className="cursor-pointer text-xs text-muted-foreground">Modes : Rapide, Équilibré, Le plus fort, Gratuit, Custom</summary>
+                  <div className="mt-2"><ModeRows level={kind as Level} onChanged={() => load()} /></div>
+                </details>
+              </div>
             ) : (
               <p className="text-sm text-muted-foreground">Aucun modèle de ce type avec ta clé.</p>
             )}

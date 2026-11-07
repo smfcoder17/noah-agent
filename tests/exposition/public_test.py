@@ -109,7 +109,9 @@ def test_security_headers() -> None:
         csp = directives(h["content-security-policy"])
         assert csp["default-src"] == "'self'" and csp["script-src"] == "'self'", csp
         assert csp["frame-ancestors"] == "'self'" and csp["object-src"] == "'none'" and csp["base-uri"] == "'self'", csp
-        assert csp["frame-src"] == "'self'" and "'self'" in csp["connect-src"], csp
+        # Les lecteurs vidéo, à l'hôte près ; aucun joker. tests/chat/medias_test.mjs compare cette liste à celle de l'interface.
+        assert csp["frame-src"] == "'self' https://www.youtube-nocookie.com https://player.vimeo.com https://platform.twitter.com https://www.tiktok.com https://www.instagram.com", csp
+        assert "'self'" in csp["connect-src"] and csp["connect-src"].count("https:") == 0 and "https:" not in csp["img-src"] and "https:" not in csp["script-src"], csp
     plain = TestClient(app, base_url="http://localhost:8080").get("/")
     assert "strict-transport-security" not in plain.headers, "HSTS sur une adresse en clair"
 

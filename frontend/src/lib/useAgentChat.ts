@@ -7,7 +7,7 @@ import {
   useExternalStoreRuntime,
 } from "@assistant-ui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ApiError, type ChatEvent, get, send, type Reactions, type StoredMessage, request, StreamLost, streamChat, uploadFile } from "./api";
+import { ApiError, type ChatEvent, get, type LoginAsked, send, type Reactions, type Recu, type StoredMessage, request, StreamLost, streamChat, uploadFile } from "./api";
 
 type TextPart = { type: "text"; text: string };
 type ToolPart = { type: "tool-call"; toolCallId: string; toolName: string; args: Record<string, unknown>; result?: unknown };
@@ -21,7 +21,20 @@ export type ChatMessage = {
   createdAt?: Date;
   storedId?: number;
   reactions?: Reactions;
+  /** Détail tel que stocké d'une trace de fil : sa ligne change à la fin du fil, sans changer le nombre de messages. */
+  trace?: string;
 };
+
+function traceArgs(m: StoredMessage): Record<string, unknown> {
+  try {
+    return JSON.parse(m.detail ?? "");
+  } catch {
+    return { consigne: m.text };
+  }
+}
+
+/** Une trace dont l'issue vient d'être écrite : le même nombre de messages, mais pas le même écran. */
+const traceMoved = (rows: StoredMessage[], cur: ChatMessage[]) => rows.some((r, i) => r.role === "trace" && r.detail !== cur[i]?.trace);
 
 let seq = 0;
 const uid = (p: string) => `${p}-${Date.now().toString(36)}-${(seq++).toString(36)}`;
@@ -62,17 +75,22 @@ function fromStoredContent(m: StoredMessage, i: number): ChatMessage {
   if (m.role === "error") {
     return { id: `h${i}`, role: "assistant", content: [{ type: "tool-call", toolCallId: `e${i}`, toolName: "error", args: { message: m.text, detail: m.detail ?? "" }, result: true }] };
   }
-  const steps = storedSteps(m.detail);
-  return { id: `h${i}`, role: "assistant", content: [{ type: "text", text: m.text }, ...(steps.length ? [stepsPart(steps)] : [])] };
+  if (m.role === "trace") {
+    return { id: `h${i}`, role: "assistant", trace: m.detail ?? "", content: [{ type: "tool-call", toolCallId: `t${i}`, toolName: "trace", args: traceArgs(m), result: true }] };
+  }
+  const { steps, recu } = stored(m.detail);
+  return { id: `h${i}`, role: "assistant", content: [{ type: "text", text: m.text }, ...recuParts(recu), ...(steps.length ? [stepsPart(steps)] : [])] };
 }
 
 const stepsPart = (steps: string[]): Part => ({ type: "tool-call", toolCallId: "steps", toolName: "steps", args: { steps } as never, result: true });
-function storedSteps(detail: unknown): string[] {
-  if (typeof detail !== "string" || !detail.startsWith('{"etapes"')) return [];
+const recuParts = (recu?: Recu | null): Part[] => (recu ? [{ type: "tool-call", toolCallId: "recu", toolName: "recu", args: { recu } as never, result: true }] : []);
+function stored(detail: unknown): { steps: string[]; recu?: Recu } {
+  if (typeof detail !== "string" || !detail.startsWith('{"etapes"')) return { steps: [] };
   try {
-    return JSON.parse(detail).etapes ?? [];
+    const data = JSON.parse(detail);
+    return { steps: data.etapes ?? [], recu: data.recu };
   } catch {
-    return [];
+    return { steps: [] };
   }
 }
 const stepsOf = (parts: Part[]): string[] => {
@@ -130,7 +148,7 @@ function apply(msg: ChatMessage, ev: ChatEvent, runId: string | null): ChatMessa
       // Le serveur donne ce que la conversation garde : l'écran finit dessus, même si des détails ont coupé le texte en morceaux.
       if (ev.status === "completed" && ev.reponse) {
         const others = withoutSteps(settle(parts)).filter((p) => p.type !== "text");
-        return { ...msg, content: [...others, { type: "text", text: ev.reponse }, ...(ev.etapes?.length ? [stepsPart(ev.etapes)] : [])], running: false };
+        return { ...msg, content: [...others, { type: "text", text: ev.reponse }, ...recuParts(ev.recu), ...(ev.etapes?.length ? [stepsPart(ev.etapes)] : [])], running: false };
       }
       let next = settle(parts);
       if (!next.some((p) => p.type === "text") && ev.output) next = [...next, { type: "text", text: ev.output }];
@@ -167,7 +185,7 @@ export type WhileBusyApi = {
   giveUp: (id: string) => void;
 };
 type Approval = { summary: string; demande?: string; apercu?: string[]; request_id: string; generation: number; run_id: string };
-type Now = { occupe: boolean; activite: string | null; run_id: string | null; file: { id: string; text: string }[]; accord: Approval | null };
+type Now = { occupe: boolean; activite: string | null; run_id: string | null; file: { id: string; text: string }[]; accord: Approval | null; connexion?: LoginAsked | null };
 const IDLE: Now = { occupe: false, activite: null, run_id: null, file: [], accord: null };
 
 // Boîte d'envoi : un message reste ici, avec son identifiant, tant que le serveur n'a pas répondu. Une réponse perdue ne fait donc ni
@@ -281,7 +299,7 @@ export function useAgentChat(opts: {
         if (!current(conversationId, asked, rows)) return;
         if (!cancelled) setMore(windows.get(conversationId)?.more ?? false);
         // Seulement s'il y a du nouveau, pour ne pas redessiner la conversation pour rien.
-        if (!cancelled && !running.current) setMessages((cur) => (rows.length > cur.length ? rows.map(fromStored) : cur));
+        if (!cancelled && !running.current) setMessages((cur) => (rows.length > cur.length || (rows.length === cur.length && traceMoved(rows, cur)) ? rows.map(fromStored) : cur));
       })
       .catch(() => {});
     return () => {
@@ -304,8 +322,8 @@ export function useAgentChat(opts: {
         if (!current(conv, asked, rows)) continue;
         if (ownConversation.current === conv) setMore(windows.get(conv)?.more ?? false);
         if (ownConversation.current === conv && !running.current) setMessages(rows.map(fromStored));
-        // Réponse encore en cours côté serveur : on recharge encore jusqu'à la voir arrivée.
-        if (rows[rows.length - 1]?.role !== "user") return;
+        // Réponse encore en cours côté serveur : on recharge encore jusqu'à la voir arrivée. La trace d'un fil n'en est pas une.
+        if (rows.filter((r) => r.role !== "trace").pop()?.role !== "user") return;
       } catch {
         /* serveur toujours absent */
       }
@@ -314,6 +332,7 @@ export function useAgentChat(opts: {
 
   // --- Pendant le travail : la saisie reste ouverte, et ce qui attend se voit. ---
   const [serverNow, setServerNow] = useState<Now>(IDLE);
+  const [login, setLogin] = useState<(LoginAsked & { result?: unknown }) | null>(null);
   const askedNow = useRef<Approval | null>(null);
   const [sending, setSending] = useState<WhileBusyApi["sending"]>([]);
   const givenUp = useRef(new Set<string>());
@@ -329,7 +348,7 @@ export function useAgentChat(opts: {
     if (ownConversation.current === conv) setMore(windows.get(conv)?.more ?? false);
     if (ownConversation.current === conv && !running.current) {
       setMessages((cur) => {
-        if (rows.length !== cur.length) return rows.map(fromStored);
+        if (rows.length !== cur.length || traceMoved(rows, cur)) return rows.map(fromStored);
         // Même nombre : on garde l'affichage, en apprenant le numéro des messages écrits ici (pour pouvoir y réagir) et leurs réactions.
         const changed = rows.some((r, i) => r.id !== cur[i].storedId || JSON.stringify(r.reactions ?? null) !== JSON.stringify(cur[i].reactions ?? null));
         return changed ? cur.map((m, i) => ({ ...m, storedId: rows[i].id, reactions: rows[i].reactions })) : cur;
@@ -350,6 +369,12 @@ export function useAgentChat(opts: {
     setServerNow(IDLE);
     void refreshNow();
   }, [conversationId, refreshNow]);
+  // Une relecture finit après le tour : le petit « retenu » arrive sans rafraîchir la page.
+  useEffect(() => {
+    if (isRunning) return;
+    const later = setTimeout(() => !document.hidden && void refreshNow(), 30000);
+    return () => clearTimeout(later);
+  }, [isRunning, refreshNow]);
   const watching = isRunning || serverNow.occupe || serverNow.file.length > 0 || sending.length > 0 || !!agentBusy;
   useEffect(() => {
     if (!watching) return;
@@ -553,6 +578,10 @@ export function useAgentChat(opts: {
 
   // Les approbations renvoient leur réponse ici, une fois transmise à l'agent.
   const onAddToolResult = useCallback((o: { messageId: string; toolCallId: string; result: unknown }) => {
+    if (o.messageId.startsWith("connexion-")) {
+      setLogin((cur) => (cur ? { ...cur, result: o.result } : cur));
+      return;
+    }
     if (o.messageId.startsWith("accord-")) {
       const id = o.messageId.slice("accord-".length); // un second accord a pu arriver pendant l'envoi : il reste à donner
       if (askedNow.current?.request_id === id) setGiven({ ...askedNow.current, result: o.result });
@@ -627,29 +656,47 @@ export function useAgentChat(opts: {
     window.addEventListener("noah:accord-repondu", answered);
     return () => window.removeEventListener("noah:accord-repondu", answered);
   }, []);
-  const shown = useMemo<ChatMessage[]>(
-    () =>
-      pendingApproval
+  // Une connexion à donner : la carte reste à la même place tant que le serveur la demande. La personne y écrit, rien ne doit la refaire.
+  const askedLogin = serverNow.connexion ?? null;
+  const askedLoginId = askedLogin?.id;
+  useEffect(() => {
+    setLogin((cur) => (askedLogin ? (cur?.id === askedLogin.id ? cur : askedLogin) : cur?.result ? cur : null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- la même demande revient à chaque relevé : seul son identifiant compte
+  }, [askedLoginId]);
+  // Répondue : la ligne reste lisible jusqu'au message suivant.
+  useEffect(() => setLogin((cur) => (cur?.result ? null : cur)), [messages.length]);
+  useEffect(() => {
+    const answered = (e: Event) => {
+      const { id, result } = (e as CustomEvent<{ id: string; result: string }>).detail;
+      setLogin((cur) => (cur?.id === id ? { ...cur, result } : cur));
+    };
+    window.addEventListener("noah:connexion-repondue", answered);
+    return () => window.removeEventListener("noah:connexion-repondue", answered);
+  }, []);
+  const shown = useMemo<ChatMessage[]>(() => {
+    const base: ChatMessage[] = pendingApproval
+      ? [
+          ...messages,
+          {
+            id: `accord-${pendingApproval.request_id}`,
+            role: "assistant",
+            content: [{ type: "tool-call", toolCallId: `a-${pendingApproval.request_id}`, toolName: "approval", args: { ...pendingApproval } }],
+          },
+        ]
+      : given && !messages.some((m) => m.content.some((p) => p.type === "tool-call" && p.toolName === "approval" && (p.args as { request_id?: string }).request_id === given.request_id))
         ? [
             ...messages,
             {
-              id: `accord-${pendingApproval.request_id}`,
+              id: `accord-${given.request_id}`,
               role: "assistant",
-              content: [{ type: "tool-call", toolCallId: `a-${pendingApproval.request_id}`, toolName: "approval", args: { ...pendingApproval } }],
+              content: [{ type: "tool-call", toolCallId: `a-${given.request_id}`, toolName: "approval", args: { ...given }, result: given.result }],
             },
           ]
-        : given && !messages.some((m) => m.content.some((p) => p.type === "tool-call" && p.toolName === "approval" && (p.args as { request_id?: string }).request_id === given.request_id))
-          ? [
-              ...messages,
-              {
-                id: `accord-${given.request_id}`,
-                role: "assistant",
-                content: [{ type: "tool-call", toolCallId: `a-${given.request_id}`, toolName: "approval", args: { ...given }, result: given.result }],
-              },
-            ]
-          : messages,
-    [messages, pendingApproval, given],
-  );
+        : messages;
+    if (!login) return base;
+    const { result, ...asked } = login;
+    return [...base, { id: `connexion-${login.id}`, role: "assistant", content: [{ type: "tool-call", toolCallId: `c-${login.id}`, toolName: "connexion", args: asked, ...(result ? { result } : {}) }] }];
+  }, [messages, pendingApproval, given, login]);
 
   const runtime = useExternalStoreRuntime<ChatMessage>({
     messages: shown,
@@ -685,10 +732,12 @@ export function useAgentChat(opts: {
         const conv = ownConversation.current;
         if (!conv) return;
         setMessages((cur) => cur.map((m) => (m.id === id ? { ...m, reactions: { ...m.reactions, user: emoji ?? undefined } } : m)));
-        void send(`/api/conversations/${conv}/messages/${stored}/reaction`, { emoji }, "PUT").catch(() => {});
+        void send<{ question?: boolean }>(`/api/conversations/${conv}/messages/${stored}/reaction`, { emoji }, "PUT")
+          .then((r) => (r?.question ? refreshNow() : undefined)) // 👎 : sa question arrive tout de suite dans le fil
+          .catch(() => {});
       },
     }),
-    [more, loadingOlder],
+    [more, loadingOlder, refreshNow],
   );
 
   // En deux mots, ce que fait l'agent : affiché près de son nom, sur le web, le bureau et le téléphone.

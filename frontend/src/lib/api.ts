@@ -155,6 +155,9 @@ export type Agent = {
   pinned: boolean;
   /** Cerveau propre à cet agent ; absent : celui de tous. */
   model?: string | null;
+  /** Mode propre à cet agent (fast, gratuit…) ; vide : le réglage de tous. */
+  mode?: string | null;
+  raisonnement?: string | null;
   /** Ce que ce compte a le droit d'en faire. */
   droit: AgentRight;
   /** Partagé avec d'autres, ou par quelqu'un d'autre. */
@@ -183,6 +186,8 @@ export type Conversation = {
   title: string;
   updated_at: string;
   state: TaskState;
+  /** Travaille vraiment, ou attend la personne. Décidé par le serveur : une demande finie sur un choix n'attend plus rien. */
+  en_cours: boolean;
   main: boolean;
   archived: boolean;
   origin: "user" | "agent";
@@ -192,7 +197,9 @@ export type Conversation = {
   de: string | null;
 };
 export type Reactions = { user?: string; agent?: string };
-export type StoredMessage = { reactions?: Reactions; id?: number; role: "user" | "agent" | "error"; text: string; detail?: string | null; created_at: string };
+/** `trace` : une ligne pour la personne dans la conversation principale, qui ouvre un fil. Son détail : voir TraceDetail. */
+export type StoredMessage = { reactions?: Reactions; id?: number; role: "user" | "agent" | "error" | "trace"; text: string; detail?: string | null; created_at: string };
+export type TraceDetail = { fil: string; entete: string; consigne: string; etat: "en_cours" | "fini" | "echec"; issue: string };
 export type AgentUsage = {
   agent_id: string;
   name: string;
@@ -202,7 +209,9 @@ export type AgentUsage = {
   prompt_tokens: number;
   cached_tokens: number;
 };
-export type InboxItem = { agent_id: string; agent: string; conversation_id: string; titre: string; main: boolean; a_moi: boolean; etat: "approve" | "choice"; demande: string; apercu: string[]; request_id?: string; generation?: number; run_id?: string };
+/** L'agent a besoin d'une connexion : ce que la carte montre vient de la vraie page, jamais d'un texte de l'agent. */
+export type LoginAsked = { id: string; type: "connexion" | "code"; site: string; origine: string; chiffre: boolean; identifiant_requis: boolean };
+export type InboxItem = { agent_id: string; agent: string; conversation_id: string; titre: string; main: boolean; a_moi: boolean; etat: "approve" | "choice"; demande: string; apercu: string[]; request_id?: string; generation?: number; run_id?: string; connexion?: LoginAsked | null };
 export type Usage = {
   month_cost: number;
   budget: number | null;
@@ -237,7 +246,17 @@ export type ChatEvent =
   | { type: "activity_detail"; detail: unknown }
   | { type: "raw"; kind: string; data: unknown }
   | { type: "approval"; request_id: string; generation: number; summary: string; demande?: string; apercu?: string[] }
-  | { type: "done"; status: string; output?: string; error?: string; details?: string; reponse?: string; etapes?: string[] };
+  | { type: "done"; status: string; output?: string; error?: string; details?: string; reponse?: string; etapes?: string[]; recu?: Recu | null };
+
+/** Ce que l'agent a écrit, comparé à ce que ses outils ont fait (server/noah/recu.py). */
+export type Recu = {
+  prouve?: { dit: string; par: string }[];
+  sans_trace?: string[];
+  echec?: { dit: string; par: string }[];
+  incertain?: { dit: string; par: string }[];
+  non_dit?: string[];
+  fait?: string[];
+};
 
 export type VoiceReady = { dictation: string | null; call: string | null };
 
@@ -344,3 +363,24 @@ export const previewRenewIn = (agentId: string, path: string): number =>
 
 export const rawFileUrl = (agentId: string, path: string) =>
   `/api/agents/${agentId}/files/raw/${path.replace(/^\/opt\/data\/workspace\//, "").split("/").map(encodeURIComponent).join("/")}`;
+
+// --- Objectifs et « de lui-même » (server/noah/proactif.py) ---------------------------
+
+export type Goal = { id: string; texte: string; agent_id: string | null; etat: "actif" | "fait"; cree: number; fait_a: number | null };
+export type ProactiveMode = "coupe" | "signaler" | "agir";
+export type ProactiveState = {
+  mode: ProactiveMode;
+  choisi: boolean;
+  minutes: number;
+  modifiable: boolean;
+  sources: string[];
+  objectifs: number;
+  dernier_passage: number | null;
+  erreur: string | null;
+  passages: number;
+  signalements: number;
+  tours_du_jour: number;
+  tours_max: number;
+  en_cours: boolean;
+  cout: number;
+};

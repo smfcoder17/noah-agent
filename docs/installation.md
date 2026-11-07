@@ -10,7 +10,7 @@ Il faut Docker, et de la place : environ 5 Go sur le disque, plus 4 Go la premi�
 | Un agent 24 h/24, joignable partout | [Sur un VPS](#sur-un-vps) | 10 min |
 | Le relier à ton téléphone | [Ton téléphone](#ton-téléphone) | 2 min |
 
-> **À savoir aujourd'hui.** L'installation sur VPS télécharge des images et un fichier publiés par le dépôt GitHub. Tant que la première version n'est pas publiée, seule l'installation sur ton ordinateur marche. Elle compile tout depuis le code.
+> **À savoir.** L'installation sur VPS télécharge des images et un fichier publiés par le dépôt GitHub, sans rien compiler. L'installation sur ton ordinateur, elle, compile tout depuis le code.
 
 ## Sur ton ordinateur
 

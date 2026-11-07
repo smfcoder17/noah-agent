@@ -1,5 +1,5 @@
 // Colonne de gauche : ce qui attend la personne, puis les agents. Clic droit (ou « ⋯ ») pour épingler ou personnaliser.
-import { Inbox as InboxIcon, LogOut, MoreHorizontal, Palette, Pin, PinOff, Plus, Settings, Users, X } from "lucide-react";
+import { Inbox as InboxIcon, LogOut, MoreHorizontal, Palette, Pin, PinOff, Plus, Settings, Target, Users, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { type Agent, canAdmin, type TaskState, type Usage } from "@/lib/api";
 import { cn, money } from "@/lib/utils";
@@ -62,6 +62,7 @@ export function Sidebar(props: {
   usage: Usage | null;
   waiting: number;
   onInbox: () => void;
+  onGoals: () => void;
   owner: boolean;
   onClose: () => void;
   onSelectAgent: (id: string) => void;
@@ -105,6 +106,11 @@ export function Sidebar(props: {
         <span className="grid size-10 place-items-center"><InboxIcon className="size-4" /></span>
         <span className="flex-1">À toi</span>
         {props.waiting > 0 && <span className="grid h-5 min-w-5 place-items-center rounded-full bg-warn px-1.5 text-xs font-semibold text-surface">{props.waiting}</span>}
+      </button>
+      {/* À toi a sa porte sur un téléphone ; les objectifs s'ouvrent d'ici à toutes les tailles. */}
+      <button type="button" onClick={props.onGoals} className="-mt-3 flex cursor-pointer items-center gap-3 rounded-xl px-2 py-2 text-left text-sm font-medium hover:bg-surface/70 max-md:mt-0">
+        <span className="grid size-10 place-items-center"><Target className="size-4" /></span>
+        <span className="flex-1">Objectifs</span>
       </button>
       <nav aria-label="Agents" className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
         <h2 className="mb-1 px-2 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">Tes agents</h2>

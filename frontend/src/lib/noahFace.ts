@@ -16,6 +16,7 @@ const CALM_FRAME_SMALL = 66; // …et 15 fois en petite taille
 const LIST_FRAME = 33; // en liste, un petit visage qui bouge reste à 30 images/s : le clignement reste lisible, le budget aussi
 const STILL_PX = 0.3; // un mouvement plus petit que ça à l'écran attend le calcul suivant : au repos, presque rien à repeindre
 const BUSY_PX = 0.6; // au-delà, il bouge vraiment : pleine cadence
+const CHORE_PX = 0.1; // au travail ou en attente, ces petits mouvements sont ce qu'on veut voir
 const MAX_HOLD = 0.4;
 const SLEEP_MIN = 6; // à attendre plus longtemps que ça, on dort sur une minuterie plutôt que de réveiller le navigateur à chaque image
 
@@ -331,9 +332,10 @@ export class NoahFace {
     const px = this.moved() * (this.size / 64);
     const small = this.size <= CALM_MAX_SIZE;
     // Une grille commune : les visages d'une liste changent dans la même image, le navigateur ne repeint qu'une fois.
+    const chore = this.sim.busy();
     if (this.sim.lively() || px > BUSY_PX) this.nextAt = small && crowded ? onGrid(now, LIST_FRAME) : now + MIN_FRAME;
-    else this.nextAt = onGrid(now, small ? CALM_FRAME_SMALL : CALM_FRAME);
-    if (this.hold < MAX_HOLD && px < STILL_PX) return;
+    else this.nextAt = onGrid(now, small && !chore ? CALM_FRAME_SMALL : CALM_FRAME);
+    if (this.hold < MAX_HOLD && px < (chore ? CHORE_PX : STILL_PX)) return;
     this.hold = 0;
     this.draw();
   }

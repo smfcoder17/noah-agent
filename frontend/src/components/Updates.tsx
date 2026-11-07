@@ -27,7 +27,7 @@ const NAMES: Record<string, string> = {
   "noah-server": "Noah", "noah-launcher": "lanceur des agents", hermes: "agents (Hermes)", navigateur: "navigateur des agents", caddy: "HTTPS (Caddy)",
 };
 
-const when = (t: number) => new Date(t * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+const when = (t: number) => new Date(t * 1000).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" });
 
 export function Updates() {
   const [s, setS] = useState<Summary | null>(null);

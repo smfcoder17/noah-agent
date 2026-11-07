@@ -270,7 +270,7 @@ def month_start() -> str:
 context_size: dict[str, int] = {}  # conversation -> plus gros contexte envoyé au modèle pendant son tour en cours (voir chauffe.compact)
 
 
-async def _record(agent_id: str, model: str, usage: dict | None, task: str | None = None) -> float | None:
+async def _record(agent_id: str, model: str, usage: dict | None, task: str | None = None, provider: str | None = None) -> float | None:
     """Compte un appel et rend son coût. None : le fournisseur n'a rien dit de ce qu'il a consommé."""
     if not usage:
         return None
@@ -280,7 +280,7 @@ async def _record(agent_id: str, model: str, usage: dict | None, task: str | Non
     completion = int(usage.get("completion_tokens") or 0)
     cached = int((usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)
     cost = usage.get("cost")
-    provider = db.get_setting("provider")
+    provider = provider or db.get_setting("provider")
     if cost is None and provider not in (*OWN_URL, "ollama-cloud"):
         price = catalog.price_of(await (catalog.mammouth_prices() if provider == "mammouth" else catalog.price_index()), model)
         if price:
@@ -389,6 +389,54 @@ def _current_brain(agent_id: str, asked: str) -> str:
     return db.get_setting(f"model_{agent_id}") or brain or asked
 
 
+async def _chain_of(agent_id: str, asked: str) -> list[dict]:
+    """Les modèles de cet appel, dans l'ordre : le jeton d'une routine, sinon le mode de l'agent, sinon son cerveau. Le nom écrit par
+    l'agent n'est suivi que s'il est le modèle de décision ou un jeton gardé par modes : un agent ne choisit rien d'autre ici."""
+    from . import decision, modes
+
+    pinned = await modes.routine_links(agent_id, asked)
+    if pinned:
+        return pinned
+    single = [{"modele": _current_brain(agent_id, asked), "fournisseur": db.get_setting("provider") or ""}]
+    helper = decision.model()
+    if helper and helper != db.get_setting("model") and asked == helper:  # ses petits travaux restent au modèle de décision
+        return single
+    return await modes.agent_chain(agent_id) or single
+
+
+def _payload(body: dict, link: dict, effort: str | None, stream: bool) -> dict:
+    """Le corps pour ce maillon : les réglages d'OpenRouter ne partent pas chez un autre fournisseur."""
+    from . import decision
+
+    out = {**body, "model": link["modele"]}
+    if not _CACHE_MARKERS.search(link["modele"]) and isinstance(out.get("messages"), list):
+        _strip_cache_marks(out["messages"])
+    if stream:
+        out["stream_options"] = {**(out.get("stream_options") or {}), "include_usage": True}
+    if link["fournisseur"] == "openrouter":
+        out["usage"] = {"include": True}  # OpenRouter renvoie alors le coût exact
+        # Le fournisseur le plus réactif pour ce modèle plutôt que le moins cher : c'est le premier mot qui compte.
+        out.setdefault("provider", {"sort": "latency"})
+        if effort:
+            out["reasoning"] = {"effort": effort}  # OpenRouter l'ignore pour un modèle qui ne raisonne pas
+    elif effort and decision.thinks(link["modele"]):
+        out["reasoning_effort"] = effort
+    return out
+
+
+def _failed_body(raw: bytes) -> int | None:
+    """200 qui annonce une erreur dans son corps (OpenRouter le fait quand le fournisseur tombe après coup). Sinon None."""
+    line = raw if raw.lstrip().startswith(b"{") else next((x for x in raw.split(b"\n") if x.startswith(b"data:")), b"")[5:]
+    try:
+        data = json.loads(line)
+    except ValueError:
+        return None
+    if not isinstance(data, dict) or not data.get("error") or data.get("choices"):
+        return None
+    code = data["error"].get("code") if isinstance(data["error"], dict) else None
+    return code if isinstance(code, int) else 502
+
+
 def _warmup_reply(model: str, stream: bool) -> Response:
     base = {"id": "chauffe", "created": int(time.time()), "model": model}
     usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
@@ -435,59 +483,129 @@ async def relay(path: str, request: Request):
         # Lu par l'agent : Hermes ne le remonte pas tel quel à la personne, main._run lui redonne la vraie raison.
         return JSONResponse({"error": {"message": refused, "type": "budget_exceeded", "code": 402}}, status_code=402)
 
-    if path.endswith("chat/completions"):
-        model = body["model"] = _current_brain(agent_id, model)
-        if not _CACHE_MARKERS.search(model) and isinstance(body.get("messages"), list):
-            _strip_cache_marks(body["messages"])
-        if stream:
-            body["stream_options"] = {**(body.get("stream_options") or {}), "include_usage": True}
-        if provider == "openrouter":
-            body["usage"] = {"include": True}  # OpenRouter renvoie alors le coût exact
-            # Le fournisseur le plus réactif pour ce modèle plutôt que le moins cher : c'est le premier mot qui compte.
-            body.setdefault("provider", {"sort": "latency"})
+    from . import modes
+
+    chat = path.endswith("chat/completions")
+    effort = modes.reasoning(agent_id) if chat else None
+    chain = modes.ordered(await _chain_of(agent_id, model)) if chat else [{"modele": model, "fournisseur": provider}]
+
+    def target(link: dict) -> tuple[str, dict]:
+        """L'adresse et les en-têtes de ce maillon. Chaque clé ne part que vers son fournisseur."""
+        if link["fournisseur"] == provider:
+            return url, headers
+        return f"{upstream_base(link['fournisseur'])}/{path}", _upstream_headers(link["fournisseur"], modes.key_of(link["fournisseur"]))
+
+    def retry_later(link: dict, status: int, retry_after: str | None = None) -> None:
+        modes.cool(link, status, retry_after)
+        print(f"[relais] {agent_id} : {link['modele']} indisponible ({status or 'injoignable'}), le suivant prend le relais", flush=True)
+
+    def bodies(link: dict) -> list[dict]:
+        """Un fournisseur qui refuse le niveau de raisonnement répond sans : le réglage ne casse pas l'agent."""
+        if not chat:
+            return [body]
+        return [_payload(body, link, effort, stream)] + ([_payload(body, link, None, stream)] if effort else [])
 
     if not stream:
-        try:
-            r = await upstream_client().post(url, headers=headers, json=body)
-        except httpx.TransportError:
-            return _unreachable(agent_id)
-        _note_status(agent_id, r.status_code)
-        if r.status_code == 200:
+        for i, link in enumerate(chain):
+            last = i == len(chain) - 1
+            to, sent = target(link)
             try:
-                await _record(agent_id, model, r.json().get("usage"), task)
-            except ValueError:
-                pass
-        return Response(r.content, status_code=r.status_code, media_type=r.headers.get("content-type"))
+                tries = bodies(link)
+                r = await upstream_client().post(to, headers=sent, json=tries[0])
+                if r.status_code == 400 and len(tries) > 1:
+                    r = await upstream_client().post(to, headers=sent, json=tries[1])
+            except httpx.TransportError:
+                if last:
+                    return _unreachable(agent_id)
+                retry_later(link, 0)
+                continue
+            failed = r.status_code if r.status_code != 200 else _failed_body(r.content)
+            if not last and failed in modes.FAILOVER:
+                retry_later(link, failed, r.headers.get("retry-after"))
+                continue
+            _note_status(agent_id, r.status_code)
+            if r.status_code == 200:
+                try:
+                    await _record(agent_id, link["modele"], r.json().get("usage"), task, link["fournisseur"])
+                except ValueError:
+                    pass
+            return Response(r.content, status_code=r.status_code, media_type=r.headers.get("content-type"))
 
     client = upstream_client()
-    # Un flux compressé retarde le premier mot. Un fournisseur peut compresser quand même : aiter_bytes décompresse.
-    plain = {**headers, "Accept-Encoding": "identity"}
-    try:
-        upstream = await client.send(client.build_request("POST", url, headers=plain, json=body), stream=True)
-    except httpx.TransportError:
-        return _unreachable(agent_id)
-    _note_status(agent_id, upstream.status_code)
-    if upstream.status_code != 200:
-        content = await upstream.aread()
-        await upstream.aclose()
-        return Response(content, status_code=upstream.status_code, media_type=upstream.headers.get("content-type"))
-
-    async def passthrough():
-        usage = None
-        pending = b""
+    for i, link in enumerate(chain):
+        last = i == len(chain) - 1
+        to, sent = target(link)
+        # Un flux compressé retarde le premier mot. Un fournisseur peut compresser quand même : aiter_bytes décompresse.
+        plain = {**sent, "Accept-Encoding": "identity"}
+        # Tant qu'un suivant attend, un modèle muet ne le fait pas patienter dix minutes.
+        limits = {} if last else {"timeout": httpx.Timeout(600, connect=8, read=120)}
         try:
-            async for chunk in upstream.aiter_bytes():
-                yield chunk
-                pending += chunk
-                *lines, pending = pending.split(b"\n")
-                for line in lines:
-                    if line.startswith(b"data:") and b'"usage"' in line:
-                        try:
-                            usage = json.loads(line[5:].strip()).get("usage") or usage
-                        except ValueError:
-                            pass
-        finally:
+            tries = bodies(link)
+            upstream = await client.send(client.build_request("POST", to, headers=plain, json=tries[0], **limits), stream=True)
+            if upstream.status_code == 400 and len(tries) > 1:
+                await upstream.aclose()
+                upstream = await client.send(client.build_request("POST", to, headers=plain, json=tries[1], **limits), stream=True)
+        except httpx.TransportError:
+            if last:
+                return _unreachable(agent_id)
+            retry_later(link, 0)
+            continue
+        if upstream.status_code != 200:
+            content = await upstream.aread()
             await upstream.aclose()
-            await _record(agent_id, model, usage, task)
+            if not last and upstream.status_code in modes.FAILOVER:
+                retry_later(link, upstream.status_code, upstream.headers.get("retry-after"))
+                continue
+            _note_status(agent_id, upstream.status_code)
+            return Response(content, status_code=upstream.status_code, media_type=upstream.headers.get("content-type"))
 
-    return StreamingResponse(passthrough(), status_code=200, media_type=upstream.headers.get("content-type", "text/event-stream"))
+        # Basculer n'est possible qu'avant le premier octet transmis : on lit jusqu'à la première donnée, sans rien transmettre. Le
+        # dernier maillon n'a personne après lui : il part tout de suite, comme un modèle seul.
+        chunks = upstream.aiter_bytes()
+        head = b""
+        if not last:
+            try:
+                while not any(x.startswith(b"data:") for x in head.split(b"\n")):
+                    head += await chunks.__anext__()
+            except StopAsyncIteration:
+                pass
+            except httpx.HTTPError:
+                await upstream.aclose()
+                retry_later(link, 0)
+                continue
+            failed = _failed_body(head)
+            if failed in modes.FAILOVER:
+                await upstream.aclose()
+                retry_later(link, failed)
+                continue
+        _note_status(agent_id, 200)
+        return StreamingResponse(_passthrough(agent_id, upstream, chunks, head, link, task), status_code=200,
+                                 media_type=upstream.headers.get("content-type", "text/event-stream"))
+    return _unreachable(agent_id)  # chaîne vide : impossible, _chain_of rend toujours au moins le cerveau
+
+
+async def _passthrough(agent_id: str, upstream, chunks, head: bytes, link: dict, task: str | None):
+    usage = None
+    pending = b""
+
+    def read(chunk: bytes, pending: bytes, usage):
+        pending += chunk
+        *lines, pending = pending.split(b"\n")
+        for line in lines:
+            if line.startswith(b"data:") and b'"usage"' in line:
+                try:
+                    usage = json.loads(line[5:].strip()).get("usage") or usage
+                except ValueError:
+                    pass
+        return pending, usage
+
+    try:
+        if head:
+            yield head
+            pending, usage = read(head, pending, usage)
+        async for chunk in chunks:
+            yield chunk
+            pending, usage = read(chunk, pending, usage)
+    finally:
+        await upstream.aclose()
+        await _record(agent_id, link["modele"], usage, task, link["fournisseur"])

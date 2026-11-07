@@ -1,0 +1,34 @@
+name: Un problème
+description: Quelque chose ne marche pas, ou une consigne est fausse.
+body:
+  - type: textarea
+    id: quoi
+    attributes:
+      label: Ce qui s'est passé
+      description: Ce que tu as fait, ce que tu attendais, ce que tu as vu. Retire les adresses, les clés et les données personnelles.
+    validations:
+      required: true
+  - type: dropdown
+    id: ou
+    attributes:
+      label: Où
+      options:
+        - VPS, installé par la commande
+        - VPS, installé par Hostinger
+        - Ordinateur (install.sh)
+        - Application Windows
+        - Application Android
+        - Navigateur
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Réglages > Serveur > Mises à jour.
+  - type: textarea
+    id: journal
+    attributes:
+      label: Journal
+      description: La sortie de `docker logs noah-server --tail 50`, si tu y as accès. Relis-la avant de coller.
+      render: text

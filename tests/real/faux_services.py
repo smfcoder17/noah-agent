@@ -221,6 +221,12 @@ class Model(BaseHTTPRequestHandler):
             return self._forward(body, forward)
         messages = body.get("messages") or []
         system = " ".join(_text(m) for m in messages if m.get("role") == "system")
+        # Le juge des actions et le tri : ils ne comptent pas dans ce que ces essais mesurent, et un faux modèle laisse passer.
+        if "juge des actions d'un agent" in system or "Tu tries un contenu" in system:
+            content = json.dumps({"verdict": "passe", "motif": "demande"} if "juge des actions" in system else {"consignes": False})
+            return self._json({"id": "faux", "object": "chat.completion", "created": int(time.time()), "model": body.get("model"),
+                               "choices": [{"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "stop"}],
+                               "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15, "cost": 0}})
         arrived = time.time()
         with lock:
             cost = state["cout"]

@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 
 os.environ["NOAH_DATA_DIR"] = tempfile.mkdtemp()
 os.environ.setdefault("LAUNCHER_KEY", "x")
@@ -225,7 +226,15 @@ assert newest["etat"] == "refuse" and "première fois" in newest["titre"], newes
 main.task_state[conv] = "done"
 main.task_approval.pop(conv)
 main._runs.pop("run-x")
-print("3 septies. Activité : tâches et accords, sans les conversations privées ; le badge tombe dès la réponse")
+# Un aperçu, pas une archive : au-delà de la durée gardée, plus rien à l'écran ni dans la base, au prochain passage.
+with db.connect() as c:
+    c.execute("INSERT INTO journal (agent_id, conversation_id, kind, titre, resultat, etat, at) VALUES ('a1', ?, 'tache', 'Très ancien', '', 'fait', ?)",
+              (conv, time.time() - main.JOURNAL_SECONDS - 60))
+assert not any(e["titre"] == "Très ancien" for e in web.get("/api/agents/a1/activite").json()), "trop ancien : plus à l'écran"
+main._journal("a1", conv, "tache", "Récent", "", "fait")
+with db.connect() as c:
+    assert not c.execute("SELECT 1 FROM journal WHERE titre = 'Très ancien'").fetchone(), "trop ancien : retiré de la base"
+print("3 septies. Activité : tâches et accords, sans les conversations privées ; le badge tombe dès la réponse ; trois mois gardés")
 
 # Une erreur n'est pas masquée par une phrase de travail.
 script[:] = [delta("Je regarde."), TOOL, ("run.failed", {"error": "panne"})]
@@ -247,6 +256,9 @@ assert head.feed("Bonjour") == (None, "Bonjour") and head.feed(" toi") == (None,
 head = events.ReactionHead()
 assert head.feed("[[") == (None, "") and head.flush() == (None, "[["), "un flux coupé ne perd rien"
 assert events.ReactionHead().feed("[[👍]]") == ("👍", "")
+assert events.ReactionHead().feed("[[👂]] Compris.") == ("👂", "Compris."), "un emoji hors du sélecteur reste une réaction, jamais affiché"
+assert events.ReactionHead().feed("[[❤️]] Merci") == ("❤️", "Merci")
+assert events.ReactionHead().feed("[[12]] de texte") == (None, "[[12]] de texte"), "ce qui n'est pas un emoji reste du texte"
 print("5. réaction de l'agent : posée, jamais affichée")
 
 

@@ -4,9 +4,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { get, request, send } from "@/lib/api";
 import { appLabel } from "@/lib/appLabel";
 import { askAgent } from "@/lib/askAgent";
+import { type ListedModel, MODE_NAMES, type ModeId, scheduleLabel } from "@/lib/modes";
 import { SEEN, seenGeneration } from "@/lib/seen";
 import { type ComputerFolders, desktop } from "@/lib/desktop";
 import { cn, fileSize } from "@/lib/utils";
+import { ConnectorScope, PendingGlobal } from "./ConnectorScope";
+import { SavedLogins } from "./LoginCard";
+import { ModelSearch } from "./Modes";
 import { Button, ErrorText, Input, Textarea } from "./ui";
 
 /** Section repliable, avec un compteur à droite du titre. Seule dans son onglet (`alone`), elle n'a pas besoin de titre. */
@@ -101,6 +105,10 @@ type Routine = {
   last_run_at: string | null;
   last_status: string | null;
   last_error: string | null;
+  modele?: string | null;
+  fournisseur?: string | null;
+  outils?: string[] | null;
+  image?: string | null;
 };
 
 const PRESETS: [string, string][] = [
@@ -111,14 +119,105 @@ const PRESETS: [string, string][] = [
   ["every 1h", "Toutes les heures"],
 ];
 
-/** Horaire lisible : les formules prêtes en français, le reste tel quel. */
-const scheduleLabel = (s: string) => PRESETS.find(([v]) => v === s)?.[1] ?? s;
+type RoutineChoice = { modele: string | null; fournisseur?: string | null; outils: string[] | null; image: string | null };
+
+const ROUTINE_TOOLS: [string, string][] = [
+  ["internet", "Recherche sur internet"],
+  ["navigateur", "Navigateur"],
+  ["fichiers", "Fichiers"],
+  ["commandes", "Commandes et outils de Noah"],
+  ["memoire", "Mémoire"],
+  ["images_vues", "Lire des images"],
+  ["competences", "Compétences"],
+];
+const ROUTINE_MODES: ModeId[] = ["fast", "balanced", "smart", "gratuit", "custom"];
+
+/** Ce qu'une routine fixe pour elle seule. Tout vide : elle suit le réglage de l'agent. */
+function RoutineSettings({ value, onChange }: { value: RoutineChoice; onChange: (v: RoutineChoice) => void }) {
+  const [images, setImages] = useState<ListedModel[]>([]);
+  const [precise, setPrecise] = useState(false);
+  useEffect(() => {
+    get<{ modeles: ListedModel[] }>("/api/modes/image/modeles").then((r) => setImages(r.modeles)).catch(() => {}); // réservé au propriétaire : un invité n'a pas ce choix
+  }, []);
+  const isMode = !!value.modele && (ROUTINE_MODES as string[]).includes(value.modele);
+  const select = "h-9 min-w-0 flex-1 cursor-pointer rounded-lg border border-border bg-background px-2 text-sm text-foreground";
+  const tools = value.outils;
+  const toggle = (id: string) => {
+    const now = tools ?? ROUTINE_TOOLS.map(([t]) => t);
+    onChange({ ...value, outils: now.includes(id) ? now.filter((t) => t !== id) : [...now, id] });
+  };
+  return (
+    <div className="flex flex-col gap-2 rounded-lg bg-muted/50 p-2.5 text-xs">
+      <label className="flex flex-wrap items-center gap-2 text-muted-foreground">
+        Modèle
+        <select
+          aria-label="Modèle de la routine"
+          value={value.modele && !isMode ? "precis" : value.modele ?? ""}
+          onChange={(e) => {
+            if (e.target.value === "precis") return setPrecise(true);
+            setPrecise(false);
+            onChange({ ...value, modele: e.target.value || null, fournisseur: null });
+          }}
+          className={select}
+        >
+          <option value="">Comme l'agent</option>
+          {ROUTINE_MODES.map((m) => <option key={m} value={m}>{MODE_NAMES[m]}</option>)}
+          <option value="precis">{value.modele && !isMode ? value.modele : "Un modèle précis…"}</option>
+        </select>
+      </label>
+      {precise && <ModelSearch level="cerveau" selected={value.modele} onPick={(m) => { onChange({ ...value, modele: m.id, fournisseur: m.fournisseur }); setPrecise(false); }} />}
+      {images.length > 0 && (
+        <label className="flex flex-wrap items-center gap-2 text-muted-foreground">
+          Images
+          <select aria-label="Modèle d'image de la routine" value={value.image ?? ""} onChange={(e) => onChange({ ...value, image: e.target.value || null })} className={select}>
+            <option value="">Comme l'agent</option>
+            {images.map((m) => <option key={m.id} value={m.id}>{m.name}{m.prix ? ` · ${m.prix}` : ""}</option>)}
+          </select>
+        </label>
+      )}
+      <fieldset className="flex flex-col gap-1">
+        <legend className="text-muted-foreground">Outils permis</legend>
+        <label className="flex items-center gap-2"><input type="checkbox" checked={tools === null} onChange={() => onChange({ ...value, outils: tools === null ? ROUTINE_TOOLS.map(([t]) => t) : null })} />Tous ceux de l'agent</label>
+        {tools !== null && ROUTINE_TOOLS.map(([id, label]) => (
+          <label key={id} className="flex items-center gap-2 pl-5"><input type="checkbox" checked={tools.includes(id)} onChange={() => toggle(id)} />{label}</label>
+        ))}
+        {tools !== null && !tools.includes("commandes") && <p className="text-warn">Sans « Commandes et outils de Noah », la routine ne peut ni créer d'image ni te notifier elle-même.</p>}
+      </fieldset>
+    </div>
+  );
+}
+
+const choiceSummary = (r: Routine) => {
+  const parts = [
+    r.modele ? `Modèle : ${MODE_NAMES[r.modele as ModeId] ?? r.modele}` : "",
+    r.image ? `Images : ${r.image}` : "",
+    r.outils ? `${r.outils.length} outil${r.outils.length > 1 ? "s" : ""} permis` : "",
+  ].filter(Boolean);
+  return parts.join(" · ");
+};
 
 export function Routines({ agentId }: { agentId: string }) {
   const { data, error, setError, load } = useAgentData<{ routines: Routine[] }>(`/api/agents/${agentId}/routines`);
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [tuning, setTuning] = useState<{ id: string; value: RoutineChoice } | null>(null);
   const list = data?.routines ?? [];
+
+  const saveTuning = async () => {
+    if (!tuning) return;
+    setBusy(tuning.id + "regler");
+    setError("");
+    try {
+      const { modele, fournisseur, outils, image } = tuning.value;
+      await send(`/api/agents/${agentId}/routines/${tuning.id}/modifier`, { modele: modele ?? "", fournisseur, outils: outils ?? ["tous"], image: image ?? "" });
+      setTuning(null);
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const act = async (r: Routine, action: string) => {
     if (action === "supprimer" && !confirm(`Supprimer la routine « ${r.name || r.prompt.slice(0, 40)} » ?`)) return;
@@ -156,6 +255,7 @@ export function Routines({ agentId }: { agentId: string }) {
               </div>
             </div>
             {r.name && <p className="line-clamp-2 pl-4 text-xs text-muted-foreground">{r.prompt}</p>}
+            {choiceSummary(r) && <p className="pl-4 text-xs text-muted-foreground">{choiceSummary(r)}</p>}
             {r.last_error && <p className="pl-4 text-xs text-danger">Dernier passage en erreur : {r.last_error.slice(0, 160)}</p>}
             <div className="flex gap-1 pl-3">
               <Button size="sm" variant="ghost" onClick={() => act(r, paused ? "reprendre" : "pause")} disabled={!!busy}>
@@ -164,10 +264,22 @@ export function Routines({ agentId }: { agentId: string }) {
               <Button size="sm" variant="ghost" onClick={() => act(r, "lancer")} disabled={!!busy} title="Lancer au prochain passage du planificateur (moins d'une minute)">
                 {busy === r.id + "lancer" ? <Loader2 className="animate-spin" /> : <Zap />}Lancer
               </Button>
+              <Button size="sm" variant="ghost" aria-expanded={tuning?.id === r.id} disabled={!!busy}
+                onClick={() => setTuning(tuning?.id === r.id ? null : { id: r.id, value: { modele: r.modele ?? null, fournisseur: r.fournisseur ?? null, outils: r.outils ?? null, image: r.image ?? null } })}>
+                Réglages
+              </Button>
               <Button size="sm" variant="ghost" className="ml-auto text-muted-foreground" onClick={() => act(r, "supprimer")} disabled={!!busy} aria-label="Supprimer la routine">
                 <Trash2 />
               </Button>
             </div>
+            {tuning?.id === r.id && (
+              <div className="flex flex-col gap-2">
+                <RoutineSettings value={tuning.value} onChange={(value) => setTuning({ id: r.id, value })} />
+                <div className="flex justify-end">
+                  <Button size="sm" disabled={!!busy} onClick={saveTuning}>{busy === r.id + "regler" && <Loader2 className="animate-spin" />}Enregistrer</Button>
+                </div>
+              </div>
+            )}
           </div>
         );
       })}
@@ -188,12 +300,18 @@ function NewRoutine({ agentId, onDone }: { agentId: string; onDone: () => void }
   const [custom, setCustom] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [tune, setTune] = useState(false);
+  const [choice, setChoice] = useState<RoutineChoice>({ modele: null, fournisseur: null, outils: null, image: null });
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     setError("");
     try {
-      await send(`/api/agents/${agentId}/routines`, { nom: name, consigne: prompt, quand: preset === "custom" ? custom : preset });
+      const { modele, fournisseur, outils, image } = choice;
+      await send(`/api/agents/${agentId}/routines`, {
+        nom: name, consigne: prompt, quand: preset === "custom" ? custom : preset,
+        ...(modele ? { modele, fournisseur } : {}), ...(outils ? { outils } : {}), ...(image ? { image } : {}),
+      });
       onDone();
     } catch (err) {
       setError((err as Error).message);
@@ -226,6 +344,10 @@ function NewRoutine({ agentId, onDone }: { agentId: string; onDone: () => void }
           <Input value={custom} onChange={(e) => setCustom(e.target.value)} required className="h-9 flex-1" placeholder="every 30m, 0 7 * * 1-5…" aria-label="Horaire personnalisé" />
         )}
       </div>
+      <button type="button" className="cursor-pointer self-start text-xs text-muted-foreground underline" aria-expanded={tune} onClick={() => setTune(!tune)}>
+        Modèle et outils de cette routine
+      </button>
+      {tune && <RoutineSettings value={choice} onChange={setChoice} />}
       <ErrorText>{error}</ErrorText>
       <div className="flex justify-end gap-2">
         <Button type="button" variant="ghost" size="sm" onClick={onDone}>Annuler</Button>
@@ -382,12 +504,13 @@ function MemoryList({ title, entries, limit, empty, onSave }: { title: string; e
 
 type GoogleState = { disponible: boolean; connecte?: boolean };
 
-type Droit = "lire" | "agir" | "confirmer";
+export type Droit = "lire" | "agir" | "confirmer";
 type Etat = "ok" | "injoignable" | "a_connecter" | "jeton_refuse" | "refuse" | "";
 type App = { nom: string; description: string; source: string | null; oauth: boolean; hote: string | null; installe: boolean; connecte: boolean; droit?: Droit; etat?: Etat; erreur?: string };
 type FoundTool = { nom: string; description: string; lecture_seule: boolean };
 type CustomTool = { nom: string; url: string; compte?: string; auth: "aucune" | "jeton" | "oauth"; jeton: boolean; droit: Droit; etat: Etat; erreur: string; connecte: boolean; outils: FoundTool[] };
-type ConnectionsState = { google: GoogleState; applications: App[]; outils?: CustomTool[]; age?: number };
+type GlobalConnector = { nom: string; genre: string; connecte: boolean; origine: boolean };
+type ConnectionsState = { google: GoogleState; applications: App[]; outils?: CustomTool[]; globaux?: GlobalConnector[]; age?: number };
 
 
 const DROITS: [Droit, string][] = [
@@ -397,7 +520,7 @@ const DROITS: [Droit, string][] = [
 ];
 
 /** Le droit vaut pour tout le serveur : MCP ne donne pas de quoi régler chaque action autrement que par sa déclaration de lecture. */
-function RightSelect({ agentId, name, droit, onChange, onError }: { agentId: string; name: string; droit: Droit; onChange: () => void; onError: (e: string) => void }) {
+export function RightSelect({ agentId, name, droit, onChange, onError }: { agentId: string; name: string; droit: Droit; onChange: () => void; onError: (e: string) => void }) {
   const [busy, setBusy] = useState(false);
   const change = async (next: string) => {
     setBusy(true);
@@ -458,7 +581,7 @@ const hostOf = (url?: string | null) => {
 
 type Waiting = Record<string, "auto" | "coller">; // connexions dont l'accord est en cours : le fournisseur revient seul, ou la personne colle
 
-export function Connections({ agentId, shared = false }: { agentId: string; shared?: boolean }) {
+export function Connections({ agentId, shared = false, owner = false }: { agentId: string; shared?: boolean; /** Son propriétaire : lui seul décide « pour tous mes agents ». */ owner?: boolean }) {
   const { data, error, setError, load } = useAgentData<ConnectionsState>(`/api/agents/${agentId}/connections`);
   const [waiting, setWaiting] = useState<Waiting>({});
   const wait = (name: string, mode?: "auto" | "coller") => setWaiting((w) => {
@@ -496,13 +619,20 @@ export function Connections({ agentId, shared = false }: { agentId: string; shar
   const connected = apps.filter((a) => a.installe);
   const q = query.trim().toLowerCase();
   const others = apps.filter((a) => !a.installe && (!q || `${a.nom} ${a.description}`.toLowerCase().includes(q)));
+  const globals = data?.globaux ?? [];
+  const here = new Set([...connected.map((a) => a.nom), ...tools.map((t) => t.nom)]);
+  const pending = owner ? globals.filter((g) => !g.connecte && g.nom !== "google" && !here.has(g.nom)) : [];
+  const scope = (nom: string) => owner && <ConnectorScope key={`portee-${agentId}-${nom}`} agentId={agentId} nom={nom} global={globals.some((g) => g.nom === nom)} onChange={load} />;
   return (
     <Section title="Connexions" count={(google?.connecte ? 1 : 0) + connected.filter((a) => a.connecte).length + tools.filter((t) => t.connecte).length} alone>
       {!data && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture…</p>}
       {google?.disponible && data && <GoogleCard agentId={agentId} onError={setError} />}
-      {connected.map((a) => <AppRow key={a.nom} agentId={agentId} app={a} waiting={waiting[a.nom]} onWait={(m) => wait(a.nom, m)} onChange={load} onError={setError} />)}
-      {tools.map((t) => <ToolRow key={t.nom} agentId={agentId} tool={t} waiting={waiting[t.nom]} onWait={(m) => wait(t.nom, m)} onChange={load} onError={setError} />)}
+      {google?.connecte && scope("google")}
+      {connected.map((a) => <AppRow key={a.nom} agentId={agentId} app={a} waiting={waiting[a.nom]} onWait={(m) => wait(a.nom, m)} onChange={load} onError={setError} extra={a.connecte ? scope(a.nom) : null} />)}
+      {tools.map((t) => <ToolRow key={t.nom} agentId={agentId} tool={t} waiting={waiting[t.nom]} onWait={(m) => wait(t.nom, m)} onChange={load} onError={setError} extra={t.connecte ? scope(t.nom) : null} />)}
+      {pending.map((g) => <PendingGlobal key={g.nom} agentId={agentId} nom={g.nom} waiting={waiting[g.nom]} onWait={(m) => wait(g.nom, m)} onChange={load} onError={setError} />)}
       {data && <PublishCards agentId={agentId} shared={shared} tools={tools} onWait={wait} onChange={load} />}
+      <SavedLogins agentId={agentId} />
       {arriving && <p className="text-xs text-muted-foreground">« {arriving} » arrive chez l'agent en moins d'une minute.</p>}
       {data && (adding ? (
         <AddTool agentId={agentId} shared={shared} onClose={() => setAdding(false)}
@@ -602,7 +732,7 @@ function PublishCards({ agentId, shared, tools, onWait, onChange }: { agentId: s
   );
 }
 
-function AppRow({ agentId, app, waiting, onWait, onChange, onError }: { agentId: string; app: App; waiting?: "auto" | "coller"; onWait: (mode?: "auto" | "coller") => void; onChange: () => void; onError: (e: string) => void }) {
+function AppRow({ agentId, app, waiting, onWait, onChange, onError, extra }: { agentId: string; app: App; waiting?: "auto" | "coller"; onWait: (mode?: "auto" | "coller") => void; onChange: () => void; onError: (e: string) => void; extra?: React.ReactNode }) {
   const [busy, setBusy] = useState(false);
   const [back, setBack] = useState("");
   const base = `/api/agents/${agentId}/connections/apps/${app.nom}`;
@@ -666,6 +796,7 @@ function AppRow({ agentId, app, waiting, onWait, onChange, onError }: { agentId:
           <RightSelect agentId={agentId} name={app.nom} droit={app.droit ?? "confirmer"} onChange={onChange} onError={onError} />
         </div>
       )}
+      {extra}
       {waiting === "auto" && <LoginAuto onReopen={connect} busy={busy} />}
       {waiting === "coller" && <LoginBack label={appLabel(app.nom)} value={back} onValue={setBack} onReopen={connect} onFinish={finish} busy={busy} />}
     </div>
@@ -673,7 +804,7 @@ function AppRow({ agentId, app, waiting, onWait, onChange, onError }: { agentId:
 }
 
 /** Le fournisseur revient directement sur le serveur Noah : rien à faire ici, l'état se met à jour seul. */
-function LoginAuto({ onReopen, busy }: { onReopen: () => void; busy: boolean }) {
+export function LoginAuto({ onReopen, busy }: { onReopen: () => void; busy: boolean }) {
   return (
     <div className="flex items-center gap-2">
       <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
@@ -684,7 +815,7 @@ function LoginAuto({ onReopen, busy }: { onReopen: () => void; busy: boolean }) 
 }
 
 /** Retour du fournisseur OAuth : l'adresse de la page de retour, qu'Hermes attend sur un port de la machine de l'agent. */
-function LoginBack({ label, value, onValue, onReopen, onFinish, busy }: { label: string; value: string; onValue: (v: string) => void; onReopen: () => void; onFinish: () => void; busy: boolean }) {
+export function LoginBack({ label, value, onValue, onReopen, onFinish, busy }: { label: string; value: string; onValue: (v: string) => void; onReopen: () => void; onFinish: () => void; busy: boolean }) {
   return (
     <div className="flex flex-col gap-2">
       <p className="text-xs text-muted-foreground">
@@ -702,7 +833,7 @@ function LoginBack({ label, value, onValue, onReopen, onFinish, busy }: { label:
 const ETATS: Partial<Record<Etat, string>> = { injoignable: "En panne", refuse: "Adresse refusée", jeton_refuse: "Jeton refusé", a_connecter: "À connecter" };
 
 /** Un outil ajouté par adresse : son état, son droit, et ce qu'il offre. */
-function ToolRow({ agentId, tool, waiting, onWait, onChange, onError }: { agentId: string; tool: CustomTool; waiting?: "auto" | "coller"; onWait: (mode?: "auto" | "coller") => void; onChange: () => void; onError: (e: string) => void }) {
+function ToolRow({ agentId, tool, waiting, onWait, onChange, onError, extra }: { agentId: string; tool: CustomTool; waiting?: "auto" | "coller"; onWait: (mode?: "auto" | "coller") => void; onChange: () => void; onError: (e: string) => void; extra?: React.ReactNode }) {
   const [busy, setBusy] = useState(false);
   const [back, setBack] = useState("");
   const base = `/api/agents/${agentId}/connections/tools/${tool.nom}`;
@@ -757,6 +888,7 @@ function ToolRow({ agentId, tool, waiting, onWait, onChange, onError }: { agentI
         <RightSelect agentId={agentId} name={tool.nom} droit={tool.droit} onChange={onChange} onError={onError} />
         {tool.outils.length > 0 && <span title={tool.outils.map((o) => o.nom).join(", ")}>{tool.outils.length} outil{tool.outils.length > 1 ? "s" : ""}</span>}
       </div>
+      {extra}
       {tool.auth === "oauth" && !tool.connecte && !waiting && (
         <Button size="sm" className="self-start" onClick={connect} disabled={busy}>{busy && <Loader2 className="animate-spin" />}Terminer la connexion</Button>
       )}

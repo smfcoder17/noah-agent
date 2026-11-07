@@ -13,7 +13,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from . import access, auth, db, desktop, hermes, notifications, relay
+from . import access, auth, db, desktop, hermes, modes, notifications, relay
 from .config import LAUNCHER_URL
 from .hermes import LAUNCHER
 
@@ -85,28 +85,112 @@ async def memory_write(agent_id: str, body: MemoryWrite, user: int = Depends(aut
     return await admin(_check(agent_id, user), "memoire_ecrire", body.model_dump())
 
 
+# --- Compétences : ce que la personne a enseigné à son agent -----------------------------------------------------------------
+# Des skills d'Hermes, rangés dans `competences/` : l'agent les charge seul. Ceux qu'il apprend de lui-même restent internes : ni montrés, ni touchés ici.
+
+class Competence(BaseModel):
+    titre: str = Field(min_length=1, max_length=80)
+    texte: str = Field(min_length=1, max_length=20000)
+
+
+def _tell_taught(agent_id: str, name: str, titre: str) -> None:
+    """Hermes ne relit la liste de ses skills qu'à la session suivante : sans ce mot, il ignorerait jusque-là ce qu'on vient de lui enseigner."""
+    note = f"[L'utilisateur vient de t'enseigner comment faire : « {titre} ». Quand c'est le sujet, ouvre la compétence `{name}` et suis-la. Elle prime sur tes habitudes.]\n\n"
+    with db.connect() as c:
+        conversations = c.execute("SELECT id FROM conversations WHERE agent_id = ? AND main = 1", (agent_id,)).fetchall()
+    for row in conversations:
+        add_context(row["id"], note)
+
+
+@router.get("/api/agents/{agent_id}/competences")
+async def competences(agent_id: str, user: int = Depends(auth.current_user)):
+    return await admin(_check(agent_id, user), "competences")
+
+
+@router.post("/api/agents/{agent_id}/competences")
+async def competence_add(agent_id: str, body: Competence, user: int = Depends(auth.current_user)):
+    out = await admin(_check(agent_id, user), "competence_ajouter", {"titre": body.titre.strip(), "texte": body.texte.strip()})
+    _tell_taught(agent_id, out["nom"], out["titre"])
+    return out
+
+
+@router.put("/api/agents/{agent_id}/competences/{name}")
+async def competence_edit(agent_id: str, name: str, body: Competence, user: int = Depends(auth.current_user)):
+    out = await admin(_check(agent_id, user), "competence_modifier", {"nom": name, "titre": body.titre.strip(), "texte": body.texte.strip()})
+    _tell_taught(agent_id, out["nom"], out["titre"])
+    return out
+
+
+@router.delete("/api/agents/{agent_id}/competences/{name}")
+async def competence_remove(agent_id: str, name: str, user: int = Depends(auth.current_user)):
+    return await admin(_check(agent_id, user), "competence_retirer", {"nom": name})
+
+
 # --- Routines -------------------------------------------------------------------------------
 
-class NewRoutine(BaseModel):
+class RoutineChoices(BaseModel):
+    """Ce qu'une routine peut fixer pour elle seule. Absent : le réglage de l'agent. Vide (« », ou « tous » pour les outils) : y revenir."""
+    modele: str | None = Field(default=None, max_length=200)  # un modèle des clés de la personne, ou un mode (« gratuit »)
+    fournisseur: str | None = Field(default=None, max_length=40)
+    outils: list[str] | None = Field(default=None, max_length=len(modes.ROUTINE_TOOLS) + 1)
+    image: str | None = Field(default=None, max_length=200)
+
+
+class NewRoutine(RoutineChoices):
     nom: str = Field(default="", max_length=80)
     consigne: str = Field(min_length=1, max_length=5000)
     quand: str = Field(min_length=1, max_length=100)
     en_pause: bool = False
 
 
-class RoutineEdit(BaseModel):
+class RoutineEdit(RoutineChoices):
     nom: str | None = Field(default=None, max_length=80)
     consigne: str | None = Field(default=None, max_length=5000)
 
 
+async def _routine_settings(agent_id: str, body: RoutineChoices) -> dict:
+    """Le même contrôle pour l'écran et pour l'agent, avant que rien ne parte vers Hermes : modèle hors des clés, outil inconnu et
+    modèle d'image inconnu sont refusés ici."""
+    out: dict = {}
+    if body.modele is not None:
+        out["model"] = await modes.routine_alias(agent_id, body.modele, body.fournisseur) if body.modele else None
+    if body.outils is not None:
+        out["enabled_toolsets"] = None if "tous" in body.outils else modes.routine_toolsets(body.outils)
+    if body.image:
+        await modes.routine_image(body.image)
+    return out
+
+
+async def _create_routine(agent_id: str, body: NewRoutine) -> dict:
+    settings = await _routine_settings(agent_id, body)
+    payload = {"nom": body.nom, "quand": body.quand, "en_pause": body.en_pause, "consigne": modes.with_image_note(body.consigne, body.image), **settings}
+    return modes.shown_routine(agent_id, await admin(agent_id, "routine_creer", payload))
+
+
+async def _edit_routine(agent_id: str, routine_id: str, body: RoutineEdit) -> dict:
+    payload = {"id": routine_id, "action": "modifier", **({"nom": body.nom} if body.nom is not None else {}), **await _routine_settings(agent_id, body)}
+    if body.consigne is not None or body.image is not None:  # la note du modèle d'image fait partie de la consigne : on garde l'autre moitié
+        current = next((r for r in (await _shown_routines(agent_id))["routines"] if r["id"] == routine_id), None)
+        if not current:
+            raise HTTPException(404, "Routine introuvable")
+        payload["consigne"] = modes.with_image_note(body.consigne if body.consigne is not None else current["prompt"],
+                                                    body.image if body.image is not None else current["image"])
+    return modes.shown_routine(agent_id, await admin(agent_id, "routine_action", payload))
+
+
+async def _shown_routines(agent_id: str) -> dict:
+    found = await admin(agent_id, "routines")
+    return {**found, "routines": [modes.shown_routine(agent_id, r) for r in found.get("routines") or []]}
+
+
 @router.get("/api/agents/{agent_id}/routines")
 async def routines(agent_id: str, user: int = Depends(auth.current_user)):
-    return await admin(_check(agent_id, user), "routines")
+    return await _shown_routines(_check(agent_id, user))
 
 
 @router.post("/api/agents/{agent_id}/routines")
 async def routine_create(agent_id: str, body: NewRoutine, user: int = Depends(auth.current_user)):
-    return await admin(_check(agent_id, user), "routine_creer", body.model_dump())
+    return await _create_routine(_check(agent_id, user), body)
 
 
 @router.post("/api/agents/{agent_id}/routines/{routine_id}/{action}")
@@ -114,8 +198,9 @@ async def routine_action(agent_id: str, routine_id: str, action: str, body: Rout
                          user: int = Depends(auth.current_user)):
     if action not in ("pause", "reprendre", "lancer", "supprimer", "modifier"):
         raise HTTPException(400, "Action inconnue")
-    payload = {"id": routine_id, "action": action, **(body.model_dump(exclude_none=True) if body else {})}
-    return await admin(_check(agent_id, user), "routine_action", payload)
+    if action == "modifier":
+        return await _edit_routine(_check(agent_id, user), routine_id, body or RoutineEdit())
+    return modes.shown_routine(agent_id, await admin(_check(agent_id, user), "routine_action", {"id": routine_id, "action": action}))
 
 
 class AgentRoutineAction(BaseModel):
@@ -126,12 +211,18 @@ class AgentRoutineAction(BaseModel):
 @router.post("/agent-api/routines")
 async def agent_routine_create(body: NewRoutine, request: Request):
     """Le chemin de l'agent, le même que celui de l'écran : la livraison reste locale, le résultat revient toujours dans la conversation."""
-    return await admin(relay._agent_from(request), "routine_creer", body.model_dump())
+    return await _create_routine(relay._agent_from(request), body)
 
 
 @router.get("/agent-api/routines")
 async def agent_routines(request: Request):
-    return await admin(relay._agent_from(request), "routines")
+    return await _shown_routines(relay._agent_from(request))
+
+
+@router.post("/agent-api/routines/{routine_id}/regler")
+async def agent_routine_settings(routine_id: str, body: RoutineEdit, request: Request):
+    """La personne le demande à son agent, à l'écrit ou à la voix : mêmes contrôles qu'à l'écran."""
+    return await _edit_routine(relay._agent_from(request), routine_id, body)
 
 
 @router.post("/agent-api/routines/action")
@@ -218,7 +309,9 @@ async def _read_connections_once(agent_id: str, version: int) -> dict:
     google, apps = await asyncio.gather(admin(agent_id, "google"), admin(agent_id, "applications"))
     applications = apps.get("applications") or []
     state = await mcp.connections_state(agent_id, applications, apps.get("personnels") or {})
-    value = {"google": google, "applications": applications, **state}
+    from . import connecteurs
+
+    value = {"google": google, "applications": applications, **state, "globaux": connecteurs.for_agent(agent_id, google, apps)}
     if _connections_version.get(agent_id, 0) == version:  # sinon quelque chose a changé pendant la lecture : elle est déjà vieille
         _connections[agent_id] = (time.time(), value)
     return value
@@ -281,6 +374,9 @@ async def app_action(agent_id: str, name: str, action: str, request: Request, bo
     elif action == "remove":
         out = await admin(agent_id, "application_retirer", {"nom": name})
         mcp.forget(agent_id, name)
+        from . import connecteurs
+
+        await connecteurs.removed(agent_id, name)
     else:
         raise HTTPException(400, "Action inconnue")
     return out

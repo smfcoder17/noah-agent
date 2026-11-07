@@ -402,6 +402,18 @@ def test_rights() -> None:
     mcp.approval_seen(A, "q4", asked["message"])
     assert alice.post(f"/api/agents/{A}/runs/run-1/approval", json={"request_id": "q4", "generation": 1, "approve": True}).status_code >= 500
     assert not mcp._grants[(A, "libre")], "accord gardé alors qu'Hermes n'a pas la réponse"
+
+    # Déjà répondu, depuis un autre écran ou d'un double clic : pas d'erreur à l'écran, et aucun accord de plus.
+    async def already_answered(*a):
+        request = httpx.Request("POST", "http://agent/v1/runs/run-1/approval")
+        raise httpx.HTTPStatusError("409", request=request, response=httpx.Response(409, request=request))
+
+    hermes.answer_approval = already_answered
+    asked = plugin("libre", "creer_fiche")
+    mcp.approval_seen(A, "q5", asked["message"])
+    twice = alice.post(f"/api/agents/{A}/runs/run-1/approval", json={"request_id": "q5", "generation": 1, "approve": True})
+    assert twice.status_code == 200 and twice.json().get("deja") is True, twice.text
+    assert not mcp._grants[(A, "libre")], "second clic : aucun accord de plus"
     hermes.answer_approval = fake_answer
     # Un accord qui a expiré ne vaut plus.
     # Deux accords en attente de réponse : l'échec du premier ne retire pas le second.
@@ -738,6 +750,7 @@ asked = 'Outil « notion » : notion_create_pages\n{"pages": [{"parent": {"data_
 plain = plain_request(asked)
 assert plain["demande"] == "Ton agent veut créer « Mon post du jour » dans Notion.", plain
 assert plain["apercu"] == ["L'idée \"clé\""], plain
+assert "draft" not in plain_request('Outil « notion » : notion_create_pages\n{"creation_mode": "draft", "pages": [{"properties": {"title": "Essai"}, "content": "le texte"}]}')["apercu"], "un réglage technique n'est pas un aperçu"
 assert plain_request('Outil « google-drive » : outil_inconnu\n{}') == {"demande": "Ton agent veut utiliser Google Drive.", "apercu": []}
 assert "supprimer" in plain_request('Outil « notion » : create_and_delete_page\n{}')["demande"], "créer et supprimer : c'est une suppression"
 assert plain_request('Outil « fiches » : envoie_fiche\n{}')["demande"] == "Ton agent veut envoyer quelque chose avec Fiches."

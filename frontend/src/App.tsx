@@ -11,6 +11,7 @@ import { DeviceApproval, keepApprovalRequest } from "@/components/DeviceApproval
 import { NewDeviceAlert } from "@/components/NewDeviceAlert";
 import { HandoffBanner } from "@/components/Handoff";
 import { AgentFace, agentColor } from "@/components/Noah";
+import { AgentMenu } from "@/components/AgentOverview";
 import { Boundary } from "@/components/Boundary";
 import { Inbox } from "@/components/Inbox";
 import type { PanelTab } from "@/components/SidePanel";
@@ -32,6 +33,7 @@ import { cn } from "@/lib/utils";
 const AgentDialog = lazy(() => import("@/components/AgentDialog").then((m) => ({ default: m.AgentDialog })));
 const SidePanel = lazy(() => import("@/components/SidePanel").then((m) => ({ default: m.SidePanel })));
 const SettingsDialog = lazy(() => import("@/components/Settings").then((m) => ({ default: m.SettingsDialog })));
+const Goals = lazy(() => import("@/components/Goals").then((m) => ({ default: m.Goals })));
 
 type Screen = "loading" | "onboarding" | "login" | "password" | "app" | "error" | "pairing" | "linked" | "update";
 const WAITING = "noah:appairage";
@@ -297,6 +299,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const [settings, setSettings] = useState<SettingsTab | null>(null);
   const [details, setDetails] = useState(false);
   const [inbox, setInbox] = useState(false);
+  const [goals, setGoals] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [report, setReport] = useState<CallReport | null>(null); // rappel pris : lu dans le mode vocal de cet agent
   const reportRead = useCallback(() => setReport(null), []);
@@ -470,6 +473,10 @@ function Shell({ onLogout }: { onLogout: () => void }) {
             usage={usage}
             waiting={waiting}
             onInbox={() => setInbox(true)}
+            onGoals={() => {
+              setGoals(true);
+              setSidebarOpen(false);
+            }}
             owner={me?.role === "owner"}
             onClose={() => setSidebarOpen(false)}
             onSelectAgent={selectAgent}
@@ -504,6 +511,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
                     : agent.step || liveStatus || (agent.online ? "En ligne" : "Sa machine ne répond pas")}
               </p>
             </div>
+            {agent && !thread && <AgentMenu agent={agent} onOpen={setPanel} onEdit={() => setAgentDialog({ open: true, agent })} />}
             {agent && !agent.online && !agent.step && canAdmin(agent) && (
               <Button variant="outline" size="sm" className="shrink-0" onClick={() => send(`/api/agents/${agent.id}/repair`, {}).then(refreshAgents).catch(() => {})}>
                 Redémarrer
@@ -606,6 +614,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
               onTab={setPanel}
               onClose={() => setPanel(null)}
               onEditAgent={() => setAgentDialog({ open: true, agent })}
+              onGoals={() => setGoals(true)}
               refreshKey={refreshKey}
               threads={(conversations ?? []).filter((c) => !c.main)}
               main={main}
@@ -642,6 +651,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
           }}
         />}
         <Inbox open={inbox} agents={agents} onOpenChange={setInbox} onOpenConversation={openFromInbox} />
+        {goals && <Goals open={goals} agents={agents} agentId={agentId} onOpenChange={setGoals} />}
         {settings && <SettingsDialog
           open={!!settings}
           tab={settings ?? "brain"}

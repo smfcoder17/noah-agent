@@ -42,7 +42,7 @@ def _sources(agent_id: str, user: int, reason: str, memory: dict) -> str:
                             "WHERE (d.de = ? OR d.vers = ?) AND v.user_id = ? ORDER BY d.created_at DESC LIMIT 6",
                             (agent_id, agent_id, user)).fetchall()
         rows = c.execute("SELECT m.role, m.text, m.created_at FROM messages m JOIN conversations v ON v.id = m.conversation_id "
-                         "WHERE v.agent_id = ? AND v.user_id = ? ORDER BY m.id DESC LIMIT 40", (agent_id, user)).fetchall()
+                         "WHERE v.agent_id = ? AND v.user_id = ? AND m.role != 'trace' ORDER BY m.id DESC LIMIT 40", (agent_id, user)).fetchall()
     if running:
         parts.append("Demandes à d'autres agents :\n" + "\n".join(
             f"- {r['etat']} ({time.strftime('%H:%M', time.localtime(r['created_at']))}) : {r['consigne'][:300]}" for r in running))

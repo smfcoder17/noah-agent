@@ -43,50 +43,79 @@ export function ViewerProvider({ children }: { children: React.ReactNode }) {
 
 /** Image en PNG, seul format que tous les presse-papiers acceptent. */
 async function pngOf(src: string) {
-  const blob = await (await fetch(src, { credentials: "same-origin" })).blob();
+  const response = await fetch(src, { credentials: "same-origin" });
+  if (!response.ok) throw new Error("image indisponible");
+  const blob = await response.blob();
   return blob.type === "image/png"
     ? blob
     : new Promise<Blob>((resolve, reject) => {
           const img = new Image();
+          const url = URL.createObjectURL(blob);
           img.onload = () => {
             const c = document.createElement("canvas");
             c.width = img.naturalWidth;
             c.height = img.naturalHeight;
             c.getContext("2d")!.drawImage(img, 0, 0);
+            URL.revokeObjectURL(url);
             c.toBlob((b) => (b ? resolve(b) : reject(new Error("conversion"))), "image/png");
           };
-          img.onerror = reject;
-          img.src = URL.createObjectURL(blob);
+          img.onerror = () => {
+            URL.revokeObjectURL(url);
+            reject(new Error("image illisible"));
+          };
+          img.src = url;
         });
 }
 
 // L'écriture part tout de suite, dans le clic, avec une image promise : sinon Safari et Chrome
 // considèrent que le geste de l'utilisateur est perdu pendant le téléchargement.
-const copyImage = (src: string) => navigator.clipboard.write([new ClipboardItem({ "image/png": pngOf(src) })]);
+// Sans HTTPS, le navigateur n'offre pas de presse-papiers : `navigator.clipboard` n'existe pas.
+async function copyImage(src: string) {
+  if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") throw new Error("presse-papiers indisponible");
+  await navigator.clipboard.write([new ClipboardItem({ "image/png": pngOf(src) })]);
+}
+
+/** Copie une image dans le presse-papiers. `compact` : l'icône seule sur un écran étroit, le résultat restant toujours écrit. */
+export function CopyImageButton({ src, compact }: { src: string; compact?: boolean }) {
+  const [copied, setCopied] = useState<"ok" | "error" | null>(null);
+  const label = copied === "ok" ? "Copiée" : copied === "error" ? "Copie impossible ici" : compact ? "Copier" : "Copier l'image";
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      aria-label={label}
+      onClick={() => copyImage(src).then(() => setCopied("ok"), () => setCopied("error"))}
+    >
+      {copied === "ok" ? <Check /> : <Copy />}
+      <span className={compact && !copied ? "max-sm:hidden" : undefined}>{label}</span>
+    </Button>
+  );
+}
 
 function ImageView({ item }: { item: Extract<Viewable, { kind: "image" }> }) {
-  const [copied, setCopied] = useState<"ok" | "error" | null>(null);
+  const download = useDownload();
   const name = item.title || decodeURIComponent(item.src).split(/[/=]/).pop() || "image";
+  // L'app Android ne suit pas l'attribut download : une image de l'agent passe par le téléchargement de Noah.
+  const ownMedia = /\/media\?path=/.test(item.src);
   return (
     <DialogContent title={item.title || "Image"} className="max-w-6xl gap-3 p-4">
       <div className="grid min-h-0 flex-1 place-items-center overflow-auto rounded-xl bg-[repeating-conic-gradient(var(--muted)_0_25%,transparent_0_50%)] bg-[length:16px_16px]">
         <img src={item.src} alt={item.title || ""} className="max-h-[72dvh] w-auto max-w-full object-contain" />
       </div>
       <div className="flex flex-wrap justify-end gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() =>
-            copyImage(item.src)
-              .then(() => setCopied("ok"))
-              .catch(() => setCopied("error"))
-          }
-        >
-          {copied === "ok" ? <Check /> : <Copy />}
-          {copied === "ok" ? "Copiée" : copied === "error" ? "Copie impossible ici" : "Copier l'image"}
-        </Button>
+        <CopyImageButton src={item.src} />
         <Button variant="outline" size="sm" asChild>
-          <a href={item.src} download={name}><Download />Télécharger</a>
+          <a
+            href={item.src}
+            download={name}
+            onClick={(e) => {
+              if (!ownMedia) return;
+              e.preventDefault();
+              download(`${item.src}&download=1`, name);
+            }}
+          >
+            <Download />Télécharger
+          </a>
         </Button>
         {!inAndroidApp() && (
           <Button variant="ghost" size="sm" asChild>

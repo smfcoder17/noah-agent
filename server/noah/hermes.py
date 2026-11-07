@@ -1,4 +1,5 @@
 """Client des agents : le lanceur (cycle de vie, fichiers) et la gateway Hermes de chaque agent."""
+import asyncio
 import hashlib
 import hmac
 import json
@@ -303,12 +304,16 @@ async def configure(agent_id: str, model: dict, role: str | None = None, restart
     tz = client_zone() or (await browser_identity()).get("timezone")
     if tz:
         cfg["timezone"] = tz
-    _set_helpers(cfg, agent_id, model_id)
+    _set_helpers(cfg, agent_id, model_id, await cheap_brain(model_id))
+    # Hermes crée un agent neuf à chaque run : ce compteur repart de zéro à chaque tour et dit donc « un tour de tant d'étapes ». Une vraie tâche, faite une fois, doit s'apprendre.
+    cfg.setdefault("skills", {})["creation_nudge_interval"] = SKILL_REVIEW_AFTER
     # Garde de Noah (G7.6) : skills tiers seulement depuis les dépôts vérifiés, aucun script téléchargé exécuté d'un
     # trait, et jamais de commandes shell dans le texte d'un skill.
     plugins = cfg.setdefault("plugins", {})
     plugins["enabled"] = sorted(set(plugins.get("enabled") or []) | {"noah-garde"})
     plugins["hook_callback_timeout"] = 600  # réveiller le navigateur dépasse les 30 s d'Hermes, qui bloquerait l'outil
+    # La garde remplace browser_vault : celui d'Hermes pilote un Chromium à lui, pas Camofox (voir coffre.py). Le consentement qu'Hermes exige pour cela.
+    plugins.setdefault("entries", {}).setdefault("noah-garde", {})["allow_tool_override"] = True
     cfg.setdefault("skills", {})["inline_shell"] = False
     # Une routine n'a personne pour dire oui : un outil en « confirmer » y est refusé, jamais accepté tout seul (G13.2).
     cfg.setdefault("approvals", {})["cron_mode"] = "deny"
@@ -329,10 +334,30 @@ async def configure(agent_id: str, model: dict, role: str | None = None, restart
         await restart(agent_id)
 
 
-def _set_helpers(cfg: dict, agent_id: str, brain: str) -> None:
+SKILL_REVIEW_AFTER = 6  # étapes d'outils dans un même tour
+CHEAP_BRAIN = 1.0  # $ par million de jetons lus : en dessous, relire avec le cerveau coûte moins qu'une relecture ratée
+
+
+async def cheap_brain(model_id: str) -> bool:
+    """Le cerveau peut-il relire lui-même ? Un petit modèle rapide ne sait pas toujours appeler les outils : gpt-oss-120b chez Groq envoie category:null à skills_list, Groq
+    refuse l'appel et la relecture s'arrête sans rien retenir. Un service payé autrement qu'au jeton : oui. Prix inconnu ou panne du catalogue : non."""
+    from . import catalog, db, relay
+    if not model_id:
+        return False
+    provider = db.get_setting("provider")
+    if provider in (*relay.OWN_URL, "ollama-cloud"):
+        return True
+    try:
+        price = catalog.price_of(await asyncio.wait_for(catalog.mammouth_prices() if provider == "mammouth" else catalog.price_index(), 5), model_id)
+    except Exception:  # noqa: BLE001
+        return False
+    return bool(price) and price.get("price_in") is not None and price["price_in"] <= CHEAP_BRAIN
+
+
+def _set_helpers(cfg: dict, agent_id: str, brain: str, review_on_brain: bool = False) -> None:
     """Les petits travaux qu'Hermes fait seul passent par le modèle de décision, toujours à travers le relais (comptés, plafonnés) :
     la relecture de mémoire après un tour (sinon ~30 000 jetons du cerveau toutes les 10 passes) et le titre des conversations.
-    Le résumé d'une longue conversation reste au cerveau : il décide de ce que l'agent saura ensuite."""
+    Un cerveau peu cher relit lui-même, sur le cache de la conversation. Le résumé d'une longue conversation reste au cerveau : il décide de ce que l'agent saura ensuite."""
     from . import decision
     from .relay import RELAY_URL, token_for
 
@@ -344,6 +369,8 @@ def _set_helpers(cfg: dict, agent_id: str, brain: str) -> None:
             aux[task] = {"provider": "custom", "model": helper, "base_url": RELAY_URL, "api_key": token_for(agent_id)}
     if "background_review" in aux:
         aux["background_review"]["max_input_tokens"] = 30000  # une relecture ne doit jamais coûter plus que le tour qu'elle relit
+    if review_on_brain:
+        aux["background_review"] = {"max_input_tokens": CONTEXT_LIMIT + 30000}  # toute la conversation, lue en cache, et de quoi écrire
     cfg["auxiliary"] = aux
 
 
@@ -351,7 +378,7 @@ async def set_helpers(agent_id: str) -> None:
     """Hermes relit ces réglages à chaque relecture : un nouveau modèle de décision ne redémarre pas l'agent ni ne coupe un tour."""
     cfg = yaml.safe_load(await _read(agent_id, "config.yaml") or "{}") or {}
     brain = ((cfg.get("model") or {}).get("default") or "") if isinstance(cfg.get("model"), dict) else ""
-    _set_helpers(cfg, agent_id, brain)
+    _set_helpers(cfg, agent_id, brain, await cheap_brain(brain))
     await _launcher("PUT", f"/agents/{agent_id}/files", json={"files": {"config.yaml": yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True)}})
 
 
@@ -398,6 +425,9 @@ AIDE = """Utilisation : python3 /opt/data/noah.py <commande>
   routine "Nom" "horaire" --fichier consigne.txt   un travail à chaque passage, sans condition ; la consigne, complète et autonome, est dans ce fichier
                                horaire : "every day at 8am", "every monday 9am", "0 9 * * 1", "every 2h"
   routines                                      liste les routines ; routine-action <id> pause|reprendre|lancer|supprimer
+  routine-regler <id> [--modele <modèle ou mode>] [--outils internet,navigateur,fichiers,commandes,memoire,images_vues,competences] [--image <modèle>]
+                               pour cette routine seule ; mêmes options à la création avec « routine » ; « --modele auto » ou « --outils tous » y revient
+                               modes : fast (Rapide), balanced (Équilibré), smart (Le plus fort), gratuit, custom. Liste : reglages cerveau
   veilles                                       liste les veilles et les routines à condition
   veille-action <id> pause|reprendre|verifier|supprimer
   appeler "ce qu'il doit faire" [--quand-quitte accounts.google.com]
@@ -440,6 +470,24 @@ def call(method, path, body=None):
         return {"erreur": e.read().decode(errors="replace")[:500]}
     except OSError as e:
         return {"erreur": "Noah Agent injoignable : %s" % e}
+
+
+def routine_choices(words):
+    """Les réglages propres à une routine, retirés de sa consigne."""
+    rest, choices, i = [], {}, 0
+    while i < len(words):
+        name = words[i]
+        if name in ("--modele", "--outils", "--image") and i + 1 < len(words):
+            value = words[i + 1]
+            if name == "--outils":
+                choices["outils"] = [v.strip() for v in value.split(",") if v.strip()]
+            else:
+                choices[name[2:]] = "" if value == "auto" else value
+            i += 2
+        else:
+            rest.append(name)
+            i += 1
+    return rest, choices
 
 
 def routine_text(words):
@@ -735,9 +783,12 @@ elif a[:1] == ["veille"] and len(a) >= 3:
         rest = rest[:i] + rest[i + 2:]
     out = call("POST", "/veilles", {"nom": rest[0], "url": rest[1], "critere": " ".join(rest[2:]), "minutes": minutes})
 elif a[:1] == ["routine"] and len(a) >= 4:
-    out = routine_text(a[3:])
+    rest, choices = routine_choices(a[3:])
+    out = routine_text(rest)
     if "consigne" in out:
-        out = call("POST", "/routines", {"nom": a[1], "quand": a[2], "consigne": out["consigne"]})
+        out = call("POST", "/routines", {"nom": a[1], "quand": a[2], "consigne": out["consigne"], **choices})
+elif a[:1] == ["routine-regler"] and len(a) >= 4:
+    out = call("POST", "/routines/" + a[1] + "/regler", routine_choices(a[2:])[1])
 elif a[:1] == ["routines"]:
     out = call("GET", "/routines")
 elif a[:1] == ["routine-action"] and len(a) == 3:
@@ -753,6 +804,12 @@ elif a[:1] == ["routine-si"] and len(a) >= 5:
         out = call("POST", "/veilles", {"nom": rest[0], "url": rest[1], "critere": rest[2], "consigne": out["consigne"], "minutes": minutes})
 elif a[:1] == ["memoire-juger"] and len(a) == 2:  # la garde de l'agent, avant qu'une note n'entre en mémoire
     out = call("POST", "/memoire/juger", json.loads(a[1]))
+elif a[:1] == ["coffre"] and len(a) == 2:  # l'outil browser_vault de la garde : aucun secret ne passe par ici
+    out = call("POST", "/coffre", json.loads(a[1]))
+elif a[:1] == ["coffre-attendre"] and len(a) == 2:
+    out = call("GET", "/coffre/" + urllib.parse.quote(a[1], safe=""))
+elif a[:1] == ["coffre-annuler"] and len(a) == 2:
+    out = call("DELETE", "/coffre/" + urllib.parse.quote(a[1], safe=""))
 elif a[:1] == ["veilles"]:
     out = call("GET", "/veilles")
 elif a[:1] == ["veille-action"] and len(a) == 3:
@@ -810,6 +867,17 @@ async def start_run(agent: Agent, text: str, session_id: str) -> str:
     r = await http().post(f"{agent.url}/v1/runs", headers=agent.headers, json={"input": text, "session_id": session_id}, timeout=30)
     r.raise_for_status()
     return r.json()["run_id"]
+
+
+async def start_review_run(agent: Agent, text: str, session_id: str, model: str | None) -> str:
+    """Un tour caché qui relit (apprentissage.py). Hermes garde son fournisseur, le relais : seul le nom du modèle change."""
+    r = await http().post(f"{agent.url}/v1/runs", headers=agent.headers, json={"input": text, "session_id": session_id, **({"model": model} if model else {})}, timeout=30)
+    r.raise_for_status()
+    return r.json()["run_id"]
+
+
+async def drop_session(agent: Agent, session_id: str) -> None:
+    (await http().delete(f"{agent.url}/api/sessions/{session_id}", headers=agent.headers, timeout=30)).raise_for_status()
 
 
 LOST_TURN = "unknown_execution"  # refus d'Hermes : un redémarrage a coupé un tour, et la session attend qu'on en prenne acte

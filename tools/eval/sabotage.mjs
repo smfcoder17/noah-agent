@@ -29,7 +29,84 @@ const PLUGIN = "launcher/camofox-noah/index.js";
 const PROVIDER = PIP + "python /tests/providers/provider_test.py";
 const VIVANT = PIP + "python /tests/agents/chat_vivant_test.py";
 const PUBLICATION = PIP + "python /tests/tools/publication_test.py";
+const MODES = PIP + "python /tests/agents/modes_test.py";
+const PROACTIF = PIP + "python /tests/agents/proactif_test.py";
+const APPRENDRE = PIP + "python /tests/agents/apprendre_test.py";
+const COORDINATION = PIP + "python /tests/coordination/coordination_test.py";
+const COFFRE = PIP + "python /tests/tools/coffre_test.py";
+const CONNEXION_PAGE = "mkdir -p /data && node /tests/navigateur/connexion_test.mjs";
+const JUGE = PIP + "python /tests/tools/juge_test.py";
+const CONNECTEURS = PIP + "python /tests/tools/connecteurs_test.py";
+const RECU = PIP + "python /tests/agents/recu_test.py";
+const MEDIAS = "node /repo/tests/chat/medias_test.mjs";
 const SABOTAGES = [
+  ["Apprendre : une réaction se lit comme un accord", "noah/apprentissage.py", "Une réaction n'est pas un accord : n'agis pas pour autant.", "Elle est d'accord, continue.", APPRENDRE],
+  ["Apprendre : 👎 ne demande rien", "noah/apprentissage.py", 'if emoji == BAD and _is_owner(agent.id, user)', 'if False and _is_owner(agent.id, user)', APPRENDRE],
+  ["Apprendre : relectures sans limite, et plusieurs fois pour la même correction", "noah/apprentissage.py", "if key in seen or len(times) >= REVIEWS_PER_HOUR:", "if False:", APPRENDRE],
+  ["Apprendre : la relecture d'Hermes lit ce qui vient de dehors", "noah/agent_plugin/__init__.py", 'if isinstance(m, dict) and m.get("role") == "tool" and _is_untrusted(', 'if False and _is_untrusted(', APPRENDRE],
+  ["Apprendre : un autre agent ou un invité fait apprendre", "noah/apprentissage.py", 'if not succeeded or author != "user" or agent.profile or not _is_owner(agent.id, user) or not _written_by_her(conv_id, message_id):', "if not succeeded:", APPRENDRE],
+  ["Connecteur : un agent exclu le reçoit quand même", "noah/connecteurs.py", 'if agent_id in row["exclus"]:\n        return False\n', "", CONNECTEURS],
+  ["Connecteur : l'exclusion laisse l'accès", "noah/connecteurs.py", 'if (agent_id in row["exclus"] and agent_id in previous) or agent_id in row["poses"]:', "if False:", CONNECTEURS],
+  ["Connecteur : un partage admin l'hérite sans le dire", "noah/connecteurs.py", 'return agent_id == row["source"] or agent_id in row["partages_ok"] or not access.shared_admin(agent_id)', "return True", CONNECTEURS],
+  ["Connecteur : alice vise l'agent d'un autre compte", "noah/connecteurs.py", "if ticked - own:", "if False:", CONNECTEURS],
+  ["Connecteur : un invité admin décide pour le propriétaire", "noah/connecteurs.py", 'async def set_scope(agent_id: str, nom: str, body: Scope, user: int = Depends(auth.current_user)):\n    access.access(user, agent_id, "proprietaire")', 'async def set_scope(agent_id: str, nom: str, body: Scope, user: int = Depends(auth.current_user)):\n    access.access(user, agent_id, "admin")', CONNECTEURS],
+  ["Connecteur : le droit de l'origine se copie", "noah/connecteurs.py", "VALUES (?, ?, ?, ?, ?, 'confirmer', ?, 'ok', ?)", "VALUES (?, ?, ?, ?, ?, 'agir', ?, 'ok', ?)", CONNECTEURS],
+  ["Connecteur : un agent neuf ne reçoit rien", "noah/connecteurs.py", "await _install(row, agent_id)\n            except Exception as e:", "pass\n            except Exception as e:", CONNECTEURS],
+  ["Compétences : on touche un skill appris seul", "launcher/agent_admin.py", 'if not (folder / "SKILL.md").is_file():  # ni un skill que l\'agent a appris seul, ni un chemin ailleurs', 'if name == "appris-seul":\n        return _competences_dir().parent / "devops" / name\n    if not (folder / "SKILL.md").is_file():', CONNECTEURS],
+  ["Vidéo : un faux hôte passe pour YouTube", "frontend/src/lib/chatMedia.ts", 'if (host === "youtu.be" || YOUTUBE_HOSTS.has(host)) return fromYoutube(u, path);', 'if (host === "youtu.be" || host.includes("youtube")) return fromYoutube(u, path);', MEDIAS],
+  ["Vidéo : un identifiant douteux entre dans l'adresse du cadre", "frontend/src/lib/chatMedia.ts", "if (!id || !YOUTUBE_ID.test(id)) return null;", "if (!id) return null;", MEDIAS],
+  ["Vidéo : le serveur et l'interface ne s'accordent plus sur les hôtes", "frontend/src/lib/chatMedia.ts", '"www.tiktok.com", "www.instagram.com"];', '"www.tiktok.com", "www.instagram.com", "evil.example"];', MEDIAS],
+  ["Image : MEDIA et aperçu du même fichier montrés deux fois", "frontend/src/lib/chatMedia.ts", "const later = new Set([...shownByWidgets(text), ...shownByWidgets(after)]);", "const later = new Set<string>();", MEDIAS],
+  ["Image : une réponse coupée par un outil la montre dans chaque partie", "frontend/src/lib/chatMedia.ts", "for (const path of imagesMentioned(before)) if (!later.has(path)) shown.add(path);", "", MEDIAS],
+  ["Reçu : n'importe quel outil prouve un envoi", "noah/recu.py", 'proven = next((c for c in calls if c["famille"] in wanted and c["etat"] == OK), None)', 'proven = next((c for c in calls if c["etat"] == OK), None)', RECU],
+  ["Reçu : un outil en échec vaut preuve", "noah/recu.py", 'proven = next((c for c in calls if c["famille"] in wanted and c["etat"] == OK), None)', 'proven = next((c for c in calls if c["famille"] in wanted), None)', RECU],
+  ["Reçu : un clic du navigateur devient une accusation", "noah/recu.py", '        elif vague:\n', '        elif False:\n', RECU],
+  ["Reçu : une action cachée reste cachée", "noah/recu.py", 'if family in OUTWARD and call["etat"] == OK and family not in claimed', 'if False and family in OUTWARD and call["etat"] == OK and family not in claimed', RECU],
+  ["Reçu : l'Activité dit « Fait » quand même", "noah/main.py", '("a_verifier" if recu.needs_attention(receipt) else "fait") if succeeded', '"fait" if succeeded', RECU],
+  ["Reçu : un tour de lui-même perd sa réserve", "noah/proactif.py", 'coordination._actions_line([conv]) + recu.report_line(receipt))', 'coordination._actions_line([conv]))', RECU],
+  ["Reçu : « RIEN » cache une action", "noah/proactif.py", 'if not (receipt or {}).get("non_dit"):\n            return', 'if True:\n            return', RECU],
+  ["Juge : une panne laisse passer", "noah/juge.py", 'diagnostics.record("juge", f"sans réponse : {type(e).__name__}")\n        return "accord", "panne", "panne"', 'diagnostics.record("juge", f"sans réponse : {type(e).__name__}")\n        return "passe", "panne", "panne"', JUGE],
+  ["Juge : la routine attend un accord que personne ne donnera", "noah/juge.py", 'elif verdict == "accord" and turn.alone:', "elif False:", JUGE],
+  ["Juge : il lit la réponse de l'agent", "noah/juge.py", "WHERE conversation_id = ? AND role = 'user' ORDER BY id DESC LIMIT ?", "WHERE conversation_id = ? ORDER BY id DESC LIMIT ?", JUGE],
+  ["Juge : le relevé d'une veille lui arrive", "noah/juge.py", 'return re.sub(r"<releve>.*?</releve>", "[données de dehors retirées]", text, flags=re.S), data', "return text, data", JUGE],
+  ["Juge : un autre agent lit une conversation", "noah/juge.py", '"SELECT id, origin FROM conversations WHERE id = ? AND agent_id = ?", (named.group(1), agent_id)', '"SELECT id, origin FROM conversations WHERE id = ?", (named.group(1),)', JUGE],
+  ["Juge : « Me signaler » laisse agir", "noah/juge.py", 'if turn.mode == "signaler" and (body.outil not in', "if False and (body.outil not in", JUGE],
+  ["Juge : sh -c et l'encodage ne sont plus dépliés", "noah/agent_plugin/__init__.py", "for text in variants(command) if command else ():\n        reason = _refused_command(text)", "for text in [command] if command else ():\n        reason = _refused_command(text)", JUGE],
+  ["Tri : un motif fort demande l'avis du modèle", "noah/juge.py", 'flagged: bool | None = True if level == "fort" else None', "flagged: bool | None = None", JUGE],
+  ["Connexion : la page a changé de site, on écrit quand même", "noah/coffre.py", 'elif page.get("origine") != item["origine"]:', "elif False:", COFFRE],
+  ["Connexion : une personne invitée répond", "noah/coffre.py", '    if access.separated(user, agent_id):\n        raise HTTPException(403, "Une personne invitée', '    if False:\n        raise HTTPException(403, "Une personne invitée', COFFRE],
+  ["Connexion : un autre que l'auteur répond", "noah/coffre.py", 'if not item or item["agent"] != agent_id or item["user"] != user:', 'if not item or item["agent"] != agent_id:', COFFRE],
+  ["Connexion : deux réponses à la même demande", "noah/coffre.py", 'item["answered"] = True  # avant la première attente : un second envoi ne passe plus', "", COFFRE],
+  ["Connexion : une demande n'expire jamais", "noah/coffre.py", 'elif now > item["expires"]:', "elif False:", COFFRE],
+  ["Connexion : retenu en clair dans la base", "noah/coffre.py", 'sealed = db.seal(json.dumps({"identifiant": identifier, "mot_de_passe": password}))', 'sealed = json.dumps({"identifiant": identifier, "mot_de_passe": password})', COFFRE],
+  ["Connexion : le mot de passe revient à l'agent", "noah/coffre.py", 'result = _outcome(filled, item["origine"], saved=bool(keep), handle=handle)', 'result = {**_outcome(filled, item["origine"], saved=bool(keep), handle=handle), "mot_de_passe": password}', COFFRE],
+  ["Connexion : un identifiant retenu sert sur n'importe quel site", "noah/coffre.py", 'if page.get("origine") != row["origine"]:', "if False:", COFFRE],
+  ["Connexion : Hermes n'a pas le consentement de la garde", "noah/hermes.py", 'plugins.setdefault("entries", {}).setdefault("noah-garde", {})["allow_tool_override"] = True', "pass", COFFRE],
+  ["Connexion : la clé de l'agent remplit la page", PLUGIN, 'if (!serverKeyGiven(req)) return res.status(403).json({ error: "Forbidden" });', 'if (!agentKeyGiven(req)) return res.status(403).json({ error: "Forbidden" });', CONNEXION_PAGE],
+  ["Connexion : le script qui écrit ne revérifie pas l'origine", PLUGIN, 'if (location.origin !== origine) return { refus: "origine" };', "", CONNEXION_PAGE],
+  ["Connexion : le mot de passe reste dans le champ", PLUGIN, 'for (const frame of await stillThere()) await frame.evaluate(loginForm, { origine, action: "vider" }).catch(() => {});', "", CONNEXION_PAGE],
+  ["Connexion : l'agent lit l'onglet pendant le remplissage", PLUGIN, "if (filling && TAB_READS.test(req.path)) {", "if (false) {", CONNEXION_PAGE],
+  ["Connexion : un script de l'agent survit au remplissage", PLUGIN, "const reload = scripted.delete(tab.id);", "const reload = false;", CONNEXION_PAGE],
+  ["Trace : la demande entre dans le contexte de l'agent", "noah/coordination.py", '_h["save"](_report_conversation(agent_id, user), TRACE, *_trace_row(fil, lead, _trace_text(asked), "en_cours"))', '_h["save"](_report_conversation(agent_id, user), TRACE, *_trace_row(fil, lead, _trace_text(asked), "en_cours")); machine.add_context(_report_conversation(agent_id, user), asked)', COORDINATION],
+  ["Trace : un autre profil la lit dans une conversation partagée", "noah/main.py", 'if conv["user_id"] != user:  # conversation rendue visible', 'if False:  # conversation rendue visible', COORDINATION],
+  ["Trace : l'issue n'est jamais écrite", "noah/coordination.py", '    close_trace(d["conversation_id"], "fini" if ok else "echec", last["text"] if last else "le travail s\'est arrêté sans réponse")\n    if not requester_exists:', '    if not requester_exists:', COORDINATION],
+  ["Travaux en cours : un fil fini y reste", "noah/main.py", 'running = state in ("work", "approve") or (state == "choice" and r["id"] not in answered)', 'running = True', COORDINATION],
+  ["Travaux en cours : un accord attendu passe pour fini", "noah/main.py", 'running = state in ("work", "approve") or (state == "choice" and r["id"] not in answered)', 'running = state == "work" or (state == "choice" and r["id"] not in answered)', COORDINATION],
+  ["De lui-même : tout passe au tri, même sans rien de neuf", "noah/proactif.py", 'fresh += [{**it, "source": label} for it in items if it["cle"] not in have]', 'fresh += [{**it, "source": label} for it in items]', PROACTIF],
+  ["De lui-même : coupé, il relève quand même", "noah/proactif.py", '    if mode(agent_id) == COUPE:\n        return {"etat": COUPE}\n    held = _held(agent_id)', '    held = _held(agent_id)', PROACTIF],
+  ["De lui-même : il passe par-dessus une tâche de la personne", "noah/proactif.py", '    if relay.active.get(agent_id):\n        return "une tâche tourne"\n', '', PROACTIF],
+  ["De lui-même : il tourne après le budget", "noah/proactif.py", '    refused = relay.spending_refusal(agent_id)\n    if refused:  # avant de relever', '    refused = None\n    if refused:  # avant de relever', PROACTIF],
+  ["De lui-même : un invité le déclenche", "noah/proactif.py", 'async def pass_now(agent_id: str, user: int = Depends(auth.current_user)):\n    access.access(user, agent_id, "proprietaire")', 'async def pass_now(agent_id: str, user: int = Depends(auth.current_user)):\n    access.access(user, agent_id, "usage")', PROACTIF],
+  ["De lui-même : « Me signaler » ne l'interdit pas dans la consigne", "noah/proactif.py", 'rule=RULES[current], resume=', 'rule=RULES[AGIR], resume=', PROACTIF],
+  ["Objectifs : les objectifs partent chez un invité", "noah/proactif.py", 'if user is None or user != access.owner_of(agent_id):', 'if user is None:', PROACTIF],
+  ["Objectifs : un autre compte en change un", "noah/proactif.py", '"SELECT * FROM goals WHERE id = ? AND user_id = ?", (goal_id, user)', '"SELECT * FROM goals WHERE id = ? AND ? = ?", (goal_id, user, user)', PROACTIF],
+  ["Modes : un flux commencé bascule quand même", "noah/relay.py", 'failed = _failed_body(head)\n            if failed in modes.FAILOVER:', 'failed = 429\n            if failed in modes.FAILOVER:', MODES],
+  ["Modes : un 429 ne passe pas au suivant", "noah/modes.py", 'FAILOVER = {402, 404, 408, 409, 425, 429, 500, 502, 503, 504, 524, 529}', 'FAILOVER = {402, 404, 408, 409, 425, 500, 502, 503, 504, 524, 529}', MODES],
+  ["Modes : l'épuisé reste écarté pour toujours", "noah/modes.py", '(ready if _cooling.get((link.get("fournisseur", ""), link["modele"]), 0) <= now else tired).append(link)', '(ready if (link.get("fournisseur", ""), link["modele"]) not in _cooling else tired).append(link)', MODES],
+  ["Modes : un invité change les modes", "noah/modes.py", 'async def change_modes(level: str, body: ModeChange, _: int = Depends(access.owner_only)):', 'async def change_modes(level: str, body: ModeChange, _: int = Depends(auth.current_user)):', MODES],
+  ["Routine : un modèle hors des clés passe", "noah/modes.py", '    if not found:\n        raise HTTPException(400, f"Modèle inconnu avec tes clés : {model_id}")\n    return _link(found["id"], found["fournisseur"])', '    return _link(model_id, provider)', MODES],
+  ["Routine : le relais suit un nom écrit par l'agent", "noah/relay.py", 'pinned = await modes.routine_links(agent_id, asked)', 'pinned = await modes.routine_links(agent_id, asked) or [{"modele": asked, "fournisseur": db.get_setting("provider")}]', MODES],
+  ["Décision : la clé TypeSafe repart vers l'écran", "noah/decision.py", '"cles": {service: service in keys for service in TYPED_URLS},', '"cles": {service: keys.get(service) or False for service in TYPED_URLS},', MODES],
   ["Images : le plafond d'un post ne bloque rien", "noah/media.py", 'if not beyond_budget and _image_budget_left(agent_id) <= 0:', 'if False:', PIP + "python /tests/agents/reglages_test.py"],
   ["Chat : la réaction part sur la question posée pendant le travail", "noah/main.py", "_agent_reacts(answered, emoji)", "_agent_reacts(_last_user_message(conv_id), emoji)", VIVANT],
   ["Chat : l'écran ne reçoit pas le texte gardé", "noah/main.py", 'settled, left = _final_answer(reply, steps, kept, out.get("output") or "", True)', 'settled, left = "", []', VIVANT],
@@ -44,10 +121,16 @@ const SABOTAGES = [
   ["Publication : le même contenu est refusé sur un autre compte", "noah/publication.py", 'h = hashlib.sha256(f"{platform}\\0{account}\\0{text}".encode())', 'h = hashlib.sha256(f"{platform}\\0{text}".encode())', PUBLICATION],
   ["Publication : une panne au moment de publier passe pour un refus", "noah/publication.py", 'raise Uncertain(f"Instagram a répondu par une panne ({r.status_code}) pendant la publication.")', 'pass', PUBLICATION],
   ["Publication : connexion X après l'échange sans le droit", "noah/mcp.py", 'access.access(user, agent_id, "admin")  # et pendant l\'échange avec X', 'pass  # et pendant l\'échange avec X', PUBLICATION],
+  ["Garde : jetons des connexions lisibles", "noah/agent_plugin/__init__.py", 'if MCP_TOKENS in command or any(MCP_TOKENS in p for p in paths):', 'if False:', GUARD],
+  ["Garde : jeton neuf sans relecture des outils", "noah/agent_plugin/__init__.py", 'with suppress_interactive_oauth():\n                reconcile_mcp_servers_with_config()', 'with suppress_interactive_oauth():\n                pass', GUARD],
+  ["Réaction : emoji hors du sélecteur affiché dans le texte", "noah/events.py", 'if found and _is_emoji(found.group(1)) else', 'if found and found.group(1) in REACTIONS else', VIVANT],
+  ["Accord : second clic en erreur", "noah/main.py", 'if e.response.status_code != 409:', 'if True:', MCP],
+  ["Carte d'accord : réglage technique dans l'aperçu", "noah/mcp.py", '"_urls", "_mode"))', '"_urls"))', MCP],
+  ["Activité : journal gardé sans limite de durée", "noah/main.py", 'AND j.at >= ? ORDER BY', 'AND j.at >= ? - 99999999 ORDER BY', VIVANT],
   ["Publication : X cite une image encore en traitement", "noah/publication.py", 'await _x_media_ready(c, media, _x_answer(await c.post(f"{X_API}/media/upload/{media}/finalize", headers=headers)), headers)', '_x_answer(await c.post(f"{X_API}/media/upload/{media}/finalize", headers=headers))', PUBLICATION],
   ["Publication : X publie sur un compte remplacé", "noah/publication.py", 'if stored.get("id") != creds.get("id"):\n                raise TokenRefused()\n            creds.update(stored)\n        if time.time() < creds.get("expire"', 'if False:\n                raise TokenRefused()\n            creds.update(stored)\n        if time.time() < creds.get("expire"', PUBLICATION],
   ["Images : deux générations ensemble dépassent le plafond", "noah/media.py", 'async with _image_locks.setdefault(agent_id, asyncio.Lock()):', 'if True:', PIP + "python /tests/agents/reglages_test.py"],
-  ["Journal : l'activité montre une conversation privée", "noah/main.py", 'WHERE j.agent_id = ? AND (v.user_id = ? OR v.shared) ORDER', 'WHERE j.agent_id = ? AND (? OR 1) ORDER', VIVANT],
+  ["Journal : l'activité montre une conversation privée", "noah/main.py", 'WHERE j.agent_id = ? AND (v.user_id = ? OR v.shared) AND j.at', 'WHERE j.agent_id = ? AND (? OR 1) AND j.at', VIVANT],
   ["Publication : Instagram se branche après le retrait du droit", "noah/mcp.py", 'access.access(user, agent_id, "admin")  # le droit a pu être retiré pendant la vérification', 'pass  # le droit a pu être retiré pendant la vérification', PUBLICATION],
   ["Publication : supprimer un agent efface le registre", "noah/db.py", 'publications (id INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL, ', 'publications (id INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, ', PUBLICATION],
   ["Publication : le registre grossit sans fin", "noah/publication.py", 'c.execute("DELETE FROM publications WHERE at <= ?", (now - ALREADY_SECONDS,))', 'pass', PUBLICATION],
@@ -92,9 +175,9 @@ const SABOTAGES = [
   ["Routine : le fichier de la consigne est ignoré", "noah/hermes.py", 'if words[:1] != ["--fichier"]:', "if True:", ENVOI_OUTIL],
   ["Routine : n'importe quel fichier part en consigne", "noah/hermes.py", "if not real.startswith(root + os.sep):  # un texte lu en ligne", "if False:  # un texte lu en ligne", ENVOI_OUTIL],
   ["Accord : le texte technique sert de demande", "noah/mcp.py", 'return {"demande": f"Ton agent veut {wish}.", "apercu": preview}', 'return {"demande": summary, "apercu": preview}', MCP],
-  ["Accord : l'aperçu montre les identifiants", "noah/mcp.py", 'hidden, key = key in _HIDDEN or key.endswith(("_id", "_ids", "_url", "_urls")), ""', "hidden, key = False, key", MCP],
+  ["Accord : l'aperçu montre les identifiants", "noah/mcp.py", 'hidden, key = key in _HIDDEN or key.endswith(("_id", "_ids", "_url", "_urls", "_mode")), ""', "hidden, key = False, key", MCP],
   ["Accord : une liste d'identifiants prend la place du contenu", "noah/mcp.py", 'inside = max(between.count("[") - between.count("]"), 0)', "inside = 0", MCP],
-  ["Accord : une clé masquée cache la valeur suivante", "noah/mcp.py", 'key.endswith(("_id", "_ids", "_url", "_urls")), ""', 'key.endswith(("_id", "_ids", "_url", "_urls")), key', MCP],
+  ["Accord : une clé masquée cache la valeur suivante", "noah/mcp.py", 'key.endswith(("_id", "_ids", "_url", "_urls", "_mode")), ""', 'key.endswith(("_id", "_ids", "_url", "_urls", "_mode")), key', MCP],
   ["Accord : l'aperçu montre le technique", "noah/mcp.py", "and not _TECHNICAL.match(text) ", "", MCP],
   ["Accord : la description d'Hermes s'affiche", "noah/mcp.py", 'if command else "Ton agent te demande de valider une action."', "if command else summary", MCP],
   ["Accord : une suppression passe pour une lecture", "noah/mcp.py", "for action, verbs, sentence in _ACTIONS:", "for action, verbs, sentence in reversed(_ACTIONS):", MCP],
@@ -192,6 +275,23 @@ const SABOTAGES = [
   ["Outil : ajout sans contrôle d'accès", "noah/mcp.py", 'access.access(user, agent_id, "admin")\n    _scope(agent_id)\n    machine.forget_connections(agent_id)\n    token = _clean_token(body)', "_scope(agent_id)\n    token = _clean_token(body)", MCP],
 ];
 
+// L'interface se sabote sur une copie de son module pur, avec le CSP du serveur que le test compare.
+function runFront([sabotage, path, old, replacement, cmd]) {
+  const tmp = mkdtempSync(join(tmpdir(), "noah-sabotage-"));
+  try {
+    for (const part of [path, "server/noah/exposition.py", "tests/chat"]) cpSync(join(ROOT, part), join(tmp, part), { recursive: true });
+    const target = join(tmp, path);
+    const source = readFileSync(target, "utf8");
+    if (old && source.split(old).length !== 2) return { sabotage, resultat: "cible introuvable" };
+    if (old) writeFileSync(target, source.replace(old, () => replacement));
+    const r = spawnSync("docker", ["run", "--rm", "-v", `${tmp}:/repo:ro`, "node:22-alpine", "sh", "-c", cmd], { timeout: 120000 });
+    const seen = r.status && String(r.stderr).includes("AssertionError");
+    return { sabotage, resultat: seen ? "vu" : r.status ? "panne" : "NON VU" };
+  } finally {
+    rmSync(tmp, { recursive: true, force: true, maxRetries: 2 });
+  }
+}
+
 function runDesktop([sabotage, path, old, replacement, cmd]) {
   const tmp = mkdtempSync(join(tmpdir(), "noah-sabotage-"));
   try {
@@ -228,6 +328,7 @@ function runPlugin([sabotage, path, old, replacement, cmd]) {
 
 function run(item) {
   if (item[1].startsWith("desktop/")) return runDesktop(item);
+  if (item[1].startsWith("frontend/")) return runFront(item);
   if (item[1].startsWith("launcher/") && !item[1].endsWith(".py")) return runPlugin(item);
   const [sabotage, path, old, replacement, cmd] = item;
   const tmp = mkdtempSync(join(tmpdir(), "noah-sabotage-"));
@@ -254,7 +355,7 @@ function run(item) {
 
 // Témoin : la même chaîne sans défaut doit rester verte, sinon un « vu » ne prouve rien.
 const CHOISIS = SABOTAGES.filter((s) => !process.env.NOAH_SABOTAGE || new RegExp(process.env.NOAH_SABOTAGE, "i").test(s[0]));
-const TEMOINS = [...new Set(CHOISIS.map((s) => s[4]))].map((cmd) => run(["témoin", cmd === DOSSIERS ? "desktop/dossiers.js" : cmd === ENVOI ? PLUGIN : "noah/auth.py", "", "", cmd]));
+const TEMOINS = [...new Set(CHOISIS.map((s) => s[4]))].map((cmd) => run(["témoin", cmd === DOSSIERS ? "desktop/dossiers.js" : cmd === MEDIAS ? "frontend/src/lib/chatMedia.ts" : cmd === ENVOI || cmd === CONNEXION_PAGE ? PLUGIN : "noah/auth.py", "", "", cmd]));
 if (TEMOINS.some((t) => t.resultat !== "NON VU")) {
   console.error("Un témoin échoue sans sabotage : les résultats ne valent rien.");
   process.exit(2);
