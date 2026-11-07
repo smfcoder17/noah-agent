@@ -153,7 +153,7 @@ coffre.task_state = task_state
 apprentissage.setup(task_state=task_state, save=lambda conv, role, text: _save_message(conv, role, text))
 
 # Version du branchement des agents ; l'augmenter reconfigure tous les agents au démarrage.
-AGENT_SETUP_VERSION = "40-juge-coffre-apprentissage"  # 40 : juge, coffre, apprentissage, reçu, connecteurs ; 37 : plus de récit dans la réponse, réponses à toucher, réactions, publier partout, un fichier à la fois ; le réveil du navigateur ne bloque plus l'outil, l'heure de l'agent est celle de la personne ; 34 : joindre un fichier à une page, publier ce qui est prévu ; 33 : va au bout, cookies, tâche unique, plus de connexions par un tiers ; 31 : l'agent lit et change ses réglages non sensibles à condition, mémoire jugée, l'agent n'appelle plus de lui-même ; 29 : message sans rapport et contexte borné ; 28 : garde des profils de partage (G12.5) ; 27 : navigateur ; 26 : navigateur au premier usage
+AGENT_SETUP_VERSION = "41-juge-dialogue"  # 41 : le juge demande pourquoi à l'agent avant de déranger la personne ; 40 : juge, coffre, apprentissage, reçu, connecteurs ; 37 : plus de récit dans la réponse, réponses à toucher, réactions, publier partout, un fichier à la fois ; le réveil du navigateur ne bloque plus l'outil, l'heure de l'agent est celle de la personne ; 34 : joindre un fichier à une page, publier ce qui est prévu ; 33 : va au bout, cookies, tâche unique, plus de connexions par un tiers ; 31 : l'agent lit et change ses réglages non sensibles à condition, mémoire jugée, l'agent n'appelle plus de lui-même ; 29 : message sans rapport et contexte borné ; 28 : garde des profils de partage (G12.5) ; 27 : navigateur ; 26 : navigateur au premier usage
 
 
 @app.on_event("startup")
@@ -1667,6 +1667,7 @@ def _usable(user: int, agent_id: str, droit: str = "usage") -> Agent:
 CAPABILITIES = """\
 ## Ta machine
 Tu as ton propre ordinateur Linux (Debian), allumé en permanence, avec Internet, un terminal, Python 3, Node.js/npm, git, curl et ffmpeg.
+Avant une commande dont le lien avec la demande ne saute pas aux yeux (un script, un `python3 -c`, l'outil d'une compétence), écris en première ligne `# pourquoi : ` et une phrase : la vérification de Noah la lit, et la personne n'est pas dérangée pour ce qui sert son travail.
 Pour un logiciel système qui manque : `python3 /opt/data/noah.py installer paquet1 paquet2` (paquets Debian, gardés si ta machine est recréée).
 Pour Python : `pip install --user`, pour Node : `npm install` dans le dossier du projet. L'utilisateur voit le disque et les logiciels dans Détails.
 
@@ -2858,7 +2859,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
                 if out["type"] == "activity":
                     task_activity[conv_id] = out["label"]
                 if out["type"] == "approval":
-                    task_approval[conv_id] = {"summary": out.get("summary"), "demande": out.get("demande"), "apercu": out.get("apercu"), "request_id": out.get("request_id"), "generation": out.get("generation"), "run_id": run_id}
+                    task_approval[conv_id] = {"summary": out.get("summary"), "demande": out.get("demande"), "pourquoi": out.get("pourquoi"), "action": out.get("action"), "retenu": out.get("retenu"), "apercu": out.get("apercu"), "request_id": out.get("request_id"), "generation": out.get("generation"), "run_id": run_id}
                 else:
                     task_approval.pop(conv_id, None)
                 if out["type"] == "message":
@@ -3082,7 +3083,10 @@ async def approval(agent_id: str, run_id: str, body: ApprovalAnswer, user: int =
             task_state[conv] = "work"
     if asked.get("request_id", body.request_id) != body.request_id:
         asked = {}
-    _journal(agent_id, conv, "accord", str(asked.get("demande") or "Une action sensible"), "", "autorise" if body.approve else "refuse")
+    _journal(agent_id, conv, "accord", str(asked.get("action") or asked.get("demande") or "Une action sensible"), "", "autorise" if body.approve else "refuse")
+    if body.approve and asked.get("retenu"):
+        with contextlib.suppress(Exception):
+            juge.remember_from_summary(agent_id, str(asked.get("summary") or ""))
     if not body.approve:
         with contextlib.suppress(Exception):
             apprentissage.on_refusal(agent, conv, user, str(asked.get("demande") or asked.get("summary") or ""), _last_user_message(conv) if conv else None)

@@ -156,14 +156,15 @@ function Approval({ args, result, addResult }: ToolCallMessagePartProps) {
     return (
       <p className="my-1 flex items-center gap-1.5 text-[13px] text-muted-foreground">
         {result === "approved" ? <Check className="size-3.5 text-ok" /> : <X className="size-3.5" />}
-        <span className="min-w-0 truncate">{result === "approved" ? "Autorisé" : "Refusé"} · {String(args.demande || "cette action").replace(/^Ton agent veut /, "")}</span>
+        <span className="min-w-0 truncate">{result === "approved" ? "Autorisé" : "Refusé"} · {String(args.action || args.demande || "cette action").replace(/^Ton agent veut /, "")}</span>
       </p>
     );
   }
   return (
     <div className="my-2 flex flex-col gap-3 rounded-xl border border-warn bg-warn-soft p-3.5">
       <span className="text-xs font-semibold uppercase tracking-wide text-warn">À valider</span>
-      <p className="text-sm">{String(args.demande || "Ton agent te demande de valider une action.")}</p>
+      <p className="text-sm font-medium">{String(args.demande || "Ton agent te demande de valider une action.")}</p>
+      {typeof args.pourquoi === "string" && args.pourquoi && <p className="-mt-2 text-[13px] text-muted-foreground">{args.pourquoi}</p>}
       {preview.length > 0 && (
         <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
           {preview.map((line) => <li key={line} className="truncate">« {line} »</li>)}
@@ -179,6 +180,7 @@ function Approval({ args, result, addResult }: ToolCallMessagePartProps) {
         <Button variant="warn" size="sm" onClick={() => answer(true)}>Autoriser</Button>
         <Button variant="outline" size="sm" onClick={() => answer(false)}>Refuser</Button>
       </div>
+      {args.retenu === true && <p className="-mt-1 text-xs text-muted-foreground">Si tu autorises, les actions de ce genre passeront ensuite sans te demander.</p>}
       {error && <p className="text-sm text-danger">La réponse n'a pas été prise en compte : {error}</p>}
     </div>
   );

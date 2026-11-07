@@ -841,16 +841,86 @@ def _preview(shown: str) -> list[str]:
     return found[:4]
 
 
+# La raison du juge, dite à la personne sans parler de juge : elle n'a pas à savoir qui vérifie, seulement pourquoi on lui demande.
+_WHY = {
+    "tu n'as pas demandé cette action.": "Tu ne l'as pas demandé directement.",
+    "je ne suis pas sûr que ce soit ce que tu veux.": "Ce n'est peut-être pas ce que tu veux.",
+    "cette action ne se défait pas.": "Ça ne pourra pas se défaire.",
+    "elle envoie quelque chose à quelqu'un d'autre.": "Quelque chose partira vers quelqu'un d'autre.",
+    "elle se verrait publiquement.": "Ce sera visible publiquement.",
+    "elle supprime quelque chose.": "Quelque chose sera supprimé.",
+    "elle engage de l'argent.": "Ça engage de l'argent.",
+    "la cible ne vient pas de toi.": "La destination ne vient pas de toi.",
+    "elle touche à des données sensibles.": "Ça touche à des données sensibles.",
+    "elle touche aux protections de l'agent.": "Ça touche aux protections de ton agent.",
+    "cette commande cache ce qu'elle lance.": "La commande cache ce qu'elle lance.",
+    "ce tour a lu un contenu qui donne des consignes à l'agent.": "Ton agent vient de lire un contenu qui lui donne des consignes.",
+    "je n'ai pas pu vérifier à temps.": "La vérification automatique n'a pas répondu à temps.",
+    "ton juge ne répond pas, alors la décision te revient.": "La vérification automatique ne répond pas.",
+}
+SETTLED_WHY = {"tu n'as pas demandé cette action.", "je ne suis pas sûr que ce soit ce que tu veux."}  # juge.SETTLED_HERE
+_SKILL = re.compile(r"/opt/data/skills/(?:[\w.-]+/)?([\w.-]+)/")
+_TOOL_WORDS = {
+    "write_file": "écrire dans un fichier", "patch": "modifier un fichier", "browser_click": "cliquer dans une page",
+    "browser_type": "écrire dans une page", "send_message": "envoyer un message", "delegate_task": "confier une tâche à un autre agent",
+    "skill_manage": "modifier une de ses compétences", "cronjob": "programmer une tâche", "image_generate": "créer une image",
+}
+
+
+def _command_in_words(command: str) -> str:
+    """Ce que fait une commande, à l'infinitif, pour une personne qui ne lit pas de code. La commande reste dans les détails."""
+    lines = [line for line in command.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+    words = lines[0].split() if lines else []
+    first = words[0].rsplit("/", 1)[-1] if words else ""
+    second = words[1] if len(words) > 1 else ""
+    skill = _SKILL.search(command)
+    if skill:
+        return f"se servir de sa compétence « {skill.group(1).replace('-', ' ')} »"
+    if first in ("pip", "pip3", "npm", "pnpm", "yarn", "apt", "apt-get") and second in ("install", "i", "add"):
+        return "installer un logiciel sur sa machine"
+    if first in ("rm", "rmdir"):
+        return "supprimer des fichiers sur sa machine"
+    if first in ("curl", "wget"):
+        site = next((re.sub(r"^www\.", "", w.split("://", 1)[1].split("/", 1)[0]) for w in words if "://" in w), "")
+        return f"contacter {site}" if site else "contacter un site"
+    if first == "git" and second == "push":
+        return "envoyer son travail avec git"
+    if not first or first in ("python", "python3", "node", "bash", "sh") or not re.fullmatch(r"[\w.+-]{1,30}", first):
+        return "lancer un petit programme sur sa machine"
+    return f"lancer « {first} » sur sa machine"
+
+
+def _judged_action(tool: str, shown: str) -> tuple[str, list[str]]:
+    try:
+        args = json.loads(_CUT.sub("", shown))
+    except ValueError:
+        found = re.search(r'"(?:command|code)"\s*:\s*"((?:[^"\\]|\\.)*)', shown)
+        args = {"command": found.group(1).encode().decode("unicode_escape", "ignore") if found else ""}
+    args = args if isinstance(args, dict) else {}
+    if tool in ("terminal", "execute_code"):
+        return _command_in_words(str(args.get("command") or args.get("code") or "")), []
+    if tool == "browser_navigate" and args.get("url"):
+        return f"ouvrir {str(args['url']).split('://', 1)[-1].split('/', 1)[0]}", []
+    return _TOOL_WORDS.get(tool, "faire cette action"), _preview(shown)
+
+
 def plain_request(summary: str, command: bool = False) -> dict:
     """{demande, apercu} : ce qu'une personne sans notion technique lit pour décider. La description d'Hermes n'y entre jamais :
     elle est technique, en anglais, et peut venir d'un texte que l'agent a écrit."""
     judge = JUDGE_ASKS.match(summary)
-    if judge:
+    if judge:  # une question : « Autoriser ton agent à … ? », la raison en clair dessous, la commande seulement dans les détails
         rest = summary[judge.end():]
-        if not ASKED.match(rest):
-            return {"demande": judge.group(1), "apercu": _preview(rest.partition("\n")[2])}
-        plain = plain_request(rest)  # la phrase qui dit l'action reste, sous la raison du juge
-        return {"demande": judge.group(1), "apercu": [plain["demande"].removeprefix("Ton agent veut ").removesuffix("."), *plain["apercu"]]}
+        reason = judge.group(1).removeprefix("Ton juge demande ton accord : ")
+        why = _WHY.get(reason) or reason[:1].upper() + reason[1:]
+        if ASKED.match(rest):
+            plain = plain_request(rest)
+            wish, preview, remembered = plain["demande"].removeprefix("Ton agent veut ").removesuffix("."), plain["apercu"], False
+        else:
+            head, _, shown = rest.partition("\n")
+            wish, preview = _judged_action(head.removeprefix("Outil : ").strip(), shown)
+            remembered = reason in SETTLED_WHY
+        return {"demande": f"Autoriser ton agent à {wish} ?", "pourquoi": why, "action": wish[:1].upper() + wish[1:], "apercu": preview,
+                "retenu": remembered}
     m = ASKED.match(summary)
     if not m:
         return {"demande": "Ton agent veut lancer une commande sensible sur sa machine." if command else "Ton agent te demande de valider une action.", "apercu": []}

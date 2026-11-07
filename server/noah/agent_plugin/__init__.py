@@ -634,7 +634,7 @@ IRREVERSIBLE = re.compile(r"\bgit\s+push\b[^|;&\n]*(?:--force|\s-f\b|--delete|\s
                           r"|\bcurl\b[^|;&\n]*-X\s*DELETE", re.I)
 SENDS = re.compile(r"\bcurl\b[^|;&\n]*(?:\s-d\b|\s-d\S|--data|\s-F\b|--form|\s-T\b|--upload-file|--json|-X\s*(?:POST|PUT|PATCH))"
                    r"|\bwget\b[^|;&\n]*--(?:post|body)|\|\s*(?:curl|wget|nc|ncat|netcat|socat)\b"
-                   r"|\b(?:nc|ncat|netcat|socat|scp|sftp|rsync|ftp|sendmail|mail|mutt|msmtp)\s|\brequests\.(?:post|put|patch)\b|\bsendall\(", re.I)
+                   r"|\b(?:nc|ncat|netcat|socat|scp|sftp|rsync|ftp|sendmail|mail|mutt|msmtp)\s|\b(?:requests|httpx)\.(?:post|put|patch)\b|\bsendall\(|\burlopen\([^)]*data\s*=|\bRequest\([^)]*data\s*=", re.I)
 LOCAL_PAYLOAD = re.compile(r"\s@[\w./~-]|=@[\w./~-]|['\"]@[\w./~-]|\$\(|`|\$\{?\w|\|\s*(?:curl|wget|nc|ncat|netcat|socat)\b|<\s*[/~\w]|\s-T\b|--upload-file|\bscp\b|\brsync\b|\bopen\(", re.I)
 DESTINATION_KEYS = {"to", "cc", "bcc", "recipient", "recipients", "destinataire", "destinataires", "email", "address", "adresse", "url", "endpoint", "webhook", "destination", "channel", "host"}
 SEND_TOOL = re.compile(r"send|post|reply|share|publish|forward|invite|mail|message|webhook|upload", re.I)
@@ -1134,6 +1134,8 @@ def check_juge(tool_name: str, args: dict, directive: dict | None, hook: dict) -
     if verdict == "refuse":
         return {"action": "block", "message": (f"Noah refuse cette action, sur l'avis de son juge. Raison, écrite pour la personne : « {answer.get('raison') or 'cette action est refusée.'} » "
                                                "Dis-le-lui, et ne cherche pas un autre chemin : si elle le veut vraiment, elle te le redira clairement.")}
+    if verdict == "question":  # le juge veut savoir pourquoi avant de déranger la personne : l'agent répond en relançant l'appel
+        return {"action": "block", "message": f"Noah attend une précision avant cette action. {answer.get('raison') or ''}"}
     if verdict == "accord":
         return _ask_person(tool_name, args, str(answer.get("raison") or "cette action est sensible."), directive)
     if verdict == "passe" or right == "agir" or directive:  # « agir » choisi par la personne, ou accord déjà demandé
