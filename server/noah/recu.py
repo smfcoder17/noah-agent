@@ -230,7 +230,9 @@ def compare(text: str, ledger: Ledger, earlier: set[str] | None = None) -> dict 
         if claim["famille"] == FAIT:
             if not effects and earlier:
                 receipt["incertain"].append({"dit": claim["phrase"], "par": "un tour précédent"})
-            elif not effects and not _IN_CHAT.search(claim["phrase"]):
+            elif not effects and _IN_CHAT.search(claim["phrase"]):  # sans doute le résultat est dans la réponse : pas d'alerte, mais pas de preuve non plus
+                receipt["incertain"].append({"dit": claim["phrase"], "par": "aucune action de ce tour"})
+            elif not effects:
                 receipt["sans_trace"].append(claim["phrase"])
             continue
         wanted = _EVIDENCE[claim["famille"]]

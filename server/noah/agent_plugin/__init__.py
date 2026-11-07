@@ -908,7 +908,7 @@ def _in_workspace(path: str) -> bool:
     return full == WORKSPACE or full.startswith(WORKSPACE + "/") or full.startswith("/tmp/")
 
 
-RISKY_LESSON = re.compile(r"secret|mot de passe|password|passwd|token|jeton|cl[ée]s?|api[_ -]?key|curl|wget|https?://|envoie|envoyer|send|ignore", re.I)
+RISKY_LESSON = re.compile(r"secret|mot de passe|password|passwd|token|jeton|\bcl[ée]s?\b|api[_ -]?key|curl|wget|https?://|@|envoie|envoyer|\bsend\b|ignore", re.I)
 
 
 def no_effect(tool_name: str, args: dict | None) -> bool:

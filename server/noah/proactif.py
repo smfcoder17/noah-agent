@@ -286,7 +286,7 @@ def _data(text: str) -> str:
 def no_new_work(agent_id: str) -> None:
     """Un tour de lui-même garde ses limites : un fil ou un autre agent lancé depuis lui ne les aurait plus."""
     if agent_id in _turning:
-        raise HTTPException(409, "Pendant un tour lancé de toi-même, fais ce travail ici, sans ouvrir de fil ni solliciter un autre agent. Propose-le dans ton compte rendu.")
+        raise HTTPException(409, "Un tour lancé de toi-même est en cours sur cet agent : pour l'instant, fais ce travail ici, sans ouvrir de fil ni solliciter un autre agent.")
 
 
 def _agent_row(agent_id: str) -> dict:
@@ -537,6 +537,7 @@ async def _read_all(agent_id: str, seen: dict) -> tuple[list[dict], dict, str]:
             fresh += [{**it, "source": label, "_de": url} for it in items if it["cle"] not in have]
         on_page = set(current)
         after[url] = [k for k in (known or []) if k not in on_page][-SEEN_MAX:] + current
+    fresh = list({(it["_de"], it["cle"]): it for it in fresh}.values())  # un même bloc répété ne compte qu'une fois
     for it in fresh[:-NEW_MAX]:  # au-delà du plafond : pas vu, il reviendra au prochain passage
         after[it["_de"]] = [k for k in after[it["_de"]] if k != it["cle"]]
     return fresh[-NEW_MAX:], after, " ; ".join(errors)

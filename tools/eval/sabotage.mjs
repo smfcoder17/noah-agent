@@ -68,7 +68,7 @@ const SABOTAGES = [
   ["Juge : une panne laisse passer", "noah/juge.py", 'diagnostics.record("juge", f"sans réponse : {type(e).__name__}")\n        return "accord", "panne", "panne"', 'diagnostics.record("juge", f"sans réponse : {type(e).__name__}")\n        return "passe", "panne", "panne"', JUGE],
   ["Juge : la routine attend un accord que personne ne donnera", "noah/juge.py", 'elif verdict == "accord" and turn.alone:', "elif False:", JUGE],
   ["Juge : il lit la réponse de l'agent", "noah/juge.py", "WHERE conversation_id = ? AND role = 'user' ORDER BY id DESC LIMIT ?", "WHERE conversation_id = ? ORDER BY id DESC LIMIT ?", JUGE],
-  ["Juge : le relevé d'une veille lui arrive", "noah/juge.py", 'return re.sub(r"<releve>.*?</releve>", "[données de dehors retirées]", text, flags=re.S), data', "return text, data", JUGE],
+  ["Juge : le relevé d'une veille lui arrive", "noah/juge.py", 'return re.sub(r"<releve>.*</releve>", "[données de dehors retirées]", text, flags=re.S), data', "return text, data", JUGE],
   ["Juge : un autre agent lit une conversation", "noah/juge.py", '"SELECT id, origin FROM conversations WHERE id = ? AND agent_id = ?", (named.group(1), agent_id)', '"SELECT id, origin FROM conversations WHERE id = ?", (named.group(1),)', JUGE],
   ["Juge : « Me signaler » laisse agir", "noah/juge.py", 'if turn.mode == "signaler" and (body.outil not in', "if False and (body.outil not in", JUGE],
   ["Juge : sh -c et l'encodage ne sont plus dépliés", "noah/agent_plugin/__init__.py", "for text in variants(command) if command else ():\n        reason = _refused_command(text)", "for text in [command] if command else ():\n        reason = _refused_command(text)", JUGE],
@@ -92,7 +92,7 @@ const SABOTAGES = [
   ["Trace : l'issue n'est jamais écrite", "noah/coordination.py", '    close_trace(d["conversation_id"], "fini" if ok else "echec", last["text"] if last else "le travail s\'est arrêté sans réponse")\n    if not requester_exists:', '    if not requester_exists:', COORDINATION],
   ["Travaux en cours : un fil fini y reste", "noah/main.py", 'running = state in ("work", "approve") or (state == "choice" and r["id"] not in answered)', 'running = True', COORDINATION],
   ["Travaux en cours : un accord attendu passe pour fini", "noah/main.py", 'running = state in ("work", "approve") or (state == "choice" and r["id"] not in answered)', 'running = state == "work" or (state == "choice" and r["id"] not in answered)', COORDINATION],
-  ["De lui-même : tout passe au tri, même sans rien de neuf", "noah/proactif.py", 'fresh += [{**it, "source": label} for it in items if it["cle"] not in have]', 'fresh += [{**it, "source": label} for it in items]', PROACTIF],
+  ["De lui-même : tout passe au tri, même sans rien de neuf", "noah/proactif.py", 'fresh += [{**it, "source": label, "_de": url} for it in items if it["cle"] not in have]', 'fresh += [{**it, "source": label, "_de": url} for it in items]', PROACTIF],
   ["De lui-même : coupé, il relève quand même", "noah/proactif.py", '    if mode(agent_id) == COUPE:\n        return {"etat": COUPE}\n    held = _held(agent_id)', '    held = _held(agent_id)', PROACTIF],
   ["De lui-même : il passe par-dessus une tâche de la personne", "noah/proactif.py", '    if relay.active.get(agent_id):\n        return "une tâche tourne"\n', '', PROACTIF],
   ["De lui-même : il tourne après le budget", "noah/proactif.py", '    refused = relay.spending_refusal(agent_id)\n    if refused:  # avant de relever', '    refused = None\n    if refused:  # avant de relever', PROACTIF],
@@ -286,7 +286,7 @@ function runFront([sabotage, path, old, replacement, cmd]) {
     if (old) writeFileSync(target, source.replace(old, () => replacement));
     const r = spawnSync("docker", ["run", "--rm", "-v", `${tmp}:/repo:ro`, "node:22-alpine", "sh", "-c", cmd], { timeout: 120000 });
     const seen = r.status && String(r.stderr).includes("AssertionError");
-    return { sabotage, resultat: seen ? "vu" : r.status ? "panne" : "NON VU" };
+    return { sabotage, resultat: seen ? "vu" : r.status ? "panne" : "NON VU", fin: r.status ? String(r.stderr).slice(-500) : "" };
   } finally {
     rmSync(tmp, { recursive: true, force: true, maxRetries: 2 });
   }
@@ -304,7 +304,7 @@ function runDesktop([sabotage, path, old, replacement, cmd]) {
     if (old) writeFileSync(target, source.replace(old, () => replacement));
     const r = spawnSync("docker", ["run", "--rm", "-v", `${tmp}:/repo`, "node:22-alpine", "sh", "-c", cmd], { timeout: 120000 });
     const seen = r.status === 1 && String(r.stdout).includes("ÉCHEC");
-    return { sabotage, resultat: seen ? "vu" : r.status ? "panne" : "NON VU" };
+    return { sabotage, resultat: seen ? "vu" : r.status ? "panne" : "NON VU", fin: r.status ? String(r.stderr).slice(-500) : "" };
   } finally {
     rmSync(tmp, { recursive: true, force: true, maxRetries: 2 });
   }
@@ -320,7 +320,7 @@ function runPlugin([sabotage, path, old, replacement, cmd]) {
     if (old) writeFileSync(target, source.replace(old, () => replacement));
     const r = spawnSync("docker", ["run", "--rm", "-v", `${join(tmp, "launcher/camofox-noah")}:/p:ro`, "-v", `${join(tmp, "tests")}:/tests:ro`, "node:22-alpine", "sh", "-c", cmd], { timeout: 180000 });
     const seen = r.status && String(r.stderr).includes("AssertionError");
-    return { sabotage, resultat: seen ? "vu" : r.status ? "panne" : "NON VU" };
+    return { sabotage, resultat: seen ? "vu" : r.status ? "panne" : "NON VU", fin: r.status ? String(r.stderr).slice(-500) : "" };
   } finally {
     rmSync(tmp, { recursive: true, force: true, maxRetries: 2 });
   }
@@ -347,7 +347,7 @@ function run(item) {
       "python:3.12-slim", "sh", "-c", cmd], { timeout: 600000 });
     // Seule une assertion compte : une panne d'installation ou de Docker ne prouve rien.
     const seen = r.status && String(r.stderr).includes("AssertionError");
-    return { sabotage, resultat: seen ? "vu" : r.status ? "panne" : "NON VU" };
+    return { sabotage, resultat: seen ? "vu" : r.status ? "panne" : "NON VU", fin: r.status ? String(r.stderr).slice(-500) : "" };
   } finally {
     rmSync(tmp, { recursive: true, force: true, maxRetries: 2 });
   }
@@ -357,7 +357,7 @@ function run(item) {
 const CHOISIS = SABOTAGES.filter((s) => !process.env.NOAH_SABOTAGE || new RegExp(process.env.NOAH_SABOTAGE, "i").test(s[0]));
 const TEMOINS = [...new Set(CHOISIS.map((s) => s[4]))].map((cmd) => run(["témoin", cmd === DOSSIERS ? "desktop/dossiers.js" : cmd === MEDIAS ? "frontend/src/lib/chatMedia.ts" : cmd === ENVOI || cmd === CONNEXION_PAGE ? PLUGIN : "noah/auth.py", "", "", cmd]));
 if (TEMOINS.some((t) => t.resultat !== "NON VU")) {
-  console.error("Un témoin échoue sans sabotage : les résultats ne valent rien.");
+  console.error("Un témoin échoue sans sabotage : les résultats ne valent rien.", TEMOINS.filter((t) => t.resultat !== "NON VU"));
   process.exit(2);
 }
 const results = CHOISIS.map(run);
