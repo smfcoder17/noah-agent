@@ -5,6 +5,7 @@ navigateur, sans clé. La transmission à un vrai Hermes a sa preuve à part (st
       python:3.12-slim sh -c "pip install -q -r /app/requirements.txt uvicorn && python /tests/real/chat_pendant_serveur.py"
 """
 import asyncio
+import json
 import os
 import sys
 import tempfile
@@ -51,6 +52,12 @@ async def run_events(agent, run_id):
             accord.clear()
             yield "approval.request", {"request_id": request_id, "execution_generation": 1, "description": 'Outil « notion » : create_page\n{"title": "' + title + '"}'}
             await accord.wait()
+    if "JUGE" in started[n - 1]:  # l'accord demandé par le juge pour une commande : la carte doit poser une question claire
+        accord.clear()
+        command = "python3 -c \"import sys; sys.path.insert(0,'/opt/data/skills/productivity/google-workspace/scripts'); import auth; print(auth.ok())\""
+        yield "approval.request", {"request_id": "demande-j", "execution_generation": 1,
+                                   "description": "Ton juge demande ton accord : tu n'as pas demandé cette action.\nOutil : terminal\n" + json.dumps({"command": command})}
+        await accord.wait()
     if "ACCORD" in started[n - 1]:
         accord.clear()
         yield "approval.request", {"request_id": "demande-1", "execution_generation": 1, "description": "Supprimer le dossier ?"}
