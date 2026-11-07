@@ -70,14 +70,14 @@ export function AgentBrain({ agentId, own, mode, reasoning, onChanged, openKey =
           </div>
           <ModelSearch level="cerveau" selected={!mode ? own : null} onPick={(m) => pick({ model: m.id })} />
           <label className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            Raisonnement
+            Réflexion
             <select
               value={reasoning ?? ""}
               disabled={busy}
               onChange={(e) => change({ raisonnement: e.target.value || null })}
               className="h-9 min-w-0 flex-1 cursor-pointer rounded-lg border border-border bg-background px-2 text-sm text-foreground"
             >
-              <option value="">Celui du modèle</option>
+              <option value="">Par défaut</option>
               {REASONING.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
           </label>

@@ -68,12 +68,19 @@ export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainS
   const all = rubrics(owner);
   const rubric = all.find((r) => r.tabs.some(([t]) => t === tab)) ?? all[0];
   const home = tab === "home"; // le sommaire du téléphone
+  const [pairNow, setPairNow] = useState(false);
+  useEffect(() => {
+    if (home) setPairNow(false); // le code ne s'affiche d'office que quand on vient pour ça
+  }, [home]);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {open && (
         <DialogContent title={home ? "Réglages" : rubric.label} onBack={home ? undefined : () => onTab("home")} description={rubric.id === "models" && !home ? "Les clés restent chiffrées sur cette machine. Les agents ne les voient jamais : ils passent par Noah Agent." : undefined} className="max-w-4xl">
           {home ? (
             <nav aria-label="Rubriques" className="flex flex-col">
+              <button type="button" onClick={() => { setPairNow(true); onTab("phone"); }} className="mb-2 flex cursor-pointer items-center justify-between rounded-xl bg-accent-soft px-3 py-3.5 text-left text-sm font-medium text-accent">
+                Relier un téléphone ou un ordinateur<ChevronRight className="size-4" />
+              </button>
               {all.map((r) => (
                 <button key={r.id} type="button" onClick={() => onTab(r.tabs[0][0])} className="flex cursor-pointer items-center justify-between border-b border-border py-3.5 text-left text-sm font-medium last:border-b-0">
                   {r.label}<ChevronRight className="size-4 text-muted-foreground" />
@@ -109,7 +116,7 @@ export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainS
               </div>
             </TabsContent>
             <TabsContent value="phone">
-              <PhonePairing />
+              <PhonePairing start={pairNow} />
             </TabsContent>
             <TabsContent value="notifications">
               <NotificationSettings />

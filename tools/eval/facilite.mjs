@@ -220,9 +220,11 @@ const RUNS = {
   async A11() {
     cur.entree = await visible(page.getByRole("button", { name: /Relier|téléphone/i }));
     await act("Réglages", () => page.getByRole("button", { name: /^Réglages$/ }).locator("visible=true").first().click());
-    await act("Appareils", () => page.getByRole("tab", { name: /Appareils/ }).or(page.getByRole("button", { name: /^Appareils$/ })).locator("visible=true").first().click());
+    const direct = page.getByRole("button", { name: /^Relier un téléphone ou un ordinateur/ });
+    if (await visible(direct)) await act("Relier un téléphone ou un ordinateur", () => clickOnScreen(direct), 1500);
+    else await act("Appareils", () => page.getByRole("tab", { name: /Appareils/ }).or(page.getByRole("button", { name: /^Appareils$/ })).locator("visible=true").first().click());
     const link = page.getByRole("button", { name: /Relier un appareil|Relier un téléphone/ });
-    if (await visible(link)) await act("Relier un appareil", () => link.first().click(), 1500);
+    if (!cur.steps.some((x) => x.startsWith("Relier un téléphone")) && (await visible(link))) await act("Relier un appareil", () => link.first().click(), 1500);
     cur.retour = await visible(page.locator("canvas, svg[role=img], img[alt*=QR]"));
   },
 };
@@ -247,7 +249,8 @@ try {
     console.log(id, JSON.stringify(results[id]));
   }
 } finally {
-  writeFileSync(`${OUT}/mesures.json`, JSON.stringify(results, null, 2));
+  dropBench(); // d'abord : la session du banc ne doit jamais rester sur le compte
   await browser.close();
-  dropBench();
+  mkdirSync(OUT, { recursive: true });
+  writeFileSync(`${OUT}/mesures.json`, JSON.stringify(results, null, 2));
 }

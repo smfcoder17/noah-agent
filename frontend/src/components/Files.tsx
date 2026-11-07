@@ -247,6 +247,8 @@ function FolderRow({ node, depth, ...props }: RowProps & { node: Node; depth: nu
 function FileRow({ file, depth, agentId, picked, toggle, setPreview }: RowProps & { file: WorkspaceFile; depth: number }) {
   const download = useDownload();
   const name = file.path.split("/").pop() || file.path;
+  const made = name.match(/^(?:image|video|vidéo|musique|audio)-\d{8}-\d{6}-(.+)\.\w+$/i);
+  const shown = made ? made[1].replace(/[-_]+/g, " ").replace(/^./, (c) => c.toUpperCase()) : name;
   const raw = rawFileUrl(agentId, file.path);
   const image = IMAGE.test(file.path);
   return (
@@ -258,7 +260,7 @@ function FileRow({ file, depth, agentId, picked, toggle, setPreview }: RowProps 
         <FileText className="mx-2 size-4 shrink-0 text-muted-foreground" />
       )}
       <span className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate text-sm" title={file.path}>{name}</span>
+        <span className="truncate text-sm" title={file.path}>{shown}</span>
         <span className="text-[11px] text-muted-foreground tabular-nums">{messageMoment(new Date(file.modified * 1000))} · {fileSize(file.size)}</span>
       </span>
       {(image || canFrame(file.path)) && (

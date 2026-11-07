@@ -160,7 +160,8 @@ export function QR({ text }: { text: string }) {
   return <div className="size-56 shrink-0 rounded-xl bg-white p-2 [&>svg]:size-full" dangerouslySetInnerHTML={{ __html: svg }} />;
 }
 
-export function PhonePairing() {
+/** `start` : on vient pour relier un appareil, le code s'affiche sans geste de plus. */
+export function PhonePairing({ start = false }: { start?: boolean } = {}) {
   const [refresh, setRefresh] = useState(0);
   const shell = appShell();
   const forget = () => {
@@ -193,6 +194,10 @@ export function PhonePairing() {
 
   // Dans l'app Android, la fenêtre n'a qu'une session courte : elle ne relie pas d'appareil (le serveur le refuse aussi).
   const pairs = shell?.kind !== "android";
+  useEffect(() => {
+    if (start && pairs) void create();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (pairs) return () => void del("/api/pairing").catch(() => {});
@@ -213,7 +218,7 @@ export function PhonePairing() {
     <div className="flex flex-col gap-4">
       <p className="text-sm text-muted-foreground">
         {pairs
-          ? "Pour relier un téléphone, scanne le QR code avec l'app Noah ou l'appareil photo. Pour l'app de bureau ou un autre appareil, saisis l'adresse et le code court, puis autorise l'appareil ici. Le code sert une seule fois ; le laisser expirer ne déconnecte aucun appareil déjà relié."
+          ? "Scanne le QR code avec l'app Noah, ou saisis le code dans l'app de bureau. Il sert une seule fois."
           : "Pour relier un autre appareil, ouvre Réglages → Appareils dans un navigateur où tu es connecté."}
       </p>
       {!pairs ? null : pairing && left > 0 && !used ? (

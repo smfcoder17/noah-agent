@@ -176,7 +176,7 @@ function ActivityPeriod({ label, rows, first, onOpen }: { label: string; rows: L
       {open && rows.slice(0, shown).map((r, i) => (
         <button key={i} type="button" onClick={() => onOpen(r.conversation_id, r.main)} className="flex cursor-pointer flex-col gap-0.5 rounded-lg px-2 py-1.5 text-left hover:bg-muted">
           <span className="flex items-baseline justify-between gap-2 text-sm">
-            <span className="min-w-0 truncate">{r.titre}</span>
+            <span className="min-w-0 truncate">{r.titre.replace(/^Ton juge a refusé : /, "Bloqué : ").replace(/^Ton juge demande ton accord : .*/, "Accord demandé")}</span>
             <span className="shrink-0 text-xs text-muted-foreground">{new Date(r.at * 1000).toLocaleTimeString("fr-CA", { hour: "2-digit", minute: "2-digit" })}</span>
           </span>
           <span className="truncate text-xs text-muted-foreground"><span className={cn("font-medium", LOG_WORD[r.etat][1])}>{LOG_WORD[r.etat][0]}</span>{r.resultat ? ` · ${r.resultat}` : ""}</span>

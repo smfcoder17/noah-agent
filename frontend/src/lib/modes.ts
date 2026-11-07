@@ -9,7 +9,7 @@ export const TIERS: { id: TierId; name: string; desc: string; speed: string; des
   { id: "smart", name: "Le plus fort", desc: "Longues recherches, code, décisions délicates.", speed: "Mène des tâches de plusieurs heures", descMedia: "La meilleure qualité, quel qu'en soit le prix." },
 ];
 
-export const MODE_NAMES: Record<ModeId, string> = { fast: "Rapide", balanced: "Équilibré", smart: "Le plus fort", gratuit: "Gratuit", custom: "Custom" };
+export const MODE_NAMES: Record<ModeId, string> = { fast: "Rapide", balanced: "Équilibré", smart: "Le plus fort", gratuit: "Gratuit", custom: "Ma liste" };
 
 export const REASONING: { id: string; name: string }[] = [
   { id: "low", name: "Léger, plus rapide et moins cher" },

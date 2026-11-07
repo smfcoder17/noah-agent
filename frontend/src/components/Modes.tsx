@@ -227,7 +227,7 @@ export function ModeRows({ level, onChanged }: { level: Level; onChanged?: (inSe
             <p className="text-xs text-muted-foreground">Les modèles gratuits sont limités en débit, et certains gardent ce qu'on leur envoie pour s'entraîner. Évite ce mode pour ce qui est confidentiel.</p>
           </div>
         ))}
-      {row("custom", "Custom", "Ta liste, dans ton ordre. Le premier est la priorité, le suivant prend le relais s'il n'est pas disponible.",
+      {row("custom", "Ma liste", "Ta liste, dans ton ordre. Le premier est la priorité, le suivant prend le relais s'il n'est pas disponible.",
         state.custom.length ? <span className="truncate text-xs text-muted-foreground">{state.custom.map((l) => shortName(l.nom)).join(" → ")}</span> : <span className="text-xs text-muted-foreground">Aucun modèle pour l'instant.</span>,
         state.custom.length > 0, "Composer", (
           <div className="border-t border-border pt-2">
