@@ -634,12 +634,6 @@ export function Connections({ agentId, shared = false, owner = false }: { agentI
       {data && <PublishCards agentId={agentId} shared={shared} tools={tools} onWait={wait} onChange={load} />}
       <SavedLogins agentId={agentId} />
       {arriving && <p className="text-xs text-muted-foreground">« {arriving} » arrive chez l'agent en moins d'une minute.</p>}
-      {data && (adding ? (
-        <AddTool agentId={agentId} shared={shared} onClose={() => setAdding(false)}
-          onAdded={(name, mode) => { setAdding(false); if (mode) wait(name, mode); else setArriving(name); load(); }} />
-      ) : (
-        <Button variant="outline" size="sm" className="self-start" onClick={() => setAdding(true)}><Plus />Ajouter un outil</Button>
-      ))}
       {data && (browsing ? (
         <div className="flex flex-col gap-1.5 rounded-xl border border-border p-2">
           <Input value={query} onChange={(e) => setQuery(e.target.value)} className="h-9" placeholder="Notion, Todoist, Linear, Figma…" aria-label="Chercher une application" autoFocus />
@@ -650,7 +644,13 @@ export function Connections({ agentId, shared = false, owner = false }: { agentI
           <Button size="sm" variant="ghost" className="self-end" onClick={() => setBrowsing(false)}>Fermer</Button>
         </div>
       ) : (
-        <Button variant="outline" size="sm" className="self-start" onClick={() => setBrowsing(true)}><Plus />Connecter une application</Button>
+        <Button variant="outline" size="sm" className="self-start" onClick={() => setBrowsing(true)}><Plus />Autres applications</Button>
+      ))}
+      {data && (adding ? (
+        <AddTool agentId={agentId} shared={shared} onClose={() => setAdding(false)}
+          onAdded={(name, mode) => { setAdding(false); if (mode) wait(name, mode); else setArriving(name); load(); }} />
+      ) : (
+        <Button variant="ghost" size="sm" className="self-start text-muted-foreground" onClick={() => setAdding(true)}>Ajouter un outil par son adresse (avancé)</Button>
       ))}
       <ErrorText>{error}</ErrorText>
     </Section>
@@ -693,7 +693,8 @@ function PublishCards({ agentId, shared, tools, onWait, onChange }: { agentId: s
   };
   return (
     <div className="flex flex-col gap-1.5">
-      <p className="text-xs text-muted-foreground">Publier plus vite et plus sûrement. Sans cela, l'agent publie avec son navigateur.</p>
+      <p className="mt-1 text-sm font-medium">Publier sur tes réseaux</p>
+      <p className="-mt-1 text-xs text-muted-foreground">Plus rapide et plus sûr. Sans cela, l'agent publie avec son navigateur.</p>
       {shared && <p className="text-xs font-medium text-warn">Cet agent est partagé : ceux qui l'utilisent pourront aussi publier sur ce compte.</p>}
       {left.map(([nom, label, host]) => (
         <div key={nom} className="flex flex-col gap-2 rounded-lg border border-border p-2.5">
@@ -774,7 +775,7 @@ function AppRow({ agentId, app, waiting, onWait, onChange, onError, extra }: { a
         <AppLogo host={app.hote ?? hostOf(app.source)} name={app.nom} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{appLabel(app.nom)}</p>
-          <p className="truncate text-xs text-muted-foreground" title={app.description}>{app.description}</p>
+          {!app.installe && <p className="truncate text-xs text-muted-foreground" title={app.description}>{app.description}</p>}
         </div>
         {app.connecte ? (
           <>

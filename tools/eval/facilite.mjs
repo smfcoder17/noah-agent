@@ -214,7 +214,7 @@ const RUNS = {
     const card = page.getByRole("button", { name: /^Modèle/ });
     if (cur.entree) { /* déjà ouvert */ } else if (await visible(card)) await act("carte Modèle", () => card.first().click());
     else await act("Changer (Cerveau)", () => page.getByRole("button", { name: /^Changer$/ }).first().click());
-    const pick = page.getByRole("button", { name: "Celui de tous" });
+    const pick = page.getByRole("button", { name: /^(Celui de tous|Comme tous mes agents)$/ });
     if (!(await visible(pick)) && (await visible(page.getByRole("button", { name: /^Changer$/ })))) await act("Changer", () => clickOnScreen(page.getByRole("button", { name: /^Changer$/ })));
     cur.retour = await visible(pick);
     if (cur.retour) cur.steps.push("choisir le modèle");

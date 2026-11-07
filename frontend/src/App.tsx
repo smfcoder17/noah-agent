@@ -665,7 +665,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
         {agent && (
           <Dialog open={modelDialog} onOpenChange={setModelDialog}>
             {modelDialog && (
-              <DialogContent title={`Modèle de ${agent.name}`} description={`Aujourd'hui : ${agent.mode ? MODE_NAMES[agent.mode as ModeId] ?? agent.mode : readableModel(agent.model) || "celui de tous tes agents"}. Le changement vaut pour cet agent seulement, tout de suite.`} className="max-w-xl">
+              <DialogContent title={`Modèle de ${agent.name}`} description="Ton choix vaut pour cet agent seulement, tout de suite. Ses conversations restent." className="max-w-xl">
                 <AgentBrain agentId={agent.id} own={agent.model} mode={agent.mode} reasoning={agent.raisonnement} onChanged={() => { refreshAgents(); setModelDialog(false); }} openKey={1} bare />
               </DialogContent>
             )}

@@ -29,6 +29,7 @@ export function ModelRow({ m, selected, onPick }: { m: Pick<Model, "id" | "name"
       role="radio"
       aria-checked={selected}
       onClick={onPick}
+      title={m.context ? `Peut lire ${contextSize(m.context)} à la fois` : undefined}
       className={cn(
         "flex w-full cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-muted",
         selected && "bg-accent-soft ring-2 ring-accent hover:bg-accent-soft",
@@ -39,9 +40,9 @@ export function ModelRow({ m, selected, onPick }: { m: Pick<Model, "id" | "name"
         <span className="truncate font-medium">{shortName(m.name)}</span>
         {m.id.includes("/") && <span className="truncate text-xs text-muted-foreground" title={m.id}>{readableModel(m.id.split("/")[0]).replace(/^./, (c) => c.toUpperCase())}</span>}
       </span>
+      {selected && <span className="shrink-0 rounded-full bg-accent px-2 py-0.5 text-[11px] font-semibold text-surface">Utilisé</span>}
       {m.vision && <Eye className="size-3.5 shrink-0 text-muted-foreground" aria-label="Voit les images" />}
-      {m.context ? <span className="hidden w-14 shrink-0 text-right text-xs text-muted-foreground tabular-nums sm:block">{contextSize(m.context)}</span> : null}
-      <span className="w-24 shrink-0 text-right text-xs tabular-nums sm:w-36">{costLabel(m)}</span>
+      <span className="w-24 shrink-0 text-right text-xs tabular-nums sm:w-36">{costLabel(m).replace(/ par tâche$/, "").replace(/^moins d.1 centime$/, "< 1 centime")}</span>
     </button>
   );
 }
@@ -57,17 +58,18 @@ export function ModelSearch({ level, selected, onPick }: { level: Level; selecte
   const list = useMemo(() => {
     const q = query.trim().toLowerCase();
     const all = models ?? [];
-    const found = q ? all.filter((m) => `${m.id} ${m.name}`.toLowerCase().includes(q)) : [...all].sort((a, b) => b.created - a.created);
+    const found = q ? all.filter((m) => `${m.id} ${m.name}`.toLowerCase().includes(q)) : [...all].sort((a, b) => Number(b.id === selected) - Number(a.id === selected) || b.created - a.created);
     return found.slice(0, 50);
-  }, [models, query]);
+  }, [models, query, selected]);
   if (error) return <ErrorText>{error}</ErrorText>;
   if (!models) return <p className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" />Lecture des modèles…</p>;
   return (
     <div className="flex flex-col gap-2">
       <div className="relative">
         <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input type="search" className="h-9 pl-9" placeholder={`Rechercher parmi ${models.length} modèles`} value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Rechercher un modèle" />
+        <Input type="search" className="h-9 pl-9" placeholder="Rechercher un modèle" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Rechercher un modèle" />
       </div>
+      <p className="flex justify-end px-2.5 text-[11px] text-muted-foreground">Prix d'une tâche type</p>
       <div role="radiogroup" aria-label="Modèles" className="flex max-h-64 flex-col overflow-y-auto max-md:max-h-[55dvh]">
         {list.map((m) => <ModelRow key={`${m.fournisseur}:${m.id}`} m={m} selected={selected === m.id} onPick={() => onPick(m)} />)}
         {!list.length && <p className="p-3 text-sm text-muted-foreground">Aucun modèle ne correspond.</p>}

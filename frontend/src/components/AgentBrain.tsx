@@ -56,14 +56,14 @@ export function AgentBrain({ agentId, own, mode, reasoning, onChanged, openKey =
       <div className={bare ? "hidden" : "flex items-center gap-2"}>
         <span className="text-muted-foreground">Modèle :</span>
         <span className="min-w-0 flex-1 truncate font-medium" title={current}>{mode ? MODE_NAMES[mode as ModeId] ?? mode : readableModel(current)}</span>
-        {!own && !mode && base && <span className="text-xs text-muted-foreground">(celui de tous)</span>}
+        {!own && !mode && base && <span className="text-xs text-muted-foreground">(comme tous tes agents)</span>}
         <Button variant="ghost" size="sm" onClick={() => setOpen(!open)} aria-expanded={open}>{open ? "Fermer" : "Changer"}</Button>
       </div>
       {open && (
         <div className={bare ? "flex flex-col gap-2" : "flex flex-col gap-2 rounded-lg border border-border p-2.5"}>
           {!bare && <p className="text-xs text-muted-foreground">Pour cet agent seulement. C'est immédiat : ses conversations restent.</p>}
           <div className="flex flex-wrap gap-1.5">
-            <Button variant={!own && !mode ? "default" : "outline"} size="sm" disabled={busy} onClick={() => pick({ model: null })}>Celui de tous</Button>
+            <Button variant={!own && !mode ? "default" : "outline"} size="sm" disabled={busy} onClick={() => pick({ model: null })}>Comme tous mes agents</Button>
             {AGENT_MODES.map((id) => (
               <Button key={id} variant={mode === id ? "default" : "outline"} size="sm" disabled={busy || !usable(id)} onClick={() => pick({ mode: id })}>{MODE_NAMES[id]}</Button>
             ))}
@@ -80,7 +80,7 @@ export function AgentBrain({ agentId, own, mode, reasoning, onChanged, openKey =
               {REASONING.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
           </label>
-          <ModelSearch level="cerveau" selected={!mode ? own : null} onPick={(m) => pick({ model: m.id })} />
+          <ModelSearch level="cerveau" selected={!mode ? own || base?.model : null} onPick={(m) => pick({ model: m.id })} />
           {busy && <p className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" />Un instant…</p>}
           <ErrorText>{error}</ErrorText>
         </div>
