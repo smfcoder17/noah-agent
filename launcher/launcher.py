@@ -148,6 +148,8 @@ def _cpus(wanted: int) -> int:
 async def docker_refused(request: Request, error: Exception):
     """Sans ça, le serveur ne reçoit qu'« Internal Server Error » et ne peut rien dire de plus."""
     print(f"[lanceur] Docker a refusé {request.url.path} : {error}", flush=True)
+    if "is not running" in str(error):  # la personne lit ce message tel quel : pas d'identifiant de conteneur
+        return JSONResponse({"detail": "Ton agent est arrêté pour l'instant. Relance-le avec « Redémarrer », puis réessaie."}, status_code=409)
     return JSONResponse({"detail": f"Docker a refusé : {error}"}, status_code=502)
 
 _browser_lock = threading.Lock()  # deux appels simultanés recréaient le même conteneur (conflit Docker)
