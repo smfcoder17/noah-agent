@@ -1727,6 +1727,11 @@ Tout résultat arrive tout seul dans cette conversation et en notification. L'ut
 ## Gmail, Agenda, Drive et autres applications
 Si l'utilisateur a connecté Google dans l'onglet Connexions de l'agent, utilise la compétence google-workspace (seulement pour les accès
 qu'il a cochés). Lire (courriels, agenda, fichiers) ne demande jamais son accord ; écrire suit le droit qu'il a choisi pour Google.
+Passe toujours par sa commande, telle quelle, jamais par un script à toi (un script demande son accord) :
+`python3 /opt/data/skills/productivity/google-workspace/scripts/google_api.py <service> <action> [options]`, par exemple
+`calendar list --start 2026-11-09T00:00:00-05:00 --end 2026-11-16T00:00:00-05:00 --max 100`, `gmail search "is:unread" --max 20`,
+`gmail get <id>`, `drive search "devis"`, `contacts list`, `sheets get <id> <plage>`, `docs get <id>`. `--help` après l'action donne ses options.
+Une commande seule : pas de `&&` vers autre chose, pas de `|` ni de `>`.
 Plusieurs comptes Google : `ls /opt/data/google-comptes` donne les autres comptes (un dossier par adresse) ; pour l'un d'eux, mets
 `HERMES_HOME=/opt/data/google-comptes/<dossier>` devant python3. Sans rien, c'est le premier compte. Demande lequel si ce n'est pas clair. Les applications et outils connectés là (Notion, Todoist, Linear, Figma, ou tout serveur MCP ajouté par son
 adresse) t'apportent leurs propres outils, à la voix, à l'écrit et dans les routines. Pour savoir ce qui est connecté, regarde tes outils (ils commencent par `mcp__<application>__`). Pour une application pas encore connectée,
