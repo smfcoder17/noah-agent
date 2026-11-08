@@ -66,7 +66,8 @@ jobs:
           NOAH_APK_KEYSTORE_PASSWORD: ${{ secrets.NOAH_APK_KEYSTORE_PASSWORD }}
           NOAH_APK_KEY_ALIAS: ${{ secrets.NOAH_APK_KEY_ALIAS }}
         run: |
-          ./gradlew assembleRelease --no-daemon
+          # Les fichiers de release GitHub répondent parfois 504 (8 novembre 2026) : la même construction, jusqu'à 4 fois.
+          for essai in 1 2 3 4; do ./gradlew assembleRelease --no-daemon && break; [ "$essai" = 4 ] && exit 1; echo "::warning::essai $essai échoué, nouvel essai dans 60 s"; sleep 60; done
           ./gradlew :app:dependencies --configuration releaseRuntimeClasspath --no-daemon > "$RUNNER_TEMP/dependances.txt"
           mkdir -p "$RUNNER_TEMP/apk"
           cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/apk/noah-agent-android.apk"
@@ -75,7 +76,8 @@ jobs:
         if: steps.cle.outputs.signe != 'true'
         working-directory: mobile/android
         run: |
-          ./gradlew assembleDebug --no-daemon
+          # Les fichiers de release GitHub répondent parfois 504 (8 novembre 2026) : la même construction, jusqu'à 4 fois.
+          for essai in 1 2 3 4; do ./gradlew assembleDebug --no-daemon && break; [ "$essai" = 4 ] && exit 1; echo "::warning::essai $essai échoué, nouvel essai dans 60 s"; sleep 60; done
           ./gradlew :app:dependencies --configuration debugRuntimeClasspath --no-daemon > "$RUNNER_TEMP/dependances.txt"
           mkdir -p "$RUNNER_TEMP/apk"
           cp app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/apk/noah-agent-android-debug.apk"
@@ -108,7 +110,8 @@ jobs:
           case "$GITHUB_REF" in
             refs/tags/v*) npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version ;;
           esac
-          npx electron-builder --win --x64 --publish never
+          # Les fichiers de release GitHub répondent parfois 504 (8 novembre 2026) : la même construction, jusqu'à 4 fois.
+          for essai in 1 2 3 4; do npx electron-builder --win --x64 --publish never && break; [ "$essai" = 4 ] && exit 1; echo "::warning::essai $essai échoué, nouvel essai dans 60 s"; sleep 60; done
       - uses: actions/upload-artifact@v4
         with:
           name: noah-bureau

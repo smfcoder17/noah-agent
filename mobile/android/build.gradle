@@ -4,6 +4,8 @@ buildscript {
     
     repositories {
         google()
+        // Miroir de Maven Central chez Google, en premier : il sert les fichiers lui-même, sans renvoyer vers GitHub
+        maven { url "https://maven-central.storage-download.googleapis.com/maven2/" }
         mavenCentral()
     }
     dependencies {
@@ -20,6 +22,8 @@ apply from: "variables.gradle"
 allprojects {
     repositories {
         google()
+        // Miroir de Maven Central chez Google, en premier : il sert les fichiers lui-même, sans renvoyer vers GitHub
+        maven { url "https://maven-central.storage-download.googleapis.com/maven2/" }
         mavenCentral()
     }
 }
