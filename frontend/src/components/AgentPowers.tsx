@@ -1023,7 +1023,30 @@ type GoogleAccount = {
   message: string;
   voulu: string[];
   consigne?: string;
+  autres?: { compte: string; permissions: string[] }[];
+  droit?: Droit;
+  ajout?: boolean;
 };
+
+/** Le « G » de Google, à ses couleurs, comme dans ses propres écrans de connexion. */
+function GoogleLogo() {
+  return (
+    <span className="grid size-8 place-items-center rounded-lg border border-border bg-white">
+      <svg viewBox="0 0 48 48" className="size-5" aria-hidden="true">
+        <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+        <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+        <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+        <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+      </svg>
+    </span>
+  );
+}
+
+const GOOGLE_DROITS: [Droit, string][] = [
+  ["confirmer", "Lire sans demander, confirmer pour écrire"],
+  ["agir", "Lire et écrire sans demander"],
+  ["lire", "Lire seulement"],
+];
 
 // « Écrire » comprend « lire » : cocher l'un coche l'autre, décocher la lecture retire l'écriture.
 const WRITE_OF: Record<string, string> = { gmail_ecrire: "gmail_lire", agenda_ecrire: "agenda_lire", drive_ecrire: "drive_lire" };
@@ -1040,6 +1063,7 @@ function GoogleCard({ agentId, onError }: { agentId: string; onError: (e: string
   const [picking, setPicking] = useState(false);
   const [chosen, setChosen] = useState<string[]>(DEFAULT_ACCESS);
   const [busy, setBusy] = useState(false);
+  const [adding, setAdding] = useState(false); // un compte Google de plus
   const waiting = state?.etape === "configuration" || state?.etape === "accord";
 
   const load = useCallback(() => get<GoogleAccount>(base).then(setState).catch((e) => onError((e as Error).message)), [base, onError]);
@@ -1070,10 +1094,18 @@ function GoogleCard({ agentId, onError }: { agentId: string; onError: (e: string
     });
   const connect = () =>
     run(async () => {
-      const r = await send<GoogleAccount>(`${base}/connect`, { permissions: chosen });
+      const r = await send<GoogleAccount>(`${base}/${adding ? "ajouter" : "connect"}`, { permissions: chosen });
       setState(r);
       setPicking(false);
+      setAdding(false);
       if (r.consigne) askAgent(r.consigne);
+    });
+  const setRight = (droit: string) => run(async () => setState(await send<GoogleAccount>(`${base}/droit`, { droit }, "PUT")));
+  const disconnectOther = (compte: string) =>
+    run(async () => {
+      if (confirm(`Déconnecter ${compte} de cet agent ?`)) {
+        setState(await send<GoogleAccount>(`${base}/disconnect?compte=${encodeURIComponent(compte)}`, {}));
+      }
     });
   const cancel = () => run(async () => setState(await send<GoogleAccount>(`${base}/cancel`, {})));
   const disconnect = () =>
@@ -1098,7 +1130,7 @@ function GoogleCard({ agentId, onError }: { agentId: string; onError: (e: string
   return (
     <div className="flex flex-col gap-2 rounded-xl border border-border p-3">
       <div className="flex items-center gap-2.5">
-        <span className="grid size-8 place-items-center rounded-lg bg-muted text-sm font-bold">G</span>
+        <GoogleLogo />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium">Google</p>
           <p className="truncate text-xs text-muted-foreground">{state.connecte ? state.compte || "Compte connecté" : "Gmail, Agenda, Drive, Docs, Sheets, Contacts"}</p>
@@ -1113,10 +1145,31 @@ function GoogleCard({ agentId, onError }: { agentId: string; onError: (e: string
       {state.connecte && !picking && !waiting && (
         <p className="text-xs text-muted-foreground">L'agent peut : {names(state.permissions).join(", ") || "rien pour l'instant"}.</p>
       )}
+      {state.connecte && !picking && !waiting && (state.autres ?? []).map((o) => (
+        <div key={o.compte} className="flex items-center gap-2 border-t border-border pt-2">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm">{o.compte}</p>
+            <p className="truncate text-xs text-muted-foreground">{names(o.permissions).join(", ") || "aucun accès"}</p>
+          </div>
+          <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={() => disconnectOther(o.compte)} disabled={busy}>Déconnecter</Button>
+        </div>
+      ))}
+      {state.connecte && !picking && !waiting && (
+        <label className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          Droit de l'agent
+          <select aria-label="Droit de l'agent sur Google" value={state.droit ?? "confirmer"} disabled={busy} onChange={(e) => setRight(e.target.value)}
+            className="h-8 cursor-pointer rounded-lg border border-border bg-background px-2 text-xs text-foreground">
+            {GOOGLE_DROITS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </label>
+      )}
 
       {picking && (
         <div className="flex flex-col gap-2.5">
-          <p className="text-xs text-muted-foreground">Ce que l'agent pourra faire. Ce choix vaut accord : Noah le donne à Google pour toi.</p>
+          <p className="text-xs text-muted-foreground">
+            {adding ? "Un autre compte Google : choisis-le dans l'écran de l'agent, ou connecte-t'y s'il te le demande. " : ""}
+            Ce que l'agent pourra faire. Ce choix vaut accord : Noah le donne à Google pour toi.
+          </p>
           {services.map((s) => (
             <div key={s} className="flex flex-col gap-1">
               <p className="text-xs font-semibold">{s}</p>
@@ -1139,9 +1192,9 @@ function GoogleCard({ agentId, onError }: { agentId: string; onError: (e: string
             </p>
           )}
           <div className="flex justify-end gap-2">
-            <Button size="sm" variant="ghost" onClick={() => setPicking(false)}>Annuler</Button>
+            <Button size="sm" variant="ghost" onClick={() => { setPicking(false); setAdding(false); }}>Annuler</Button>
             <Button size="sm" onClick={connect} disabled={!chosen.length || busy}>
-              {busy && <Loader2 className="animate-spin" />}{state.connecte ? "Mettre à jour les accès" : "Connecter Google"}
+              {busy && <Loader2 className="animate-spin" />}{adding ? "Ajouter ce compte" : state.connecte ? "Mettre à jour les accès" : "Connecter Google"}
             </Button>
           </div>
         </div>
@@ -1162,8 +1215,9 @@ function GoogleCard({ agentId, onError }: { agentId: string; onError: (e: string
 
       {state.connecte && !picking && !waiting && (
         <div className="flex gap-1">
-          <Button size="sm" variant="ghost" onClick={() => { setChosen(state.permissions); setPicking(true); }}><Pencil />Modifier les accès</Button>
-          <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={disconnect} disabled={busy}>Déconnecter</Button>
+          <Button size="sm" variant="ghost" onClick={() => { setChosen(state.permissions); setAdding(false); setPicking(true); }}><Pencil />Modifier les accès</Button>
+          <Button size="sm" variant="ghost" onClick={() => { setChosen(state.permissions); setAdding(true); setPicking(true); }}><Plus />Ajouter un compte</Button>
+          <Button size="sm" variant="ghost" className="ml-auto text-muted-foreground" onClick={disconnect} disabled={busy}>Déconnecter</Button>
         </div>
       )}
     </div>

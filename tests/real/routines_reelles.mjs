@@ -199,11 +199,12 @@ async function withFake(pageUrl) {
   }, 60);
   check("1. modèle de décision choisi parmi ce que la clé offre", chosen?.modele === "faux-petit" && !chosen.secours, JSON.stringify(chosen?.candidats));
   check("   aucune clé dans sa réponse", !JSON.stringify(chosen).includes(PROVIDER_KEY));
-  const helpers = await waitFor("relecture de mémoire d'Hermes branchée sur le petit modèle", () => {
+  const helpers = await waitFor("titres d'Hermes branchés sur le petit modèle", () => {
     const cfg = inAgent("cat", "/opt/data/config.yaml");
-    return /background_review:\s*\n\s*provider: custom\s*\n\s*model: faux-petit/.test(cfg) ? cfg : null;
+    return /title_generation:\s*\n\s*provider: custom\s*\n\s*model: faux-petit/.test(cfg) ? cfg : null;
   }, 30);
-  check("   config d'Hermes : relecture et titres passent par le petit modèle, à travers le relais", helpers && /title_generation:\s*\n\s*provider: custom/.test(helpers) && helpers.includes("noah-server:8080/relay"));
+  check("   config d'Hermes : titres par le petit modèle à travers le relais ; relecture par le cerveau peu cher", helpers && helpers.includes("noah-server:8080/relay")
+    && /background_review:\s*\n\s*max_input_tokens/.test(helpers) && !/background_review:\s*\n\s*provider/.test(helpers));
 
   // 2. Routine sans condition, créée par l'outil de l'agent, à l'heure, résultat dans la conversation et sur le téléphone.
   await faux("POST", "/_vider", {});
@@ -281,8 +282,8 @@ with db.connect() as c:
   check("   préférence gardée, note refusée absente", files.user.includes("Préfère des réponses courtes") && !JSON.stringify(files).includes("513216"), `${good.output.slice(0, 200)} ${JSON.stringify(files).slice(0, 300)}`);
   journal = await faux("GET", "/_journal");
   check("   jugées par le petit modèle", journal.appels.filter((a) => a.modele === "faux-petit" && a.systeme.startsWith("Une note de mémoire")).length === 2, journal.appels.map((a) => a.modele).join(","));
-  const fork = await waitFor("relecture de mémoire d'Hermes après un tour", async () => (await faux("GET", "/_journal")).appels.find((a) => a.outils.length && a.modele === "faux-petit"), 30);
-  check("   la relecture d'Hermes après un tour tourne sur le petit modèle, pas sur le cerveau", fork);
+  journal = await faux("GET", "/_journal");
+  check("   la relecture d'Hermes ne part pas au petit modèle quand le cerveau est peu cher", !journal.appels.some((a) => a.outils.length && a.modele === "faux-petit"), journal.appels.map((a) => a.modele).join(","));
   const asked2 = await say(`OUTIL memory ${JSON.stringify({ action: "add", target: "memory", content: "Demandé : Détail d'installation que je veux garder" })}`);
   check("   une note demandée par l'utilisateur passe sans jugement", (await api("GET", `/api/agents/${agent}/memory`)).json.memory.some((n) => n.includes("que je veux garder")), asked2.output.slice(0, 200));
   const review = await api("POST", `/api/agents/${agent}/memory/relire`, {});

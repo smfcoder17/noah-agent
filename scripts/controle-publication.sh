@@ -30,6 +30,13 @@ case "$VERSION" in
   *) STABLE=true ;;
 esac
 
+# Un seul numéro partout : étiquette, Release, numéro affiché dans Noah, APK et app Windows.
+SHOWN=$(tr -d ' \r\n' <"$HERE/../version-affichee.txt")
+if [ "$STABLE" = true ] && [ "$SHOWN" != "$VERSION" ]; then
+  echo "::error title=Numéros différents::L'étiquette dit $VERSION, version-affichee.txt dit $SHOWN. Pose le même numéro dans les deux, puis relance."
+  exit 1
+fi
+
 MISSING=""
 for name in NOAH_RELEASE_KEY NOAH_UPDATE_KEY NOAH_APK_KEYSTORE NOAH_APK_KEYSTORE_PASSWORD NOAH_APK_KEY_ALIAS; do
   eval "value=\${$name:-}"

@@ -8,7 +8,7 @@
 
 Sur iPhone, Mac ou Linux, il n'y a rien à télécharger : ouvre l'adresse de ton Noah dans le navigateur.
 
-**Noah est déjà sur ton serveur ?** Il se met à jour seul, à l'heure calme. Tu peux le voir dans Réglages > Mises à jour. Les applications, elles, se réinstallent avec ces fichiers. Ton compte et tes agents sont sur le serveur : ils ne bougent pas.
+**Noah est déjà sur ton serveur ?** Il se met à jour seul, à l'heure calme. Tu peux le voir dans Réglages > Mises à jour. L'app Android te propose sa nouvelle version d'elle-même (bandeau « Installer ») ; l'app Windows se réinstalle avec ce fichier. Ton compte et tes agents sont sur le serveur : ils ne bougent pas.
 
 ## Ce qui change
 

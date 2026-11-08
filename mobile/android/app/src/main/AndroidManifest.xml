@@ -86,6 +86,8 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Installer une nouvelle version de l'app depuis sa Release : Android demande l'accord de la personne. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Afficher les notifications de Noah (Android 13 et plus le demande à l'utilisateur). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Faire sonner l'écran d'appel quand un agent rappelle. -->

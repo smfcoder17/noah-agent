@@ -317,7 +317,7 @@ def status(request: Request):
     if _stranger(request):
         return brief
     return {**brief, "model_configured": db.get_setting("provider") is not None, "onboarded": has_users and onboarded(),
-            "secrets_lisibles": _secrets_readable()}
+            "secrets_lisibles": _secrets_readable(), "app_android": updates.android_app()}
 
 
 def _secrets_readable() -> bool:
@@ -1726,7 +1726,9 @@ Tout résultat arrive tout seul dans cette conversation et en notification. L'ut
 
 ## Gmail, Agenda, Drive et autres applications
 Si l'utilisateur a connecté Google dans l'onglet Connexions de l'agent, utilise la compétence google-workspace (seulement pour les accès
-qu'il a cochés). Les applications et outils connectés là (Notion, Todoist, Linear, Figma, ou tout serveur MCP ajouté par son
+qu'il a cochés). Lire (courriels, agenda, fichiers) ne demande jamais son accord ; écrire suit le droit qu'il a choisi pour Google.
+Plusieurs comptes Google : `ls /opt/data/google-comptes` donne les autres comptes (un dossier par adresse) ; pour l'un d'eux, mets
+`HERMES_HOME=/opt/data/google-comptes/<dossier>` devant python3. Sans rien, c'est le premier compte. Demande lequel si ce n'est pas clair. Les applications et outils connectés là (Notion, Todoist, Linear, Figma, ou tout serveur MCP ajouté par son
 adresse) t'apportent leurs propres outils, à la voix, à l'écrit et dans les routines. Pour savoir ce qui est connecté, regarde tes outils (ils commencent par `mcp__<application>__`). Pour une application pas encore connectée,
 invite-le à le faire dans l'onglet Connexions de l'agent plutôt que de lui demander des identifiants, sans jamais lui donner le lien d'un service tiers. Chaque outil a un droit choisi par
 l'utilisateur : un appel peut être refusé ou attendre son accord. Un outil injoignable ou un refus n'arrête pas ta tâche : dis-le

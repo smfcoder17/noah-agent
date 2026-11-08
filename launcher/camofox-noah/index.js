@@ -551,4 +551,40 @@ export default function register(app, ctx) {
     };
     ctx.log("info", "noah: nouveaux onglets gardés dans le conteneur de l'agent");
   });
+  keepSessions(ctx);
+}
+
+/**
+ * Connexions gardées : Camofox n'enregistre cookies et stockage qu'à la fermeture propre d'une session. Un arrêt brutal
+ * (serveur redémarré, conteneur tué, panne) perdait tout ce qui avait changé depuis, dont une connexion Google du jour.
+ * On photographie donc l'état de chaque session régulièrement, et seulement s'il a changé ; le module de persistance
+ * l'écrit sur le volume de l'agent et le recharge à la session suivante.
+ */
+export const SAVE_EVERY_MS = Number(process.env.NOAH_SESSION_SAVE_MS) || 60_000;
+
+export function keepSessions(ctx, every = SAVE_EVERY_MS) {
+  const live = new Map(); // userId -> contexte Playwright
+  const last = new Map(); // userId -> dernier état écrit
+  ctx.events.on("session:created", ({ userId, context }) => live.set(userId, context));
+  ctx.events.on("session:destroyed", ({ userId }) => {
+    live.delete(userId);
+    last.delete(userId);
+  });
+  const save = async () => {
+    for (const [userId, context] of live) {
+      try {
+        const state = await context.storageState(ctx.persistenceStorageStateOptions);
+        const text = JSON.stringify(state);
+        if (last.get(userId) === text) continue;
+        const emit = ctx.events.emitAsync ? ctx.events.emitAsync.bind(ctx.events) : ctx.events.emit.bind(ctx.events);
+        await emit("session:storage:export", { userId, storageState: state });
+        last.set(userId, text);
+      } catch (e) {
+        ctx.log?.("warn", "noah: session non enregistrée", { error: String(e.message).slice(0, 200) }); // contexte fermé entre-temps
+      }
+    }
+  };
+  const timer = setInterval(save, every);
+  timer.unref?.();
+  return { save, stop: () => clearInterval(timer) };
 }

@@ -75,6 +75,23 @@ def _account(agent_id: str) -> dict | None:
     return json.loads(raw) if raw else None
 
 
+# Comptes de plus (le travail, un deuxième Gmail) : chacun dans son dossier de la machine de l'agent.
+def _others(agent_id: str) -> list[dict]:
+    return json.loads(db.get_setting(f"google_autres_{agent_id}") or "[]")
+
+
+def _save_others(agent_id: str, others: list[dict]) -> None:
+    db.set_setting(f"google_autres_{agent_id}", json.dumps(others, ensure_ascii=False))
+
+
+def folder_of(email: str) -> str:
+    return (re.sub(r"[^a-z0-9.-]+", "-", email.lower()).strip("-.") or "compte")[:80]
+
+
+GOOGLE_HOMES = "/opt/data/google-comptes"
+DROITS = ("lire", "confirmer", "agir")
+
+
 def _scopes(perms: list[str]) -> list[str]:
     return sorted(set(BASE_SCOPES + [s for p in perms for s in PERMS[p]["scopes"]]))
 
@@ -100,6 +117,9 @@ def _state(agent_id: str) -> dict:
         "etape": flow["statut"] if flow else None,
         "message": flow.get("message", "") if flow else "",
         "voulu": json.loads(db.get_setting(f"google_voulu_{agent_id}") or "[]"),
+        "autres": [{"compte": o["compte"], "permissions": o.get("permissions", [])} for o in _others(agent_id)],
+        "droit": db.get_setting(f"google_droit_{agent_id}") or "confirmer",
+        "ajout": bool(flow and flow.get("ajout")),
     }
 
 
@@ -209,21 +229,23 @@ async def _returned(agent_id: str, state: str) -> dict | None:
     return None
 
 
-async def start_consent(agent_id: str, perms: list[str]) -> None:
+async def start_consent(agent_id: str, perms: list[str], compte: str = "", ajout: bool = False) -> None:
+    """« ajout » : un autre compte Google que le premier (Google fait choisir le compte). « compte » : renouveler celui-là."""
     client = _client()
     verifier = secrets.token_urlsafe(64)
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
     state = secrets.token_urlsafe(16)
     url = AUTH_URL + "?" + urlencode({
         "client_id": client["client_id"], "redirect_uri": REDIRECT, "response_type": "code",
-        "scope": " ".join(_scopes(perms)), "access_type": "offline", "prompt": "consent",
+        "scope": " ".join(_scopes(perms)), "access_type": "offline", "prompt": "consent select_account" if ajout else "consent",
         "state": state, "code_challenge": challenge, "code_challenge_method": "S256",
+        **({"login_hint": compte} if compte else {}),
     })
     old = _flows.get(agent_id)
     if old and old.get("tache"):
         old["tache"].cancel()
     flow = {"etat": state, "verifier": verifier, "permissions": perms, "statut": "accord", "depuis": time.time(),
-            "message": "Noah donne ton accord à Google avec les accès que tu as cochés…", "clics": {}}
+            "message": "Noah donne ton accord à Google avec les accès que tu as cochés…", "clics": {}, "compte": compte, "ajout": ajout}
     _flows[agent_id] = flow
     flow["onglet"] = await _open_tab(agent_id, url)
     flow["tache"] = asyncio.create_task(_watch_consent(agent_id, flow))
@@ -298,12 +320,22 @@ async def _exchange(agent_id: str, flow: dict, code: str) -> None:
              "scopes": scopes, "expiry": expiry.strftime("%Y-%m-%dT%H:%M:%SZ")}
     installed = {"installed": {"client_id": client["client_id"], "client_secret": client["client_secret"],
                                "auth_uri": AUTH_URL, "token_uri": TOKEN_URL, "redirect_uris": [REDIRECT]}}
-    await admin(agent_id, "google_installer", {"client": installed, "token": token})
     granted = _granted(scopes)
-    account = {"compte": _email(t.get("id_token", "")), "permissions": granted, "depuis": int(time.time())}
-    db.set_setting(f"google_{agent_id}", json.dumps(account, ensure_ascii=False))
+    email = _email(t.get("id_token", ""))
+    account = {"compte": email, "permissions": granted, "depuis": int(time.time())}
+    primary = _account(agent_id)
+    # Un autre compte que le premier, si on en ajoute un ou si l'on renouvelle celui-là ; sinon le premier est remplacé.
+    other = bool(primary and email and email != primary.get("compte") and (flow.get("ajout") or flow.get("compte") == email))
+    if other:
+        await admin(agent_id, "google_installer", {"client": installed, "token": token, "dossier": folder_of(email)})
+        _save_others(agent_id, [o for o in _others(agent_id) if o["compte"] != email] + [account])
+    else:
+        await admin(agent_id, "google_installer", {"client": installed, "token": token})
+        db.set_setting(f"google_{agent_id}", json.dumps(account, ensure_ascii=False))
     _forget_screen(agent_id)
     _tell_agent(agent_id, account)
+    if other:
+        return
     from . import connecteurs
 
     await connecteurs.google_renewed(agent_id)
@@ -328,9 +360,10 @@ async def keep_google_fresh(every: float = 3600) -> None:
             flow = _flows.get(agent_id)
             if not account or not _client() or (flow and flow.get("tache")) or connecteurs.google_copy(agent_id):
                 continue  # une copie suit l'accord de l'agent d'origine
-            if time.time() - account.get("depuis", 0) > RENEW_AFTER:
+            due = [a for a in [account, *_others(agent_id)] if time.time() - a.get("depuis", 0) > RENEW_AFTER]
+            if due:  # un accord à la fois par agent : le suivant à l'heure d'après
                 try:
-                    await start_consent(agent_id, account["permissions"])
+                    await start_consent(agent_id, due[0]["permissions"], compte=due[0]["compte"] if due[0] is not account else "")
                 except Exception:  # noqa: BLE001 - navigateur indisponible : on réessaie dans une heure
                     pass
 
@@ -345,6 +378,14 @@ def _tell_agent(agent_id: str, account: dict) -> None:
     if not conv:
         return
     names = ", ".join(PERMS[p]["nom"].lower() for p in account["permissions"]) or "aucun accès"
+    primary = _account(agent_id) or {}
+    if account.get("compte") and account["compte"] != primary.get("compte"):
+        note = (f"Un autre compte Google est connecté : {account['compte']} ({names}). Pour ce compte, lance la compétence "
+                f"google-workspace avec HERMES_HOME={GOOGLE_HOMES}/{folder_of(account['compte'])} devant python3 ; sans rien, "
+                f"elle utilise le premier compte ({primary.get('compte') or 'compte Google'}). Demande lequel si ce n'est pas clair.")
+        pending = json.loads(db.get_setting(f"contexte_{conv}") or "[]")
+        db.set_setting(f"contexte_{conv}", json.dumps((pending + [note])[-5:], ensure_ascii=False))
+        return
     note = (f"Google est connecté ({account['compte'] or 'compte Google'}) : {names}. Utilise la compétence google-workspace ; "
             "pour un accès qui manque, l'utilisateur l'ajoute dans l'onglet Connexions de l'agent. L'application reste en mode Test, "
             "c'est voulu : Noah Agent renouvelle l'accord tout seul avant les 7 jours. Ne cherche pas à la publier.")
@@ -425,6 +466,37 @@ async def google_state(agent_id: str, user: int = Depends(auth.current_user)):
     return _state(_check(agent_id, user))
 
 
+@router.post("/api/agents/{agent_id}/google/ajouter")
+async def google_add(agent_id: str, body: Connect, user: int = Depends(auth.current_user)):
+    """Un compte Google de plus, avec les mêmes identifiants : Google fait choisir le compte dans l'écran de l'agent."""
+    agent_id = _check(agent_id, user)
+    if not _client() or not _account(agent_id):
+        raise HTTPException(409, "Connecte d'abord un premier compte Google.")
+    _forget_screen(agent_id)
+    await start_consent(agent_id, _valid(body.permissions), ajout=True)
+    return _state(agent_id)
+
+
+class GoogleRight(BaseModel):
+    droit: str = Field(pattern="^(lire|agir|confirmer)$")
+
+
+@router.put("/api/agents/{agent_id}/google/droit")
+async def google_right(agent_id: str, body: GoogleRight, user: int = Depends(auth.current_user)):
+    """Comme pour un outil MCP : lire passe toujours ; écrire (envoyer, créer, supprimer) suit ce droit."""
+    from . import mcp
+
+    agent_id = _check(agent_id, user)
+    before = db.get_setting(f"google_droit_{agent_id}")
+    db.set_setting(f"google_droit_{agent_id}", body.droit)
+    try:
+        await admin(agent_id, "outil_droits", {"droits": mcp._rights(agent_id)})
+    except Exception:  # agent arrêté : le droit affiché reste celui que le plugin applique
+        db.set_setting(f"google_droit_{agent_id}", before or "")
+        raise
+    return _state(agent_id)
+
+
 @router.post("/api/agents/{agent_id}/google/connect")
 async def google_connect(agent_id: str, body: Connect, user: int = Depends(auth.current_user)):
     """Avec les identifiants : ouvre l'accord dans l'écran de l'agent. Sans : rend la consigne à envoyer à l'agent
@@ -453,11 +525,18 @@ async def google_cancel(agent_id: str, user: int = Depends(auth.current_user)):
 
 
 @router.post("/api/agents/{agent_id}/google/disconnect")
-async def google_disconnect(agent_id: str, user: int = Depends(auth.current_user)):
+async def google_disconnect(agent_id: str, compte: str = "", user: int = Depends(auth.current_user)):
     """Efface le jeton de cet agent. Pas de révocation chez Google : elle retirerait l'accord de toute
-    l'application, donc aussi aux autres agents. L'utilisateur peut tout retirer sur myaccount.google.com."""
+    l'application, donc aussi aux autres agents. L'utilisateur peut tout retirer sur myaccount.google.com.
+    « compte » : seulement ce compte de plus."""
     agent_id = _check(agent_id, user)
     _forget_screen(agent_id)
+    if compte and compte != (_account(agent_id) or {}).get("compte"):
+        if not any(o["compte"] == compte for o in _others(agent_id)):
+            raise HTTPException(404, "Ce compte Google n'est pas connecté à cet agent.")
+        await admin(agent_id, "google_revoquer", {"dossier": folder_of(compte)})
+        _save_others(agent_id, [o for o in _others(agent_id) if o["compte"] != compte])
+        return _state(agent_id)
     await admin(agent_id, "google_revoquer", {"local": True})
     db.set_setting(f"google_{agent_id}", "")
     from . import connecteurs

@@ -29,6 +29,7 @@ import { forgetPushSession, reconcilePush } from "@/lib/push";
 import { useAgentChat } from "@/lib/useAgentChat";
 import { MODE_NAMES, type ModeId, readableModel } from "@/lib/modes";
 import { AgentBrain } from "./components/AgentBrain";
+import { AppUpdate } from "./components/AppUpdate";
 import { Dialog, DialogContent } from "./components/ui";
 import { cn } from "@/lib/utils";
 
@@ -577,6 +578,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
               </Button>
             )}
           </header>
+          <AppUpdate />
           <div id={CALL_SLOT} />
           {agent && canAdmin(agent) && <HandoffBanner agentId={agent.id} onOpenScreen={() => setPanel("computer")} />}
           <div className="min-h-0 flex-1">

@@ -83,8 +83,8 @@ BROWSER_IMAGE = os.environ.get("BROWSER_IMAGE", "ghcr.io/smfcoder17/noah-browser
 BROWSER_PREFIX = "noah-browser-"
 BROWSER_LABEL = "noah.browser"
 # Version des réglages du navigateur ; un conteneur plus ancien est recréé (le profil reste dans son volume).
-# 14 : remplir une page de connexion ; 12 : image Noah avec bureau, sans uBlock ; 11 : toutes les routes sous clé ; 10 : clé du mode privé à part ; 9 : aucune capture pendant une prise en main ; 8 : jetons hors de la config Docker
-BROWSER_VERSION = "14"
+# 15 : sessions enregistrées chaque minute (connexions gardées après un arrêt brutal) ; 14 : remplir une page de connexion ; 12 : image Noah avec bureau, sans uBlock ; 11 : toutes les routes sous clé ; 10 : clé du mode privé à part ; 9 : aucune capture pendant une prise en main ; 8 : jetons hors de la config Docker
+BROWSER_VERSION = "15"
 
 
 def _frozen(agent_id: str):

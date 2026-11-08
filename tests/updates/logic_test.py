@@ -306,3 +306,10 @@ result = asyncio.run(u.install(manual=True))
 assert applied and applied[-1]["force"] is True and result.get("ok"), (result, applied)
 u.maintenance = False
 print("clic « Installer maintenant » : majeure de la veille installée, en réessayant une version bloquée : OK")
+
+# L'APK proposée à l'app Android est celle de la même Release que ce serveur ; rien pour une construction locale.
+assert u.android_app() == {"version": "1.2.0", "url": "https://github.com/smfcoder17/noah-agent/releases/download/v1.2.0/noah-agent-android.apk"}, u.android_app()
+u.VERSION = "dev"
+assert u.android_app() is None
+u.VERSION = "1.2.0"
+print("APK proposée à l'app Android : celle de la même Release : OK")

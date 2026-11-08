@@ -118,6 +118,8 @@ export type Status = {
   api?: number;
   /** Plus ancienne version des apps (bureau, téléphone) que ce serveur sert encore. */
   min_client_version?: string;
+  /** APK publiée avec ce serveur : l’app Android la propose si elle est plus ancienne. */
+  app_android?: { version: string; url: string } | null;
 };
 export type Provider = { id: string; label: string; needs_key: boolean; default_model: string; own_url?: boolean };
 export type Model = {

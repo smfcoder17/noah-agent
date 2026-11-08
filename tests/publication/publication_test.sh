@@ -139,15 +139,17 @@ refuse "préparation sur des clés existantes" "existe déjà" sh "$PREPARE" --g
 # --- controle-publication.sh : ce qui part, ce qui ne part pas --------------------------------------------------------
 CONTROL="$REPO/scripts/controle-publication.sh"
 export GITHUB_OUTPUT="$WORK/sortie"
+SHOWN=$(tr -d ' 
+' <"$REPO/version-affichee.txt")  # le numéro affiché : une version stable doit porter le même
 good() {
-  env GITHUB_REF=refs/tags/v0.1.0 \
+  env GITHUB_REF="refs/tags/v$SHOWN" \
     NOAH_RELEASE_KEY="$(cat cles/release.key)" NOAH_UPDATE_KEY="$(cat cles/release.pub)" \
     NOAH_APK_KEYSTORE="$(cat cles/noah-apk.keystore.b64)" NOAH_APK_KEYSTORE_PASSWORD="$(cat cles/noah-apk.password)" \
     NOAH_APK_KEY_ALIAS=noah "$@"
 }
 : >sortie
 good sh "$CONTROL" >/dev/null
-grep -qx "version=0.1.0" sortie && grep -qx "stable=true" sortie || fail "version stable mal lue : $(cat sortie)"
+grep -qx "version=$SHOWN" sortie && grep -qx "stable=true" sortie || fail "version stable mal lue : $(cat sortie)"
 ok "contrôle : version stable avec les clés de preparer-signatures.sh, acceptée"
 : >sortie
 env -u NOAH_RELEASE_KEY -u NOAH_UPDATE_KEY GITHUB_REF=refs/heads/main sh "$CONTROL" >/dev/null
@@ -157,6 +159,7 @@ ok "contrôle : main, image edge, aucune clé demandée"
 env -u NOAH_RELEASE_KEY -u NOAH_UPDATE_KEY GITHUB_REF=refs/tags/v0.1.0-rc1 sh "$CONTROL" | grep -q "::warning" || fail "préversion sans clés : pas d'avertissement"
 grep -qx "version=0.1.0-rc1" sortie && grep -qx "stable=false" sortie || fail "préversion mal lue : $(cat sortie)"
 ok "contrôle : préversion sans clés, acceptée avec un avertissement"
+refuse "étiquette d'un autre numéro que le numéro affiché" "Numéros différents" good env GITHUB_REF=refs/tags/v9.9.9 sh "$CONTROL"
 refuse "étiquette invalide" "Étiquette invalide" env GITHUB_REF=refs/tags/vert.moi.ça sh "$CONTROL"
 for name in NOAH_RELEASE_KEY NOAH_UPDATE_KEY NOAH_APK_KEYSTORE NOAH_APK_KEYSTORE_PASSWORD NOAH_APK_KEY_ALIAS; do
   refuse "version stable sans $name" "$name" good env "$name=" sh "$CONTROL"

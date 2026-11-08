@@ -165,7 +165,7 @@ function Gallery() {
   );
 }
 
-const AGENT = { agentId: "demo", agentName: "Noah", agentColor: NOAH_COLORS[3].hex, agentShape: params.get("shape") ?? "gomme", agentDetail: params.get("detail") ?? "lunettes", details: false, hint: "Démonstration", conversationId: null, say: () => {}, readOnly: false, canWatch: false };
+const AGENT = { agentId: "demo", agentName: "Noah", agentColor: NOAH_COLORS[3].hex, agentShape: params.get("shape") ?? "gomme", agentDetail: params.get("detail") ?? "lunettes", agentModel: "", details: false, hint: "Démonstration", conversationId: null, say: () => {}, readOnly: false, canWatch: false };
 
 /** Le vrai écran d'appel, sans Voice.tsx : la phase et les niveaux viennent de la page, comme ils viendront de la voix. */
 function CallScene() {

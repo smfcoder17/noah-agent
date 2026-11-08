@@ -434,6 +434,51 @@ db.set_setting(f"google_{ZED}", json.dumps({"compte": "b@exemple.fr", "permissio
 assert bruno.put(scope_url(ZED, "google"), json={"pour_tous": True}).status_code == 403
 print("Google : copie sûre, retrait réel, une seule origine")
 
+# --- 3 bis. Plusieurs comptes Google sur un agent : chacun dans son dossier, le premier reste à sa place -------------------
+import base64 as _b64  # noqa: E402
+import httpx  # noqa: E402
+
+
+def id_token(email):
+    return "x." + _b64.urlsafe_b64encode(json.dumps({"email": email}).encode()).decode().rstrip("=") + ".y"
+
+
+class GoogleToken:
+    def __init__(self, email, refresh):
+        self.email, self.refresh = email, refresh
+
+    async def post(self, *_a, **_k):
+        return httpx.Response(200, json={"access_token": "acces", "refresh_token": self.refresh, "expires_in": 3600,
+                                         "scope": "openid email https://www.googleapis.com/auth/calendar.readonly", "id_token": id_token(self.email)})
+
+
+def exchange(agent, email, refresh, **flow):
+    accounts.relay.upstream_client = lambda: GoogleToken(email, refresh)
+    run(accounts._exchange(agent, {"verifier": "v", **flow}, "code"))
+
+
+exchange(CLEO, "alice@exemple.fr", "refresh-perso")
+exchange(CLEO, "alice@travail.example", "refresh-travail", ajout=True)
+assert accounts._account(CLEO)["compte"] == "alice@exemple.fr", "le premier compte reste le premier"
+assert json.loads((home(CLEO) / "google_token.json").read_text())["refresh_token"] == "refresh-perso"
+work = home(CLEO) / "google-comptes" / "alice-travail.example"
+assert json.loads((work / "google_token.json").read_text())["refresh_token"] == "refresh-travail"
+state = alice.get(f"/api/agents/{CLEO}/google").json()
+assert [o["compte"] for o in state["autres"]] == ["alice@travail.example"] and state["droit"] == "confirmer", state
+exchange(CLEO, "alice@travail.example", "refresh-travail-2", compte="alice@travail.example")  # renouvelé seul, à sa place
+assert json.loads((work / "google_token.json").read_text())["refresh_token"] == "refresh-travail-2"
+assert json.loads((home(CLEO) / "google_token.json").read_text())["refresh_token"] == "refresh-perso"
+assert len(alice.get(f"/api/agents/{CLEO}/google").json()["autres"]) == 1
+assert alice.put(f"/api/agents/{CLEO}/google/droit", json={"droit": "agir"}).json()["droit"] == "agir"
+assert mcp._rights(CLEO)[mcp.GOOGLE_RIGHT] == "agir"
+assert alice.put(f"/api/agents/{CLEO}/google/droit", json={"droit": "tout"}).status_code == 422
+assert alice.post(f"/api/agents/{CLEO}/google/disconnect?compte=inconnu@example.com", json={}).status_code == 404
+r = alice.post(f"/api/agents/{CLEO}/google/disconnect?compte=alice@travail.example", json={})
+assert r.status_code == 200 and r.json()["autres"] == [] and r.json()["connecte"], r.text
+assert not work.exists() and (home(CLEO) / "google_token.json").exists(), "seul le dossier de ce compte part"
+assert bruno.get(f"/api/agents/{CLEO}/google").status_code in (403, 404), "un autre compte ne voit pas ces comptes Google"
+print("Google : plusieurs comptes, chacun renouvelé et retiré à part ; droit choisi transmis à l'agent")
+
 # Un autre compte a ses propres connecteurs, sans croiser ceux d'alice.
 assert bruno.post(f"/api/agents/{ZED}/connections/tools", json={"url": LIBRE, "nom": "libre", "droit": "lire"}).status_code == 400, "le réseau privé accepté reste celui du propriétaire"
 with db.connect() as c:

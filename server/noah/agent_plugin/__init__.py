@@ -259,6 +259,96 @@ def check_mcp(tool_name: str, args: dict) -> dict | None:
             "message": f"Outil « {server} » : {tool}\n{shown}"}
 
 
+# --- Droit sur Google (Gmail, Agenda, Drive…) ------------------------------------------------------------------------
+# La compétence google-workspace se lance en commande (google_api.py <service> <action>) : sans ceci, chaque lecture de
+# l'agenda passait au juge comme une commande inconnue et redemandait l'accord. Elle suit maintenant le droit choisi pour
+# Google, comme un outil MCP : les lectures passent ; écrire suit « agir », « confirmer » ou « lire ».
+
+GOOGLE_RIGHT = "@google"
+GOOGLE_READS = {
+    "gmail": {"search", "get", "labels"}, "calendar": {"list"}, "drive": {"search", "get", "download"},
+    "contacts": {"list"}, "sheets": {"get"}, "docs": {"get"},
+}
+GOOGLE_SCRIPT = os.environ.get("NOAH_GOOGLE_SCRIPT", "/opt/data/skills/productivity/google-workspace/scripts/google_api.py")
+GOOGLE_HOMES = "/opt/data/google-comptes/"
+# Un interpréteur choisi par l'agent (/tmp/python3) ferait n'importe quoi : seulement ceux de la machine.
+_GOOGLE_PART = re.compile(r"^(?:cd\s+(\S+)|(?:HERMES_HOME=(\S+)\s+)?(?:python3?|/usr/bin/python3|/opt/hermes/\.venv/bin/python3?)\s+(?:-u\s+)?(\S+)\s+(.*))$")
+
+
+def _digest(path: str) -> str:
+    try:
+        with open(path, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+    except OSError:
+        return ""
+
+
+# Le script tel qu'il était au démarrage de l'agent : un script réécrit ensuite (par l'agent lui-même) n'est plus « Google ».
+_GOOGLE_DIGEST = _digest(GOOGLE_SCRIPT)
+
+
+def google_call(command: str) -> tuple[str, str] | None:
+    """(service, action) d'une commande qui ne fait qu'appeler la vraie compétence google_api.py (avec au plus des « cd »
+    avant). Tout le reste : commande enchaînée, tube, redirection, substitution, autre script du même nom, script
+    modifié depuis le démarrage : None, et le chemin habituel du juge."""
+    command = command.strip()
+    if not command or not _GOOGLE_DIGEST or re.search(r"[|<>`\n]|\$\(|\$\{|(?<!&)&(?!&)", command):  # « & » seul lancerait une autre commande en fond
+        return None
+    cwd, found = None, None
+    for part in re.split(r"\s*(?:&&|;)\s*", command):
+        m = _GOOGLE_PART.match(part.strip())
+        if not m or found:
+            return None
+        if m.group(1):
+            cwd = m.group(1) if m.group(1).startswith("/") else None
+            continue
+        home, script = m.group(2), m.group(3)
+        if home and not (os.path.normpath(home).startswith(GOOGLE_HOMES) and ".." not in home):
+            return None
+        if not script.startswith("/"):
+            if not cwd:
+                return None
+            script = os.path.join(cwd, script)
+        if os.path.normpath(script) != GOOGLE_SCRIPT or _digest(GOOGLE_SCRIPT) != _GOOGLE_DIGEST:
+            return None
+        words = [w for w in shlex_split(m.group(4)) if not w.startswith("-")]
+        if len(words) < 2:
+            return None
+        found = (words[0], words[1])
+    return found
+
+
+def shlex_split(text: str) -> list[str]:
+    try:
+        return shlex.split(text)
+    except ValueError:
+        return text.split()
+
+
+def check_google(command: str) -> dict | None | bool:
+    """False : pas une commande Google. None : elle passe. Sinon : la décision (refus ou accord de la personne)."""
+    call = google_call(command)
+    if not call:
+        return False
+    service, action = call
+    if action in GOOGLE_READS.get(service, ()):
+        return None
+    droit = _rights().get(GOOGLE_RIGHT, "confirmer")
+    if droit == "agir":
+        return None
+    if droit == "lire":
+        return {"action": "block", "message": (
+            f"Noah refuse : Google est en lecture seule sur cet agent, et « {service} {action} » écrit. Dis-le à "
+            "l'utilisateur ; il peut changer ce droit dans l'onglet Connexions de l'agent.")}
+    if _unattended():
+        return {"action": "block", "message": (
+            f"Noah refuse : écrire avec Google (« {service} {action} ») demande la confirmation de l'utilisateur, et "
+            "personne ne peut la donner pendant une routine. Signale-le dans ton compte rendu ; l'utilisateur peut passer "
+            "le droit de Google à « agir » dans l'onglet Connexions de l'agent.")}
+    return {"action": "approve", "rule_key": f"noah-google-{uuid.uuid4().hex}",
+            "message": f"Ton juge demande ton accord : écrire avec Google ({service} {action}).\n{command[:600]}"}
+
+
 _browser_awake_at = 0.0
 HOOK_SECONDS = 600  # plugins.hook_callback_timeout, écrit par Noah (plafond d'Hermes) : au-delà, Hermes bloque l'outil
 
@@ -1015,8 +1105,9 @@ def signs_in(text: str) -> tuple[str, re.Match | None]:
 def _is_untrusted(tool_name: str, args: dict) -> bool:
     if tool_name in UNTRUSTED_TOOLS or tool_name.startswith("mcp__") or (tool_name.startswith("browser_") and tool_name != "browser_vault"):
         return True
-    if tool_name == "terminal":
-        return bool(READS_OUTSIDE.search(str(args.get("command") or "")))
+    if tool_name == "terminal":  # un courriel, un événement, un document : écrits par d'autres, triés comme une page
+        command = str(args.get("command") or "")
+        return bool(READS_OUTSIDE.search(command)) or google_call(command) is not None
     return tool_name == "read_file" and "/uploads/" in _full_path(str(args.get("path") or ""))
 
 
@@ -1114,6 +1205,8 @@ def check_juge(tool_name: str, args: dict, directive: dict | None, hook: dict) -
             if _read_only(server, tool):
                 return directive
             right = rights.get(server, "confirmer")
+        elif tool_name == "terminal" and (google := check_google(str(args.get("command") or ""))) is not False:
+            return google or directive  # le droit choisi pour Google décide, comme pour un outil MCP
         elif no_effect(tool_name, args):
             return directive
     session = str(hook.get("session_id") or "")

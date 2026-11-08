@@ -394,8 +394,15 @@ def _note(agent_id: str, name: str, etat: str, erreur: str = "", outils: list | 
                   (etat, erreur, time.time(), agent_id, name))
 
 
+GOOGLE_RIGHT = "@google"  # même nom que dans le plugin de l'agent : jamais celui d'un serveur MCP (un « @ » n'y entre pas)
+
+
 def _rights(agent_id: str) -> dict[str, str]:
-    return {r["nom"]: r["droit"] for r in _rows(agent_id)}
+    rights = {r["nom"]: r["droit"] for r in _rows(agent_id)}
+    google = db.get_setting(f"google_droit_{agent_id}")
+    if google in ("lire", "agir", "confirmer"):
+        rights[GOOGLE_RIGHT] = google
+    return rights
 
 
 async def seal_rights(agent_id: str) -> None:

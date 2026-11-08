@@ -197,12 +197,27 @@ def google(_):
             "identifiants": (DATA / "google_client_secret.json").exists()}
 
 
+def _google_dir(body) -> Path:
+    """Le compte principal vit à la racine (là où la compétence le cherche) ; un autre compte, dans son dossier, que
+    l'agent désigne avec HERMES_HOME=/opt/data/google-comptes/<dossier>."""
+    folder = str((body or {}).get("dossier") or "")
+    if not folder:
+        return DATA
+    if not re.fullmatch(r"[a-z0-9][a-z0-9.-]{0,80}", folder):
+        fail("Dossier de compte invalide")
+    d = DATA / "google-comptes" / folder
+    d.mkdir(parents=True, exist_ok=True)
+    d.chmod(0o700)
+    return d
+
+
 def google_install(body):
     """Pose les identifiants et le jeton obtenus par Noah Agent (accord donné dans le navigateur de l'agent)."""
     if "installed" not in (body.get("client") or {}) or not (body.get("token") or {}).get("refresh_token"):
         fail("Identifiants ou jeton manquants")
+    home = _google_dir(body)
     for name, data in (("google_client_secret.json", body["client"]), ("google_token.json", body["token"])):
-        f = DATA / name
+        f = home / name
         f.write_text(json.dumps(data, indent=2), encoding="utf-8")
         f.chmod(0o600)
     (DATA / "google_oauth_pending.json").unlink(missing_ok=True)
@@ -220,6 +235,12 @@ def google_read(_):
 
 def google_revoke(body):
     # « local » : Noah Agent gère l'accord ; révoquer chez Google le retirerait aussi aux autres agents.
+    if (body or {}).get("dossier"):  # un compte de plus : seulement son dossier
+        home = _google_dir(body)
+        for name in ("google_token.json", "google_client_secret.json"):
+            (home / name).unlink(missing_ok=True)
+        home.rmdir()
+        return {"ok": True}
     if not (body or {}).get("local"):
         try:
             _gsetup("--revoke")

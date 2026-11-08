@@ -83,6 +83,15 @@ def _semver(v: str) -> tuple[int, int, int] | None:
     return tuple(int(x) for x in m.groups()) if m else None
 
 
+def android_app() -> dict | None:
+    """L'APK publiée dans la même Release que ce serveur (même numéro) : l'app Android la propose si elle est plus ancienne.
+    Rien pour une construction locale (« dev ») ou une préversion, qui n'ont pas d'APK signée."""
+    if not re.fullmatch(r"\d+\.\d+\.\d+", VERSION) or "/releases/" not in MANIFEST_URL:
+        return None
+    base = MANIFEST_URL.split("/releases/", 1)[0]
+    return {"version": VERSION, "url": f"{base}/releases/download/v{VERSION}/noah-agent-android.apk"}
+
+
 def shown_version() -> str:
     """Le numéro que voit la personne (version-affichee.txt). VERSION est le numéro technique, unique pour chaque publication
     signée : une correction en change, sans rien annoncer. Le numéro affiché ne monte que lorsqu'on le décide."""
