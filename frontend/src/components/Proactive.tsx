@@ -7,16 +7,16 @@ import { Section } from "./AgentPowers";
 import { Button, ErrorText } from "./ui";
 
 const MODES: [ProactiveMode, string, string][] = [
-  ["coupe", "Rien", "Il attend que tu lui parles. Tes routines et tes veilles continuent."],
-  ["signaler", "Me prévenir", "Il regarde ce qu'il peut lire et tes objectifs. Il prépare et te propose, sans rien changer dehors."],
-  ["agir", "Agir et me prévenir", "Il s'en occupe et te dit ce qu'il a fait. Les droits de tes connexions et les accords restent valables."],
+  ["coupe", "Rien", "Il attend que tu lui parles."],
+  ["signaler", "Me prévenir", "Il te propose, sans rien changer."],
+  ["agir", "Agir et me prévenir", "Il agit, puis te dit quoi."],
 ];
 const EVERY: [number, string][] = [[15, "Toutes les 15 min"], [30, "Toutes les 30 min"], [60, "Toutes les heures"], [120, "Toutes les 2 h"], [180, "Toutes les 3 h"], [360, "Toutes les 6 h"]];
 const OUTCOME: Record<string, string> = {
   rien_de_neuf: "Rien de neuf : rien n'a coûté.",
   rien: "Du nouveau, mais rien d'important.",
   signale: "Il t'a écrit dans la conversation.",
-  tour: "Il s'en occupe dans un fil. Le compte rendu arrivera dans la conversation.",
+  tour: "Il s'en occupe. Compte rendu dans la conversation.",
   propose: "Il t'a proposé une idée dans la conversation.",
   deja: "Il regarde déjà.",
   erreur: "Ce passage n'a pas abouti.",
@@ -100,7 +100,7 @@ export function Proactive({ agentId }: { agentId: string }) {
                 {EVERY.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
               <p className="text-xs text-muted-foreground">
-                {s.sources.length ? `Il regarde : ${s.sources.join(", ")}.` : "Rien à lire pour l'instant : relie Google dans Connexions, ou ajoute une veille."}
+                {s.sources.length ? `Il regarde : ${s.sources.join(", ")}.` : "Rien à lire : relie Google ou ajoute une veille."}
                 {s.objectifs > 0 ? ` ${s.objectifs} objectif${s.objectifs > 1 ? "s" : ""} en tête.` : " Aucun objectif écrit."}
               </p>
               {s.dernier_passage && (

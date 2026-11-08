@@ -59,10 +59,6 @@ export function Onboarding({ status, onDone }: { status: Status; onDone: () => v
       {step === "model" && (
         <Card>
           <h2 className="text-lg font-semibold">Le cerveau de tes agents</h2>
-          <p className="text-sm text-muted-foreground">
-            Aucun fournisseur n'est choisi d'avance. Ollama tourne sur ton serveur : rien n'en sort. La clé d'un fournisseur
-            reste chiffrée ici ; les agents ne la voient jamais. Noah n'envoie aucune télémétrie à ses développeurs.
-          </p>
           <Suspense fallback={<p className="text-sm text-muted-foreground">Chargement…</p>}>
             <ModelPicker first onDone={() => setStep("agent")} />
           </Suspense>
@@ -111,8 +107,7 @@ function CodeStep({ code, setCode, onNext }: { code: string; setCode: (c: string
       <Card>
         <h2 className="text-lg font-semibold">Code d'installation</h2>
         <p className="text-sm text-muted-foreground">
-          Il prouve que c'est bien toi qui as installé Noah, et non le premier visiteur de cette adresse. Le lien de fin
-          d'installation le contient déjà : si tu es arrivé ici sans lui, le code se lit sur le serveur.
+          Il se lit sur le serveur :
         </p>
         <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
           <li><b className="text-foreground">Avec un terminal :</b> <code className="whitespace-nowrap rounded bg-muted px-1 py-0.5 text-xs">docker logs noah-server</code>, ligne « Code d'installation ».</li>
@@ -137,12 +132,12 @@ function InstallStep({ code, onNew }: { code: string; onNew: () => void }) {
       <div className="grid gap-3 sm:grid-cols-2">
         <button type="button" onClick={onNew} className="flex cursor-pointer flex-col gap-1 rounded-xl border border-border bg-background p-4 text-left hover:border-accent">
           <span className="font-semibold">Nouvelle installation</span>
-          <span className="text-sm text-muted-foreground">Tu crées ton compte, puis ton premier agent.</span>
+          <span className="text-sm text-muted-foreground">Ton compte, puis ton premier agent.</span>
         </button>
         <button type="button" onClick={() => setRestore(true)} aria-expanded={restore}
           className={cn("flex cursor-pointer flex-col gap-1 rounded-xl border border-border bg-background p-4 text-left hover:border-accent", restore && "border-accent ring-1 ring-accent")}>
           <span className="font-semibold">Restaurer une sauvegarde</span>
-          <span className="text-sm text-muted-foreground">Tu retrouves ton compte, tes agents, leur mémoire et l'historique.</span>
+          <span className="text-sm text-muted-foreground">Ton compte, tes agents et leur mémoire.</span>
         </button>
       </div>
       {restore && <Restore code={code} />}
@@ -212,9 +207,8 @@ function Restore({ code }: { code: string }) {
   return (
     <div className="flex flex-col gap-3 text-sm">
       <p>
-        Choisis l'archive faite par la sauvegarde (<code className="font-mono text-xs">noah-AAAAMMJJ-HHMM.tar</code>, dans le
-        dossier <code className="font-mono text-xs">backups</code> de ton ancienne installation). Les agents, leur mémoire,
-        tes conversations et tes réglages reviennent ; tu te connectes ensuite avec ton compte d'avant.
+        Choisis l'archive <code className="font-mono text-xs">noah-AAAAMMJJ-HHMM.tar</code> du dossier{" "}
+        <code className="font-mono text-xs">backups</code>.
       </p>
       {sent === null ? (
         <input type="file" accept=".tar,application/x-tar" aria-label="Archive de sauvegarde"
@@ -271,7 +265,6 @@ function AccountStep({ code, onNext, onBadCode }: { code: string; onNext: () => 
     <form onSubmit={submit} className="max-w-md">
       <Card>
         <h2 className="text-lg font-semibold">Ton compte</h2>
-        <p className="text-sm text-muted-foreground">Le compte propriétaire. Il reste sur ce serveur.</p>
         <Label>
           Nom d'utilisateur
           <Input id="username" autoComplete="username" required minLength={2} value={username} onChange={(e) => setUsername(e.target.value)} />
@@ -323,7 +316,6 @@ function AgentStep({ onNext }: { onNext: (agentId: string) => void }) {
     <form onSubmit={submit} className="max-w-xl">
       <Card>
         <h2 className="text-lg font-semibold">Ton premier agent</h2>
-        <p className="text-sm text-muted-foreground">Il a sa propre machine, avec un navigateur et ses fichiers. Tu pourras en créer d'autres ensuite.</p>
         <Label>
           Nom
           <Input required maxLength={40} value={name} onChange={(e) => setName(e.target.value)} />
@@ -431,7 +423,6 @@ function TrialStep({ agentId, onModel, onDone }: { agentId: string | null; onMod
   return (
     <Card>
       <h2 className="text-lg font-semibold">Premier essai</h2>
-      <p className="text-sm text-muted-foreground">On vérifie de bout en bout que ton agent répond, avec ta clé et ton modèle.</p>
       {phase === "waiting" && <p className="text-sm">{step || "Démarrage de la machine de l'agent…"} (jusqu'à trois minutes la première fois)</p>}
       {phase === "asking" && <p className="text-sm">L'agent réfléchit…</p>}
       {reply && <blockquote className="rounded-lg border-l-4 border-accent bg-background p-3 text-sm">{reply}</blockquote>}

@@ -27,11 +27,13 @@ import { clearShare, pendingShare } from "@/lib/share";
 import { appShell, tooOld } from "@/lib/platform";
 import { forgetPushSession, reconcilePush } from "@/lib/push";
 import { useAgentChat } from "@/lib/useAgentChat";
-import { MODE_NAMES, type ModeId, readableModel } from "@/lib/modes";
+import { modeName, readableModel } from "@/lib/modes";
 import { AgentBrain } from "./components/AgentBrain";
 import { AppUpdate } from "./components/AppUpdate";
 import { Dialog, DialogContent } from "./components/ui";
 import { cn } from "@/lib/utils";
+import { listenFileMenus } from "@/lib/desktop";
+import { prefetchSeen } from "@/lib/seen";
 
 // Chargés à la première ouverture : le premier écran n'attend que le chat.
 const AgentDialog = lazy(() => import("@/components/AgentDialog").then((m) => ({ default: m.AgentDialog })));
@@ -159,6 +161,7 @@ export default function App() {
       setScreen("error");
     }
   }, []);
+  useEffect(() => listenFileMenus(), []);
   useEffect(() => {
     boot();
   }, [boot]);
@@ -312,6 +315,16 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const [inCall, setInCall] = useState<ChatProps | null>(null);
 
   const agent = agents.find((a) => a.id === agentId) ?? null;
+  // Les onglets du panneau lisent la machine de l'agent (une seconde ou plus) : on les lit d'avance, une fois l'écran calme.
+  const prefetchFor = agent && canAdmin(agent) ? agent.id : null;
+  useEffect(() => {
+    if (!prefetchFor) return;
+    const timer = setTimeout(() => {
+      import("@/components/SidePanel").catch(() => {});
+      prefetchSeen(["routines", "watches", "connections"].map((p) => `/api/agents/${prefetchFor}/${p}`), (path) => get(path));
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [prefetchFor]);
   // Bouton Retour d'Android : ferme ce qui est ouvert, du plus proche au plus lointain. Les fenêtres se ferment sur Échap.
   useEffect(() => {
     window.noahRetour = () => {
@@ -620,8 +633,8 @@ function Shell({ onLogout }: { onLogout: () => void }) {
               ["Discussion", MessageCircle, () => { setPanel(null); setSidebarOpen(false); }, 0],
               ["Fichiers", FolderOpen, () => { setSidebarOpen(false); setPanel("files"); }, 0],
               ["Tâches", Clock, () => { setSidebarOpen(false); setPanel("routines"); }, 0],
-              ["Agents", Users, () => setSidebarOpen(true), 0],
-              ["Réglages", SettingsIcon, () => setSettings("home"), 0],
+              ["Agents", Users, () => { setPanel(null); setSidebarOpen(true); }, 0],
+              ["Réglages", SettingsIcon, () => { setPanel(null); setSidebarOpen(false); setSettings("home"); }, 0],
             ] as const).map(([label, Icon, go, count]) => (
               <button key={label} type="button" onClick={go} aria-current={door === label ? "page" : undefined} className={cn("relative flex cursor-pointer flex-col items-center gap-0.5 py-2 text-[11px] font-medium", door === label ? "text-accent" : "text-muted-foreground")}>
                 <Icon className="size-5" />{label}
@@ -788,7 +801,7 @@ function AgentChat(props: ChatProps) {
   const { readOnly } = props;
   const color = agentColor(props.agent);
   const { shape, detail } = props.agent;
-  const model = props.agent.mode ? MODE_NAMES[props.agent.mode as ModeId] ?? props.agent.mode : readableModel(props.agent.model);
+  const model = props.agent.mode ? modeName(props.agent.mode) : readableModel(props.agent.model);
   const context = useMemo(
     () => ({
       say,

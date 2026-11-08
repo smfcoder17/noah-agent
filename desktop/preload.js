@@ -4,6 +4,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("noahDesktop", {
   pickFolder: () => ipcRenderer.invoke("noah:pick-folder"),
   openPath: (p) => ipcRenderer.invoke("noah:open-path", String(p)),
+  fileMenu: (url, name) => ipcRenderer.invoke("noah:file-menu", String(url), String(name)),
   forgetServer: () => ipcRenderer.invoke("noah:forget-server"),
   dossiers: () => ipcRenderer.invoke("noah:dossiers"),
   dossierAjouter: () => ipcRenderer.invoke("noah:dossier-ajouter"),

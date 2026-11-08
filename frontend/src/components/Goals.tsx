@@ -112,7 +112,7 @@ export function Goals({ open, agents, agentId, onOpenChange }: { open: boolean; 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {open && (
-        <DialogContent title="Objectifs" description="Ce que tu veux atteindre. Tes agents les gardent en tête et cherchent comment t'aider." className="max-w-lg max-sm:p-4">
+        <DialogContent title="Objectifs" description="Ce que tu veux atteindre." className="max-w-lg max-sm:p-4">
           <form onSubmit={add} className="flex flex-col gap-2">
             <div className="flex items-center gap-1.5">
               <Input value={text} onChange={(e) => setText(e.target.value)} maxLength={300} placeholder="Poster chaque jour, répondre à ma communauté…" aria-label="Nouvel objectif" className="min-w-0 flex-1" />
@@ -128,7 +128,7 @@ export function Goals({ open, agents, agentId, onOpenChange }: { open: boolean; 
           </form>
           <ErrorText>{error}</ErrorText>
           {!goals && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture…</p>}
-          {goals && !active.length && <p className="text-sm text-muted-foreground">Rien pour l'instant. Écris ce que tu veux atteindre : être régulier sur ta chaîne, finir un dossier, répondre plus vite. Une fois par jour, un agent te proposera comment avancer.</p>}
+          {goals && !active.length && <p className="text-sm text-muted-foreground">Aucun objectif. Chaque jour, un agent t'aidera à avancer.</p>}
           {active.length > 0 && <ul aria-label="Objectifs en cours" className="flex flex-col gap-2">{active.map(row)}</ul>}
           {done.length > 0 && (
             <div className="flex flex-col gap-2">

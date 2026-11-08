@@ -175,8 +175,8 @@ export function ModelSelect({
                   <span className="text-sm font-medium">Automatique</span>
                   <span className="truncate text-xs text-muted-foreground">
                     {routed
-                      ? "Un routeur lit chaque demande et tes préférences, puis choisit la méthode (SVG, code, génération) et le meilleur modèle."
-                      : `Le meilleur disponible${autoModel ? ` : ${shortName(autoModel.name)}` : ""}, suit les nouveaux modèles.`}
+                      ? "Choisit selon chaque demande."
+                      : `Le meilleur disponible${autoModel ? ` : ${shortName(autoModel.name)}` : ""}`}
                   </span>
                 </span>
               </Row>
@@ -200,9 +200,6 @@ export function ModelSelect({
             ))}
             {!list.length && <p className="p-3 text-sm text-muted-foreground">Aucun modèle ne correspond.</p>}
           </div>
-          <p className="px-1 text-[11px] text-muted-foreground">
-            ★ qualité et ⏲ vitesse : repères Noah Agent par famille de modèles, pas un benchmark officiel. Prix publiés par le fournisseur, convertis en unité parlante.
-          </p>
         </div>
       )}
     </div>

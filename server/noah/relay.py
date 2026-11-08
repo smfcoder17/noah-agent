@@ -389,7 +389,7 @@ def _current_brain(agent_id: str, asked: str) -> str:
     return db.get_setting(f"model_{agent_id}") or brain or asked
 
 
-async def _chain_of(agent_id: str, asked: str) -> list[dict]:
+async def _chain_of(agent_id: str, asked: str, body: dict | None = None) -> list[dict]:
     """Les modèles de cet appel, dans l'ordre : le jeton d'une routine, sinon le mode de l'agent, sinon son cerveau. Le nom écrit par
     l'agent n'est suivi que s'il est le modèle de décision ou un jeton gardé par modes : un agent ne choisit rien d'autre ici."""
     from . import decision, modes
@@ -401,6 +401,8 @@ async def _chain_of(agent_id: str, asked: str) -> list[dict]:
     helper = decision.model()
     if helper and helper != db.get_setting("model") and asked == helper:  # ses petits travaux restent au modèle de décision
         return single
+    if db.get_setting(f"model_mode_{agent_id}") == modes.AUTO:
+        return await modes.auto_chain(agent_id, body or {}) or single
     return await modes.agent_chain(agent_id) or single
 
 
@@ -487,7 +489,7 @@ async def relay(path: str, request: Request):
 
     chat = path.endswith("chat/completions")
     effort = modes.reasoning(agent_id) if chat else None
-    chain = modes.ordered(await _chain_of(agent_id, model)) if chat else [{"modele": model, "fournisseur": provider}]
+    chain = modes.ordered(await _chain_of(agent_id, model, body)) if chat else [{"modele": model, "fournisseur": provider}]
 
     def target(link: dict) -> tuple[str, dict]:
         """L'adresse et les en-têtes de ce maillon. Chaque clé ne part que vers son fournisseur."""

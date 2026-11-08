@@ -37,6 +37,7 @@ jobs:
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/desktop/appareils_test.py"
           docker run --rm -v "$PWD:/repo:ro" node:22-alpine node /repo/tests/desktop/dossiers_test.mjs
+          docker run --rm -v "$PWD:/repo:ro" node:22-alpine node /repo/tests/desktop/fichiers_test.mjs
           node tests/desktop/pont_reel.mjs
       - name: Appairage
         run: |
@@ -161,6 +162,7 @@ jobs:
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/tools/juge_test.py"
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/tools/google_droit_test.py"
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/tools/auto_test.py && python /tests/tools/sites_test.py"
       - name: "Connecteurs globaux et compétences : exclusion réelle, agent neuf, droits par agent, invités, autre compte"
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/launcher:/l" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/tools/connecteurs_test.py"

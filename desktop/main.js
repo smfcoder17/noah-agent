@@ -1,6 +1,7 @@
 // Noah Agent, application de bureau : relie l'ordinateur à Noah, sur un serveur (VPS) ou démarré ici avec Docker,
 // ouvre son interface dans une fenêtre,
 // reste dans la zone de notification pour que les routines continuent, et donne le vrai sélecteur de dossier.
+const fichiers = require("./fichiers");
 const { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, safeStorage, session, shell, Tray } = require("electron");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -719,6 +720,24 @@ ipcMain.handle("noah:commande-oublier", (e, commande, dossier) => {
   if (!origin || !sameOrigin(e.senderFrame.url)) return null;
   folders().forgetAlways(String(commande), String(dossier));
   return foldersState();
+});
+// Clic droit sur un fichier de l'agent (fichiers.js) : le menu du système, le téléchargement au premier geste.
+ipcMain.handle("noah:file-menu", async (e, url, name) => {
+  if (!origin || !sameOrigin(e.senderFrame.url) || !sameOrigin(String(url))) return;
+  const win = BrowserWindow.fromWebContents(e.sender);
+  let saved = null;
+  const fetchOnce = async () => (saved ??= await fichiers.download((u) => e.sender.session.fetch(u), String(url), String(name), path.join(app.getPath("downloads"), "Noah")));
+  const act = async (id) => {
+    try {
+      const file = await fetchOnce();
+      if (id === "ouvrir") await shell.openPath(file);
+      else if (id === "ouvrir-avec") require("node:child_process").execFile("rundll32.exe", ["shell32.dll,OpenAs_RunDLL", file], { windowsHide: false });
+      else shell.showItemInFolder(file);
+    } catch (err) {
+      dialog.showMessageBox(win, { type: "error", message: "Ce fichier n'a pas pu être récupéré.", detail: String(err.message || err) });
+    }
+  };
+  Menu.buildFromTemplate(fichiers.entries(String(name)).map((it) => ({ label: it.label, click: () => act(it.id) }))).popup({ window: win });
 });
 ipcMain.handle("noah:open-path", async (e, p) => {
   if (!origin || !sameOrigin(e.senderFrame.url)) return;

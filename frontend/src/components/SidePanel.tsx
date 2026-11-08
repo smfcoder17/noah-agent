@@ -101,7 +101,7 @@ export function SidePanel({
       <TabsContent value="computer" className="flex min-h-0 flex-1 flex-col">
         {tab === "computer" && <ComputerTab agent={agent} admin={admin} refreshKey={refreshKey} onClose={onClose} />}
       </TabsContent>
-      <TabsContent value="routines" className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1">
+      <TabsContent value="routines" className="relative flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1">
         {admin && <><Proactive agentId={agent.id} /><Routines agentId={agent.id} /><Watches agentId={agent.id} /></>}
       </TabsContent>
       <TabsContent value="memory" className="min-h-0 flex-1 overflow-y-auto px-1">
@@ -215,7 +215,6 @@ function ActivityLog({ agentId, refreshKey, onOpen }: { agentId: string; refresh
       <h3 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Ce qu'il a fait</h3>
       {!rows.length && <p className="text-sm text-muted-foreground">Rien pour l'instant. Ses tâches et les accords que tu donnes s'afficheront ici.</p>}
       {[...periods].map(([label, list], i) => <ActivityPeriod key={label} label={label} rows={list} first={i === 0} onOpen={onOpen} />)}
-      {rows.length > 0 && <p className="pt-1 text-xs text-muted-foreground">Trois mois sont gardés ici. Pour remonter plus loin, demande-le à ton agent.</p>}
     </section>
   );
 }
@@ -279,9 +278,10 @@ function Details({ agent, onEdit, refreshKey, onAgentChanged, onTab, onGoals, ch
       {children}
       <AgentOverview agent={agent} refreshKey={refreshKey} spent={`${money(mine?.cost ?? 0)} $`} onTab={onTab} onEdit={onEdit} onGoals={onGoals}
         onBrain={() => { setBrainOpen((n) => n + 1); setTimeout(() => brainBox.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); }}
-        onSpending={() => { setSpendingOpen(true); requestAnimationFrame(() => spendingBox.current?.scrollIntoView({ behavior: "smooth", block: "start" })); }} />
-      <div ref={spendingBox}>
-      <Section key={spendingOpen ? "ouverte" : "repliee"} defaultOpen={spendingOpen} title="Dépense" count={`${money(mine?.cost ?? 0)} $ ce mois-ci`}>
+        onSpending={() => { setSpendingOpen(true); setTimeout(() => spendingBox.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); }} />
+      {/* La dépense et le modèle s'ouvrent depuis leur tuile : l'onglet reste léger. */}
+      {spendingOpen && <div ref={spendingBox}>
+      <Section defaultOpen title="Dépense" count={`${money(mine?.cost ?? 0)} $ ce mois-ci`}>
       <div className="grid grid-cols-2 gap-2">
         <Stat label="Coût ce mois-ci" value={`${money(mine?.cost ?? 0)} $`} />
         <Stat label="Appels au modèle" value={mine?.calls ?? 0} />
@@ -290,8 +290,8 @@ function Details({ agent, onEdit, refreshKey, onAgentChanged, onTab, onGoals, ch
       </div>
       {usage && <Spending usage={usage} agentId={agent.id} />}
       </Section>
-      </div>
-      {canAdmin(agent) && <div ref={brainBox}><AgentBrain key={`cerveau-${agent.id}`} agentId={agent.id} own={agent.model} mode={agent.mode} reasoning={agent.raisonnement} onChanged={onAgentChanged} openKey={brainOpen} /></div>}
+      </div>}
+      {canAdmin(agent) && brainOpen > 0 && <div ref={brainBox}><AgentBrain key={`cerveau-${agent.id}`} agentId={agent.id} own={agent.model} mode={agent.mode} reasoning={agent.raisonnement} onChanged={onAgentChanged} openKey={brainOpen} /></div>}
       {canAdmin(agent) && <AgentAppearance key={`visage-${agent.id}`} agent={agent} onChanged={onAgentChanged} />}
     </div>
   );
@@ -421,7 +421,7 @@ function Threads({
       {running.length ? (
         running.map(row)
       ) : (
-        <p className="text-sm text-muted-foreground">Rien en cours. L'agent ouvre un fil quand il mène un travail en parallèle.</p>
+        <p className="text-sm text-muted-foreground">Rien en cours.</p>
       )}
       <FoldedThreads label="Terminés" threads={finished} threadId={threadId} row={row} />
       <FoldedThreads label="Archivés" threads={archived} threadId={threadId} row={row} />

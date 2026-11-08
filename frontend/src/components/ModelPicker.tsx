@@ -161,7 +161,7 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
           </div>
           {provider && provider.id !== "openrouter" && (
             <p className="text-xs text-muted-foreground">
-              {provider.label} sert au texte et aux outils. La voix, les images et la vidéo passent par OpenRouter : tu pourras ajouter sa clé dans Réglages &gt; Voix.
+              Voix et images : clé OpenRouter dans Réglages &gt; Voix.
             </p>
           )}
           {provider?.own_url && (
@@ -290,7 +290,7 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
                     {label}
                   </button>
                 ))}
-                <span className="ml-auto self-center text-xs text-muted-foreground">{results ? `${results.length} résultats` : "La sélection de Noah Agent · cherche pour tout voir"}</span>
+                <span className="ml-auto self-center text-xs text-muted-foreground">{results ? `${results.length} résultats` : "Cherche pour tout voir"}</span>
               </div>
               <div role="radiogroup" aria-label="Modèles" className="flex max-h-80 flex-col overflow-y-auto">
                 {list.map((m) => (
@@ -323,14 +323,13 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
           </label>
         </div>
         <p className="text-xs text-muted-foreground">
-          Au plafond, les agents s'arrêtent et te demandent. Rien n'est dépensé au-delà. Pour le plafond du jour, tu es
-          prévenu sur ton téléphone à 80 %, puis quand l'agent s'arrête ; il reprend le lendemain.
+          Au plafond, les agents s'arrêtent et te demandent.
         </p>
       </fieldset>
 
       <ErrorText>{error}</ErrorText>
       <div className="flex flex-wrap items-center justify-end gap-2">
-        <span className="mr-auto text-xs text-muted-foreground">S'applique aux prochaines tâches de tous les agents.</span>
+        <span className="mr-auto text-xs text-muted-foreground">Pour tous les agents.</span>
         {onCancel && <Button variant="outline" onClick={onCancel}>Annuler</Button>}
         <Button onClick={save} disabled={saving || !picked}>
           {saving

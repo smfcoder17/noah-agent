@@ -480,6 +480,32 @@ async function readPage(req, res, ctx) {
   }
 }
 
+// Un jeton affiché par la page d'une plateforme (Meta, X), lu ici et rendu au serveur seul : l'agent ne le voit pas passer dans
+// ses commandes ni dans ses messages. Seulement sur les origines que le serveur nomme, avec un motif fixe par plateforme.
+const TOKEN_SHAPES = { instagram: /(?:IG[A-Za-z0-9_-]{60,}|EAA[A-Za-z0-9]{60,})/g };
+async function readToken(req, res, ctx) {
+  try {
+    const body = await readBody(req);
+    const shape = TOKEN_SHAPES[String(body.plateforme || "")];
+    const allowed = Array.isArray(body.origines) ? body.origines.map(String) : [];
+    if (!shape || !allowed.length) return res.status(400).json({ error: "Plateforme inconnue." });
+    const tab = agentTab(ctx, String(body.userId || ""), String(body.onglet || ""));
+    if (!tab) return res.status(404).json({ error: "Aucun onglet ouvert." });
+    const page = tab.tabState.page;
+    const origin = new URL(await page.evaluate(() => location.href)).origin;
+    if (!allowed.includes(origin)) return res.status(409).json({ error: "La page ouverte n'est pas celle de la plateforme.", origine: origin });
+    const found = new Set();
+    for (const frame of sameOriginFrames(page, origin)) {
+      const text = await frame.evaluate(() => [document.body?.innerText || "", ...[...document.querySelectorAll("input, textarea")].map((el) => el.value || "")].join("
+")).catch(() => "");
+      for (const m of text.matchAll(shape)) if (found.size < 5) found.add(m[0]);
+    }
+    res.json({ ok: true, origine: origin, jetons: [...found] });
+  } catch {
+    res.status(500).json({ error: "La page ne répond pas." });
+  }
+}
+
 async function fillPage(req, res, ctx) {
   filling++;
   try {
@@ -501,8 +527,9 @@ async function fillPage(req, res, ctx) {
 
 export default function register(app, ctx) {
   app.use((req, res, next) => {
-    if (req.method === "POST" && (req.path === "/noah/page" || req.path === "/noah/remplir")) {
+    if (req.method === "POST" && (req.path === "/noah/page" || req.path === "/noah/remplir" || req.path === "/noah/jeton")) {
       if (!serverKeyGiven(req)) return res.status(403).json({ error: "Forbidden" });
+      if (req.path === "/noah/jeton") return readToken(req, res, ctx);
       return req.path === "/noah/page" ? readPage(req, res, ctx) : fillPage(req, res, ctx);
     }
     if (filling && TAB_READS.test(req.path)) {

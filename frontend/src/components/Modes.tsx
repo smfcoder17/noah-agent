@@ -221,15 +221,15 @@ export function ModeRows({ level, onChanged }: { level: Level; onChanged?: (inSe
           </div>
         ));
       })}
-      {row("gratuit", "Gratuit", "Les modèles gratuits de tes clés, sinon les moins chers. Ils alternent, et si l'un est épuisé le suivant prend le relais.",
+      {row("gratuit", "Gratuit", "Les modèles gratuits, à tour de rôle.",
         state.gratuit.length ? <span className="truncate text-xs text-muted-foreground">{state.gratuit.slice(0, 3).map((l) => shortName(l.nom)).join(", ")}{state.gratuit.length > 3 ? `, et ${state.gratuit.length - 3} autres` : ""}</span> : <Picked link={null} />,
         state.gratuit.length > 0, "Voir", (
           <div className="flex flex-col gap-1 border-t border-border pt-2">
             <ol className="flex flex-col gap-1">{state.gratuit.map((l, i) => <li key={`${l.fournisseur}:${l.modele}`} className="flex items-center gap-2"><span className="w-4 shrink-0 text-xs text-muted-foreground tabular-nums">{i + 1}</span><span className="min-w-0 flex-1"><Picked link={l} /></span></li>)}</ol>
-            <p className="text-xs text-muted-foreground">Les modèles gratuits sont limités en débit, et certains gardent ce qu'on leur envoie pour s'entraîner. Évite ce mode pour ce qui est confidentiel.</p>
+            <p className="text-xs text-muted-foreground">Certains gardent tes messages : rien de confidentiel.</p>
           </div>
         ))}
-      {row("custom", "Ma liste", "Ta liste, dans ton ordre. Le premier est la priorité, le suivant prend le relais s'il n'est pas disponible.",
+      {row("custom", "Ma liste", "Ta liste, dans ton ordre.",
         state.custom.length ? <span className="truncate text-xs text-muted-foreground">{state.custom.map((l) => shortName(l.nom)).join(" → ")}</span> : <span className="text-xs text-muted-foreground">Aucun modèle pour l'instant.</span>,
         state.custom.length > 0, "Composer", (
           <div className="border-t border-border pt-2">

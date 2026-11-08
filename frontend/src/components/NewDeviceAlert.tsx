@@ -58,7 +58,7 @@ export function NewDeviceAlert({ onChangePassword }: { onChangePassword: () => v
           <>
             <h2 id="alerte-titre" className="text-lg font-semibold">Cet appareil est déconnecté</h2>
             <p className="text-sm text-muted-foreground">
-              Il ne peut plus rien faire sur ton compte. S'il s'est connecté avec ton mot de passe, quelqu'un le connaît : change-le maintenant.
+              S'il a utilisé ton mot de passe, change-le maintenant.
             </p>
             <div className="flex flex-wrap justify-end gap-2">
               <Button variant="ghost" onClick={() => setCut(false)}>Plus tard</Button>
@@ -81,7 +81,7 @@ export function NewDeviceAlert({ onChangePassword }: { onChangePassword: () => v
               <dt className="text-muted-foreground">Date</dt><dd>{when(device.date)}</dd>
             </dl>
             {!device.peut_confirmer && (
-              <p className="text-xs text-muted-foreground">Cet appareil est lui aussi en attente de confirmation : seul un appareil déjà relié peut dire « C'est moi ». Tu peux quand même couper celui-ci.</p>
+              <p className="text-xs text-muted-foreground">Seul un appareil déjà relié peut dire « C'est moi ».</p>
             )}
             <ErrorText>{error}</ErrorText>
             <div className="flex flex-wrap justify-end gap-2">

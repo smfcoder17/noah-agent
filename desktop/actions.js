@@ -165,14 +165,26 @@ async function perform(req, ctx = {}) {
     case "lister":
     case "lire":
     case "ecrire":
+    case "deplacer":
+    case "creer_dossier":
+    case "corbeille":
       return files(req, ctx, store);
     default:
       return { erreur: `Action inconnue : ${clean(req.action)}` };
   }
 }
 
+/** La corbeille du système : ce qui y part se récupère. */
+const trash = (target) => shell.trashItem(target);
+
+// Changer de dossier ou demander où l'on est ne fait rien : aucune fenêtre pour si peu.
+const NO_EFFECT = /^\s*(cd|chdir|set-location|sl|pwd|get-location|gl)(\s+("[^"\r\n]*"|'[^'\r\n]*'|[^\s;|&<>`$(){}]+))?\s*$/i;
+
 async function command(req, who, store, stop, refused) {
   const text = String(req.cible || "");
+  if (NO_EFFECT.test(text)) {
+    return { ok: true, code: 0, sortie: "", erreurs: "", note: "Rien à faire : chaque commande part du dossier de travail ou de --dossier. Pour ranger un dossier confié : ordinateur deplacer, creer-dossier ou corbeille." };
+  }
   if (tooLong(text) || dossiers.DECEIVING.test(text.replace(/[\r\n\t]/g, " "))) return { erreur: "Commande trop longue ou illisible pour être montrée avant l'accord : fais-en une plus simple." };
   const folder = folderOf(req, store);
   if (req.dossierId && !folder) return { erreur: "Ce dossier n'est plus confié à l'agent." };
@@ -224,17 +236,21 @@ async function files(req, ctx, store) {
       await ctx.upload(req.id, data, nom);
       return { ok: true, nom, taille: data.length, sha256 };
     }
-    // La livraison a pu attendre : on repart de l'état présent du dossier.
+    // Ce qui suit écrit : on repart de l'état présent du dossier, et chaque attente (fenêtre, corbeille, livraison) se revérifie.
     if (!folder.ecriture) throw new dossiers.Refus(`Le dossier « ${folder.nom} » est en lecture seule.`);
-    const data = await ctx.download(req.id);
     const recheck = () => {
       if (store.isCut()) return CUT;
       const now = folderOf(req, store);
       return now?.id === folder.id && now.ecriture ? null : { refuse: true, message: "Ce dossier n'est plus confié à l'agent en écriture." };
     };
+    // Ranger un dossier confié en écriture : la personne l'a permis en le confiant, et tout se défait (rien d'écrasé, corbeille).
+    if (req.action === "deplacer") return await dossiers.move(folder, req.chemin, req.vers, { ask: confirm, recheck });
+    if (req.action === "creer_dossier") return dossiers.makeDir(folder, req.chemin);
+    if (req.action === "corbeille") return await dossiers.toTrash(folder, req.chemin, ctx.trash || trash);
+    const data = await ctx.download(req.id);
     const before = recheck();
     if (before) return before;
-    return await dossiers.write(folder, req.chemin, data, { remplacer: Boolean(req.remplacer), attendu: req.sha256 || "", id: req.id, journal: store.journal, ask: confirm, recheck });
+    return await dossiers.write(folder, req.chemin, data, { remplacer: Boolean(req.remplacer), attendu: req.sha256 || "", id: req.id, journal: store.journal, ask: confirm, recheck, trash: ctx.trash || trash });
   } catch (e) {
     if (e instanceof dossiers.Refus) return { refuse: true, message: e.message };
     if (e.plusTard) return { erreur: e.message, plus_tard: true };

@@ -441,7 +441,13 @@ AIDE = """Utilisation : python3 /opt/data/noah.py <commande>
                                          conversation principale ; avec --rappeler, l'utilisateur est aussi rappelé
   demande-etat <id>                      état et dernière réponse d'une demande
   demandes                               tes demandes envoyées et reçues
-  recette <service>                      étapes pour connecter un service à sa place (google)
+  recette <service>                      étapes pour connecter un service à sa place (google, instagram, x)
+  reseau-instagram                       branche Instagram : Noah lit lui-même le jeton affiché dans ta page Meta
+  publication-etat                       les réseaux branchés pour publier (instagram, x)
+  publication-retour                     l'adresse de retour à déclarer chez X
+  reseau-x <Client ID>                   branche X : rend l'adresse d'accord à ouvrir dans ton navigateur
+  site-connecte <adresse> ["Nom"] [--compte <identifiant>]   note un site où tu es connecté pour lui (visible dans ses Connexions)
+  site-oublie <adresse>                  le retire de la liste
   google-identifiants <ID client> <code secret>   enregistre l'accès Google créé avec la recette
   google-accord                          relance l'accord Google (après avoir publié l'application)
 Sur l'ordinateur de l'utilisateur (application de bureau ouverte ; il confirme les actions sensibles) :
@@ -453,6 +459,11 @@ Sur l'ordinateur de l'utilisateur (application de bureau ouverte ; il confirme l
   ordinateur lister <dossier> [chemin]   liste un dossier qu'il t'a confié
   ordinateur lire <dossier> <chemin>     copie ce fichier dans /opt/data/workspace/ordinateur/ ; rend le chemin de la copie
   ordinateur ecrire <dossier> <chemin> <fichier> [--remplacer]   y dépose ton fichier ; ordinateur éteint : il attend sa reconnexion
+                                         (--remplacer met l'ancienne version à la corbeille)
+  ordinateur deplacer <dossier> <chemin> <nouveau chemin>   déplace ou renomme, dans le même dossier ; rien n'est écrasé
+  ordinateur creer-dossier <dossier> <chemin>   crée un sous-dossier
+  ordinateur corbeille <dossier> <chemin>  met un fichier ou un sous-dossier à la corbeille de l'ordinateur (récupérable)
+  (ranger un dossier confié en écriture : ces ordres, sans accord à demander ; jamais « commande » pour ça)
   (chaque ordre d'ordinateur accepte --appareil <id ou nom>)
   appareils                              ses appareils : en ligne ou non, dossiers confiés, notifications possibles
   notifier "titre" "texte" [--appareil <id ou nom>]   notification sur cet appareil seulement, ou sur tous sans --appareil
@@ -749,9 +760,9 @@ elif a[:1] == ["notifier"] and len(a) >= 2:
     rest = a[1:]
     device = option(rest, "--appareil")
     out = call("POST", "/notifier", {"titre": rest[0], "texte": " ".join(rest[1:]), "appareil": device}) if rest else {"erreur": "Donne un titre."}
-elif a[:1] == ["ordinateur"] and (len(a) < 3 or (a[1] not in ("lister", "lire", "ecrire", "ouvrir", "notifier", "copier", "lancer", "commande"))):
-    out = {"erreur": "Usage : ordinateur lister|lire|ecrire|ouvrir|notifier|copier|lancer|commande … (voir l'aide de noah.py)"}
-elif a[:1] == ["ordinateur"] and a[1] in ("lister", "lire", "ecrire"):
+elif a[:1] == ["ordinateur"] and (len(a) < 3 or (a[1] not in ("lister", "lire", "ecrire", "deplacer", "creer-dossier", "corbeille", "ouvrir", "notifier", "copier", "lancer", "commande"))):
+    out = {"erreur": "Usage : ordinateur lister|lire|ecrire|deplacer|creer-dossier|corbeille|ouvrir|notifier|copier|lancer|commande … (voir l'aide de noah.py)"}
+elif a[:1] == ["ordinateur"] and a[1] in ("lister", "lire", "ecrire", "deplacer", "creer-dossier", "corbeille"):
     rest = a[2:]
     device = option(rest, "--appareil")
     replace = option(rest, "--remplacer", False)
@@ -761,8 +772,13 @@ elif a[:1] == ["ordinateur"] and a[1] in ("lister", "lire", "ecrire"):
         out = computer_read(device, rest[0], " ".join(rest[1:]))
     elif a[1] == "ecrire" and len(rest) == 3:
         out = computer_write(device, rest[0], rest[1], rest[2], replace)
+    elif a[1] == "deplacer" and len(rest) == 3:
+        out = call("POST", "/ordinateur", {"action": "deplacer", "appareil": device, "dossier": rest[0], "chemin": rest[1], "vers": rest[2]})
+    elif a[1] in ("creer-dossier", "corbeille") and len(rest) >= 2:
+        out = call("POST", "/ordinateur", {"action": a[1].replace("creer-dossier", "creer_dossier"), "appareil": device, "dossier": rest[0], "chemin": " ".join(rest[1:])})
     else:
-        out = {"erreur": "Usage : ordinateur lister <dossier> [chemin] | lire <dossier> <chemin> | ecrire <dossier> <chemin> <fichier>"}
+        out = {"erreur": "Usage : ordinateur lister <dossier> [chemin] | lire <dossier> <chemin> | ecrire <dossier> <chemin> <fichier> | "
+                         "deplacer <dossier> <chemin> <nouveau chemin> | creer-dossier <dossier> <chemin> | corbeille <dossier> <chemin>"}
 elif a[:1] == ["ordinateur"] and len(a) >= 3 and a[1] in ("ouvrir", "notifier", "copier", "lancer", "commande"):
     rest = a[2:]
     device = option(rest, "--appareil")
@@ -834,6 +850,20 @@ elif a[:1] == ["demande-etat"] and len(a) == 2:
     out = call("GET", "/demander/" + a[1])
 elif a[:1] == ["demandes"]:
     out = call("GET", "/demandes")
+elif a[:1] == ["reseau-instagram"]:
+    out = call("POST", "/publication/instagram", {})
+elif a[:1] == ["publication-etat"]:
+    out = call("GET", "/publication/etat")
+elif a[:1] == ["publication-retour"]:
+    out = call("GET", "/publication/retour")
+elif a[:1] == ["reseau-x"] and len(a) == 2:
+    out = call("POST", "/publication/x", {"client_id": a[1]})
+elif a[:1] == ["site-connecte"] and len(a) >= 2:
+    rest = a[1:]
+    account = option(rest, "--compte")
+    out = call("POST", "/sites", {"adresse": rest[0], "nom": " ".join(rest[1:]), "compte": account or ""})
+elif a[:1] == ["site-oublie"] and len(a) == 2:
+    out = call("DELETE", "/sites/" + urllib.parse.quote(a[1], safe=""))
 elif a[:1] == ["recette"] and len(a) == 2:
     out = call("GET", "/recettes/" + a[1])
     if "recette" in out:

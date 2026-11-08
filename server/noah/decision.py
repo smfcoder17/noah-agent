@@ -164,6 +164,29 @@ async def ask(agent_id: str, system: str, user: str, *, max_tokens: int = 400, t
     raise DecisionError(str(last) if isinstance(last, DecisionError) else "Le modèle de décision ne répond pas.")
 
 
+def stronger(agent_id: str) -> str:
+    """Le modèle du second avis : le cerveau de cet agent, celui à qui la personne confie déjà le travail. Vide s'il est le petit modèle lui-même."""
+    name = db.get_setting(f"model_{agent_id}") or _brain()
+    return "" if not name or name == model() else name
+
+
+async def second_opinion(agent_id: str, system: str, user: str, *, max_tokens: int = 200, timeout: float = 12) -> Answer:
+    """Un avis du modèle plus fort, quand le petit doute. Même suivi, mêmes plafonds. DecisionError s'il n'y en a pas ou s'il échoue."""
+    refused = relay.spending_refusal(agent_id)
+    if refused:
+        raise DecisionError(refused)
+    name = stronger(agent_id)
+    if not name:
+        raise DecisionError("Pas de modèle plus fort que celui du juge.")
+    try:
+        answer = await _complete(agent_id, name, system, user, max_tokens, timeout, True)
+    except httpx.HTTPError as e:
+        raise DecisionError(f"Le second avis ne répond pas : {type(e).__name__}.") from None
+    if answer.data is None:
+        raise DecisionError("Réponse illisible.")
+    return answer
+
+
 # --- Vrais modèles de décision ----------------------------------------------------------------------------------------
 # Jev, Clef et leurs pareils ne rédigent rien : on leur donne un état et des questions, ils rendent des probabilités, pour quelques
 # centimes le million de jetons d'entrée. Ils décident donc là où aucun texte n'est attendu ; le petit modèle ci-dessus garde ce qui

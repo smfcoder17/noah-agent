@@ -691,7 +691,7 @@ def _register_vault(ctx) -> None:
 # Lues ici pour passer sans appel, et relues sur le serveur (juge.py importe ce module). Ordre : refus nets, puis ce qui n'a aucun effet
 # dehors. Tout le reste part au juge : ce qu'on ne reconnaît pas n'est jamais une lecture.
 JUGE_URL = "http://noah-server:8080/agent-api/juge"
-JUGE_SECONDS = 6  # le budget du juge lui-même est plus court (juge.py) : ce délai-ci couvre le réseau et une machine chargée
+JUGE_SECONDS = 20  # petit modèle (2,5 s) puis second avis du cerveau (12 s) dans juge.py : ce délai-ci couvre en plus le réseau et une machine chargée
 ROOTS = {"", ".", "..", "~", "$HOME", "${HOME}", "$HERMES_HOME", "${HERMES_HOME}", "*", "/", "/opt", "/opt/data", WORKSPACE,
          "/etc", "/usr", "/var", "/home", "/root", "/bin", "/lib", "/boot"}
 _SENSITIVE_BASE = r"(?:/opt/data/|\$\{?HERMES_HOME\}?/|~/|\$\{?HOME\}?/|/root/|\.\./)"

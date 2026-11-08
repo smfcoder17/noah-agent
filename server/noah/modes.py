@@ -27,6 +27,7 @@ LEVELS = (BRAIN, *MEDIA_LEVELS)
 TIERS = ("fast", "balanced", "smart")
 CHAINED = ("gratuit", "custom")
 MODES = (*TIERS, *CHAINED)
+AUTO = "auto"  # par agent seulement : le niveau suit chaque demande (complexite.py)
 REASONING = ("low", "medium", "high")
 
 FREE_CHAIN_MAX = 8
@@ -270,6 +271,19 @@ async def agent_chain(agent_id: str) -> list[dict] | None:
     return links or None
 
 
+async def auto_chain(agent_id: str, body: dict) -> list[dict] | None:
+    """Mode Auto : le niveau choisi pour cette demande d'abord, puis les autres en relais s'il est épuisé ou en panne."""
+    from . import complexite
+    tier = await complexite.tier_for(agent_id, body)
+    order = [tier, *[t for t in ("balanced", "smart", "fast") if t != tier]]
+    links: list[dict] = []
+    for t in order:
+        for link in await links_of(BRAIN, t):
+            if link not in links:
+                links.append(link)
+    return _keep_usable(links) or None
+
+
 async def media_chain(level: str) -> list[str] | None:
     """Gratuit ou Custom à la création et à la voix. None : un seul modèle, le réglage."""
     mode = active(level)
@@ -284,14 +298,20 @@ def reasoning(agent_id: str) -> str | None:
 
 
 async def set_agent_mode(agent_id: str, mode: str) -> dict:
-    links = await links_of(BRAIN, mode, rotate=False)
+    links = [link for t in TIERS for link in await links_of(BRAIN, t, rotate=False)] if mode == AUTO else await links_of(BRAIN, mode, rotate=False)
     if not links:
         raise HTTPException(400, "Ce mode n'a encore aucun modèle : choisis-en un dans Réglages > Modèles et budget.")
     provider = db.get_setting("provider")
     first = next((link for link in links if link["fournisseur"] == provider), None)
+    if mode == AUTO:  # le relais reconnaît les petits travaux d'Hermes à ce nom : le modèle inscrit ne doit jamais être le sien
+        from . import decision
+        first = next((link for link in links if link["fournisseur"] == provider and link["modele"] != decision.model()), None)
     db.set_setting(f"model_mode_{agent_id}", mode)
     if first:  # pour les fichiers de sa machine et l'écran ; c'est le relais qui décide à chaque appel
         db.set_setting(f"model_{agent_id}", first["modele"])
+    elif mode == AUTO:
+        with db.connect() as c:
+            c.execute("DELETE FROM settings WHERE key = ?", (f"model_{agent_id}",))
     return links[0]
 
 

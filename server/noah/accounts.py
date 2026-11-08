@@ -435,6 +435,56 @@ et pas de `sleep` (browser_navigate attend déjà le chargement). Ouvre directem
 """
 
 
+_SOCIAL_RULES = """Travaille dans ton navigateur (l'utilisateur voit ton écran). Ces sites changent souvent : cherche le bouton équivalent
+plutôt que d'abandonner. Utilise browser_navigate, browser_snapshot, browser_click, browser_type ; pas de curl, pas de `sleep`.
+L'utilisateur t'a confié toute la mise en place : remplis toi-même les formulaires, accepte toi-même les conditions des
+développeurs et coche les cases d'accord. Il n'intervient que pour se connecter (mot de passe, code) : appelle-le alors avec
+`python3 /opt/data/noah.py appeler "Connecte-toi à ton compte <site> dans mon écran." --quand-quitte <page de connexion>`.
+Ne l'appelle pour rien d'autre. Un jeton ne se lit ni ne se recopie : Noah le prend lui-même dans la page quand la recette le dit."""
+
+SOCIAL_RECIPES = {
+    "instagram": f"""# Recette : publier sur Instagram par l'API (une seule fois)
+
+But : une application Meta à son nom, et un jeton pour son compte Instagram. Le compte doit être professionnel (créateur ou
+entreprise) : si l'application Instagram dit qu'il est personnel, dis-lui en une phrase comment le passer en professionnel
+(Paramètres > Type de compte et outils) et attends sa réponse.
+
+{_SOCIAL_RULES}
+
+1. Ouvre https://developers.facebook.com/apps . Page de connexion Facebook → appelle-le (--quand-quitte www.facebook.com).
+   Première fois : « Commencer » pour créer son compte développeur (accepte les conditions, vérifie l'adresse si on te le demande).
+2. « Créer une app » : nom « Noah Agent », cas d'usage « Gérer les messages et le contenu sur Instagram » (Instagram API),
+   pas de portfolio d'entreprise, puis « Créer ».
+3. Dans l'app : Instagram → « Configuration de l'API avec la connexion Instagram » (API setup with Instagram login) →
+   « Générer des tokens d'accès » → « Ajouter un compte ». Connexion Instagram → appelle-le (--quand-quitte instagram.com).
+   Accepte les autorisations demandées pour l'app.
+4. « Générer un token » à côté du compte ajouté, coche l'accord si on te le demande, puis, la fenêtre du jeton encore ouverte,
+   lance tout de suite `python3 /opt/data/noah.py reseau-instagram`. Noah lit le jeton lui-même dans la page : ne le lis pas,
+   ne le recopie pas, ne prends pas d'instantané de cette fenêtre.
+5. La commande dit « connecte » et le compte : dis-lui en une phrase qu'Instagram est branché. Une erreur : lis-la, corrige
+   l'étape en cause, réessaie une fois, puis dis-lui ce qui bloque.
+""",
+    "x": f"""# Recette : publier sur X par l'API (une seule fois)
+
+But : une application X à son nom (OAuth 2.0), puis son accord. Préviens-le d'abord en une phrase : X facture chaque post
+à son compte développeur (crédits prépayés). S'il ne veut pas payer, arrête-toi : l'agent publiera avec le navigateur.
+
+{_SOCIAL_RULES}
+
+1. Ouvre https://console.x.com . Page de connexion X → appelle-le, sans --quand-quitte (la console est aussi sur x.com).
+   Première fois : crée son compte développeur (usage : publier ses propres posts avec un assistant ; accepte les conditions).
+2. Crée une application (Apps → « Create App »), nom « Noah Agent » suivi de 4 chiffres si le nom est pris.
+3. Dans ses réglages d'authentification (User authentication settings) : OAuth 2.0 activé, permissions « Read and write »,
+   type « Native App ». Adresse de retour (Callback URI) : lance `python3 /opt/data/noah.py publication-retour` et colle
+   exactement l'adresse qu'il rend. Site web : la même adresse sans son chemin. Enregistre.
+4. Copie le « Client ID » OAuth 2.0 (pas l'API Key), puis lance `python3 /opt/data/noah.py reseau-x <Client ID>`.
+5. Ouvre l'adresse rendue dans ton navigateur et clique « Authorize app ». X revient sur une page de Noah qui demande
+   « Donner X à … ? » : clique « Donner cet accès ». Puis vérifie avec `python3 /opt/data/noah.py publication-etat` que X
+   figure parmi les connectés avant de lui dire en une phrase que c'est fait. Sinon, dis-lui ce qui bloque.
+""",
+}
+
+
 def recipe_prompt(perms: list[str]) -> str:
     names = ", ".join(PERMS[p]["nom"].lower() for p in perms)
     return (f"Connecte mon compte Google ({names}). Il faut d'abord créer mon accès Google : "
@@ -586,8 +636,10 @@ async def google_client_file(body: ClientFile, user: int = Depends(access.owner_
 @router.get("/agent-api/recettes/{name}")
 async def agent_recipe(name: str, request: Request):
     agent_id = relay._agent_from(request)
+    if name in SOCIAL_RECIPES:
+        return {"recette": SOCIAL_RECIPES[name]}
     if name != "google":
-        raise HTTPException(404, "Recette inconnue (disponibles : google)")
+        raise HTTPException(404, "Recette inconnue (disponibles : google, instagram, x)")
     perms = json.loads(db.get_setting(f"google_voulu_{agent_id}") or "[]") or [p["id"] for p in GOOGLE_PERMISSIONS]
     if _client():
         return {"recette": "L'accès Google existe déjà. Rien à créer : dis à l'utilisateur de cliquer sur « Connecter » "

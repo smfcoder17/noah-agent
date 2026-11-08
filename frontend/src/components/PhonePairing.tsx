@@ -56,7 +56,7 @@ function PendingRequests({ refresh, onDone, onUsed }: { refresh: number; onDone:
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-warn bg-warn-soft p-3">
       <p className="text-sm font-semibold">Un appareil a utilisé ton code</p>
-      <p className="text-xs text-muted-foreground">Il n'a encore accès à rien. Si c'est ton appareil et que tu l'as sous les yeux, recopie le nombre qu'il affiche. Sinon, refuse.</p>
+      <p className="text-xs text-muted-foreground">Il n'a encore accès à rien. Recopie le nombre qu'il affiche. Sinon, refuse.</p>
       {proof.preuve_requise && <GrantProof password={password} code={secondCode} needCode={proof.code_requis} onPassword={setPassword} onCode={setSecondCode} />}
       {list.map((p) => {
         const Icon = ICONS[p.type] ?? Globe;
@@ -78,7 +78,7 @@ function PendingRequests({ refresh, onDone, onUsed }: { refresh: number; onDone:
           </div>
         );
       })}
-      <p className="text-xs text-muted-foreground">Le nom, c'est l'appareil qui le donne : il ne prouve rien. Sans ton accord, le code ne donne accès à rien.</p>
+      <p className="text-xs text-muted-foreground">Ce nom vient de l'appareil : il ne prouve rien.</p>
       <ErrorText>{error}</ErrorText>
     </div>
   );
@@ -218,8 +218,8 @@ export function PhonePairing({ start = false }: { start?: boolean } = {}) {
     <div className="flex flex-col gap-4">
       <p className="text-sm text-muted-foreground">
         {pairs
-          ? "Scanne le QR code avec l'app Noah, ou saisis le code dans l'app de bureau. Il sert une seule fois."
-          : "Pour relier un autre appareil, ouvre Réglages → Appareils dans un navigateur où tu es connecté."}
+          ? "Scanne le QR code, ou saisis le code dans l'app."
+          : "Relie un autre appareil depuis un navigateur."}
       </p>
       {!pairs ? null : pairing && left > 0 && !used ? (
         <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-start">
@@ -239,8 +239,7 @@ export function PhonePairing({ start = false }: { start?: boolean } = {}) {
             <p className="font-mono text-2xl font-semibold tracking-widest">{pairing.code}</p>
             {!secure && (
               <p className="rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn">
-                Ton téléphone ne peut se relier qu'à une adresse sécurisée (qui commence par https). Ouvre Noah depuis cette
-                adresse-là, celle de ton serveur, et reviens ici : le QR code s'affichera.
+                Le QR code demande une adresse en https. Ouvre Noah depuis celle de ton serveur.
               </p>
             )}
             <Button variant="outline" size="sm" className="self-start" onClick={create} disabled={busy}>Nouveau code</Button>

@@ -330,6 +330,66 @@ check("écrire avec le droit : écrit, sans fenêtre", out.ok && readFileSync(jo
 out = await perform({ id: "w3", action: "ecrire", dossierId: dossier.id, chemin: "ecrit2.txt" }, { store: coupe, download: async () => { throw Object.assign(new Error("réseau"), { plusTard: true }); } });
 check("réseau coupé pendant la livraison : réessayée plus tard", out.plus_tard === true, JSON.stringify(out));
 
+// Ranger : déplacer, renommer, créer un dossier, corbeille. Sans fenêtre, rien d'écrasé, rien hors du dossier.
+const corbeille = [];
+const jeter = async (cible) => {
+  corbeille.push(cible);
+  rmSync(cible, { recursive: true, force: true }); // la vraie corbeille garde l'élément : ici on vérifie seulement qu'il y part
+};
+const ctxRange = { store: coupe, trash: jeter, download: async () => Buffer.from("v2") };
+n = boites.length;
+out = await perform({ action: "creer_dossier", dossierId: dossier.id, chemin: "rangement/2026" }, ctxRange);
+check("créer un dossier, sans fenêtre", out.ok && fs.statSync(join(racine, "rangement/2026")).isDirectory() && boites.length === n, JSON.stringify(out));
+out = await perform({ action: "deplacer", dossierId: dossier.id, chemin: "ecrit.txt", vers: "rangement/2026/ecrit.txt" }, ctxRange);
+check("déplacer dans le dossier, sans fenêtre", out.ok && existsSync(join(racine, "rangement/2026/ecrit.txt")) && !existsSync(join(racine, "ecrit.txt")) && boites.length === n, JSON.stringify(out));
+out = await perform({ action: "deplacer", dossierId: dossier.id, chemin: "rangement/2026/ecrit.txt", vers: "rangement/2026/renomme.txt" }, ctxRange);
+check("renommer, sans fenêtre", out.ok && existsSync(join(racine, "rangement/2026/renomme.txt")), JSON.stringify(out));
+writeFileSync(join(racine, "rangement/occupe.txt"), "à garder");
+out = await perform({ action: "deplacer", dossierId: dossier.id, chemin: "rangement/2026/renomme.txt", vers: "rangement/occupe.txt" }, ctxRange);
+check("déplacer sur un nom pris : refusé, rien d'écrasé", out.refuse && readFileSync(join(racine, "rangement/occupe.txt"), "utf8") === "à garder", JSON.stringify(out));
+out = await perform({ action: "deplacer", dossierId: dossier.id, chemin: "rangement/occupe.txt", vers: "../dehors/vole.txt" }, ctxRange);
+check("déplacer hors du dossier : refusé", out.refuse && !existsSync(join(dehors, "vole.txt")) && existsSync(join(racine, "rangement/occupe.txt")), JSON.stringify(out));
+out = await perform({ action: "deplacer", dossierId: dossier.id, chemin: "rangement", vers: "rangement/2026/dedans" }, ctxRange);
+check("un dossier dans lui-même : refusé", out.refuse && existsSync(join(racine, "rangement")), JSON.stringify(out));
+reponse = 1;
+out = await perform({ action: "deplacer", dossierId: dossier.id, chemin: "rangement/occupe.txt", vers: "rangement/occupe.ps1" }, ctxRange);
+check("renommer en programme : fenêtre, refusé", out.refuse && boites.length === n + 1 && existsSync(join(racine, "rangement/occupe.txt")), JSON.stringify(out));
+// Revue : un dossier déplacé vers un endroit lu par un outil (.github) demande l'accord, comme ses fichiers un à un.
+mkdirSync(join(racine, "staging/workflows"), { recursive: true });
+writeFileSync(join(racine, "staging/workflows/run.yml"), "on: push");
+n = boites.length;
+out = await perform({ action: "deplacer", dossierId: dossier.id, chemin: "staging", vers: ".github" }, ctxRange);
+check("dossier déplacé vers .github : fenêtre, refusé", out.refuse && boites.length === n + 1 && existsSync(join(racine, "staging/workflows/run.yml")), JSON.stringify(out));
+// Revue : l'accès coupé pendant la fenêtre arrête le déplacement.
+const montreAvant = electron.dialog.showMessageBox;
+electron.dialog.showMessageBox = async (...a) => { coupe.setWrite(dossier.id, false); return montreAvant(...a).then(() => ({ response: 0 })); };
+out = await perform({ action: "deplacer", dossierId: dossier.id, chemin: "rangement/occupe.txt", vers: "rangement/occupe.bat" }, ctxRange);
+electron.dialog.showMessageBox = montreAvant;
+coupe.setWrite(dossier.id, true);
+check("écriture retirée pendant la fenêtre : rien ne bouge", out.refuse && existsSync(join(racine, "rangement/occupe.txt")) && !existsSync(join(racine, "rangement/occupe.bat")), JSON.stringify(out));
+n = boites.length;
+out = await perform({ action: "corbeille", dossierId: dossier.id, chemin: "rangement/2026/renomme.txt" }, ctxRange);
+check("corbeille, sans fenêtre", out.ok && out.corbeille && corbeille.length === 1 && !existsSync(join(racine, "rangement/2026/renomme.txt")) && boites.length === n, JSON.stringify(out));
+out = await perform({ action: "corbeille", dossierId: dossier.id, chemin: "" }, ctxRange);
+check("corbeille du dossier confié lui-même : refusé", out.refuse && existsSync(racine), JSON.stringify(out));
+out = await perform({ action: "corbeille", dossierId: dossier.id, chemin: "../dehors/secret.txt" }, ctxRange);
+check("corbeille hors du dossier : refusé", out.refuse && existsSync(join(dehors, "secret.txt")), JSON.stringify(out));
+out = await perform({ id: "w9", action: "ecrire", dossierId: dossier.id, chemin: "rangement/occupe.txt", remplacer: true, sha256: d.sha256(Buffer.from("v2")) }, ctxRange);
+check("remplacer : l'ancienne version part à la corbeille, sans fenêtre", out.ok && readFileSync(join(racine, "rangement/occupe.txt"), "utf8") === "v2" && corbeille.length === 2 && boites.length === n, JSON.stringify(out));
+coupe.setWrite(dossier.id, false);
+out = await perform({ action: "deplacer", dossierId: dossier.id, chemin: "rangement/occupe.txt", vers: "x.txt" }, ctxRange);
+const lectureSeule = out.refuse;
+out = await perform({ action: "corbeille", dossierId: dossier.id, chemin: "rangement/occupe.txt" }, ctxRange);
+check("lecture seule : ni déplacer ni corbeille", lectureSeule && out.refuse && existsSync(join(racine, "rangement/occupe.txt")), JSON.stringify(out));
+coupe.setWrite(dossier.id, true);
+for (const cmd of ["cd", "cd ..", "pwd", "Set-Location \"C:\\Mes documents\"", "Get-Location"]) {
+  out = await perform({ action: "commande", agent: "A", cible: cmd, dossierId: dossier.id }, ctxRange);
+  check(`« ${cmd} » seul : rien à faire, aucune fenêtre`, out.ok && boites.length === n, JSON.stringify(out));
+}
+out = await perform({ action: "commande", agent: "A", cible: "cd ..; Remove-Item x", dossierId: dossier.id }, ctxRange);
+check("« cd » suivi d'autre chose : fenêtre comme avant", boites.length === n + 1, JSON.stringify(out));
+n = boites.length;
+
 // Coupé pendant la lecture : le contenu ne part pas.
 const lecteur = d.createStore(join(base, "profil7", "dossiers.json"));
 const lu = lecteur.add(racine);

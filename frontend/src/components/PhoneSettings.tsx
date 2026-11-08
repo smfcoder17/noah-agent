@@ -103,8 +103,7 @@ export function PhoneSettings() {
       <div className="flex flex-col gap-2 rounded-2xl border border-accent/40 p-4">
         <p className="text-sm font-semibold">Mode flottant</p>
         <p className="text-xs text-muted-foreground">
-          Une petite bulle reste au-dessus de tes apps. Touche-la pour ouvrir Noah. Maintiens-la pour dicter : relâche pour envoyer,
-          glisse sur « Annuler » pour annuler. Noah ne voit rien des autres apps et n'utilise le réseau que quand tu dictes.
+          Une bulle au-dessus de tes apps. Maintiens-la pour dicter.
         </p>
         <label className="flex items-center gap-2 text-sm">
           Agent de la bulle
@@ -120,25 +119,24 @@ export function PhoneSettings() {
           </Button>
         )}
         <p className="text-xs text-muted-foreground">
-          Elle ne démarre jamais seule : après un redémarrage du téléphone, relance-la ici.
-          {rights.notifications === "accorde" ? " Le bouton « Arrêter » est aussi dans sa notification." : " Sans notifications, tu l'arrêtes ici : Android n'affiche pas le bouton « Arrêter »."}
+          Après un redémarrage, relance-la ici.
+          {rights.notifications === "accorde" ? "" : " Sans notifications, arrête-la ici."}
         </p>
       </div>
       <Row title="Notifications" state={rights.notifications} onAsk={() => ask("notifications")}>
-        Refusées : aucun bandeau, ni fin de tâche, ni appel d'un agent. Les réponses restent dans la conversation.
+        Fins de tâche et appels.
         {rights.distributeurs === 0
-          ? " Aucun distributeur n'est installé : installe l'app gratuite ntfy, ouvre-la une fois, puis touche « Activer » dans Réglages > Notifications."
-          : rights.inscrit ? "" : " Le distributeur est là : touche « Activer » dans Réglages > Notifications."}
+          ? " Installe l'app gratuite ntfy, puis « Activer » dans Réglages > Notifications."
+          : rights.inscrit ? "" : " Touche « Activer » dans Réglages > Notifications."}
       </Row>
       <Row title="Micro" state={rights.micro} onAsk={() => ask("micro")}>
-        Pour dicter et pour appeler un agent. Refusé : ni dictée, ni appel, ni bulle. Le reste marche à l'écrit.
+        Pour dicter et appeler un agent.
       </Row>
       <Row title="Photos et fichiers" state={rights.photos}>
-        Quand tu joins un fichier, Android te montre son sélecteur : Noah reçoit seulement ce que tu choisis, et n'a pas accès à ta galerie.
+        Noah ne reçoit que ce que tu choisis.
       </Row>
       <Row title="Position" state={rights.position} onAsk={() => choosePosition(true)} button="Autoriser et activer">
-        Refusée : rien ne change, sauf le bouton « Joindre ma position ». Elle n'est lue que quand tu touches ce bouton, jamais en arrière-plan,
-        et elle part dans ton message, donc chez le fournisseur du modèle de cet agent.
+        Lue quand tu la joins, puis envoyée au fournisseur du modèle.
       </Row>
       {rights.position === "accorde" && (
         <label className="-mt-1 flex items-center gap-3 rounded-2xl border border-border p-4 text-sm">
@@ -147,10 +145,10 @@ export function PhoneSettings() {
         </label>
       )}
       <Row title="Superposition" state={rights.superposition} onAsk={() => ask("superposition")}>
-        Pour la bulle seulement. Refusée : pas de mode flottant, tout le reste marche.
+        Pour la bulle seulement.
       </Row>
       <Row title="Batterie sans restriction" state={rights.batterie} onAsk={() => ask("batterie")}>
-        Pour que les appels sonnent aussi écran éteint, surtout sans ntfy. Refusée : Android peut retarder un appel quand le téléphone dort.
+        Pour que les appels sonnent écran éteint.
       </Row>
       <ErrorText>{error}</ErrorText>
     </div>

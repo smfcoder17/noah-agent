@@ -1,5 +1,5 @@
 // Ce que l'agent sait et fait de lui-même, réglable depuis Détails : routines, mémoire, connexions, logiciels, dossiers.
-import { Check, ChevronDown, ExternalLink, FolderOpen, HardDrive, Loader2, Pause, Pencil, Play, Plus, Trash2, Zap } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, FolderOpen, HardDrive, Loader2, Pause, Pencil, Play, Plus, SlidersHorizontal, Trash2, Zap } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { get, request, send } from "@/lib/api";
 import { appLabel } from "@/lib/appLabel";
@@ -201,6 +201,7 @@ export function Routines({ agentId }: { agentId: string }) {
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [tuning, setTuning] = useState<{ id: string; value: RoutineChoice } | null>(null);
+  const [opened, setOpened] = useState<string | null>(null);
   const list = data?.routines ?? [];
 
   const saveTuning = async () => {
@@ -220,69 +221,96 @@ export function Routines({ agentId }: { agentId: string }) {
   };
 
   const act = async (r: Routine, action: string) => {
-    if (action === "supprimer" && !confirm(`Supprimer la routine « ${r.name || r.prompt.slice(0, 40)} » ?`)) return;
+    if (action === "supprimer" && !confirm(`Supprimer la routine « ${r.name || r.prompt.slice(0, 40)} » ?`)) return false;
     setBusy(r.id + action);
     try {
       await send(`/api/agents/${agentId}/routines/${r.id}/${action}`, {});
       await load();
+      return true;
     } catch (e) {
       setError((e as Error).message);
+      return false;
     } finally {
       setBusy(null);
     }
   };
 
+  const open = list.find((r) => r.id === opened) ?? null;
+  if (open) {
+    const r = open;
+    const paused = !r.enabled || r.state === "paused";
+    return (
+      <section aria-label={r.name || "Routine"} className="absolute inset-0 z-10 flex flex-col gap-3 overflow-y-auto bg-surface px-1 pb-4">
+        <button type="button" onClick={() => { setOpened(null); setTuning(null); }} className="flex cursor-pointer items-center gap-1 self-start text-sm text-muted-foreground hover:text-foreground">
+          <ChevronLeft className="size-4" />Routines
+        </button>
+        <div className="flex items-start gap-2">
+          <span className={cn("mt-2 size-2.5 shrink-0 rounded-full", paused ? "bg-muted-foreground/40" : r.last_status === "error" ? "bg-danger" : "bg-ok")} />
+          <div className="min-w-0 flex-1">
+            <h3 className="text-base font-semibold">{r.name || r.prompt.slice(0, 60)}</h3>
+            <p className="text-sm text-muted-foreground">
+              {scheduleLabel(r.schedule_display)}{paused ? " · en pause" : r.next_run_at ? ` · prochaine ${when(r.next_run_at)}` : ""}
+            </p>
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <Button variant="outline" onClick={() => act(r, paused ? "reprendre" : "pause")} disabled={!!busy}>
+            {paused ? <Play /> : <Pause />}{paused ? "Reprendre" : "Pause"}
+          </Button>
+          <Button variant="outline" onClick={() => act(r, "lancer")} disabled={!!busy}>
+            {busy === r.id + "lancer" ? <Loader2 className="animate-spin" /> : <Zap />}Lancer
+          </Button>
+          <Button variant="outline" className="text-danger" onClick={async () => { if (await act(r, "supprimer")) setOpened(null); }} disabled={!!busy}>
+            <Trash2 />Supprimer
+          </Button>
+        </div>
+        {r.last_error && <p className="text-sm text-danger">Dernier passage en erreur : {r.last_error.slice(0, 300)}</p>}
+        <div className="rounded-xl bg-muted/50 p-3 text-sm whitespace-pre-wrap">{r.prompt}</div>
+        {choiceSummary(r) && <p className="text-sm text-muted-foreground">{choiceSummary(r)}</p>}
+        {tuning?.id === r.id ? (
+          <div className="flex flex-col gap-2 rounded-xl border border-border p-3">
+            <RoutineSettings value={tuning.value} onChange={(value) => setTuning({ id: r.id, value })} />
+            <div className="flex justify-end gap-2">
+              <Button size="sm" variant="ghost" onClick={() => setTuning(null)}>Annuler</Button>
+              <Button size="sm" disabled={!!busy} onClick={saveTuning}>{busy === r.id + "regler" && <Loader2 className="animate-spin" />}Enregistrer</Button>
+            </div>
+          </div>
+        ) : (
+          <Button variant="ghost" className="self-start" disabled={!!busy}
+            onClick={() => setTuning({ id: r.id, value: { modele: r.modele ?? null, fournisseur: r.fournisseur ?? null, outils: r.outils ?? null, image: r.image ?? null } })}>
+            <SlidersHorizontal />Modèle et outils
+          </Button>
+        )}
+        <ErrorText>{error}</ErrorText>
+      </section>
+    );
+  }
+
   return (
     <Section title="Routines" count={list.length} defaultOpen>
       {!data && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture…</p>}
-      {data && !list.length && !adding && (
-        <p className="text-sm text-muted-foreground">
-          Aucune routine. Demande-en une à l'agent (« chaque matin, résume mes mails ») ou crée-la ici. Ses résultats arrivent dans la conversation.
-        </p>
+      {data && !list.length && !adding && <p className="text-sm text-muted-foreground">Aucune routine.</p>}
+      {list.length > 0 && (
+        <ul className="flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border">
+          {list.map((r) => {
+            const paused = !r.enabled || r.state === "paused";
+            return (
+              <li key={r.id}>
+                <button type="button" onClick={(e) => { e.currentTarget.closest("[role=tabpanel]")?.scrollTo(0, 0); setOpened(r.id); }} className="flex w-full cursor-pointer items-center gap-3 px-3 py-3 text-left hover:bg-muted/50">
+                  <span className={cn("size-2 shrink-0 rounded-full", paused ? "bg-muted-foreground/40" : r.last_status === "error" ? "bg-danger" : "bg-ok")} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">{r.name || r.prompt}</span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {scheduleLabel(r.schedule_display)}{paused ? " · en pause" : r.next_run_at ? ` · ${when(r.next_run_at)}` : ""}
+                    </span>
+                  </span>
+                  <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+                </button>
+              </li>
+            );
+          })}
+        </ul>
       )}
-      {list.map((r) => {
-        const paused = !r.enabled || r.state === "paused";
-        return (
-          <div key={r.id} className="group flex flex-col gap-1 rounded-xl border border-border p-2.5">
-            <div className="flex items-start gap-2">
-              <span className={cn("mt-1.5 size-2 shrink-0 rounded-full", paused ? "bg-muted-foreground/40" : r.last_status === "error" ? "bg-danger" : "bg-ok")} />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{r.name || r.prompt}</p>
-                <p className="text-xs text-muted-foreground">
-                  {scheduleLabel(r.schedule_display)}
-                  {paused ? " · en pause" : r.next_run_at ? ` · prochaine ${when(r.next_run_at)}` : ""}
-                </p>
-              </div>
-            </div>
-            {r.name && <p className="line-clamp-2 pl-4 text-xs text-muted-foreground">{r.prompt}</p>}
-            {choiceSummary(r) && <p className="pl-4 text-xs text-muted-foreground">{choiceSummary(r)}</p>}
-            {r.last_error && <p className="pl-4 text-xs text-danger">Dernier passage en erreur : {r.last_error.slice(0, 160)}</p>}
-            <div className="flex gap-1 pl-3">
-              <Button size="sm" variant="ghost" onClick={() => act(r, paused ? "reprendre" : "pause")} disabled={!!busy}>
-                {paused ? <Play /> : <Pause />}{paused ? "Reprendre" : "Pause"}
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => act(r, "lancer")} disabled={!!busy} title="Lancer au prochain passage du planificateur (moins d'une minute)">
-                {busy === r.id + "lancer" ? <Loader2 className="animate-spin" /> : <Zap />}Lancer
-              </Button>
-              <Button size="sm" variant="ghost" aria-expanded={tuning?.id === r.id} disabled={!!busy}
-                onClick={() => setTuning(tuning?.id === r.id ? null : { id: r.id, value: { modele: r.modele ?? null, fournisseur: r.fournisseur ?? null, outils: r.outils ?? null, image: r.image ?? null } })}>
-                Réglages
-              </Button>
-              <Button size="sm" variant="ghost" className="ml-auto text-muted-foreground" onClick={() => act(r, "supprimer")} disabled={!!busy} aria-label="Supprimer la routine">
-                <Trash2 />
-              </Button>
-            </div>
-            {tuning?.id === r.id && (
-              <div className="flex flex-col gap-2">
-                <RoutineSettings value={tuning.value} onChange={(value) => setTuning({ id: r.id, value })} />
-                <div className="flex justify-end">
-                  <Button size="sm" disabled={!!busy} onClick={saveTuning}>{busy === r.id + "regler" && <Loader2 className="animate-spin" />}Enregistrer</Button>
-                </div>
-              </div>
-            )}
-          </div>
-        );
-      })}
       {adding ? (
         <NewRoutine agentId={agentId} onDone={() => { setAdding(false); load(); }} />
       ) : (
@@ -632,6 +660,7 @@ export function Connections({ agentId, shared = false, owner = false }: { agentI
       {tools.map((t) => <ToolRow key={t.nom} agentId={agentId} tool={t} waiting={waiting[t.nom]} onWait={(m) => wait(t.nom, m)} onChange={load} onError={setError} extra={t.connecte ? scope(t.nom) : null} />)}
       {pending.map((g) => <PendingGlobal key={g.nom} agentId={agentId} nom={g.nom} waiting={waiting[g.nom]} onWait={(m) => wait(g.nom, m)} onChange={load} onError={setError} />)}
       {data && <PublishCards agentId={agentId} shared={shared} tools={tools} onWait={wait} onChange={load} />}
+      {data && <BrowserSites agentId={agentId} />}
       <SavedLogins agentId={agentId} />
       {arriving && <p className="text-xs text-muted-foreground">« {arriving} » arrive chez l'agent en moins d'une minute.</p>}
       {data && (browsing ? (
@@ -664,13 +693,14 @@ function PublishCards({ agentId, shared, tools, onWait, onChange }: { agentId: s
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [typing, setTyping] = useState(false);
   useEffect(() => {
     get<{ retour: string; adresse_publique: boolean }>(`/api/agents/${agentId}/publication`).then(setState).catch(() => setState(null));
   }, [agentId]);
   if (!state) return null;
   const left = [["instagram", "Instagram", "instagram.com"], ["x", "X", "x.com"]].filter(([nom]) => !tools.some((t) => t.nom === nom));
   if (!left.length) return null;
-  const toggle = (nom: string) => { setOpen((o) => (o === nom ? "" : nom)); setValue(""); setError(""); };
+  const toggle = (nom: string) => { setOpen((o) => (o === nom ? "" : nom)); setValue(""); setError(""); setTyping(false); };
   const submit = async () => {
     setBusy(true);
     setError("");
@@ -691,37 +721,35 @@ function PublishCards({ agentId, shared, tools, onWait, onChange }: { agentId: s
       setBusy(false);
     }
   };
+  const AGENT_DOES: Record<string, string> = {
+    instagram: "Connecte mon Instagram pour publier par l'API : suis la recette `python3 /opt/data/noah.py recette instagram`. Fais tout toi-même et appelle-moi seulement quand je dois me connecter.",
+    x: "Connecte mon compte X pour publier par l'API : suis la recette `python3 /opt/data/noah.py recette x`. Fais tout toi-même et appelle-moi seulement quand je dois me connecter.",
+  };
+  const possible = (nom: string) => (nom === "x" ? !!state.retour : state.adresse_publique);
   return (
     <div className="flex flex-col gap-1.5">
-      <p className="mt-1 text-sm font-medium">Publier sur tes réseaux</p>
-      <p className="-mt-1 text-xs text-muted-foreground">Plus rapide et plus sûr. Sans cela, l'agent publie avec son navigateur.</p>
-      {shared && <p className="text-xs font-medium text-warn">Cet agent est partagé : ceux qui l'utilisent pourront aussi publier sur ce compte.</p>}
+      <p className="mt-1 text-sm font-medium">Réseaux sociaux</p>
+      {shared && <p className="text-xs font-medium text-warn">Agent partagé : ses utilisateurs pourront publier sur ce compte.</p>}
       {left.map(([nom, label, host]) => (
         <div key={nom} className="flex flex-col gap-2 rounded-lg border border-border p-2.5">
           <div className="flex items-center gap-2.5">
             <AppLogo host={host} name={nom} />
             <p className="min-w-0 flex-1 truncate text-sm font-medium">{label}</p>
-            <Button size="sm" variant="outline" onClick={() => toggle(nom)}>{open === nom ? "Fermer" : "Connecter"}</Button>
+            {possible(nom) ? (
+              <Button size="sm" variant="outline" onClick={() => toggle(nom)}>{open === nom ? "Fermer" : "Connecter"}</Button>
+            ) : (
+              <span className="text-xs text-muted-foreground">Par le navigateur</span>
+            )}
           </div>
-          {open === nom && nom === "instagram" && (!state.adresse_publique ? (
-            <p className="text-xs text-muted-foreground">Instagram doit venir chercher les images sur une adresse publique, et ce Noah n'en a pas. L'agent passera par le navigateur.</p>
-          ) : (
-            <ol className="flex list-decimal flex-col gap-1 pl-4 text-xs text-muted-foreground">
-              <li>Ton compte Instagram doit être professionnel (créateur ou entreprise).</li>
-              <li>Sur <a className="underline" href="https://developers.facebook.com/apps" target="_blank" rel="noreferrer">Meta for Developers</a>, crée une application et ajoute-lui le produit Instagram.</li>
-              <li>Dans « API setup with Instagram login », ajoute ton compte, génère son jeton et colle-le ici.</li>
-            </ol>
-          ))}
-          {open === nom && nom === "x" && (
-            <ol className="flex list-decimal flex-col gap-1 pl-4 text-xs text-muted-foreground">
-              <li>Sur <a className="underline" href="https://console.x.com" target="_blank" rel="noreferrer">la console X</a>, crée une application avec OAuth 2.0, type « Native App ». X facture chaque post à ton compte développeur.</li>
-              <li>Comme adresse de retour, donne : <code className="break-all select-all">{state.retour || "ce serveur n'a pas encore d'adresse publique"}</code></li>
-              <li>Colle ici son « Client ID », puis accepte dans l'onglet qui s'ouvre.</li>
-            </ol>
+          {open === nom && open !== "" && !value && !typing && (
+            <div className="flex flex-col gap-2">
+              <Button onClick={() => { askAgent(AGENT_DOES[nom]); setOpen(""); }}>L'agent s'en charge</Button>
+              <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => setTyping(true)}>{nom === "x" ? "J'ai déjà un Client ID" : "J'ai déjà un jeton"}</Button>
+            </div>
           )}
-          {open === nom && (nom === "x" ? !!state.retour : state.adresse_publique) && (
+          {open === nom && (typing || value) && (
             <div className="flex items-center gap-2">
-              <Input value={value} onChange={(e) => setValue(e.target.value)} type={nom === "x" ? "text" : "password"} autoComplete="off" className="h-9 min-w-0 flex-1"
+              <Input value={value} onChange={(e) => setValue(e.target.value)} type={nom === "x" ? "text" : "password"} autoComplete="off" className="h-9 min-w-0 flex-1" autoFocus
                 placeholder={nom === "x" ? "Client ID" : "Jeton d'accès"} aria-label={nom === "x" ? "Client ID de X" : "Jeton d'accès Instagram"} />
               <Button size="sm" onClick={submit} disabled={!value.trim() || busy}>{busy && <Loader2 className="animate-spin" />}{nom === "x" ? "Continuer" : "Vérifier"}</Button>
             </div>
@@ -729,6 +757,37 @@ function PublishCards({ agentId, shared, tools, onWait, onChange }: { agentId: s
           {open === nom && <ErrorText>{error}</ErrorText>}
         </div>
       ))}
+    </div>
+  );
+}
+
+type Site = { hote: string; nom: string; compte: string; vu_a: number; retenu?: boolean };
+
+/** Les sites où l'agent est connecté dans son navigateur, notés par lui (server/noah/sites.py). */
+function BrowserSites({ agentId }: { agentId: string }) {
+  const [sites, setSites] = useState<Site[] | null>(null);
+  const load = useCallback(() => get<Site[]>(`/api/agents/${agentId}/sites`).then(setSites).catch(() => setSites([])), [agentId]);
+  useEffect(() => { load(); }, [load]);
+  if (!sites?.length) return null;
+  const forget = async (host: string) => {
+    await request(`/api/agents/${agentId}/sites/${encodeURIComponent(host)}`, { method: "DELETE" }).catch(() => {});
+    load();
+  };
+  return (
+    <div className="flex flex-col gap-1.5">
+      <p className="mt-1 text-sm font-medium">Dans son navigateur</p>
+      <ul className="flex flex-col divide-y divide-border overflow-hidden rounded-lg border border-border">
+        {sites.map((site) => (
+          <li key={site.hote} className="flex items-center gap-2.5 p-2.5">
+            <AppLogo host={site.hote} name={site.nom} />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-medium">{site.nom}</span>
+              <span className="block truncate text-xs text-muted-foreground">{site.compte || site.hote}</span>
+            </span>
+            {!site.retenu && <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={() => forget(site.hote)} aria-label={`Retirer ${site.nom}`}>Retirer</Button>}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -1535,16 +1594,19 @@ export function Watches({ agentId }: { agentId: string }) {
   const [busy, setBusy] = useState<string | null>(null);
   const blank = { nom: "", source: "page", url: "", critere: "", consigne: "", minutes: 60 };
   const [form, setForm] = useState(blank);
+  const [opened, setOpened] = useState<string | null>(null);
   const list = data?.veilles ?? [];
 
   const act = async (w: Watch, action: string) => {
-    if (action === "supprimer" && !confirm(`Supprimer la veille « ${w.nom} » ?`)) return;
+    if (action === "supprimer" && !confirm(`Supprimer la veille « ${w.nom} » ?`)) return false;
     setBusy(w.id + action);
     try {
       await send(`/api/agents/${agentId}/watches/${w.id}/${action}`, {});
       await load();
+      return true;
     } catch (e) {
       setError((e as Error).message);
+      return false;
     } finally {
       setBusy(null);
     }
@@ -1567,44 +1629,61 @@ export function Watches({ agentId }: { agentId: string }) {
     }
   };
 
-  return (
-    <Section title="Surveiller un changement" count={list.length} defaultOpen>
-      {data && !list.length && !adding && (
-        <p className="text-sm text-muted-foreground">
-          Surveille une page, un flux, tes courriels ou ton agenda sans faire travailler l'agent. Rien de nouveau : rien ne coûte.
-          Demande-le-lui (« préviens-moi si ce produit passe sous 300 $ », « si j'ai un courriel de Paul, prépare une réponse ») ou crée-la ici.
-        </p>
-      )}
-      {list.map((w) => (
-        <div key={w.id} className="flex flex-col gap-1 rounded-xl border border-border p-2.5">
-          <div className="flex items-start gap-2">
-            <span className={cn("mt-1.5 size-2 shrink-0 rounded-full", !w.active ? "bg-muted-foreground/40" : w.erreur ? "bg-danger" : "bg-ok")} />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{w.nom}</p>
-              <p className="truncate text-xs text-muted-foreground" title={w.url}>{sourceLabel(w)}</p>
-              <p className="text-xs text-muted-foreground">
-                {everyLabel(w.minutes)}
-                {!w.active ? " · en pause" : w.dernier_passage ? ` · vue ${ago(w.dernier_passage)}` : ""}
-              </p>
-              <p className="text-xs text-muted-foreground tabular-nums">{tally(w)}</p>
-            </div>
-          </div>
-          {w.critere && <p className="line-clamp-2 pl-4 text-xs text-muted-foreground">{w.consigne ? "Si" : "Ce qui compte"} : {w.critere}</p>}
-          {w.consigne && <p className="line-clamp-2 pl-4 text-xs text-muted-foreground">Alors : {w.consigne}</p>}
-          {w.erreur && <p className="pl-4 text-xs text-danger">{w.erreur}</p>}
-          <div className="flex gap-1 pl-3">
-            <Button size="sm" variant="ghost" onClick={() => act(w, w.active ? "pause" : "reprendre")} disabled={!!busy}>
-              {w.active ? <Pause /> : <Play />}{w.active ? "Pause" : "Reprendre"}
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => act(w, "verifier")} disabled={!!busy}>
-              {busy === w.id + "verifier" ? <Loader2 className="animate-spin" /> : <Zap />}Vérifier
-            </Button>
-            <Button size="sm" variant="ghost" className="ml-auto text-muted-foreground" onClick={() => act(w, "supprimer")} disabled={!!busy} aria-label={`Supprimer « ${w.nom} »`}>
-              <Trash2 />
-            </Button>
+  const open = list.find((x) => x.id === opened) ?? null;
+  if (open) {
+    const w = open;
+    return (
+      <section aria-label={w.nom} className="absolute inset-0 z-10 flex flex-col gap-3 overflow-y-auto bg-surface px-1 pb-4">
+        <button type="button" onClick={() => setOpened(null)} className="flex cursor-pointer items-center gap-1 self-start text-sm text-muted-foreground hover:text-foreground">
+          <ChevronLeft className="size-4" />Veilles
+        </button>
+        <div className="flex items-start gap-2">
+          <span className={cn("mt-2 size-2.5 shrink-0 rounded-full", !w.active ? "bg-muted-foreground/40" : w.erreur ? "bg-danger" : "bg-ok")} />
+          <div className="min-w-0 flex-1">
+            <h3 className="text-base font-semibold">{w.nom}</h3>
+            <p className="truncate text-sm text-muted-foreground" title={w.url}>{sourceLabel(w)}</p>
+            <p className="text-sm text-muted-foreground">{everyLabel(w.minutes)}{!w.active ? " · en pause" : w.dernier_passage ? ` · vue ${ago(w.dernier_passage)}` : ""}</p>
           </div>
         </div>
-      ))}
+        <div className="grid grid-cols-3 gap-2">
+          <Button variant="outline" onClick={() => act(w, w.active ? "pause" : "reprendre")} disabled={!!busy}>
+            {w.active ? <Pause /> : <Play />}{w.active ? "Pause" : "Reprendre"}
+          </Button>
+          <Button variant="outline" onClick={() => act(w, "verifier")} disabled={!!busy}>
+            {busy === w.id + "verifier" ? <Loader2 className="animate-spin" /> : <Zap />}Vérifier
+          </Button>
+          <Button variant="outline" className="text-danger" onClick={async () => { if (await act(w, "supprimer")) setOpened(null); }} disabled={!!busy}>
+            <Trash2 />Supprimer
+          </Button>
+        </div>
+        {w.erreur && <p className="text-sm text-danger">{w.erreur}</p>}
+        {w.critere && <div className="rounded-xl bg-muted/50 p-3 text-sm"><b>{w.consigne ? "Si" : "Ce qui compte"}</b> : {w.critere}</div>}
+        {w.consigne && <div className="rounded-xl bg-muted/50 p-3 text-sm"><b>Alors</b> : {w.consigne}</div>}
+        <p className="text-sm text-muted-foreground tabular-nums">{tally(w)}</p>
+        <ErrorText>{error}</ErrorText>
+      </section>
+    );
+  }
+
+  return (
+    <Section title="Surveiller un changement" count={list.length} defaultOpen>
+      {data && !list.length && !adding && <p className="text-sm text-muted-foreground">Aucune veille.</p>}
+      {list.length > 0 && (
+        <ul className="flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border">
+          {list.map((w) => (
+            <li key={w.id}>
+              <button type="button" onClick={(e) => { e.currentTarget.closest("[role=tabpanel]")?.scrollTo(0, 0); setOpened(w.id); }} className="flex w-full cursor-pointer items-center gap-3 px-3 py-3 text-left hover:bg-muted/50">
+                <span className={cn("size-2 shrink-0 rounded-full", !w.active ? "bg-muted-foreground/40" : w.erreur ? "bg-danger" : "bg-ok")} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium">{w.nom}</span>
+                  <span className="block truncate text-xs text-muted-foreground">{everyLabel(w.minutes)}{!w.active ? " · en pause" : ""}</span>
+                </span>
+                <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       {adding ? (
         <form onSubmit={create} className="flex flex-col gap-2 rounded-xl border border-border p-2.5">
           <Input value={form.nom} onChange={(e) => setForm({ ...form, nom: e.target.value })} className="h-9" placeholder="Nom (ex. Prix du vélo)" aria-label="Nom de la veille" required />
@@ -1623,7 +1702,7 @@ export function Watches({ agentId }: { agentId: string }) {
           </div>
         </form>
       ) : (
-        <Button variant="outline" size="sm" className="self-start" onClick={() => setAdding(true)}><Plus />Nouvelle veille ou routine à condition</Button>
+        <Button variant="outline" size="sm" className="self-start" onClick={() => setAdding(true)}><Plus />Nouvelle veille</Button>
       )}
       <ErrorText>{error}</ErrorText>
     </Section>

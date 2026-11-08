@@ -48,24 +48,22 @@ function ForgotPassword({ onBack, onChanged }: { onBack: () => void; onChanged: 
     <form onSubmit={submit} className={`${box} max-w-md`}>
       <h1 className="text-xl font-semibold">Mot de passe oublié</h1>
       <p className="text-sm text-muted-foreground">
-        Pour prouver que ce serveur est à toi, tu lis un code sur le serveur lui-même. Il sert une seule fois, pendant 15 minutes.
-        Cette page change le mot de passe du propriétaire. Un profil qui a oublié le sien demande au propriétaire : Réglages → Profils.
+        Pour le propriétaire. Un profil demande au propriétaire.
       </p>
 
       <div className="flex flex-col gap-2 text-sm">
         <p className="font-medium">1. Crée le code</p>
         <Button type="button" variant="outline" onClick={ask}>{asked ? "Créer un code (déjà demandé)" : "Créer un code"}</Button>
-        {asked && <p role="status" className="text-muted-foreground">C'est fait. S'il y avait déjà un code en cours, il reste valable : prends le dernier affiché.</p>}
+        {asked && <p role="status" className="text-muted-foreground">C'est fait. Prends le dernier code affiché.</p>}
       </div>
 
       <div className="flex flex-col gap-2 text-sm">
         <p className="font-medium">2. Lis-le sur le serveur</p>
         <p className="text-muted-foreground">
-          <b className="text-foreground">Sur Hostinger :</b> ouvre ton VPS (Manage), puis Docker Manager → Projects. En face de ton
-          projet, ouvre le menu ⋮ puis View logs. Cherche « Code de récupération » : ce sont trois groupes de quatre lettres.
+          <b className="text-foreground">Sur Hostinger :</b> Docker Manager → Projects, menu ⋮ → View logs, ligne « Code de récupération ».
         </p>
         <p className="text-muted-foreground">
-          <b className="text-foreground">Avec un terminal sur le serveur :</b> cette commande crée un nouveau code et l'affiche.
+          <b className="text-foreground">Avec un terminal :</b>
         </p>
         <code className="overflow-x-auto rounded-lg bg-muted px-2 py-1.5 text-xs whitespace-nowrap">docker exec noah-server python -m noah.recuperation</code>
       </div>
@@ -84,17 +82,16 @@ function ForgotPassword({ onBack, onChanged }: { onBack: () => void; onChanged: 
           Encore une fois
           <Input id="new-password-again" type="password" autoComplete="new-password" required minLength={12} value={again} onChange={(e) => setAgain(e.target.value)} />
         </Label>
-        <p className="text-muted-foreground">Toutes les sessions du serveur seront fermées, sur tous les appareils et tous les profils. Il faudra relier tes applications de nouveau. Tes agents continuent de tourner.</p>
+        <p className="text-muted-foreground">Toutes les sessions seront fermées, sur tous les appareils et profils.</p>
         <label className="flex items-start gap-2 text-muted-foreground">
           <input id="cut-double" type="checkbox" className="mt-1" checked={cutDouble} onChange={(e) => setCutDouble(e.target.checked)} />
           <span>
-            J'ai aussi perdu mon téléphone et mes codes de secours : couper la double vérification du propriétaire. Qui a la main sur le serveur
-            peut le faire ; le journal du serveur le note.
+            J'ai perdu mon téléphone et mes codes de secours : couper la double vérification.
           </span>
         </label>
         <label className="flex items-start gap-2 text-muted-foreground">
           <input id="cut-mail" type="checkbox" className="mt-1" checked={cutMail} onChange={(e) => setCutMail(e.target.checked)} />
-          <span>Les courriels de confirmation n'arrivent plus : ne plus demander de code reçu par courriel. Chacun pourra réactiver son adresse. Le journal du serveur le note.</span>
+          <span>Les courriels n'arrivent plus : ne plus demander de code par courriel.</span>
         </label>
       </div>
 
@@ -133,7 +130,7 @@ export function TemporaryPassword({ onDone, onLogout }: { onDone: () => void; on
         <img src="/assets/icon.svg" alt="" className="size-11" />
         <div className="flex flex-col gap-1">
           <h1 className="text-xl font-semibold">Choisis ton mot de passe</h1>
-          <p className="text-sm text-muted-foreground">Celui que tu viens d'utiliser est temporaire. Remplace-le pour continuer : tu seras seul à connaître le nouveau.</p>
+          <p className="text-sm text-muted-foreground">Le tien est temporaire : remplace-le.</p>
         </div>
         <Label>
           Mot de passe temporaire
@@ -196,10 +193,6 @@ export function AuthScreen({ onDone }: { onDone: () => void }) {
         <div className="flex w-full max-w-sm flex-col gap-4 rounded-2xl border border-border bg-surface p-7 shadow-sm">
           <img src="/assets/icon.svg" alt="" className="size-11" />
           <h1 className="text-xl font-semibold">Cet appareil n'est plus relié</h1>
-          <p className="text-sm text-muted-foreground">
-            Il a été déconnecté depuis Réglages → Appareils, ou n'a pas servi depuis longtemps. Relie-le de nouveau : ça prend
-            quelques secondes.
-          </p>
           <Button size="lg" onClick={() => shell.forget()}>Relier de nouveau</Button>
         </div>
       </div>
@@ -228,19 +221,19 @@ export function AuthScreen({ onDone }: { onDone: () => void }) {
           <img src="/assets/icon.svg" alt="" className="size-11" />
           <div className="flex flex-col gap-1">
             <h1 className="text-xl font-semibold">Double vérification</h1>
-            <p className="text-sm text-muted-foreground">Ouvre ton application de codes et saisis le code à 6 chiffres de Noah.</p>
+            <p className="text-sm text-muted-foreground">Le code à 6 chiffres de ton application.</p>
           </div>
           <Label>
             Code
             <Input id="login-code" required autoFocus autoComplete="one-time-code" maxLength={32} className="font-mono tracking-widest" value={code} onChange={(e) => setCode(e.target.value)} />
           </Label>
-          <p className="text-xs text-muted-foreground">Téléphone perdu ? Saisis un de tes codes de secours (BCDF-GHJK-LMNP), il sert une seule fois.</p>
+          <p className="text-xs text-muted-foreground">Téléphone perdu ? Saisis un code de secours.</p>
           <ErrorText>{error}</ErrorText>
           <Button type="submit" size="lg" disabled={busy}>Valider</Button>
           <button type="button" className="self-center text-sm text-muted-foreground underline underline-offset-2 hover:text-foreground" onClick={() => { setNeedCode(false); setCode(""); setPassword(""); setError(""); }}>
             Retour
           </button>
-          <p className="text-xs text-muted-foreground">Plus aucun code ? Le propriétaire du serveur la coupe par « Mot de passe oublié ». Pour un profil, le propriétaire la coupe dans Réglages → Profils.</p>
+          <p className="text-xs text-muted-foreground">Plus aucun code ? Le propriétaire peut la couper.</p>
         </form>
       </div>
     );
@@ -252,7 +245,7 @@ export function AuthScreen({ onDone }: { onDone: () => void }) {
         <div className="flex flex-col gap-1">
           <h1 className="text-xl font-semibold">Connexion à Noah Agent</h1>
         </div>
-        {changed && <p role="status" className="text-sm text-muted-foreground">Mot de passe changé. Connecte-toi avec le nouveau. Ton nom d'utilisateur est déjà rempli.</p>}
+        {changed && <p role="status" className="text-sm text-muted-foreground">Mot de passe changé. Connecte-toi avec le nouveau.</p>}
         <Label>
           Nom d'utilisateur
           <Input id="username" autoComplete="username" required minLength={2} value={username} onChange={(e) => setUsername(e.target.value)} />

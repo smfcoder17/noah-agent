@@ -10,3 +10,15 @@ export function forgetSeen() {
 }
 
 export const seenGeneration = () => generation;
+
+/** Lit d'avance ce qu'un écran montrera, sans rien afficher : l'onglet s'ouvre alors déjà rempli, puis se met à jour.
+ * Ce qui est déjà en mémoire n'est pas relu ; une réponse arrivée après un changement de compte est jetée. */
+export function prefetchSeen(paths: string[], read: (path: string) => Promise<unknown>) {
+  const at = generation;
+  for (const path of paths) {
+    if (SEEN.has(path)) continue;
+    read(path).then((data) => {
+      if (generation === at && !SEEN.has(path)) SEEN.set(path, data);
+    }).catch(() => {});
+  }
+}

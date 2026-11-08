@@ -49,11 +49,11 @@ function rubrics(owner: boolean): { id: string; label: string; tabs: [SettingsTa
 }
 
 const HINTS: Record<string, string> = {
-  image: "Illustrations, photos, logos, miniatures. En automatique, un logo va à un modèle vectoriel et une affiche avec du texte à un modèle fort en typographie.",
-  video: "Clips de quelques secondes. Compte quelques minutes et plus cher qu'une image.",
-  music: "Jingles, ambiances, chansons courtes.",
-  speech: "La voix qui lit les réponses en mode vocal.",
-  transcription: "Transforme ta voix en texte quand tu dictes ou parles.",
+  image: "Illustrations, photos, logos.",
+  video: "Clips de quelques secondes.",
+  music: "Jingles, ambiances, chansons.",
+  speech: "Lit les réponses à voix haute.",
+  transcription: "Ta voix en texte.",
 };
 
 export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainSaved }: {
@@ -75,7 +75,7 @@ export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainS
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {open && (
-        <DialogContent title={home ? "Réglages" : rubric.label} onBack={home ? undefined : () => onTab("home")} description={rubric.id === "models" && !home ? "Les clés restent chiffrées sur cette machine. Les agents ne les voient jamais : ils passent par Noah Agent." : undefined} className="max-w-4xl">
+        <DialogContent title={home ? "Réglages" : rubric.label} onBack={home ? undefined : () => onTab("home")} className="max-w-4xl">
           {home ? (
             <nav aria-label="Rubriques" className="flex flex-col">
               <button type="button" onClick={() => { setPairNow(true); onTab("phone"); }} className="mb-2 flex cursor-pointer items-center justify-between rounded-xl bg-accent-soft px-3 py-3.5 text-left text-sm font-medium text-accent">
@@ -177,7 +177,7 @@ function FaceMotion() {
       />
       <span>
         <span className="block font-semibold">Visages immobiles</span>
-        <span className="block text-xs text-muted-foreground">Les agents ne bougent plus à l'écran, sur cet appareil.</span>
+        <span className="block text-xs text-muted-foreground">Sur cet appareil.</span>
       </span>
     </label>
   );
@@ -226,7 +226,7 @@ function MediaPanel({ kinds, withVoice, withPreferences }: { kinds: string[]; wi
               <div className="flex min-w-0 flex-col gap-2">
                 <ModelSelect label={k.label} models={k.models} value={k.setting} auto={k.auto} routed={k.routed} onChange={(id) => choose(kind, id)} />
                 <details>
-                  <summary className="cursor-pointer text-xs text-muted-foreground">Modes : Rapide, Équilibré, Le plus fort, Gratuit, Custom</summary>
+                  <summary className="cursor-pointer text-xs text-muted-foreground">Modes</summary>
                   <div className="mt-2"><ModeRows level={kind as Level} onChanged={() => load()} /></div>
                 </details>
               </div>
@@ -240,9 +240,6 @@ function MediaPanel({ kinds, withVoice, withPreferences }: { kinds: string[]; wi
       {withVoice && state.voice && state.voice.voices.length > 0 && (
         <VoiceRow voice={state.voice} onChoose={(v) => choose("voice", v)} />
       )}
-      <p className="text-xs text-muted-foreground">
-        « Automatique » suit les nouveaux modèles : Noah Agent prend le meilleur disponible, en qualité d'abord puis en coût.
-      </p>
     </div>
   );
 }
@@ -276,7 +273,6 @@ function Diagnostic() {
         Version {state.version} · {state.fournisseur ?? "aucun fournisseur"} · {state.modele ?? "aucun modèle"} ·{" "}
         {state.agents.filter((a) => a.en_ligne).length} agent(s) en ligne sur {state.agents.length}
       </p>
-      <p className="text-muted-foreground">Erreurs depuis le dernier démarrage du serveur, clés masquées. Copie-les pour les donner à un agent.</p>
       <Button variant="outline" size="sm" className="self-start" onClick={copy}>{copied ? "Copié" : "Tout copier"}</Button>
       {state.erreurs.length === 0 && <p>Aucune erreur depuis le dernier démarrage.</p>}
       {state.erreurs.map((e, i) => (
@@ -330,9 +326,6 @@ function Preferences({ initial, onSave }: { initial: string; onSave: (v: string)
   return (
     <div className="flex flex-col gap-2 rounded-2xl border border-border p-4">
       <label htmlFor="media-prefs" className="text-sm font-semibold">Tes préférences de création</label>
-      <p className="text-xs text-muted-foreground">
-        Le routeur les suit avant ses propres règles. L'agent y ajoute ce que sa mémoire sait de tes goûts.
-      </p>
       <textarea
         id="media-prefs"
         rows={3}
@@ -383,9 +376,7 @@ function VoiceServerPanel() {
       <div>
         <p className="text-sm font-semibold">Ton propre serveur de voix</p>
         <p className="text-xs text-muted-foreground">
-          Facultatif. Une adresse compatible OpenAI (<code>/audio/speech</code> et <code>/audio/transcriptions</code>), par exemple{" "}
-          <a className="underline" href="https://speaches.ai/" target="_blank" rel="noreferrer">Speaches</a>, un serveur ouvert sous licence MIT. Une
-          fonction sans modèle reste sur OpenRouter. Une fonction avec modèle ne repasse jamais par OpenRouter, même si ton serveur tombe.
+          Facultatif, compatible OpenAI (ex. <a className="underline" href="https://speaches.ai/" target="_blank" rel="noreferrer">Speaches</a>).
         </p>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
@@ -446,7 +437,6 @@ function VoiceRow({ voice, onChoose }: { voice: NonNullable<MediaState["voice"]>
     <div className="grid gap-2 rounded-2xl border border-border p-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] sm:items-center">
       <div>
         <p className="text-sm font-semibold">Voix</p>
-        <p className="text-xs text-muted-foreground">En automatique, une voix française du modèle choisi.</p>
       </div>
       <div className="flex gap-2">
         <select

@@ -112,3 +112,8 @@ export function readableModel(id: string | null | undefined): string {
   }
   return out.join(" ") + (free ? " (gratuit)" : "");
 }
+
+/** Le nom d'un mode d'agent, « auto » compris (le niveau suit chaque demande : server/noah/complexite.py). */
+export function modeName(mode: string): string {
+  return mode === "auto" ? "Auto" : MODE_NAMES[mode as ModeId] ?? mode;
+}

@@ -32,10 +32,6 @@ export function Profiles() {
   if (!list) return error ? <ErrorText>{error}</ErrorText> : <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture des profils…</p>;
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-sm text-muted-foreground">
-        Chaque profil a ses appareils, ses agents et son budget, et ne voit rien de ceux des autres. Toi non plus : tu ne vois
-        l'agent d'un profil que s'il te le partage. Tous passent par le fournisseur et la clé de ce serveur.
-      </p>
       <ErrorText>{error}</ErrorText>
       <ul className="flex flex-col gap-2">
         {list.map((p) => <ProfileRow key={p.id} profile={p} onChanged={load} onError={setError} />)}
@@ -272,7 +268,7 @@ function NewProfile({ onCreated }: { onCreated: () => void }) {
         <Label>Mot de passe initial<Input required type="password" minLength={12} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} /></Label>
         <Label>Plafond du mois ($)<Input type="number" min={0} step={1} placeholder="Aucun" value={budget} onChange={(e) => setBudget(e.target.value)} /></Label>
       </div>
-      <p className="text-xs text-muted-foreground">Transmets-lui ce mot de passe toi-même : il le remplacera dans Réglages &gt; Sécurité.</p>
+      <p className="text-xs text-muted-foreground">Transmets-lui ce mot de passe toi-même.</p>
       <ErrorText>{error}</ErrorText>
       <Button type="submit" className="self-start" disabled={busy}><UserPlus />Créer le profil</Button>
       {proofDialog}

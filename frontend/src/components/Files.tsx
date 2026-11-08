@@ -77,7 +77,7 @@ export function Files({ agentId, refreshKey, canDelete, onGiven }: { agentId: st
 
   if (error) return <p className="text-sm text-danger">{error}</p>;
   if (!files) return <p className="text-sm text-muted-foreground">Chargement…</p>;
-  if (!files.length) return <p className="text-sm text-muted-foreground">Aucun fichier pour l'instant. Ce que l'agent crée et ce que tu lui envoies apparaîtra ici.</p>;
+  if (!files.length) return <p className="text-sm text-muted-foreground">Aucun fichier pour l'instant.</p>;
 
   const toggle = (paths: string[], on: boolean) =>
     setPicked((cur) => {
@@ -252,7 +252,7 @@ function FileRow({ file, depth, agentId, picked, toggle, setPreview }: RowProps 
   const raw = rawFileUrl(agentId, file.path);
   const image = IMAGE.test(file.path);
   return (
-    <div className="group flex items-center gap-1.5 rounded-lg py-1 pr-1 hover:bg-muted" style={{ paddingLeft: depth * 14 + 4 }}>
+    <div data-noah-file={raw} data-noah-name={name} className="group flex items-center gap-1.5 rounded-lg py-1 pr-1 hover:bg-muted" style={{ paddingLeft: depth * 14 + 4 }}>
       <input type="checkbox" checked={picked.has(file.path)} onChange={(e) => toggle([file.path], e.target.checked)} aria-label={`Choisir ${name}`} className="size-4 shrink-0 accent-[var(--accent)]" />
       {image ? (
         <img src={mediaUrl(agentId, WORKSPACE + file.path)} alt="" loading="lazy" className="size-8 shrink-0 rounded-md border border-border object-cover" />

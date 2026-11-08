@@ -10,17 +10,17 @@ type CallChoice = "demande" | "important" | "jamais";
 type Preferences = { rappels: CallChoice; types: Record<Kind, boolean> };
 
 const CHOICES: { id: CallChoice; label: string; detail: string }[] = [
-  { id: "demande", label: "Seulement si je le demande", detail: "L'agent appelle si tu lui as dit « appelle-moi à la fin » pour cette tâche." },
-  { id: "important", label: "Quand c'est important", detail: "Il peut aussi t'appeler de lui-même pour une nouvelle urgente." },
-  { id: "jamais", label: "Jamais", detail: "Ton serveur refuse l'appel : le compte rendu reste écrit et part en notification." },
+  { id: "demande", label: "Seulement si je le demande", detail: "Ex. « appelle-moi à la fin »." },
+  { id: "important", label: "Quand c'est important", detail: "Aussi pour une nouvelle urgente." },
+  { id: "jamais", label: "Jamais", detail: "Le compte rendu part en notification." },
 ];
 
 const KINDS: { id: Kind; label: string; detail: string }[] = [
-  { id: "fin", label: "Fin de tâche", detail: "Un travail de plus de 30 secondes finit ou échoue, et tu n'es pas sur la conversation." },
-  { id: "accord", label: "Accord demandé", detail: "L'agent attend ton accord, ou une étape que toi seul peux faire." },
-  { id: "routines", label: "Routines et veilles", detail: "Une routine a un résultat, une veille a trouvé quelque chose, un agent t'écrit de lui-même." },
-  { id: "appels", label: "Appels", detail: "Ton téléphone sonne quand un agent t'appelle. Coupé, aucun agent ne peut te faire sonner." },
-  { id: "plafond", label: "Plafond de dépense", detail: "Un agent approche de son plafond, ou l'a atteint." },
+  { id: "fin", label: "Fin de tâche", detail: "Un long travail finit ou échoue." },
+  { id: "accord", label: "Accord demandé", detail: "L'agent attend ton accord." },
+  { id: "routines", label: "Routines et veilles", detail: "Un résultat, ou un agent qui t'écrit." },
+  { id: "appels", label: "Appels", detail: "Ton téléphone sonne." },
+  { id: "plafond", label: "Plafond de dépense", detail: "Un agent approche de son plafond." },
 ];
 
 export function NotificationSettings() {
@@ -59,7 +59,7 @@ export function NotificationSettings() {
                 </span>
               </label>
             ))}
-            {!prefs.types.appels && <p className="text-xs text-muted-foreground">Les appels sont coupés plus bas : aucun agent ne te fait sonner.</p>}
+            {!prefs.types.appels && <p className="text-xs text-muted-foreground">Appels coupés plus bas.</p>}
           </fieldset>
           <div className="flex flex-col gap-3 rounded-2xl border border-border p-4">
             <p className="text-sm font-semibold">Ce que je reçois, sur tous mes appareils</p>
@@ -81,7 +81,7 @@ export function NotificationSettings() {
               <ShieldCheck className="mt-0.5 size-4 shrink-0 text-accent" />
               <span>
                 <span className="block font-medium">Alertes de sécurité : toujours actives</span>
-                <span className="block text-xs text-muted-foreground">Un nouvel appareil sur ton compte, des codes faux. Elles ne se coupent pas.</span>
+                <span className="block text-xs text-muted-foreground">Nouvel appareil, codes faux.</span>
               </span>
             </p>
           </div>

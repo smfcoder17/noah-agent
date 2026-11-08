@@ -25,6 +25,7 @@
       "noah.js",
       "actions.js",
       "dossiers.js",
+      "fichiers.js",
       "setup.html",
       "setup.js",
       "icon.png"

@@ -789,6 +789,67 @@ async def connect_x(agent_id: str, body: XClient, request: Request, user: int = 
     return {"adresse": address, "retour": True}
 
 
+# L'agent fait la mise en place à la place de la personne (recettes instagram et x, accounts.py) : même vérification, même rangement.
+# Le jeton passe par sa machine le temps de la commande ; il est vérifié et scellé ici, et l'agent ne le garde nulle part.
+
+META_ORIGINS = ["https://developers.facebook.com", "https://business.facebook.com", "https://www.facebook.com"]
+
+
+@router.post("/agent-api/publication/instagram")
+async def agent_connect_instagram(request: Request):
+    """Le jeton est lu par Noah dans la page Meta ouverte chez l'agent (extension du navigateur, clé privée) : il ne passe ni par
+    une commande de l'agent, ni par ses messages, ni par le juge."""
+    from . import hermes
+    agent_id = relay._agent_from(request)
+    if not public.main_url():
+        return {"erreur": "Ce Noah n'a pas d'adresse publique : Instagram ne pourrait pas y chercher les images. Publie avec le navigateur."}
+    try:
+        seen = await hermes.browser_call(agent_id, "POST", "/noah/jeton", key=hermes.private_key(agent_id), timeout=20,
+                                         json={"userId": hermes.BROWSER_USER, "plateforme": "instagram", "origines": META_ORIGINS})
+    except httpx.HTTPError:
+        return {"erreur": "Le navigateur ne répond pas : lance « noah.py navigateur reveiller », puis réessaie."}
+    if not seen.get("ok"):
+        return {"erreur": "Ouvre la page Meta où le jeton est affiché (bouton « Générer »), puis relance cette commande." if seen.get("http_status") in (404, 409)
+                else "Ce navigateur doit être relancé pour cette étape : lance « noah.py navigateur redemarrer », puis réessaie."}
+    creds, last = None, "Aucun jeton visible sur cette page : clique sur « Générer un token » à côté du compte, puis relance cette commande."
+    for token in seen.get("jetons") or []:
+        try:
+            creds = await publication.instagram_check(token)
+            break
+        except publication.TokenRefused:
+            last = "Instagram refuse le jeton affiché. Génère-le de nouveau, puis relance cette commande."
+        except publication.Refused:
+            last = "Instagram refuse ce compte : il doit être professionnel (créateur ou entreprise)."
+        except httpx.HTTPError:
+            return {"erreur": "Instagram ne répond pas pour le moment. Réessaie dans une minute."}
+    if not creds:
+        return {"erreur": last}
+    try:
+        await _plug(agent_id, publication.INSTAGRAM, creds)
+    except HTTPException as e:
+        return {"erreur": e.detail}
+    return {"connecte": True, "compte": creds["compte"], "conseil": "Dis-lui en une phrase qu'Instagram est connecté, et sur quel compte."}
+
+
+@router.post("/agent-api/publication/x")
+async def agent_connect_x(body: XClient, request: Request):
+    agent_id = relay._agent_from(request)
+    callback = connexion.callback_url(request)
+    if not callback:
+        return {"erreur": "X doit pouvoir revenir sur ce serveur, et il n'a pas encore d'adresse publique."}
+    if _row(agent_id, publication.X):
+        return {"erreur": "X est déjà connecté sur cet agent."}
+    owner = access.owner_of(agent_id)
+    address, verifier = publication.x_start(body.client_id, callback)
+
+    async def finish(query: str) -> None:
+        creds = await publication.x_finish(body.client_id, callback, verifier, query)
+        await _plug(agent_id, publication.X, creds)
+
+    connexion.expect({"adresse": address, "retour": True}, agent_id, publication.X, finish, False, owner)
+    return {"adresse": address, "conseil": "Ouvre cette adresse dans ton navigateur et clique sur « Authorize app ». X revient seul sur Noah, qui branche le compte."}
+
+
 # --- Confirmation : l'accord donné dans la conversation ouvre un seul appel ------------------------------------------
 
 # Le plugin de garde écrit ce début dans la demande d'accord d'Hermes ; c'est ce qui relie l'accord au serveur.
@@ -1143,3 +1204,16 @@ def _failure(e: Exception, token: str | None) -> tuple[str, str]:
     if isinstance(e, Refused):
         return "refuse", str(e)
     return "injoignable", f"Injoignable : {_scrub(str(e), token) or 'pas de réponse'}."
+
+
+@router.get("/agent-api/publication/etat")
+def agent_publication_state(request: Request):
+    agent_id = relay._agent_from(request)
+    return {"connectees": [p for p in (publication.INSTAGRAM, publication.X) if _row(agent_id, p)]}
+
+
+@router.get("/agent-api/publication/retour")
+def agent_callback(request: Request):
+    """L'adresse de retour à déclarer chez X, pour la recette."""
+    address = connexion.callback_url(request)
+    return {"adresse": address} if address else {"erreur": "Ce serveur n'a pas encore d'adresse publique : X ne pourra pas y revenir."}

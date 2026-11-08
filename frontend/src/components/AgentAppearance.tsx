@@ -48,7 +48,7 @@ export function AgentAppearance({ agent, onChanged }: { agent: Agent; onChanged:
       <div className="flex flex-col gap-4 rounded-xl bg-muted/60 p-3">
         <div className="flex items-center gap-3">
           <NoahTile color={color} shape={shape} detail={detail} className="size-20" />
-          <p className="text-sm text-muted-foreground">Aperçu : c'est ainsi que {agent.name} apparaît partout, sur tous tes appareils.</p>
+          <p className="text-sm text-muted-foreground">Aperçu de {agent.name}.</p>
         </div>
 
         <fieldset className="flex flex-col gap-2">

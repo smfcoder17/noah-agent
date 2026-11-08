@@ -14,6 +14,8 @@ export type NoahDesktop = {
   commandeOublier?(commande: string, dossier: string): Promise<ComputerFolders | null>;
   /** Ouvre le sélecteur de dossier du système ; rend le chemin choisi ou null. */
   pickFolder(): Promise<string | null>;
+  /** Menu du système sur un fichier de l'agent : le télécharge dans Téléchargements/Noah au premier geste. Absent d'une application trop ancienne. */
+  fileMenu?(url: string, name: string): Promise<void>;
   /** Ouvre un dossier ou un fichier de l'ordinateur dans l'explorateur. */
   openPath(path: string): Promise<void>;
   /** App reliée à un serveur : oublie ce serveur et revient à l'écran pour en relier un. */
@@ -29,3 +31,22 @@ declare global {
 }
 
 export const desktop = (): NoahDesktop | undefined => window.noahDesktop;
+
+/** Clic droit sur un fichier de l'agent, dans l'application de bureau : le menu du système (ouvrir, ouvrir avec, afficher dans le dossier).
+ * Les fichiers marqués `data-noah-file` (listes, cartes du fil) et les liens vers /files/raw/. Hors de l'application : le menu du navigateur. */
+export function listenFileMenus(): () => void {
+  const onMenu = (e: MouseEvent) => {
+    const app = desktop();
+    if (!app?.fileMenu) return;
+    const target = (e.target as HTMLElement | null)?.closest<HTMLElement>("[data-noah-file], a[href*='/files/raw/']");
+    if (!target) return;
+    const href = target.dataset.noahFile || target.getAttribute("href") || "";
+    const url = new URL(href, location.origin);
+    if (url.origin !== location.origin) return;
+    e.preventDefault();
+    const name = target.dataset.noahName || decodeURIComponent(url.pathname.split("/").pop() || "fichier");
+    app.fileMenu(url.href, name).catch(() => {});
+  };
+  document.addEventListener("contextmenu", onMenu);
+  return () => document.removeEventListener("contextmenu", onMenu);
+}

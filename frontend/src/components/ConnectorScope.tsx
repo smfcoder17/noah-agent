@@ -36,7 +36,7 @@ export function PendingGlobal({ agentId, nom, waiting, onWait, onChange, onError
       <div className="flex items-center gap-2.5">
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{label}</p>
-          <p className="text-xs text-muted-foreground">Pour tous tes agents. Un clic pour le relier à celui-ci.</p>
+          <p className="text-xs text-muted-foreground">Pour tous tes agents.</p>
         </div>
         {!waiting && <Button size="sm" onClick={connect} disabled={busy}>{busy && <Loader2 className="animate-spin" />}Connecter</Button>}
       </div>
@@ -164,7 +164,7 @@ export function ConnectorScope({ agentId, nom, global, onChange }: { agentId: st
               );
             })}
           </ul>
-          {!view.pour_tous && <p className="text-xs text-muted-foreground">Tes prochains agents l'auront aussi. Chacun garde son droit : il demande confirmation tant que tu ne changes rien.</p>}
+          {!view.pour_tous && <p className="text-xs text-muted-foreground">Tes prochains agents l'auront aussi.</p>}
           {changed && (
             <Button size="sm" className="self-end" onClick={apply} disabled={busy || !ticked.length}>
               {busy && <Loader2 className="animate-spin" />}{view.pour_tous ? "Enregistrer" : "Mettre pour ces agents"}

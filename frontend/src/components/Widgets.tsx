@@ -286,7 +286,7 @@ function Preview({ spec }: { spec: PreviewSpec }) {
   // Une image peut venir d'ailleurs que de l'espace de travail (/tmp) : elle se télécharge par la même route que son affichage.
   const save = image ? `${media}&download=1` : `${raw}?download=1`;
   return (
-    <div ref={shell}>
+    <div ref={shell} data-noah-file={image ? media : raw} data-noah-name={name}>
     <Frame
       title={title}
       note={spec.note ?? (title === name ? undefined : name)}

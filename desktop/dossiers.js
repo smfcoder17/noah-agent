@@ -210,7 +210,7 @@ function publish(temporary, target) {
 }
 
 /** Écrit `data` dans le dossier. `ask(message, détail)` demande l'accord de la personne pour remplacer ou écrire un programme. */
-async function write(folder, relative, data, { remplacer = false, attendu = "", id = "", journal = null, ask = async () => false, recheck = () => null } = {}) {
+async function write(folder, relative, data, { remplacer = false, attendu = "", id = "", journal = null, ask = async () => false, recheck = () => null, trash = null } = {}) {
   if (!folder.ecriture) throw new Refus(`Le dossier « ${folder.nom} » est en lecture seule.`);
   if (data.length > MAX_FILE) throw new Refus("Ce fichier dépasse 50 Mo.");
   const hash = await hashOf(data);
@@ -231,7 +231,8 @@ async function write(folder, relative, data, { remplacer = false, attendu = "", 
   if (needsConsent(target, pieces(relative)) && !(await ask(`Un agent veut enregistrer un fichier qui peut agir dans « ${folder.nom} ».`, `${shown}\n\nCe type de fichier peut lancer quelque chose quand on l'ouvre, ou être lu par un outil. Accepte seulement si tu l'attendais.`))) {
     return { refuse: true, message: "L'utilisateur a refusé d'enregistrer ce fichier." };
   }
-  const replacing = remplacer && exists && (await ask(`Un agent veut remplacer un fichier de « ${folder.nom} ».`, `${shown}\n\nL'ancien contenu sera perdu. Sans ton accord, une copie est créée à côté.`));
+  // Avec une corbeille, remplacer se défait : l'ancienne version y part, et rien n'est demandé. Sans corbeille, l'ancien contenu serait perdu.
+  const replacing = remplacer && exists && (trash ? true : await ask(`Un agent veut remplacer un fichier de « ${folder.nom} ».`, `${shown}\n\nL'ancien contenu sera perdu. Sans ton accord, une copie est créée à côté.`));
   // Une fenêtre a pu rester ouverte longtemps : l'accès a peut-être été coupé, ou le dossier retiré, entre-temps.
   const blocked = recheck();
   if (blocked) return blocked;
@@ -252,8 +253,11 @@ async function write(folder, relative, data, { remplacer = false, attendu = "", 
     if (id && journal) journal.note(id, hash); // avant de publier : une coupure entre les deux ne donne pas deux copies
     let final;
     if (replacing) {
-      fs.renameSync(temporary, again.target);
-      final = again.target;
+      if (trash && fs.existsSync(again.target)) await trash(again.target);
+      const late = recheck(); // la corbeille a pris du temps
+      if (late) return late;
+      // Sans écraser : si un autre ordre a pris le nom entre-temps, le nouveau contenu arrive à côté.
+      final = trash ? publish(temporary, again.target) : (fs.renameSync(temporary, again.target), again.target);
     } else {
       final = publish(temporary, again.target);
     }
@@ -266,6 +270,98 @@ async function write(folder, relative, data, { remplacer = false, attendu = "", 
       /* déjà déplacé */
     }
   }
+}
+
+// --- Ranger : déplacer, renommer, créer un dossier, mettre à la corbeille ---------------------------------------------
+// Tout reste dans le dossier confié en écriture, et tout se défait : rien n'est écrasé, ce qu'on retire part à la corbeille du système.
+
+function writable(folder) {
+  if (!folder.ecriture) throw new Refus(`Le dossier « ${folder.nom} » est en lecture seule.`);
+}
+
+function notRoot(root, target) {
+  if (path.relative(root, target) === "") throw new Refus("C'est le dossier confié lui-même : choisis un élément dedans.");
+}
+
+/** Déplace ou renomme `from` vers `to`, deux chemins du même dossier. `ask` : un nom qui ferait agir le fichier demande l'accord. */
+/** Les fichiers d'un dossier, chemins relatifs à lui (au plus `max` : au-delà, null). */
+function filesUnder(dir, max = 2000) {
+  const out = [];
+  const walk = (d, rel) => {
+    for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
+      if (out.length > max) return;
+      const r = [...rel, entry.name];
+      if (entry.isDirectory()) walk(path.join(d, entry.name), r);
+      else out.push(r);
+    }
+  };
+  walk(dir, []);
+  return out.length > max ? null : out;
+}
+
+/** Ce déplacement rend-il actif quelque chose qui ne l'était pas (un programme, un dossier lu par un outil comme .github) ? */
+function becomesActive(source, dest, from, to) {
+  if (fs.statSync(source).isFile()) return needsConsent(dest, pieces(to)) && !needsConsent(source, pieces(from));
+  const inner = filesUnder(source);
+  if (!inner) return true; // trop gros pour tout regarder : la personne décide
+  return inner.some((rel) => needsConsent(path.join(dest, ...rel), [...pieces(to), ...rel]) && !needsConsent(path.join(source, ...rel), [...pieces(from), ...rel]));
+}
+
+const identity = (target) => {
+  const st = fs.statSync(target);
+  return `${st.dev}:${st.ino}:${st.isDirectory()}`;
+};
+
+/** Déplace ou renomme `from` vers `to`, deux chemins du même dossier. Ce qui deviendrait actif demande l'accord (`ask`) ;
+ * après l'attente, tout se revérifie : droits (`recheck`), chemin et identité de la source, place libre à l'arrivée. */
+async function move(folder, from, to, { ask = async () => false, recheck = () => null } = {}) {
+  writable(folder);
+  const source = resolve(folder.chemin, from);
+  if (!source.exists) throw new Refus("Introuvable dans ce dossier.");
+  notRoot(source.root, source.target);
+  const dest = resolve(folder.chemin, to);
+  notRoot(dest.root, dest.target);
+  if (dest.exists) throw new Refus("Un élément porte déjà ce nom à l'arrivée : choisis un autre nom, rien n'est écrasé.");
+  if (inside(source.target, dest.target)) throw new Refus("Un dossier ne se range pas dans lui-même.");
+  const before = identity(source.target);
+  if (becomesActive(source.target, dest.target, from, to)) {
+    const asked = await ask(`Un agent veut déplacer dans « ${folder.nom} » quelque chose qui pourra agir.`, `${pieces(from).join("/")} → ${pieces(to).join("/")}
+
+Accepte seulement si tu l'attendais.`);
+    if (!asked) return { refuse: true, message: "L'utilisateur a refusé ce déplacement." };
+  }
+  const blocked = recheck();
+  if (blocked) return blocked;
+  writable(folder);
+  // Pendant l'attente, un autre ordre a pu déplacer ou remplacer la source : on repart de zéro et on vérifie que c'est la même.
+  const now = resolve(folder.chemin, from);
+  if (!now.exists || identity(now.target) !== before || now.target !== source.target) throw new Refus("Cet élément a changé pendant l'attente : rien n'est déplacé.");
+  fs.mkdirSync(path.dirname(dest.target), { recursive: true });
+  const again = resolve(folder.chemin, to); // le parent vient peut-être d'être créé
+  if (again.exists) throw new Refus("Un élément porte déjà ce nom à l'arrivée : choisis un autre nom, rien n'est écrasé.");
+  if (inside(now.target, again.target)) throw new Refus("Un dossier ne se range pas dans lui-même.");
+  fs.renameSync(now.target, again.target);
+  return { ok: true, de: pieces(from).join("/"), vers: path.relative(real(folder.chemin), again.target).split(path.sep).join("/") };
+}
+
+function makeDir(folder, relative) {
+  writable(folder);
+  const { root, target, exists } = resolve(folder.chemin, relative);
+  notRoot(root, target);
+  if (exists && !fs.statSync(target).isDirectory()) throw new Refus("Un fichier porte déjà ce nom.");
+  fs.mkdirSync(target, { recursive: true });
+  return { ok: true, chemin: pieces(relative).join("/"), deja: exists };
+}
+
+/** Met un élément à la corbeille du système, d'où la personne le récupère. Sans corbeille, rien n'est supprimé. */
+async function toTrash(folder, relative, trash) {
+  writable(folder);
+  if (!trash) throw new Refus("Pas de corbeille sur cet ordinateur : rien n'est supprimé.");
+  const { root, target, exists } = resolve(folder.chemin, relative);
+  if (!exists) throw new Refus("Introuvable dans ce dossier.");
+  notRoot(root, target);
+  await trash(target);
+  return { ok: true, chemin: pieces(relative).join("/"), corbeille: true };
 }
 
 // --- Ce que l'ordinateur retient : dossiers, droits, accès coupé, commandes toujours permises, livraisons ---------------
@@ -421,4 +517,4 @@ function refusedRoot(chemin) {
   return path.parse(chemin).root === chemin || chemin.split(path.sep).some((p) => SENSITIVE_DIR.test(p));
 }
 
-module.exports = { DECEIVING, MAX_FILE, Refus, alwaysAllowed, createStore, explain, fingerprint, inside, list, locate, pieces, read, refusedRoot, resolve, sha256, simple, write };
+module.exports = { DECEIVING, MAX_FILE, Refus, alwaysAllowed, createStore, explain, fingerprint, inside, list, locate, makeDir, move, pieces, read, refusedRoot, resolve, sha256, simple, toTrash, write };

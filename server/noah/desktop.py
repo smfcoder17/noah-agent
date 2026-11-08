@@ -44,7 +44,8 @@ MAX_FILE = 50 * 1024 * 1024
 MAX_PENDING = 500 * 1024 * 1024  # par compte
 KEEP = timedelta(days=7)
 
-ACTIONS = ("ouvrir", "notifier", "presse_papiers", "lancer", "commande", "lister")
+ACTIONS = ("ouvrir", "notifier", "presse_papiers", "lancer", "commande", "lister", "deplacer", "creer_dossier", "corbeille")
+FOLDER_ACTIONS = ("lister", "deplacer", "creer_dossier", "corbeille")
 
 
 class AgentAction(BaseModel):
@@ -55,6 +56,7 @@ class AgentAction(BaseModel):
     appareil: str = Field(default="", max_length=200)  # son identifiant, qui survit à un renommage, ou son nom
     dossier: str = Field(default="", max_length=200)  # identifiant ou nom d'un dossier confié
     chemin: str = Field(default="", max_length=1000)  # relatif à ce dossier
+    vers: str = Field(default="", max_length=1000)  # pour déplacer : la nouvelle place, relative au même dossier
 
 
 class ReadFile(BaseModel):
@@ -210,7 +212,7 @@ async def agent_action(body: AgentAction, request: Request):
     device, problem = _which(target, body.appareil)
     if problem:
         return {"erreur": problem}
-    if body.action == "lister" and _too_old(device):
+    if body.action in FOLDER_ACTIONS and _too_old(device):
         return {"erreur": "L'application de bureau de cet ordinateur est trop ancienne pour les dossiers. Dis à l'utilisateur de la mettre à jour."}
     cible = body.cible.strip()
     if body.action == "ouvrir" and not re.match(r"^https?://", cible):
@@ -222,7 +224,7 @@ async def agent_action(body: AgentAction, request: Request):
                               "(de préférence ton dossier de travail, voir /opt/data/dossiers.json), puis ouvre cette copie."}
         cible = host
     item = {"agent": _agent_name(agent_id), "action": body.action, "cible": cible, "titre": body.titre, "texte": body.texte,
-            "dossier": _working_folder(agent_id), "dossierId": body.dossier, "chemin": body.chemin}
+            "dossier": _working_folder(agent_id), "dossierId": body.dossier, "chemin": body.chemin, "vers": body.vers}
     try:
         return await _ask(device, target, item)
     except asyncio.TimeoutError:

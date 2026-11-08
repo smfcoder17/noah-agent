@@ -106,10 +106,6 @@ export function DecisionModel() {
           <button type="button" className="cursor-pointer underline" onClick={() => setChanging(!changing)}>Changer</button>
         </p>
       )}
-      <p className="text-xs text-muted-foreground">
-        Il juge les nouveautés des veilles et des routines, relit les notes de mémoire, choisit le modèle d'une image. Le cerveau ne se réveille que pour le vrai travail.
-        Ces appels comptent dans ton suivi et ton plafond.{state.type && state.nom ? ` Ce qui demande d'écrire (résumés, titres) reste à ${state.nom}.` : ""}
-      </p>
       {!state.type && state.secours && <p className="rounded-xl bg-warn-soft p-3 text-warn">{state.raison}</p>}
       {changing && (
         <div className="flex flex-col gap-2">
@@ -137,7 +133,7 @@ export function DecisionModel() {
               {busy ? <Loader2 className="animate-spin" /> : <RefreshCw />}Mesurer à nouveau
             </Button>
           </div>
-          {noKey && <p className="text-xs text-muted-foreground">Une clé OpenRouter (Réglages &gt; Voix) ouvre Jev et Clef sans rien d'autre. Sinon, une clé TypeSafe ci-dessous.</p>}
+          {noKey && <p className="text-xs text-muted-foreground">Clé OpenRouter (Réglages &gt; Voix) ou TypeSafe ci-dessous.</p>}
           <div className="flex flex-wrap items-end gap-2">
             <Label className="min-w-0 flex-1">
               Clé TypeSafe pour Jev (facultative)

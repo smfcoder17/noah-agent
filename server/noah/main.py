@@ -27,7 +27,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Str
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import access, accounts, apprentissage, appareils, auth, catalog, chauffe, coffre, connecteurs, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, public, publication, push, recu, recuperation, relay, updates, watch
+from . import access, accounts, apprentissage, appareils, auth, catalog, chauffe, coffre, connecteurs, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, public, publication, push, recu, recuperation, relay, sites, updates, watch
 from . import config
 from .config import WEB_DIR, forget_setup_code
 from .hermes import Agent
@@ -140,6 +140,7 @@ app.include_router(appareils.router)
 app.include_router(public.router)
 app.include_router(connexion.router)
 app.include_router(logos.router)
+app.include_router(sites.router)
 
 # Agents en cours de création : id -> message d'étape ou d'erreur affiché dans l'interface.
 provisioning: dict[str, str] = {}
@@ -1738,7 +1739,9 @@ adresse) t'apportent leurs propres outils, à la voix, à l'écrit et dans les r
 invite-le à le faire dans l'onglet Connexions de l'agent plutôt que de lui demander des identifiants, sans jamais lui donner le lien d'un service tiers. Chaque outil a un droit choisi par
 l'utilisateur : un appel peut être refusé ou attendre son accord. Un outil injoignable ou un refus n'arrête pas ta tâche : dis-le
 en une phrase et continue le reste. N'installe jamais un serveur MCP toi-même : l'ajout se fait dans l'onglet Connexions de l'agent.
-Quand on te demande de connecter Google, suis la recette : `python3 /opt/data/noah.py recette google`.
+Quand on te demande de connecter Google, Instagram ou X, suis sa recette : `python3 /opt/data/noah.py recette google` (ou `instagram`, `x`).
+Dès que tu es connecté à un site dans ton navigateur pour l'utilisateur (un compte à lui, sur un site qui n'a pas d'outil), note-le :
+`python3 /opt/data/noah.py site-connecte <adresse du site> "Nom" [--compte <identifiant affiché>]`. Il apparaît alors dans ses Connexions.
 
 ## Appeler l'utilisateur
 Quand une étape doit rester la sienne (se connecter, code 2FA, CAPTCHA, payer, cliquer sur « Autoriser » pour donner accès à un compte),
@@ -2012,7 +2015,7 @@ def _main_conversation(agent_id: str, user: int | None = None) -> str | None:
 
 class AgentModel(BaseModel):
     model: str | None = Field(default=None, max_length=200)
-    mode: str | None = Field(default=None, pattern="^(fast|balanced|smart|gratuit|custom)$")
+    mode: str | None = Field(default=None, pattern="^(auto|fast|balanced|smart|gratuit|custom)$")
     raisonnement: str | None = Field(default=None, pattern="^(low|medium|high)$")  # présent et nul : celui du modèle
 
 

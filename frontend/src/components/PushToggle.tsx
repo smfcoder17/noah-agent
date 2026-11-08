@@ -47,23 +47,21 @@ function AndroidPushStatus() {
       <p className="text-xs font-semibold text-muted-foreground">Notifications sur ce téléphone</p>
       {!state.permission ? (
         <>
-          <p className="text-xs text-muted-foreground">Les notifications de Noah sont coupées sur ce téléphone : tu ne verras ni fin de tâche, ni appel.</p>
+          <p className="text-xs text-muted-foreground">Coupées sur ce téléphone.</p>
           {native.demanderDroit && (
             <Button size="sm" variant="outline" className="self-start" onClick={() => native.demanderDroit({ droit: "notifications" }).catch(() => {}).finally(refresh)}><Bell />Autoriser les notifications</Button>
           )}
         </>
       ) : state.inscrit ? (
         <>
-          <p className="text-xs text-muted-foreground">Actives : Noah te prévient même quand l'app est fermée.</p>
+          <p className="text-xs text-muted-foreground">Actives.</p>
           <Button size="sm" variant="ghost" className="self-start" onClick={test}><Bell />Envoyer un test</Button>
           {result && <p className="text-xs text-muted-foreground">{result}</p>}
         </>
       ) : state.distributeurs === 0 ? (
         <>
           <p className="text-xs text-muted-foreground">
-            Pour les recevoir sans service de Google, installe l'app gratuite <b>ntfy</b> (Play Store ou F-Droid). Elle
-            garde la connexion pour toutes tes apps ; tes messages restent chiffrés pour ce téléphone. Ouvre-la une fois et
-            accepte ses notifications (sans ça, Android ne la réveille pas), puis reviens ici.
+            Installe l'app gratuite <b>ntfy</b>, ouvre-la, accepte ses notifications, puis reviens ici.
           </p>
           <Button size="sm" variant="outline" className="self-start" onClick={retry}><Bell />C'est installé, activer</Button>
         </>
@@ -133,9 +131,6 @@ function WebPushToggle() {
   return (
     <div className="flex flex-col gap-1.5">
       <p className="text-xs font-semibold text-muted-foreground">Notifications sur cet appareil</p>
-      <p className="text-xs text-muted-foreground">
-        Quand Noah attend ton accord, termine une veille ou a besoin de toi, même si l'app est fermée.
-      </p>
       {on ? (
         <Button size="sm" variant="ghost" className="self-start" onClick={disable} disabled={busy}><BellOff />Couper les notifications</Button>
       ) : (

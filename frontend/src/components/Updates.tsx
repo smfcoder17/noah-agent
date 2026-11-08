@@ -104,7 +104,6 @@ export function Updates() {
           {next.notes && <p className="whitespace-pre-line text-xs text-muted-foreground">{next.notes}</p>}
           <p className="text-xs text-muted-foreground">
             {s.attente === "en dehors du créneau calme" ? `Elle s'installera seule entre ${s.creneau} (${s.fuseau}).` : s.attente ? `En attente : ${s.attente}.` : "Installation imminente."}
-            {" "}Tout est sauvegardé avant, et Noah revient à la version actuelle si quelque chose ne marche pas.
           </p>
           <div className="flex gap-2">
             <Button size="sm" disabled={!!busy || s.en_cours} onClick={install}>{busy === "install" && <Loader2 className="animate-spin" />}Installer maintenant</Button>
@@ -130,7 +129,6 @@ export function Updates() {
           </select>
           <span className="text-xs">en ce moment : {s.creneau}, {s.fuseau}</span>
         </label>
-        <p className="text-xs text-muted-foreground">Jamais pendant une tâche, une validation en attente ou un écran ouvert. Une version majeure attend 7 jours, sauf si tu l'installes avant.</p>
       </div>
 
       {s.historique.length > 0 && (
