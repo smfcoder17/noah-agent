@@ -188,11 +188,25 @@ def _gsetup(*args):
     return lines
 
 
+def _google_deps() -> bool:
+    """Les bibliothèques Python de Google, déclarées par Hermes : absentes de l'image, et perdues quand la machine de
+    l'agent est recréée. Noah les pose lui-même, sans que l'agent doive demander d'installer quoi que ce soit."""
+    try:
+        r = subprocess.run([sys.executable, str(GOOGLE), "--install-deps"], capture_output=True, text=True, timeout=600,
+                           cwd=str(DATA), env={**os.environ, "HOME": str(DATA)})
+        return r.returncode == 0 and "ERROR" not in (r.stdout or "")
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
 def google(_):
     if not GOOGLE.exists():
         return {"disponible": False}
     r = subprocess.run([sys.executable, str(GOOGLE), "--check"], capture_output=True, text=True, timeout=30,
                        cwd=str(DATA), env={**os.environ, "HOME": str(DATA)})
+    if "dependencies unavailable" in (r.stdout or ""):  # machine recréée : réparée en arrière-plan, sans bloquer l'écran
+        subprocess.Popen([sys.executable, str(GOOGLE), "--install-deps"], cwd=str(DATA), env={**os.environ, "HOME": str(DATA)},
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     return {"disponible": True, "connecte": (r.stdout or "").lstrip().startswith("AUTHENTICATED"),
             "identifiants": (DATA / "google_client_secret.json").exists()}
 
@@ -221,6 +235,8 @@ def google_install(body):
         f.write_text(json.dumps(data, indent=2), encoding="utf-8")
         f.chmod(0o600)
     (DATA / "google_oauth_pending.json").unlink(missing_ok=True)
+    if GOOGLE.exists():
+        _google_deps()  # sans elles, la première lecture de l'agenda demandait d'installer, donc ton accord
     return {"ok": True}
 
 
