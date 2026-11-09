@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Noah mobile 0.1.6</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* Couleurs de Noah (frontend/src/index.css), cadre gris neutre autour des téléphones */
+  --page: #e9ecf1;
+  --bg: #f6f7f9;
+  --card: #ffffff;
+  --muted: #eceff3;
+  --line: #dde2e8;
+  --ink: #141b24;
+  --soft: #5d6875;
+  --accent: #2a47c9;
+  --accent-soft: #e4e9fb;
+  --warn: #b5530f;
+  --warn-soft: #fdf0e3;
+  --ok: #1f8a4c;
+  --font: "Figtree", "Segoe UI", system-ui, sans-serif;
+  /* Mise en page : une planche de téléphones 360 × 760 qui passe à la ligne */
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page: #080b0f; --bg: #0e1318; --card: #151c24; --muted: #1d2630; --line: #2a3542;
+    --ink: #e6ebf0; --soft: #95a3b1; --accent: #8ea5ff; --accent-soft: #1d2852;
+    --warn: #f0a060; --warn-soft: #3a2614; --ok: #5fd08e; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --page: #080b0f; --bg: #0e1318; --card: #151c24; --muted: #1d2630; --line: #2a3542;
+  --ink: #e6ebf0; --soft: #95a3b1; --accent: #8ea5ff; --accent-soft: #1d2852;
+  --warn: #f0a060; --warn-soft: #3a2614; --ok: #5fd08e; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--page); color: var(--ink); font-family: var(--font); font-size: 15px; line-height: 1.4; }
+header.intro { max-width: 1180px; margin: 0 auto; padding: 32px 20px 8px; display: grid; gap: 8px; }
+header.intro h1 { margin: 0; font-size: 26px; text-wrap: balance; }
+header.intro p { margin: 0; color: var(--soft); max-width: 70ch; }
+.board { max-width: 1180px; margin: 0 auto; padding: 16px 20px 48px; display: flex; flex-wrap: wrap; gap: 28px 24px; justify-content: center; }
+figure { margin: 0; display: grid; gap: 10px; justify-items: center; }
+figcaption { font-size: 13px; color: var(--soft); max-width: 340px; text-align: center; }
+figcaption b { color: var(--ink); font-weight: 600; }
+.phone { width: 360px; height: 760px; background: var(--bg); border-radius: 36px; border: 8px solid #10151b; overflow: hidden; display: flex; flex-direction: column; position: relative; box-shadow: 0 18px 40px rgba(16,21,27,.18); }
+.status { height: 28px; flex: none; display: flex; justify-content: space-between; align-items: center; padding: 0 22px; font-size: 12px; font-weight: 600; }
+.top { flex: none; display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; padding: 4px 12px 8px; }
+.top .center { display: grid; justify-items: center; gap: 2px; }
+.top .name { font-weight: 700; font-size: 15px; }
+.top .state { font-size: 12px; color: var(--soft); display: flex; align-items: center; gap: 5px; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+.iconbtn { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; color: var(--ink); background: transparent; border: 0; }
+.iconbtn.fill { background: var(--card); box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+.title-top { flex: none; display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; padding: 4px 12px 10px; }
+.title-top h2 { margin: 0; text-align: center; font-size: 16px; }
+.body { flex: 1; overflow: hidden; padding: 0 14px; display: flex; flex-direction: column; gap: 10px; }
+.bubble { max-width: 84%; padding: 10px 13px; border-radius: 18px; font-size: 14.5px; }
+.me { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 6px; }
+.it { align-self: flex-start; background: var(--card); border-bottom-left-radius: 6px; }
+.media { align-self: flex-start; width: 210px; border-radius: 14px; overflow: hidden; background: var(--card); }
+.media .shot { height: 118px; background: linear-gradient(135deg, #1b2533, #2a47c9); color: #fff; font-weight: 700; font-size: 22px; display: grid; place-items: center; letter-spacing: .5px; }
+.media .cap { padding: 8px 10px; font-size: 12.5px; color: var(--soft); }
+.chips { display: flex; gap: 8px; }
+.chip { padding: 7px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); font-size: 13px; }
+.composer { flex: none; margin: 8px 12px 6px; background: var(--card); border-radius: 24px; display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 10px; box-shadow: 0 1px 3px rgba(0,0,0,.07); }
+.composer .ph { flex: 1; color: var(--soft); }
+.send { width: 36px; height: 36px; border-radius: 50%; background: var(--ink); color: var(--bg); display: grid; place-items: center; }
+.tabbar { flex: none; height: 62px; display: flex; justify-content: space-around; align-items: center; padding-bottom: 6px; }
+.tabbar .t { width: 48px; height: 40px; display: grid; place-items: center; color: var(--soft); border-radius: 14px; }
+.tabbar .t.on { color: var(--ink); background: var(--muted); }
+.avatar { width: 46px; height: 46px; }
+.avatar.lg { width: 84px; height: 84px; }
+.avatar.xl { width: 128px; height: 128px; }
+.section-label { font-size: 12px; font-weight: 600; color: var(--soft); text-transform: uppercase; letter-spacing: .5px; padding: 6px 4px 0; }
+.group { background: var(--card); border-radius: 16px; overflow: hidden; }
+.row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; min-height: 48px; }
+.row + .row { border-top: 1px solid var(--line); }
+.row .lbl { flex: 1; display: grid; gap: 1px; }
+.row .sub { font-size: 12.5px; color: var(--soft); }
+.row .val { color: var(--soft); font-size: 13.5px; }
+.row svg.ic { color: var(--soft); flex: none; }
+.chev { color: var(--soft); }
+.toggle { width: 42px; height: 26px; border-radius: 999px; background: var(--line); position: relative; flex: none; }
+.toggle::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+.toggle.on { background: var(--accent); }
+.toggle.on::after { left: 19px; }
+.approve { background: var(--card); border-radius: 18px; padding: 14px; display: grid; gap: 10px; border: 1px solid var(--line); }
+.approve .head { display: flex; gap: 10px; align-items: center; }
+.logo { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; color: #fff; font-weight: 700; flex: none; }
+.approve h3 { margin: 0; font-size: 15px; }
+.approve .quote { background: var(--muted); border-radius: 12px; padding: 10px 12px; font-size: 13.5px; }
+.btn { border: 0; border-radius: 999px; padding: 11px 14px; font: inherit; font-weight: 600; text-align: center; }
+.btn.primary { background: var(--accent); color: #fff; }
+.btn.ghost { background: var(--muted); color: var(--ink); }
+.btn.warn { background: var(--warn-soft); color: var(--warn); }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.taskrow { display: flex; gap: 12px; align-items: flex-start; padding: 10px 2px; }
+.taskrow .when { font-size: 12px; color: var(--soft); }
+.ticon { width: 34px; height: 34px; border-radius: 50%; background: var(--muted); display: grid; place-items: center; flex: none; color: var(--soft); }
+.ticon.done { background: #e2f4ea; color: var(--ok); }
+.drawer { position: absolute; inset: 0 70px 0 0; background: var(--card); box-shadow: 8px 0 30px rgba(0,0,0,.18); padding: 36px 16px 16px; display: flex; flex-direction: column; gap: 12px; }
+.scrim { position: absolute; inset: 0; background: rgba(10,14,20,.35); }
+.drag { color: var(--soft); }
+.screen { background: #0c1117; border-radius: 16px; height: 300px; display: grid; place-items: center; position: relative; overflow: hidden; }
+.screen .page { width: 86%; height: 82%; background: #fff; border-radius: 8px; display: grid; grid-template-rows: 22px 1fr; overflow: hidden; }
+.screen .bar { background: #eef1f4; display: flex; align-items: center; gap: 6px; padding: 0 8px; font-size: 10px; color: #5d6875; }
+.screen .content { padding: 10px; display: grid; gap: 7px; align-content: start; }
+.ln { height: 8px; border-radius: 4px; background: #e3e7ec; }
+.live { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,.55); color: #fff; font-size: 11px; padding: 3px 8px; border-radius: 999px; display: flex; gap: 5px; align-items: center; }
+.call { background: linear-gradient(180deg, #1b2a6b 0%, #0d1530 100%); color: #fff; }
+.call .status { color: #fff; }
+.call .who { display: grid; justify-items: center; gap: 8px; margin-top: 90px; }
+.call .who h2 { margin: 0; font-size: 28px; }
+.call .who p { margin: 0; opacity: .75; }
+.call .actions { margin-top: auto; display: flex; justify-content: space-around; padding: 0 30px 60px; }
+.round { width: 68px; height: 68px; border-radius: 50%; display: grid; place-items: center; }
+.round.red { background: #e5484d; } .round.green { background: #30a46c; }
+.call .lab { text-align: center; font-size: 13px; margin-top: 8px; opacity: .85; }
+.version { text-align: center; color: var(--soft); font-size: 12.5px; padding: 4px; }
+.version b { color: var(--ink); font-weight: 600; }
+.seg { display: flex; background: var(--muted); border-radius: 12px; padding: 3px; }
+.seg span { flex: 1; text-align: center; padding: 7px 0; border-radius: 10px; font-size: 13.5px; color: var(--soft); }
+.seg span.on { background: var(--card); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+.notes { max-width: 1180px; margin: 0 auto; padding: 0 20px 48px; display: grid; gap: 6px; color: var(--soft); font-size: 14px; }
+.notes h2 { color: var(--ink); font-size: 17px; margin: 0 0 4px; }
+.notes ul { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+@media (max-width: 400px) { .phone { transform: scale(.92); transform-origin: top center; } }
+</style>
+</head>
+<body>
+<header class="intro">
+  <h1>Noah sur téléphone, version 0.1.6</h1>
+  <p>Maquette pour juger l'architecture avant de coder : plus d'onglets en haut, des icônes seules en bas, une page par objet, une rangée par réglage. Contenu d'exemple tiré d'une vraie journée avec Noah.</p>
+</header>
+
+<main class="board" id="board"></main>
+
+<section class="notes">
+  <h2>Ce qui change par rapport à la 0.1.5</h2>
+  <ul>
+    <li>La rangée Activité · Fichiers · Routines · Connexions · Ordinateur disparaît du haut. Ces écrans deviennent des onglets du bas, que la personne choisit et ordonne dans ☰.</li>
+    <li>Agents et Réglages quittent la barre du bas : Agents passe dans ☰, Réglages en bas du tiroir.</li>
+    <li>Toucher l'avatar ouvre la page de l'agent : son modèle, ses connexions, ses compétences, sa mémoire et son autonomie, en rangées.</li>
+    <li>Une routine, un accord, un fichier s'ouvrent sur leur page avec ←.</li>
+    <li>Plus aucune notification permanente. L'appel sonne en plein écran, même téléphone verrouillé.</li>
+  </ul>
+</section>
+
+<script>
+const P = {
+  menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+  edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
+  chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z"/>',
+  activity: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
+  tasks: '<rect x="4" y="4" width="16" height="16" rx="4"/><path d="m9 12 2 2 4-4"/>',
+  files: '<path d="M4 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/>',
+  computer: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
+  up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
+  chevron: '<path d="m9 6 6 6-6 6"/>',
+  back: '<path d="m15 6-6 6 6 6"/>',
+  close: '<path d="M6 6l12 12M18 6 6 18"/>',
+  more: '<circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/>',
+  bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15Z"/><path d="M10 21h4"/>',
+  phone: '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>',
+  brain: '<path d="M9 4a3 3 0 0 0-3 3 3 3 0 0 0-2 5 3 3 0 0 0 2 5 3 3 0 0 0 6 1V5a3 3 0 0 0-3-1Z"/><path d="M15 4a3 3 0 0 1 3 3 3 3 0 0 1 2 5 3 3 0 0 1-2 5 3 3 0 0 1-6 1"/>',
+  plug: '<path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0Z"/><path d="M12 17v4"/>',
+  spark: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/>',
+  memory: '<path d="M5 4h11l3 3v13H5Z"/><path d="M9 4v5h6V4"/>',
+  shield: '<path d="M12 3 5 6v6c0 4.5 3 7.5 7 9 4-1.5 7-4.5 7-9V6Z"/>',
+  palette: '<circle cx="12" cy="12" r="9"/><circle cx="8" cy="10" r="1.2"/><circle cx="12" cy="7.5" r="1.2"/><circle cx="16" cy="10" r="1.2"/>',
+  update: '<path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v5h-5"/>',
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4-4"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>',
+  grip: '<circle cx="9" cy="6" r="1.2"/><circle cx="15" cy="6" r="1.2"/><circle cx="9" cy="12" r="1.2"/><circle cx="15" cy="12" r="1.2"/><circle cx="9" cy="18" r="1.2"/><circle cx="15" cy="18" r="1.2"/>',
+  check: '<path d="m5 12 5 5 9-10"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',
+  hand: '<path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V11M11 10V4.5a1.5 1.5 0 0 1 3 0V11M14 10.5V6a1.5 1.5 0 0 1 3 0v8a6 6 0 0 1-6 6h-.5a6 6 0 0 1-4.6-2.2L3.5 15a1.5 1.5 0 0 1 2.3-1.9L8 15"/>',
+  play: '<path d="M7 5v14l11-7Z"/>',
+  moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5Z"/>',
+  music: '<path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>',
+  callend: '<path d="M3 15c5-5 13-5 18 0l-2.5 2.5-3.5-1.5v-3a12 12 0 0 0-6 0v3L5.5 17.5Z"/>',
+  call: '<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2Z"/>'
+};
+const ic = (n, s = 22, w = 1.8, cls = "ic") => `<svg class="${cls}" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+const avatar = (cls = "avatar") => { const id = "g" + cls.replace(/W/g, ""); return `<svg class="${cls}" viewBox="0 0 100 100" aria-hidden="true"><defs><radialGradient id="${id}" cx="40%" cy="30%" r="75%"><stop offset="0" stop-color="#9b8cff"/><stop offset="1" stop-color="#5a3fd6"/></radialGradient></defs><path d="M50 12c22 0 34 18 34 40v34c0 4-4 6-8 4l-6-4-6 4-6-4-6 4-6-4-6 4-6-4-6 4c-4 2-8 0-8-4V52c0-22 12-40 34-40Z" fill="#6a50e0"/><ellipse cx="40" cy="48" rx="7" ry="9" fill="#fff"/><ellipse cx="62" cy="48" rx="7" ry="9" fill="#fff"/><circle cx="41" cy="50" r="4" fill="#141b24"/><circle cx="63" cy="50" r="4" fill="#141b24"/><path d="M45 64q6 5 12 0" stroke="#141b24" stroke-width="3" fill="none" stroke-linecap="round"/></svg>`; };
+const status = () => `<div class="status"><span>9:41</span><span>●●● 5G 87%</span></div>`;
+const tabbar = (on) => `<nav class="tabbar">${["chat","activity","tasks","files","computer"].map(t => `<div class="t ${t===on?"on":""}">${ic(t, 23, t===on?2.2:1.8)}</div>`).join("")}</nav>`;
+const topBar = (state = "En ligne") => `<div class="top"><button class="iconbtn fill" aria-label="Menu">${ic("menu")}</button><div class="center">${avatar()}<div class="name">Noah</div><div class="state"><span class="dot"></span>${state}</div></div><button class="iconbtn fill" aria-label="Nouvelle discussion">${ic("edit",20)}</button></div>`;
+const titled = (left, title, right = "") => `<div class="title-top"><button class="iconbtn fill">${ic(left)}</button><h2>${title}</h2>${right ? `<button class="iconbtn">${ic(right)}</button>` : "<span></span>"}</div>`;
+const row = (icon, label, val = "", sub = "", end = "chev") => `<div class="row">${icon ? ic(icon, 21) : ""}<div class="lbl"><span>${label}</span>${sub ? `<span class="sub">${sub}</span>` : ""}</div>${val ? `<span class="val">${val}</span>` : ""}${end === "chev" ? `<span class="chev">${ic("chevron",18)}</span>` : end}</div>`;
+const tg = (on) => `<span class="toggle ${on ? "on" : ""}"></span>`;
+
+const screens = [
+  { cap: "<b>Discussion.</b> En haut : ☰, l'agent et ce qu'il fait, nouvelle discussion. En bas : des icônes seules.", html: `${status()}${topBar("Prépare le carrousel")}
+    <div class="body">
+      <div class="bubble me">Fais un carrousel « 5 erreurs Python » et poste-le sur Instagram demain 9 h.</div>
+      <div class="bubble it">C'est prêt : 8 diapositives et la légende. Je le publie demain à 9 h.</div>
+      <div class="media"><div class="shot">5 ERREURS PYTHON</div><div class="cap">carrousel-python.pdf · 8 pages</div></div>
+      <div class="chips"><span class="chip">Voir les diapositives</span><span class="chip">Changer l'heure</span></div>
+    </div>
+    <div class="composer">${ic("plus",22)}<span class="ph">Message</span>${ic("mic",21)}<span class="send">${ic("up",18,2.2)}</span></div>${tabbar("chat")}` },
+  { cap: "<b>☰ Tiroir.</b> Mes agents, mes onglets à ordonner par appui long, la recherche et les réglages.", html: `${status()}${topBar()}<div class="body"></div>${tabbar("chat")}<div class="scrim"></div>
+    <div class="drawer">
+      <div class="section-label">Agents</div>
+      <div class="group">${row("", `<span style="display:flex;gap:10px;align-items:center">${avatar("avatar")}<span><b>Noah</b><br><span class="sub">Prépare le carrousel</span></span></span>`, "", "", "")}${row("plus","Nouvel agent","","","")}</div>
+      <div class="section-label">Onglets</div>
+      <div class="group">${[["chat","Discussion"],["activity","Activité"],["tasks","Tâches"],["files","Fichiers"],["computer","Ordinateur"]].map(([i,l]) => row(i,l,"","",`<span class="drag">${ic("grip",18)}</span>`)).join("")}</div>
+      <div style="margin-top:auto" class="group">${row("search","Rechercher","","","")}${row("gear","Réglages")}</div>
+    </div>` },
+  { cap: "<b>Page de l'agent.</b> On y arrive en touchant l'avatar. Tout ce qui le règle, en rangées.", html: `${status()}<div class="title-top"><button class="iconbtn fill">${ic("close")}</button><span></span><button class="iconbtn">${ic("more")}</button></div>
+    <div class="body" style="gap:14px">
+      <div style="display:grid;justify-items:center;gap:4px">${avatar("avatar lg")}<b style="font-size:20px">Noah</b><span class="state" style="color:var(--soft);font-size:13px">Prépare le carrousel</span></div>
+      <div class="group">${row("brain","Cerveau","Auto")}${row("shield","Autonomie","Auto")}${row("plug","Connexions","6")}${row("spark","Compétences","12")}${row("memory","Mémoire")}</div>
+      <div class="group">${row("palette","Apparence")}${row("bell","Notifications de Noah")}</div>
+    </div>` },
+  { cap: "<b>Activité.</b> Ce qui attend mon accord en tête, puis ce que l'agent a fait aujourd'hui.", html: `${status()}${topBar("Attend ton accord")}
+    <div class="body">
+      <div class="approve">
+        <div class="head"><span class="logo" style="background:#111">X</span><h3>Publier sur X</h3></div>
+        <div class="quote">« 5 erreurs Python que tous les débutants font. Le fil complet ici 👇 »</div>
+        <div class="two"><button class="btn ghost">Refuser</button><button class="btn primary">Publier</button></div>
+      </div>
+      <div class="section-label">Aujourd'hui</div>
+      <div class="taskrow"><span class="ticon done">${ic("check",18,2.2)}</span><div><div>Carrousel Python préparé</div><div class="when">10 h 51</div></div></div>
+      <div class="taskrow"><span class="ticon done">${ic("check",18,2.2)}</span><div><div>Courriels du matin triés</div><div class="when">8 h 02</div></div></div>
+      <div class="taskrow"><span class="ticon">${ic("clock",18)}</span><div><div>Résumé des ventes</div><div class="when">Demain 7 h</div></div></div>
+    </div>${tabbar("activity")}` },
+  { cap: "<b>Tâches.</b> Routines et veilles en rangées ; chacune s'ouvre sur sa page.", html: `${status()}${topBar()}
+    <div class="body">
+      <div class="section-label">Routines</div>
+      <div class="group">${row("clock","Courriels du matin","","Chaque jour à 8 h")}${row("clock","Résumé des ventes","","Lundi à 7 h")}${row("clock","Post Instagram","","Demain à 9 h")}</div>
+      <div class="section-label">Veilles</div>
+      <div class="group">${row("eye","Prix du MacBook Air","","Prévient si moins de 1 200 $")}</div>
+      <button class="btn ghost" style="justify-self:start">${"＋"} Nouvelle tâche</button>
+    </div>${tabbar("tasks")}` },
+  { cap: "<b>Une routine.</b> Sa page, avec ← pour revenir : quand, la dernière fois, lancer maintenant.", html: `${status()}${titled("back","Courriels du matin","more")}
+    <div class="body">
+      <div class="group">${row("","Active","","",tg(true))}${row("clock","Quand","Chaque jour, 8 h")}${row("brain","Consigne","","Trie mes courriels et résume l'important")}</div>
+      <div class="section-label">Dernières fois</div>
+      <div class="group">${row("","Aujourd'hui, 8 h 02","","4 courriels importants","")}${row("","Hier, 8 h 01","","Rien d'important","")}</div>
+      <button class="btn primary">${"Lancer maintenant"}</button>
+    </div>` },
+  { cap: "<b>Ordinateur.</b> L'écran reste connecté quand je change d'onglet. Un geste pour prendre la main.", html: `${status()}${topBar("Sur instagram.com")}
+    <div class="body">
+      <div class="screen"><span class="live"><span class="dot"></span>En direct</span><div class="page"><div class="bar">🔒 instagram.com/smfcoder</div><div class="content"><div class="ln" style="width:60%"></div><div class="ln"></div><div class="ln" style="width:80%"></div><div style="height:70px;border-radius:6px;background:linear-gradient(135deg,#f58529,#dd2a7b,#8134af)"></div><div class="ln" style="width:70%"></div></div></div></div>
+      <div class="two"><button class="btn ghost">${"Ouvrir une page"}</button><button class="btn primary">Prendre la main</button></div>
+      <div class="section-label">Onglets ouverts</div>
+      <div class="group">${row("","instagram.com","","Publication en cours","")}${row("","docs.google.com","","Plan du mois","")}</div>
+    </div>${tabbar("computer")}` },
+  { cap: "<b>Réglages.</b> Une rangée par réglage. La version de l'app, et celle du serveur en petit.", html: `${status()}${titled("back","Réglages")}
+    <div class="body">
+      <div class="group">${row("bell","Notifications")}${row("phone","Appareils","3")}${row("brain","Modèles et budget")}</div>
+      <div class="group">${row("shield","Autonomie","Auto")}${row("palette","Apparence")}${row("plug","Connexions")}</div>
+      <div class="group">${row("update","Mises à jour","À jour")}</div>
+      <div class="version"><b>Application 0.1.6</b> · serveur 0.1.6</div>
+    </div>` },
+  { cap: "<b>Notifications.</b> Ce qu'une messagerie offre : par type, sonnerie, silencieux, ne pas déranger.", html: `${status()}${titled("back","Notifications")}
+    <div class="body">
+      <div class="group">${row("check","Tâches finies","","",tg(true))}${row("shield","Accords à donner","","",tg(true))}${row("call","Appels de Noah","","",tg(true))}${row("chat","Messages","","",tg(false))}</div>
+      <div class="group">${row("music","Sonnerie d'appel","Nuage")}${row("bell","Son des notifications","Bulle")}</div>
+      <div class="group">${row("moon","Ne pas déranger","22 h – 7 h")}${row("","Silencieux","","Vibre sans son",tg(false))}</div>
+    </div>` },
+  { cap: "<b>Appel de Noah.</b> Téléphone verrouillé : il sonne en plein écran, comme un vrai appel.", cls: "call", html: `${status()}
+    <div class="who">${avatar("avatar xl")}<h2>Noah</h2><p>Appel vocal · « Le post est prêt »</p></div>
+    <div class="actions"><div><div class="round red">${ic("callend",30,2,"ic")}</div><div class="lab">Refuser</div></div><div><div class="round green">${ic("call",28,2,"ic")}</div><div class="lab">Répondre</div></div></div>` }
+];
+document.getElementById("board").innerHTML = screens.map(s => `<figure><div class="phone ${s.cls || ""}">${s.html}</div><figcaption>${s.cap}</figcaption></figure>`).join("");
+</script>
+</body>
+</html>
