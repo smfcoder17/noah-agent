@@ -13,7 +13,7 @@ def dns(ip):
 
 class SafeFetchTest(unittest.TestCase):
     def test_private_metadata_ipv6_and_credentials(self):
-        for ip in ("127.0.0.1", "169.254.169.254", "10.0.0.1", "::1", "::ffff:127.0.0.1", "100.64.0.1", "0.0.0.0"):
+        for ip in ("127.0.0.1", "169.254.169.254", "10.0.0.1", "::1", "::ffff:127.0.0.1", "100.64.0.1", "0.0.0.0", "64:ff9b::7f00:1", "2002:7f00:1::"):
             with self.subTest(ip=ip), patch.object(safefetch.socket, "getaddrinfo", return_value=dns(ip)):
                 with self.assertRaises(safefetch.UnsafeURL):
                     safefetch.resolve("https://exemple.org/")

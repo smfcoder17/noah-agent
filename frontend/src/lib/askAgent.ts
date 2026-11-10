@@ -1,14 +1,10 @@
-// Un message à l'agent depuis ailleurs que le fil (Détails → Connexions…) : App bascule sur la conversation
-// principale, qui l'envoie comme si l'utilisateur l'avait tapé.
-let pending: string | null = null;
-
-export function askAgent(text: string) {
-  pending = text;
-  window.dispatchEvent(new Event("noah:ask"));
+﻿// Demande depuis une carte : elle reste liée à l'agent d'origine, même après navigation.
+let pending: { text: string; agent?: string } | null = null;
+export function askAgent(text: string, agent?: string) {
+  pending = { text, agent };
+  window.dispatchEvent(new CustomEvent("noah:ask", { detail: { agentId: agent } }));
 }
-
-export function takeAsk(): string | null {
-  const text = pending;
-  pending = null;
-  return text;
+export function takeAsk(agent?: string): string | null {
+  if (!pending || (pending.agent && pending.agent !== agent)) return null;
+  const text = pending.text; pending = null; return text;
 }

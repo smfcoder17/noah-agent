@@ -34,7 +34,10 @@ def resolve(url: str) -> tuple[str, str, int, str, str]:
             raise UnsafeURL("Adresse refusée.")
         addresses = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
         ips = [ipaddress.ip_address(a[4][0]) for a in addresses]
-        if not ips or any(not ip.is_global or getattr(ip, "ipv4_mapped", None) is not None for ip in ips):
+        if not ips or any(not ip.is_global or getattr(ip, "ipv4_mapped", None) is not None
+                          or (isinstance(ip, ipaddress.IPv6Address) and (ip in ipaddress.ip_network("64:ff9b::/96")
+                              or ip in ipaddress.ip_network("64:ff9b:1::/48") or ip.sixtofour is not None or ip.teredo is not None))
+                          for ip in ips):
             raise UnsafeURL("Adresse privée ou réservée refusée.")
         return u.scheme, host, port, str(ips[0]), (u.path or "/") + ("?" + u.query if u.query else "")
     except (ValueError, UnicodeError, OSError) as e:

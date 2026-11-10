@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field
 
 from . import access, accounts, apprentissage, appareils, auth, catalog, chauffe, coffre, connecteurs, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, public, publication, push, recu, recuperation, relay, sites, updates, watch
 from . import config
-from . import accords, bus
+from . import accords, bus, ui_preferences, linkpreview, providers as provider_accounts
 from .config import WEB_DIR, forget_setup_code
 from .hermes import Agent
 
@@ -114,7 +114,8 @@ async def same_origin_only(request: Request, call_next):
         if token and await asyncio.to_thread(access.owner_app, token):
             updates.saw_client(zone)
     response = await call_next(request)
-    if request.method in UNSAFE and request.url.path.startswith("/api/") and response.status_code < 400:
+    if request.method in UNSAFE and request.url.path.startswith("/api/") and response.status_code < 400 \
+            and not request.url.path.startswith("/api/liens/") and not request.url.path.endswith("/regard"):
         token = auth.request_token(request, request.cookies.get(auth.COOKIE))
         user = await asyncio.to_thread(auth.owner_of, token)
         await asyncio.to_thread(bus.invalidate, user)
@@ -149,6 +150,9 @@ app.include_router(logos.router)
 app.include_router(sites.router)
 app.include_router(bus.router)
 app.include_router(accords.router)
+app.include_router(linkpreview.router)
+app.include_router(ui_preferences.router)
+app.include_router(provider_accounts.router)
 
 # Agents en cours de création : id -> message d'étape ou d'erreur affiché dans l'interface.
 provisioning: dict[str, str] = {}
@@ -1640,6 +1644,9 @@ async def set_model(body: ModelChoice, tasks: BackgroundTasks, user: int = Depen
         db.set_setting("media_api_key", previous["api_key"], secret=True)
     if body.provider == "openrouter" and api_key:
         db.set_setting("media_api_key", api_key, secret=True)
+    if previous:
+        provider_accounts.remember(previous["provider"], previous["api_key"], previous["base_url"])
+    provider_accounts.remember(body.provider, api_key, base_url)
     db.set_setting("provider", body.provider)
     db.set_setting("model", body.model or p["model"])
     db.set_setting("base_url", base_url or "")
@@ -1829,7 +1836,7 @@ Quand une structure aide plus qu'un paragraphe, écris un bloc de code de langag
 Chaque grille ou page s'adapte à l'écran : 2 colonnes sur téléphone, 3 à 4 sur ordinateur, jamais de largeur fixe.
 Un élément ouvrable : {"type":"element","kind":"pdf","title":"Devis","path":"/opt/data/workspace/devis.pdf","source":"noah","size":84000,"version":"1","description":"Devis pour relecture"}.
 Kinds possibles : image, pdf, video, audio, page, grid, table, csv, document, presentation, code, diff, archive, map, contact, chart, form, choice, pr, email, thread, appointment, routine, watch, task, skill, approval, batch, unknown.
-Indique toujours sa provenance (source : noah, moi ou site), son titre accessible, sa description, sa taille réelle et sa version si connue. Les objets de travail mettent leur détail dans data, sans inventer de résultat ni d'action.
+Indique toujours sa provenance (source : noah, moi ou site), son titre accessible, sa description, sa taille réelle et sa version si connue. Les objets de travail mettent leur détail dans data, sans inventer de résultat ni d'action. Pour une routine ou une veille existante, data.id porte son identifiant réel et data.active son état réel ; une archive met sa liste dans data.items, un formulaire ses champs dans data.fields.
 Un lien seul reste sur sa propre ligne ; plusieurs liens se présentent en liste compacte. Donne les données sensibles en clair : l'interface les masque elle-même, jamais un masque irréversible dans le texte enregistré.
 Données réelles uniquement, jamais inventées. Un bloc par widget, avec une phrase d'explication autour.
 
@@ -2195,6 +2202,12 @@ profiles.setup(prove_if_needed=_prove_if_needed, critical=_critical, prove_passw
 
 # Un fil terminé depuis plus longtemps que ça passe dans « Archivés ».
 THREAD_STALE_DAYS = 2
+
+
+@app.post("/api/agents/{agent_id}/conversations")
+def create_discussion(agent_id: str, user: int = Depends(auth.current_user)):
+    access.access(user, agent_id, "usage")
+    return {"id": _new_conversation(user, agent_id, "Nouvelle discussion")}
 
 
 @app.get("/api/agents/{agent_id}/conversations")

@@ -1,3 +1,4 @@
+import { ObjectPage } from "./mobile/ObjectPage";
 import { subscribeUpdates } from "@/lib/events";
 // Ce que l'agent sait et fait de lui-même, réglable depuis Détails : routines, mémoire, connexions, logiciels, dossiers.
 import { Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, FolderOpen, HardDrive, Loader2, Pause, Pencil, Play, Plus, SlidersHorizontal, Trash2, Zap } from "lucide-react";
@@ -194,7 +195,7 @@ export function Routines({ agentId }: { agentId: string }) {
     const r = open;
     const paused = !r.enabled || r.state === "paused";
     return (
-      <section aria-label={r.name || "Routine"} className="absolute inset-0 z-10 flex flex-col gap-3 overflow-y-auto bg-surface px-1 pb-4">
+      <ObjectPage title={r.name || "Routine"} onClose={() => { setOpened(null); setTuning(null); }}>
         <button type="button" onClick={() => { setOpened(null); setTuning(null); }} className="flex cursor-pointer items-center gap-1 self-start text-sm text-muted-foreground hover:text-foreground">
           <ChevronLeft className="size-4" />Routines
         </button>
@@ -236,7 +237,7 @@ export function Routines({ agentId }: { agentId: string }) {
           </Button>
         )}
         <ErrorText>{error}</ErrorText>
-      </section>
+      </ObjectPage>
     );
   }
 
@@ -1586,7 +1587,7 @@ export function Watches({ agentId }: { agentId: string }) {
   if (open) {
     const w = open;
     return (
-      <section aria-label={w.nom} className="absolute inset-0 z-10 flex flex-col gap-3 overflow-y-auto bg-surface px-1 pb-4">
+      <ObjectPage title={w.nom} onClose={() => setOpened(null)}>
         <button type="button" onClick={() => setOpened(null)} className="flex cursor-pointer items-center gap-1 self-start text-sm text-muted-foreground hover:text-foreground">
           <ChevronLeft className="size-4" />Veilles
         </button>
@@ -1614,7 +1615,7 @@ export function Watches({ agentId }: { agentId: string }) {
         {w.consigne && <div className="rounded-xl bg-muted/50 p-3 text-sm"><b>Alors</b> : {w.consigne}</div>}
         <p className="text-sm text-muted-foreground tabular-nums">{tally(w)}</p>
         <ErrorText>{error}</ErrorText>
-      </section>
+      </ObjectPage>
     );
   }
 

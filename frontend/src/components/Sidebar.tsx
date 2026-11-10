@@ -1,3 +1,4 @@
+import { memo } from "react";
 // Colonne de gauche : ce qui attend la personne, puis les agents. Clic droit (ou « ⋯ ») pour épingler ou personnaliser.
 import { Clock, FolderOpen, Inbox as InboxIcon, LogOut, MoreHorizontal, Palette, Pin, PinOff, Plug, Plus, Settings, Target, Users, X } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -56,7 +57,7 @@ export function agentSummary(a: Agent): { state: TaskState | "offline" | "starti
 
 type Menu = { agent: Agent; x: number; y: number };
 
-export function Sidebar(props: {
+export const Sidebar = memo(function Sidebar(props: {
   agents: Agent[];
   agentId: string | null;
   usage: Usage | null;
@@ -248,4 +249,4 @@ export function Sidebar(props: {
       </div>
     </>
   );
-}
+});

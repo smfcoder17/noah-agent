@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from . import access, auth, db, desktop, hermes, relay
+from . import access, auth, bus, db, desktop, hermes, relay
 
 router = APIRouter()
 
@@ -36,6 +36,7 @@ def open_call(agent_id: str, message: str, origin: str = "agent", leave_host: st
     call = {"id": uuid.uuid4().hex[:10], "message": message, "depuis": time.time(), "origine": origin,
             "attente": asyncio.get_running_loop().create_future(), "attentifs": 0}
     _calls[agent_id] = call
+    bus.invalidate_all()
     if origin == "agent":
         db.set_setting(_trace(agent_id), message[:200])
     _ensure_keeper(agent_id)
@@ -139,6 +140,7 @@ def close_call(agent_id: str, call_id: str | None, answer: str) -> None:
         if not call["attente"].done():
             call["attente"].set_result(answer)
         _calls.pop(agent_id, None)
+        bus.invalidate_all()
         if answer in ("fait", "impossible"):
             _forget_trace(agent_id)
         try:

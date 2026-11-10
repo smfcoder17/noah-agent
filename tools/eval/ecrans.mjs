@@ -31,7 +31,6 @@ const page = await ctx.newPage();
 await page.route("**/api/me/alertes-appareils", (r) => r.fulfill({ json: { alertes: [] } }));
 
 const settle = async () => {
-  await page.waitForLoadState("networkidle").catch(() => {});
   await page.waitForFunction(() => !/Chargement/.test(document.body.innerText), null, { timeout: 8000 }).catch(() => {});
   await page.waitForTimeout(400);
 };
@@ -60,8 +59,8 @@ const tap = async (name, exact = false) => {
   await settle();
 };
 
-const menu = async () => { if (process.env.MOBILE) await tap(legacy ? "Agents" : "Menu", true); };
-const settings = async () => { if (!legacy) await menu(); await tap("Réglages", true); };
+const menu = async () => { if (process.env.MOBILE) await tap(legacy ? "Agents" : "Menu", true); else if (!legacy) await tap("Mes agents", true); };
+const settings = async () => { if (!legacy && process.env.MOBILE) await menu(); await tap("Réglages", true); };
 const panel = async (label) => {
   if (legacy) { await tap("Tâches", true); await page.getByRole("tab", { name: label, exact: true }).click(); await settle(); }
   else await tap(label === "Routines" ? "Tâches" : label, true);
@@ -77,6 +76,7 @@ const SCREENS = [
   ["objectifs", async () => { await menu(); await tap("Objectifs", true); }],
 ];
 const report = [];
+try {
 await page.goto(BASE);
 await settle();
 for (const [name, go] of SCREENS) {
@@ -98,6 +98,6 @@ const before = comparison ? JSON.parse(readFileSync(comparison, "utf8")) : null;
 writeFileSync(`${OUT}/ecrans.json`, JSON.stringify({ date: new Date().toISOString(), reference: legacy ? "b12b62f" : "lot2", mobile: !!process.env.MOBILE, ecrans: report,
   comparaison: before ? report.map((r) => { const old = (before.ecrans ?? before).find((e) => e.ecran === r.ecran); return { ecran: r.ecran, baisse: old?.mots && r.mots != null ? 1 - r.mots / old.mots : null }; }) : null,
 }, null, 2));
-if (report.some((r) => r.erreur)) process.exitCode = 1;
-await browser.close();
-drop();
+const reductions = before ? report.map((r) => { const old = (before.ecrans ?? before).find((e) => e.ecran === r.ecran); return old?.mots && r.mots != null ? 1 - r.mots / old.mots >= .4 : false; }) : [];
+if (report.some((r) => r.erreur) || reductions.some((ok) => !ok)) process.exitCode = 1;
+} finally { try { drop(); } finally { await browser.close(); } }

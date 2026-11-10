@@ -11,6 +11,7 @@ import { resolve } from "node:path";
 const { chromium } = createRequire(import.meta.url)(process.env.NOAH_PLAYWRIGHT);
 const BASE = process.env.BASE || "http://localhost:8080";
 const OUT = resolve(process.argv[2] || "facilite");
+const LEGACY = process.argv.includes("--reference-015");
 const ONLY = (process.argv[3] || "").split(",").filter(Boolean);
 process.env.MSYS_NO_PATHCONV = "1";
 
@@ -110,12 +111,15 @@ const clickOnScreen = async (loc) => {
   }
   throw new Error("rien à l'écran");
 };
+const openAgent = async () => act("page de l'agent", () => page.getByRole("button", { name: LEGACY ? /Ouvrir le panneau/ : "Page de l'agent", exact: !LEGACY }).filter({ visible: true }).first().click());
+const openSettings = async () => { if (!(await visible(page.getByRole("button", { name: "Réglages", exact: true })))) await act("Menu", () => page.getByRole("button", { name: LEGACY ? "Agents" : "Menu", exact: true }).click()); await act("Réglages", () => clickOnScreen(page.getByRole("button", { name: "Réglages", exact: true }))); };
 const viaPanel = async (doorName, tabName, label) => {
   const d = door(doorName);
   cur.entree = await visible(d);
   if (cur.entree) return act(label, () => clickOnScreen(d));
-  await act("panneau de l'agent", () => page.getByRole("button", { name: /Ouvrir le panneau/ }).first().click());
-  await act(`onglet ${label}`, () => page.getByRole("tab", { name: tabName }).first().click());
+  await openAgent();
+  if (!LEGACY) await act(label, () => page.getByRole("button", { name: label, exact: true }).click());
+  else await act(`onglet ${label}`, () => page.getByRole("tab", { name: tabName }).first().click());
 };
 
 const RUNS = {
@@ -123,10 +127,10 @@ const RUNS = {
     const box = page.locator("[data-composer-input]");
     cur.entree = await visible(box);
     await act("écrire", () => box.fill("Réponds seulement : ok."));
-    const before = await page.locator("[data-role=assistant], .prose").count();
+    const before = await page.locator("[data-noah-msg] .prose-chat").count();
     await act("Entrée", () => box.press("Enter"), 300);
     const t = Date.now();
-    await page.waitForFunction((n) => document.querySelectorAll("[data-role=assistant], .prose").length > n, before, { timeout: 60000 }).catch(() => {});
+    await page.waitForFunction((n) => document.querySelectorAll("[data-noah-msg] .prose-chat").length > n, before, { timeout: 60000 }).catch(() => {});
     cur.retour = Date.now() - t < 60000;
     cur.mesure = { reponse_ms: Date.now() - t };
     await page.waitForTimeout(4000);
@@ -147,7 +151,7 @@ const RUNS = {
   async A3() {
     const create = page.getByRole("button", { name: /Créer un agent|Nouvel agent/ });
     cur.entree = await visible(create);
-    if (!cur.entree) await act("Agents", () => page.getByRole("navigation", { name: "Navigation" }).getByRole("button", { name: "Agents" }).click());
+    if (!cur.entree) await act("Menu", () => page.getByRole("button", { name: LEGACY ? "Agents" : "Menu", exact: true }).click());
     await act("Créer un agent", () => clickOnScreen(create));
     await act("nom", () => page.getByPlaceholder(/Ex\./).first().fill("Essai facilité"));
     // On s'arrête avant de lancer une machine : le dernier geste serait « Créer l'agent ».
@@ -210,23 +214,23 @@ const RUNS = {
     const chip = page.locator('button[title="Changer de modèle"]');
     cur.entree = await visible(chip);
     if (cur.entree) await act("modèle sous la saisie", () => clickOnScreen(chip), 1500);
-    else await act("panneau de l'agent", () => page.getByRole("button", { name: /Ouvrir le panneau/ }).first().click());
+    else { await openAgent(); if (!LEGACY) await act("Cerveau", () => page.getByRole("button", { name: "Cerveau", exact: true }).click()); }
     const card = page.getByRole("button", { name: /^Modèle/ });
-    if (cur.entree) { /* déjà ouvert */ } else if (await visible(card)) await act("carte Modèle", () => card.first().click());
+    if (cur.entree || !LEGACY) { /* déjà ouvert */ } else if (await visible(card)) await act("carte Modèle", () => card.first().click());
     else await act("Changer (Cerveau)", () => page.getByRole("button", { name: /^Changer$/ }).first().click());
-    const pick = page.getByRole("button", { name: /^(Celui de tous|Comme tous mes agents)$/ });
+    const pick = page.getByRole("radio", { name: /^(Celui de tous|Comme tous mes agents|Comme mes autres agents)/ });
     if (!(await visible(pick)) && (await visible(page.getByRole("button", { name: /^Changer$/ })))) await act("Changer", () => clickOnScreen(page.getByRole("button", { name: /^Changer$/ })));
     cur.retour = await visible(pick);
     if (cur.retour) cur.steps.push("choisir le modèle");
   },
   async A10() {
     cur.entree = await visible(page.getByText(/Ce qu'il a fait|Activité/));
-    await act("panneau de l'agent", () => page.getByRole("button", { name: /Ouvrir le panneau/ }).first().click());
-    cur.retour = await visible(page.getByText(/Ce qu.il a fait/i));
+    if (LEGACY) await openAgent(); else await act("Activité", () => clickOnScreen(page.getByRole("button", { name: "Activité", exact: true })));
+    cur.retour = await visible(page.getByText(/Ce qu.il a fait|Rien|Aujourd.hui/i));
   },
   async A11() {
     cur.entree = await visible(page.getByRole("button", { name: /Relier|téléphone/i }));
-    await act("Réglages", () => page.getByRole("button", { name: /^Réglages$/ }).locator("visible=true").first().click());
+    await openSettings();
     const direct = page.getByRole("button", { name: /^Relier un (téléphone ou un ordinateur|appareil)$/ });
     if (await visible(direct)) await act("Relier (raccourci)", () => clickOnScreen(direct), 1500);
     else await act("Appareils", () => page.getByRole("tab", { name: /Appareils/ }).or(page.getByRole("button", { name: /^Appareils$/ })).locator("visible=true").first().click());
@@ -235,6 +239,7 @@ const RUNS = {
     cur.retour = await visible(page.locator("canvas, svg[role=img], img[alt*=QR]"));
   },
   async R1() {
+    if (!LEGACY) { await openSettings(); await act("Modèles et budget", () => clickOnScreen(page.getByRole("button", { name: "Modèles et budget", exact: true }))); cur.retour = await visible(page.getByText(/Dépensé ce mois-ci/)); return; }
     cur.entree = await visible(page.getByText(/Dépense|coût/i));
     await act("panneau de l'agent", () => page.getByRole("button", { name: /Ouvrir le panneau/ }).first().click());
     const tile = page.getByRole("button", { name: /^Dépense du mois/ });
@@ -242,6 +247,7 @@ const RUNS = {
     cur.retour = await visible(page.getByText(/Coût ce mois-ci|ce mois-ci/));
   },
   async R2() {
+    if (!LEGACY) { await openAgent(); await act("Apparence", () => page.getByRole("button", { name: "Apparence", exact: true }).click()); cur.retour = await visible(page.getByText(/Couleur/)); return; }
     cur.entree = false;
     await act("panneau de l'agent", () => page.getByRole("button", { name: /Ouvrir le panneau/ }).first().click());
     await act("Personnaliser", () => clickOnScreen(page.getByRole("button", { name: /Personnaliser/ })));
@@ -251,7 +257,7 @@ const RUNS = {
   },
   async R3() {
     cur.entree = false;
-    await act("Réglages", () => page.getByRole("button", { name: /^Réglages$/ }).locator("visible=true").first().click());
+    await openSettings();
     await act("Appareils", () => page.getByRole("tab", { name: /Appareils/ }).or(page.getByRole("button", { name: /^Appareils$/ })).locator("visible=true").first().click());
     cur.retour = await visible(page.getByText(/Appareils connectés/));
     if (cur.retour) cur.steps.push("supprimer l'appareil (non cliqué)");

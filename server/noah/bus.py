@@ -60,6 +60,15 @@ def invalidate(user: int | None) -> None:
             publish(c, user, "donnees.changees", {})
 
 
+def invalidate_all() -> None:
+    """État partagé changé en arrière-plan. Aucun contenu ne sort des routes autorisées."""
+    with db.connect() as c:
+        if not c.execute("SELECT 1 FROM sqlite_master WHERE name='evenements'").fetchone():
+            return  # démarrage ou test avant la migration
+        for row in c.execute("SELECT id FROM users").fetchall():
+            publish(c, row["id"], "donnees.changees", {})
+
+
 def replay(user: int, after: int | None):
     with db.connect() as c:
         # Même instantané pour le compteur et les lignes, y compris si un autre thread publie.

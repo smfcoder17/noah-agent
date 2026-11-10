@@ -1,3 +1,4 @@
+import { memo } from "react";
 // Compétences : ce que la personne a enseigné à son agent, « voici comment je veux que tu fasses telle chose ». L'agent s'en sert seul.
 // Ce qu'il apprend de lui-même reste interne : le serveur ne le montre pas ici.
 import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
@@ -49,7 +50,7 @@ function Editor({ agentId, start, onDone, onCancel }: { agentId: string; start?:
   );
 }
 
-export function Competences({ agentId }: { agentId: string }) {
+export const Competences = memo(function Competences({ agentId }: { agentId: string }) {
   const path = `/api/agents/${agentId}/competences`;
   const { data, error, setError, load } = useAgentData<{ competences: Competence[] }>(path, { freshOnReload: false });
   const list = data?.competences ?? null;
@@ -90,4 +91,4 @@ export function Competences({ agentId }: { agentId: string }) {
       {list && <p className="text-xs text-muted-foreground">Ce qu'il apprend seul reste interne. Pour le connaître, demande-le-lui.</p>}
     </section>
   );
-}
+});

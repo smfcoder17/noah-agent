@@ -13,6 +13,7 @@ function changed() {
   queued = true;
   queueMicrotask(() => { queued = false; updates.forEach((fn) => void Promise.resolve(fn()).catch(() => {})); });
 }
+const visible = () => { if (!document.hidden) changed(); };
 let controller: AbortController | null = null;
 let timer: ReturnType<typeof setInterval> | undefined;
 let revision = "";
@@ -139,6 +140,7 @@ function subscribe(listener: () => void) {
   if (listeners.size === 1) {
     window.addEventListener("noah:auth-epoch", resetAccount);
     window.addEventListener("storage", resetAccount);
+    document.addEventListener("visibilitychange", visible);
   }
   if (!controller) {
     const auth = currentAuthEpoch();
@@ -154,6 +156,7 @@ function subscribe(listener: () => void) {
       controller?.abort(); controller = null; clearInterval(timer); changes++;
       window.removeEventListener("noah:auth-epoch", resetAccount);
       window.removeEventListener("storage", resetAccount);
+      document.removeEventListener("visibilitychange", visible);
     }
   };
 }
@@ -164,7 +167,5 @@ export const useAccords = () => useSyncExternalStore(subscribe, () => snapshot);
 export function subscribeUpdates(fn: () => unknown) {
   updates.add(fn);
   const stop = subscribe(() => {});
-  const visible = () => { if (!document.hidden) void Promise.resolve(fn()).catch(() => {}); };
-  document.addEventListener("visibilitychange", visible);
-  return () => { updates.delete(fn); stop(); document.removeEventListener("visibilitychange", visible); };
+  return () => { updates.delete(fn); stop(); };
 }

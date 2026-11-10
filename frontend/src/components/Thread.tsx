@@ -1,3 +1,6 @@
+import { memo } from "react";
+import { SensitiveText, sensitiveChildren } from "./SensitiveText";
+import { LinkCard, LinkList } from "./LinkCard";
 // Fil de discussion construit sur les primitives d'assistant-ui.
 import {
   ActionBarPrimitive,
@@ -12,7 +15,7 @@ import {
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import { ArrowDown, ArrowUp, Check, ChevronRight, ChevronUp, Copy, FileText, Loader2, Paperclip, Reply, SmilePlus, Square, TriangleAlert, X, ChevronDown, Plug } from "lucide-react";
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Children, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import remarkGfm from "remark-gfm";
 import { WhileBusyContext, AgentContext, HistoryContext } from "@/lib/agentContext";
 import { MOOD_FACE, moodLabel, moodOf, usePanelEnd, useMood, useWide } from "@/lib/chatMood";
@@ -72,6 +75,12 @@ function MarkdownText() {
   );
   const components = useMemo<NonNullable<React.ComponentProps<typeof MarkdownTextPrimitive>["components"]>>(
     () => ({
+        p: ({ children }) => { const nodes = Children.toArray(children); const links = nodes.filter((c) => typeof c === "object" && c && "props" in c && (c as React.ReactElement<{ href?: string }>).props.href) as React.ReactElement<{ href?: string }>[]; const urls = links.map((c) => c.props.href!).filter((u) => /^https?:/.test(u)); if (urls.length === 1 && links.length === 1 && nodes.every((c) => typeof c !== "string" || !c.trim())) return <LinkCard url={urls[0]} />; if (urls.length > 1) return <div><span>{sensitiveChildren(children)}</span><LinkList urls={[...new Set(urls)]} /></div>; return <p>{sensitiveChildren(children)}</p>; },
+        li: ({ children }) => <li>{sensitiveChildren(children)}</li>,
+        td: ({ children }) => <td>{sensitiveChildren(children)}</td>,
+        th: ({ children }) => <th>{sensitiveChildren(children)}</th>,
+        strong: ({ children }) => <strong>{sensitiveChildren(children)}</strong>,
+        em: ({ children }) => <em>{sensitiveChildren(children)}</em>,
         a: ({ node: _node, href, children, ...props }) =>
           href?.includes("/files/raw/") ? (
             <button
@@ -84,7 +93,7 @@ function MarkdownText() {
               <FileText className="size-3.5" />{children}
             </button>
           ) : (
-            <a {...props} href={href} target="_blank" rel="noopener noreferrer">{children}</a>
+            <a {...props} href={href} target="_blank" rel="noopener noreferrer">{sensitiveChildren(children)}</a>
           ),
         img: ({ node: _node, ...props }) => (
           <span className="group/img relative inline-block">
@@ -381,10 +390,10 @@ function UserText({ text }: TextMessagePartProps) {
     <>
       {quotes.map((q, i) => (
         <span key={i} className="mb-2 block max-h-28 overflow-hidden border-l-2 border-accent/60 pl-2.5 text-[13px] text-muted-foreground [mask-image:linear-gradient(to_bottom,black_75%,transparent)]">
-          {q}
+          <SensitiveText text={q} />
         </span>
       ))}
-      {rest}
+      <SensitiveText text={rest} />
     </>
   );
 }
@@ -472,7 +481,7 @@ function OlderMessages() {
   );
 }
 
-function UserMessage() {
+const UserMessage = memo(function UserMessage() {
   const id = useAuiState((s) => s.message.id);
   return (
     <>
@@ -491,7 +500,7 @@ function UserMessage() {
     </MessagePrimitive.Root>
     </>
   );
-}
+});
 
 /** Bouton flottant sur un passage sélectionné d'une réponse : il le joint au prochain message. */
 function SelectionReply() {
@@ -553,12 +562,13 @@ function QuoteChips() {
   );
 }
 
-function AssistantMessage() {
+const AssistantMessage = memo(function AssistantMessage() {
   const { agentColor, agentShape, agentDetail } = useContext(AgentContext);
   const busyActivity = useContext(WhileBusyContext).activity;
   const running = useAuiState((s) => s.message.status?.type === "running");
   const empty = useAuiState((s) => s.message.content.length === 0);
   const isLast = useAuiState((s) => s.thread.messages[s.thread.messages.length - 1]?.id === s.message.id);
+  const [copyWarning, setCopyWarning] = useState(false);
   const id = useAuiState((s) => s.message.id);
   const isTrace = useAuiState((s) => s.message.content.some((p) => p.type === "tool-call" && p.toolName === "trace"));
   // Seul le dernier message peut vivre : les autres ne recalculent rien.
@@ -622,18 +632,19 @@ function AssistantMessage() {
             )}
           >
             <ActionBarPrimitive.Copy asChild>
-              <Button variant="ghost" size="icon-sm" aria-label="Copier la réponse">
+              <Button variant="ghost" size="icon-sm" aria-label="Copier la réponse" onClickCapture={(e) => { if (e.currentTarget.closest("[data-noah-msg]")?.querySelector(".sensitive-token:not(.shown)")) { e.preventDefault(); e.stopPropagation(); setCopyWarning(true); } else setCopyWarning(false); }}>
                 <MessagePrimitive.If copied><Check /></MessagePrimitive.If>
                 <MessagePrimitive.If copied={false}><Copy /></MessagePrimitive.If>
               </Button>
             </ActionBarPrimitive.Copy>
+            {copyWarning && <span role="status" className="text-xs text-muted-foreground">Révèle les données avant de copier.</span>}
           </ActionBarPrimitive.Root>
         )}
       </div>
     </MessagePrimitive.Root>
     </>
   );
-}
+});
 
 // --- Zone de saisie -----------------------------------------------------------------
 
@@ -655,7 +666,7 @@ function Composer({ onVoiceMode, inCall }: { onVoiceMode: () => void; inCall: bo
   return (
     <>
     <WhileBusyPanel />
-    <ComposerPrimitive.Root className="flex w-full flex-col gap-2 rounded-2xl border border-border bg-surface p-2 shadow-sm focus-within:border-accent">
+    <ComposerPrimitive.Root data-noah-composer className="flex w-full flex-col gap-2 rounded-2xl border border-border bg-surface p-2 shadow-sm focus-within:border-accent">
       <QuoteChips />
       <div className="flex flex-wrap gap-1.5 empty:hidden">
         <ComposerPrimitive.Attachments components={{ Attachment: AttachmentChip }} />
@@ -771,7 +782,7 @@ function EmptyNoah() {
   return <NoahTile handle={face} color={agentColor} shape={agentShape} detail={agentDetail} className="mb-2 size-20" />;
 }
 
-export function Thread({ report, onReportRead, onCall }: { report: { id: string; text: string } | null; onReportRead: () => void; onCall: (on: boolean) => void }) {
+export const Thread = memo(function Thread({ report, onReportRead, onCall }: { report: { id: string; text: string } | null; onReportRead: () => void; onCall: (on: boolean) => void }) {
   const { agentId, agentName, hint, readOnly } = useContext(AgentContext);
   const [voice, setVoice] = useState(false);
   // Des fichiers choisis dans le panneau : joints au prochain message, comme un passage cité.
@@ -807,7 +818,7 @@ export function Thread({ report, onReportRead, onCall }: { report: { id: string;
       <ConversationRail />
       <SelectionReply />
       <ComposerPrimitive.AttachmentDropzone className="flex min-h-0 flex-1 flex-col data-[dragging=true]:bg-accent-soft/40">
-        <ThreadPrimitive.Viewport data-noah-viewport className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 [container-type:inline-size]">
+        <ThreadPrimitive.Viewport data-noah-viewport data-chat-scroll className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 [container-type:inline-size]">
           <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col pt-6">
             <OlderMessages />
             <ThreadPrimitive.Empty>
@@ -838,4 +849,4 @@ export function Thread({ report, onReportRead, onCall }: { report: { id: string;
       </ComposerPrimitive.AttachmentDropzone>
     </ThreadPrimitive.Root>
   );
-}
+});

@@ -410,6 +410,14 @@ def _row(wid: str) -> dict | None:
 
 
 async def check(wid: str, save_message, main_conversation) -> dict:
+    try:
+        return await _check(wid, save_message, main_conversation)
+    finally:
+        from . import bus
+        bus.invalidate_all()
+
+
+async def _check(wid: str, save_message, main_conversation) -> dict:
     """Un passage : relevé, nouveautés, tri, livraison. Rend ce qui s'est passé."""
     w = _row(wid)
     if not w:

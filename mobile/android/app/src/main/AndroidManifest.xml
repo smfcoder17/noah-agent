@@ -16,6 +16,7 @@
             android:label="@string/title_activity_main"
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize"
             android:supportsPictureInPicture="true"
             android:exported="true">
 
@@ -33,6 +34,8 @@
             </intent-filter>
 
         </activity>
+
+        <activity android:name=".ElementActivity" android:theme="@style/AppTheme.NoActionBar" android:exported="false" />
 
         <!-- Écran d'appel d'un agent : au-dessus de l'écran verrouillé, sans la conversation (voir CallActivity). -->
         <activity

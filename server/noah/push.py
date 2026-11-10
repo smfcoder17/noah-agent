@@ -254,7 +254,7 @@ async def send(title: str, text: str, url: str = "/", urgent: bool = False, user
     now = datetime.now(timezone.utc).isoformat()
     with db.connect() as c:
         c.execute("DELETE FROM push_subscriptions WHERE session NOT IN (SELECT token FROM sessions WHERE expires_at > ?)", (now,))
-        rows = c.execute("SELECT p.* FROM push_subscriptions p JOIN sessions s ON s.token = p.session WHERE 1 = 1"
+        rows = c.execute("SELECT p.*, s.user_id AS recipient FROM push_subscriptions p JOIN sessions s ON s.token = p.session WHERE 1 = 1"
                          + (" AND s.user_id = ?" if user_id is not None else "")
                          + (" AND p.session = ?" if session is not None else ""),
                          tuple(v for v in (user_id, session) if v is not None)).fetchall()
@@ -265,11 +265,16 @@ async def send(title: str, text: str, url: str = "/", urgent: bool = False, user
             rows = [r for r in rows if r["endpoint"] not in stray]
     if not rows:
         return {"livres": 0, "echecs": 0, "morts": 0, "differes": 0}
-    message = {"titre": title[:120], "texte": text[:400], "url": url, **(extra or {})}
+    from . import sensitive, ui_preferences
+    def message_for(row):
+        hidden = ui_preferences.read(row["recipient"])["masquer_sensibles"]
+        return {"titre": (sensitive.mask(title) if hidden else title)[:120],
+                "texte": (sensitive.mask(text) if hidden else text)[:400], "url": url,
+                **(extra or {}), "masquer_sensibles": hidden}
     # Enregistré avant le premier envoi, réservé pendant LEASE : si le serveur redémarre pendant l'envoi ou ses premiers
     # essais, la file le reprend. Supprimé une fois traité (livré, refusé, ou différé sous une autre ligne).
     now = time.time()
-    payloads = [_payload(message, r["session"]) for r in rows]
+    payloads = [_payload(message_for(r), r["session"]) for r in rows]
     with db.connect() as c:
         ids = [c.execute("INSERT INTO push_queue (endpoint, session, p256dh, auth, payload, urgent, not_before, tries, "
                          "created) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)",

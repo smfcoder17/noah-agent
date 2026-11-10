@@ -248,6 +248,8 @@ public class NoahPush extends PushService {
         NotificationCompat.Builder n = new NotificationCompat.Builder(this, quiet ? QUIET : CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_noah).setContentTitle(title).setContentText(text)
             .setStyle(new NotificationCompat.BigTextStyle().bigText(text)).setContentIntent(tap).setAutoCancel(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(new NotificationCompat.Builder(this, quiet ? QUIET : CHANNEL).setSmallIcon(R.drawable.ic_stat_noah).setContentTitle("Noah a du nouveau").build())
             .setOnlyAlertOnce(true); // le remplacement générique → contenu ne sonne pas deux fois
         try {
             NotificationManagerCompat.from(this).notify(id, n.build());

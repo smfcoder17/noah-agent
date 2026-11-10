@@ -112,20 +112,13 @@ def forget_unusable() -> None:
 
 def key_of(provider: str) -> str | None:
     """La clé de la personne pour ce fournisseur. Seuls le cerveau et OpenRouter (voix et création) en ont une ici."""
-    brain = db.get_setting("provider")
-    if provider == brain:
-        return db.get_setting("api_key", secret=True) if db.get_setting("api_key") else None
-    if provider == "openrouter" and db.get_setting("media_api_key"):
-        return db.get_setting("media_api_key", secret=True)
-    return None
+    from . import providers
+    return providers.key_of(provider)
 
 
 def usable_providers() -> list[str]:
-    brain = db.get_setting("provider")
-    out = [brain] if brain else []
-    if brain != "openrouter" and key_of("openrouter"):
-        out.append("openrouter")
-    return out
+    from . import hermes, providers
+    return [p for p in hermes.PROVIDERS if providers.connected(p)]
 
 
 _listed: dict[str, tuple[float, list[dict]]] = {}
@@ -133,7 +126,8 @@ _listed: dict[str, tuple[float, list[dict]]] = {}
 
 async def _models_of(provider: str) -> list[dict]:
     key = key_of(provider)
-    base_url = (db.get_setting("base_url") or None) if provider == db.get_setting("provider") else None
+    from . import providers
+    base_url = providers.base_of(provider)
     stamp = hashlib.sha256(f"{provider}|{key}|{base_url}".encode()).hexdigest()
     hit = _listed.get(stamp)
     if hit and time.time() - hit[0] < LISTING_SECONDS:
