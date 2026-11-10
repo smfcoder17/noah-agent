@@ -81,6 +81,8 @@ def fetch(url: str, *, limit: int = 512_000, timeout: float = 8, redirects: int 
                 if len(body) > limit:
                     raise UnsafeURL("Fichier trop lourd.")
             return Result(url, response.getheader("Content-Type", "").split(";", 1)[0].lower(), bytes(body))
+        except http.client.HTTPException as e:
+            raise UnsafeURL("Réponse HTTP illisible.") from e
         finally:
             conn.close()
             sock.close()

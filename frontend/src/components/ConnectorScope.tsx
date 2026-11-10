@@ -1,4 +1,4 @@
-import { subscribeUpdates } from "@/lib/events";
+import { useVisibleSubscription } from "@/lib/events";
 // « Pour cet agent / Pour tous mes agents » sur une connexion établie, puis la liste à cocher. Le serveur (connecteurs.py) choisit la voie la plus sûre pour chaque service.
 import { Check, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -47,6 +47,7 @@ export function PendingGlobal({ agentId, nom, waiting, onWait, onChange, onError
 }
 
 export function ConnectorScope({ agentId, nom, global, onChange }: { agentId: string; nom: string; /** Déjà pour tous : l'état lu avec les connexions. */ global: boolean; onChange: () => void }) {
+  const subscribeUpdates = useVisibleSubscription();
   const [view, setView] = useState<ScopeState | null>(null);
   const [open, setOpen] = useState(false);
   const [ticked, setTicked] = useState<string[] | null>(null);

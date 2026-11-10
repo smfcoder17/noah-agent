@@ -36,10 +36,19 @@ def connected(provider: str) -> bool:
 
 
 @router.get("/api/fournisseurs")
-def list_providers(_user: int = Depends(access.owner_only)):
-    return [{"id": p, "label": v["label"], "needs_key": v["env"] is not None, "own_url": p in relay.OWN_URL,
-             "connected": connected(p), "models": int(db.get_setting(f"provider_count:{p}") or 0),
-             "base_url": base_of(p) or ""} for p, v in hermes.PROVIDERS.items()]
+async def list_providers(_user: int = Depends(access.owner_only)):
+    async def describe(p, v):
+        branch = connected(p)
+        count = int(db.get_setting(f"provider_count:{p}") or 0)
+        if branch:
+            try:
+                count = len(await catalog.models_for(p, key_of(p), base_of(p)))
+                db.set_setting(f"provider_count:{p}", str(count))
+            except (httpx.HTTPError, ValueError, KeyError):
+                pass  # hors connexion : garder le dernier nombre connu
+        return {"id": p, "label": v["label"], "needs_key": v["env"] is not None, "own_url": p in relay.OWN_URL,
+                "connected": branch, "models": count, "base_url": base_of(p) or ""}
+    return await asyncio.gather(*(describe(p, v) for p, v in hermes.PROVIDERS.items()))
 
 
 class Choice(BaseModel):

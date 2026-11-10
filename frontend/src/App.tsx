@@ -11,6 +11,7 @@ import { PageHeader } from "@/components/mobile/ObjectPage";
 import { useNavPrefs, TAB_NAMES, type NavTab } from "@/lib/navPrefs";
 import { useNavigation } from "@/lib/navigation";
 import { subscribeUpdates } from "@/lib/events";
+import { useNoahRetour } from "@/lib/useNoahRetour";
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import { QuoteContext, useQuoteState } from "@/lib/quotes";
 import { Plus, Bug } from "lucide-react";
@@ -32,7 +33,7 @@ import { Thread } from "@/components/Thread";
 import type { SettingsTab } from "@/components/Settings";
 import { ViewerProvider } from "@/components/Viewer";
 import { Button } from "@/components/ui";
-import { type Agent, ApiError, canAdmin, canTalk, type Conversation, type InboxItem, currentAuthEpoch, get, type Me, request, send, setClientVersion, type Status, type Usage } from "@/lib/api";
+import { type Agent, ApiError, canAdmin, canTalk, type Conversation, type InboxItem, currentAuthEpoch, get, type Me, request, send, setClientVersion, type Status } from "@/lib/api";
 import { WhileBusyContext, AgentContext, HistoryContext } from "@/lib/agentContext";
 import { takeAsk } from "@/lib/askAgent";
 import { clearShare, pendingShare } from "@/lib/share";
@@ -306,7 +307,6 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const threadId = latest("thread")?.id ?? null;
   const setThreadId = (id: string | null) => navigation.dispatch(id ? { type: "push", route: { kind: "thread", id } } : { type: "close", kind: "thread" });
   const goTab = useCallback((tab: NavTab) => navigation.dispatch({ type: "reset", route: { kind: "tab", tab } }), [navigation.dispatch]);
-  const [, setUsage] = useState<Usage | null>(null);
   const sidebarOpen = !!latest("drawer");
   const setSidebarOpen = (open: boolean) => navigation.dispatch(open ? { type: "push", route: { kind: "drawer" } } : { type: "close", kind: "drawer" });
   const panel = latest("panel")?.tab ?? (currentTab === "chat" ? null : currentTab === "tasks" ? "routines" : currentTab);
@@ -329,6 +329,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   // La conversation de l'appel en cours reste ouverte, cachée, quand on navigue ailleurs dans l'application.
   const [inCall, setInCall] = useState<ChatProps | null>(null);
 
+  const waiting = agents.reduce((total, a) => total + (a.tasks?.approve ?? 0) + (a.tasks?.choice ?? 0), 0);
   const agent = agents.find((a) => a.id === agentId) ?? null;
   // Les onglets du panneau lisent la machine de l'agent (une seconde ou plus) : on les lit d'avance, une fois l'écran calme.
   const prefetchFor = agent && canAdmin(agent) ? agent.id : null;
@@ -340,18 +341,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     }, 1500);
     return () => clearTimeout(timer);
   }, [prefetchFor]);
-  // Une pile commune pour toutes les pages de la coquille.
-  useEffect(() => {
-    window.noahRetour = () => {
-      if (document.querySelector('[role="dialog"]')) { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); return true; }
-      if (document.querySelector(".video-mini,.audio-bar")) { window.dispatchEvent(new Event("noah:media-close")); return true; }
-      if (document.querySelector(".right-panel")) { window.dispatchEvent(new Event("noah:viewer-close")); return true; }
-      if (navigation.stack.length > 1) { navigation.dispatch({ type: "back" }); return true; }
-      if (currentTab !== "chat") { goTab("chat"); return true; }
-      return false;
-    };
-    return () => { delete window.noahRetour; };
-  });
+  useNoahRetour(navigation.stack.length, navigation.dispatch, currentTab, goTab);
   // Message envoyé à l'agent depuis Détails : il part dans la conversation principale.
   useEffect(() => {
     const toMain = (e: Event) => { const target = (e as CustomEvent<{ agentId?: string }>).detail?.agentId; if (target) setAgentId(target); goTab("chat"); setThreadId(null); };
@@ -402,9 +392,6 @@ function Shell({ onLogout }: { onLogout: () => void }) {
       /* le serveur redémarre : on réessaie au prochain tour */
     }
   }, []);
-  const refreshModel = useCallback(async () => {
-    setUsage(await get<Usage>("/api/usage").catch(() => null));
-  }, []);
   const refreshConversations = useCallback(async () => {
     if (!agentId) return setListed({ agent: null, list: [] });
     const list = await get<Conversation[]>(`/api/agents/${agentId}/conversations`).catch(() => null);
@@ -416,9 +403,8 @@ function Shell({ onLogout }: { onLogout: () => void }) {
 
   useEffect(() => {
     refreshAgents();
-    refreshModel();
     return subscribeUpdates(refreshAgents);
-  }, [refreshAgents, refreshModel]);
+  }, [refreshAgents]);
   useEffect(() => {
     refreshConversations();
     return subscribeUpdates(refreshConversations);
@@ -462,9 +448,8 @@ function Shell({ onLogout }: { onLogout: () => void }) {
 
   const onRunFinished = useCallback(() => {
     refreshConversations();
-    refreshModel();
     setRefreshKey((k) => k + 1);
-  }, [refreshConversations, refreshModel]);
+  }, [refreshConversations]);
 
   const logout = async () => {
     // D'abord : si la réponse du serveur se perd après la suppression de la session, le marqueur est déjà effacé.
@@ -505,7 +490,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
         }}
       />
       <LayoutShell>
-        <SideRail agent={agent} tabs={tabs} active={panel === "routines" ? "tasks" : panel ?? "chat"} conversations={conversations ?? []} onTab={goTab} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} onMenu={() => setSidebarOpen(true)} onThread={(id) => { goTab("chat"); setThreadId(id); }} onSettings={() => setSettings("home")} onGoals={() => setGoals(true)} onNew={() => void newDiscussion()} />
+        <SideRail waiting={waiting} onInbox={() => setInbox(true)} agent={agent} tabs={tabs} active={panel === "routines" ? "tasks" : panel ?? "chat"} conversations={conversations ?? []} onTab={goTab} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} onMenu={() => setSidebarOpen(true)} onThread={(id) => { goTab("chat"); setThreadId(id); }} onSettings={() => setSettings("home")} onGoals={() => setGoals(true)} onNew={() => void newDiscussion()} />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <MobileHeader agent={agent} status={agent?.step || liveStatus || (agent?.online ? "En ligne" : "Hors ligne")} onMenu={() => setSidebarOpen(true)} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} busy={newBusy} onNew={() => void newDiscussion()} />
           {navigationError && <p role="alert" className="offline-banner">{navigationError}<button onClick={() => void newDiscussion()}>Réessayer</button></p>}
@@ -577,7 +562,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
           </KeepAlive>}
           <BottomTabs tabs={tabs} active={panel === "routines" ? "tasks" : panel ?? "chat"} onSelect={goTab} onCustomize={() => navigation.dispatch({ type: "push", route: { kind: "customize" } })} />
         </div>
-        {sidebarOpen && <Drawer agents={agents} agentId={agentId} conversations={conversations ?? []} tabs={tabs} onAgent={selectAgent} onThread={setThreadId} onTab={goTab} onNewAgent={() => { setSidebarOpen(false); setAgentDialog({ open: true, agent: null }); }} onCustomize={() => { setSidebarOpen(false); navigation.dispatch({ type: "push", route: { kind: "customize" } }); }} onSettings={() => { setSidebarOpen(false); setSettings("home"); }} onGoals={() => { setSidebarOpen(false); setGoals(true); }} onClose={() => setSidebarOpen(false)} onLogout={logout} />}
+        {sidebarOpen && <Drawer waiting={waiting} onInbox={() => { setSidebarOpen(false); setInbox(true); }} agents={agents} agentId={agentId} conversations={conversations ?? []} tabs={tabs} onAgent={selectAgent} onThread={setThreadId} onTab={goTab} onNewAgent={() => { setSidebarOpen(false); setAgentDialog({ open: true, agent: null }); }} onCustomize={() => { setSidebarOpen(false); navigation.dispatch({ type: "push", route: { kind: "customize" } }); }} onSettings={() => { setSidebarOpen(false); setSettings("home"); }} onGoals={() => { setSidebarOpen(false); setGoals(true); }} onClose={() => setSidebarOpen(false)} onLogout={logout} />}
         {latest("customize") && <CustomizeTabs tabs={tabs} save={saveTabs} error={tabsError} onClose={() => navigation.dispatch({ type: "close", kind: "customize" })} />}
         {latest("agent") && agent && <AgentPage agent={agent} onClose={() => navigation.dispatch({ type: "close", kind: "agent" })} onPanel={(t) => { navigation.dispatch({ type: "close", kind: "agent" }); setPanel(t); }} onBrain={() => setModelDialog(true)} onEdit={() => setAgentDialog({ open: true, agent })} onNotifications={() => setSettings("notifications")} onAutonomy={() => setSettings("privacy")} />}
         <Suspense fallback={null}>
@@ -615,7 +600,6 @@ function Shell({ onLogout }: { onLogout: () => void }) {
           onOpenChange={(o) => !o && setSettings(null)}
           onBrainSaved={() => {
             setSettings(null);
-            refreshModel();
             refreshAgents();
           }}
         />}

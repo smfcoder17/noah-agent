@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import json
 import time
+import threading
 from collections import OrderedDict
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlsplit
@@ -17,6 +18,9 @@ _cache: OrderedDict[str, tuple[float, dict]] = OrderedDict()
 _images: OrderedDict[str, tuple[bytes, str]] = OrderedDict()
 _gate = asyncio.Semaphore(4)
 TTL = 3600
+MAX_IMAGES = 64
+MAX_PREVIEWS = MAX_IMAGES // 2  # une miniature et une icône par aperçu
+_lock = threading.RLock()
 
 
 class Page(HTMLParser):
@@ -79,20 +83,30 @@ def image(url: str) -> str | None:
         if not kind:
             return None
         key = hashlib.sha256(body).hexdigest()
-        _images[key] = (body, kind)
-        _images.move_to_end(key)
-        while len(_images) > 64:
-            _images.popitem(last=False)
+        with _lock:
+            _images[key] = (body, kind)
+            _images.move_to_end(key)
+            while len(_images) > MAX_IMAGES:
+                evicted, _ = _images.popitem(last=False)
+                path = f"/api/liens/image/{evicted}"
+                for address, (_, cached) in list(_cache.items()):
+                    if path in (cached.get("image"), cached.get("icon")):
+                        del _cache[address]
         return f"/api/liens/image/{key}"
     except (safefetch.UnsafeURL, OSError, ValueError):
         return None
 
 
 def preview(url: str) -> dict:
-    hit = _cache.get(url)
-    if hit and time.monotonic() - hit[0] < TTL:
-        _cache.move_to_end(url)
-        return hit[1]
+    with _lock:
+        hit = _cache.get(url)
+        if hit and time.monotonic() - hit[0] < TTL:
+            paths = [hit[1].get(k) for k in ("image", "icon") if hit[1].get(k)]
+            if all(path.rsplit("/", 1)[-1] in _images for path in paths):
+                _cache.move_to_end(url)
+                for path in paths:
+                    _images.move_to_end(path.rsplit("/", 1)[-1])
+                return hit[1]
     raw = safefetch.fetch(url, limit=512_000, timeout=6)
     page = Page()
     if raw.content_type not in ("text/html", "application/xhtml+xml"):
@@ -116,9 +130,14 @@ def preview(url: str) -> dict:
            "duration": int(duration) if str(duration).isdigit() and int(duration) < 86400 else None,
            "image": image(urljoin(raw.url, str(thumbnail))) if thumbnail else None,
            "icon": image(urljoin(raw.url, page.icons[0] if page.icons else "/favicon.ico"))}
-    _cache[url] = (time.monotonic(), out)
-    while len(_cache) > 256:
-        _cache.popitem(last=False)
+    with _lock:
+        # Une autre lecture a pu expulser une image pendant la lecture de l'icône.
+        for field in ("image", "icon"):
+            if out[field] and out[field].rsplit("/", 1)[-1] not in _images:
+                out[field] = None
+        _cache[url] = (time.monotonic(), out)
+        while len(_cache) > MAX_PREVIEWS:
+            _cache.popitem(last=False)
     return out
 
 
@@ -146,7 +165,10 @@ async def get_media(body: Link, _user: int = Depends(auth.current_user)):
 
 @router.get("/api/liens/image/{key}")
 def get_image(key: str, _user: int = Depends(auth.current_user)):
-    found = _images.get(key)
+    with _lock:
+        found = _images.get(key)
+        if found:
+            _images.move_to_end(key)
     if not found:
         raise HTTPException(404, "Image expirée. Rouvre le lien.")
     return Response(found[0], media_type=found[1], headers={"Cache-Control": "private, max-age=3600", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox"})

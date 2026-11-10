@@ -20,7 +20,8 @@
 @media(max-width:1181px) { .right-panel { box-shadow:var(--shadow-panel); width:min(470px,100%); } }
 @media(min-width:768px) { .noah-shell { font-size:14px; } }
 @media(max-width:767px) { .side-rail { display:none; } .right-panel { width:100%; } .settings-two-columns { display:flex; flex-direction:column; } .settings-list { display:none; } .settings-detail { padding:0; } }
-.desktop-settings { position:fixed; inset:0 0 0 var(--rail-width); z-index:30; display:flex; flex-direction:column; min-height:0; background:var(--bg); }
-.desktop-settings > header { height:56px; flex:none; display:flex; align-items:center; justify-content:space-between; padding:0 20px; border-bottom:1px solid var(--line); }
-.desktop-settings > header h2 { font-size:15px; font-weight:600; }
-.desktop-settings > .settings-two-columns { flex:1; }
+@media(min-width:768px) {
+  .desktop-settings[role=dialog] { inset:0 0 0 var(--rail-width); transform:none; width:auto; max-width:none; max-height:none; border:0; border-radius:0; padding:0; gap:0; background:var(--bg); }
+  .desktop-settings[role=dialog] > div:first-child { min-height:56px; flex:none; align-items:center; padding:0 20px; border-bottom:1px solid var(--line); }
+  .desktop-settings[role=dialog] > .settings-two-columns { flex:1; }
+}

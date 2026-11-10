@@ -124,7 +124,7 @@ r = [x for x in received if x.url.path.endswith("/vivant")][0]
 assert r.headers["content-encoding"] == "aes128gcm" and r.headers["urgency"] == "high" and int(r.headers["ttl"]) > 0
 assert r.headers["authorization"].startswith("vapid t=")
 msg = json.loads(http_ece.decrypt(r.content, private_key=key, auth_secret=secret, version="aes128gcm"))
-assert msg == {"titre": "Veille", "texte": "Le prix a baissé", "url": "/", "pour": push.session_tag(auth.digest(token_a))}, msg
+assert msg == {"titre": "Veille", "texte": "Le prix a baissé", "url": "/", "masquer_sensibles": True, "pour": push.session_tag(auth.digest(token_a))}, msg
 assert len([x for x in received if x.url.path.endswith("/instable")]) == 2, "pas de nouvel essai après le 503"
 assert len([x for x in received if x.url.path.endswith("/refuse")]) == 1, "erreur définitive réessayée"
 wns = [x for x in received if x.url.host.endswith(".notify.windows.com")][0]

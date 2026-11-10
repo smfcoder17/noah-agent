@@ -180,13 +180,17 @@ def _auth(api_key: str | None) -> dict:
     return {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
 
-async def _openai_compatible(base_url: str, api_key: str | None) -> list[dict]:
-    """Les modèles d'un service compatible OpenAI. On ne connaît ni leurs prix ni leurs capacités : on les suppose capables d'outils."""
+async def _openai_compatible(base_url: str, api_key: str | None, *, known_tools: dict | None = None) -> list[dict]:
+    """Service compatible OpenAI. Les fournisseurs connus exigent une capacité
+    déclarée ou retrouvée dans le catalogue ; une adresse personnalisée garde son repli."""
     async with httpx.AsyncClient(timeout=10) as c:
         r = await c.get(f"{base_url.rstrip('/')}/models", headers=_auth(api_key))
     r.raise_for_status()
     return [{"id": m["id"], "name": m["id"], "lab": "custom", "created": m.get("created") or 0, "context": 0, "price_in": None,
-             "price_out": None, "tools": True, "vision": False, "free": False} for m in r.json().get("data", [])]
+             "price_out": None,
+             "tools": ((m.get("capabilities") or {}).get("function_calling", price_of(known_tools, m["id"]).get("tools", False))
+                       if known_tools is not None else True),
+             "vision": False, "free": False} for m in r.json().get("data", [])]
 
 
 async def _ollama(url: str = OLLAMA_URL, api_key: str | None = None) -> list[dict]:
@@ -232,7 +236,7 @@ async def models_for(provider: str, api_key: str | None, base_url: str | None = 
         if not api_key:
             return []
         base = "https://api.mistral.ai/v1" if provider == "mistral" else "https://api.deepseek.com/v1"
-        return [{**m, "lab": provider} for m in await _openai_compatible(base, api_key)]
+        return [{**m, "lab": provider} for m in await _openai_compatible(base, api_key, known_tools=await price_index()) if m["tools"]]
     if provider == "openrouter":
         return [m for m in await openrouter_catalog() if m["tools"]]
     if provider == "ollama":

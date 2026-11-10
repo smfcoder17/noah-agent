@@ -47,7 +47,7 @@ export function ProviderLogo({ modelId, lab, className }: { modelId?: string; la
   const name = modelId?.includes("hailuo") ? "hailuo-color" : modelId?.includes("/muse") ? "muse-color" : LABS[key];
   const src = key === "mammouth" ? providerLogo(key) : name ? icon(name) : undefined;
   return (
-    <span className={cn("grid size-6 shrink-0 place-items-center overflow-hidden rounded-md bg-white ring-1 ring-border", className)} title={labName(key)}>
+    <span className={cn("grid size-6 shrink-0 place-items-center overflow-hidden rounded-md bg-white ring-1 ring-border", key === "mammouth" && "bg-[#ff7a2f]", className)} title={labName(key)}>
       {src && !failed ? (
         <img src={src} onError={() => setFailed(true)} alt="" className="size-[70%]" />
       ) : (

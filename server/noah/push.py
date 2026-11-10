@@ -266,11 +266,21 @@ async def send(title: str, text: str, url: str = "/", urgent: bool = False, user
     if not rows:
         return {"livres": 0, "echecs": 0, "morts": 0, "differes": 0}
     from . import sensitive, ui_preferences
+    def mask_extra(value):
+        if isinstance(value, str):
+            return sensitive.mask(value)
+        if isinstance(value, dict):
+            return {sensitive.mask(k): mask_extra(v) for k, v in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [mask_extra(v) for v in value]
+        return value
+
     def message_for(row):
         hidden = ui_preferences.read(row["recipient"])["masquer_sensibles"]
-        return {"titre": (sensitive.mask(title) if hidden else title)[:120],
+        return {**(mask_extra(extra or {}) if hidden else (extra or {})),
+                "titre": (sensitive.mask(title) if hidden else title)[:120],
                 "texte": (sensitive.mask(text) if hidden else text)[:400], "url": url,
-                **(extra or {}), "masquer_sensibles": hidden}
+                "masquer_sensibles": hidden}
     # Enregistré avant le premier envoi, réservé pendant LEASE : si le serveur redémarre pendant l'envoi ou ses premiers
     # essais, la file le reprend. Supprimé une fois traité (livré, refusé, ou différé sous une autre ligne).
     now = time.time()

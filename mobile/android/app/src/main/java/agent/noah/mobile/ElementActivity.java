@@ -36,9 +36,12 @@ public class ElementActivity extends Activity {
         layout.addView(bar);
         image = new ZoomImage(); image.setContentDescription(name); layout.addView(image, new LinearLayout.LayoutParams(-1, 0, 1));
         setContentView(layout);
-        File file = new File(getIntent().getStringExtra("file"));
-        File allowed = new File(getCacheDir(), "elements");
-        try { if (!file.getCanonicalPath().startsWith(allowed.getCanonicalPath() + File.separator)) throw new Exception(); }
+        final File file;
+        try {
+            file = new File(getIntent().getStringExtra("file"));
+            File allowed = new File(getCacheDir(), "elements");
+            if (!file.getCanonicalPath().startsWith(allowed.getCanonicalPath() + File.separator)) throw new Exception();
+        }
         catch (Exception e) { finish(); return; }
         LinearLayout actions = new LinearLayout(this);
         for (String action : new String[] { "Partager", "Ouvrir avec", "Enregistrer" }) {

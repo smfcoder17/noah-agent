@@ -1,9 +1,9 @@
 // Cerveau propre à un agent : Auto (le niveau suit chaque demande), un mode, le réglage de tous ses agents, ou un modèle précis,
 // et son niveau de réflexion. Les trois niveaux d'Auto sont ceux des modes Rapide, Équilibré et Le plus fort, pour tous les agents.
-import { Check, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { type CurrentModel, get, send } from "@/lib/api";
-import { type ModeId, type ModesState, readableModel, REASONING, type TierId } from "@/lib/modes";
+import { type ModesState, readableModel, REASONING, type TierId } from "@/lib/modes";
 import { cn } from "@/lib/utils";
 import { ModelSearch } from "./Modes";
 import { ProviderLogo } from "./ProviderLogo";
@@ -12,10 +12,9 @@ import { ErrorText } from "./ui";
 
 const AUTO_LEVELS: [TierId, string][] = [["fast", "Simple"], ["balanced", "Moyen"], ["smart", "Complexe"]];
 
-export function AgentBrain({ agentId, own, mode, reasoning, onChanged, openKey = 0, bare = false }: { agentId: string; own: string | null | undefined; mode?: string | null; reasoning?: string | null; onChanged: () => void; openKey?: number; bare?: boolean }) {
+export function AgentBrain({ agentId, own, mode, reasoning, onChanged }: { agentId: string; own: string | null | undefined; mode?: string | null; reasoning?: string | null; onChanged: () => void; openKey?: number; bare?: boolean }) {
   const [base, setBase] = useState<CurrentModel>(null);
   const [state, setState] = useState<ModesState | null>(null);
-  const [open, setOpen] = useState(true);
   const [choosing, setChoosing] = useState<TierId | "precis" | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -24,11 +23,8 @@ export function AgentBrain({ agentId, own, mode, reasoning, onChanged, openKey =
     get<CurrentModel>("/api/model").then(setBase).catch(() => {});
   }, []);
   useEffect(() => {
-    if (openKey) setOpen(true); // la carte « Modèle » du résumé ouvre directement le choix
-  }, [openKey]);
-  useEffect(() => {
-    if ((open || bare) && !state) get<ModesState>("/api/modes/cerveau").then(setState).catch((e) => setError((e as Error).message));
-  }, [open, bare, state]);
+    get<ModesState>("/api/modes/cerveau").then(setState).catch((e) => setError((e as Error).message));
+  }, []);
 
   const change = async (body: object) => {
     setBusy(true);
@@ -47,7 +43,6 @@ export function AgentBrain({ agentId, own, mode, reasoning, onChanged, openKey =
   const pick = async (body: object) => {
     if (await change(body)) {
       setChoosing(null);
-      if (!bare) setOpen(false);
     }
   };
   /** Le modèle d'un niveau, pour tous les agents (Réglages > Modèles et budget, mêmes données). */
@@ -65,23 +60,17 @@ export function AgentBrain({ agentId, own, mode, reasoning, onChanged, openKey =
   };
 
   const tierModel = (id: TierId) => state?.modes.find((m) => m.id === id)?.modele ?? null;
-  const usable = (id: ModeId | "auto") => {
-    if (!state) return false;
-    if (id === "auto") return AUTO_LEVELS.some(([t]) => tierModel(t));
-    if (id === "gratuit") return state.gratuit.length > 0;
-    if (id === "custom") return state.custom.length > 0;
-    return !!tierModel(id);
-  };
+  const autoAvailable = AUTO_LEVELS.some(([tier]) => tierModel(tier));
   const chosen = mode || (own ? "precis" : "tous");
 
   const Row = ({ id, name, under, onPick, disabled }: { id: string; name: string; under?: React.ReactNode; onPick: () => void; disabled?: boolean }) => (
     <button type="button" role="radio" aria-checked={chosen === id} disabled={busy || disabled} onClick={onPick}
       className={cn("flex w-full cursor-pointer items-center gap-3 px-3 py-3 text-left hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50", chosen === id && "bg-accent-soft/40")}>
+      <span aria-hidden className={cn("size-[18px] shrink-0 rounded-full border-2 border-border", chosen === id && "border-[6px] border-accent")} />
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-medium">{name}</span>
         {under && <span className="block truncate text-xs text-muted-foreground">{under}</span>}
       </span>
-      {chosen === id && <Check className="size-4 shrink-0 text-accent" />}
     </button>
   );
 
@@ -90,7 +79,7 @@ export function AgentBrain({ agentId, own, mode, reasoning, onChanged, openKey =
     <div className="flex flex-col gap-3">
       <div role="radiogroup" aria-label="Modèle de l'agent" className="flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border">
         <div>
-          <Row id="auto" name="Auto" under="Simple, moyen ou complexe : Noah choisit" onPick={() => pick({ mode: "auto" })} disabled={!usable("auto")} />
+          <Row id="auto" name="Auto" under="Simple, moyen ou complexe : Noah choisit" onPick={() => pick({ mode: "auto" })} disabled={!autoAvailable} />
           {state && (
             <ul className="flex flex-col gap-1 px-3 pb-3">
               {AUTO_LEVELS.map(([tier, label]) => (

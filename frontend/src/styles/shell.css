@@ -19,11 +19,9 @@ button.shell-row { cursor:pointer; }
 .agent-identity small { color:var(--muted-foreground); font-size:13px; }
 .page-header { flex:none; display:grid; grid-template-columns:44px 1fr 44px; padding:4px 12px 10px; align-items:center; }
 .page-header h2 { font-size:16px; text-align:center; }
-.shell-panel { min-height:0; height:100%; }
-.shell-panel > div { height:100%; }
+.shell-panel { display:flex; flex-direction:column; min-height:0; height:100%; }
+.shell-panel > div { height:auto; min-height:0; flex:1; }
 .shell-panel [data-shell-tabs] { display:none; }
-.shell-panel [data-computer-tabs] { display:none; }
-.status-dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--ok); }
 .offline-banner { padding:8px 14px; background:var(--warn-soft); color:var(--warn); font-size:13px; }
 @media(max-width:767px) {
   .noah-shell { display:flex; flex-direction:column; height:calc(100% - var(--kb,0px)); }

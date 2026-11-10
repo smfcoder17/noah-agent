@@ -1,4 +1,4 @@
-import { subscribeUpdates } from "@/lib/events";
+import { useVisibleSubscription } from "@/lib/events";
 import { Check, Hand, MonitorPlay, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui";
@@ -11,6 +11,7 @@ type Call = { id: string; message: string; depuis: number; origine: string };
  * l'agent s'ouvre une fois par appel. L'agent attend la réponse au lieu de finir son tour.
  */
 export function HandoffBanner({ agentId, onOpenScreen }: { agentId: string; onOpenScreen: () => void }) {
+  const subscribeUpdates = useVisibleSubscription();
   const [call, setCall] = useState<Call | null>(null);
   const [busy, setBusy] = useState(false);
   const opened = useRef<string | null>(null);
@@ -31,11 +32,9 @@ export function HandoffBanner({ agentId, onOpenScreen }: { agentId: string; onOp
     };
     poll();
     const t = subscribeUpdates(poll);
-    document.addEventListener("visibilitychange", poll);
     return () => {
       alive = false;
       t();
-      document.removeEventListener("visibilitychange", poll);
     };
   }, [agentId]);
 

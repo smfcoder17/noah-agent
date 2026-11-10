@@ -1,5 +1,6 @@
 // Un seul flux par fenêtre ; le fetch permet Last-Event-ID et le renouvellement Android de request().
-import { useSyncExternalStore } from "react";
+import { useCallback, useContext, useEffect, useRef, useSyncExternalStore } from "react";
+import { SeenActive } from "./seen";
 import { currentAuthEpoch, get, request, type Accord, type Agent, type Conversation } from "./api";
 
 let items: Accord[] = [];
@@ -7,11 +8,26 @@ let recent: AccordClosed[] = [];
 let snapshot = { items, recent };
 const listeners = new Set<() => void>();
 const updates = new Set<() => unknown>();
-let queued = false;
+let queued: ReturnType<typeof setTimeout> | undefined;
+let lastUpdate = -Infinity;
+let waiters: (() => void)[] = [];
 function changed() {
-  if (queued) return;
-  queued = true;
-  queueMicrotask(() => { queued = false; updates.forEach((fn) => void Promise.resolve(fn()).catch(() => {})); });
+  return new Promise<void>((resolve) => {
+    waiters.push(resolve);
+    if (queued !== undefined) return;
+    queued = setTimeout(() => {
+      queued = undefined;
+      const pending = waiters; waiters = [];
+      if (document.hidden) { pending.forEach((done) => done()); return; }
+      lastUpdate = Date.now();
+      void Promise.all([...updates].map((fn) => Promise.resolve().then(fn).catch(() => {})))
+        .finally(() => pending.forEach((done) => done()));
+    }, Math.max(0, 500 - (Date.now() - lastUpdate)));
+  });
+}
+function cancelUpdates() {
+  clearTimeout(queued); queued = undefined; lastUpdate = -Infinity;
+  waiters.forEach((done) => done()); waiters = [];
 }
 const visible = () => { if (!document.hidden) changed(); };
 let controller: AbortController | null = null;
@@ -30,6 +46,7 @@ function resetAccount() {
   recent = [];
   revision = "";
   resyncPending = false;
+  cancelUpdates();
   controller?.abort();
   controller = null;
   notify();
@@ -71,7 +88,7 @@ async function consume(signal: AbortSignal) {
         const tasks: Promise<unknown>[] = [];
         window.dispatchEvent(new CustomEvent("noah:resync", { detail: tasks }));
         await Promise.all([refreshAccords(), ...tasks]);
-        await Promise.all([...updates].map((fn) => fn()));
+        await changed();
         if (signal.aborted) return;
         resyncPending = false;
       }
@@ -154,6 +171,7 @@ function subscribe(listener: () => void) {
     listeners.delete(listener);
     if (!listeners.size) {
       controller?.abort(); controller = null; clearInterval(timer); changes++;
+      cancelUpdates();
       window.removeEventListener("noah:auth-epoch", resetAccount);
       window.removeEventListener("storage", resetAccount);
       document.removeEventListener("visibilitychange", visible);
@@ -168,4 +186,15 @@ export function subscribeUpdates(fn: () => unknown) {
   updates.add(fn);
   const stop = subscribe(() => {});
   return () => { updates.delete(fn); stop(); };
+}
+
+/** Les écrans gardés ignorent les signaux cachés et relisent au retour. */
+export function useVisibleSubscription() {
+  const active = useContext(SeenActive);
+  const visible = useRef(active);
+  visible.current = active;
+  useEffect(() => { if (active) changed(); }, [active]);
+  return useCallback((fn: () => unknown) => {
+    return subscribeUpdates(() => { if (visible.current && !document.hidden) return fn(); });
+  }, []);
 }

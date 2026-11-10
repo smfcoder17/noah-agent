@@ -12,7 +12,7 @@
 .element-grid article > b,.element-grid article > p { display:block; padding:6px 8px; font-size:12px; }
 .element-detail { padding:14px; border-radius:var(--radius-16); background:var(--surface); overflow:auto; }
 .element-actions { display:flex; gap:8px; flex-wrap:wrap; }
-.element-actions button,.element-download { padding:10px 14px; background:var(--muted); border-radius:999px; cursor:pointer; }
+.element-actions button { padding:10px 14px; background:var(--muted); border-radius:999px; cursor:pointer; }
 .image-stage { flex:1; min-height:0; overflow:auto; display:grid; place-items:center; touch-action:none; }
 .image-stage img { max-width:100%; max-height:65dvh; object-fit:contain; transform-origin:center; }
 .video-mini { position:fixed; z-index:60; width:220px; min-width:168px; max-width:90vw; overflow:hidden; resize:both; background:#000; color:#fff; border-radius:var(--radius-12); box-shadow:var(--shadow-mini); }
@@ -33,6 +33,6 @@
   [data-noah-composer] { border:0; border-radius:var(--radius-24); padding:6px 6px 6px 10px; }
   [data-noah-composer] > div.flex-wrap { flex-wrap:nowrap; }
   [data-noah-composer] [data-composer-input] { order:0; flex-basis:0; padding:6px 0; font-size:15px; }
-  [data-noah-composer] button[title="Changer de modèle"], [data-noah-composer] button[title="Connexions"] { display:none; }
+  [data-noah-composer] button[title="Changer de modèle"] { display:none; }
   [data-noah-composer] button[aria-label="Envoyer"] { border-radius:50%; background:var(--ink); color:var(--bg); width:36px; height:36px; }
 }

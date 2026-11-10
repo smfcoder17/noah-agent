@@ -1,0 +1,26 @@
+
+ RUN  v3.2.7 D:/Data/Multimedia/SmfCoder/YouTube/apollo/frontend
+
+ ✓ src/lib/askAgent.test.ts (1 test) 5ms
+ ✓ src/lib/navigation.test.ts (1 test) 6ms
+ ✓ src/lib/keyboard.test.ts (1 test) 4ms
+ ✓ src/lib/sensitive.test.ts (3 tests) 15ms
+ ✓ src/lib/elements.test.ts (2 tests) 20ms
+ ✓ src/lib/events.test.ts (2 tests) 7ms
+ ✓ src/components/KeepAlive.test.tsx (1 test) 57ms
+ ✓ src/lib/events.visibility.test.tsx (3 tests) 73ms
+ ✓ src/lib/keyboard.screens.test.tsx (1 test) 145ms
+ ✓ src/lib/navPrefs.test.ts (1 test) 5ms
+ ✓ src/components/SensitiveText.test.tsx (1 test) 87ms
+ ✓ src/components/elements/ElementCard.test.tsx (1 test) 395ms
+   ✓ ouvre chaque format du registre et réserve les médias au lecteur persistant  393ms
+ ✓ src/components/AgentBrain.test.tsx (1 test) 98ms
+ ✓ src/lib/events.resync.test.ts (1 test) 1566ms
+   ✓ relit les données après un trou de dix minutes avant de rouvrir le flux  1563ms
+ ✓ src/components/lot2-regressions.test.tsx (12 tests) 326ms
+
+ Test Files  15 passed (15)
+      Tests  32 passed (32)
+   Start at  03:24:56
+   Duration  17.12s (transform 4.65s, setup 549ms, collect 20.62s, tests 2.81s, environment 91.54s, prepare 10.78s)
+

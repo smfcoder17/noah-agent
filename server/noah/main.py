@@ -108,17 +108,17 @@ async def same_origin_only(request: Request, call_next):
         # (révocation d'un appareil, réglage…) serait perdue en silence. On la refuse franchement.
         return Response('{"detail":"Noah installe une mise à jour (quelques minutes) : réessaie juste après."}',
                         status_code=503, media_type="application/json", headers={"Retry-After": "120"})
+    token = auth.request_token(request, request.cookies.get(auth.COOKIE))
+    user = await asyncio.to_thread(auth.owner_of, token) if token else None
     zone = request.headers.get("x-noah-timezone")
     if zone and zone != updates._last_zone:  # fuseau du propriétaire : créneau des mises à jour, heure de ses agents
-        token = auth.request_token(request, request.cookies.get(auth.COOKIE))
-        if token and await asyncio.to_thread(access.owner_app, token):
+        if user is not None and await asyncio.to_thread(access.is_owner, user):
             updates.saw_client(zone)
     response = await call_next(request)
     if request.method in UNSAFE and request.url.path.startswith("/api/") and response.status_code < 400 \
             and not request.url.path.startswith("/api/liens/") and not request.url.path.endswith("/regard"):
-        token = auth.request_token(request, request.cookies.get(auth.COOKIE))
-        user = await asyncio.to_thread(auth.owner_of, token)
-        await asyncio.to_thread(bus.invalidate, user)
+        if token and user is not None:
+            await asyncio.to_thread(bus.invalidate, user)
     return response
 
 

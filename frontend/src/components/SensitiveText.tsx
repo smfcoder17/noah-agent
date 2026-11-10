@@ -1,4 +1,4 @@
-﻿import { Children, createContext, useContext, useEffect, useState } from "react";
+﻿import { Children, cloneElement, isValidElement, createContext, useContext, useEffect, useState } from "react";
 import { currentAuthEpoch, get, send } from "@/lib/api";
 import { subscribeUpdates } from "@/lib/events";
 import { sensitiveParts } from "@/lib/sensitive";
@@ -30,4 +30,17 @@ export function SensitiveText({ text }: { text: string }) {
   const enabled = useContext(SensitiveContext);
   return !enabled ? <>{text}</> : <>{sensitiveParts(text).map((p, i) => p.sensitive ? <Secret key={`${i}:${p.value}`} value={p.value} masked={p.masked} /> : p.value)}</>;
 }
-export const sensitiveChildren = (children: React.ReactNode) => Children.map(children, (child) => typeof child === "string" ? <SensitiveText text={child} /> : child);
+/** Un lien automatique mailto: peut contenir lui-même la donnée masquée. */
+export function SensitiveLink({ href, children, title, ...props }: React.ComponentProps<"a">) {
+  const hidden = useContext(SensitiveContext);
+  const [shown, reveal] = useState<string | null>(null);
+  const secret = hidden && sensitiveParts(href || "").some((p) => p.sensitive);
+  const safeTitle = hidden && title ? sensitiveParts(title).map((p) => p.masked).join("") : title;
+  if (secret && shown !== href) return <span>{sensitiveChildren(children)}<button type="button" className="sensitive-copy" onClick={() => reveal(href || "")}>Révéler le lien</button></span>;
+  return <><a {...props} href={href} title={safeTitle}>{sensitiveChildren(children)}</a>{secret && <button type="button" className="sensitive-copy" onClick={() => reveal(null)}>Recacher le lien</button>}</>;
+}
+export const sensitiveChildren = (children: React.ReactNode): React.ReactNode => Children.map(children, (child) => {
+  if (typeof child === "string") return <SensitiveText text={child} />;
+  if (!isValidElement<{ children?: React.ReactNode }>(child) || child.type === SensitiveText) return child;
+  return child.props.children === undefined ? child : cloneElement(child, { children: sensitiveChildren(child.props.children) });
+});

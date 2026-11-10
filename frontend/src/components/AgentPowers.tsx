@@ -1,5 +1,5 @@
 import { ObjectPage } from "./mobile/ObjectPage";
-import { subscribeUpdates } from "@/lib/events";
+import { useVisibleSubscription } from "@/lib/events";
 // Ce que l'agent sait et fait de lui-même, réglable depuis Détails : routines, mémoire, connexions, logiciels, dossiers.
 import { Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, FolderOpen, HardDrive, Loader2, Pause, Pencil, Play, Plus, SlidersHorizontal, Trash2, Zap } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -565,6 +565,7 @@ const hostOf = (url?: string | null) => {
 type Waiting = Record<string, "auto" | "coller">; // connexions dont l'accord est en cours : le fournisseur revient seul, ou la personne colle
 
 export function Connections({ agentId, shared = false, owner = false }: { agentId: string; shared?: boolean; /** Son propriétaire : lui seul décide « pour tous mes agents ». */ owner?: boolean }) {
+  const subscribeUpdates = useVisibleSubscription();
   const { data, error, setError, load } = useAgentData<ConnectionsState>(`/api/agents/${agentId}/connections`);
   const [waiting, setWaiting] = useState<Waiting>({});
   const wait = (name: string, mode?: "auto" | "coller") => setWaiting((w) => {
@@ -1072,6 +1073,7 @@ const DEFAULT_ACCESS = ["gmail_lire", "agenda_lire", "drive_lire"];
  * valide lui-même la page d'accord de Google avec les accès cochés.
  */
 function GoogleCard({ agentId, onError }: { agentId: string; onError: (e: string) => void }) {
+  const subscribeUpdates = useVisibleSubscription();
   const base = `/api/agents/${agentId}/google`;
   const [state, setState] = useState<GoogleAccount | null>(null);
   const [picking, setPicking] = useState(false);

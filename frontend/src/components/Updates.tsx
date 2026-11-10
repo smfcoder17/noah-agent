@@ -1,4 +1,4 @@
-import { subscribeUpdates } from "@/lib/events";
+import { useVisibleSubscription } from "@/lib/events";
 // Réglages > Serveur > Mises à jour : version en service, la prochaine (installée seule pendant le créneau calme), l'historique.
 // Modèle : Home Assistant (« Mettre à jour » / « Passer ») et Synology DSM (créneau choisi, report automatique).
 import { CheckCircle2, Loader2, RefreshCw } from "lucide-react";
@@ -31,6 +31,7 @@ const NAMES: Record<string, string> = {
 const when = (t: number) => new Date(t * 1000).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" });
 
 export function Updates() {
+  const subscribeUpdates = useVisibleSubscription();
   const [s, setS] = useState<Summary | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");

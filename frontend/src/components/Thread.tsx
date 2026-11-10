@@ -1,5 +1,7 @@
 import { memo } from "react";
-import { SensitiveText, sensitiveChildren } from "./SensitiveText";
+import { SensitiveContext, SensitiveLink, SensitiveText, sensitiveChildren } from "./SensitiveText";
+import { sensitiveParts } from "@/lib/sensitive";
+import { SENSITIVE_MARKDOWN } from "./SensitiveMarkdown";
 import { LinkCard, LinkList } from "./LinkCard";
 // Fil de discussion construit sur les primitives d'assistant-ui.
 import {
@@ -57,6 +59,7 @@ const PLUGINS = [remarkGfm];
 const SMOOTH = { drainMs: 100, minCommitMs: 50 };
 
 function MarkdownText() {
+  const hidden = useContext(SensitiveContext);
   const { agentId } = useContext(AgentContext);
   const view = useViewer();
   const download = useDownload();
@@ -76,11 +79,7 @@ function MarkdownText() {
   const components = useMemo<NonNullable<React.ComponentProps<typeof MarkdownTextPrimitive>["components"]>>(
     () => ({
         p: ({ children }) => { const nodes = Children.toArray(children); const links = nodes.filter((c) => typeof c === "object" && c && "props" in c && (c as React.ReactElement<{ href?: string }>).props.href) as React.ReactElement<{ href?: string }>[]; const urls = links.map((c) => c.props.href!).filter((u) => /^https?:/.test(u)); if (urls.length === 1 && links.length === 1 && nodes.every((c) => typeof c !== "string" || !c.trim())) return <LinkCard url={urls[0]} />; if (urls.length > 1) return <div><span>{sensitiveChildren(children)}</span><LinkList urls={[...new Set(urls)]} /></div>; return <p>{sensitiveChildren(children)}</p>; },
-        li: ({ children }) => <li>{sensitiveChildren(children)}</li>,
-        td: ({ children }) => <td>{sensitiveChildren(children)}</td>,
-        th: ({ children }) => <th>{sensitiveChildren(children)}</th>,
-        strong: ({ children }) => <strong>{sensitiveChildren(children)}</strong>,
-        em: ({ children }) => <em>{sensitiveChildren(children)}</em>,
+        ...SENSITIVE_MARKDOWN,
         a: ({ node: _node, href, children, ...props }) =>
           href?.includes("/files/raw/") ? (
             <button
@@ -90,15 +89,17 @@ function MarkdownText() {
                 canFrame(href) ? view({ kind: "file", url: href, title: String(children) }) : download(`${href}?download=1`, String(children))
               }
             >
-              <FileText className="size-3.5" />{children}
+              <FileText className="size-3.5" />{sensitiveChildren(children)}
             </button>
           ) : (
-            <a {...props} href={href} target="_blank" rel="noopener noreferrer">{sensitiveChildren(children)}</a>
+            <SensitiveLink {...props} href={href} target="_blank" rel="noopener noreferrer">{children}</SensitiveLink>
           ),
         img: ({ node: _node, ...props }) => (
           <span className="group/img relative inline-block">
             <img
               {...props}
+              alt={hidden ? sensitiveParts(props.alt || "").map((p) => p.masked).join("") : props.alt}
+              title={hidden ? sensitiveParts(props.title || "").map((p) => p.masked).join("") : props.title}
               src={safeMedia(props.src ? String(props.src) : undefined)}
               loading="lazy"
               className="cursor-zoom-in"
@@ -117,7 +118,7 @@ function MarkdownText() {
           </span>
         ),
     }),
-    [view, download, addQuote],
+    [view, download, addQuote, hidden],
   );
   return (
     <MarkdownTextPrimitive

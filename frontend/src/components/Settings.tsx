@@ -60,12 +60,8 @@ const HINTS: Record<string, string> = {
   transcription: "Ta voix en texte.",
 };
 
-function SettingsFrame({ open, onOpenChange, title, onBack, children }: { open: boolean; onOpenChange: (open: boolean) => void; title: string; onBack?: () => void; children: React.ReactNode }) {
-  const [wide, setWide] = useState(() => matchMedia("(min-width:768px)").matches);
-  useEffect(() => { const media = matchMedia("(min-width:768px)"); const update = () => setWide(media.matches); media.addEventListener("change", update); return () => media.removeEventListener("change", update); }, []);
-  useEffect(() => { if (!wide || !open) return; const close = (e: KeyboardEvent) => { if (e.key === "Escape") onOpenChange(false); }; window.addEventListener("keydown", close); return () => window.removeEventListener("keydown", close); }, [wide, open, onOpenChange]);
-  if (wide) return open ? <section className="desktop-settings" aria-label="Réglages"><header><h2>{title}</h2><button className="shell-icon" aria-label="Fermer les réglages" onClick={() => onOpenChange(false)}>✕</button></header>{children}</section> : null;
-  return <Dialog open={open} onOpenChange={onOpenChange}>{open && <DialogContent title={title} onBack={onBack} className="max-w-4xl">{children}</DialogContent>}</Dialog>;
+export function SettingsFrame({ open, onOpenChange, title, onBack, children }: { open: boolean; onOpenChange: (open: boolean) => void; title: string; onBack?: () => void; children: React.ReactNode }) {
+  return <Dialog open={open} onOpenChange={onOpenChange}>{open && <DialogContent aria-modal="true" title={title} onBack={onBack} className="desktop-settings max-w-4xl">{children}</DialogContent>}</Dialog>;
 }
 
 export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainSaved }: {

@@ -1,4 +1,4 @@
-import { subscribeUpdates } from "./events";
+import { useVisibleSubscription } from "./events";
 // État d'une conversation et branchement sur assistant-ui (ExternalStoreRuntime).
 // Le serveur envoie ses propres événements SSE ; on les traduit ici en messages et en « parts ».
 import {
@@ -7,7 +7,8 @@ import {
   type ThreadMessageLike,
   useExternalStoreRuntime,
 } from "@assistant-ui/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { SeenActive } from "./seen";
 import { ApiError, type ChatEvent, get, type LoginAsked, send, type Reactions, type Recu, type StoredMessage, request, StreamLost, streamChat, uploadFile } from "./api";
 import { accordLabel, refreshAccords, useAccords } from "./events";
 
@@ -246,6 +247,8 @@ export function useAgentChat(opts: {
   /** Citations à mettre devant le message (vidées à l'envoi). */
   takeQuotes?: () => string;
 }) {
+  const subscribeUpdates = useVisibleSubscription();
+  const active = useContext(SeenActive);
   const { agentId, conversationId, details, onConversationCreated, onRunFinished, updatedAt, agentBusy } = opts;
   const takeQuotes = useRef(opts.takeQuotes);
   takeQuotes.current = opts.takeQuotes;
@@ -372,15 +375,16 @@ export function useAgentChat(opts: {
   }, [reload]);
 
   useEffect(() => {
+    if (!active) return;
     setServerNow(IDLE);
     void refreshNow();
-  }, [conversationId, refreshNow]);
+  }, [conversationId, refreshNow, active]);
   // Une relecture finit après le tour : le petit « retenu » arrive sans rafraîchir la page.
   useEffect(() => {
-    if (isRunning) return;
+    if (isRunning || !active) return;
     const later = setTimeout(() => !document.hidden && void refreshNow(), 30000);
     return () => clearTimeout(later);
-  }, [isRunning, refreshNow]);
+  }, [isRunning, refreshNow, active]);
   const watching = isRunning || serverNow.occupe || serverNow.file.length > 0 || sending.length > 0 || !!agentBusy;
   useEffect(() => {
     if (!watching) return;
@@ -627,6 +631,7 @@ export function useAgentChat(opts: {
   // Encore à répondre dans le fil (flux perdu, historique en retard) : pas de seconde carte pour ce même accord. Une carte déjà
   // répondue ne masque jamais une nouvelle demande : la personne resterait sans bouton.
   useEffect(() => {
+    if (!active) return;
     const resyncAll = (event: Event) => {
       const tasks = (event as CustomEvent<Promise<unknown>[]>).detail;
       const conv = ownConversation.current;
@@ -637,7 +642,7 @@ export function useAgentChat(opts: {
     };
     window.addEventListener("noah:resync", resyncAll);
     return () => window.removeEventListener("noah:resync", resyncAll);
-  }, [refreshNow]);
+  }, [refreshNow, active]);
   const askedLogin = serverNow.connexion ?? null;
   const askedLoginId = askedLogin?.id;
   useEffect(() => {
