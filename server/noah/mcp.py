@@ -405,6 +405,26 @@ def _rights(agent_id: str) -> dict[str, str]:
     return rights
 
 
+def connection_rows(agent_id: str) -> list:
+    """Catalogue enregistré pour cet agent, relu en base ; réservé aux modules du serveur."""
+    return _rows(agent_id)
+
+
+def connection_rights(agent_id: str) -> dict[str, str]:
+    """Droits enregistrés de l'agent, indépendants des affirmations de sa machine."""
+    return _rights(agent_id)
+
+
+def is_read_only(tool: dict) -> bool:
+    """True seulement si le catalogue déclare explicitement readOnlyHint=true."""
+    return _is_read_only(tool)
+
+
+def connection_token(row) -> str | None:
+    """Jeton déchiffré pour un usage interne au serveur ; ne jamais le renvoyer à l'agent."""
+    return _token(row)
+
+
 async def seal_rights(agent_id: str) -> None:
     """Un conteneur recréé a perdu ses droits : ils redeviennent ceux choisis ici. Sans lanceur, un droit absent vaut « confirmer »."""
     try:
@@ -926,7 +946,7 @@ _WHY = {
     "je n'ai pas pu vérifier à temps.": "La vérification automatique n'a pas répondu à temps.",
     "ton juge ne répond pas, alors la décision te revient.": "La vérification automatique ne répond pas.",
 }
-SETTLED_WHY = {"tu n'as pas demandé cette action.", "je ne suis pas sûr que ce soit ce que tu veux."}  # juge.SETTLED_HERE
+COMPARISON = "\nComparaison avec ta demande :\n"
 _SKILL = re.compile(r"/opt/data/skills/(?:[\w.-]+/)?([\w.-]+)/")
 _TOOL_WORDS = {
     "write_file": "écrire dans un fichier", "patch": "modifier un fichier", "browser_click": "cliquer dans une page",
@@ -975,6 +995,31 @@ def _judged_action(tool: str, shown: str) -> tuple[str, list[str]]:
 def plain_request(summary: str, command: bool = False) -> dict:
     """{demande, apercu} : ce qu'une personne sans notion technique lit pour décider. La description d'Hermes n'y entre jamais :
     elle est technique, en anglais, et peut venir d'un texte que l'agent a écrit."""
+    if COMPARISON in summary:
+        base, _, raw = summary.partition(COMPARISON)
+        plain = plain_request(base, command)
+        try:
+            comparison = json.loads(raw)
+        except ValueError:
+            comparison = {"ecarts": ["comparaison illisible"], "propose": raw}
+        if not isinstance(comparison, dict):
+            comparison = {"ecarts": ["comparaison illisible"], "propose": raw}
+        # Un seul aperçu complet : ni le texte ni les destinataires ne sont coupés.
+        proposed = comparison.get("propose") or {}
+        lines = ["Ta demande :", *comparison.get("demande", []), "", "Ce qui partirait :"]
+        for key, label in (("compte", "Compte"), ("destinataires", "Destinataires"), ("texte", "Texte"), ("pieces_jointes", "Pièces jointes")):
+            if isinstance(proposed, dict) and proposed.get(key):
+                lines.append(f"{label} : {json.dumps(proposed[key], ensure_ascii=False)}")
+        if isinstance(proposed, dict) and proposed.get("inconnu"):
+            lines.append("Appel à vérifier : " + json.dumps(proposed.get("appel"), ensure_ascii=False))
+        elif not isinstance(proposed, dict):
+            lines.append(str(proposed))
+        lines += ["", "Écarts :", *(comparison.get("ecarts") or ["Aucun écart ; cet envoi demande ton accord selon ton autonomie ou le contenu lu."])]
+        if comparison.get("consignes_lues"):
+            lines += ["", "Consignes lues (texte exact) :", *comparison["consignes_lues"]]
+        plain["apercu"] = ["\n".join(lines)]
+        plain["retenu"] = False
+        return plain
     judge = JUDGE_ASKS.match(summary)
     if judge:  # une question : « Autoriser ton agent à … ? », la raison en clair dessous, la commande seulement dans les détails
         rest = summary[judge.end():]
@@ -986,7 +1031,7 @@ def plain_request(summary: str, command: bool = False) -> dict:
         else:
             head, _, shown = rest.partition("\n")
             wish, preview = _judged_action(head.removeprefix("Outil : ").strip(), shown)
-            remembered = reason in SETTLED_WHY
+            remembered = False
         return {"demande": f"Autoriser ton agent à {wish} ?", "pourquoi": why, "action": wish[:1].upper() + wish[1:], "apercu": preview,
                 "retenu": remembered}
     m = ASKED.match(summary)
@@ -1019,10 +1064,11 @@ def _shown(tool: str, args) -> str:
 
 def approval_seen(agent_id: str, request_id: str | None, summary: str) -> None:
     summary = JUDGE_ASKS.sub("", str(summary or ""), count=1)
+    summary = summary.partition(COMPARISON)[0]
     m = ASKED.match(summary)
     if m and request_id:
         now = time.time()
-        for key in [k for k, (_, _, at) in _asked.items() if now - at > 3600]:
+        for key in [k for k, (_, _, at) in _asked.items() if now - at >= 300]:
             _asked.pop(key, None)
         _asked[(agent_id, str(request_id))] = (m.group(1), str(summary)[m.end():], now)
 
@@ -1032,6 +1078,8 @@ def approval_answered(agent_id: str, request_id: str, approve: bool) -> tuple | 
     asked = _asked.pop((agent_id, str(request_id)), None)
     if not asked or not approve:
         return None
+    if time.time() - asked[2] >= 300:
+        raise HTTPException(409, "Cet accord a expiré")
     key = (agent_id, asked[0])
     grant = (time.time() + GRANT_SECONDS, asked[1], uuid.uuid4().hex)
     _grants.setdefault(key, []).append(grant)
@@ -1044,8 +1092,36 @@ def approval_failed(opened: tuple | None) -> None:
         _grants[opened[0]].remove(opened[1])
 
 
+def allow_exact_once(agent_id: str, tool: str, args: dict) -> bool:
+    """Le juge a vérifié la ligne 3 depuis ses propres messages. Le relais reste
+    fermé à tout autre appel ; le droit lecture seule ne change jamais.
+    """
+    for row in _rows(agent_id):
+        prefix = f"mcp__{re.sub(r'[^A-Za-z0-9_]', '_', row['nom'])}__"
+        if tool.startswith(prefix) and row["droit"] != "lire":
+            wanted = tool[len(prefix):]
+            names = [t["name"] for t in json.loads(row["outils"] or "[]")
+                     if re.sub(r"[^A-Za-z0-9_]", "_", t.get("name", "")) == wanted]
+            if len(names) != 1:
+                return False  # inconnu ou deux vrais outils sous le même nom réécrit
+            key = (agent_id, row["nom"])
+            what = _shown(names[0], args)
+            now = time.time()
+            left = [g for g in _grants.get(key, []) if g[0] > now and g[1] != what]
+            _grants[key] = [*left, (now + GRANT_SECONDS, what, uuid.uuid4().hex)]
+            return True
+    return False
+
+
 def _take_grant(agent_id: str, name: str, what: str) -> bool:
-    """Consomme l'accord donné pour cet appel précis, et aucun autre : un appel concurrent ne peut pas passer à sa place."""
+    """Consomme un passage pour cet appel précis, jamais pour un appel concurrent.
+
+    Invariant : un grant C2 atteste un envoi vérifié, jamais un consentement humain.
+    allow_exact_once ne doit être appelé qu'après C2 ET le verdict final « passe »
+    du tableau (Auto, tour non durci). Un verdict « accord » (Prudent compris)
+    n'en crée aucun ; seul approval_answered peut alors ouvrir le passage après
+    la réponse humaine. _take_grant ne remplace jamais cette décision du juge.
+    """
     now = time.time()
     left = [g for g in _grants.get((agent_id, name), []) if g[0] > now]
     match = next((g for g in left if g[1] == what), None)

@@ -1,7 +1,8 @@
 // Fichiers de l'agent : de vrais dossiers, un tri, et une sélection qu'on donne au chat ou qu'on supprime.
 import { ChevronDown, Download, ExternalLink, Eye, FileText, Folder, MessageSquarePlus, RefreshCw, Search, Trash2, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { get, mediaUrl, rawFileUrl, send, type WorkspaceFile } from "@/lib/api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { mediaUrl, rawFileUrl, send, type WorkspaceFile } from "@/lib/api";
+import { useAgentData } from "@/lib/useAgentData";
 import { inAndroidApp } from "@/lib/platform";
 import { cn, fileSize, messageMoment } from "@/lib/utils";
 import { Button, Dialog, DialogContent } from "./ui";
@@ -47,8 +48,8 @@ const byOrder = <T extends { size: number; modified: number }>(sort: Sort, name:
   sort === "nom" ? name(a).localeCompare(name(b), "fr") : sort === "taille" ? b.size - a.size : b.modified - a.modified;
 
 export function Files({ agentId, refreshKey, canDelete, onGiven }: { agentId: string; refreshKey: number; canDelete: boolean; onGiven: () => void }) {
-  const [files, setFiles] = useState<WorkspaceFile[] | null>(null);
-  const [error, setError] = useState("");
+  const path = `/api/agents/${agentId}/files`;
+  const { data: files, error, setError, load } = useAgentData<WorkspaceFile[]>(path, { freshOnReload: false, refreshKey });
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<Sort>("recent");
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -57,17 +58,10 @@ export function Files({ agentId, refreshKey, canDelete, onGiven }: { agentId: st
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const load = useCallback(() => {
-    get<WorkspaceFile[]>(`/api/agents/${agentId}/files`)
-      .then((f) => {
-        setFiles(f);
-        setError("");
-        // Ce qui a disparu quitte la sélection : on ne supprime jamais ce qu'on ne voit plus.
-        setPicked((cur) => new Set([...cur].filter((p) => f.some((x) => x.path === p))));
-      })
-      .catch((e) => setError(e.message));
-  }, [agentId]);
-  useEffect(load, [load, refreshKey]);
+  // Ce qui a disparu quitte la sélection : on ne supprime jamais ce qu'on ne voit plus.
+  useEffect(() => {
+    if (files) setPicked((cur) => new Set([...cur].filter((p) => files.some((x) => x.path === p))));
+  }, [files]);
 
   const shown = useMemo(() => {
     const words = query.trim().toLowerCase();
@@ -75,7 +69,7 @@ export function Files({ agentId, refreshKey, canDelete, onGiven }: { agentId: st
   }, [files, query]);
   const tree = useMemo(() => buildTree(shown), [shown]);
 
-  if (error) return <p className="text-sm text-danger">{error}</p>;
+  if (error && !files) return <p className="text-sm text-danger">{error}</p>;
   if (!files) return <p className="text-sm text-muted-foreground">Chargement…</p>;
   if (!files.length) return <p className="text-sm text-muted-foreground">Aucun fichier pour l'instant.</p>;
 
@@ -132,6 +126,7 @@ export function Files({ agentId, refreshKey, canDelete, onGiven }: { agentId: st
 
   return (
     <div className="flex min-h-full flex-col gap-3">
+      {error && <p className="text-sm text-danger">{error}</p>}
       <div className="flex items-center gap-1.5">
         <label className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-border bg-surface px-2">
           <Search className="size-3.5 shrink-0 text-muted-foreground" />

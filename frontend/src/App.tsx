@@ -426,6 +426,13 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     return () => window.removeEventListener("noah:accord-repondu", answered);
   }, [refreshAgents, refreshConversations]);
   useEffect(() => {
+    const resync = (event: Event) => {
+      (event as CustomEvent<Promise<unknown>[]>).detail.push(refreshAgents(), refreshConversations());
+    };
+    window.addEventListener("noah:resync", resync);
+    return () => window.removeEventListener("noah:resync", resync);
+  }, [refreshAgents, refreshConversations]);
+  useEffect(() => {
     const watch = () => setPanel("computer");
     window.addEventListener("noah:voir-ecran", watch);
     return () => window.removeEventListener("noah:voir-ecran", watch);

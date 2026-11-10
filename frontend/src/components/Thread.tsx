@@ -31,6 +31,7 @@ import { canFrame, useDownload, useViewer } from "./Viewer";
 import { AttachPosition } from "./PhoneSettings";
 import { DictateButton, useDictation, VoiceMode, VoiceModeButton } from "./Voice";
 import { readableModel } from "@/lib/modes";
+import { refreshAccords } from "@/lib/events";
 import { NoahWidget } from "./Widgets";
 
 // Sur téléphone, le focus ouvrirait le clavier à chaque conversation, et par-dessus un appel.
@@ -178,9 +179,11 @@ function Approval({ args, result, addResult }: ToolCallMessagePartProps) {
         generation: args.generation,
         approve,
       });
+      await refreshAccords();
       addResult(approve ? "approved" : "denied");
       window.dispatchEvent(new Event("noah:accord-repondu"));
     } catch (e) {
+      void refreshAccords().catch(() => {});
       setError((e as Error).message);
     }
   };
@@ -192,6 +195,7 @@ function Approval({ args, result, addResult }: ToolCallMessagePartProps) {
       </p>
     );
   }
+  if (args.bureau) return <p className="my-2 rounded-xl border border-warn p-3 text-sm">{String(args.demande)} · À accepter sur ton ordinateur</p>;
   return (
     <div className="my-2 flex flex-col gap-3 rounded-xl border border-warn bg-warn-soft p-3.5">
       <span className="text-xs font-semibold uppercase tracking-wide text-warn">À valider</span>
@@ -199,7 +203,7 @@ function Approval({ args, result, addResult }: ToolCallMessagePartProps) {
       {typeof args.pourquoi === "string" && args.pourquoi && <p className="-mt-2 text-[13px] text-muted-foreground">{args.pourquoi}</p>}
       {preview.length > 0 && (
         <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
-          {preview.map((line) => <li key={line} className="truncate">« {line} »</li>)}
+          {preview.map((line) => <li key={line} className="whitespace-pre-wrap break-words">« {line} »</li>)}
         </ul>
       )}
       {!details && (

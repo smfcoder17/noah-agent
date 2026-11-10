@@ -177,17 +177,6 @@ def routine_outputs(body):
 
 # --- Google (Gmail, Agenda, Drive) via la compétence google-workspace d'Hermes --------------------
 
-def _gsetup(*args):
-    """Lance le script de connexion de la compétence ; rend (réussi, lignes de sortie)."""
-    r = subprocess.run([sys.executable, str(GOOGLE), *args], capture_output=True, text=True, timeout=60,
-                       cwd=str(DATA), env={**os.environ, "HOME": str(DATA)})
-    lines = [l.strip() for l in (r.stdout or "").splitlines() if l.strip()]
-    errors = [l for l in lines if l.startswith("ERROR")]
-    if r.returncode or errors:
-        fail((errors[0].removeprefix("ERROR:").strip() if errors else (r.stderr or "").strip()[-300:]) or "Échec")
-    return lines
-
-
 def _google_deps() -> bool:
     """Les bibliothèques Python de Google, déclarées par Hermes : absentes de l'image, et perdues quand la machine de
     l'agent est recréée. Noah les pose lui-même, sans que l'agent doive demander d'installer quoi que ce soit."""
@@ -202,6 +191,15 @@ def _google_deps() -> bool:
 def google(_):
     if not GOOGLE.exists():
         return {"disponible": False}
+    token_file = DATA / "google_token.json"
+    try:
+        token = json.loads(token_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        token = {}
+    base = _google_validate(*[token.get(k) for k in ("token", "refresh_token", "client_id", "client_secret")])
+    if base:  # Le --check d'Hermes ne connaît pas la base locale du banc.
+        return {"disponible": True, "connecte": bool(token.get("token")),
+                "identifiants": (DATA / "google_client_secret.json").exists()}
     r = subprocess.run([sys.executable, str(GOOGLE), "--check"], capture_output=True, text=True, timeout=30,
                        cwd=str(DATA), env={**os.environ, "HOME": str(DATA)})
     if "dependencies unavailable" in (r.stdout or ""):  # machine recréée : réparée en arrière-plan, sans bloquer l'écran
@@ -258,10 +256,20 @@ def google_revoke(body):
         home.rmdir()
         return {"ok": True}
     if not (body or {}).get("local"):
+        import urllib.parse
+        f = DATA / "google_token.json"
         try:
-            _gsetup("--revoke")
-        except SystemExit:
-            pass
+            token = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            token = {}
+        credential = token.get("refresh_token") or token.get("token")
+        if credential:
+            url = _google_url("https://oauth2.googleapis.com/revoke", token.get("token"), credential)
+            try:
+                with _google_open(url, data=urllib.parse.urlencode({"token": credential}).encode(), timeout=20) as r:
+                    r.read()
+            except OSError:
+                pass  # Comme auparavant, retirer la copie locale même si Google ne répond pas.
     for name in ("google_token.json", "google_client_secret.json"):
         (DATA / name).unlink(missing_ok=True)
     return google(None)
@@ -269,6 +277,56 @@ def google_revoke(body):
 
 # --- Relevé de Gmail et de l'Agenda, sans modèle (veilles et routines à condition) ---------------------------------------
 # Le jeton reste ici, dans la machine de l'agent. Le serveur reçoit les nouveautés, jamais le jeton.
+
+def _google_validate(*credentials):
+    """Les jetons factices noah-banc-* ne quittent jamais le faux Google.
+
+    La base locale ne remplace les hôtes Google qu'avec NOAH_BANC=1.
+    Sans ce drapeau, la variable est ignorée et les faux jetons sont refusés.
+    """
+    import ipaddress
+    from urllib.parse import urlsplit
+    base = os.environ.get("NOAH_GOOGLE_BASE", "") if os.environ.get("NOAH_BANC") == "1" else ""
+    if base:
+        parts = urlsplit(base)
+        host = parts.hostname or ""
+        try:
+            ip = ipaddress.ip_address(host)
+            local = ip.is_loopback or any(ip in ipaddress.ip_network(n) for n in
+                                         ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16") if ip.version == 4)
+        except ValueError:
+            local = host in ("localhost", "faux-google")
+        if (parts.scheme != "http" or not local or parts.username is not None or parts.password is not None
+                or parts.query or parts.fragment or parts.path not in ("", "/")):
+            fail("Le faux Google du banc doit être une base HTTP locale, sans chemin ni identifiants.")
+        return base
+    if any(str(value or "").startswith("noah-banc-") for value in credentials):
+        fail("Un jeton du banc ne peut pas être envoyé hors du faux Google : active NOAH_BANC=1 et NOAH_GOOGLE_BASE.")
+    return ""
+
+
+def _google_url(url, *credentials):
+    """Adresse Google redirigée après validation de la base et des identifiants."""
+    from urllib.parse import urlsplit, urlunsplit
+    base = _google_validate(*credentials)
+    if not base:
+        return url
+    parts, source = urlsplit(base), urlsplit(url)
+    if source.hostname not in ("gmail.googleapis.com", "www.googleapis.com", "oauth2.googleapis.com"):
+        fail("Le banc refuse un hôte Google inconnu.")
+    return urlunsplit((parts.scheme, parts.netloc, source.path, source.query, ""))
+
+
+def _google_open(request, **kwargs):
+    import urllib.request
+    if os.environ.get("NOAH_BANC") == "1" and os.environ.get("NOAH_GOOGLE_BASE"):
+        class SansRedirection(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *args, **kwargs):
+                return None
+        # Pas de proxy ni de redirection qui emporterait le faux jeton ailleurs.
+        return urllib.request.build_opener(urllib.request.ProxyHandler({}), SansRedirection()).open(request, **kwargs)
+    return urllib.request.urlopen(request, **kwargs)
+
 
 def _google_token():
     import datetime
@@ -284,11 +342,14 @@ def _google_token():
     except ValueError:
         fresh = False
     if t.get("token") and fresh:
+        _google_validate(*[t.get(k) for k in ("token", "refresh_token", "client_id", "client_secret")])
         return t["token"]
     data = urllib.parse.urlencode({"client_id": t.get("client_id"), "client_secret": t.get("client_secret"),
                                    "refresh_token": t.get("refresh_token"), "grant_type": "refresh_token"}).encode()
+    url = _google_url(t.get("token_uri") or "https://oauth2.googleapis.com/token",
+                      t.get("token"), t.get("refresh_token"), t.get("client_id"), t.get("client_secret"))
     try:
-        with urllib.request.urlopen(t.get("token_uri") or "https://oauth2.googleapis.com/token", data=data, timeout=20) as r:
+        with _google_open(url, data=data, timeout=20) as r:
             answer = json.load(r)
     except OSError:
         fail("Google n'a pas renouvelé l'accès : refais l'accord dans Détails → Connexions.")
@@ -304,11 +365,12 @@ def _google_token():
 def _google_get(url, token):
     import urllib.error
     import urllib.request
-    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+    req = urllib.request.Request(_google_url(url, token), headers={"Authorization": f"Bearer {token}"})
     try:
-        with urllib.request.urlopen(req, timeout=20) as r:
+        with _google_open(req, timeout=20) as r:
             return json.load(r)
     except urllib.error.HTTPError as e:
+        e.close()
         if e.code in (401, 403):
             fail("Google refuse cette lecture : l'accès n'est pas coché dans Détails → Connexions.")
         fail(f"Google répond {e.code}.")

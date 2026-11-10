@@ -1,0 +1,23 @@
+# Image locale de test seulement, serveur ou Hermes ; jamais publiée.
+ARG BASE_IMAGE=noah-server:latest
+FROM ${BASE_IMAGE}
+USER root
+# Versions exactes par base Debian ; autre base : fournir une version explicite.
+# Sources : https://packages.debian.org/{bookworm,trixie}/libfaketime
+ARG LIBFAKETIME_VERSION
+RUN . /etc/os-release \
+    && if [ -z "$LIBFAKETIME_VERSION" ]; then \
+         case "$ID:$VERSION_CODENAME" in \
+           debian:bookworm) LIBFAKETIME_VERSION=0.9.10-2.1 ;; \
+           debian:trixie) LIBFAKETIME_VERSION=0.9.10+2024-06-05+gba9ed5b2-0.6 ;; \
+           *) echo "Fournir LIBFAKETIME_VERSION pour cette base" >&2; exit 1 ;; \
+         esac; \
+       fi \
+    && apt-get update && apt-get install -y --no-install-recommends "libfaketime=$LIBFAKETIME_VERSION" \
+    && cp /usr/lib/*/faketime/libfaketimeMT.so.1 /usr/local/lib/noah-faketime.so.1 \
+    && rm -rf /var/lib/apt/lists/*
+ENV LD_PRELOAD=/usr/local/lib/noah-faketime.so.1 \
+    FAKETIME_TIMESTAMP_FILE=/banc-horloge/temps.rc \
+    FAKETIME_NO_CACHE=1 FAKETIME_DONT_FAKE_MONOTONIC=1
+# Les deux images démarrent en root. L'entrée Hermes prépare le volume puis
+# descend elle-même vers l'utilisateur hermes ; ne pas la court-circuiter ici.

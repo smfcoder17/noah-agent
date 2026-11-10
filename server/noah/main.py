@@ -29,6 +29,7 @@ from pydantic import BaseModel, Field
 
 from . import access, accounts, apprentissage, appareils, auth, catalog, chauffe, coffre, connecteurs, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, public, publication, push, recu, recuperation, relay, sites, updates, watch
 from . import config
+from . import accords, bus
 from .config import WEB_DIR, forget_setup_code
 from .hermes import Agent
 
@@ -141,6 +142,8 @@ app.include_router(public.router)
 app.include_router(connexion.router)
 app.include_router(logos.router)
 app.include_router(sites.router)
+app.include_router(bus.router)
+app.include_router(accords.router)
 
 # Agents en cours de création : id -> message d'étape ou d'erreur affiché dans l'interface.
 provisioning: dict[str, str] = {}
@@ -160,6 +163,8 @@ AGENT_SETUP_VERSION = "41-juge-dialogue"  # 41 : le juge demande pourquoi à l'a
 @app.on_event("startup")
 async def startup() -> None:
     db.init()
+    accords.sweep(live_runs=set())
+    asyncio.create_task(_keep_accords())
     _first_account()
     if not auth.has_users():
         config.renew_setup_code()
@@ -188,6 +193,15 @@ async def startup() -> None:
     asyncio.create_task(_after_updates(coordination.recover))
     if db.get_setting("agent_setup") != AGENT_SETUP_VERSION and current_model():
         asyncio.create_task(_after_updates(_upgrade_agents))
+
+
+async def _keep_accords():
+    while True:
+        await asyncio.sleep(1)
+        accords.sweep()
+        for conv, state in list(task_state.items()):
+            if state == "approve" and not accords.pending(conv_id=conv):
+                task_state[conv] = "work"
 
 
 def _warmable(agent_id: str) -> bool:
@@ -1337,15 +1351,16 @@ async def list_models(body: ModelQuery, user: int = Depends(auth.current_user)):
 
 @app.get("/api/a-toi")
 def inbox(user: int = Depends(auth.current_user)):
-    """Tout ce qui attend cette personne, tous agents confondus : à celui qui a lancé le travail, et au propriétaire de l'agent s'il peut lire cette conversation.
-    Une conversation privée sur un agent partagé reste à son auteur : ni son titre ni ce qu'elle enverrait ne se montrent."""
-    out = []
+    """Accords du compte qui a lancé le travail, connexions et choix. Une conversation privée reste à son auteur."""
+    out = accords.list_accords(user)
     for conv_id, state in list(task_state.items()):
         login = coffre.pending(conv_id)  # l'état peut être passé à « work » sur un événement de l'agent : la demande, elle, attend toujours
-        if state not in ("approve", "choice") and not login:
+        if state != "choice" and not login:
             continue
         with db.connect() as c:
-            row = c.execute("SELECT v.id, v.title, v.main, v.agent_id, v.user_id, a.name FROM conversations v JOIN agents a ON a.id = v.agent_id WHERE v.id = ?", (conv_id,)).fetchone()
+            row = c.execute("SELECT v.id, v.title, v.main, v.agent_id, v.user_id, a.name, "
+                            "CAST(strftime('%s', v.updated_at) AS REAL) AS created "
+                            "FROM conversations v JOIN agents a ON a.id = v.agent_id WHERE v.id = ?", (conv_id,)).fetchone()
         if not row or user not in (row["user_id"], access.owner_of(row["agent_id"])):
             continue
         try:
@@ -1355,13 +1370,10 @@ def inbox(user: int = Depends(auth.current_user)):
         if login:  # à son auteur seul : personne d'autre ne saisit de mot de passe pour lui
             if login["user"] == user:
                 out.append({"agent_id": row["agent_id"], "agent": row["name"], "conversation_id": conv_id, "titre": row["title"], "main": bool(row["main"]), "a_moi": True, "etat": "approve",
-                            "demande": f"Se connecter à {login['site']}" if login["type"] == "connexion" else f"Code demandé par {login['site']}", "apercu": [], "connexion": coffre.asked(conv_id, user)})
+                            "demande": f"Se connecter à {login['site']}" if login["type"] == "connexion" else f"Code demandé par {login['site']}", "apercu": [], "connexion": coffre.asked(conv_id, user), "created": login["created"]})
             continue
-        asked = task_approval.get(conv_id) or {}
         out.append({"agent_id": row["agent_id"], "agent": row["name"], "conversation_id": conv_id, "titre": row["title"], "main": bool(row["main"]), "a_moi": row["user_id"] == user, "etat": state,
-                    "demande": str(asked.get("demande") or ("Une action demande ton accord." if state == "approve" else "Une question attend ta réponse.")),
-                    "apercu": list(asked.get("apercu") or [])[:3], "pourquoi": str(asked.get("pourquoi") or ""),
-                    **{k: asked[k] for k in ("request_id", "generation", "run_id") if k in asked}})
+                    "demande": "Une question attend ta réponse.", "apercu": [], "created": row["created"]})
     return out
 
 
@@ -2607,7 +2619,7 @@ def conversation_now(conv_id: str, suivi: bool = True, user: int = Depends(auth.
     return {"occupe": busy, "activite": task_activity.get(conv_id) if busy else None, "run_id": _conversation_run(conv_id) if busy else None,
             "file": [{"id": r["id"].split(":", 1)[1], "text": r["text"]} for r in pendant.waiting(conv_id)],
             # Un accord demandé par un travail qu'aucun écran ne suit : sans ça, personne ne peut le donner et la file reste bloquée.
-            "accord": task_approval.get(conv_id) if busy and row["user_id"] == user else None,
+            "accord": next(iter(accords.pending(user, conv_id)), None) if row["user_id"] == user else None,
             "connexion": coffre.asked(conv_id, user)}
 
 
@@ -2732,7 +2744,6 @@ async def _guest_agent(agent: Agent, user: int | None) -> Agent:
 
 _guest_locks: dict[str, asyncio.Lock] = {}
 task_activity: dict[str, str] = {}  # la dernière ligne de travail de chaque conversation, pour un écran qui arrive en cours de route
-task_approval: dict[str, dict] = {}  # l'accord attendu, pour le même écran
 
 
 async def _start_run(agent: Agent, text: str, session: str) -> str:
@@ -2803,6 +2814,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
                 print(f"[tâche] tour perdu non levé sur {agent.id} : {e}", flush=True)
                 yield kind, data
                 return
+            accords.sweep(run_id=run_id)
             _runs[new_id] = _runs.pop(run_id, {"agent": agent.id, "user": launched_by, "conv": conv_id, "profil": agent.profile})
             run_id = new_id
             yield "noah.relance", {}
@@ -2857,21 +2869,20 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
                 if out["type"] == "done" and "raw_error" in out:
                     out["details"] = _error_details(agent, out.pop("raw_error"), run_id)
                 if out["type"] == "approval":
-                    mcp.approval_seen(agent.id, out.get("request_id"), str(out.get("summary") or ""))
                     command = bool(out.pop("commande", False))
                     out = {**out, **mcp.plain_request(str(out.get("summary") or ""), command)}
+                    out = {**out, **accords.create(launched_by, agent.id, conv_id, run_id, out)}
                 if out["type"] == "approval" and task_state.get(conv_id) != "approve":
                     # Celui qui a lancé la tâche et le propriétaire de l'agent : pas les autres profils partagés.
                     for target in dict.fromkeys((_conversation_owner(conv_id), access.owner_of(agent.id))):
                         push.notify("Noah attend ton accord", str(out.get("demande") or "Une action demande ton accord."),
                                     urgent=True, user_id=target, kind="accord")
-                task_state[conv_id] = "approve" if out["type"] == "approval" else "work"
+                if out["type"] == "approval":
+                    task_state[conv_id] = "approve"
+                elif task_state.get(conv_id) != "approve" or not accords.pending(conv_id=conv_id):
+                    task_state[conv_id] = "work"
                 if out["type"] == "activity":
                     task_activity[conv_id] = out["label"]
-                if out["type"] == "approval":
-                    task_approval[conv_id] = {"summary": out.get("summary"), "demande": out.get("demande"), "pourquoi": out.get("pourquoi"), "action": out.get("action"), "retenu": out.get("retenu"), "apercu": out.get("apercu"), "request_id": out.get("request_id"), "generation": out.get("generation"), "run_id": run_id}
-                else:
-                    task_approval.pop(conv_id, None)
                 if out["type"] == "message":
                     emoji, text = head.feed(out["text"])
                     if emoji:
@@ -2957,6 +2968,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
                     queue.put_nowait(chunk)
         finally:
             relay.active[agent.id].remove(conv_id)
+            accords.sweep(run_id=run_id)
             _runs.pop(run_id, None)
             queue.put_nowait(None)
             pendant.wake(conv_id)
@@ -3071,10 +3083,19 @@ class ApprovalAnswer(BaseModel):
 
 
 @app.post("/api/agents/{agent_id}/runs/{run_id}/approval")
-async def approval(agent_id: str, run_id: str, body: ApprovalAnswer, user: int = Depends(auth.current_user)):
+async def approval(agent_id: str, run_id: str, body: ApprovalAnswer, request: Request, user: int = Depends(auth.current_user)):
     agent = _run_of(user, agent_id, run_id)
-    conv = (_runs.get(run_id) or {}).get("conv")
-    asked = dict(task_approval.get(conv) or {})
+    with db.connect() as c:
+        row = c.execute("SELECT * FROM accords WHERE agent_id = ? AND run_id = ? AND request_id = ? AND generation = ? AND user_id = ?",
+                        (agent_id, run_id, body.request_id, body.generation, user)).fetchone()
+    if not row:
+        raise HTTPException(404, "Accord introuvable")
+    access.conversation(user, row["conv_id"], ecrire=True)
+    par = accords.device_type(request)
+    accords.close(row["id"], user, "donne" if body.approve else "refuse", par)
+    conv, asked = row["conv_id"], json.loads(row["summary_json"])
+    # Le résumé persistant fait foi, même si l'observation MCP a été perdue.
+    mcp.approval_seen(agent_id, body.request_id, str(asked.get("summary") or ""))
     grant = mcp.approval_answered(agent_id, body.request_id, body.approve)  # avant : l'appel part dès que Hermes a la réponse
     try:
         await hermes.answer_approval(agent, run_id, body.request_id, body.generation, body.approve)
@@ -3082,25 +3103,18 @@ async def approval(agent_id: str, run_id: str, body: ApprovalAnswer, user: int =
         mcp.approval_failed(grant)
         if e.response.status_code != 409:
             raise
-        return {"ok": True, "deja": True}  # déjà répondu, depuis un autre écran ou d'un double clic : la carte n'a plus rien à demander
+        raise HTTPException(409, "Hermes a déjà clos cet accord") from None
     except Exception:
         mcp.approval_failed(grant)
         raise
     # Un autre accord a pu arriver pendant l'attente : il reste à la personne. Le reste se dit tout de suite, sans attendre le prochain événement.
-    if (task_approval.get(conv) or {}).get("request_id", body.request_id) == body.request_id:
-        task_approval.pop(conv, None)
-        if conv and task_state.get(conv) == "approve":
-            task_state[conv] = "work"
-    if asked.get("request_id", body.request_id) != body.request_id:
-        asked = {}
+    if not accords.pending(conv_id=conv) and task_state.get(conv) == "approve":
+        task_state[conv] = "work"
     _journal(agent_id, conv, "accord", str(asked.get("action") or asked.get("demande") or "Une action sensible"), "", "autorise" if body.approve else "refuse")
-    if body.approve and asked.get("retenu"):
-        with contextlib.suppress(Exception):
-            juge.remember_from_summary(agent_id, str(asked.get("summary") or ""))
     if not body.approve:
         with contextlib.suppress(Exception):
             apprentissage.on_refusal(agent, conv, user, str(asked.get("demande") or asked.get("summary") or ""), _last_user_message(conv) if conv else None)
-    return {"ok": True}
+    return {"ok": True, "par": par}
 
 
 # Tâches en cours : run -> agent et compte qui l'a lancée.
@@ -3282,7 +3296,8 @@ async def agent_upload(agent_id: str, name: str, request: Request, user: int = D
 # --- Écran du navigateur (noVNC), relayé derrière la connexion Noah Agent -------------------------
 
 @app.get("/api/agents/{agent_id}/screen-url")
-async def screen_url(agent_id: str, view_only: bool = False, user: int = Depends(auth.current_user)):
+@app.post("/api/agents/{agent_id}/screen-url")
+async def screen_url(agent_id: str, request: Request, view_only: bool = False, user: int = Depends(auth.current_user)):
     # Réservé aux réglages de l'agent, même en lecture seule : le mot de passe de l'écran est le même, et « view_only »
     # n'est qu'une option de la page. Qui voit l'écran peut le prendre en main, avec les comptes qui y sont connectés.
     _usable(user, agent_id, "admin")
@@ -3290,6 +3305,9 @@ async def screen_url(agent_id: str, view_only: bool = False, user: int = Depends
     # refuse les captures (G7.7). Rendre la main les permet de nouveau (sauf appel de l'agent en cours).
     if not await handoff.take_control(agent_id, not view_only):
         raise HTTPException(503, "Le navigateur ne confirme pas le mode privé : réessaie dans un instant.")
+    if request.method == "POST":
+        # L'iframe reste connectée : seul le mode privé change, sans relire son lien ni son mot de passe.
+        return {"ok": True}
     _, password = hermes.browser_secrets(agent_id)
     base = f"/api/agents/{agent_id}/screen"
     # Dans le # : noVNC le lit là d'abord, et ce mot de passe ne passe ni par le serveur ni par les journaux d'accès de Caddy.
@@ -3368,7 +3386,18 @@ async def screen_status(agent_id: str, user: int = Depends(auth.current_user)):
     """Le navigateur s'éteint après un moment sans activité ; son écran avec lui."""
     _usable(user, agent_id, "admin")
     d = await _browser_diagnosis(agent_id)
-    return {"awake": d["ecran_actif"], "reachable": d["joignable"], "running": d["navigateur_allume"], "tabs": d.get("onglets") or 0}
+    if d.get("conteneur_arrete"):
+        state = "veille"
+    elif not d["joignable"] or d.get("indisponible"):
+        state = "injoignable"
+    elif not d["navigateur_allume"]:
+        state = "veille"
+    elif not d["ecran_actif"] or d.get("onglets") is None:
+        state = "injoignable"
+    else:
+        state = "pret" if d["onglets"] else "aucune_page"
+    return {"etat": state, "awake": d["ecran_actif"], "reachable": d["joignable"],
+            "running": d["navigateur_allume"], "tabs": d.get("onglets") or 0}
 
 
 async def _browser_diagnosis(agent_id: str) -> dict:
@@ -3377,8 +3406,16 @@ async def _browser_diagnosis(agent_id: str) -> dict:
         health, vnc = await asyncio.gather(hermes.browser_call(agent_id, "GET", "/health"),
                                            hermes.browser_call(agent_id, "GET", "/vnc/status"))
     except httpx.HTTPError:
+        # Une connexion refusée ne prouve pas que le navigateur est au repos : vérifier auprès de Docker,
+        # par le lanceur, sans le démarrer. Une panne du lanceur reste une panne, jamais une veille supposée.
+        try:
+            stopped = await hermes.browser_status(agent_id) in {"exited", "created", "absent"}
+        except (httpx.HTTPError, KeyError):
+            stopped = False
         return {"joignable": False, "navigateur_allume": False, "ecran_actif": False,
-                "conseil": "Le navigateur est arrêté : il ne tourne que quand on s'en sert. « navigateur reveiller » le démarre."}
+                "conteneur_arrete": stopped,
+                "conseil": "Le navigateur est en veille. « navigateur reveiller » le démarre." if stopped else
+                           "Le navigateur ne répond pas. Réessaie dans un instant ; si cela dure, lance « navigateur redemarrer »."}
     running = bool(health.get("browserRunning"))
     screen = bool(vnc.get("running"))
     if health.get("http_status") == 503 or health.get("recovering"):
@@ -3392,6 +3429,7 @@ async def _browser_diagnosis(agent_id: str) -> dict:
     else:
         advice = "Tout fonctionne."
     return {"joignable": True, "navigateur_allume": running, "ecran_actif": screen,
+            "indisponible": bool(health.get("http_status", 200) >= 400 or vnc.get("http_status", 200) >= 400 or health.get("recovering")),
             "onglets": health.get("activeTabs"), "sessions": health.get("activeSessions"), "conseil": advice}
 
 

@@ -17,6 +17,20 @@ import httpx  # noqa: E402
 
 from noah import agent_plugin, apprentissage, auth, catalog, db, decision, hermes, juge, machine, main, relay  # noqa: E402
 
+def seed_approval(conv, summary, run=None):
+    with db.connect() as c:
+        row = c.execute("SELECT user_id, agent_id FROM conversations WHERE id = ?", (conv,)).fetchone()
+        c.execute("DELETE FROM accords WHERE conv_id = ? AND request_id = ?", (conv, summary.get("request_id", "r")))
+    return main.accords.create(row["user_id"], row["agent_id"], conv,
+                              run or summary.get("run_id") or main._conversation_run(conv) or "run-x",
+                              {"request_id": "r", "generation": 1, **summary})
+
+
+def clear_approvals(conv):
+    with db.connect() as c:
+        c.execute("DELETE FROM accords WHERE conv_id = ?", (conv,))
+
+
 db.init()
 alice = auth.create_user("alice", "motdepasse-a")
 invite = auth.create_user("invite", "motdepasse-i")
@@ -197,13 +211,13 @@ async def scenario():
     reset()
     msg = last_id(conv)
     url = f"/api/conversations/{conv}/messages/{msg}/reaction"
-    main.task_approval[conv] = {"demande": "Ton agent veut envoyer le brouillon à Paul.", "request_id": "r", "generation": 1, "run_id": "x"}
+    seed_approval(conv, {"demande": "Ton agent veut envoyer le brouillon à Paul.", "request_id": "r", "generation": 1, "run_id": "x"})
     main.task_state[conv] = "done"
     machine.pop_context(conv)
     r = await api("PUT", url, json={"emoji": "👍"})
     assert r.status_code == 200 and r.json() == {"ok": True, "question": False}, r.text
     await settle()
-    assert not approved and main.task_approval[conv]["request_id"] == "r" and main.task_state[conv] == "done", "une réaction ne vaut jamais accord"
+    assert not approved and main.accords.pending(conv_id=conv)[0]["request_id"] == "r" and main.task_state[conv] == "done", "une réaction ne vaut jamais accord"
     told = machine.pop_context(conv)
     assert "a réagi 👍" in told and "pas un accord" in told, "et l'agent le lit dans ces mots-là"
     assert len(reviews) == 1 and "👍" in reviews[0]["text"] and "bien fait" in reviews[0]["text"]
@@ -211,7 +225,7 @@ async def scenario():
     await api("PUT", url, json={"emoji": "👍"})
     await settle()
     assert len(reviews) == 1, "retirer et remettre ne relit pas deux fois"
-    main.task_approval.pop(conv)
+    clear_approvals(conv)
     with db.connect() as c:
         c.execute("UPDATE messages SET text = 'Ok.' WHERE id = ?", (msg,))
     reset()
@@ -258,10 +272,10 @@ async def scenario():
     # --- 7. Refus d'un accord, modification de ce qu'il a préparé seul -------------------------------------------------------------
     reset()
     main._runs["run-a"] = {"agent": "a1", "user": alice, "conv": conv, "profil": None}
-    main.task_approval[conv] = {"demande": "Publier sur Instagram.", "request_id": "r"}
+    seed_approval(conv, {"demande": "Publier sur Instagram.", "request_id": "r"}, run="run-a")
     r = await api("POST", "/api/agents/a1/runs/run-a/approval", json={"request_id": "r", "generation": 1, "approve": True})
     assert r.status_code == 200 and not reviews, "un accord donné n'est pas une leçon"
-    main.task_approval[conv] = {"demande": "Publier sur Instagram.", "request_id": "r2"}
+    seed_approval(conv, {"demande": "Publier sur Instagram.", "request_id": "r2"}, run="run-a")
     r = await api("POST", "/api/agents/a1/runs/run-a/approval", json={"request_id": "r2", "generation": 1, "approve": False})
     await settle()
     assert r.status_code == 200 and approved[-1] == ("run-a", False) and len(reviews) == 1 and "Publier sur Instagram" in reviews[0]["text"] and "pas maintenant" in reviews[0]["text"]

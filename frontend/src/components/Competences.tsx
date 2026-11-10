@@ -1,8 +1,9 @@
 // Compétences : ce que la personne a enseigné à son agent, « voici comment je veux que tu fasses telle chose ». L'agent s'en sert seul.
 // Ce qu'il apprend de lui-même reste interne : le serveur ne le montre pas ici.
 import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
-import { del, get, send } from "@/lib/api";
+import { useState } from "react";
+import { del, send } from "@/lib/api";
+import { useAgentData } from "@/lib/useAgentData";
 import { Button, ErrorText, Input, Textarea } from "./ui";
 import { DictateButton, useCanDictate, useFieldDictation } from "./Voice";
 
@@ -49,17 +50,11 @@ function Editor({ agentId, start, onDone, onCancel }: { agentId: string; start?:
 }
 
 export function Competences({ agentId }: { agentId: string }) {
-  const [list, setList] = useState<Competence[] | null>(null);
-  const [error, setError] = useState("");
+  const path = `/api/agents/${agentId}/competences`;
+  const { data, error, setError, load } = useAgentData<{ competences: Competence[] }>(path, { freshOnReload: false });
+  const list = data?.competences ?? null;
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState("");
-  const load = useCallback(() => {
-    get<{ competences: Competence[] }>(`/api/agents/${agentId}/competences`).then((r) => {
-      setList(r.competences);
-      setError("");
-    }).catch((e) => setError((e as Error).message));
-  }, [agentId]);
-  useEffect(load, [load]);
   const remove = async (c: Competence) => {
     if (!confirm(`Retirer « ${c.titre} » ? L'agent ne s'en servira plus.`)) return;
     try {

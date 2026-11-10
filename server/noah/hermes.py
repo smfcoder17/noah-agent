@@ -122,6 +122,10 @@ async def stop_browser(agent_id: str) -> None:
     await _launcher("POST", f"/agents/{agent_id}/browser/stop", timeout=60)
 
 
+async def browser_status(agent_id: str) -> str:
+    return (await _launcher("GET", f"/agents/{agent_id}/browser", timeout=5))["status"]
+
+
 async def restart_browser(agent_id: str) -> None:
     await _launcher("POST", f"/agents/{agent_id}/browser/restart")
 

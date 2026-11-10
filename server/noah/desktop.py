@@ -20,13 +20,14 @@ from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, HTTPException, 
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from . import access, auth, config, db, hermes, notifications, relay
+from . import access, accords, auth, config, db, hermes, notifications, relay
 
 router = APIRouter()
 
 # Par appareil : un ordinateur ne reçoit jamais ce qui vise un autre, et encore moins celui d'un autre compte.
 _queues: dict[str, asyncio.Queue] = {}
 _waiting: dict[str, tuple[asyncio.Future, str, int]] = {}  # demande -> (réponse attendue, appareil qui répond, son compte)
+_approval_context: dict[str, tuple[str, str]] = {}  # action locale -> agent et conversation ; jamais une autorisation
 _seen: dict[str, dict] = {}  # dernier passage de chaque application : compte, système, dossiers confiés
 _sending: dict[str, float] = {}  # écritures durables en cours de livraison -> quand elles sont parties
 _incoming: dict[str, tuple[Path, str]] = {}  # fichier lu sur l'ordinateur et son empreinte, le temps que l'agent le récupère
@@ -182,10 +183,18 @@ class Gone(Exception):
     """L'ordinateur a disparu pendant l'attente."""
 
 
-async def _ask(device: str, user: int, item: dict, seconds: float = ANSWER):
+async def _ask(device: str, user: int, item: dict, seconds: float = ANSWER, agent_id: str = ""):
     rid = item.get("id") or uuid.uuid4().hex
     future = asyncio.get_running_loop().create_future()
     _waiting[rid] = (future, device, user)
+    conv = next(iter(relay.active.get(agent_id) or []), None)
+    if not conv and agent_id:
+        with db.connect() as c:
+            row = c.execute("SELECT id FROM conversations WHERE user_id = ? AND agent_id = ? ORDER BY main DESC, updated_at DESC LIMIT 1",
+                            (user, agent_id)).fetchone()
+        conv = row["id"] if row else None
+    if conv:
+        _approval_context[rid] = (agent_id, conv)
     await _queue(device).put({**item, "id": rid})
     deadline = time.time() + seconds
     try:
@@ -200,6 +209,9 @@ async def _ask(device: str, user: int, item: dict, seconds: float = ANSWER):
                     raise Gone() from None
     finally:
         _waiting.pop(rid, None)
+        _approval_context.pop(rid, None)
+        if not _pending_row(rid):
+            accords.sweep(run_id=f"desktop:{rid}")
 
 
 @router.post("/agent-api/ordinateur")
@@ -226,7 +238,7 @@ async def agent_action(body: AgentAction, request: Request):
     item = {"agent": _agent_name(agent_id), "action": body.action, "cible": cible, "titre": body.titre, "texte": body.texte,
             "dossier": _working_folder(agent_id), "dossierId": body.dossier, "chemin": body.chemin, "vers": body.vers}
     try:
-        return await _ask(device, target, item)
+        return await _ask(device, target, item, agent_id=agent_id)
     except asyncio.TimeoutError:
         return {"erreur": "Pas de réponse de l'utilisateur dans les 5 minutes : action annulée."}
     except Gone:
@@ -250,7 +262,7 @@ async def agent_read(body: ReadFile, request: Request, tasks: BackgroundTasks):
         return {"erreur": "L'application de bureau de cet ordinateur est trop ancienne pour les dossiers. Dis à l'utilisateur de la mettre à jour."}
     rid = uuid.uuid4().hex
     try:
-        out = await _ask(device, target, {"id": rid, "agent": _agent_name(agent_id), "action": "lire", "dossierId": body.dossier, "chemin": body.chemin})
+        out = await _ask(device, target, {"id": rid, "agent": _agent_name(agent_id), "action": "lire", "dossierId": body.dossier, "chemin": body.chemin}, agent_id=agent_id)
     except asyncio.TimeoutError:
         _drop_incoming(rid)
         return {"erreur": "L'ordinateur n'a pas répondu à temps."}
@@ -321,6 +333,7 @@ def _item_of(row) -> dict:
 
 
 def _forget_pending(rid: str) -> None:
+    accords.sweep(run_id=f"desktop:{rid}")
     with db.connect() as c:
         c.execute("DELETE FROM desktop_attente WHERE id = ?", (rid,))
     (_pending_folder() / rid).unlink(missing_ok=True)
@@ -359,6 +372,12 @@ async def agent_write(request: Request, dossier: str, chemin: str, appareil: str
                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                   (rid, target, device, name, dossier, chemin, digest, size, int(remplacer), _now(),
                    (datetime.now(timezone.utc) + KEEP).isoformat()))
+        conv = next(iter(relay.active.get(agent_id) or []), None)
+        if not conv:
+            row = c.execute("SELECT id FROM conversations WHERE user_id = ? AND agent_id = ? ORDER BY main DESC, updated_at DESC LIMIT 1",
+                            (target, agent_id)).fetchone()
+            conv = row["id"] if row else None
+        c.execute("UPDATE desktop_attente SET agent_id = ?, conv_id = ? WHERE id = ?", (agent_id, conv, rid))
     waiting = {"attente": True, "id": rid, "message": "L'ordinateur n'est pas disponible : le fichier attend sur le serveur, 7 jours au plus, et arrivera à sa reconnexion."}
     if not _online(device):
         notify_user(target, "Un fichier attend ton ordinateur", f"{name} a préparé « {_short(chemin)} ». Il arrivera dans « {dossier} » dès que l'application de bureau sera ouverte.",
@@ -366,7 +385,7 @@ async def agent_write(request: Request, dossier: str, chemin: str, appareil: str
         return waiting
     _sending[rid] = time.time()
     try:
-        return await _ask(device, target, _item_of(_pending_row(rid)), WRITE_ANSWER)
+        return await _ask(device, target, _item_of(_pending_row(rid)), WRITE_ANSWER, agent_id=agent_id)
     except (asyncio.TimeoutError, Gone):
         return waiting
 
@@ -525,6 +544,65 @@ async def action_result(rid: str, body: dict, request: Request, noah_session: st
         raise HTTPException(404, "Demande introuvable")
     if future is not None and owner == user and target == device and not future.done():
         future.set_result(body)
+    return {"ok": True}
+
+
+def _native_approval(rid: str, request: Request, user: int):
+    # Le processus principal garde le jeton ; la page servie ne peut pas répondre avec son cookie.
+    header = request.headers.get("authorization", "")
+    token = auth.request_token(request, None)
+    if not header.lower().startswith("bearer ") or auth.is_window(token):
+        raise HTTPException(403, "À accepter sur ton ordinateur")
+    with db.connect() as c:
+        native = c.execute("SELECT 1 FROM sessions WHERE token = ? AND user_id = ? AND platform = 'desktop'",
+                           (auth.digest(token), user)).fetchone()
+    if not native:
+        raise HTTPException(403, "À accepter sur ton ordinateur")
+    _, device, owner = _waiting.get(rid, (None, None, None))
+    pending = _pending_row(rid)
+    if pending and not pending["agent_id"] and pending["user_id"] == user and pending["appareil"] == _device(request, None):
+        # Livraison préparée par une ancienne version : retrouver sa source seulement si elle est unique.
+        with db.connect() as c:
+            agent = c.execute("SELECT MIN(id) AS id FROM agents WHERE owner_id = ? AND name = ? HAVING COUNT(*) = 1",
+                              (user, pending["agent"])).fetchone()
+            conv = c.execute("SELECT id FROM conversations WHERE user_id = ? AND agent_id = ? ORDER BY main DESC, updated_at DESC LIMIT 1",
+                             (user, agent["id"])).fetchone() if agent else None
+        if conv:
+            return agent["id"], conv["id"]
+    if pending and pending["user_id"] == user and pending["appareil"] == _device(request, None) and pending["agent_id"] and pending["conv_id"]:
+        return pending["agent_id"], pending["conv_id"]
+    if owner != user or device != _device(request, None) or rid not in _approval_context:
+        raise HTTPException(404, "Demande introuvable")
+    return _approval_context[rid]
+
+
+class LocalApproval(BaseModel):
+    message: str = Field(max_length=4000)
+    detail: str = Field(max_length=12000)
+
+
+class LocalAnswer(BaseModel):
+    id: str
+    approve: bool
+
+
+@router.post("/api/desktop/accords/{rid}")
+async def local_approval(rid: str, body: LocalApproval, request: Request, user: int = Depends(auth.current_user)):
+    agent, conv = _native_approval(rid, request, user)
+    # Seul le bureau sait qu'une fenêtre a effectivement été demandée. Aucun niveau d'autonomie reçu ici.
+    return accords.create(user, agent, conv, f"desktop:{rid}",
+                          {"request_id": uuid.uuid4().hex, "generation": 1, "bureau": True,
+                           "demande": body.message, "summary": body.detail, "apercu": []})
+
+
+@router.post("/api/desktop/accords/{rid}/reponse")
+async def local_answer(rid: str, body: LocalAnswer, request: Request, user: int = Depends(auth.current_user)):
+    _native_approval(rid, request, user)
+    with db.connect() as c:
+        row = c.execute("SELECT run_id FROM accords WHERE id = ? AND user_id = ?", (body.id, user)).fetchone()
+    if not row or row["run_id"] != f"desktop:{rid}":
+        raise HTTPException(404, "Accord introuvable")
+    accords.close(body.id, user, "donne" if body.approve else "refuse", "ordinateur", native=True)
     return {"ok": True}
 
 

@@ -1,3 +1,8 @@
+import { createContext } from "react";
+
+/** Un onglet conservé en mémoire ne relit ses données qu'en redevenant visible. */
+export const SeenActive = createContext(true);
+
 // Dernière réponse de chaque écran, en mémoire seulement : rouvrir un panneau l'affiche tout de suite, puis il se met à jour.
 export const SEEN = new Map<string, unknown>();
 

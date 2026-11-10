@@ -155,6 +155,19 @@ async def docker_refused(request: Request, error: Exception):
 _browser_lock = threading.Lock()  # deux appels simultanés recréaient le même conteneur (conflit Docker)
 
 
+@app.get("/agents/{agent_id}/browser", dependencies=[Depends(auth)])
+def browser_status(agent_id: str):
+    """Lecture seule : distingue un navigateur au repos d'un conteneur qui tourne sans répondre."""
+    check_id(agent_id)
+    try:
+        c = client.containers.get(BROWSER_PREFIX + agent_id)
+    except NotFound:
+        return {"status": "absent"}
+    if c.labels.get(BROWSER_LABEL) != agent_id:
+        raise HTTPException(403, "Ce conteneur n'est pas un navigateur Noah Agent")
+    return {"status": c.status}
+
+
 @app.post("/agents/{agent_id}/browser", dependencies=[Depends(auth), Depends(_frozen)])
 def ensure_browser(agent_id: str, body: BrowserKeys):
     """Crée (si besoin) le navigateur Camoufox de l'agent, avec son écran partagé en noVNC.

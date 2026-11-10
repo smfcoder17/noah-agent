@@ -1,7 +1,9 @@
 // « De lui-même » : ce qu'un agent regarde sans qu'on le lui demande, et ce qu'il a le droit d'en faire (server/noah/proactif.py).
 import { Loader2, Zap } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import { get, type ProactiveMode, type ProactiveState, send } from "@/lib/api";
+import { SeenActive } from "@/lib/seen";
+import { useAgentData } from "@/lib/useAgentData";
 import { cn, money } from "@/lib/utils";
 import { Section } from "./AgentPowers";
 import { Button, ErrorText } from "./ui";
@@ -31,28 +33,23 @@ const last = (t: number | null) => {
 };
 
 export function Proactive({ agentId }: { agentId: string }) {
+  const active = useContext(SeenActive);
   const path = `/api/agents/${agentId}/proactif`;
-  const [state, setState] = useState<{ agent: string; value: ProactiveState } | null>(null);
-  const [error, setError] = useState("");
+  const { data: s, setData: setState, error, setError } = useAgentData<ProactiveState>(path, { freshOnReload: false });
   const [busy, setBusy] = useState(false);
   const [told, setTold] = useState("");
-  const s = state?.agent === agentId ? state.value : null; // jamais le réglage d'un autre agent, même le temps de charger
 
   useEffect(() => {
-    let current = true;
+    if (!active) return;
     setError("");
     setTold("");
-    get<ProactiveState>(path).then((value) => current && setState({ agent: agentId, value })).catch((e) => current && setError((e as Error).message));
-    return () => {
-      current = false;
-    };
-  }, [agentId, path]);
+  }, [path, active, setError]);
 
   const change = async (body: { mode?: ProactiveMode; minutes?: number }) => {
     setError("");
     setTold("");
     try {
-      setState({ agent: agentId, value: await send<ProactiveState>(path, body, "PUT") });
+      setState(await send<ProactiveState>(path, body, "PUT"));
     } catch (e) {
       setError((e as Error).message);
     }
@@ -64,7 +61,7 @@ export function Proactive({ agentId }: { agentId: string }) {
     try {
       const r = await send<{ etat: string; raison?: string }>(`${path}/passer`, {});
       setTold(r.raison ? `Pas maintenant : ${r.raison}.` : OUTCOME[r.etat] ?? "");
-      setState({ agent: agentId, value: await get<ProactiveState>(path) });
+      setState(await get<ProactiveState>(path));
     } catch (e) {
       setError((e as Error).message);
     } finally {

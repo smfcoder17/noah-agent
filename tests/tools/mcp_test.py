@@ -354,8 +354,9 @@ def approve_like_the_conversation(name: str, request_id: str, approve: bool, too
     vraie route répond. Seul Hermes est remplacé."""
     asked = plugin(name, tool, args)
     assert asked and asked["action"] == "approve", asked
-    mcp.approval_seen(A, request_id, asked["message"])
-    main._runs["run-1"] = {"agent": A, "user": ALICE}
+    conv = main._main_conversation(A, ALICE) or main._new_conversation(ALICE, A, "Accords", main=True)
+    main.accords.create(ALICE, A, conv, "run-1", {"request_id": request_id, "generation": 1, "summary": asked["message"]})
+    main._runs["run-1"] = {"agent": A, "user": ALICE, "conv": conv}
     r = alice.post(f"/api/agents/{A}/runs/run-1/approval", json={"request_id": request_id, "generation": 1, "approve": approve})
     assert r.status_code == 200, r.text
 
@@ -399,23 +400,41 @@ def test_rights() -> None:
     hermes.answer_approval = broken_answer
     asked = plugin("libre", "creer_fiche")
     assert asked, "le plugin doit demander"
-    mcp.approval_seen(A, "q4", asked["message"])
+    main.accords.create(ALICE, A, main._runs["run-1"]["conv"], "run-1", {"request_id": "q4", "generation": 1, "summary": asked["message"]})
     assert alice.post(f"/api/agents/{A}/runs/run-1/approval", json={"request_id": "q4", "generation": 1, "approve": True}).status_code >= 500
     assert not mcp._grants[(A, "libre")], "accord gardé alors qu'Hermes n'a pas la réponse"
 
-    # Déjà répondu, depuis un autre écran ou d'un double clic : pas d'erreur à l'écran, et aucun accord de plus.
+    # Hermes a déjà clos : 409, et aucun passage MCP de plus.
     async def already_answered(*a):
         request = httpx.Request("POST", "http://agent/v1/runs/run-1/approval")
         raise httpx.HTTPStatusError("409", request=request, response=httpx.Response(409, request=request))
 
     hermes.answer_approval = already_answered
     asked = plugin("libre", "creer_fiche")
-    mcp.approval_seen(A, "q5", asked["message"])
+    main.accords.create(ALICE, A, main._runs["run-1"]["conv"], "run-1", {"request_id": "q5", "generation": 1, "summary": asked["message"]})
     twice = alice.post(f"/api/agents/{A}/runs/run-1/approval", json={"request_id": "q5", "generation": 1, "approve": True})
-    assert twice.status_code == 200 and twice.json().get("deja") is True, twice.text
+    assert twice.status_code == 409, twice.text
     assert not mcp._grants[(A, "libre")], "second clic : aucun accord de plus"
     hermes.answer_approval = fake_answer
     # Un accord qui a expiré ne vaut plus.
+    mcp.approval_seen(A, "expire-direct", "Outil « libre » : creer_fiche\n{}")
+    name, shown, _ = mcp._asked[(A, "expire-direct")]
+    mcp._asked[(A, "expire-direct")] = (name, shown, time.time() - 301)
+    try:
+        mcp.approval_answered(A, "expire-direct", True)
+        raise AssertionError("un accord expiré doit être signalé")
+    except mcp.HTTPException as e:
+        assert e.status_code == 409 and e.detail == "Cet accord a expiré"
+    assert not mcp._grants[(A, "libre")], "l'accord expiré n'ouvre aucun passage"
+    asked = plugin("libre", "creer_fiche")
+    conv = main._runs["run-1"]["conv"]
+    main.accords.create(ALICE, A, conv, "run-1", {"request_id": "expire-ecran", "generation": 1, "summary": asked["message"]})
+    with db.connect() as c:
+        c.execute("UPDATE accords SET created = ? WHERE agent_id = ? AND request_id = 'expire-ecran'", (time.time() - 301, A))
+    before = list(answered)
+    late = alice.post(f"/api/agents/{A}/runs/run-1/approval", json={"request_id": "expire-ecran", "generation": 1, "approve": True})
+    assert late.status_code == 409 and late.json()["detail"] == "Cet accord a expiré", late.text
+    assert answered == before and not mcp._grants[(A, "libre")], "aucune réponse à Hermes ni passage après expiration"
     # Deux accords en attente de réponse : l'échec du premier ne retire pas le second.
     mcp.approval_seen(A, "c1", "Outil « libre » : un\n{}")
     mcp.approval_seen(A, "c2", "Outil « libre » : deux\n{}")

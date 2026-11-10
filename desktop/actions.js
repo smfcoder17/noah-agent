@@ -5,6 +5,7 @@ const { execFile } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { AsyncLocalStorage } = require("node:async_hooks");
 const { BrowserWindow, clipboard, dialog, Notification, session, shell } = require("electron");
 const dossiers = require("./dossiers");
 
@@ -21,6 +22,7 @@ const CUT = { coupe: true, erreur: "L'utilisateur a coupé l'accès depuis l'app
 const expired = { erreur: "Cette demande a expiré avant ton accord : rien n'a été fait." };
 
 let dialogs = Promise.resolve(); // une seule fenêtre d'accord à la fois, sans bloquer le reste
+const approvalContext = new AsyncLocalStorage();
 
 /** Ce qui s'affiche dans une fenêtre d'accord : sur une ligne, sans caractère qui ferait lire autre chose. */
 const clean = (text, max = 40) => String(text ?? "").replace(new RegExp(dossiers.DECEIVING.source, "g"), " ").replace(/\s+/g, " ").trim().slice(0, max);
@@ -30,11 +32,14 @@ const tooLong = (text) => text.length > MAX_SHOWN || text.split(/\r\n|\r|\n/).le
 
 /** Demande l'accord de l'utilisateur : la demande vient d'un agent, qu'une page web a pu tromper. Rend l'index du bouton. */
 function ask(message, detail, buttons, refuseIndex) {
+  const sync = approvalContext.getStore();
   const shown = dialogs.then(async () => {
     const parent = BrowserWindow.getAllWindows().find((w) => w.isVisible());
     const timer = new AbortController();
     const stop = setTimeout(() => timer.abort(), ANSWER_WITHIN);
     try {
+      const accord = sync ? await sync.open(message, detail) : null;
+      if (timer.signal.aborted) return refuseIndex;
       const r = await dialog.showMessageBox(parent, {
         type: "question",
         title: "Noah veut agir sur ton ordinateur",
@@ -46,7 +51,11 @@ function ask(message, detail, buttons, refuseIndex) {
         noLink: true,
         signal: timer.signal,
       });
+      if (accord) await sync.close(accord.id, r.response !== refuseIndex && !timer.signal.aborted);
+      if (timer.signal.aborted) return refuseIndex;
       return r.response;
+    } catch {
+      return refuseIndex; // aucune réponse synchronisée : rien ne s'exécute
     } finally {
       clearTimeout(stop);
     }
@@ -324,6 +333,23 @@ function listen(getOrigin, store) {
     }
   };
   const handle = async (req, link) => {
+    const approval = {
+      open: async (message, detail) => {
+        const r = await fetch(`${link.origin}/api/desktop/accords/${req.id}`, {
+          method: "POST", headers: { ...link.headers, "Content-Type": "application/json" },
+          body: JSON.stringify({ message, detail }), signal: AbortSignal.timeout(10000),
+        });
+        if (!r.ok) throw new Error("L'accord n'a pas pu être synchronisé.");
+        return r.json();
+      },
+      close: async (id, approve) => {
+        const r = await fetch(`${link.origin}/api/desktop/accords/${req.id}/reponse`, {
+          method: "POST", headers: { ...link.headers, "Content-Type": "application/json" },
+          body: JSON.stringify({ id, approve }), signal: AbortSignal.timeout(10000),
+        });
+        if (!r.ok) throw new Error("L'accord n'a pas été pris en compte.");
+      },
+    };
     const ctx = {
       store,
       stillWanted: async () => {
@@ -356,7 +382,7 @@ function listen(getOrigin, store) {
     let result;
     try {
       const heavy = req.action === "lire" || req.action === "ecrire";
-      result = await (heavy ? fileSlot(() => perform(req, ctx)) : perform(req, ctx));
+      result = await approvalContext.run(approval, () => heavy ? fileSlot(() => perform(req, ctx)) : perform(req, ctx));
     } catch (e) {
       result = { erreur: dossiers.explain(e).message };
     }

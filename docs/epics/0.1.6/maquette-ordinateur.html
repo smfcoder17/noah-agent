@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Noah ordinateur et web 0.1.6</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* Mêmes couleurs que la maquette mobile et que frontend/src/index.css */
+  --page: #e9ecf1; --bg: #f6f7f9; --card: #ffffff; --muted: #eceff3; --line: #dde2e8;
+  --ink: #141b24; --soft: #5d6875; --accent: #2a47c9; --accent-soft: #e4e9fb;
+  --warn: #b5530f; --warn-soft: #fdf0e3; --ok: #1f8a4c;
+  --font: "Figtree", "Segoe UI", system-ui, sans-serif;
+  /* Mise en page : barre latérale fine, discussion au centre, panneau à droite pour ce qu'on ouvre */
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --page: #080b0f; --bg: #0e1318; --card: #151c24; --muted: #1d2630; --line: #2a3542; --ink: #e6ebf0; --soft: #95a3b1; --accent: #8ea5ff; --accent-soft: #1d2852; --warn: #f0a060; --warn-soft: #3a2614; --ok: #5fd08e; color-scheme: dark; }
+}
+:root[data-theme="dark"] { --page: #080b0f; --bg: #0e1318; --card: #151c24; --muted: #1d2630; --line: #2a3542; --ink: #e6ebf0; --soft: #95a3b1; --accent: #8ea5ff; --accent-soft: #1d2852; --warn: #f0a060; --warn-soft: #3a2614; --ok: #5fd08e; color-scheme: dark; }
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--page); color: var(--ink); font-family: var(--font); font-size: 14px; line-height: 1.4; }
+header.intro { max-width: 1220px; margin: 0 auto; padding: 32px 20px 8px; display: grid; gap: 8px; }
+header.intro h1 { margin: 0; font-size: 26px; text-wrap: balance; }
+header.intro p { margin: 0; color: var(--soft); max-width: 75ch; }
+.board { max-width: 1220px; margin: 0 auto; padding: 16px 20px 40px; display: grid; gap: 34px; }
+figure { margin: 0; display: grid; gap: 10px; }
+figcaption { font-size: 13.5px; color: var(--soft); max-width: 90ch; }
+figcaption b { color: var(--ink); }
+.frame { overflow-x: auto; }
+.win { width: 1180px; height: 700px; border-radius: 12px; overflow: hidden; background: var(--bg); box-shadow: 0 18px 44px rgba(16,21,27,.18); display: flex; flex-direction: column; border: 1px solid var(--line); }
+.titlebar { height: 34px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 0 0 0 14px; background: var(--bg); font-size: 12px; color: var(--soft); border-bottom: 1px solid var(--line); }
+.titlebar .ctl { display: flex; } .titlebar .ctl span { width: 46px; height: 34px; display: grid; place-items: center; }
+.chrome { height: 44px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 12px; background: var(--muted); border-bottom: 1px solid var(--line); }
+.chrome .url { flex: 1; max-width: 520px; background: var(--card); border-radius: 999px; padding: 6px 14px; font-size: 12.5px; color: var(--soft); }
+.dots { display: flex; gap: 6px; } .dots i { width: 11px; height: 11px; border-radius: 50%; display: block; background: var(--line); }
+.app { flex: 1; display: grid; grid-template-columns: 232px 1fr; min-height: 0; }
+.app.split { grid-template-columns: 232px 1fr 470px; }
+.side { border-right: 1px solid var(--line); padding: 14px 10px; display: flex; flex-direction: column; gap: 4px; background: var(--bg); }
+.agent { display: flex; align-items: center; gap: 10px; padding: 6px 8px 12px; }
+.agent b { display: block; font-size: 14.5px; }
+.agent small { color: var(--soft); display: flex; align-items: center; gap: 5px; font-size: 12px; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); display: inline-block; }
+.nav { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; color: var(--soft); }
+.nav.on { background: var(--card); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
+.nav .n { margin-left: auto; font-size: 11.5px; background: var(--warn-soft); color: var(--warn); border-radius: 999px; padding: 1px 7px; font-weight: 600; }
+.lab { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--soft); font-weight: 600; padding: 14px 10px 4px; }
+.thread { padding: 6px 10px; border-radius: 8px; color: var(--soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.thread.on { color: var(--ink); background: var(--muted); }
+.side .bottom { margin-top: auto; display: grid; gap: 2px; }
+.main { display: flex; flex-direction: column; min-width: 0; }
+.head { height: 56px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; border-bottom: 1px solid var(--line); }
+.head h2 { margin: 0; font-size: 15px; }
+.head .acts { display: flex; gap: 6px; color: var(--soft); }
+.ib { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; color: var(--soft); }
+.ib.fill { background: var(--card); border: 1px solid var(--line); }
+.chat { flex: 1; overflow: hidden; display: flex; justify-content: center; padding: 20px 24px 0; }
+.col { width: 100%; max-width: 680px; display: flex; flex-direction: column; gap: 12px; }
+.bubble { max-width: 80%; padding: 10px 14px; border-radius: 18px; }
+.me { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 6px; }
+.it { align-self: flex-start; background: var(--card); border-bottom-left-radius: 6px; }
+.att { align-self: flex-start; display: flex; align-items: center; gap: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 7px 12px 7px 7px; }
+.att.sel { outline: 2px solid var(--accent); }
+.kind { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; font-size: 10px; font-weight: 700; color: #fff; flex: none; }
+.att .t1 { font-weight: 600; font-size: 13px; } .att .t2 { font-size: 12px; color: var(--soft); }
+.wcard { align-self: flex-start; width: 340px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.wcard.sel { outline: 2px solid var(--accent); }
+.mini { display: grid; grid-template-columns: repeat(6, 1fr); gap: 3px; padding: 8px; background: var(--muted); }
+.mini i { aspect-ratio: 1; border-radius: 4px; display: block; }
+.wcard .foot { display: flex; justify-content: space-between; padding: 8px 12px; font-size: 13px; }
+.open { color: var(--accent); font-weight: 600; }
+.pii { background: var(--muted); border-radius: 6px; padding: 0 5px; font-family: ui-monospace, monospace; font-size: 12.5px; border: 1px dashed var(--soft); }
+.composer { margin: 12px auto 18px; width: calc(100% - 48px); max-width: 680px; background: var(--card); border-radius: 18px; border: 1px solid var(--line); padding: 12px 12px 10px 16px; display: grid; gap: 10px; }
+.composer .ph { color: var(--soft); }
+.composer .row2 { display: flex; align-items: center; gap: 8px; color: var(--soft); }
+.pill { border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; font-size: 12.5px; display: flex; align-items: center; gap: 5px; }
+.send { margin-left: auto; width: 34px; height: 34px; border-radius: 50%; background: var(--ink); color: var(--bg); display: grid; place-items: center; }
+.panel { border-left: 1px solid var(--line); background: var(--card); display: flex; flex-direction: column; min-width: 0; }
+.panel .ph2 { height: 56px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 18px; border-bottom: 1px solid var(--line); }
+.panel .ph2 b { flex: 1; font-size: 14px; }
+.pbody { flex: 1; padding: 16px; overflow: hidden; }
+.grid4 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.grid4 .cell { border-radius: 10px; overflow: hidden; background: var(--bg); border: 1px solid var(--line); }
+.grid4 .cell i { display: block; aspect-ratio: 1; }
+.grid4 .cell div { padding: 6px 8px; font-size: 12px; }
+.banner { margin: 12px 24px 0; align-self: center; width: calc(100% - 48px); max-width: 680px; background: var(--warn-soft); border-radius: 14px; padding: 12px 14px; display: flex; align-items: center; gap: 12px; }
+.banner .txt { flex: 1; } .banner .txt b { display: block; } .banner .txt span { color: var(--soft); font-size: 13px; }
+.btn { border: 0; border-radius: 999px; padding: 8px 14px; font: inherit; font-weight: 600; }
+.btn.primary { background: var(--accent); color: #fff; } .btn.ghost { background: var(--card); color: var(--ink); border: 1px solid var(--line); }
+.menu { position: absolute; background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 30px rgba(0,0,0,.16); padding: 6px; width: 230px; display: grid; gap: 1px; z-index: 2; }
+.menu div { padding: 8px 10px; border-radius: 8px; display: flex; gap: 10px; align-items: center; }
+.menu div.hover { background: var(--muted); }
+.menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
+.sub { position: absolute; background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 30px rgba(0,0,0,.16); padding: 6px; width: 200px; z-index: 3; display: grid; gap: 1px; }
+.sub div { padding: 8px 10px; border-radius: 8px; display: flex; gap: 10px; align-items: center; }
+.sq { width: 20px; height: 20px; border-radius: 5px; display: grid; place-items: center; color: #fff; font-size: 10px; font-weight: 700; }
+.screen { background: #0c1117; border-radius: 14px; height: 470px; display: grid; place-items: center; position: relative; }
+.screen .page { width: 90%; height: 86%; background: #fff; border-radius: 8px; display: grid; grid-template-rows: 28px 1fr; overflow: hidden; }
+.screen .bar { background: #eef1f4; display: flex; align-items: center; padding: 0 12px; font-size: 12px; color: #5d6875; }
+.screen .content { padding: 18px; display: grid; grid-template-columns: 1fr 2fr; gap: 16px; }
+.ln { height: 9px; border-radius: 5px; background: #e3e7ec; margin-bottom: 9px; }
+.live { position: absolute; top: 12px; left: 12px; background: rgba(0,0,0,.55); color: #fff; font-size: 12px; padding: 3px 9px; border-radius: 999px; display: flex; gap: 6px; align-items: center; }
+.tabs { display: flex; gap: 8px; margin-top: 12px; }
+.tab { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 7px 12px; font-size: 13px; }
+.tab.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.settings { flex: 1; display: grid; grid-template-columns: 280px 1fr; min-height: 0; }
+.slist { border-right: 1px solid var(--line); padding: 14px 10px; display: grid; gap: 2px; align-content: start; }
+.sdetail { padding: 22px 32px; display: grid; gap: 14px; align-content: start; max-width: 640px; }
+.sdetail h3 { margin: 0; font-size: 18px; }
+.group { background: var(--card); border-radius: 14px; border: 1px solid var(--line); overflow: hidden; }
+.row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; }
+.row + .row { border-top: 1px solid var(--line); }
+.row .l { flex: 1; } .row .l small { display: block; color: var(--soft); font-size: 12.5px; }
+.row .v { color: var(--soft); }
+.toggle { width: 38px; height: 22px; border-radius: 999px; background: var(--line); position: relative; flex: none; }
+.toggle::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; }
+.toggle.on { background: var(--accent); } .toggle.on::after { left: 19px; }
+.seg { display: inline-flex; background: var(--muted); border-radius: 10px; padding: 3px; }
+.seg span { padding: 6px 14px; border-radius: 8px; color: var(--soft); font-size: 13px; }
+.seg span.on { background: var(--card); color: var(--ink); font-weight: 600; }
+.pdf { background: #525a63; flex: 1; display: grid; justify-items: center; align-content: start; gap: 14px; padding: 18px; overflow: hidden; }
+.pdfpage { width: 330px; background: #fff; color: #141b24; border-radius: 4px; padding: 26px 24px; box-shadow: 0 2px 10px rgba(0,0,0,.3); }
+.pdfpage h4 { margin: 0 0 14px; }
+.zoom { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--soft); }
+.pip { position: absolute; right: 494px; top: 70px; width: 220px; height: 124px; border-radius: 12px; overflow: hidden; background: linear-gradient(135deg, #1b2533, #2a47c9); box-shadow: 0 10px 24px rgba(0,0,0,.3); color: #fff; display: grid; place-items: center; z-index: 2; }
+.pip .bar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(255,255,255,.3); } .pip .bar i { display: block; width: 40%; height: 100%; background: #fff; }
+.aplayer { margin: 10px auto 0; width: calc(100% - 48px); max-width: 680px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; display: flex; align-items: center; gap: 10px; padding: 8px 12px; }
+.aplayer .cov { width: 32px; height: 32px; border-radius: 8px; background: linear-gradient(135deg, #5a3fd6, #e2557d); }
+.aplayer .t { flex: 1; font-size: 13px; } .aplayer .t small { display: block; color: var(--soft); font-size: 11.5px; }
+.logo2 { width: 24px; height: 24px; border-radius: 7px; display: inline-grid; place-items: center; color: #fff; font-size: 10px; font-weight: 700; flex: none; }
+.rd { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--line); flex: none; } .rd.on { border: 6px solid var(--accent); }
+.tier { display: flex; align-items: center; gap: 10px; padding: 8px 14px 8px 44px; } .tier .tn { width: 80px; color: var(--soft); font-size: 12.5px; } .tier .tm { flex: 1; }
+.pip .grip { position: absolute; right: 5px; bottom: 7px; width: 12px; height: 12px; border-right: 2px solid #fff; border-bottom: 2px solid #fff; opacity: .8; }
+.notes { max-width: 1220px; margin: 0 auto; padding: 0 20px 48px; color: var(--soft); }
+.notes h2 { color: var(--ink); font-size: 17px; margin: 0 0 6px; }
+.notes ul { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+</style>
+</head>
+<body>
+<header class="intro">
+  <h1>Noah sur ordinateur et sur le web, version 0.1.6</h1>
+  <p>Le même style que le téléphone : une barre latérale fine, la discussion au centre, et ce qu'on ouvre (une grille, un PDF, l'écran de l'agent) dans un panneau à droite. L'app de bureau et le site web sont identiques, à la barre de titre près.</p>
+</header>
+<main class="board" id="board"></main>
+<section class="notes">
+  <h2>Ce qui change par rapport à la 0.1.5</h2>
+  <ul>
+    <li>Plus de rangée d'onglets au-dessus du panneau : Discussion, Activité, Tâches, Fichiers et Ordinateur sont dans la barre latérale, dans l'ordre choisi sur le téléphone.</li>
+    <li>Un document, une grille ou une image restent petits dans la discussion ; un clic les ouvre dans le panneau de droite, un double-clic en plein écran.</li>
+    <li>Plus aucune fenêtre Windows : une demande d'accord s'affiche en bandeau dans l'app, dessiné par l'app de bureau elle-même.</li>
+    <li>Clic droit sur un fichier : Ouvrir, Ouvrir avec, Afficher dans le dossier, Copier.</li>
+    <li>Réglages en deux colonnes ; la version de l'app et celle du serveur côte à côte.</li>
+  </ul>
+</section>
+<script>
+const P = {
+  chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z"/>',
+  activity: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
+  tasks: '<rect x="4" y="4" width="16" height="16" rx="4"/><path d="m9 12 2 2 4-4"/>',
+  files: '<path d="M4 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/>',
+  computer: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4-4"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
+  more: '<circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/>',
+  close: '<path d="M6 6l12 12M18 6 6 18"/>',
+  expand: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  share: '<path d="M12 3v12M7 8l5-5 5 5"/><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/>',
+  external: '<path d="M14 4h6v6M20 4l-9 9"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/>',
+  folder: '<path d="M4 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/>',
+  copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
+  eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
+  up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
+  plug: '<path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0Z"/><path d="M12 17v4"/>',
+  brain: '<path d="M12 5a3 3 0 1 0-5.9.8A3 3 0 0 0 4 11a3 3 0 0 0 2 5 3 3 0 0 0 6 1Z"/><path d="M12 5a3 3 0 1 1 5.9.8A3 3 0 0 1 20 11a3 3 0 0 1-2 5 3 3 0 0 1-6 1"/>',
+  bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15Z"/><path d="M10 21h4"/>',
+  phone: '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/>',
+  shield: '<path d="M12 3 5 6v6c0 4.5 3 7.5 7 9 4-1.5 7-4.5 7-9V6Z"/>',
+  palette: '<circle cx="12" cy="12" r="9"/><circle cx="8" cy="10" r="1.2"/><circle cx="12" cy="7.5" r="1.2"/><circle cx="16" cy="10" r="1.2"/>',
+  update: '<path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v5h-5"/>',
+  hand: '<path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V11M11 10V4.5a1.5 1.5 0 0 1 3 0V11M14 10.5V6a1.5 1.5 0 0 1 3 0v8a6 6 0 0 1-6 6h-.5a6 6 0 0 1-4.6-2.2L3.5 15a1.5 1.5 0 0 1 2.3-1.9L8 15"/>',
+  minus: '<path d="M5 12h14"/>',
+  lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>'
+};
+const ic = (n, s = 18, w = 1.8) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+const avatar = (s = 38) => `<svg width="${s}" height="${s}" viewBox="0 0 100 100" aria-hidden="true"><path d="M50 12c22 0 34 18 34 40v34c0 4-4 6-8 4l-6-4-6 4-6-4-6 4-6-4-6 4-6-4-6 4c-4 2-8 0-8-4V52c0-22 12-40 34-40Z" fill="#6a50e0"/><ellipse cx="40" cy="48" rx="7" ry="9" fill="#fff"/><ellipse cx="62" cy="48" rx="7" ry="9" fill="#fff"/><circle cx="41" cy="50" r="4" fill="#141b24"/><circle cx="63" cy="50" r="4" fill="#141b24"/><path d="M45 64q6 5 12 0" stroke="#141b24" stroke-width="3" fill="none" stroke-linecap="round"/></svg>`;
+const titlebar = () => `<div class="titlebar"><span>Noah</span><div class="ctl"><span>${ic("minus",14)}</span><span><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor"><rect x="1.5" y="1.5" width="9" height="9"/></svg></span><span>${ic("close",14)}</span></div></div>`;
+const chrome = () => `<div class="chrome"><div class="dots"><i></i><i></i><i></i></div><div class="url">🔒 noah.smfapps.cloud</div></div>`;
+const side = (on, state = "Prépare le carrousel") => `<aside class="side">
+  <div class="agent">${avatar()}<div><b>Noah</b><small><span class="dot"></span>${state}</small></div></div>
+  ${[["chat","Discussion"],["activity","Activité",1],["tasks","Tâches"],["files","Fichiers"],["computer","Ordinateur"]].map(([i,l,n]) => `<div class="nav ${i===on?"on":""}">${ic(i)}${l}${n?`<span class="n">${n}</span>`:""}</div>`).join("")}
+  <div class="lab">Discussions</div>
+  <div class="thread on">Carrousel Python</div><div class="thread">Devis pour Marc</div><div class="thread">Courriels du matin</div>
+  <div class="bottom"><div class="nav">${ic("search")}Rechercher</div><div class="nav ${on==="gear"?"on":""}">${ic("gear")}Réglages</div></div>
+</aside>`;
+const head = (title) => `<div class="head"><h2>${title}</h2><div class="acts"><span class="ib">${ic("plug")}</span><span class="ib">${ic("edit")}</span><span class="ib">${ic("more")}</span></div></div>`;
+const composer = () => `<div class="composer"><span class="ph">Message à Noah</span><div class="row2"><span class="ib">${ic("plus")}</span><span class="pill">${ic("brain",14)}Auto</span><span class="ib">${ic("mic")}</span><span class="send">${ic("up",16,2.2)}</span></div></div>`;
+const colors = ["#2a47c9","#e2557d","#ffb36b","#1f8a4c","#5a3fd6","#141b24"];
+const posts = ["Lun · 5 erreurs Python","Mar · Reel boucles","Mer · Avant / après","Jeu · Vibe coding","Ven · Question du public","Sam · Coulisses"];
+const chatCol = (sel) => `<div class="chat"><div class="col">
+  <div class="bubble me">Fais-moi la grille des posts de la semaine et le devis pour Marc.</div>
+  <div class="bubble it">Voici la grille et le devis. Je l'envoie à <span class="pii">ma•••@g•••.com</span> ?</div>
+  <div class="wcard ${sel==="grid"?"sel":""}"><div class="mini">${colors.map(c=>`<i style="background:${c}"></i>`).join("")}</div><div class="foot"><span><b>Grille de la semaine</b> · 6 posts</span><span class="open">Ouvrir</span></div></div>
+  <div class="att ${sel==="pdf"?"sel":""}"><span class="kind" style="background:#e5484d">PDF</span><div><div class="t1">devis-marc.pdf</div><div class="t2">2 pages · 84 Ko</div></div></div>
+</div></div>`;
+const panelHead = (title) => `<div class="ph2"><b>${title}</b><span class="ib">${ic("share")}</span><span class="ib">${ic("external")}</span><span class="ib">${ic("expand")}</span><span class="ib">${ic("close")}</span></div>`;
+
+P.pause = '<path d="M8 5v14M16 5v14"/>';
+const screens = [
+  { cap: "<b>Bureau · discussion et grille ouverte.</b> La grille reste petite dans la discussion ; un clic l'ouvre à droite, sur 3 colonnes ici et 4 en plein écran. Une vidéo continue en petit : on la prend à la souris pour la poser n'importe où, on tire son coin pour la grandir ; un audio garde sa barre au-dessus de la saisie.", html: `${titlebar()}<div class="app split" style="position:relative"><div class="pip">${ic("pause",26,2)}<span class="grip"></span><span class="bar"><i></i></span></div>${side("chat")}<div class="main">${head("Carrousel Python")}${chatCol("grid")}<div class="aplayer"><span class="cov"></span><div class="t">voix-off-intro.mp3<small>0:18 / 0:46</small></div>${ic("pause",18,2)}${ic("close",16)}</div>${composer()}</div>
+    <div class="panel">${panelHead("Grille de la semaine")}<div class="pbody"><div class="grid4">${colors.map((c,i)=>`<div class="cell"><i style="background:${c}"></i><div>${posts[i]}</div></div>`).join("")}</div></div></div></div>` },
+  { cap: "<b>Bureau · un accord sans fenêtre Windows, et le clic droit sur un fichier.</b> Le bandeau est dessiné par l'app de bureau elle-même ; une notification Windows y ramène si l'app est en arrière-plan.", html: `${titlebar()}<div class="app" style="position:relative">${side("chat","Attend ton accord")}<div class="main">${head("Devis pour Marc")}
+    <div class="banner">${ic("shield",22)}<div class="txt"><b>Lancer « installer-police.exe » ?</b><span>Téléchargé depuis fontsquirrel.com, hors de ton dossier confié.</span></div><button class="btn ghost">Refuser</button><button class="btn primary">Autoriser</button></div>
+    ${chatCol("pdf")}${composer()}</div>
+    <div class="menu" style="left:520px;top:430px"><div>${ic("eye")}Ouvrir</div><div class="hover">${ic("external")}Ouvrir avec</div><div>${ic("folder")}Afficher dans le dossier</div><hr><div>${ic("copy")}Copier</div></div>
+    <div class="sub" style="left:752px;top:466px"><div><span class="sq" style="background:#e5484d">A</span>Adobe Acrobat</div><div><span class="sq" style="background:#1a73e8">E</span>Microsoft Edge</div><div><span class="sq" style="background:#5d6875">…</span>Choisir une autre app</div></div></div>` },
+  { cap: "<b>Bureau · un PDF.</b> Il se lit dans le panneau, avec le zoom ; « Ouvrir avec » l'envoie à une app de l'ordinateur.", html: `${titlebar()}<div class="app split">${side("chat")}<div class="main">${head("Devis pour Marc")}${chatCol("pdf")}${composer()}</div>
+    <div class="panel">${panelHead("devis-marc.pdf")}<div class="ph2" style="height:40px;border-bottom:0"><span class="zoom">${ic("minus",14)} 100 % ${ic("plus",14)}</span><span style="margin-left:auto" class="zoom">Page 1 / 2</span></div>
+    <div class="pdf"><div class="pdfpage"><h4>Devis n° 2026-114</h4>${[70,100,85,60,100,92,40].map(w=>`<div class="ln" style="width:${w}%"></div>`).join("")}</div></div></div></div>` },
+  { cap: "<b>Bureau · l'ordinateur de l'agent.</b> L'écran reste connecté quand on change de page ; les onglets ouverts sont en dessous.", html: `${titlebar()}<div class="app">${side("computer","Sur instagram.com")}<div class="main"><div class="head"><h2>Ordinateur</h2><div class="acts"><button class="btn ghost">Ouvrir une page</button><button class="btn primary">${"Prendre la main"}</button></div></div>
+    <div style="padding:18px 24px"><div class="screen"><span class="live"><span class="dot"></span>En direct</span><div class="page"><div class="bar">🔒 instagram.com/smfcoder</div><div class="content"><div>${[90,70,80,60].map(w=>`<div class="ln" style="width:${w}%"></div>`).join("")}</div><div><div style="height:200px;border-radius:8px;background:linear-gradient(135deg,#f58529,#dd2a7b,#8134af)"></div><div class="ln" style="width:60%;margin-top:12px"></div></div></div></div></div>
+    <div class="tabs"><span class="tab on">instagram.com</span><span class="tab">docs.google.com</span><span class="tab">x.com</span></div></div></div></div>` },
+  { cap: "<b>Web · réglages.</b> Deux colonnes, une rangée par réglage. Sur le web, seule la version du serveur ; dans les apps, celle de l'app d'abord. Le web propose « Télécharger » là où l'app de bureau propose « Afficher dans le dossier » et « Ouvrir avec ».", html: `${chrome()}<div class="app">${side("gear")}<div class="settings">
+    <div class="slist">${[["bell","Notifications"],["phone","Appareils"],["brain","Modèles et budget"],["shield","Autonomie"],["palette","Apparence",1],["plug","Connexions"],["update","Mises à jour"]].map(([i,l,on])=>`<div class="nav ${on?"on":""}">${ic(i)}${l}</div>`).join("")}</div>
+    <div class="sdetail"><h3>Apparence</h3>
+      <div class="group"><div class="row">${ic("lock")}<div class="l">Masquer les données sensibles<small>Courriels, téléphones, adresses, cartes. Un clic révèle, un autre recache.</small></div><span class="toggle on"></span></div></div>
+      <div class="group"><div class="row"><div class="l">Thème</div><span class="seg"><span>Clair</span><span>Sombre</span><span class="on">Système</span></span></div><div class="row"><div class="l">Taille du texte</div><span class="seg"><span>Petit</span><span class="on">Normal</span><span>Grand</span></span></div><div class="row"><div class="l">Couleur de Noah</div><span class="v">Violet</span></div></div>
+      <div style="color:var(--soft);font-size:13px">Serveur Noah 0.1.6 · à jour</div>
+    </div></div></div>` },
+  { cap: "<b>Bureau · le cerveau et les fournisseurs.</b> Auto et ses trois niveaux, chacun avec son modèle et le logo de son fournisseur ; les fournisseurs branchés et à brancher, en rangées.", html: `${titlebar()}<div class="app">${side("gear")}<div class="settings">
+    <div class="slist">${[["bell","Notifications"],["phone","Appareils"],["brain","Modèles et budget",1],["shield","Autonomie"],["palette","Apparence"],["plug","Connexions"],["update","Mises à jour"]].map(([i,l,on])=>`<div class="nav ${on?"on":""}">${ic(i)}${l}</div>`).join("")}</div>
+    <div class="sdetail"><h3>Cerveau de Noah</h3>
+      <div class="group"><div class="row"><span class="rd on"></span><div class="l">Auto<small>Noah choisit le niveau selon la tâche</small></div></div>
+        ${[["Simple","DeepSeek V4 Flash","#4d6bfe","D"],["Moyen","Kimi K3","#16191d","K"],["Complexe","GPT-6.1 Sol","#10a37f","O"]].map(([n,m,c,l])=>`<div class="tier"><span class="tn">${n}</span><span class="logo2" style="background:${c}">${l}</span><span class="tm">${m}</span><span class="v">Changer</span></div>`).join("")}
+        <div class="row"><span class="rd"></span><div class="l">Comme mes autres agents</div></div><div class="row"><span class="rd"></span><div class="l">Un modèle précis</div></div></div>
+      <h3 style="font-size:15px">Fournisseurs</h3>
+      <div class="group">${[["OpenRouter","#6467f2","OR","340 modèles"],["Ollama Cloud","#111","Ol","28 modèles"],["Mammouth","#ff7a2f","M","12 modèles"]].map(([n,c,l,s])=>`<div class="row"><span class="logo2" style="background:${c}">${l}</span><div class="l">${n}<small>${s}</small></div><span class="v">Branché</span></div>`).join("")}<div class="row">${ic("plus")}<div class="l">Un autre fournisseur<small>Colle son adresse : Noah récupère son icône et ses modèles</small></div></div></div>
+    </div></div></div>` },
+];
+document.getElementById("board").innerHTML = screens.map(s => `<figure><div class="frame"><div class="win">${s.html}</div></div><figcaption>${s.cap}</figcaption></figure>`).join("");
+</script>
+</body>
+</html>

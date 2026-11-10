@@ -1,7 +1,9 @@
 // Panneau de l'agent : ce qu'il fait, à quoi il a accès, son ordinateur, ses routines, sa mémoire.
 import { Archive, ArchiveRestore, Brain, ChevronDown, ChevronRight, Clock, ExternalLink, FolderOpen, Hand, History, Loader2, LogIn, Monitor, MonitorPlay, Pencil, Plug, Power, RefreshCw, Sparkles, Sunrise, Users, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { type Agent, canAdmin, canTalk, type Conversation, get, send, type Usage } from "@/lib/api";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import { ApiError, type Agent, canAdmin, canTalk, type Conversation, get, request, send, type Usage } from "@/lib/api";
+import { peekScreenUrl, refuseScreenUrl, screenControl, screenUrl, screenViewOnly } from "@/lib/screenCache";
+import { SEEN, SeenActive, seenGeneration } from "@/lib/seen";
 import { wireClipboard } from "@/lib/vncClipboard";
 import { cn, money } from "@/lib/utils";
 import { AgentAppearance } from "./AgentAppearance";
@@ -18,6 +20,19 @@ import { STATE_WORD, StateShape } from "./Sidebar";
 import { Button, Dialog, DialogContent, Tabs, TabsContent, TabsList, TabsTrigger } from "./ui";
 
 export type PanelTab = "activity" | "files" | "connections" | "competences" | "computer" | "routines" | "memory";
+
+/** Première visite seulement : ensuite le contenu reste monté, mais ses lectures suivent sa visibilité. */
+function KeptTab({ value, shown, className, children }: { value: string; shown: boolean; className: string; children: React.ReactNode }) {
+  const parentVisible = useContext(SeenActive);
+  const active = parentVisible && shown;
+  const [visited, setVisited] = useState(active);
+  if (active && !visited) setVisited(true);
+  return (
+    <TabsContent value={value} forceMount className={cn(className, !active && "hidden")}>
+      <SeenActive.Provider value={active}>{(visited || active) && <Boundary label="Cet onglet">{children}</Boundary>}</SeenActive.Provider>
+    </TabsContent>
+  );
+}
 
 export function SidePanel({
   agent,
@@ -77,8 +92,8 @@ export function SidePanel({
         </TabsList>
         <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Fermer le panneau"><X /></Button>
       </div>
-      <Boundary key={tab} label="Cet onglet">
-      <TabsContent value="activity" className="min-h-0 flex-1 overflow-y-auto">
+      <Boundary key={agent.id} label="Le panneau de l'agent">
+      <KeptTab value="activity" shown={tab === "activity"} className="min-h-0 flex-1 overflow-y-auto">
         <Details agent={agent} onEdit={onEditAgent} refreshKey={refreshKey} onAgentChanged={onAgentChanged} onTab={onTab} onGoals={onGoals}>
           <Threads threads={threads} threadId={threadId} onOpen={onOpenThread} onArchive={onArchiveThread} />
           {agent.partage && main && <ConversationVisibility conversation={main} onChanged={onConversationChanged} />}
@@ -88,25 +103,25 @@ export function SidePanel({
             <input type="checkbox" checked={technical} onChange={(e) => onTechnical(e.target.checked)} className="size-5 accent-[var(--accent)]" />
           </label>
         </Details>
-      </TabsContent>
-      <TabsContent value="files" className="min-h-0 flex-1 overflow-y-auto">
-        {tab === "files" && <Files key={agent.id} agentId={agent.id} refreshKey={refreshKey} canDelete={admin} onGiven={() => window.matchMedia("(max-width: 767px)").matches && onClose()} />}
-      </TabsContent>
-      <TabsContent value="connections" className="min-h-0 flex-1 overflow-y-auto px-1">
+      </KeptTab>
+      <KeptTab value="files" shown={tab === "files"} className="min-h-0 flex-1 overflow-y-auto">
+        <Files key={agent.id} agentId={agent.id} refreshKey={refreshKey} canDelete={admin} onGiven={() => window.matchMedia("(max-width: 767px)").matches && onClose()} />
+      </KeptTab>
+      <KeptTab value="connections" shown={tab === "connections"} className="min-h-0 flex-1 overflow-y-auto px-1">
         {admin && <Connections agentId={agent.id} shared={agent.partage || !!agent.partage_par} owner={agent.droit === "proprietaire"} />}
-      </TabsContent>
-      <TabsContent value="competences" className="min-h-0 flex-1 overflow-y-auto px-1">
+      </KeptTab>
+      <KeptTab value="competences" shown={tab === "competences"} className="min-h-0 flex-1 overflow-y-auto px-1">
         {admin && <Competences key={agent.id} agentId={agent.id} />}
-      </TabsContent>
-      <TabsContent value="computer" className="flex min-h-0 flex-1 flex-col">
-        {tab === "computer" && <ComputerTab agent={agent} admin={admin} refreshKey={refreshKey} onClose={onClose} />}
-      </TabsContent>
-      <TabsContent value="routines" className="relative flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1">
+      </KeptTab>
+      <KeptTab value="computer" shown={tab === "computer"} className="flex min-h-0 flex-1 flex-col">
+        <ComputerTab agent={agent} admin={admin} refreshKey={refreshKey} onClose={onClose} />
+      </KeptTab>
+      <KeptTab value="routines" shown={tab === "routines"} className="relative flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1">
         {admin && <><Proactive agentId={agent.id} /><Routines agentId={agent.id} /><Watches agentId={agent.id} /></>}
-      </TabsContent>
-      <TabsContent value="memory" className="min-h-0 flex-1 overflow-y-auto px-1">
+      </KeptTab>
+      <KeptTab value="memory" shown={tab === "memory"} className="min-h-0 flex-1 overflow-y-auto px-1">
         {admin && <Memory agentId={agent.id} />}
-      </TabsContent>
+      </KeptTab>
       </Boundary>
     </Tabs>
   );
@@ -127,12 +142,12 @@ function ComputerTab({ agent, admin, refreshKey, onClose }: { agent: Agent; admi
           <TabsTrigger value="software">Logiciels</TabsTrigger>
         </TabsList>
       )}
-      <TabsContent value="screen" className="flex min-h-0 flex-1 flex-col gap-3">{part === "screen" && <Computer agentId={agent.id} />}</TabsContent>
-      <TabsContent value="files" className="min-h-0 flex-1 overflow-y-auto">
+      <KeptTab value="screen" shown={part === "screen"} className="flex min-h-0 flex-1 flex-col gap-3">{admin && <Computer key={agent.id} agentId={agent.id} />}</KeptTab>
+      <KeptTab value="files" shown={part === "files"} className="min-h-0 flex-1 overflow-y-auto">
         <Files key={agent.id} agentId={agent.id} refreshKey={refreshKey} canDelete={admin} onGiven={() => window.matchMedia("(max-width: 767px)").matches && onClose()} />
-      </TabsContent>
-      <TabsContent value="folders" className="min-h-0 flex-1 overflow-y-auto px-1"><Folders agentId={agent.id} /></TabsContent>
-      <TabsContent value="software" className="min-h-0 flex-1 overflow-y-auto px-1"><Software agentId={agent.id} /></TabsContent>
+      </KeptTab>
+      <KeptTab value="folders" shown={part === "folders"} className="min-h-0 flex-1 overflow-y-auto px-1">{admin && <Folders agentId={agent.id} />}</KeptTab>
+      <KeptTab value="software" shown={part === "software"} className="min-h-0 flex-1 overflow-y-auto px-1">{admin && <Software agentId={agent.id} />}</KeptTab>
     </Tabs>
   );
 }
@@ -193,17 +208,25 @@ function ActivityPeriod({ label, rows, first, onOpen }: { label: string; rows: L
 
 /** Un aperçu de ce que l'agent a fait dernièrement, pas une archive : plus ancien, il le retrouve quand on le lui demande. */
 function ActivityLog({ agentId, refreshKey, onOpen }: { agentId: string; refreshKey: number; onOpen: (conversation: string, main: boolean) => void }) {
-  const [log, setLog] = useState<{ agent: string; rows: LogRow[] } | null>(null);
+  const active = useContext(SeenActive);
+  const path = `/api/agents/${agentId}/activite`;
+  const [log, setLog] = useState<{ agent: string; rows: LogRow[] } | null>(() => SEEN.has(path) ? { agent: agentId, rows: SEEN.get(path) as LogRow[] } : null);
   const rows = log?.agent === agentId ? log.rows : null; // jamais le journal d'un autre agent, même le temps de charger
   useEffect(() => {
     let current = true; // la réponse tardive d'un autre agent n'écrase pas celle-ci
-    get<LogRow[]>(`/api/agents/${agentId}/activite`)
-      .then((r) => current && setLog({ agent: agentId, rows: r }))
-      .catch(() => current && setLog({ agent: agentId, rows: [] }));
+    if (!active) return;
+    const generation = seenGeneration();
+    get<LogRow[]>(path)
+      .then((r) => {
+        if (!current || generation !== seenGeneration()) return;
+        SEEN.set(path, r);
+        setLog({ agent: agentId, rows: r });
+      })
+      .catch(() => {});
     return () => {
       current = false;
     };
-  }, [agentId, refreshKey]);
+  }, [agentId, path, refreshKey, active]);
   if (!rows) return null;
   const periods = new Map<string, LogRow[]>();
   for (const r of rows) {
@@ -243,6 +266,7 @@ function ConversationVisibility({ conversation, onChanged }: { conversation: Con
 }
 
 function Details({ agent, onEdit, refreshKey, onAgentChanged, onTab, onGoals, children }: { agent: Agent; onEdit: () => void; refreshKey: number; onAgentChanged: () => void; onTab: (t: PanelTab) => void; onGoals?: () => void; children: React.ReactNode }) {
+  const active = useContext(SeenActive);
   const [sharing, setSharing] = useState(false);
   const [spendingOpen, setSpendingOpen] = useState(false);
   const brainBox = useRef<HTMLDivElement>(null);
@@ -253,10 +277,18 @@ function Details({ agent, onEdit, refreshKey, onAgentChanged, onTab, onGoals, ch
     return () => window.removeEventListener("noah:ouvrir-modele", open);
   }, []);
   const spendingBox = useRef<HTMLDivElement>(null);
-  const [usage, setUsage] = useState<Usage | null>(null);
+  const [usage, setUsage] = useState<Usage | null>(() => (SEEN.get("/api/usage") as Usage) ?? null);
   useEffect(() => {
-    get<Usage>("/api/usage").then(setUsage).catch(() => {});
-  }, [agent.id, refreshKey]);
+    if (!active) return;
+    let current = true;
+    const generation = seenGeneration();
+    get<Usage>("/api/usage").then((r) => {
+      if (!current || generation !== seenGeneration()) return;
+      SEEN.set("/api/usage", r);
+      setUsage(r);
+    }).catch(() => {});
+    return () => { current = false; };
+  }, [agent.id, refreshKey, active]);
   const mine = usage?.agents.find((u) => u.agent_id === agent.id);
   const cacheRate = mine?.prompt_tokens ? Math.round((100 * mine.cached_tokens) / mine.prompt_tokens) : 0;
   return (
@@ -429,7 +461,7 @@ function Threads({
   );
 }
 
-type ScreenStatus = { awake: boolean; reachable: boolean; running: boolean; tabs: number };
+type ScreenStatus = { etat: "pret" | "veille" | "aucune_page" | "injoignable"; awake: boolean; reachable: boolean; running: boolean; tabs: number };
 
 /** Reprendre une session ouverte dans le navigateur habituel : X, Google et les banques bloquent souvent
  * la connexion depuis un navigateur automatisé, mais acceptent une session déjà ouverte. */
@@ -495,113 +527,203 @@ function CookieImport({ agentId }: { agentId: string }) {
 }
 
 function Computer({ agentId }: { agentId: string }) {
+  const active = useContext(SeenActive);
+  const [pageVisible, setPageVisible] = useState(!document.hidden);
+  const visible = active && pageVisible;
   const [control, setControl] = useState(false);
-  const [url, setUrl] = useState("");
-  const [nonce, setNonce] = useState(0);
+  const [modeBusy, setModeBusy] = useState(false);
+  const [url, setUrl] = useState(() => peekScreenUrl(agentId) ?? "");
   const [status, setStatus] = useState<ScreenStatus | null>(null);
+  const [reconnecting, setReconnecting] = useState(false);
+  const [failures, setFailures] = useState(0);
+  const failed = useRef(0);
+  const [retry, setRetry] = useState(0);
   const [fixing, setFixing] = useState<"wake" | "restart" | null>(null);
   const [fixError, setFixError] = useState("");
+  const frame = useRef<HTMLIFrameElement>(null);
+  const pageFailed = useRef(false);
+  const pageReloads = useRef(0);
+  const clipboard = useRef<(() => void) | undefined>(undefined);
+  const mounted = useRef(true);
+  const wantedControl = useRef(false);
+  const mayHoldControl = useRef(false);
+  const modeQueue = useRef(Promise.resolve());
+  const backgroundSince = useRef<number | null>(null);
 
-  const poll = useCallback(
-    () =>
-      get<ScreenStatus>(`/api/agents/${agentId}/screen-status`)
-        .then(setStatus)
-        .catch(() => setStatus({ awake: false, reachable: false, running: false, tabs: 0 })),
-    [agentId],
-  );
-  useEffect(() => {
-    poll();
-    const t = setInterval(() => !document.hidden && poll(), 3000);
-    return () => clearInterval(t);
-  }, [poll]);
+  const changeControl = useCallback((next: boolean) => {
+    wantedControl.current = next;
+    if (next) mayHoldControl.current = true;
+    else {
+      clipboard.current?.();
+      clipboard.current = undefined;
+      screenViewOnly(frame.current, true);
+      setControl(false);
+    }
+    setModeBusy(true);
+    // Une restitution attend une prise en main encore en route : une réponse tardive ne reprend jamais la main.
+    const task = modeQueue.current.then(() => screenControl(agentId, next)).then(() => {
+      if (!next) mayHoldControl.current = false;
+      if (!mounted.current || wantedControl.current !== next) return;
+      setControl(next);
+      screenViewOnly(frame.current, !next);
+      if (next && frame.current) {
+        clipboard.current?.();
+        clipboard.current = wireClipboard(frame.current, agentId, setFixError);
+      }
+    });
+    modeQueue.current = task.catch(async (e) => {
+      if (!mounted.current) return;
+      setFixError((e as Error).message);
+      if (next && wantedControl.current === next) {
+        wantedControl.current = false;
+        setControl(false);
+        screenViewOnly(frame.current, true);
+        // La réponse a pu se perdre après l'activation du mode privé : on rend la main aussi dans ce cas.
+        await screenControl(agentId, false).then(() => { mayHoldControl.current = false; }).catch(() => {});
+      }
+    }).finally(() => { if (mounted.current) setModeBusy(false); });
+  }, [agentId]);
 
   useEffect(() => {
-    let cancelled = false;
-    get<{ url: string }>(`/api/agents/${agentId}/screen-url?view_only=${control ? 0 : 1}`)
-      .then((r) => !cancelled && setUrl(r.url))
-      .catch(() => !cancelled && setUrl(""));
+    mounted.current = true;
+    const visibility = () => setPageVisible(!document.hidden);
+    document.addEventListener("visibilitychange", visibility);
     return () => {
-      cancelled = true;
-      // Panneau fermé ou agent changé pendant la prise de contrôle : le serveur rend les captures à l'agent.
-      if (control) void get(`/api/agents/${agentId}/screen-url?view_only=1`).catch(() => {});
+      mounted.current = false;
+      wantedControl.current = false;
+      clipboard.current?.();
+      document.removeEventListener("visibilitychange", visibility);
+      // G7.7 : fermeture du panneau ou changement d'agent, y compris pendant une prise en main en route.
+      if (mayHoldControl.current) void modeQueue.current.then(() => screenControl(agentId, false)).catch(() => {});
     };
-  }, [agentId, control, nonce]);
+  }, [agentId]);
+
+  useEffect(() => {
+    const release = () => { if (mayHoldControl.current) changeControl(false); };
+    if (visible) {
+      // Les chronomètres peuvent être suspendus sur téléphone : vérifier aussi au retour.
+      if (backgroundSince.current !== null && Date.now() - backgroundSince.current >= 60_000) release();
+      backgroundSince.current = null;
+      return;
+    }
+    backgroundSince.current ??= Date.now();
+    const timer = setTimeout(release, Math.max(0, 60_000 - (Date.now() - backgroundSince.current)));
+    return () => clearTimeout(timer);
+  }, [visible, changeControl]);
+
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try {
+        const [s, link] = await Promise.all([
+          request(`/api/agents/${agentId}/screen-status`, { signal: AbortSignal.timeout(8000) }).then((r) => r.json() as Promise<ScreenStatus>),
+          screenUrl(agentId),
+        ]);
+        if (cancelled) return;
+        setUrl(link); // une erreur passagère ne retire jamais l'URL ni l'iframe
+        if (s.etat === "injoignable") throw new Error("Écran injoignable");
+        setStatus(s);
+        // En veille, noVNC peut garder une page d'erreur du conteneur arrêté : attendre le réveil avant de la sonder.
+        if (s.etat === "pret" && pageFailed.current) {
+          // Un onLoad ne distingue pas une page noVNC d'un refus HTTP. Seul un refus explicite oublie le lien.
+          try {
+            await request(link.split("#")[0], { signal: AbortSignal.timeout(8000) });
+          } catch (e) {
+            if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
+              if (mayHoldControl.current) changeControl(false);
+              refuseScreenUrl(agentId);
+            }
+            throw e;
+          }
+          if (cancelled) return;
+          if (frame.current) {
+            if (frame.current.getAttribute("src") !== link) frame.current.src = link;
+            else frame.current.contentWindow?.location.reload();
+            pageReloads.current += 1;
+          }
+          setReconnecting(true);
+          // Un 200 peut encore servir une page d'erreur : borner les essais rapides tant que noVNC ne revient pas.
+          if (pageReloads.current >= 3) throw new Error("Écran injoignable");
+        } else if (s.etat === "pret") {
+          const doc = frame.current?.contentDocument;
+          // noVNC se reconnecte lui-même : ce délai local n'est pas un échec des sondes serveur/lien.
+          setReconnecting(!!doc?.getElementById("noVNC_setting_view_only") && !doc.documentElement.classList.contains("noVNC_connected"));
+        }
+        failed.current = 0;
+        setFailures(0);
+      } catch {
+        if (cancelled) return;
+        failed.current += 1;
+        if (pageReloads.current >= 3) failed.current = Math.max(2, failed.current);
+        setFailures(failed.current);
+      }
+      if (!cancelled) timer = setTimeout(poll, 3000 * 2 ** Math.min(Math.max(failed.current - 2, 0), 2));
+    };
+    void poll();
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [agentId, visible, retry, changeControl]);
 
   const fix = async (how: "wake" | "restart") => {
     setFixing(how);
     setFixError("");
     try {
       const s = await send<{ ecran_actif: boolean; conseil: string }>(`/api/agents/${agentId}/browser/${how}`, {});
+      if (!mounted.current) return;
       if (!s.ecran_actif) setFixError(s.conseil);
-      setNonce((n) => n + 1);
     } catch (e) {
-      setFixError((e as Error).message);
+      if (mounted.current) setFixError((e as Error).message);
     } finally {
-      setFixing(null);
-      poll();
+      if (mounted.current) { setFixing(null); setRetry((n) => n + 1); }
     }
   };
 
-  // Le bureau reste affiché quand le navigateur dort : seul un écran coupé cache le flux.
-  const awake = !!status?.awake;
-  const visible = awake;
+  const unreachable = failures >= 2;
+  const ready = status?.etat === "pret" && !unreachable && !reconnecting && !!url;
+  const overlay = !ready || !!fixing;
   return (
     <>
-      <div className={cn("relative min-h-64 flex-1 overflow-hidden rounded-xl border border-border bg-[#0b0f14]", control && awake && "ring-3 ring-warn")}>
-        {url && visible && !fixing ? (
-          <iframe key={`${url}-${nonce}`} src={url} title="Écran de l'agent" className="absolute inset-0 size-full border-0" onLoad={(e) => wireClipboard(e.currentTarget, agentId, setFixError)} />
-        ) : (
+      <div className={cn("relative min-h-64 flex-1 overflow-hidden rounded-xl border border-border bg-[#0b0f14]", control && ready && "ring-3 ring-warn")}>
+        {url && <iframe ref={frame} src={url} title="Écran de l'agent" className={cn("absolute inset-0 size-full border-0", overlay && "hidden")} onLoad={(e) => {
+          clipboard.current?.();
+          const loaded = e.currentTarget;
+          pageFailed.current = !screenViewOnly(loaded, !wantedControl.current || !control);
+          if (!pageFailed.current) pageReloads.current = 0;
+          clipboard.current = !pageFailed.current && wantedControl.current && control ? wireClipboard(loaded, agentId, setFixError) : undefined;
+        }} />}
+        {overlay && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center text-[#e6ebf0]">
             {fixing ? <Loader2 className="size-8 animate-spin opacity-70" /> : <MonitorPlay className="size-8 opacity-60" />}
             <strong>
-              {fixing === "wake"
-                ? "Réveil du navigateur…"
-                : fixing === "restart"
-                  ? "Redémarrage du navigateur…"
-                  : status === null
-                    ? "Connexion à l'écran…"
-                    : !status.reachable
-                      ? "Le navigateur est arrêté"
-                      : awake
-                        ? "Aucune page ouverte"
-                        : "Le navigateur est en veille"}
+              {fixing === "wake" ? "Réveil du navigateur…"
+                : fixing === "restart" ? "Redémarrage du navigateur…"
+                : unreachable ? "Écran injoignable"
+                : status?.etat === "aucune_page" ? "Aucune page ouverte"
+                : status?.etat === "veille" ? "Le navigateur est en veille"
+                : "Connexion à l'écran…"}
             </strong>
-            {!fixing && status && (
-              <>
-                <span className="max-w-xs text-sm opacity-70">
-                  {status.reachable
-                    ? "Il s'éteint après un moment sans activité et se rallume dès que l'agent navigue."
-                    : "Il ne tourne que quand on s'en sert. Il démarre dès que l'agent navigue, et garde tes sessions connectées."}
-                </span>
-                <div className="flex flex-wrap justify-center gap-2">
-                  <Button onClick={() => fix("wake")}><Sunrise />{status.reachable && awake ? "Ouvrir une page" : "Réveiller"}</Button>
-                  {status.reachable && (
-                    <Button variant={status.reachable ? "outline" : "default"} className={status.reachable ? "border-white/30 bg-transparent text-white hover:bg-white/10" : ""} onClick={() => fix("restart")}>
-                    <Power />Redémarrer
-                  </Button>
-                  )}
-                </div>
-              </>
+            {!fixing && (
+              <div className="flex flex-wrap justify-center gap-2">
+                {unreachable ? <Button onClick={() => setRetry((n) => n + 1)}><RefreshCw />Réessayer</Button>
+                  : status?.etat === "veille" ? <Button onClick={() => fix("wake")}><Sunrise />Le réveiller</Button>
+                  : status?.etat === "aucune_page" && <Button onClick={() => fix("wake")}><Sunrise />Ouvrir une page</Button>}
+              </div>
             )}
             {fixError && <span className="max-w-xs text-sm text-[#fbbf8a]">{fixError}</span>}
           </div>
         )}
       </div>
       <div className="flex flex-wrap gap-2">
-        <Button variant={control ? "warn" : "default"} onClick={() => setControl(!control)} disabled={!visible}>
+        <Button variant={control ? "warn" : "default"} onClick={() => changeControl(!control)} disabled={modeBusy || (!control && !ready)}>
           <Hand />{control ? "Rendre la main à l'agent" : "Prendre le contrôle"}
         </Button>
-        <Button variant="outline" onClick={() => setNonce((n) => n + 1)}><RefreshCw />Rafraîchir l'écran</Button>
-        {awake && (
-          <Button variant="ghost" onClick={() => fix("restart")} disabled={!!fixing}><Power />Redémarrer le navigateur</Button>
-        )}
-        {url && visible && (
-          <Button variant="ghost" asChild>
-            <a href={url} target="_blank" rel="noopener"><ExternalLink />Plein écran</a>
-          </Button>
-        )}
+        <Button variant="outline" onClick={() => { frame.current?.contentWindow?.location.reload(); setRetry((n) => n + 1); }}><RefreshCw />Rafraîchir l'écran</Button>
+        {(status?.awake || unreachable) && <Button variant="ghost" onClick={() => fix("restart")} disabled={!!fixing}><Power />Redémarrer le navigateur</Button>}
+        {url && ready && <Button variant="ghost" asChild><a href={url} target="_blank" rel="noopener"><ExternalLink />Plein écran</a></Button>}
         <CookieImport agentId={agentId} />
       </div>
+      {!overlay && fixError && <p className="text-sm text-danger">{fixError}</p>}
       <p className="text-xs text-muted-foreground">
         {control
           ? "Tu as la main : clique et tape directement dans l'écran. Ctrl+V y colle ton presse-papiers, Ctrl+C copie la sélection chez toi. Quand tu as fini, rends la main."

@@ -1,0 +1,234 @@
+{
+  "fige_le": "2026-11-09",
+  "protocole": "2025-06-18",
+  "origine": "github/github-mcp-server, sous-ensemble de cinq outils",
+  "verification": "Contrat des arguments reconstruit depuis les sources publiques ; descriptions abregees. Pas une capture authentifiee du serveur distant.",
+  "sources": [
+    "https://raw.githubusercontent.com/github/github-mcp-server/v0.27.0/pkg/github/pullrequests.go",
+    "https://raw.githubusercontent.com/github/github-mcp-server/v0.27.0/pkg/github/issues.go",
+    "https://raw.githubusercontent.com/github/github-mcp-server/main/pkg/github/notifications.go"
+  ],
+  "tools": [
+    {
+      "name": "list_pull_requests",
+      "description": "List repository pull requests; use search_pull_requests when filtering by author.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name"
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number (min 1)"
+          },
+          "perPage": {
+            "type": "number",
+            "description": "Results per page (min 1, max 100)"
+          },
+          "state": {
+            "type": "string",
+            "description": "Filter by state",
+            "enum": [
+              "open",
+              "closed",
+              "all"
+            ]
+          },
+          "head": {
+            "type": "string",
+            "description": "Filter by head user/org and branch"
+          },
+          "base": {
+            "type": "string",
+            "description": "Filter by base branch"
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort by",
+            "enum": [
+              "created",
+              "updated",
+              "popularity",
+              "long-running"
+            ]
+          },
+          "direction": {
+            "type": "string",
+            "description": "Sort direction",
+            "enum": [
+              "asc",
+              "desc"
+            ]
+          }
+        },
+        "required": [
+          "owner",
+          "repo"
+        ]
+      },
+      "annotations": {
+        "title": "List pull requests",
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "pull_request_read",
+      "description": "Read a pull request, its diff, status, files, reviews or comments.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name"
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number (min 1)"
+          },
+          "perPage": {
+            "type": "number",
+            "description": "Results per page (min 1, max 100)"
+          },
+          "method": {
+            "type": "string",
+            "description": "Pull request data to retrieve",
+            "enum": [
+              "get",
+              "get_diff",
+              "get_status",
+              "get_files",
+              "get_review_comments",
+              "get_reviews",
+              "get_comments"
+            ]
+          },
+          "pullNumber": {
+            "type": "number",
+            "description": "Pull request number"
+          }
+        },
+        "required": [
+          "method",
+          "owner",
+          "repo",
+          "pullNumber"
+        ]
+      },
+      "annotations": {
+        "title": "Get details for a single pull request",
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "add_issue_comment",
+      "description": "Comment on an issue or PR; use a review tool for review comments.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name"
+          },
+          "issue_number": {
+            "type": "number",
+            "description": "Issue number to comment on"
+          },
+          "body": {
+            "type": "string",
+            "description": "Comment content"
+          }
+        },
+        "required": [
+          "owner",
+          "repo",
+          "issue_number",
+          "body"
+        ]
+      },
+      "annotations": {
+        "title": "Add comment to issue",
+        "readOnlyHint": false
+      }
+    },
+    {
+      "name": "list_notifications",
+      "description": "List GitHub notifications, including pending reviews and unread updates.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name"
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number (min 1)"
+          },
+          "perPage": {
+            "type": "number",
+            "description": "Results per page (min 1, max 100)"
+          },
+          "filter": {
+            "type": "string",
+            "description": "Notification filter",
+            "enum": [
+              "default",
+              "include_read_notifications",
+              "only_participating"
+            ]
+          },
+          "since": {
+            "type": "string",
+            "description": "Updated after (ISO 8601)"
+          },
+          "before": {
+            "type": "string",
+            "description": "Updated before (ISO 8601)"
+          }
+        }
+      },
+      "annotations": {
+        "title": "List notifications",
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "get_notification_details",
+      "description": "Read one notification; list notifications first if its ID is unknown.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "notificationID": {
+            "type": "string",
+            "description": "The ID of the notification"
+          }
+        },
+        "required": [
+          "notificationID"
+        ]
+      },
+      "annotations": {
+        "title": "Get notification details",
+        "readOnlyHint": true
+      }
+    }
+  ]
+}

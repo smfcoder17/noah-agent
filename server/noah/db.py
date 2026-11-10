@@ -77,6 +77,35 @@ CREATE TABLE IF NOT EXISTS reactions (
   emoji TEXT NOT NULL,
   PRIMARY KEY (message_id, who)
 );
+CREATE TABLE IF NOT EXISTS accords (
+  id TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  conv_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  request_id TEXT NOT NULL,
+  generation INTEGER NOT NULL,
+  run_id TEXT NOT NULL,
+  summary_json TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('attend', 'donne', 'refuse', 'expire', 'annule')),
+  created REAL NOT NULL,
+  answered_by TEXT,
+  answered_at REAL,
+  UNIQUE(agent_id, run_id, request_id, generation)
+);
+CREATE INDEX IF NOT EXISTS accords_user ON accords(user_id, state, created);
+CREATE TABLE IF NOT EXISTS evenements_revisions (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  revision INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS evenements (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  revision INTEGER NOT NULL,
+  genre TEXT NOT NULL,
+  contenu TEXT NOT NULL,
+  created REAL NOT NULL,
+  PRIMARY KEY (user_id, revision)
+);
+CREATE INDEX IF NOT EXISTS evenements_created ON evenements(created);
 """
 
 _fernet = Fernet(base64.urlsafe_b64encode(hashlib.sha256(SECRET_KEY.encode()).digest()))
@@ -121,6 +150,7 @@ def init() -> None:
         db.execute("CREATE TABLE IF NOT EXISTS desktop_attente (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, appareil TEXT NOT NULL, "
                    "agent TEXT NOT NULL, dossier TEXT NOT NULL, chemin TEXT NOT NULL, sha256 TEXT NOT NULL, taille INTEGER NOT NULL, "
                    "remplacer INTEGER NOT NULL DEFAULT 0, cree TEXT NOT NULL, expire TEXT NOT NULL)")
+        _add_columns(db, "desktop_attente", {"agent_id": "TEXT", "conv_id": "TEXT"})
         db.execute("CREATE TABLE IF NOT EXISTS push_subscriptions (endpoint TEXT PRIMARY KEY, session TEXT NOT NULL, "
                    "p256dh TEXT NOT NULL, auth TEXT NOT NULL, created_at TEXT)")
         # Envois repris plus tard (service de push indisponible, Retry-After) : survivent à un redémarrage.

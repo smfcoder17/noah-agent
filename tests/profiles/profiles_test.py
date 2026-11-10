@@ -274,6 +274,8 @@ def fixture() -> None:
 ROUTES = {
     ("PUT", "/api/agents/{agent_id}/plafond"): "proprietaire",
     ("PUT", "/api/agents/{agent_id}/model"): "admin",
+    ("GET", "/api/agents/{agent_id}/juge"): "admin",
+    ("POST", "/api/agents/{agent_id}/juge"): "admin",
     ("PATCH", "/api/agents/{agent_id}/look"): "admin",
     ("POST", "/api/agents/{agent_id}/repair"): "admin",
     ("PATCH", "/api/agents/{agent_id}"): "admin",
@@ -296,6 +298,7 @@ ROUTES = {
     ("POST", "/api/agents/{agent_id}/files/supprimer"): "admin",
     ("POST", "/api/agents/{agent_id}/upload"): "usage",
     ("GET", "/api/agents/{agent_id}/screen-url"): "admin",
+    ("POST", "/api/agents/{agent_id}/screen-url"): "admin",
     ("POST", "/api/agents/{agent_id}/clipboard/paste"): "admin",
     ("GET", "/api/agents/{agent_id}/clipboard/copy"): "admin",
     ("GET", "/api/agents/{agent_id}/screen-status"): "admin",
@@ -319,6 +322,8 @@ ROUTES = {
     ("POST", "/api/agents/{agent_id}/routines"): "admin",
     ("POST", "/api/agents/{agent_id}/routines/{routine_id}/{action}"): "admin",
     ("GET", "/api/agents/{agent_id}/connections"): "admin",
+    ("GET", "/api/agents/{agent_id}/sites"): "admin",
+    ("DELETE", "/api/agents/{agent_id}/sites/{host}"): "admin",
     ("POST", "/api/agents/{agent_id}/connections/apps/{name}/{action}"): "admin",
     ("GET", "/api/agents/{agent_id}/publication"): "admin",
     ("GET", "/api/agents/{agent_id}/activite"): "lecture",
@@ -339,6 +344,8 @@ ROUTES = {
     ("PUT", "/api/agents/{agent_id}/folders"): "proprietaire",  # et rôle owner : c'est son ordinateur (voir test_secrets)
     ("GET", "/api/agents/{agent_id}/google"): "admin",
     ("POST", "/api/agents/{agent_id}/google/connect"): "admin",
+    ("POST", "/api/agents/{agent_id}/google/ajouter"): "admin",
+    ("PUT", "/api/agents/{agent_id}/google/droit"): "admin",
     ("POST", "/api/agents/{agent_id}/google/cancel"): "admin",
     ("POST", "/api/agents/{agent_id}/google/disconnect"): "admin",
     ("GET", "/api/agents/{agent_id}/watches"): "admin",
@@ -358,7 +365,7 @@ ROUTES = {
     ("DELETE", "/api/agents/{agent_id}/shares/{user_id}"): "proprietaire",
 }
 FILL = {"agent_id": A, "conv_id": CA, "run_id": RUN, "routine_id": "routine-1", "name": "notion", "nom": "notion", "wid": WID, "audio_id": AUDIO,
-        "rid": RID, "user_id": str(ZED), "path:path": "index.html"}
+        "rid": RID, "user_id": str(ZED), "path:path": "index.html", "host": "example.org"}
 BODIES = {
     "/api/conversations/{conv_id}/messages/{message_id}/reaction": lambda: {"emoji": "👍"},
     "/api/agents/{agent_id}/files/supprimer": lambda: {"chemins": ["uploads/a.txt"]},
@@ -366,6 +373,7 @@ BODIES = {
     "/api/agents/{agent_id}/apercu": lambda: {"path": "apps/x/index.html"},
     "/api/agents/{agent_id}/plafond": lambda: {"daily": 1},
     "/api/agents/{agent_id}/model": lambda: {"model": None},
+    "/api/agents/{agent_id}/juge": lambda: {"mode": "auto"},
     "/api/agents/{agent_id}/look": lambda: {"color": "#112233"},
     "/api/agents/{agent_id}": lambda: {"name": SECRET_A, "role": "Son rôle"},
     "/api/conversations/{conv_id}/archive": lambda: {"archived": False},
@@ -391,6 +399,8 @@ BODIES = {
     "/api/agents/{agent_id}/competences/{name}": lambda: {"titre": "t", "texte": "x"},
     "/api/agents/{agent_id}/folders": lambda: {"dossiers": []},
     "/api/agents/{agent_id}/google/connect": lambda: {"permissions": [next(iter(__import__("noah.accounts").accounts.PERMS))]},
+    "/api/agents/{agent_id}/google/ajouter": lambda: {"permissions": [next(iter(__import__("noah.accounts").accounts.PERMS))]},
+    "/api/agents/{agent_id}/google/droit": lambda: {"droit": "agir"},
     "/api/agents/{agent_id}/watches": lambda: {"nom": "n", "url": "https://example.org"},
     "/api/agents/{agent_id}/proactif": lambda: {"mode": "signaler"},
     "/api/agents/{agent_id}/appel/{call_id}": lambda: {"reponse": "impossible"},
@@ -400,6 +410,8 @@ QUERIES = {"/api/agents/{agent_id}/media": {"path": "/x.png"}, "/api/agents/{age
 
 # Routes avec un identifiant qui n'appartient à aucun agent. Chacune a sa raison et, quand c'est possible, sa vérification.
 WHITELIST = {
+    ("POST", "/api/desktop/accords/{rid}"): "Processus natif et appareil destinataire seulement (accords_sync_test).",
+    ("POST", "/api/desktop/accords/{rid}/reponse"): "Même appareil, même demande, accord local uniquement (accords_sync_test).",
     ("POST", "/api/goals"): "Un objectif du compte connecté ; posé sur un agent, il faut en être le propriétaire (proactif_test).",
     ("PATCH", "/api/goals/{goal_id}"): "Seulement l'auteur de l'objectif, 404 pour tout autre compte (proactif_test).",
     ("DELETE", "/api/goals/{goal_id}"): "Seulement l'auteur de l'objectif, 404 pour tout autre compte (proactif_test).",
@@ -513,6 +525,8 @@ OPEN_ROUTES = {
     ("GET", "/api/usage"): "Filtrée par profil (vérifié par test_lists).",
     ("GET", "/api/goals"): "Les objectifs de ce compte, et rien d'autre (proactif_test).",
     ("GET", "/api/a-toi"): "Filtrée par compte : celui qui a lancé le travail et le propriétaire de l'agent (chat_vivant_test).",
+    ("GET", "/api/accords"): "Accords de ce compte seulement, droits revérifiés (accords_sync_test).",
+    ("GET", "/api/events"): "Flux révocable par compte, sans événements d'un autre profil (accords_sync_test).",
     ("GET", "/api/model"): "Le nom du cerveau, sans clé ni adresse pour un profil (vérifié par test_secrets).",
     ("GET", "/api/voice/ready"): "Une raison de refus, sans clé ni adresse ; un profil ne lit qu'une phrase générale (cle_refusee_test).",
     ("GET", "/api/agents"): "Filtrée par droit (vérifié par test_lists).",
@@ -609,6 +623,12 @@ def test_isolation_on_every_route() -> None:
         for name, (uid, level) in ACTORS.items():
             fixture()
             main._runs[RUN] = {"agent": A, "user": uid}
+            if path.endswith("/approval") and level >= LEVEL[needed]:
+                conv = main._new_conversation(uid, A, "Accord du profil")
+                with db.connect() as c:
+                    c.execute("DELETE FROM accords WHERE agent_id = ? AND run_id = ?", (A, RUN))
+                main.accords.create(uid, A, conv, RUN, {"request_id": "r", "generation": 1, "summary": "Envoyer ?"})
+                main._runs[RUN]["conv"] = conv
             touched.clear()
             r = call(WEB[name], method, path)
             where = f"{method} {path} par {name} : {r.status_code} {r.text[:160]}"

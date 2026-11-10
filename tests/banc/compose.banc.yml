@@ -1,0 +1,88 @@
+# Depuis la racine : voir README.md. S'ajoute aux deux fichiers Compose existants.
+name: noah-banc
+services:
+  server:
+    container_name: noah-banc-server
+    image: noah-server:banc
+    build:
+      context: .
+      dockerfile: tests/banc/Dockerfile.temps
+      args:
+        BASE_IMAGE: ${NOAH_ESSAI_SERVEUR:-noah-server:latest}
+    environment:
+      NOAH_BANC: "1"
+      FAKETIME_TIMESTAMP_FILE: /banc-horloge/temps.rc
+      FAKETIME_NO_CACHE: "1"
+      FAKETIME_DONT_FAKE_MONOTONIC: "1"
+    volumes:
+      - banc-horloge:/banc-horloge:ro
+      - ./tests/banc:/banc:ro
+    networks:
+      noah:
+        aliases: [noah-server]
+    depends_on:
+      horloge-init:
+        condition: service_completed_successfully
+  launcher:
+    container_name: noah-banc-launcher
+    command: ["python", "/banc/lanceur_banc.py"]
+    environment:
+      NOAH_BANC: "1"
+      AGENT_IMAGE: noah-hermes:banc
+      AGENT_NETWORK: noah-banc-net
+      NOAH_BANC_HORLOGE_VOLUME: noah-banc-horloge
+    volumes:
+      - ./tests/banc:/banc:ro
+      - ./launcher/agent_admin.py:/app/agent_admin.py:ro
+  faux:
+    image: ${NOAH_ESSAI_SERVEUR:-noah-server:latest}
+    container_name: noah-banc-faux
+    networks:
+      noah:
+        aliases: [noah-faux]
+  horloge-init:
+    image: ${NOAH_ESSAI_SERVEUR:-noah-server:latest}
+    command: ["python", "/banc/horloge.py", "/banc-horloge/temps.rc", "--initialiser"]
+    volumes:
+      - ./tests/banc:/banc:ro
+      - banc-horloge:/banc-horloge
+    networks: [noah]
+  faux-google:
+    image: ${NOAH_ESSAI_SERVEUR:-noah-server:latest}
+    command: ["python", "/banc/faux_google.py", "--host", "0.0.0.0", "--port", "8081"]
+    ports: ["127.0.0.1:11601:8081"]
+    volumes: ["./tests/banc:/banc:ro"]
+    networks: [noah]
+  faux-github:
+    image: ${NOAH_ESSAI_SERVEUR:-noah-server:latest}
+    command: ["python", "/banc/faux_github.py", "--host", "0.0.0.0", "--port", "8082"]
+    ports: ["127.0.0.1:11602:8082"]
+    volumes: ["./tests/banc:/banc:ro"]
+    # MCP refuse le réseau interne de Noah : réseau séparé, à accepter dans Réglages.
+    networks: [banc-outils]
+  hermes-image:
+    profiles: [images]
+    image: noah-hermes:banc
+    build:
+      context: .
+      dockerfile: tests/banc/Dockerfile.temps
+      args:
+        BASE_IMAGE: nousresearch/hermes-agent@sha256:9c5561579f3ffdf333401797094ac3a743738d6c25d40f4331c7bf77b694238d
+  horloge:
+    profiles: [horloge]
+    image: ${NOAH_ESSAI_SERVEUR:-noah-server:latest}
+    command: ["python", "/banc/horloge.py", "/banc-horloge/temps.rc", "--vitesse", "60"]
+    volumes:
+      - ./tests/banc:/banc:ro
+      - banc-horloge:/banc-horloge
+    networks: [noah]
+
+networks:
+  noah:
+    name: noah-banc-net
+  banc-outils:
+    name: noah-banc-outils
+
+volumes:
+  banc-horloge:
+    name: noah-banc-horloge

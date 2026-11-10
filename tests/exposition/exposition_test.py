@@ -14,7 +14,7 @@ import sys
 import tempfile
 import threading
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import yaml
 
@@ -165,6 +165,28 @@ import httpx  # noqa: E402
 from fastapi.routing import APIRoute  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from starlette.routing import WebSocketRoute  # noqa: E402
+
+# #33 : l'état Docker se lit sans démarrer le navigateur, et reste derrière la clé du lanceur.
+launcher_web = TestClient(launcher.app, headers={"Authorization": "Bearer x"})
+box = MagicMock()
+box.labels = {launcher.BROWSER_LABEL: "essai"}
+with patch.object(client.containers, "get", return_value=box) as lookup:
+    for status in ("exited", "created", "running", "restarting", "paused", "dead"):
+        box.status = status
+        response = launcher_web.get("/agents/essai/browser")
+        assert response.status_code == 200 and response.json() == {"status": status}, response.text
+        lookup.assert_called_with("noah-browser-essai")
+    box.start.assert_not_called()
+    box.restart.assert_not_called()
+    box.labels = {}
+    assert launcher_web.get("/agents/essai/browser").status_code == 403
+    lookup.side_effect = docker.errors.NotFound()
+    assert launcher_web.get("/agents/essai/browser").json() == {"status": "absent"}
+    lookup.reset_mock()
+    assert TestClient(launcher.app).get("/agents/essai/browser").status_code == 401
+    assert launcher_web.get("/agents/ID_INVALIDE/browser").status_code == 400
+    lookup.assert_not_called()
+print("7 bis. état du conteneur navigateur : lecture seule, absent distingué, clé et identité contrôlées")
 
 reached: list[tuple[str, str, str, str]] = []
 route_now = ["", ""]

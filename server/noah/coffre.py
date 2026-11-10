@@ -226,7 +226,7 @@ async def _ask(agent_id: str, kind: str, session: str) -> dict:
         return _refused("busy", "Trop de demandes en attente : réessaie plus tard.")
     item = {"id": secrets.token_urlsafe(16), "agent": agent_id, "conv": conv, "user": row["user_id"], "type": kind, "origine": origin, "site": site_of(origin),
             "onglet": page.get("onglet") or "", "identifiant_requis": not fields.get("motDePasse") or bool(fields.get("identifiant")),
-            "expires": time.monotonic() + ASK_SECONDS}
+            "created": time.time(), "expires": time.monotonic() + ASK_SECONDS}
     _asked[item["id"]] = item
     task_state[conv] = "approve"
     text = f"Se connecter à {item['site']}" if kind == "connexion" else f"Code demandé par {item['site']}"

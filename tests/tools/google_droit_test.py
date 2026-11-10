@@ -1,5 +1,5 @@
 """Google suit un droit comme un outil MCP : lire l'agenda ou les courriels ne demande jamais d'accord ; écrire suit
-« confirmer », « agir » ou « lire ». Seule la vraie compétence, inchangée, compte comme Google : un script du même nom
+« confirmer » ou « lire », puis le tableau d'autonomie (même avec « agir »). Seule la vraie compétence, inchangée, compte comme Google : un script du même nom
 ailleurs, un interpréteur posé par l'agent ou une commande enchaînée reprennent le chemin habituel du juge.
 
     docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \\
@@ -67,6 +67,21 @@ assert decide(G("calendar list")) is None, "une routine lit l'agenda sans person
 alone[0] = False
 print("lire l'agenda, les courriels, les fichiers : jamais d'accord demandé, routines comprises : OK")
 
+# --- Un refus Google explicite prime le raccourci de lecture --------------------------------------------------------
+# Il n'existe aujourd'hui que lire/agir/confirmer : on injecte la décision block,
+# sans inventer un quatrième droit, pour protéger l'ordre des contrôles du plugin.
+real_check_google = garde.check_google
+blocked = {"action": "block", "message": "Connexion Google bloquée."}
+garde.check_google = lambda command: blocked
+try:
+    for unattended in (False, True):
+        alone[0] = unattended
+        assert decide(G("calendar list")) == blocked, "une lecture ne contourne jamais un refus Google explicite"
+finally:
+    garde.check_google = real_check_google
+    alone[0] = False
+print("Google bloqué : lecture refusée avant tout raccourci, en conversation et en routine : OK")
+
 # --- Écrire suit le droit --------------------------------------------------------------------------------------------
 send = G("gmail send --to paul@example.com --subject Salut --body Bonjour")
 rights(None)
@@ -75,7 +90,7 @@ assert asked["action"] == "approve" and "écrire avec Google (gmail send)" in as
 rights("confirmer")
 assert decide(G("calendar create --summary Dentiste --start 2026-11-10T10:00"))["action"] == "approve"
 rights("agir")
-assert decide(send) is None
+assert decide(send)["action"] == "approve", "agir ne prouve pas l'envoi exact : sans juge, la personne décide"
 rights("lire")
 refused = decide(send)
 assert refused["action"] == "block" and "lecture seule" in refused["message"], refused
@@ -83,7 +98,7 @@ rights("confirmer")
 alone[0] = True
 assert decide(send)["action"] == "block", "routine : personne pour confirmer"
 alone[0] = False
-print("écrire : « confirmer » demande, « agir » passe, « lire » refuse, une routine ne reste pas bloquée : OK")
+print("écrire : « confirmer » demande, « agir » passe par le tableau, « lire » refuse, une routine ne reste pas bloquée : OK")
 
 # --- Un script réécrit après le démarrage n'est plus Google -----------------------------------------------------------
 open(SCRIPT, "a").write("import os  # réécrit\n")

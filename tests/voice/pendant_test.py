@@ -16,6 +16,20 @@ import httpx  # noqa: E402
 
 from noah import access, auth, db, events, hermes, main, media, pendant  # noqa: E402
 
+def seed_approval(conv, summary, run=None):
+    with db.connect() as c:
+        row = c.execute("SELECT user_id, agent_id FROM conversations WHERE id = ?", (conv,)).fetchone()
+        c.execute("DELETE FROM accords WHERE conv_id = ? AND request_id = ?", (conv, summary.get("request_id", "r")))
+    return main.accords.create(row["user_id"], row["agent_id"], conv,
+                              run or summary.get("run_id") or main._conversation_run(conv) or "run-x",
+                              {"request_id": "r", "generation": 1, **summary})
+
+
+def clear_approvals(conv):
+    with db.connect() as c:
+        c.execute("DELETE FROM accords WHERE conv_id = ?", (conv,))
+
+
 db.init()
 alice = auth.create_user("alice", "motdepasse-a")
 bruno = auth.create_user("bruno", "motdepasse-b")
@@ -326,9 +340,9 @@ async def everything():
 
     # Un accord attendu se voit sans le flux, et seulement chez l'auteur.
     working()
-    main.task_approval[conv] = {"summary": "Supprimer ?", "request_id": "r1", "generation": 1, "run_id": "run-en-cours"}
+    seed_approval(conv, {"summary": "Supprimer ?", "request_id": "r1", "generation": 1, "run_id": "run-en-cours"})
     assert main.conversation_now(conv, user=alice)["accord"]["request_id"] == "r1"
-    main.task_approval.pop(conv)
+    clear_approvals(conv)
     finished()
 
     # Pièces jointes : même traitement que /api/chat.

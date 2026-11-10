@@ -63,6 +63,11 @@ jobs:
         run: |
           docker run --rm -v "$PWD:/repo:ro" python:3.12-slim sh -c \
             "pip install -q -r /repo/server/requirements.txt && python /repo/tests/exposition/public_test.py"
+      - name: "Accords synchronisés : concurrence, profils, reprise SSE et sécurité du bureau (#36)"
+        run: |
+          docker run --rm -v "$PWD:/repo:ro" python:3.12-slim sh -c \
+            "pip install -q -r /repo/server/requirements.txt && python /repo/tests/exposition/accords_sync_test.py"
+          node tests/desktop/accords_sync_test.mjs
       - name: Notifications Web Push (vérifiées par http_ece et PyJWT)
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \

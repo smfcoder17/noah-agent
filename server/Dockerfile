@@ -24,4 +24,4 @@ ARG NOAH_UPDATE_KEY=
 ENV NOAH_VERSION=$NOAH_VERSION NOAH_DISPLAY_VERSION=$NOAH_DISPLAY_VERSION NOAH_UPDATE_KEY=$NOAH_UPDATE_KEY
 EXPOSE 8080
 # --proxy-headers : derrière Caddy, l'adresse du client et le HTTPS viennent des en-têtes X-Forwarded-*.
-CMD ["uvicorn", "noah.main:app", "--host", "0.0.0.0", "--port", "8080", "--no-server-header", "--no-access-log", "--proxy-headers", "--forwarded-allow-ips", "127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"]
+CMD ["python", "-m", "noah.serve", "noah.main:app", "--host", "0.0.0.0", "--port", "8080", "--no-server-header", "--no-access-log", "--proxy-headers", "--forwarded-allow-ips", "127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"]

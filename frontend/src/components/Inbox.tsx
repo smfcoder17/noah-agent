@@ -2,6 +2,7 @@
 import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { type Agent, get, type InboxItem, send } from "@/lib/api";
+import { refreshAccords, useAccords } from "@/lib/events";
 import { LoginCard } from "./LoginCard";
 import { AgentFace } from "./Noah";
 import { StateShape } from "./Sidebar";
@@ -16,13 +17,15 @@ export function Inbox({ open, agents, onOpenChange, onOpenConversation }: {
   const [items, setItems] = useState<InboxItem[] | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
+  const { items: accords } = useAccords();
   useEffect(() => {
     if (!open) return;
     setItems(null);
     setError("");
-    get<InboxItem[]>("/api/a-toi").then(setItems).catch((e) => setError((e as Error).message));
-    // Un agent peut demander autre chose pendant que la fenêtre est ouverte.
-    const timer = setInterval(() => get<InboxItem[]>("/api/a-toi").then(setItems).catch(() => {}), 3000);
+    const load = () => get<InboxItem[]>("/api/a-toi").then((rows) => setItems(rows.filter((r) => !r.request_id))).catch((e) => setError((e as Error).message));
+    void load();
+    // Connexions et choix gardent leur relève existante ; les accords viennent exclusivement du bus et de /api/accords (secours 60 s).
+    const timer = setInterval(load, 3000);
     return () => clearInterval(timer);
   }, [open]);
   useEffect(() => {
@@ -32,14 +35,15 @@ export function Inbox({ open, agents, onOpenChange, onOpenConversation }: {
     return () => window.removeEventListener("noah:voir-ecran", close);
   }, [open, onOpenChange]);
   const answer = async (item: InboxItem, approve: boolean) => {
-    setBusy(item.conversation_id);
+    setBusy(item.id ?? item.conversation_id);
     setError("");
     try {
       await send(`/api/agents/${item.agent_id}/runs/${item.run_id}/approval`, { request_id: item.request_id, generation: item.generation, approve });
       setItems((cur) => cur?.filter((i) => i.request_id !== item.request_id) ?? null); // un accord suivant reste à donner
-      get<InboxItem[]>("/api/a-toi").then(setItems).catch(() => {});
+      void refreshAccords();
       window.dispatchEvent(new CustomEvent("noah:accord-repondu", { detail: { request_id: item.request_id, result: approve ? "approved" : "denied" } }));
     } catch (e) {
+      void refreshAccords().catch(() => {});
       setError(`La réponse n'a pas été prise en compte : ${(e as Error).message}`);
     } finally {
       setBusy("");
@@ -51,12 +55,12 @@ export function Inbox({ open, agents, onOpenChange, onOpenConversation }: {
         <DialogContent title="À toi" description="Ce que tes agents attendent de toi." className="max-w-lg">
           <ErrorText>{error}</ErrorText>
           {!items && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture…</p>}
-          {items?.length === 0 && <p className="py-4 text-sm text-muted-foreground">Rien ne t'attend pour le moment.</p>}
+          {items?.length === 0 && !accords.length && <p className="py-4 text-sm text-muted-foreground">Rien ne t'attend pour le moment.</p>}
           <ul className="flex max-h-[60vh] flex-col gap-2 overflow-y-auto max-md:max-h-none max-md:overflow-visible">
-            {items?.map((item) => {
+            {[...accords, ...(items ?? [])].sort((a, b) => a.created - b.created).map((item) => {
               const agent = agents.find((a) => a.id === item.agent_id);
               return (
-                <li key={item.conversation_id} className="flex flex-col gap-2 rounded-xl border border-border p-2.5">
+                <li key={item.id ?? item.conversation_id} className="flex flex-col gap-2 rounded-xl border border-border p-2.5">
                   <button type="button" onClick={() => onOpenConversation(item)} className="flex w-full cursor-pointer items-start gap-3 text-left" aria-label={`Ouvrir la conversation : ${item.demande}`}>
                     {agent && <AgentFace agent={agent} className="size-9 shrink-0" />}
                     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -81,10 +85,10 @@ export function Inbox({ open, agents, onOpenChange, onOpenConversation }: {
                       }}
                     />
                   )}
-                  {item.etat === "approve" && item.run_id && (
+                  {item.bureau ? <p className="text-sm text-muted-foreground">À accepter sur ton ordinateur</p> : item.etat === "approve" && item.run_id && (
                     <div className="flex justify-end gap-2">
-                      <Button variant="outline" size="sm" disabled={busy === item.conversation_id} onClick={() => answer(item, false)}>Refuser</Button>
-                      <Button variant="warn" size="sm" disabled={busy === item.conversation_id} onClick={() => answer(item, true)}>Autoriser</Button>
+                      <Button variant="outline" size="sm" disabled={busy === item.id} onClick={() => answer(item, false)}>Refuser</Button>
+                      <Button variant="warn" size="sm" disabled={busy === item.id} onClick={() => answer(item, true)}>Autoriser</Button>
                     </div>
                   )}
                 </li>

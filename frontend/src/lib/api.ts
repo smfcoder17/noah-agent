@@ -31,6 +31,7 @@ function bumpAuthEpoch() {
   } catch {
     /* indisponible : seul cet onglet le sait */
   }
+  window.dispatchEvent(new Event("noah:auth-epoch"));
 }
 
 // Version de l'app (bureau, téléphone) qui affiche cette interface : annoncée à chaque appel, pour que le serveur
@@ -200,7 +201,7 @@ export type Conversation = {
 };
 export type Reactions = { user?: string; agent?: string };
 /** `trace` : une ligne pour la personne dans la conversation principale, qui ouvre un fil. Son détail : voir TraceDetail. */
-export type StoredMessage = { reactions?: Reactions; id?: number; role: "user" | "agent" | "error" | "trace"; text: string; detail?: string | null; created_at: string };
+export type StoredMessage = { reactions?: Reactions; id?: number; role: "user" | "agent" | "error" | "trace" | "accord"; text: string; detail?: string | null; created_at: string };
 export type TraceDetail = { fil: string; entete: string; consigne: string; etat: "en_cours" | "fini" | "echec"; issue: string };
 export type AgentUsage = {
   agent_id: string;
@@ -213,7 +214,8 @@ export type AgentUsage = {
 };
 /** L'agent a besoin d'une connexion : ce que la carte montre vient de la vraie page, jamais d'un texte de l'agent. */
 export type LoginAsked = { id: string; type: "connexion" | "code"; site: string; origine: string; chiffre: boolean; identifiant_requis: boolean };
-export type InboxItem = { agent_id: string; agent: string; conversation_id: string; titre: string; main: boolean; a_moi: boolean; etat: "approve" | "choice"; demande: string; pourquoi?: string; apercu: string[]; request_id?: string; generation?: number; run_id?: string; connexion?: LoginAsked | null };
+export type InboxItem = { id?: string; bureau?: boolean; created: number; agent_id: string; agent: string; conversation_id: string; titre: string; main: boolean; a_moi: boolean; etat: "approve" | "choice"; demande: string; pourquoi?: string; apercu: string[]; request_id?: string; generation?: number; run_id?: string; connexion?: LoginAsked | null };
+export type Accord = InboxItem & { id: string; conv_id: string; request_id: string; generation: number; run_id: string; summary: string; bureau?: boolean; created: number; state: "attend" };
 export type Usage = {
   month_cost: number;
   budget: number | null;

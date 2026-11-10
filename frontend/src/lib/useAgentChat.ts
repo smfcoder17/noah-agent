@@ -8,6 +8,7 @@ import {
 } from "@assistant-ui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, type ChatEvent, get, type LoginAsked, send, type Reactions, type Recu, type StoredMessage, request, StreamLost, streamChat, uploadFile } from "./api";
+import { accordLabel, refreshAccords, useAccords } from "./events";
 
 type TextPart = { type: "text"; text: string };
 type ToolPart = { type: "tool-call"; toolCallId: string; toolName: string; args: Record<string, unknown>; result?: unknown };
@@ -67,6 +68,10 @@ function fromStored(stored: StoredMessage, i: number): ChatMessage {
 }
 
 function fromStoredContent(m: StoredMessage, i: number): ChatMessage {
+  if (m.role === "accord") {
+    const accord = traceArgs(m) as { id?: string };
+    return { id: accord.id ? `clos-${accord.id}` : `h${i}`, role: "assistant", content: [{ type: "text", text: m.text }] };
+  }
   if (m.role === "user") {
     const match = m.text.match(ATTACHED_RE);
     const files = match ? match[1].trim().split("\n").map((l) => l.replace(/^- /, "").split("/").pop()!) : [];
@@ -333,7 +338,7 @@ export function useAgentChat(opts: {
   // --- Pendant le travail : la saisie reste ouverte, et ce qui attend se voit. ---
   const [serverNow, setServerNow] = useState<Now>(IDLE);
   const [login, setLogin] = useState<(LoginAsked & { result?: unknown }) | null>(null);
-  const askedNow = useRef<Approval | null>(null);
+  const { items: pendingAccords, recent: closedAccords } = useAccords();
   const [sending, setSending] = useState<WhileBusyApi["sending"]>([]);
   const givenUp = useRef(new Set<string>());
   const serverBusy = useRef(false);
@@ -583,9 +588,7 @@ export function useAgentChat(opts: {
       return;
     }
     if (o.messageId.startsWith("accord-")) {
-      const id = o.messageId.slice("accord-".length); // un second accord a pu arriver pendant l'envoi : il reste à donner
-      if (askedNow.current?.request_id === id) setGiven({ ...askedNow.current, result: o.result });
-      setServerNow((s) => (s.accord?.request_id === id ? { ...s, accord: null } : s));
+      void refreshAccords();
       return;
     }
     setMessages((all) =>
@@ -623,40 +626,18 @@ export function useAgentChat(opts: {
   // Un accord demandé par un travail que cet écran ne suit pas : il s'affiche quand même, et se donne de la même façon.
   // Encore à répondre dans le fil (flux perdu, historique en retard) : pas de seconde carte pour ce même accord. Une carte déjà
   // répondue ne masque jamais une nouvelle demande : la personne resterait sans bouton.
-  const asked = serverNow.accord;
-  const alreadyThere = (a: Approval) =>
-    messages.some((m) =>
-      m.content.some((p) => {
-        if (p.type !== "tool-call" || p.toolName !== "approval" || p.result !== undefined) return false;
-        const local = p.args as { request_id?: string; generation?: number };
-        return local.request_id === a.request_id && local.generation === a.generation;
-      }),
-    );
-  const pendingApproval = !isRunning && asked && !alreadyThere(asked) ? asked : null;
-  // Après la réponse, la décision reste lisible à sa place jusqu'au message suivant.
-  const [given, setGiven] = useState<(Approval & { result: unknown }) | null>(null);
-  useEffect(() => setGiven(null), [messages.length]);
-  // Répondu depuis « À toi » : la carte de ce fil le sait aussi.
-  askedNow.current = asked;
   useEffect(() => {
-    const answered = (e: Event) => {
-      const { request_id: id, result } = (e as CustomEvent<{ request_id?: string; result?: string }>).detail ?? {};
-      if (!id) return;
-      setMessages((all) =>
-        all.map((m) => ({
-          ...m,
-          content: m.content.map((p) =>
-            p.type === "tool-call" && p.toolName === "approval" && p.result === undefined && (p.args as { request_id?: string }).request_id === id ? { ...p, result } : p,
-          ),
-        })),
-      );
-      if (askedNow.current?.request_id === id) setGiven({ ...askedNow.current, result });
-      setServerNow((s) => (s.accord?.request_id === id ? { ...s, accord: null } : s));
+    const resyncAll = (event: Event) => {
+      const tasks = (event as CustomEvent<Promise<unknown>[]>).detail;
+      const conv = ownConversation.current;
+      tasks.push(refreshNow());
+      if (conv) tasks.push(get<StoredMessage[]>(windowUrl(conv)).then((rows) => {
+        if (ownConversation.current === conv) setMessages(rows.map(fromStored));
+      }));
     };
-    window.addEventListener("noah:accord-repondu", answered);
-    return () => window.removeEventListener("noah:accord-repondu", answered);
-  }, []);
-  // Une connexion à donner : la carte reste à la même place tant que le serveur la demande. La personne y écrit, rien ne doit la refaire.
+    window.addEventListener("noah:resync", resyncAll);
+    return () => window.removeEventListener("noah:resync", resyncAll);
+  }, [refreshNow]);
   const askedLogin = serverNow.connexion ?? null;
   const askedLoginId = askedLogin?.id;
   useEffect(() => {
@@ -674,29 +655,19 @@ export function useAgentChat(opts: {
     return () => window.removeEventListener("noah:connexion-repondue", answered);
   }, []);
   const shown = useMemo<ChatMessage[]>(() => {
-    const base: ChatMessage[] = pendingApproval
-      ? [
-          ...messages,
-          {
-            id: `accord-${pendingApproval.request_id}`,
-            role: "assistant",
-            content: [{ type: "tool-call", toolCallId: `a-${pendingApproval.request_id}`, toolName: "approval", args: { ...pendingApproval } }],
-          },
-        ]
-      : given && !messages.some((m) => m.content.some((p) => p.type === "tool-call" && p.toolName === "approval" && (p.args as { request_id?: string }).request_id === given.request_id))
-        ? [
-            ...messages,
-            {
-              id: `accord-${given.request_id}`,
-              role: "assistant",
-              content: [{ type: "tool-call", toolCallId: `a-${given.request_id}`, toolName: "approval", args: { ...given }, result: given.result }],
-            },
-          ]
-        : messages;
+    const base: ChatMessage[] = messages.map((m) => ({ ...m, content: m.content.filter((p) => p.type !== "tool-call" || p.toolName !== "approval" || p.result !== undefined) }));
+    const storedClosed = new Set(messages.map((m) => m.id));
+    for (const closed of closedAccords.filter((a) => a.conv_id === conversationId)) {
+      const label = accordLabel(closed);
+      if (label && !storedClosed.has("clos-" + closed.id)) base.push({ id: "clos-" + closed.id, role: "assistant", content: [{ type: "text", text: label }] });
+    }
+    for (const pending of pendingAccords.filter((a) => a.conv_id === conversationId)) {
+      base.push({ id: "accord-" + pending.id, role: "assistant", content: [{ type: "tool-call", toolCallId: "a-" + pending.id, toolName: "approval", args: { ...pending } }] });
+    }
     if (!login) return base;
     const { result, ...asked } = login;
     return [...base, { id: `connexion-${login.id}`, role: "assistant", content: [{ type: "tool-call", toolCallId: `c-${login.id}`, toolName: "connexion", args: asked, ...(result ? { result } : {}) }] }];
-  }, [messages, pendingApproval, given, login]);
+  }, [messages, pendingAccords, closedAccords, conversationId, login]);
 
   const runtime = useExternalStoreRuntime<ChatMessage>({
     messages: shown,

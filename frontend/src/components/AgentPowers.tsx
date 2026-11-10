@@ -5,7 +5,7 @@ import { get, request, send } from "@/lib/api";
 import { appLabel } from "@/lib/appLabel";
 import { askAgent } from "@/lib/askAgent";
 import { type ListedModel, MODE_NAMES, type ModeId, scheduleLabel } from "@/lib/modes";
-import { SEEN, seenGeneration } from "@/lib/seen";
+import { useAgentData } from "@/lib/useAgentData";
 import { type ComputerFolders, desktop } from "@/lib/desktop";
 import { cn, fileSize } from "@/lib/utils";
 import { ConnectorScope, PendingGlobal } from "./ConnectorScope";
@@ -32,53 +32,6 @@ export function Section({ title, count, defaultOpen = false, alone = false, chil
       {open && children}
     </section>
   );
-}
-
-/** Charge une ressource de l'agent et la recharge à la demande. */
-function useAgentData<T>(path: string) {
-  const [data, setData] = useState<T | null>(() => (SEEN.get(path) as T) ?? null);
-  const [error, setError] = useState("");
-  const confirmed = useRef(false);
-  const reading = useRef(false);
-  const shownPath = useRef(path);
-  shownPath.current = path;
-  const read = useCallback(
-    (fresh: boolean) => {
-      const generation = seenGeneration();
-      const late = () => shownPath.current !== path || seenGeneration() !== generation;
-      return get<T>(fresh ? `${path}?frais=1` : path)
-        .then((d) => {
-          if (late()) return;
-          confirmed.current = true;
-          SEEN.set(path, d);
-          setData(d);
-          setError("");
-        })
-        .catch((e) => {
-          if (late()) return;
-          SEEN.delete(path);
-          if (!confirmed.current) setData(null); // ce qu'on montrait n'est peut-être plus permis
-          setError((e as Error).message);
-        });
-    },
-    [path],
-  );
-  /** Pour les gestes et le suivi : lit l'état réel, une lecture à la fois. */
-  const load = useCallback(async () => {
-    if (reading.current) return;
-    reading.current = true;
-    try {
-      await read(true);
-    } finally {
-      reading.current = false;
-    }
-  }, [read]);
-  useEffect(() => {
-    confirmed.current = false;
-    setData((SEEN.get(path) as T) ?? null);
-    void read(false);
-  }, [read, path]);
-  return { data, setData, error, setError, load };
 }
 
 const when = (iso: string | null) => {

@@ -19,6 +19,22 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from noah import auth, db, events, hermes, machine, main, media  # noqa: E402
 
+def seed_approval(conv, summary, run=None):
+    with db.connect() as c:
+        row = c.execute("SELECT user_id, agent_id FROM conversations WHERE id = ?", (conv,)).fetchone()
+        run = run or summary.get("run_id") or "run-x"
+        # Clé unique (agent, run, demande) : une ligne laissée par un autre cas serait reprise telle quelle.
+        c.execute("DELETE FROM accords WHERE agent_id = ? AND run_id = ? AND request_id = ?",
+                  (row["agent_id"], run, summary.get("request_id", "r")))
+    return main.accords.create(row["user_id"], row["agent_id"], conv, run,
+                              {"request_id": "r", "generation": 1, **summary})
+
+
+def clear_approvals(conv):
+    with db.connect() as c:
+        c.execute("DELETE FROM accords WHERE conv_id = ?", (conv,))
+
+
 db.init()
 alice = auth.create_user("alice", "motdepasse-a")
 eve = auth.create_user("eve", "motdepasse-e")
@@ -159,13 +175,13 @@ print("3 quinquies. la réaction va au message auquel il répond")
 web = TestClient(main.app, headers={"Authorization": f"Bearer {session}"})
 other = TestClient(main.app, headers={"Authorization": f"Bearer {auth.new_session(eve, 'test', 'web')}"})
 main.task_state[conv] = "approve"
-main.task_approval[conv] = {"demande": "Ton agent veut publier sur Instagram.", "apercu": ["Mon post"], "request_id": "r", "generation": 1, "run_id": "x"}
+seed_approval(conv, {"demande": "Ton agent veut publier sur Instagram.", "apercu": ["Mon post"], "request_id": "r", "generation": 1, "run_id": "x"})
 items = web.get("/api/a-toi").json()
 assert [i["conversation_id"] for i in items] == [conv] and items[0]["demande"].startswith("Ton agent veut publier") and items[0]["apercu"] == ["Mon post"] and items[0]["main"], items
 assert items[0]["request_id"] == "r" and items[0]["run_id"] == "x", "À toi répond sans ouvrir le fil"
 assert other.get("/api/a-toi").json() == [], "rien des autres"
 main.task_state[conv] = "choice"
-main.task_approval.pop(conv)
+clear_approvals(conv)
 assert web.get("/api/a-toi").json()[0]["demande"] == "Une question attend ta réponse."
 main.task_state[conv] = "done"
 assert web.get("/api/a-toi").json() == []
@@ -173,12 +189,12 @@ with db.connect() as c:
     c.execute("INSERT INTO agent_shares (agent_id, user_id, droit) VALUES ('a1', ?, 'usage')", (eve,))
 hers = main._new_conversation(eve, "a1", "Mon secret", main=True)
 main.task_state[hers] = "approve"
-main.task_approval[hers] = {"demande": "Ton agent veut publier sur Instagram.", "apercu": ["Texte privé"]}
+seed_approval(hers, {"demande": "Ton agent veut publier sur Instagram.", "apercu": ["Texte privé"]})
 assert [i["conversation_id"] for i in other.get("/api/a-toi").json()] == [hers]
 assert "Mon secret" not in web.get("/api/a-toi").text and "Texte privé" not in web.get("/api/a-toi").text, "une conversation privée reste à son autrice"
 with db.connect() as c:
     c.execute("UPDATE conversations SET shared = 1 WHERE id = ?", (hers,))
-assert [i["conversation_id"] for i in web.get("/api/a-toi").json()] == [hers], "rendue lisible : le propriétaire la voit"
+assert web.get("/api/a-toi").json() == [], "même partagée, l'accord reste au profil qui l'a demandé"
 with db.connect() as c:
     c.execute("DELETE FROM agent_shares WHERE user_id = ?", (eve,))
 assert other.get("/api/a-toi").json() == [], "accès retiré : plus rien"
@@ -203,7 +219,7 @@ async def answered(*a, **k):
 hermes.answer_approval = answered
 main._runs["run-x"] = {"agent": "a1", "user": alice, "conv": conv, "profil": None}
 main.task_state[conv] = "approve"
-main.task_approval[conv] = {"demande": "Ton agent veut publier sur Instagram."}
+seed_approval(conv, {"demande": "Ton agent veut publier sur Instagram."}, run="run-x")
 r = web.post("/api/agents/a1/runs/run-x/approval", json={"request_id": "r", "generation": 1, "approve": True})
 assert r.status_code == 200, r.text
 assert main.task_state[conv] == "work" and web.get("/api/a-toi").json() == [], "le badge tombe dès la réponse"
@@ -213,18 +229,18 @@ assert any(e["kind"] == "accord" and e["etat"] == "autorise" and "publier sur In
 
 async def second_arrives(*a, **k):
     main.task_state[conv] = "approve"
-    main.task_approval[conv] = {"demande": "Ton agent veut envoyer un second message.", "request_id": "r2"}
+    seed_approval(conv, {"demande": "Ton agent veut envoyer un second message.", "request_id": "r2"}, run="run-x")
 
 
 hermes.answer_approval = second_arrives
 main.task_state[conv] = "approve"
-main.task_approval[conv] = {"demande": "Ton agent veut publier une première fois.", "request_id": "r1"}
+seed_approval(conv, {"demande": "Ton agent veut publier une première fois.", "request_id": "r1"}, run="run-x")
 assert web.post("/api/agents/a1/runs/run-x/approval", json={"request_id": "r1", "generation": 1, "approve": False}).status_code == 200
 assert [i["request_id"] for i in web.get("/api/a-toi").json()] == ["r2"], "le second accord reste à donner"
 newest = web.get("/api/agents/a1/activite").json()[0]
 assert newest["etat"] == "refuse" and "première fois" in newest["titre"], newest
 main.task_state[conv] = "done"
-main.task_approval.pop(conv)
+clear_approvals(conv)
 main._runs.pop("run-x")
 # Un aperçu, pas une archive : au-delà de la durée gardée, plus rien à l'écran ni dans la base, au prochain passage.
 with db.connect() as c:

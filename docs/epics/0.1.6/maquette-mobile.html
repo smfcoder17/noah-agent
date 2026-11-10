@@ -70,7 +70,7 @@ figcaption b { color: var(--ink); font-weight: 600; }
 .composer .ph { flex: 1; color: var(--soft); }
 .send { width: 36px; height: 36px; border-radius: 50%; background: var(--ink); color: var(--bg); display: grid; place-items: center; }
 .tabbar { flex: none; height: 62px; display: flex; justify-content: space-around; align-items: center; padding-bottom: 6px; }
-.tabbar .t { width: 48px; height: 40px; display: grid; place-items: center; color: var(--soft); border-radius: 14px; }
+.tabbar .t { width: 52px; height: 48px; display: grid; place-items: center; color: var(--soft); border-radius: 14px; }
 .tabbar .t.on { color: var(--ink); background: var(--muted); }
 .avatar { width: 46px; height: 46px; }
 .avatar.lg { width: 84px; height: 84px; }
@@ -125,6 +125,103 @@ figcaption b { color: var(--ink); font-weight: 600; }
 .seg { display: flex; background: var(--muted); border-radius: 12px; padding: 3px; }
 .seg span { flex: 1; text-align: center; padding: 7px 0; border-radius: 10px; font-size: 13.5px; color: var(--soft); }
 .seg span.on { background: var(--card); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+.att { align-self: flex-start; display: flex; align-items: center; gap: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 8px 12px 8px 8px; max-width: 86%; }
+.att .kind { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; flex: none; font-size: 10px; font-weight: 700; color: #fff; }
+.att .t1 { font-size: 13.5px; font-weight: 600; }
+.att .t2 { font-size: 12px; color: var(--soft); }
+.wcard { align-self: flex-start; width: 86%; background: var(--card); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+.wcard .mini { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; padding: 8px; background: var(--muted); }
+.wcard .mini i { aspect-ratio: 1; border-radius: 5px; display: block; }
+.wcard .foot { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; font-size: 13px; }
+.wcard .foot b { font-weight: 600; }
+.open { color: var(--accent); font-weight: 600; display: flex; align-items: center; gap: 4px; }
+.pii { background: var(--muted); border-radius: 6px; padding: 0 5px; font-family: ui-monospace, monospace; font-size: 12.5px; border: 1px dashed var(--soft); }
+.pii.shown { background: var(--accent-soft); border-style: solid; border-color: var(--accent-soft); font-family: inherit; }
+.thumb { align-self: flex-start; width: 150px; height: 110px; border-radius: 14px; background: linear-gradient(160deg, #ffb36b, #e2557d 55%, #5a3fd6); }
+.viewer { background: #000; color: #fff; }
+.viewer .status { color: #fff; }
+.viewer .bar2 { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; }
+.viewer .iconbtn { color: #fff; background: rgba(255,255,255,.12); }
+.viewer .stage { flex: 1; display: grid; place-items: center; position: relative; }
+.viewer .img { width: 100%; aspect-ratio: 4/5; background: linear-gradient(160deg, #ffb36b, #e2557d 55%, #5a3fd6); }
+.hint { position: absolute; bottom: 14px; background: rgba(255,255,255,.14); padding: 5px 10px; border-radius: 999px; font-size: 12px; }
+.actbar { display: flex; justify-content: space-around; padding: 10px 8px 28px; }
+.actbar div { display: grid; justify-items: center; gap: 4px; font-size: 11.5px; opacity: .9; }
+.pdfpage { background: #fff; color: #141b24; border-radius: 6px; padding: 18px 16px; display: grid; gap: 8px; box-shadow: 0 2px 12px rgba(0,0,0,.25); }
+.pdfpage h4 { margin: 0; font-size: 15px; }
+.sheet { position: absolute; left: 0; right: 0; bottom: 0; background: var(--card); color: var(--ink); border-radius: 22px 22px 0 0; padding: 10px 16px 26px; display: grid; gap: 10px; box-shadow: 0 -8px 30px rgba(0,0,0,.3); }
+.sheet .grab { width: 38px; height: 4px; border-radius: 2px; background: var(--line); justify-self: center; }
+.apps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; text-align: center; font-size: 11.5px; }
+.apps .app { display: grid; justify-items: center; gap: 5px; }
+.apps .app span.sq { width: 48px; height: 48px; border-radius: 14px; display: grid; place-items: center; color: #fff; font-weight: 700; }
+.wfull { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.wfull .cell { background: var(--card); border-radius: 12px; overflow: hidden; }
+.wfull .cell i { display: block; aspect-ratio: 1; }
+.wfull .cell div { padding: 6px 8px; font-size: 12px; }
+.pii .eye { display: inline-block; vertical-align: -2px; margin-left: 3px; opacity: .7; }
+.lcard { align-self: flex-start; width: 86%; background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.lcard .thumbv { height: 120px; position: relative; display: grid; place-items: center; }
+.lcard .thumbv .playb { width: 44px; height: 44px; border-radius: 50%; background: rgba(0,0,0,.55); display: grid; place-items: center; color: #fff; }
+.lcard .dur { position: absolute; right: 8px; bottom: 8px; background: rgba(0,0,0,.7); color: #fff; font-size: 11px; padding: 1px 6px; border-radius: 4px; }
+.lcard .meta { padding: 8px 12px; display: grid; gap: 2px; }
+.lcard .meta b { font-size: 13.5px; font-weight: 600; }
+.lcard .meta span { font-size: 12px; color: var(--soft); display: flex; align-items: center; gap: 6px; }
+.fav { width: 16px; height: 16px; border-radius: 4px; display: inline-grid; place-items: center; color: #fff; font-size: 9px; font-weight: 700; flex: none; }
+.links { align-self: flex-start; width: 86%; background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.links .l { display: flex; align-items: center; gap: 10px; padding: 9px 12px; font-size: 13px; }
+.links .l + .l { border-top: 1px solid var(--line); }
+.links .l span.t { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.links .l span.h { color: var(--soft); font-size: 11.5px; }
+.pip { position: absolute; top: 150px; right: 12px; width: 168px; height: 96px; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 24px rgba(0,0,0,.3); z-index: 3; background: linear-gradient(135deg, #1b2533, #2a47c9); }
+.pip .pbar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(255,255,255,.3); }
+.pip .pbar i { display: block; height: 100%; width: 38%; background: #fff; }
+.pip .pctl { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 18px; color: #fff; }
+.pip .x { position: absolute; top: 6px; right: 6px; color: #fff; }
+.aplayer { flex: none; margin: 0 12px; background: var(--card); border-radius: 16px; display: flex; align-items: center; gap: 10px; padding: 8px 10px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.aplayer .cov { width: 36px; height: 36px; border-radius: 8px; background: linear-gradient(135deg, #5a3fd6, #e2557d); flex: none; }
+.aplayer .t { flex: 1; display: grid; font-size: 13px; } .aplayer .t small { color: var(--soft); font-size: 11.5px; }
+.aplayer .pl { width: 34px; height: 34px; border-radius: 50%; background: var(--ink); color: var(--bg); display: grid; place-items: center; }
+.audio { align-self: flex-start; width: 86%; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; display: flex; align-items: center; gap: 10px; }
+.audio .pl { width: 34px; height: 34px; border-radius: 50%; background: var(--accent); color: #fff; display: grid; place-items: center; flex: none; }
+.wave { flex: 1; display: flex; align-items: center; gap: 2px; height: 26px; }
+.wave i { width: 3px; border-radius: 2px; background: var(--line); display: block; }
+.wave i.on { background: var(--accent); }
+.audio small { color: var(--soft); font-size: 11.5px; }
+.vfull { background: #000; color: #fff; }
+.vfull .status { color: #fff; }
+.vfull .vstage { margin-top: 150px; aspect-ratio: 16/9; background: linear-gradient(135deg, #1b2533, #2a47c9); display: grid; place-items: center; font-weight: 700; font-size: 20px; }
+.vfull .scrub { margin: 14px 18px 0; height: 4px; border-radius: 2px; background: rgba(255,255,255,.25); } .vfull .scrub i { display: block; width: 38%; height: 100%; background: #fff; border-radius: 2px; }
+.vfull .times { display: flex; justify-content: space-between; margin: 6px 18px; font-size: 11.5px; opacity: .8; }
+.vfull .ctls { display: flex; justify-content: center; gap: 36px; margin-top: 18px; align-items: center; }
+.rcard { align-self: flex-start; width: 86%; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; display: grid; gap: 6px; }
+.rcard .h { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--soft); }
+.rcard b { font-size: 13.5px; font-weight: 600; }
+.rcard .r { display: flex; align-items: center; justify-content: space-between; font-size: 12.5px; color: var(--soft); }
+.tag { font-size: 11px; font-weight: 600; border-radius: 999px; padding: 1px 8px; }
+.tag.red { background: #fde8e8; color: #c0262d; } .tag.green { background: #e2f4ea; color: var(--ok); } .tag.blue { background: var(--accent-soft); color: var(--accent); }
+.badge { font-size: 11px; color: var(--accent); background: var(--accent-soft); border-radius: 999px; padding: 1px 7px; font-weight: 600; }
+.more { align-self: center; color: var(--accent); font-weight: 600; font-size: 13.5px; padding: 2px; }
+.skillmeta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12.5px; color: var(--soft); }
+.skilltext { background: var(--card); border-radius: 16px; padding: 14px; font-size: 14px; line-height: 1.55; }
+.actions3 { display: grid; gap: 8px; margin-top: auto; padding-bottom: 14px; }
+.actions3 .btn { display: flex; align-items: center; justify-content: center; gap: 6px; }
+.ctxchip { flex: none; align-self: flex-start; margin: 4px 14px 0; display: inline-flex; align-items: center; gap: 6px; background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 5px 10px; font-size: 12.5px; font-weight: 600; }
+.kb { flex: none; background: #d3d7dd; padding: 8px 4px 22px; display: grid; gap: 8px; }
+.kr { display: flex; gap: 5px; }
+.kr span { flex: 1; background: #fff; border-radius: 6px; height: 40px; display: grid; place-items: center; font-size: 15px; color: #141b24; box-shadow: 0 1px 0 rgba(0,0,0,.2); }
+.radio .rd { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--line); flex: none; }
+.radio.on .rd { border: 6px solid var(--accent); }
+.tiers { display: grid; gap: 1px; padding: 0 14px 10px 46px; }
+.tier { display: flex; align-items: center; gap: 8px; padding: 7px 0; font-size: 13.5px; }
+.tier .tn { width: 70px; color: var(--soft); font-size: 12.5px; }
+.tier .tm { flex: 1; }
+.logo2 { width: 26px; height: 26px; border-radius: 7px; display: inline-grid; place-items: center; color: #fff; font-size: 10.5px; font-weight: 700; flex: none; }
+.prov { display: flex; align-items: center; gap: 10px; }
+.prov > span:last-child { display: grid; }
+.scan { background: #0c1117; border-radius: 20px; height: 300px; display: grid; place-items: center; align-content: center; gap: 14px; color: #fff; text-align: center; font-size: 13px; }
+.scan .qr { width: 150px; height: 150px; border-radius: 14px; border: 3px solid #fff; background: repeating-conic-gradient(#fff 0 25%, #0c1117 0 50%) 0 0 / 18px 18px; opacity: .9; }
+.pip .grip { position: absolute; left: 4px; bottom: 6px; width: 14px; height: 14px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; border-radius: 0 0 0 4px; opacity: .8; }
+.approved { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--soft); padding: 2px 4px; }
 .notes { max-width: 1180px; margin: 0 auto; padding: 0 20px 48px; display: grid; gap: 6px; color: var(--soft); font-size: 14px; }
 .notes h2 { color: var(--ink); font-size: 17px; margin: 0 0 4px; }
 .notes ul { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
@@ -146,6 +243,12 @@ figcaption b { color: var(--ink); font-weight: 600; }
     <li>Agents et Réglages quittent la barre du bas : Agents passe dans ☰, Réglages en bas du tiroir.</li>
     <li>Toucher l'avatar ouvre la page de l'agent : son modèle, ses connexions, ses compétences, sa mémoire et son autonomie, en rangées.</li>
     <li>Une routine, un accord, un fichier s'ouvrent sur leur page avec ←.</li>
+    <li>Documents, grilles et images arrivent dans la discussion en petit ; un toucher les ouvre en plein écran, avec zoom au pincement et « Ouvrir avec ».</li>
+    <li>Courriels et téléphones masqués par défaut (réglable dans Apparence) : un toucher révèle, un autre recache.</li>
+    <li>Liens, vidéos, audios, PR, courriels, rendez-vous et routines ont chacun leur carte ; une vidéo continue en petit pendant qu'on discute.</li>
+    <li>Compétences : les miennes en haut, celles de Noah en bas, repliées ; chacune s'amène dans la discussion, se modifie ou se retire.</li>
+    <li>Clavier ouvert : la saisie monte, la barre du bas se cache. La vidéo en petit se déplace et se redimensionne au doigt.</li>
+    <li>Cerveau et fournisseurs refaits, avec les vrais logos. Le téléphone se relie à un serveur ou à un ordinateur.</li>
     <li>Plus aucune notification permanente. L'appel sonne en plein écran, même téléphone verrouillé.</li>
   </ul>
 </section>
@@ -191,12 +294,20 @@ const P = {
 const ic = (n, s = 22, w = 1.8, cls = "ic") => `<svg class="${cls}" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
 const avatar = (cls = "avatar") => { const id = "g" + cls.replace(/W/g, ""); return `<svg class="${cls}" viewBox="0 0 100 100" aria-hidden="true"><defs><radialGradient id="${id}" cx="40%" cy="30%" r="75%"><stop offset="0" stop-color="#9b8cff"/><stop offset="1" stop-color="#5a3fd6"/></radialGradient></defs><path d="M50 12c22 0 34 18 34 40v34c0 4-4 6-8 4l-6-4-6 4-6-4-6 4-6-4-6 4-6-4-6 4c-4 2-8 0-8-4V52c0-22 12-40 34-40Z" fill="#6a50e0"/><ellipse cx="40" cy="48" rx="7" ry="9" fill="#fff"/><ellipse cx="62" cy="48" rx="7" ry="9" fill="#fff"/><circle cx="41" cy="50" r="4" fill="#141b24"/><circle cx="63" cy="50" r="4" fill="#141b24"/><path d="M45 64q6 5 12 0" stroke="#141b24" stroke-width="3" fill="none" stroke-linecap="round"/></svg>`; };
 const status = () => `<div class="status"><span>9:41</span><span>●●● 5G 87%</span></div>`;
-const tabbar = (on) => `<nav class="tabbar">${["chat","activity","tasks","files","computer"].map(t => `<div class="t ${t===on?"on":""}">${ic(t, 23, t===on?2.2:1.8)}</div>`).join("")}</nav>`;
+const NAMES = { chat: "Discussion", activity: "Activité", tasks: "Tâches", files: "Fichiers", computer: "Ordinateur" };
+const tabbar = (on) => `<nav class="tabbar">${["chat","activity","tasks","files","computer"].map(t => `<div class="t ${t===on?"on":""}" role="button" aria-label="${NAMES[t]}">${ic(t, 23, t===on?2.2:1.8)}</div>`).join("")}</nav>`;
 const topBar = (state = "En ligne") => `<div class="top"><button class="iconbtn fill" aria-label="Menu">${ic("menu")}</button><div class="center">${avatar()}<div class="name">Noah</div><div class="state"><span class="dot"></span>${state}</div></div><button class="iconbtn fill" aria-label="Nouvelle discussion">${ic("edit",20)}</button></div>`;
 const titled = (left, title, right = "") => `<div class="title-top"><button class="iconbtn fill">${ic(left)}</button><h2>${title}</h2>${right ? `<button class="iconbtn">${ic(right)}</button>` : "<span></span>"}</div>`;
 const row = (icon, label, val = "", sub = "", end = "chev") => `<div class="row">${icon ? ic(icon, 21) : ""}<div class="lbl"><span>${label}</span>${sub ? `<span class="sub">${sub}</span>` : ""}</div>${val ? `<span class="val">${val}</span>` : ""}${end === "chev" ? `<span class="chev">${ic("chevron",18)}</span>` : end}</div>`;
 const tg = (on) => `<span class="toggle ${on ? "on" : ""}"></span>`;
 
+Object.assign(P, {
+  share: '<path d="M12 3v12M7 8l5-5 5 5"/><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/>',
+  external: '<path d="M14 4h6v6M20 4l-9 9"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/>',
+  download: '<path d="M12 4v11M7 10l5 5 5-5"/><path d="M5 20h14"/>',
+  lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>'
+});
+P.pause = '<path d="M8 5v14M16 5v14"/>';
 const screens = [
   { cap: "<b>Discussion.</b> En haut : ☰, l'agent et ce qu'il fait, nouvelle discussion. En bas : des icônes seules.", html: `${status()}${topBar("Prépare le carrousel")}
     <div class="body">
@@ -210,7 +321,9 @@ const screens = [
     <div class="drawer">
       <div class="section-label">Agents</div>
       <div class="group">${row("", `<span style="display:flex;gap:10px;align-items:center">${avatar("avatar")}<span><b>Noah</b><br><span class="sub">Prépare le carrousel</span></span></span>`, "", "", "")}${row("plus","Nouvel agent","","","")}</div>
-      <div class="section-label">Onglets</div>
+      <div class="section-label">Discussions</div>
+      <div class="group">${row("chat","Carrousel Python","","","")}${row("chat","Devis pour Marc","","","")}</div>
+      <div class="section-label">Onglets · Personnaliser</div>
       <div class="group">${[["chat","Discussion"],["activity","Activité"],["tasks","Tâches"],["files","Fichiers"],["computer","Ordinateur"]].map(([i,l]) => row(i,l,"","",`<span class="drag">${ic("grip",18)}</span>`)).join("")}</div>
       <div style="margin-top:auto" class="group">${row("search","Rechercher","","","")}${row("gear","Réglages")}</div>
     </div>` },
@@ -220,13 +333,14 @@ const screens = [
       <div class="group">${row("brain","Cerveau","Auto")}${row("shield","Autonomie","Auto")}${row("plug","Connexions","6")}${row("spark","Compétences","12")}${row("memory","Mémoire")}</div>
       <div class="group">${row("palette","Apparence")}${row("bell","Notifications de Noah")}</div>
     </div>` },
-  { cap: "<b>Activité.</b> Ce qui attend mon accord en tête, puis ce que l'agent a fait aujourd'hui.", html: `${status()}${topBar("Attend ton accord")}
+  { cap: "<b>Activité.</b> Ce qui attend mon accord en tête, dans l'ordre d'arrivée. Une demande répondue ailleurs (ordinateur, web) disparaît ici dans la seconde, avec une ligne qui le dit.", html: `${status()}${topBar("Attend ton accord")}
     <div class="body">
       <div class="approve">
         <div class="head"><span class="logo" style="background:#111">X</span><h3>Publier sur X</h3></div>
         <div class="quote">« 5 erreurs Python que tous les débutants font. Le fil complet ici 👇 »</div>
         <div class="two"><button class="btn ghost">Refuser</button><button class="btn primary">Publier</button></div>
       </div>
+      <div class="approved">${ic("check",16,2.2)} Accord donné sur l'ordinateur · lancer installer-police.exe</div>
       <div class="section-label">Aujourd'hui</div>
       <div class="taskrow"><span class="ticon done">${ic("check",18,2.2)}</span><div><div>Carrousel Python préparé</div><div class="when">10 h 51</div></div></div>
       <div class="taskrow"><span class="ticon done">${ic("check",18,2.2)}</span><div><div>Courriels du matin triés</div><div class="when">8 h 02</div></div></div>
@@ -267,6 +381,122 @@ const screens = [
       <div class="group">${row("music","Sonnerie d'appel","Nuage")}${row("bell","Son des notifications","Bulle")}</div>
       <div class="group">${row("moon","Ne pas déranger","22 h – 7 h")}${row("","Silencieux","","Vibre sans son",tg(false))}</div>
     </div>` },
+  { cap: "<b>Dans la discussion.</b> Un document, une grille, une image s'affichent en petit. Courriel et téléphone masqués par défaut ; un toucher révèle (œil barré), un autre recache.", html: `${status()}${topBar()}
+    <div class="body">
+      <div class="bubble me">Fais-moi la grille des posts de la semaine et le devis pour Marc.</div>
+      <div class="wcard"><div class="mini">${["#2a47c9","#e2557d","#ffb36b","#1f8a4c","#5a3fd6","#141b24"].map(c=>`<i style="background:${c}"></i>`).join("")}</div><div class="foot"><span><b>Grille de la semaine</b> · 6 posts</span><span class="open">Ouvrir ${ic("chevron",16,2)}</span></div></div>
+      <div class="att"><span class="kind" style="background:#e5484d">PDF</span><div><div class="t1">devis-marc.pdf</div><div class="t2">2 pages · 84 Ko</div></div></div>
+      <div class="bubble it">Je l'envoie à <span class="pii">ma•••@g•••.com</span> ? Son numéro : <span class="pii">+1 514 ••• •• 42</span></div>
+      <div class="thumb"></div>
+    </div>
+    <div class="composer">${ic("plus",22)}<span class="ph">Message</span>${ic("mic",21)}<span class="send">${ic("up",18,2.2)}</span></div>${tabbar("chat")}` },
+  { cap: "<b>Une grille ouverte.</b> Plein écran, 2 colonnes au téléphone et 4 sur l'ordinateur, sans qu'on ait à le demander.", html: `${status()}${titled("close","Grille de la semaine","share")}
+    <div class="body"><div class="wfull">${[["#2a47c9","Lun · 5 erreurs Python"],["#e2557d","Mar · Reel boucles"],["#ffb36b","Mer · Avant / après"],["#1f8a4c","Jeu · Vibe coding"],["#5a3fd6","Ven · Question du public"],["#141b24","Sam · Coulisses"]].map(([c,t])=>`<div class="cell"><i style="background:${c}"></i><div>${t}</div></div>`).join("")}</div></div>` },
+  { cap: "<b>Une image.</b> Elle tient dans l'écran ; on pince pour zoomer, on glisse vers le bas pour fermer.", cls: "viewer", html: `${status()}<div class="bar2"><button class="iconbtn">${ic("close")}</button><span style="font-size:13px;opacity:.8">visuel-lundi.png</span><button class="iconbtn">${ic("more")}</button></div>
+    <div class="stage"><div class="img"></div><span class="hint">Pincer pour zoomer</span></div>
+    <div class="actbar"><div>${ic("share",22)}Partager</div><div>${ic("external",22)}Ouvrir avec</div><div>${ic("download",22)}Enregistrer</div></div>` },
+  { cap: "<b>Un PDF.</b> Il se lit dans l'app. « Ouvrir avec » propose les apps du téléphone qui savent l'ouvrir.", cls: "viewer", html: `${status()}<div class="bar2"><button class="iconbtn">${ic("close")}</button><span style="font-size:13px;opacity:.8">devis-marc.pdf · 1 / 2</span><button class="iconbtn">${ic("external")}</button></div>
+    <div class="stage" style="align-items:start;padding-top:10px"><div class="pdfpage" style="width:88%"><h4>Devis n° 2026-114</h4><div class="ln" style="width:70%"></div><div class="ln"></div><div class="ln" style="width:85%"></div><div class="ln" style="width:60%"></div><div class="ln"></div><div class="ln" style="width:40%"></div></div></div>
+    <div class="sheet"><div class="grab"></div><b>Ouvrir avec</b><div class="apps">${[["#e5484d","Acrobat"],["#1a73e8","Drive"],["#5d6875","Fichiers"],["#1f8a4c","Partager"]].map(([c,n])=>`<div class="app"><span class="sq" style="background:${c}">${n[0]}</span>${n}</div>`).join("")}</div></div>` },
+  { cap: "<b>Apparence.</b> Masquer les données sensibles par défaut : courriels, téléphones, adresses, numéros de carte.", html: `${status()}${titled("back","Apparence")}
+    <div class="body">
+      <div class="group">${row("lock","Masquer les données sensibles","","Toucher pour révéler",tg(true))}</div>
+      <div class="section-label">Thème</div>
+      <div class="seg"><span>Clair</span><span>Sombre</span><span class="on">Système</span></div>
+      <div class="section-label">Texte</div>
+      <div class="seg"><span>Petit</span><span class="on">Normal</span><span>Grand</span></div>
+      <div class="group">${row("palette","Couleur de Noah","Violet")}${row("","Taille de l'avatar","Moyen")}</div>
+    </div>` },
+  { cap: "<b>Des liens.</b> Un seul lien devient une carte (miniature, titre, durée). Plusieurs liens dans un message : une liste compacte, une ligne par lien avec son icône.", html: `${status()}${topBar()}
+    <div class="body">
+      <div class="bubble me">Regarde ça et dis-moi si on en fait un Short</div>
+      <div class="lcard"><div class="thumbv" style="background:linear-gradient(135deg,#b31217,#e52d27)"><span class="playb">${ic("play",20,2)}</span><span class="dur">12:48</span></div><div class="meta"><b>J'ai remplacé mon équipe par des agents IA</b><span><span class="fav" style="background:#e52d27">▶</span>YouTube · Fireship</span></div></div>
+      <div class="bubble it">Oui, la partie 3:10 à 4:05 tient seule. Trois idées proches :</div>
+      <div class="links">${[["#111","X","Thread : agents en production","x.com"],["#e52d27","▶","Short similaire, 1,2 M de vues","youtube.com"],["#24292f","G","hermes-agent · v0.9 notes","github.com"]].map(([c,f,t,h])=>`<div class="l"><span class="fav" style="background:${c}">${f}</span><span class="t">${t}</span><span class="h">${h}</span></div>`).join("")}</div>
+    </div>
+    <div class="composer">${ic("plus",22)}<span class="ph">Message</span>${ic("mic",21)}<span class="send">${ic("up",18,2.2)}</span></div>${tabbar("chat")}` },
+  { cap: "<b>Une vidéo en petit pendant qu'on discute.</b> Elle se déplace au doigt n'importe où, se redimensionne en pinçant ou par son coin, se range dans un coin si on la lâche près du bord ; un toucher l'agrandit, ✕ la ferme.", html: `${status()}${topBar("Monte le Short")}
+    <div class="pip"><span class="pctl">${ic("back",20,2)}${ic("pause",22,2)}</span><span class="x">${ic("close",14,2)}</span><span class="grip"></span><span class="pbar"><i></i></span></div>
+    <div class="body">
+      <div class="lcard"><div class="thumbv" style="background:linear-gradient(135deg,#1b2533,#2a47c9)"><span class="playb">${ic("play",20,2)}</span><span class="dur">0:58</span></div><div class="meta"><b>short-agents-v2.mp4</b><span>Créé par Noah · 9:16 · 24 Mo</span></div></div>
+      <div class="bubble me">Coupe le silence à 0:12 et mets les sous-titres plus haut</div>
+      <div class="bubble it">C'est fait, version 3 en cours de rendu.</div>
+    </div>
+    <div class="composer">${ic("plus",22)}<span class="ph">Message</span>${ic("mic",21)}<span class="send">${ic("up",18,2.2)}</span></div>${tabbar("chat")}` },
+  { cap: "<b>Vidéo en plein écran.</b> Lecteur de l'app : avancer, vitesse, plein écran, Ouvrir avec un autre lecteur.", cls: "vfull", html: `${status()}<div class="title-top"><button class="iconbtn" style="color:#fff;background:rgba(255,255,255,.12)">${ic("close")}</button><span style="text-align:center;font-size:13px;opacity:.85">short-agents-v2.mp4</span><button class="iconbtn" style="color:#fff;background:rgba(255,255,255,.12)">${ic("external")}</button></div>
+    <div class="vstage">${ic("play",42,2)}</div><div class="scrub"><i></i></div><div class="times"><span>0:22</span><span>0:58</span></div>
+    <div class="ctls">${ic("back",26,2)}<span style="width:58px;height:58px;border-radius:50%;background:#fff;color:#000;display:grid;place-items:center">${ic("pause",26,2.2)}</span>${ic("chevron",26,2)}</div>
+    <div class="ctls" style="font-size:13px;opacity:.85;gap:28px"><span>1×</span><span>Sous-titres</span><span>${ic("share",18)}</span></div>` },
+  { cap: "<b>Un audio.</b> Lecture d'un toucher dans la discussion ; la barre du lecteur reste au-dessus de la saisie quand on continue d'écrire.", html: `${status()}${topBar()}
+    <div class="body">
+      <div class="audio"><span class="pl">${ic("pause",16,2.2)}</span><div style="flex:1;display:grid;gap:2px"><div class="wave">${Array.from({length:34},(_,i)=>`<i class="${i<13?"on":""}" style="height:${6+((i*37)%20)}px"></i>`).join("")}</div><small>voix-off-intro.mp3 · 0:18 / 0:46</small></div></div>
+      <div class="bubble me">Plus lent sur la deuxième phrase</div>
+      <div class="bubble it">Voilà la version plus posée.</div>
+      <div class="audio"><span class="pl">${ic("play",16,2.2)}</span><div style="flex:1;display:grid;gap:2px"><div class="wave">${Array.from({length:34},(_,i)=>`<i style="height:${6+((i*53)%20)}px"></i>`).join("")}</div><small>voix-off-intro-v2.mp3 · 0:51</small></div></div>
+    </div>
+    <div class="aplayer"><span class="cov"></span><div class="t">voix-off-intro.mp3<small>0:18 / 0:46</small></div><span class="pl">${ic("pause",16,2.2)}</span>${ic("close",18)}</div>
+    <div class="composer">${ic("plus",22)}<span class="ph">Message</span>${ic("mic",21)}<span class="send">${ic("up",18,2.2)}</span></div>${tabbar("chat")}` },
+  { cap: "<b>Ce que l'agent surveille, en cartes.</b> Une PR, un courriel, un rendez-vous, une routine créée : chacun a sa carte, ses actions, et s'ouvre sur sa page.", html: `${status()}${topBar("Surveille tes PR")}
+    <div class="body">
+      <div class="rcard"><div class="h"><span class="fav" style="background:#24292f">G</span>smfcoder17/noah-agent · PR #41<span class="tag red" style="margin-left:auto">Critique</span></div><b>Corrige la fuite du jeton dans les journaux</b><div class="r"><span>+42 −8 · tests verts</span><span class="open">Voir l'analyse ${ic("chevron",14,2)}</span></div></div>
+      <div class="rcard"><div class="h">${ic("bell",14)}<span class="pii">ma•••@g•••.com</span><span style="margin-left:auto">9 h 12</span></div><b>Devis accepté, on démarre lundi ?</b><div class="r"><span>Brouillon de réponse prêt</span><span class="open">Relire ${ic("chevron",14,2)}</span></div></div>
+      <div class="rcard"><div class="h">${ic("clock",14)}Mardi 11 nov. · 14 h – 14 h 30</div><b>Appel avec Marc</b><div class="r"><span>Ajouté à ton agenda</span><span class="open">Ouvrir ${ic("chevron",14,2)}</span></div></div>
+      <div class="rcard"><div class="h">${ic("tasks",14)}Nouvelle routine<span class="tag green" style="margin-left:auto">Active</span></div><b>Analyser chaque nouvelle PR</b><div class="r"><span>Toutes les heures · prévient si critique</span>${tg(true)}</div></div>
+    </div>${tabbar("chat")}` },
+  { cap: "<b>Compétences.</b> Les tiennes en haut, celles de Noah en bas, repliées : une ligne chacune, « Voir les 14 » pour le reste. Un toucher ouvre la compétence.", html: `${status()}${titled("back","Compétences","plus")}
+    <div class="body">
+      <div class="section-label">Enseignées par toi · 4</div>
+      <div class="group">${row("memory","Ton de mes posts")}${row("memory","Format des devis")}${row("memory","Réponses aux clients")}</div>
+      <div class="more">Voir les 4</div>
+      <div class="section-label">Apprises par Noah · 14</div>
+      <div class="group">${row("spark","Analyser une PR GitHub","","",`<span class="badge">Nouveau</span>`)}${row("spark","Carrousel Instagram SMF")}${row("spark","Trier les courriels du matin")}</div>
+      <div class="more">Voir les 14</div>
+    </div>` },
+  { cap: "<b>Une compétence ouverte.</b> Son origine, son texte, et trois gestes : l'amener dans la discussion pour la faire changer par Noah, la modifier moi-même, la retirer.", html: `${status()}${titled("back","Analyser une PR GitHub","more")}
+    <div class="body">
+      <div class="skillmeta"><span class="badge">Apprise par Noah</span><span>Après ta demande du 9 nov. · utilisée 6 fois</span></div>
+      <div class="skilltext"><b>Quand</b> une PR arrive sur un de tes dépôts.<br><b>Faire</b> lire le diff et les tests, classer la gravité (critique, normale, mineure), écrire l'analyse dans <i>Analyses/PR</i>.<br><b>Prévenir</b> seulement si critique.</div>
+      <div class="actions3"><button class="btn primary">${ic("chat",18)} Dans la discussion</button><div class="two"><button class="btn ghost">${ic("edit",16)} Modifier</button><button class="btn warn">Retirer</button></div></div>
+    </div>` },
+  { cap: "<b>Clavier ouvert.</b> La saisie monte au-dessus du clavier, la barre du bas se cache, la discussion reste lisible au-dessus. La compétence amenée est en contexte, retirable d'un ✕.", html: `${status()}${topBar()}
+    <div class="body" style="justify-content:flex-end">
+      <div class="bubble it">Je peux l'adapter. Que veux-tu changer ?</div>
+    </div>
+    <div class="ctxchip">${ic("spark",14)} Analyser une PR GitHub <span>${ic("close",12,2)}</span></div>
+    <div class="composer" style="margin-bottom:6px"><span class="ph" style="color:var(--ink)">Préviens-moi aussi pour les PR de sécurité|</span><span class="send">${ic("up",18,2.2)}</span></div>
+    <div class="kb">${["azertyuiop","qsdfghjklm","⇧wxcvbn⌫"].map(r=>`<div class="kr">${[...r].map(k=>`<span>${k}</span>`).join("")}</div>`).join("")}<div class="kr"><span style="flex:2">123</span><span style="flex:6">espace</span><span style="flex:2">↵</span></div></div>` },
+  { cap: "<b>Le cerveau de l'agent.</b> Auto choisit le niveau selon la tâche ; chaque niveau montre son modèle et son fournisseur, avec son logo. « Comme mes autres agents » ou un modèle précis restent à un toucher.", html: `${status()}${titled("back","Cerveau")}
+    <div class="body">
+      <div class="group">
+        <div class="row radio on"><span class="rd"></span><div class="lbl"><span>Auto</span><span class="sub">Simple, moyen ou complexe : Noah choisit</span></div></div>
+        <div class="tiers">${[["Simple","DeepSeek V4 Flash","#4d6bfe","D"],["Moyen","Kimi K3","#16191d","K"],["Complexe","GPT-6.1 Sol","#10a37f","O"]].map(([n,m,c,l])=>`<div class="tier"><span class="tn">${n}</span><span class="logo2" style="background:${c}">${l}</span><span class="tm">${m}</span>${ic("chevron",16)}</div>`).join("")}</div>
+        <div class="row radio"><span class="rd"></span><div class="lbl"><span>Comme mes autres agents</span></div></div>
+        <div class="row radio"><span class="rd"></span><div class="lbl"><span>Un modèle précis</span></div></div>
+      </div>
+      <div class="group">${row("brain","Réflexion","Moyenne")}${row("plug","Fournisseurs","4")}</div>
+    </div>` },
+  { cap: "<b>Fournisseurs.</b> Chacun avec son vrai logo. Un fournisseur à moi : je colle son adresse, Noah récupère son icône et ses modèles.", html: `${status()}${titled("back","Fournisseurs","plus")}
+    <div class="body">
+      <div class="section-label">Branchés</div>
+      <div class="group">${[["OpenRouter","#6467f2","OR","Clé ajoutée · 340 modèles"],["Ollama Cloud","#111","Ol","Clé ajoutée · 28 modèles"],["Mammouth","#ff7a2f","M","Abonnement · 12 modèles"]].map(([n,c,l,s])=>row("",`<span class="prov"><span class="logo2" style="background:${c}">${l}</span><span><span>${n}</span><span class="sub">${s}</span></span></span>`)).join("")}</div>
+      <div class="section-label">À brancher</div>
+      <div class="group">${[["OpenAI","#10a37f","O"],["Anthropic","#d97757","A"],["Google Gemini","#4285f4","G"],["Mistral","#fa520f","M"],["DeepSeek","#4d6bfe","D"]].map(([n,c,l])=>row("",`<span class="prov"><span class="logo2" style="background:${c}">${l}</span><span>${n}</span></span>`,"Brancher","","")).join("")}</div>
+      <div class="group">${row("plus","Un autre fournisseur","","Colle son adresse (compatible OpenAI)")}</div>
+    </div>` },
+  { cap: "<b>Relier le téléphone.</b> À mon serveur ou à mon ordinateur : Noah y tourne, le téléphone scanne le code affiché. Hors de la maison, l'ordinateur doit rester allumé et joignable.", html: `${status()}${titled("back","Relier ce téléphone")}
+    <div class="body" style="gap:14px">
+      <div class="seg"><span>Mon serveur</span><span class="on">Mon ordinateur</span></div>
+      <div class="scan"><div class="qr"></div><span>Vise le code affiché dans Noah sur ton ordinateur<br>Réglages › Appareils › Relier un téléphone</span></div>
+      <div class="group">${row("computer","Ordinateur de Franck","","Même Wi-Fi · trouvé automatiquement","<span class=\"open\">Relier</span>")}</div>
+    </div>` },
+  { cap: "<b>Les états prévus.</b> Hors connexion, permission refusée, erreur : une phrase et un geste pour s'en sortir, jamais un écran blanc.", html: `${status()}${topBar("Hors connexion")}
+    <div class="body">
+      <div class="group" style="background:var(--warn-soft)">${row("bell","Hors connexion","","Tes messages partiront au retour du réseau","")}</div>
+      <div class="bubble me" style="opacity:.6">Rappelle-moi l'appel avec Marc à 13 h 45</div>
+      <div class="group">${row("call","Appels en plein écran refusés","","Les appels arrivent en notification","<span class=\"open\">Activer</span>")}</div>
+      <div class="group">${row("files","devis-marc.pdf introuvable","","Le fichier a été déplacé ou supprimé","<span class=\"open\">Réessayer</span>")}</div>
+    </div>
+    <div class="composer">${ic("plus",22)}<span class="ph">Message</span>${ic("mic",21)}<span class="send">${ic("up",18,2.2)}</span></div>${tabbar("chat")}` },
   { cap: "<b>Appel de Noah.</b> Téléphone verrouillé : il sonne en plein écran, comme un vrai appel.", cls: "call", html: `${status()}
     <div class="who">${avatar("avatar xl")}<h2>Noah</h2><p>Appel vocal · « Le post est prêt »</p></div>
     <div class="actions"><div><div class="round red">${ic("callend",30,2,"ic")}</div><div class="lab">Refuser</div></div><div><div class="round green">${ic("call",28,2,"ic")}</div><div class="lab">Répondre</div></div></div>` }
