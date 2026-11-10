@@ -1,0 +1,94 @@
+[
+  {
+    "vue": "ordinateur",
+    "api": "simulée",
+    "frame": {
+      "x": 232,
+      "y": 0,
+      "width": 1048,
+      "height": 800,
+      "top": 0,
+      "right": 1280,
+      "bottom": 800,
+      "left": 232
+    },
+    "list": {
+      "x": 232,
+      "y": 56,
+      "width": 280,
+      "height": 744,
+      "top": 56,
+      "right": 512,
+      "bottom": 800,
+      "left": 232
+    },
+    "first": {
+      "x": 242,
+      "y": 70,
+      "width": 259,
+      "height": 44,
+      "top": 70,
+      "right": 501,
+      "bottom": 114,
+      "left": 242
+    },
+    "scroll": 0,
+    "listScroll": 0,
+    "modal": "true",
+    "focused": true,
+    "computed": {
+      "translate": "none",
+      "transform": "none",
+      "inset": "0px 0px 0px 232px"
+    },
+    "stylesheets": [
+      "http://127.0.0.1:4173/assets/index-CKAZ1CGc.css"
+    ]
+  },
+  {
+    "vue": "telephone",
+    "api": "simulée",
+    "frame": {
+      "x": 0,
+      "y": 0,
+      "width": 390,
+      "height": 844,
+      "top": 0,
+      "right": 390,
+      "bottom": 844,
+      "left": 0
+    },
+    "list": {
+      "x": 0,
+      "y": 0,
+      "width": 0,
+      "height": 0,
+      "top": 0,
+      "right": 0,
+      "bottom": 0,
+      "left": 0
+    },
+    "first": {
+      "x": 0,
+      "y": 0,
+      "width": 0,
+      "height": 0,
+      "top": 0,
+      "right": 0,
+      "bottom": 0,
+      "left": 0
+    },
+    "scroll": 0,
+    "listScroll": 0,
+    "modal": "true",
+    "focused": true,
+    "computed": {
+      "translate": "0px",
+      "transform": "none",
+      "inset": "0px"
+    },
+    "stylesheets": [
+      "http://127.0.0.1:4173/assets/index-CKAZ1CGc.css"
+    ]
+  }
+]

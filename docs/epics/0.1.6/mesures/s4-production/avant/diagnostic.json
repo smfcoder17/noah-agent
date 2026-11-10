@@ -1,0 +1,307 @@
+{
+  "frame": {
+    "x": -292,
+    "y": -400,
+    "width": 1048,
+    "height": 800,
+    "top": -400,
+    "right": 756,
+    "bottom": 400,
+    "left": -292
+  },
+  "scroll": 0,
+  "computed": {
+    "display": "flex",
+    "position": "fixed",
+    "inset": "0px 0px 0px 232px",
+    "top": "0px",
+    "left": "232px",
+    "right": "0px",
+    "bottom": "0px",
+    "width": "1048px",
+    "height": "800px",
+    "max-width": "none",
+    "max-height": "none",
+    "translate": "-50% -50%",
+    "transform": "none",
+    "overflow": "hidden",
+    "--rail-width": "232px"
+  },
+  "rules": [
+    {
+      "groups": [
+        "properties",
+        "(((-webkit-hyphens:none)) and (not (margin-trim:inline))) or ((-moz-orient:inline) and (not (color:rgb(from red r g b))))"
+      ],
+      "selector": "*, ::before, ::after, ::backdrop",
+      "css": "--tw-translate-x: 0; --tw-translate-y: 0; --tw-translate-z: 0; --tw-rotate-x: initial; --tw-rotate-y: initial; --tw-rotate-z: initial; --tw-skew-x: initial; --tw-skew-y: initial; --tw-divide-y-reverse: 0; --tw-border-style: solid; --tw-gradient-position: initial; --tw-gradient-from: #0000; --tw-gradient-via: #0000; --tw-gradient-to: #0000; --tw-gradient-stops: initial; --tw-gradient-via-stops: initial; --tw-gradient-from-position: 0%; --tw-gradient-via-position: 50%; --tw-gradient-to-position: 100%; --tw-leading: initial; --tw-font-weight: initial; --tw-tracking: initial; --tw-ordinal: initial; --tw-slashed-zero: initial; --tw-numeric-figure: initial; --tw-numeric-spacing: initial; --tw-numeric-fraction: initial; --tw-shadow: 0 0 #0000; --tw-shadow-color: initial; --tw-shadow-alpha: 100%; --tw-inset-shadow: 0 0 #0000; --tw-inset-shadow-color: initial; --tw-inset-shadow-alpha: 100%; --tw-ring-color: initial; --tw-ring-shadow: 0 0 #0000; --tw-inset-ring-color: initial; --tw-inset-ring-shadow: 0 0 #0000; --tw-ring-inset: initial; --tw-ring-offset-width: 0px; --tw-ring-offset-color: #fff; --tw-ring-offset-shadow: 0 0 #0000; --tw-outline-style: solid; --tw-blur: initial; --tw-brightness: initial; --tw-contrast: initial; --tw-grayscale: initial; --tw-hue-rotate: initial; --tw-invert: initial; --tw-opacity: initial; --tw-saturate: initial; --tw-sepia: initial; --tw-drop-shadow: initial; --tw-drop-shadow-color: initial; --tw-drop-shadow-alpha: 100%; --tw-drop-shadow-size: initial; --tw-duration: initial; --tw-scale-x: 1; --tw-scale-y: 1; --tw-scale-z: 1;"
+    },
+    {
+      "groups": [
+        "base"
+      ],
+      "selector": "*, ::after, ::before, ::backdrop",
+      "css": "box-sizing: border-box; border: 0px solid; margin: 0px; padding: 0px;"
+    },
+    {
+      "groups": [
+        "utilities"
+      ],
+      "selector": ".fixed",
+      "css": "position: fixed;"
+    },
+    {
+      "groups": [
+        "utilities"
+      ],
+      "selector": ".top-1\\/2",
+      "css": "top: 50%;"
+    },
+    {
+      "groups": [
+        "utilities"
+      ],
+      "selector": ".left-1\\/2",
+      "css": "left: 50%;"
+    },
+    {
+      "groups": [
+        "utilities"
+      ],
+      "selector": ".z-50",
+      "css": "z-index: 50;"
+    },
+    {
+      "groups": [
+        "utilities"
+      ],
+      "selector": ".flex",
+      "css": "display: flex;"
+    },
+    {
+      "groups": [
+        "utilities"
+      ],
+      "selector": ".max-h-\\[calc\\(100dvh-24px\\)\\]",
+      "css": "max-height: calc(100dvh - 24px);"
+    },
+    {
+      "groups": [
+        "utilities"
+      ],
+      "selector": ".w-\\[calc\\(100vw-24px\\)\\]",
+      "css": "width: calc(-24px + 100vw);"
+    },
+    {
+      "groups": [
+        "utilities"
+      ],
+      "selector": ".max-w-4xl",
+      "css": "max-width: var(--container-4xl);"
+    },
+    {
+      "groups": [
+        "utilities"
+      ],
+      "selector": ".-translate-x-1\\/2",
+      "css": "--tw-translate-x: -50%; translate: var(--tw-translate-x) var(--tw-translate-y);"
+    },
+    {
+      "groups": [
+        "utilities"
+      ],
+      "selector": ".-translate-y-1\\/2",
+      "css": "--tw-translate-y: -50%; translate: var(--tw-translate-x) var(--tw-translate-y);"
+    },
+    {
+      "groups": [
+        "utilities"
+      ],
+      "selector": ".flex-col",
+      "css": "flex-direction: column;"
+    },
+    {
+      "groups": [
+        "utilities"
+      ],
+      "selector": ".gap-4",
+      "css": "gap: calc(var(--spacing) * 4);"
+    },
+    {
+      "groups": [
+        "utilities"
+      ],
+      "selector": ".overflow-y-auto",
+      "css": "overflow-y: auto;"
+    },
+    {
+      "groups": [
+        "utilities"
+      ],
+      "selector": ".rounded-2xl",
+      "css": "border-radius: var(--radius-2xl);"
+    },
+    {
+      "groups": [
+        "utilities"
+      ],
+      "selector": ".border",
+      "css": "border-style: var(--tw-border-style); border-width: 1px;"
+    },
+    {
+      "groups": [
+        "utilities"
+      ],
+      "selector": ".border-border, .border-border\\/50",
+      "css": "border-color: var(--border);"
+    },
+    {
+      "groups": [
+        "utilities"
+      ],
+      "selector": ".bg-surface, .bg-surface\\/90",
+      "css": "background-color: var(--surface);"
+    },
+    {
+      "groups": [
+        "utilities"
+      ],
+      "selector": ".p-6",
+      "css": "padding: calc(var(--spacing) * 6);"
+    },
+    {
+      "groups": [
+        "utilities"
+      ],
+      "selector": ".shadow-2xl",
+      "css": "--tw-shadow: 0 25px 50px -12px var(--tw-shadow-color,#00000040); box-shadow: var(--tw-inset-shadow),var(--tw-inset-ring-shadow),var(--tw-ring-offset-shadow),var(--tw-ring-shadow),var(--tw-shadow);"
+    },
+    {
+      "groups": [
+        "utilities",
+        "not all and (min-width: 48rem)"
+      ],
+      "selector": ".max-md\\:inset-0",
+      "css": "inset: 0px;"
+    },
+    {
+      "groups": [
+        "utilities",
+        "not all and (min-width: 48rem)"
+      ],
+      "selector": ".max-md\\:h-dvh",
+      "css": "height: 100dvh;"
+    },
+    {
+      "groups": [
+        "utilities",
+        "not all and (min-width: 48rem)"
+      ],
+      "selector": ".max-md\\:max-h-none",
+      "css": "max-height: none;"
+    },
+    {
+      "groups": [
+        "utilities",
+        "not all and (min-width: 48rem)"
+      ],
+      "selector": ".max-md\\:w-full",
+      "css": "width: 100%;"
+    },
+    {
+      "groups": [
+        "utilities",
+        "not all and (min-width: 48rem)"
+      ],
+      "selector": ".max-md\\:max-w-none",
+      "css": "max-width: none;"
+    },
+    {
+      "groups": [
+        "utilities",
+        "not all and (min-width: 48rem)"
+      ],
+      "selector": ".max-md\\:translate-x-0",
+      "css": "--tw-translate-x: 0px; translate: var(--tw-translate-x) var(--tw-translate-y);"
+    },
+    {
+      "groups": [
+        "utilities",
+        "not all and (min-width: 48rem)"
+      ],
+      "selector": ".max-md\\:translate-y-0",
+      "css": "--tw-translate-y: 0px; translate: var(--tw-translate-x) var(--tw-translate-y);"
+    },
+    {
+      "groups": [
+        "utilities",
+        "not all and (min-width: 48rem)"
+      ],
+      "selector": ".max-md\\:rounded-none",
+      "css": "border-radius: 0px;"
+    },
+    {
+      "groups": [
+        "utilities",
+        "not all and (min-width: 48rem)"
+      ],
+      "selector": ".max-md\\:border-0",
+      "css": "border-style: var(--tw-border-style); border-width: 0px;"
+    },
+    {
+      "groups": [
+        "utilities",
+        "not all and (min-width: 48rem)"
+      ],
+      "selector": ".max-md\\:px-4",
+      "css": "padding-inline: calc(var(--spacing) * 4);"
+    },
+    {
+      "groups": [
+        "utilities",
+        "not all and (min-width: 48rem)"
+      ],
+      "selector": ".max-md\\:pt-\\[max\\(12px\\,env\\(safe-area-inset-top\\)\\)\\]",
+      "css": "padding-top: max(12px,env(safe-area-inset-top));"
+    },
+    {
+      "groups": [
+        "utilities",
+        "not all and (min-width: 48rem)"
+      ],
+      "selector": ".max-md\\:pb-\\[max\\(32px\\,calc\\(env\\(safe-area-inset-bottom\\)\\+24px\\)\\)\\]",
+      "css": "padding-bottom: max(32px,calc(env(safe-area-inset-bottom) + 24px));"
+    },
+    {
+      "groups": [
+        "utilities",
+        "not all and (min-width: 48rem)"
+      ],
+      "selector": ".max-md\\:shadow-none",
+      "css": "--tw-shadow: 0 0 #0000; box-shadow: var(--tw-inset-shadow),var(--tw-inset-ring-shadow),var(--tw-ring-offset-shadow),var(--tw-ring-shadow),var(--tw-shadow);"
+    },
+    {
+      "groups": [
+        "(min-width: 768px)"
+      ],
+      "selector": ".desktop-settings[role=\"dialog\"]",
+      "css": "inset: 0 0 0 var(--rail-width); background: var(--bg); border: 0px; border-radius: 0px; gap: 0px; width: auto; max-width: none; max-height: none; padding: 0px; overflow: hidden; transform: none;"
+    },
+    {
+      "groups": [],
+      "selector": "*",
+      "css": "border-color: var(--border);"
+    },
+    {
+      "groups": [
+        "(prefers-reduced-motion: reduce)"
+      ],
+      "selector": "*, ::before, ::after",
+      "css": "transition: none !important; animation: auto ease 0s 1 normal none running none !important;"
+    }
+  ],
+  "sheets": [
+    "http://127.0.0.1:4173/assets/index-CtgP1mN4.css",
+    null
+  ]
+}

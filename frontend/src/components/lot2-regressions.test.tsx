@@ -19,7 +19,7 @@ import { takeAsk } from "@/lib/askAgent";
 import { SideRail } from "./desktop/SideRail";
 import { Drawer } from "./mobile/Drawer";
 import { MobileHeader } from "./mobile/MobileHeader";
-import { SettingsFrame } from "./Settings";
+import { SettingsDialog, SettingsFrame } from "./Settings";
 import { Dialog, DialogContent } from "./ui";
 import { ProviderLogo, providerLogo } from "./ProviderLogo";
 import { useNoahRetour } from "@/lib/useNoahRetour";
@@ -144,6 +144,49 @@ it("12 — réglages modaux, focus retenu et Échap ferme seulement la couche su
   expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Réglages");
   await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
   expect(document.querySelector('[role="dialog"]')).toBeNull(); outside.remove();
+});
+
+it("12 S4 — cadre sur toute la zone de droite et liste au début, téléphone plein écran", async () => {
+  await act(async () => root.render(<SettingsDialog open tab="home" owner onTab={noOp} onOpenChange={noOp} onBrainSaved={noOp} />));
+  const frame = document.querySelector<HTMLElement>('.desktop-settings[role="dialog"]')!;
+  const columns = frame.querySelector<HTMLElement>(":scope > .settings-two-columns")!;
+  const list = columns.querySelector<HTMLElement>(":scope > .settings-list")!;
+  expect(list.firstElementChild?.textContent).toBe("Apparence");
+  expect(list.textContent).toContain("Modèles et budget");
+  expect(columns.querySelector(":scope > .settings-detail")).toBeTruthy();
+  expect(frame.scrollTop).toBe(0);
+  expect(list.scrollTop).toBe(0);
+
+  // JSDOM ne calcule pas les rectangles : ici, seulement les règles sources.
+  // tools/eval/vue-reglages.mjs vérifie la vraie App après vite build + preview.
+  const style = document.createElement("style");
+  style.textContent = readFileSync("src/styles/desktop.css", "utf8");
+  document.head.append(style);
+  try {
+    const rules = [...style.sheet!.cssRules];
+    const media = (condition: string) => rules.flatMap((r) => r instanceof CSSMediaRule && r.conditionText === condition ? [...r.cssRules] : []);
+    const rule = (group: CSSRule[], selector: string) => (group.find((r) => r instanceof CSSStyleRule && r.selectorText === selector) as CSSStyleRule).style;
+    const desktop = media("(min-width:768px)");
+    const frameStyle = rule(desktop, ".desktop-settings[role=dialog]");
+    for (const [property, value] of Object.entries({ inset: "0 0 0 var(--rail-width)", translate: "none", width: "auto", "max-width": "none", "max-height": "none", overflow: "hidden", padding: "0" })) {
+      expect(frameStyle.getPropertyValue(property), property).toBe(value);
+    }
+    expect(frameStyle.getPropertyValue("transform")).toBe(""); // sinon la minification retire translate:none
+    expect(rule(desktop, ".desktop-settings[role=dialog] > .settings-two-columns").getPropertyValue("flex")).toBe("1");
+    expect(rule(rules, ".settings-two-columns").getPropertyValue("grid-template-columns")).toBe("280px minmax(0,1fr)");
+    expect(rule(rules, ".settings-list").getPropertyValue("display")).toBe("flex");
+    expect(rule(rules, ".settings-list").getPropertyValue("overflow-y")).toBe("auto");
+    expect(rule(rules, ".settings-detail").getPropertyValue("overflow")).toBe("auto");
+    const phone = media("(max-width:767px)");
+    expect(rule(phone, ".settings-list").getPropertyValue("display")).toBe("none");
+    expect(rule(phone, ".settings-two-columns").getPropertyValue("flex-direction")).toBe("column");
+    // Le cadre garde les classes plein écran du dialogue commun sur téléphone.
+    expect(frame.classList.contains("max-md:inset-0")).toBe(true);
+    expect(frame.classList.contains("max-md:h-dvh")).toBe(true);
+    expect(frame.classList.contains("max-md:w-full")).toBe(true);
+    expect(frame.classList.contains("max-md:translate-x-0")).toBe(true);
+    expect(frame.classList.contains("max-md:translate-y-0")).toBe(true);
+  } finally { style.remove(); }
 });
 
 it("13/14 B6 — aucune lecture de budget perdue dans Shell ni sélecteur CSS sans cible", () => {

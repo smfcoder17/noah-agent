@@ -1,0 +1,48 @@
+[
+  {
+    "vue": "ordinateur",
+    "api": "simulée",
+    "frame": {
+      "x": -292,
+      "y": -400,
+      "width": 1048,
+      "height": 800,
+      "top": -400,
+      "right": 756,
+      "bottom": 400,
+      "left": -292
+    },
+    "list": {
+      "x": -292,
+      "y": -344,
+      "width": 280,
+      "height": 744,
+      "top": -344,
+      "right": -12,
+      "bottom": 400,
+      "left": -292
+    },
+    "first": {
+      "x": -282,
+      "y": -330,
+      "width": 259,
+      "height": 44,
+      "top": -330,
+      "right": -23,
+      "bottom": -286,
+      "left": -282
+    },
+    "scroll": 0,
+    "listScroll": 0,
+    "modal": "true",
+    "focused": true,
+    "computed": {
+      "translate": "-50% -50%",
+      "transform": "none",
+      "inset": "0px 0px 0px 232px"
+    },
+    "stylesheets": [
+      "http://127.0.0.1:4173/assets/index-CtgP1mN4.css"
+    ]
+  }
+]

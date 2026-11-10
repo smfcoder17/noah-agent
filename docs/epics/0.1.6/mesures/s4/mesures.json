@@ -1,0 +1,67 @@
+{
+  "contexte": "Composants réels et CSS Vite, réponses API de banc, sans Docker",
+  "mesures": [
+    {
+      "vue": "ordinateur",
+      "frame": {
+        "x": 232,
+        "y": 0,
+        "width": 1048,
+        "height": 800,
+        "top": 0,
+        "right": 1280,
+        "bottom": 800,
+        "left": 232
+      },
+      "list": {
+        "x": 232,
+        "y": 56,
+        "width": 280,
+        "height": 744,
+        "top": 56,
+        "right": 512,
+        "bottom": 800,
+        "left": 232
+      },
+      "first": {
+        "x": 242,
+        "y": 70,
+        "width": 259,
+        "height": 44,
+        "top": 70,
+        "right": 501,
+        "bottom": 114,
+        "left": 242
+      },
+      "scroll": 0,
+      "listScroll": 0
+    },
+    {
+      "vue": "telephone",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "width": 390,
+        "height": 844,
+        "top": 0,
+        "right": 390,
+        "bottom": 844,
+        "left": 0
+      },
+      "scroll": 0,
+      "first": {
+        "x": 16,
+        "y": 64,
+        "width": 358,
+        "height": 48,
+        "top": 64,
+        "right": 374,
+        "bottom": 112,
+        "left": 16
+      },
+      "bodyWidth": 390
+    }
+  ],
+  "focusTrapped": true,
+  "escapeCloses": true
+}

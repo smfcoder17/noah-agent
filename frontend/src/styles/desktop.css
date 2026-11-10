@@ -12,7 +12,7 @@
 .right-panel > header b { flex:1; font-size:14px; overflow:hidden; text-overflow:ellipsis; }
 .right-panel-body { flex:1; padding:16px; overflow:auto; min-height:0; display:flex; flex-direction:column; }
 .settings-two-columns { display:grid; grid-template-columns:280px minmax(0,1fr); min-height:0; gap:0; }
-.settings-list { display:flex; flex-direction:column; gap:2px; padding:14px 10px; border-right:1px solid var(--line); }
+.settings-list { display:flex; flex-direction:column; min-height:0; overflow-y:auto; gap:2px; padding:14px 10px; border-right:1px solid var(--line); }
 .settings-list button { padding:10px; border-radius:var(--radius-10); text-align:left; color:var(--soft); cursor:pointer; }
 .settings-list button[aria-current] { background:var(--card); color:var(--ink); font-weight:600; }
 .settings-detail { padding:22px 32px; min-width:0; display:flex; flex-direction:column; gap:14px; overflow:auto; }
@@ -21,7 +21,9 @@
 @media(min-width:768px) { .noah-shell { font-size:14px; } }
 @media(max-width:767px) { .side-rail { display:none; } .right-panel { width:100%; } .settings-two-columns { display:flex; flex-direction:column; } .settings-list { display:none; } .settings-detail { padding:0; } }
 @media(min-width:768px) {
-  .desktop-settings[role=dialog] { inset:0 0 0 var(--rail-width); transform:none; width:auto; max-width:none; max-height:none; border:0; border-radius:0; padding:0; gap:0; background:var(--bg); }
+  /* Tailwind 4 centre avec translate. Ne pas ajouter transform:none : Lightning CSS
+     fusionne ces deux remises à zéro et retire translate:none du build de production. */
+  .desktop-settings[role=dialog] { inset:0 0 0 var(--rail-width); translate:none; width:auto; max-width:none; max-height:none; overflow:hidden; border:0; border-radius:0; padding:0; gap:0; background:var(--bg); }
   .desktop-settings[role=dialog] > div:first-child { min-height:56px; flex:none; align-items:center; padding:0 20px; border-bottom:1px solid var(--line); }
   .desktop-settings[role=dialog] > .settings-two-columns { flex:1; }
 }
