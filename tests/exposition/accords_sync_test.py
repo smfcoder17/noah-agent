@@ -147,7 +147,7 @@ class Listener:
             value = self.events.get(timeout=max(0.01, deadline - time.monotonic()))
             if isinstance(value, Exception):
                 raise value
-            if value[1]["event"] == genre:
+            if genre is None or value[1]["event"] == genre:
                 return value
 
     def close(self):
@@ -312,13 +312,33 @@ with serve() as base, httpx.Client(base_url=base, headers=headers(web_token), ti
         c.execute("UPDATE conversations SET shared = 1 WHERE id = ?", (conv,))
     assert httpx.get(base + "/api/accords", headers=headers(bob_token)).json() == []
     assert answer(base, bob_token, first).status_code == 404
+    # #46b : updates.activity() invalide les écrans de tous les comptes, sans contenu.
+    # Le compteur de Bob n'est donc plus forcément zéro ; aucun accord ne doit y figurer.
+    bob_revision, gap, rows = bus.replay(bob, 0)
+    assert not gap
+    assert all(r["user_id"] == bob and r["genre"] == "donnees.changees" and json.loads(r["contenu"]) == {} for r in rows)
     listener = Listener(base, bob_token, 0)
     try:
-        _, event = listener.next("pret")
-        assert event["id"] == "0" and bus.replay(bob, 0)[2] == []
+        received = []
+        while True:
+            _, event = listener.next(None)
+            if event["event"] == "pret":
+                assert int(event["id"]) == bob_revision and json.loads(event["data"]) == {}
+                break
+            assert event["event"] == "donnees.changees" and json.loads(event["data"]) == {}, event
+            received.append(int(event["id"]))
+        assert received == [r["revision"] for r in rows]
+        # Nouvelle demande et clôture chez Alice : même admin, Bob ne reçoit rien de plus.
+        private = seed("isolation-bob", "run-isolation")
+        assert answer(base, web_token, private).status_code == 200
+        assert bus.replay(bob, bob_revision) == (bob_revision, False, [])
+        # Un signal destiné à Bob sert de témoin : le SSE a bien relu le journal après les accords d'Alice.
+        bus.invalidate(bob)
+        _, event = listener.next(None)
+        assert event == {"id": str(bob_revision + 1), "event": "donnees.changees", "data": "{}"}, event
     finally:
         listener.close()
-    print("4. Autre profil, même admin et conversation partagée : ni liste, ni événements, ni réponse")
+    print("4. Autre profil, même admin et conversation partagée : ni liste, ni événements d'accord, ni réponse ; seuls les signaux vides #46b passent")
 
     temporary_token = auth.new_session(alice, "appareil révoqué", "web")
     listener = Listener(base, temporary_token)

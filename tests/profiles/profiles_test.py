@@ -18,6 +18,7 @@ import time
 import typing
 import uuid
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 os.environ["NOAH_DATA_DIR"] = tempfile.mkdtemp()
 os.environ.setdefault("LAUNCHER_KEY", "x")
@@ -52,7 +53,7 @@ class Sandbox(httpx.AsyncClient):
 
 httpx.AsyncClient = Sandbox
 
-from noah import access, auth, db, desktop, handoff, hermes, machine, main, media, profiles, push, relay, updates, watch  # noqa: E402, F401
+from noah import access, auth, catalog, db, desktop, handoff, hermes, linkpreview, machine, main, media, profiles, push, relay, safefetch, updates, watch  # noqa: E402, F401
 
 app = main.app
 OLD_DIR = db.DATA_DIR
@@ -281,6 +282,7 @@ ROUTES = {
     ("PATCH", "/api/agents/{agent_id}"): "admin",
     ("DELETE", "/api/agents/{agent_id}"): "proprietaire",
     ("GET", "/api/agents/{agent_id}/conversations"): "lecture",
+    ("POST", "/api/agents/{agent_id}/conversations"): "usage",
     ("POST", "/api/conversations/{conv_id}/archive"): "auteur",
     ("GET", "/api/conversations/{conv_id}/messages"): "auteur",
     ("PUT", "/api/conversations/{conv_id}/messages/{message_id}/reaction"): "auteur",
@@ -410,6 +412,9 @@ QUERIES = {"/api/agents/{agent_id}/media": {"path": "/x.png"}, "/api/agents/{age
 
 # Routes avec un identifiant qui n'appartient à aucun agent. Chacune a sa raison et, quand c'est possible, sa vérification.
 WHITELIST = {
+    ("GET", "/api/liens/image/{key}"): "Image publique mise en cache, identique pour tous ; connexion exigée (test_public_assets).",
+    ("PUT", "/api/fournisseurs/{provider}"): "Configuration globale réservée au propriétaire (OWNER_WITH_ID et test_provider_access).",
+    ("GET", "/api/fournisseurs/{provider}/icone"): "Icône publique sans clé ni adresse dans la réponse ; connexion exigée (test_public_assets).",
     ("POST", "/api/desktop/accords/{rid}"): "Processus natif et appareil destinataire seulement (accords_sync_test).",
     ("POST", "/api/desktop/accords/{rid}/reponse"): "Même appareil, même demande, accord local uniquement (accords_sync_test).",
     ("POST", "/api/goals"): "Un objectif du compte connecté ; posé sur un agent, il faut en être le propriétaire (proactif_test).",
@@ -446,6 +451,7 @@ WHITELIST = {
 
 # Routes sans identifiant : la configuration globale, refusée à un profil…
 OWNER_ROUTES = {
+    ("GET", "/api/fournisseurs"): None,
     ("POST", "/api/setup/done"): None,
     ("POST", "/api/model"): {"provider": "openrouter", "api_key": "CLE-DU-FOURNISSEUR", "model": "modele-de-base"},
     ("POST", "/api/budget"): {"monthly": None},
@@ -483,9 +489,14 @@ OWNER_WITH_ID = {("PATCH", "/api/profiles/{profile_id}"): {"budget": None}, ("DE
                  ("POST", "/api/profiles/{profile_id}/double-verification/couper"): {"motdepasse": "x"},
                  ("GET", "/api/profiles/{profile_id}/appareils"): None,
                  ("DELETE", "/api/profiles/{profile_id}/appareils/{device}"): {"motdepasse": "motdepasse-d"},
-                 ("POST", "/api/profiles/{profile_id}/mot-de-passe"): {"nouveau": "nouveau-motdepasse", "motdepasse": "motdepasse-d"}}
+                 ("POST", "/api/profiles/{profile_id}/mot-de-passe"): {"nouveau": "nouveau-motdepasse", "motdepasse": "motdepasse-d"},
+                 ("PUT", "/api/fournisseurs/{provider}"): {"api_key": "cle-de-test"}}
 # … et les routes ouvertes, chacune avec la raison pour laquelle elle ne montre rien d'un autre.
 OPEN_ROUTES = {
+    ("POST", "/api/liens/apercu"): "Page publique lue sans session distante, pas de données de profil ; connexion Noah exigée (test_public_assets).",
+    ("POST", "/api/liens/media"): "Image publique lue sans session distante, pas de données de profil ; connexion Noah exigée (test_public_assets).",
+    ("GET", "/api/me/interface"): "Préférences du compte connecté seulement (test_personal).",
+    ("PUT", "/api/me/interface"): "Modifie seulement les préférences du compte connecté (test_personal).",
     ("POST", "/api/connexion/retour"): "Publique, comme le retour lui-même : sans state valide, rien n'atteint l'agent (connexion_logos_test).",
     ("GET", "/api/connexion/retour"): "Publique : le fournisseur y ramène parfois un navigateur sans session. Sans state valide, rien n'atteint l'agent (connexion_logos_test).",
     ("GET", "/api/status"): "Publique : l'écran à montrer, rien d'autre pour un inconnu une fois le compte créé (tests/exposition/public_test.py).",
@@ -634,6 +645,16 @@ def test_isolation_on_every_route() -> None:
             where = f"{method} {path} par {name} : {r.status_code} {r.text[:160]}"
             if level >= LEVEL[needed]:
                 assert r.status_code not in (401, 403, 404, 405, 422), f"refusé à tort : {where}"
+                if method == "POST" and path == "/api/agents/{agent_id}/conversations":
+                    assert r.status_code == 200, where
+                    conv = r.json()["id"]
+                    with db.connect() as c:
+                        row = c.execute("SELECT user_id, agent_id, main, shared FROM conversations WHERE id = ?", (conv,)).fetchone()
+                    assert tuple(row) == (uid, A, 0, 0), dict(row)
+                    assert WEB[name].get(f"/api/conversations/{conv}/messages").status_code == 200
+                    for other, (other_uid, _) in ACTORS.items():
+                        if other_uid != uid:
+                            assert WEB[other].get(f"/api/conversations/{conv}/messages").status_code == 404
             else:
                 assert r.status_code in (403, 404), f"fuite : {where}"
                 assert not touched, f"refusé, mais a quand même touché {touched} : {where}"
@@ -662,7 +683,7 @@ def test_owner_routes() -> None:
     with db.connect() as c:
         c.execute("DELETE FROM users WHERE username = 'nouveau-essai'")
     for (method, path), body in OWNER_WITH_ID.items():
-        url = path.replace("{profile_id}", str(ZED)).replace("{device}", "nimporte")
+        url = path.replace("{profile_id}", str(ZED)).replace("{device}", "nimporte").replace("{provider}", "openai")
         r = WEB["ada"].request(method, url, **({"json": body} if body is not None else {}))
         assert r.status_code == 403 and auth.check_password("zed", "motdepasse-z") == ZED, f"{method} {path} : {r.status_code}"
     # Un profil ne se sert pas du serveur pour essayer une adresse ou une clé.
@@ -718,6 +739,16 @@ def test_lists() -> None:
 
 def test_personal() -> None:
     fixture()
+    alice, bruno = WEB["alice"], WEB["bruno"]
+    path = "/api/me/interface"
+    before = alice.get(path).json()
+    mine = {"tabs": ["chat", "files"], "masquer_sensibles": False, "theme": "dark", "texte": "grand"}
+    assert bruno.put(path, json=mine).json() == mine
+    assert bruno.get(path).json() == mine and alice.get(path).json() == before
+    assert alice.put(path, json={"theme": "light"}).json()["theme"] == "light"
+    assert bruno.get(path).json() == mine
+    assert TestClient(app).get(path).status_code == 401
+    assert TestClient(app).put(path, json=mine).status_code == 401
     alice_devices = WEB["alice"].get("/api/devices").json()["appareils"]
     assert WEB["bruno"].delete(f"/api/devices/{alice_devices[0]['id']}").status_code == 404
     assert len(WEB["alice"].get("/api/devices").json()["appareils"]) == len(alice_devices)
@@ -727,6 +758,66 @@ def test_personal() -> None:
     assert WEB["bruno"].get(f"/api/pairing/flow/{public}").status_code == 404, "demande d'appairage vue par un autre compte"
     assert WEB["bruno"].post(f"/api/pairing/flow/{public}/refuser", json={}).status_code == 404
     print("6. liste blanche vérifiée : appareils et demandes d'appairage restent à leur compte")
+
+
+def test_public_assets() -> None:
+    """Les aperçus ne contiennent que du contenu public, commun aux profils connectés."""
+    png = b"\x89PNG\r\n\x1a\nimage-publique"
+    page = b'<title>Page publique</title><meta property="og:image" content="/image.png">'
+    def fetch(url, **kwargs):
+        if url.endswith(".png") or url.endswith(".ico"):
+            return safefetch.Result(url, "image/png", png)
+        return safefetch.Result(url, "text/html", page)
+    linkpreview._cache.clear()
+    linkpreview._images.clear()
+    body = {"url": "https://example.org/page"}
+    with patch.object(safefetch, "fetch", side_effect=fetch) as read, \
+            patch.object(main.provider_accounts, "base_of", return_value="https://example.org/v1"), \
+            patch.object(catalog, "provider_icon", return_value=(png, "image/png")) as icon:
+        expected = None
+        for web in WEB.values():
+            preview = web.post("/api/liens/apercu", json=body)
+            assert preview.status_code == 200 and preview.json()["title"] == "Page publique", preview.text
+            expected = expected or preview.json()
+            assert preview.json() == expected
+            media = web.post("/api/liens/media", json={"url": "https://example.org/image.png"})
+            assert media.status_code == 200 and media.json()["url"] == expected["image"], media.text
+            for path in (expected["image"], "/api/fournisseurs/custom/icone"):
+                response = web.get(path)
+                assert response.status_code == 200 and response.content == png, path
+                assert response.headers["content-type"] == "image/png"
+        read.reset_mock()
+        icon.reset_mock()
+        anonymous = TestClient(app)
+        for method, path, payload in (("POST", "/api/liens/apercu", body), ("POST", "/api/liens/media", body),
+                                      ("GET", expected["image"], None), ("GET", "/api/fournisseurs/custom/icone", None)):
+            response = anonymous.request(method, path, **({"json": payload} if payload else {}))
+            assert response.status_code == 401, (method, path, response.text)
+        read.assert_not_called()
+        icon.assert_not_called()
+    print("6 bis. Aperçus, images et icônes : mêmes données publiques pour chaque profil ; sans connexion, 401 sans lecture distante")
+
+
+def test_provider_access() -> None:
+    with patch.object(catalog, "check_key", new=AsyncMock()) as check, \
+            patch.object(catalog, "models_for", new=AsyncMock(return_value=[{"id": "modele-test"}])) as models:
+        for name in ("bruno", "lea", "uma", "ada"):
+            assert WEB[name].get("/api/fournisseurs").status_code == 403
+            assert WEB[name].put("/api/fournisseurs/openai", json={"api_key": "cle-refusee"}).status_code == 403
+        check.assert_not_called()
+        models.assert_not_called()
+        assert not db.get_setting("provider_key:openai"), "clé écrite malgré le refus"
+        response = WEB["alice"].put("/api/fournisseurs/openai", json={"api_key": "cle-de-test"})
+        assert response.status_code == 200 and response.json() == {"connected": True, "models": 1}, response.text
+        check.assert_awaited_once_with("openai", "cle-de-test")
+        models.assert_awaited_once_with("openai", "cle-de-test", None)
+        assert main.provider_accounts.key_of("openai") == "cle-de-test"
+        shown = WEB["alice"].get("/api/fournisseurs")
+        assert shown.status_code == 200 and "cle-de-test" not in shown.text
+        assert next(p for p in shown.json() if p["id"] == "openai")["connected"] is True
+    for key in ("provider_key", "provider_base", "provider_connected", "provider_count"):
+        db.set_setting(f"{key}:openai", "")
+    print("6 ter. Fournisseurs : tous les profils refusés avant vérification distante ou écriture ; seul le propriétaire branche et consulte, sans clé exposée")
 
 
 def test_rights() -> None:
@@ -1276,6 +1367,8 @@ test_isolation_on_every_route()
 test_owner_routes()
 test_lists()
 test_personal()
+test_public_assets()
+test_provider_access()
 test_rights()
 test_revocation()
 WEB["uma"] = client(UMA)
