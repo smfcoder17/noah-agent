@@ -4,8 +4,13 @@ import { createContext, useCallback, useContext, useState } from "react";
 import { inAndroidApp } from "@/lib/platform";
 import { downloadFile } from "@/lib/utils";
 import { Button, Dialog, DialogContent } from "./ui";
+import { ElementViewer } from "./elements/ElementViewer";
+import { MediaPlayers } from "./elements/MediaPlayers";
+import { SandboxedFrame } from "./elements/SandboxedFrame";
+import type { ElementSpec } from "@/lib/elements";
 
 export type Viewable =
+  | { kind: "element"; element: ElementSpec; fullscreen?: boolean }
   | { kind: "image"; src: string; title?: string }
   | { kind: "file"; url: string; title: string }
   | { kind: "gone"; title: string };
@@ -21,22 +26,25 @@ export function useDownload() {
 
 export const isImagePath = (p: string) => /\.(png|jpe?g|gif|webp|avif)$/i.test(p);
 /** Dans l'app Android, un cadre PDF reste blanc et un cadre CSV se télécharge tout seul : ces fichiers ne s'y montrent pas. */
-export const canFrame = (p: string) => (inAndroidApp() ? /\.(html?|txt|md|json|svg|log)$/i : /\.(html?|pdf|txt|md|csv|json|svg|log)$/i).test(p);
+export const canFrame = (p: string) => (inAndroidApp() ? /\.(html?|txt|md|json|svg|log)$/i : /\.(html?|pdf|txt|md|csv|json|svg|log)$/i).test(p.split(/[?#]/, 1)[0]);
 
 export function ViewerProvider({ children }: { children: React.ReactNode }) {
   const [item, setItem] = useState<Viewable | null>(null);
   return (
     <ViewerContext.Provider value={setItem}>
+      <MediaPlayers>
       {children}
       <Dialog open={!!item} onOpenChange={(o) => !o && setItem(null)}>
         {item?.kind === "image" && <ImageView item={item} />}
         {item?.kind === "file" && <FileView item={item} />}
+        {item?.kind === "element" && <DialogContent title={item.element.title} className="max-w-6xl"><ElementViewer spec={item.element} /></DialogContent>}
         {item?.kind === "gone" && (
           <DialogContent title={item.title} className="max-w-md gap-3 p-4">
             <p className="text-sm">Fichier indisponible pour l'instant. Réessaie dans un moment : il a peut-être aussi été déplacé ou supprimé.</p>
           </DialogContent>
         )}
       </Dialog>
+      </MediaPlayers>
     </ViewerContext.Provider>
   );
 }
@@ -131,10 +139,9 @@ function FileView({ item }: { item: Extract<Viewable, { kind: "file" }> }) {
   const download = useDownload();
   return (
     <DialogContent title={item.title} className="h-[min(88dvh,900px)] max-w-6xl gap-3 p-4">
-      <iframe
+      <SandboxedFrame
         src={item.url}
         title={item.title}
-        sandbox="allow-scripts allow-forms allow-popups allow-modals"
         className="min-h-0 flex-1 rounded-lg border border-border bg-white"
       />
       <div className="flex flex-wrap justify-end gap-2">

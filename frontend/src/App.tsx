@@ -1,3 +1,4 @@
+import { subscribeUpdates } from "@/lib/events";
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import { QuoteContext, useQuoteState } from "@/lib/quotes";
 import { ArrowLeft, Bug, MonitorPlay, PanelRight, Plus, MessageCircle, Inbox as InboxIcon, Settings as SettingsIcon, Users, Clock, FolderOpen } from "lucide-react";
@@ -68,16 +69,6 @@ function same<T>(cur: T, next: T): T {
 }
 
 /** Relève périodique, en pause quand la fenêtre est cachée, relancée dès qu'elle revient. */
-function every(ms: number, fn: () => void) {
-  const t = setInterval(() => !document.hidden && fn(), ms);
-  const onShow = () => !document.hidden && fn();
-  document.addEventListener("visibilitychange", onShow);
-  return () => {
-    clearInterval(t);
-    document.removeEventListener("visibilitychange", onShow);
-  };
-}
-
 const conversationsCache = new Map<string, Conversation[]>();
 
 export default function App() {
@@ -404,11 +395,11 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   useEffect(() => {
     refreshAgents();
     refreshModel();
-    return every(4000, refreshAgents);
+    return subscribeUpdates(refreshAgents);
   }, [refreshAgents, refreshModel]);
   useEffect(() => {
     refreshConversations();
-    return every(4000, refreshConversations);
+    return subscribeUpdates(refreshConversations);
   }, [agentId, refreshConversations]);
 
   const selectAgent = (id: string) => {

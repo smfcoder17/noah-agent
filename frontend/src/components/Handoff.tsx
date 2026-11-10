@@ -1,3 +1,4 @@
+import { subscribeUpdates } from "@/lib/events";
 import { Check, Hand, MonitorPlay, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui";
@@ -29,11 +30,11 @@ export function HandoffBanner({ agentId, onOpenScreen }: { agentId: string; onOp
       }
     };
     poll();
-    const t = setInterval(poll, 3000);
+    const t = subscribeUpdates(poll);
     document.addEventListener("visibilitychange", poll);
     return () => {
       alive = false;
-      clearInterval(t);
+      t();
       document.removeEventListener("visibilitychange", poll);
     };
   }, [agentId]);

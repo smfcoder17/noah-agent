@@ -12,6 +12,9 @@ import { useQuotes, widgetQuote } from "@/lib/quotes";
 import { Button } from "./ui";
 import { VideoEmbed } from "./VideoEmbed";
 import { canFrame, CopyImageButton, isImagePath, useDownload, useViewer } from "./Viewer";
+import { parseElement, type ElementSpec } from "@/lib/elements";
+import { ElementCard } from "./elements/ElementCard";
+import { SandboxedFrame } from "./elements/SandboxedFrame";
 
 type Series = { name?: string; values: number[] };
 type ChartSpec = { type: "chart"; title?: string; kind?: "bar" | "line"; labels: string[]; series: Series[]; note?: string };
@@ -21,7 +24,7 @@ type GridSpec = { type: "grid"; title?: string; items: GridItem[]; note?: string
 type ChoiceSpec = { type: "choice"; question: string; options: string[] };
 type PreviewSpec = { type: "preview"; path: string; title?: string; note?: string };
 type VideoSpec = { type: "video"; url: unknown; title?: unknown };
-type Spec = ChartSpec | TableSpec | GridSpec | ChoiceSpec | PreviewSpec | VideoSpec;
+type Spec = ChartSpec | TableSpec | GridSpec | ChoiceSpec | PreviewSpec | VideoSpec | ElementSpec;
 
 // Palette des séries (distincte des couleurs d'état).
 const SERIES = ["#2a47c9", "#0f766e", "#b4541a", "#7c3aed"];
@@ -329,11 +332,10 @@ function Preview({ spec }: { spec: PreviewSpec }) {
       ) : frame && page && !link ? (
         <div className="h-[560px] bg-muted" />
       ) : frame ? (
-        <iframe
+        <SandboxedFrame
           src={page ? opened.current ?? url : url}
           title={title}
           loading="lazy"
-          sandbox="allow-scripts allow-forms allow-popups allow-modals"
           className={cn("block w-full border-0 bg-white", page ? "h-[560px]" : "h-80")}
         />
       ) : (
@@ -422,6 +424,7 @@ export function NoahWidget({ code, components }: SyntaxHighlighterProps) {
     return <div className="my-3 h-24 animate-pulse rounded-2xl border border-border bg-muted/60" aria-label="Widget en préparation" />;
   }
   switch (spec.type) {
+    case "element": { const e = parseElement(spec); return e ? <ElementCard spec={e} /> : null; }
     case "chart": return <Quotable spec={spec}><Chart spec={spec} /></Quotable>;
     case "table": return <Quotable spec={spec}><Table spec={spec} /></Quotable>;
     case "grid": return <Quotable spec={spec}><Grid spec={spec} /></Quotable>;

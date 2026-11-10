@@ -113,7 +113,12 @@ async def same_origin_only(request: Request, call_next):
         token = auth.request_token(request, request.cookies.get(auth.COOKIE))
         if token and await asyncio.to_thread(access.owner_app, token):
             updates.saw_client(zone)
-    return await call_next(request)
+    response = await call_next(request)
+    if request.method in UNSAFE and request.url.path.startswith("/api/") and response.status_code < 400:
+        token = auth.request_token(request, request.cookies.get(auth.COOKIE))
+        user = await asyncio.to_thread(auth.owner_of, token)
+        await asyncio.to_thread(bus.invalidate, user)
+    return response
 
 
 app.add_middleware(exposition.SecurityHeaders)
@@ -1821,6 +1826,11 @@ Quand une structure aide plus qu'un paragraphe, écris un bloc de code de langag
 - Question à choix : {"type": "choice", "question": "...", "options": ["Option A", "Option B"]}. Dès qu'une réponse peut se toucher (oui ou non, plusieurs possibilités), utilise-la au lieu de poser la question en phrase : deux à quatre options de quelques mots. Mets-la à la fin de ton message, puis arrête-toi : la réponse de l'utilisateur arrive comme un nouveau message.
 - Aperçu d'un fichier que tu as créé (application, page HTML, PDF, image, document, tableur) : {"type": "preview", "title": "Tableau de bord des ventes", "path": "/opt/data/workspace/apps/ventes/index.html"}. L'utilisateur le voit et l'utilise directement dans la conversation, l'agrandit ou le télécharge. Montre chaque image une seule fois : un aperçu ou une ligne MEDIA:, pas les deux.
 - Vidéo YouTube, Vimeo, X, TikTok ou Instagram : écris son adresse seule sur sa ligne, l'utilisateur peut la lire dans la conversation. Pour lui donner un titre : {"type": "video", "url": "https://...", "title": "..."}.
+Chaque grille ou page s'adapte à l'écran : 2 colonnes sur téléphone, 3 à 4 sur ordinateur, jamais de largeur fixe.
+Un élément ouvrable : {"type":"element","kind":"pdf","title":"Devis","path":"/opt/data/workspace/devis.pdf","source":"noah","size":84000,"version":"1","description":"Devis pour relecture"}.
+Kinds possibles : image, pdf, video, audio, page, grid, table, csv, document, presentation, code, diff, archive, map, contact, chart, form, choice, pr, email, thread, appointment, routine, watch, task, skill, approval, batch, unknown.
+Indique toujours sa provenance (source : noah, moi ou site), son titre accessible, sa description, sa taille réelle et sa version si connue. Les objets de travail mettent leur détail dans data, sans inventer de résultat ni d'action.
+Un lien seul reste sur sa propre ligne ; plusieurs liens se présentent en liste compacte. Donne les données sensibles en clair : l'interface les masque elle-même, jamais un masque irréversible dans le texte enregistré.
 Données réelles uniquement, jamais inventées. Un bloc par widget, avec une phrase d'explication autour.
 
 ## Dépannage : répare avant de t'arrêter
@@ -2883,6 +2893,8 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
                     task_state[conv_id] = "work"
                 if out["type"] == "activity":
                     task_activity[conv_id] = out["label"]
+                if out["type"] in ("activity", "approval", "done"):
+                    await asyncio.to_thread(bus.invalidate, launched_by)
                 if out["type"] == "message":
                     emoji, text = head.feed(out["text"])
                     if emoji:
@@ -2939,6 +2951,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
                 machine.add_context(conv_id, note)
         elif final and final.get("error"):
             _save_message(conv_id, "error", final["error"], final.get("details"))
+        await asyncio.to_thread(bus.invalidate, launched_by)
         with contextlib.suppress(Exception):  # le journal ne doit jamais abîmer une tâche finie
             with db.connect() as c:
                 asked_row = c.execute("SELECT text FROM messages WHERE id = ?", (answered,)).fetchone()

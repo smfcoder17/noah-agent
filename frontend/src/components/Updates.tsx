@@ -1,3 +1,4 @@
+import { subscribeUpdates } from "@/lib/events";
 // Réglages > Serveur > Mises à jour : version en service, la prochaine (installée seule pendant le créneau calme), l'historique.
 // Modèle : Home Assistant (« Mettre à jour » / « Passer ») et Synology DSM (créneau choisi, report automatique).
 import { CheckCircle2, Loader2, RefreshCw } from "lucide-react";
@@ -36,8 +37,8 @@ export function Updates() {
   const load = useCallback(() => get<Summary>("/api/updates").then(setS).catch((e) => setError((e as Error).message)), []);
   useEffect(() => {
     load();
-    const t = setInterval(load, 5000);
-    return () => clearInterval(t);
+    const t = subscribeUpdates(load);
+    return () => t();
   }, [load]);
 
   const act = async (what: string, run: () => Promise<unknown>) => {

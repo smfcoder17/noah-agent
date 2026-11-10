@@ -1,3 +1,4 @@
+import { subscribeUpdates } from "@/lib/events";
 // Panneau de l'agent : ce qu'il fait, à quoi il a accès, son ordinateur, ses routines, sa mémoire.
 import { Archive, ArchiveRestore, Brain, ChevronDown, ChevronRight, Clock, ExternalLink, FolderOpen, Hand, History, Loader2, LogIn, Monitor, MonitorPlay, Pencil, Plug, Power, RefreshCw, Sparkles, Sunrise, Users, X } from "lucide-react";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
@@ -615,7 +616,12 @@ function Computer({ agentId }: { agentId: string }) {
     if (!visible) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
+    let reading = false;
+    const stop = subscribeUpdates(() => { if (!cancelled) return poll(); });
     const poll = async () => {
+      if (reading || cancelled) return;
+      clearTimeout(timer);
+      reading = true;
       try {
         const [s, link] = await Promise.all([
           request(`/api/agents/${agentId}/screen-status`, { signal: AbortSignal.timeout(8000) }).then((r) => r.json() as Promise<ScreenStatus>),
@@ -659,10 +665,11 @@ function Computer({ agentId }: { agentId: string }) {
         if (pageReloads.current >= 3) failed.current = Math.max(2, failed.current);
         setFailures(failed.current);
       }
-      if (!cancelled) timer = setTimeout(poll, 3000 * 2 ** Math.min(Math.max(failed.current - 2, 0), 2));
+      reading = false;
+      if (!cancelled) timer = setTimeout(poll, 60000);
     };
     void poll();
-    return () => { cancelled = true; clearTimeout(timer); };
+    return () => { cancelled = true; stop(); clearTimeout(timer); };
   }, [agentId, visible, retry, changeControl]);
 
   const fix = async (how: "wake" | "restart") => {

@@ -53,6 +53,13 @@ def prune(c) -> None:
     c.execute("DELETE FROM evenements WHERE created <= ?", (time.time() - KEEP,))
 
 
+def invalidate(user: int | None) -> None:
+    """Signal sans contenu : chaque écran relit ses propres routes et leurs droits."""
+    if user is not None:
+        with db.connect() as c:
+            publish(c, user, "donnees.changees", {})
+
+
 def replay(user: int, after: int | None):
     with db.connect() as c:
         # Même instantané pour le compteur et les lignes, y compris si un autre thread publie.

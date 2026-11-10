@@ -28,6 +28,7 @@ services:
       traefik.http.routers.noah.entrypoints: websecure
       traefik.http.routers.noah.tls.certresolver: ${NOAH_TRAEFIK_RESOLVER:-letsencrypt}
       traefik.http.services.noah.loadbalancer.server.port: "8080"
+      traefik.http.services.noah.loadbalancer.responseforwarding.flushinterval: "-1ms"
     volumes:
       - noah-data:/data
       - noah-secrets:/secrets

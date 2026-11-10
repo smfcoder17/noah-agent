@@ -3,12 +3,15 @@
 // Repère : Muse montre une rangée par réglage (icône, nom, chevron), au plus une ligne d'aide, et un écran vide en une phrase.
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const { chromium } = createRequire(import.meta.url)(process.env.NOAH_PLAYWRIGHT);
 const BASE = process.env.BASE || "http://localhost:8080";
-const OUT = resolve(process.argv[2] || "ecrans");
+const args = process.argv.slice(2);
+const legacy = args.includes("--reference-015");
+const date = new Date().toISOString().replace(/[:.]/g, "-");
+const OUT = resolve(args.find((a) => !a.startsWith("--")) || `docs/epics/0.1.6/mesures/${legacy ? "015" : "lot2"}-${date}`);
 process.env.MSYS_NO_PATHCONV = "1";
 mkdirSync(OUT, { recursive: true });
 const py = (code) => execFileSync("docker", ["exec", "-w", "/app", "-e", "PYTHONPATH=/app", "noah-server", "python", "-c", code]).toString().trim();
@@ -57,21 +60,29 @@ const tap = async (name, exact = false) => {
   await settle();
 };
 
+const menu = async () => { if (process.env.MOBILE) await tap(legacy ? "Agents" : "Menu", true); };
+const settings = async () => { if (!legacy) await menu(); await tap("Réglages", true); };
+const panel = async (label) => {
+  if (legacy) { await tap("Tâches", true); await page.getByRole("tab", { name: label, exact: true }).click(); await settle(); }
+  else await tap(label === "Routines" ? "Tâches" : label, true);
+};
 const SCREENS = [
   ["accueil", async () => {}],
-  ["taches", async () => tap("Tâches", true)],
-  ["agents", async () => tap("Agents", true)],
-  ["reglages", async () => { await page.goto(BASE); await settle(); await tap("Réglages", true); }],
-  ["connexions", async () => { await page.goto(BASE); await settle(); await tap("Tâches", true); await page.getByRole("tab", { name: "Connexions" }).click(); await settle(); }],
-  ["activite", async () => { await page.goto(BASE); await settle(); await tap("Tâches", true); await page.getByRole("tab", { name: "Activité" }).click(); await settle(); }],
-  ["modele", async () => { await tap(/^Modèle/); }],
-  ["objectifs", async () => { await page.goto(BASE); await settle(); await tap("Agents", true); await tap(/Objectifs/); }],
+  ["taches", async () => panel("Routines")],
+  ["agents", menu],
+  ["reglages", settings],
+  ["connexions", async () => { if (legacy) await panel("Connexions"); else { await tap("Page de l'agent", true); await tap("Connexions", true); } }],
+  ["activite", async () => panel("Activité")],
+  ["modele", async () => { if (legacy) { await panel("Activité"); await tap(/^Modèle/); } else { await tap("Page de l'agent", true); await tap("Cerveau", true); } }],
+  ["objectifs", async () => { await menu(); await tap("Objectifs", true); }],
 ];
 const report = [];
 await page.goto(BASE);
 await settle();
 for (const [name, go] of SCREENS) {
   try {
+    await page.goto(BASE);
+    await settle();
     await go();
     const w = await words();
     await page.screenshot({ path: `${OUT}/${name}.png` });
@@ -82,6 +93,11 @@ for (const [name, go] of SCREENS) {
     report.push({ ecran: name, erreur: String(e.message).split("\n")[0] });
   }
 }
-writeFileSync(`${OUT}/ecrans.json`, JSON.stringify(report, null, 2));
+const comparison = args.find((a) => a.startsWith("--compare="))?.slice(10);
+const before = comparison ? JSON.parse(readFileSync(comparison, "utf8")) : null;
+writeFileSync(`${OUT}/ecrans.json`, JSON.stringify({ date: new Date().toISOString(), reference: legacy ? "b12b62f" : "lot2", mobile: !!process.env.MOBILE, ecrans: report,
+  comparaison: before ? report.map((r) => { const old = (before.ecrans ?? before).find((e) => e.ecran === r.ecran); return { ecran: r.ecran, baisse: old?.mots && r.mots != null ? 1 - r.mots / old.mots : null }; }) : null,
+}, null, 2));
+if (report.some((r) => r.erreur)) process.exitCode = 1;
 await browser.close();
 drop();

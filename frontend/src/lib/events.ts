@@ -6,6 +6,13 @@ let items: Accord[] = [];
 let recent: AccordClosed[] = [];
 let snapshot = { items, recent };
 const listeners = new Set<() => void>();
+const updates = new Set<() => unknown>();
+let queued = false;
+function changed() {
+  if (queued) return;
+  queued = true;
+  queueMicrotask(() => { queued = false; updates.forEach((fn) => void Promise.resolve(fn()).catch(() => {})); });
+}
 let controller: AbortController | null = null;
 let timer: ReturnType<typeof setInterval> | undefined;
 let revision = "";
@@ -63,6 +70,7 @@ async function consume(signal: AbortSignal) {
         const tasks: Promise<unknown>[] = [];
         window.dispatchEvent(new CustomEvent("noah:resync", { detail: tasks }));
         await Promise.all([refreshAccords(), ...tasks]);
+        await Promise.all([...updates].map((fn) => fn()));
         if (signal.aborted) return;
         resyncPending = false;
       }
@@ -87,6 +95,7 @@ async function consume(signal: AbortSignal) {
             buffer = buffer.slice(end + 2);
             const fields = Object.fromEntries(chunk.split("\n").map((line) => [line.split(":", 1)[0], line.slice(line.indexOf(":") + 1).trim()]));
             if (!fields.event) continue;
+            if (fields.event !== "resync") changed();
             revision = fields.id || revision;
             if (fields.event === "accord.clos") {
               const closed = JSON.parse(fields.data) as AccordClosed;
@@ -137,7 +146,7 @@ function subscribe(listener: () => void) {
     controller = new AbortController();
     void consume(controller.signal);
     void refreshAccords().catch(() => {});
-    timer = setInterval(() => void refreshAccords().catch(() => {}), 60000);
+    timer = setInterval(() => { void refreshAccords().catch(() => {}); changed(); }, 60000);
   }
   return () => {
     listeners.delete(listener);
@@ -150,3 +159,12 @@ function subscribe(listener: () => void) {
 }
 
 export const useAccords = () => useSyncExternalStore(subscribe, () => snapshot);
+
+/** Même transport que les accords, avec secours unique à 60 s et reprise au retour de la fenêtre. */
+export function subscribeUpdates(fn: () => unknown) {
+  updates.add(fn);
+  const stop = subscribe(() => {});
+  const visible = () => { if (!document.hidden) void Promise.resolve(fn()).catch(() => {}); };
+  document.addEventListener("visibilitychange", visible);
+  return () => { updates.delete(fn); stop(); document.removeEventListener("visibilitychange", visible); };
+}

@@ -1,3 +1,4 @@
+import { subscribeUpdates } from "@/lib/events";
 // Écran d'appel : un agent fait sonner l'utilisateur pour lui donner un compte rendu à la voix.
 // Il s'ouvre par l'adresse d'une notification (/#appel=<id>) ou quand le relevé voit un rappel qui sonne.
 // Ce n'est pas le bandeau de Handoff.tsx, qui demande à l'utilisateur d'agir dans le navigateur.
@@ -107,11 +108,11 @@ export function CallScreen({ agents, onOpen }: { agents: Agent[]; onOpen: (repor
       });
     };
     void poll();
-    const timer = setInterval(poll, 4000);
+    const timer = subscribeUpdates(poll);
     document.addEventListener("visibilitychange", poll);
     return () => {
       alive = false;
-      clearInterval(timer);
+      timer();
       document.removeEventListener("visibilitychange", poll);
     };
   }, []);

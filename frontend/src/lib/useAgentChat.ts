@@ -1,3 +1,4 @@
+import { subscribeUpdates } from "./events";
 // État d'une conversation et branchement sur assistant-ui (ExternalStoreRuntime).
 // Le serveur envoie ses propres événements SSE ; on les traduit ici en messages et en « parts ».
 import {
@@ -385,8 +386,7 @@ export function useAgentChat(opts: {
     if (!watching) return;
     if (!running.current) void refreshNow(); // un travail lancé sans cet écran : son accord s'affiche sans rafraîchir la page
     // Écran caché : personne ne regarde, et le serveur le sait à ce silence (il notifie alors la fin de la tâche).
-    const timer = setInterval(() => !document.hidden && void refreshNow(), 3000);
-    return () => clearInterval(timer);
+    return subscribeUpdates(() => { if (!document.hidden) return refreshNow(); });
   }, [watching, refreshNow]);
 
   const addBeforeRunning = useCallback((news: ChatMessage[]) => {

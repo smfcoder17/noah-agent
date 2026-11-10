@@ -1,3 +1,4 @@
+import { subscribeUpdates } from "@/lib/events";
 // Ce que l'agent sait et fait de lui-même, réglable depuis Détails : routines, mémoire, connexions, logiciels, dossiers.
 import { Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, FolderOpen, HardDrive, Loader2, Pause, Pencil, Play, Plus, SlidersHorizontal, Trash2, Zap } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -575,11 +576,11 @@ export function Connections({ agentId, shared = false, owner = false }: { agentI
   useEffect(() => { // le fournisseur revient directement sur le serveur : cet écran le voit en relisant l'état
     if (!automatic) return;
     const started = Date.now();
-    const again = setInterval(() => {
+    const again = subscribeUpdates(() => {
       if (Date.now() - started > 600_000) setWaiting({});
       else void load();
-    }, 4000);
-    return () => clearInterval(again);
+    });
+    return again;
   }, [automatic, load]);
   useEffect(() => {
     if (!data) return;
@@ -1084,8 +1085,7 @@ function GoogleCard({ agentId, onError }: { agentId: string; onError: (e: string
   }, [load]);
   useEffect(() => {
     if (!waiting) return;
-    const t = setInterval(load, 2500);
-    return () => clearInterval(t);
+    return subscribeUpdates(load);
   }, [waiting, load]);
 
   const run = async (fn: () => Promise<void>) => {

@@ -1,3 +1,4 @@
+import { subscribeUpdates } from "@/lib/events";
 // « Pour cet agent / Pour tous mes agents » sur une connexion établie, puis la liste à cocher. Le serveur (connecteurs.py) choisit la voie la plus sûre pour chaque service.
 import { Check, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -74,8 +75,8 @@ export function ConnectorScope({ agentId, nom, global, onChange }: { agentId: st
   const automatic = Object.values(waiting).includes("auto");
   useEffect(() => { // le fournisseur revient directement sur le serveur : on relit jusqu'à voir l'agent relié
     if (!automatic) return;
-    const again = setInterval(() => !document.hidden && void read().catch(() => {}), 8000);
-    return () => clearInterval(again);
+    const again = subscribeUpdates(() => !document.hidden && void read().catch(() => {}));
+    return () => again();
   }, [automatic, read]);
 
   const run = async (fn: () => Promise<void>) => {
