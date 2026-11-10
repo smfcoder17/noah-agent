@@ -1,13 +1,14 @@
-// Actions de l'agent sur l'ordinateur : l'application récupère chaque demande auprès de Noah, la fait confirmer par
-// l'utilisateur dans une boîte de dialogue du système (jamais par la page web), l'exécute et renvoie le résultat.
+// Actions de l'agent sur l'ordinateur : les accords restent dans le bandeau local de l'app, jamais dans la page du serveur.
 // Les fichiers d'un dossier confié passent sans fenêtre, selon le droit donné (voir dossiers.js).
 const { execFile } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { randomBytes, createHash } = require("node:crypto");
 const { AsyncLocalStorage } = require("node:async_hooks");
-const { BrowserWindow, clipboard, dialog, Notification, session, shell } = require("electron");
+const { BrowserWindow, clipboard, Notification, session, shell } = require("electron");
 const dossiers = require("./dossiers");
+const bandeau = require("./bandeau");
 
 // Ce que « ouvrir » peut ouvrir : des documents et des médias. Un programme, un script ou un document à macros passent par « commande », confirmée.
 const OPENABLE = /\.(pdf|txt|md|rtf|csv|tsv|log|json|xml|yaml|yml|toml|ini|sql|css|html?|png|jpe?g|gif|webp|bmp|svg|heic|ico|tiff?|psd|ai|mp3|wav|m4a|flac|ogg|mp4|mov|mkv|webm|avi|wmv|ts|docx?|xlsx?|pptx?|odt|ods|odp|pages|numbers|key|epub|eml|msg|ics|kml|dwg|zip|7z|gz)$/i;
@@ -20,44 +21,98 @@ const MAX_FILES_RUNNING = 2; // au plus deux gros fichiers en mémoire à la foi
 const UNC = /^[\\/]{2}/; // un chemin réseau contacte l'hôte dès qu'on le touche, avant tout accord
 const CUT = { coupe: true, erreur: "L'utilisateur a coupé l'accès depuis l'application de bureau." };
 const expired = { erreur: "Cette demande a expiré avant ton accord : rien n'a été fait." };
+const modified = { erreur: "L'action a été modifiée depuis son affichage : rien n'a été fait." };
+const interrupted = { erreur: "Cette demande a été annulée : rien n'a été fait." };
+const unavailable = { erreur: "La vérification de l'accord a échoué trois fois de suite : connexion au serveur indisponible, rien n'a été fait." };
 
-let dialogs = Promise.resolve(); // une seule fenêtre d'accord à la fois, sans bloquer le reste
+let dialogs = Promise.resolve(); // un seul bandeau d'accord à la fois, sans bloquer le reste
 const approvalContext = new AsyncLocalStorage();
+const actionContext = new AsyncLocalStorage();
+// Les seuls appelants de configure sont le processus principal et les tests : aucun IPC de la page web.
+let getAutonomy = () => "prudent";
+const configure = ({ autonomy }) => { getAutonomy = autonomy; };
+const grants = new Map(); // jetons conservés uniquement dans ce processus
+const fingerprint = (state, plan = state.plan) => createHash("sha256").update(JSON.stringify({ request: state.req, plan })).digest("hex");
+function approvalFailure(consume = false, plan) {
+  const state = actionContext.getStore();
+  if (state && !state.isCurrent()) return interrupted;
+  if (!state?.approval) return null;
+  const { token, hash, until } = state.approval;
+  if (fingerprint(state, plan) !== hash) return modified;
+  if (Date.now() >= until) return expired;
+  if ((!state.consumed && grants.get(token) !== hash) || (consume && state.consumed)) return { erreur: "Cet accord a déjà été utilisé : rien n'a été fait." };
+  if (consume) { grants.delete(token); state.consumed = true; }
+  return null;
+}
 
 /** Ce qui s'affiche dans une fenêtre d'accord : sur une ligne, sans caractère qui ferait lire autre chose. */
-const clean = (text, max = 40) => String(text ?? "").replace(new RegExp(dossiers.DECEIVING.source, "g"), " ").replace(/\s+/g, " ").trim().slice(0, max);
+const clean = (text, max = 40, exact = false) => {
+  const visible = String(text ?? "").replace(new RegExp(dossiers.DECEIVING.source, "g"), (c) => exact ? `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}` : " ");
+  return (exact ? visible : visible.replace(/\s+/g, " ").trim()).slice(0, max);
+};
 
 /** Ce qu'on montre doit tenir dans la fenêtre : sinon on refuse au lieu de faire valider une partie. */
 const tooLong = (text) => text.length > MAX_SHOWN || text.split(/\r\n|\r|\n/).length > MAX_LINES;
 
 /** Demande l'accord de l'utilisateur : la demande vient d'un agent, qu'une page web a pu tromper. Rend l'index du bouton. */
 function ask(message, detail, buttons, refuseIndex) {
+  if (String(detail).length > 12000) return Promise.resolve(refuseIndex); // ne jamais faire valider un texte tronqué
   const sync = approvalContext.getStore();
+  const state = actionContext.getStore();
+  const token = randomBytes(32).toString("hex");
+  const hash = state ? fingerprint(state) : "";
+  const shownText = { message: clean(message, MAX_SHOWN), detail: String(detail).split(/\r\n|\r|\n/).map((line) => clean(line, 12000, true)).join("\n"), buttons: buttons.map((b) => clean(b, 100)), refuseIndex };
+  if (shownText.detail.length > 12000) return Promise.resolve(refuseIndex);
   const shown = dialogs.then(async () => {
-    const parent = BrowserWindow.getAllWindows().find((w) => w.isVisible());
-    const timer = new AbortController();
-    const stop = setTimeout(() => timer.abort(), ANSWER_WITHIN);
+    let accord, reason, closeAttempted = false;
+    let until;
+    const cancel = new AbortController();
+    let watching, checking = false, failures = 0;
+    const fail = (reason) => { if (state) state.failure = reason; return refuseIndex; };
     try {
-      const accord = sync ? await sync.open(message, detail) : null;
-      if (timer.signal.aborted) return refuseIndex;
-      const r = await dialog.showMessageBox(parent, {
-        type: "question",
-        title: "Noah veut agir sur ton ordinateur",
-        message,
-        detail,
-        buttons,
-        defaultId: refuseIndex,
-        cancelId: refuseIndex,
-        noLink: true,
-        signal: timer.signal,
-      });
-      if (accord) await sync.close(accord.id, r.response !== refuseIndex && !timer.signal.aborted);
-      if (timer.signal.aborted) return refuseIndex;
-      return r.response;
-    } catch {
-      return refuseIndex; // aucune réponse synchronisée : rien ne s'exécute
+      if (state && !state.isCurrent()) return fail(interrupted);
+      if (state && !(await state.stillWanted())) return fail({ erreur: "Cette demande a expiré sans avoir été affichée : rien n'a été fait." });
+      accord = sync ? await sync.open(shownText.message, shownText.detail) : null;
+      // Les 280 secondes commencent à la présentation, après la file et la publication.
+      until = Date.now() + ANSWER_WITHIN;
+      if (state) {
+        watching = setInterval(async () => {
+          if (checking) return;
+          checking = true;
+          try {
+            if (!state.isCurrent()) return cancel.abort(interrupted);
+            const wanted = await state.stillWanted();
+            failures = 0;
+            if (!wanted) cancel.abort(expired);
+          } catch { if (++failures >= 3) cancel.abort(unavailable); }
+          finally { checking = false; }
+        }, 1000);
+      }
+      const response = await bandeau.request(shownText, until, cancel.signal);
+      reason = cancel.signal.aborted ? cancel.signal.reason : Date.now() >= until ? expired
+        : state && !state.isCurrent() ? interrupted : state && fingerprint(state) !== hash ? modified : null;
+      const accepted = Number.isInteger(response) && response >= 0 && response < buttons.length && response !== refuseIndex
+        && !reason;
+      if (accord) { closeAttempted = true; await sync.close(accord.id, accepted); }
+      if (reason) return fail(reason);
+      if (cancel.signal.aborted) return fail(cancel.signal.reason);
+      if (Date.now() >= until) return fail(expired);
+      if (!accepted) return refuseIndex;
+      if (state) {
+        if (state.approval) grants.delete(state.approval.token);
+        grants.set(token, hash);
+        state.approval = { token, hash, until };
+        state.consumed = false;
+      }
+      return response;
+    } catch (e) {
+      // Une expiration ou une vue fermée doit également retirer l'accord des autres appareils.
+      if (accord && !closeAttempted) {
+        try { await sync.close(accord.id, false); } catch { /* Le serveur l'expirera si la connexion reste coupée. */ }
+      }
+      return fail(reason || (cancel.signal.aborted ? cancel.signal.reason : { erreur: e.message || "L'accord n'a pas pu être synchronisé : rien n'a été fait." }));
     } finally {
-      clearTimeout(stop);
+      clearInterval(watching);
     }
   });
   dialogs = shown.catch(() => {});
@@ -69,6 +124,9 @@ async function confirm(message, detail) {
 }
 
 function run(cmd, args, cwd, env) {
+  // Dernière vérification, sans attente entre l'empreinte et execFile.
+  const blocked = approvalFailure(true, { program: cmd, args, path: cwd, env });
+  if (blocked) return Promise.resolve({ code: 1, erreurs: blocked.erreur, sortie: "" });
   return new Promise((resolve) => {
     execFile(cmd, args, { cwd, env, timeout: 120000, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
       resolve({ code: err ? (typeof err.code === "number" ? err.code : 1) : 0, sortie: String(stdout).slice(-6000), erreurs: String(stderr).slice(-3000) });
@@ -93,6 +151,22 @@ function safeUrl(target) {
 }
 
 async function perform(req, ctx = {}) {
+  const binding = ctx.store?.binding?.();
+  const state = { req, plan: null,
+    stillWanted: ctx.stillWanted || (async () => true),
+    isCurrent: () => !ctx.store?.isCut() && ctx.store?.binding?.() === binding,
+  };
+  return actionContext.run(state, async () => {
+    try {
+      const result = await performAction(req, ctx);
+      // Une coupure locale annule le bandeau ; elle garde sa réponse distincte d'un refus volontaire.
+      return result.refuse && ctx.store?.isCut() ? CUT : result.refuse && state.failure ? state.failure : result;
+    }
+    finally { if (state.approval) grants.delete(state.approval.token); }
+  });
+}
+
+async function performAction(req, ctx) {
   const who = clean(req.agent) || "Noah";
   const store = ctx.store;
   const stillWanted = ctx.stillWanted || (async () => true);
@@ -101,7 +175,7 @@ async function perform(req, ctx = {}) {
   /** Après une attente (fenêtre, téléchargement) : l'accès a pu être coupé, la demande a pu expirer. */
   const stop = async () => {
     if (store?.isCut()) return CUT;
-    return (await stillWanted()) ? null : expired;
+    return (await stillWanted()) ? approvalFailure() : expired;
   };
   switch (req.action) {
     case "notifier": {
@@ -117,6 +191,8 @@ async function perform(req, ctx = {}) {
       if (!(await confirm(`${who} veut remplacer le contenu de ton presse-papiers.`, text))) return refused;
       const blocked = await stop();
       if (blocked) return blocked;
+      const approval = approvalFailure(true);
+      if (approval) return approval;
       clipboard.writeText(text);
       return { ok: true };
     }
@@ -128,6 +204,8 @@ async function perform(req, ctx = {}) {
         if (!(await confirm(`${who} veut ouvrir une page dans ton navigateur.`, url))) return refused;
         const blocked = await stop();
         if (blocked) return blocked;
+        const approval = approvalFailure(true);
+        if (approval) return approval;
         await shell.openExternal(url);
         return { ok: true };
       }
@@ -147,15 +225,15 @@ async function perform(req, ctx = {}) {
       if (!(await confirm(`${who} veut ouvrir ${isDir ? "un dossier" : "un fichier"}.`, finale))) return refused;
       const blocked = await stop();
       if (blocked) return blocked;
+      const approval = approvalFailure(true);
+      if (approval) return approval;
       const err = await shell.openPath(finale);
       return err ? { erreur: "Le système n'a pas pu l'ouvrir." } : { ok: true };
     }
     case "lancer": {
       const name = String(req.cible || "").trim();
       if (!APP_NAME.test(name)) return { erreur: "Donne seulement le nom de l'application, sans chemin ni symbole." };
-      if (!(await confirm(`${who} veut ouvrir l'application « ${name} ».`, ""))) return refused;
-      const blocked = await stop();
-      if (blocked) return blocked;
+      let program, args, env;
       if (process.platform === "win32") {
         // Par son exécutable (« notepad », « code ») ou, à défaut, par son nom dans le menu Démarrer (« Calculatrice »).
         // Le nom reste une donnée : il arrive par l'environnement, jamais dans le texte du script.
@@ -163,11 +241,16 @@ async function perform(req, ctx = {}) {
           "$n = $env:NOAH_APP; try { Start-Process -FilePath $n -ErrorAction Stop } catch { " +
           '$a = Get-StartApps | Where-Object { $_.Name -like "*$n*" } | Select-Object -First 1; ' +
           'if ($a) { Start-Process ("shell:AppsFolder\\" + $a.AppID) } else { throw "Application introuvable : $n" } }';
-        const r = await run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], undefined, { ...process.env, NOAH_APP: name });
-        return r.code === 0 ? { ok: true } : { erreur: "Application introuvable." };
-      }
-      const r = process.platform === "darwin" ? await run("open", ["-a", name]) : await run(name, []);
-      return r.code === 0 ? { ok: true } : { erreur: "Application introuvable." };
+        program = "powershell.exe";
+        args = ["-NoProfile", "-NonInteractive", "-Command", script];
+        env = { ...process.env, NOAH_APP: name };
+      } else { program = process.platform === "darwin" ? "open" : name; args = process.platform === "darwin" ? ["-a", name] : []; }
+      actionContext.getStore().plan = { program, args, path: undefined, env };
+      if (!(await confirm(`${who} veut ouvrir l'application « ${name} ».`, `Programme : ${program}\nArguments : ${JSON.stringify(args)}\nApplication : ${name}`))) return refused;
+      const blocked = await stop();
+      if (blocked) return blocked;
+      const r = await run(program, args, undefined, env);
+      return r.code === 0 ? { ok: true } : { erreur: r.erreurs || "Application introuvable." };
     }
     case "commande":
       return command(req, who, store, stop, refused);
@@ -206,9 +289,13 @@ async function command(req, who, store, stop, refused) {
     /* parti */
   }
   if (!usable) return { erreur: "Ce dossier n'existe plus sur l'ordinateur." };
+  if (dossiers.DECEIVING.test(cwd)) return { erreur: "Ce dossier a un nom illisible : rien n'est lancé." };
   const print = store ? await dossiers.fingerprint(text, store, folder?.id) : null;
+  const program = print ? print.exe : process.platform === "win32" ? "powershell.exe" : "/bin/sh";
+  const args = print ? print.args : process.platform === "win32" ? ["-NoProfile", "-NonInteractive", "-Command", text] : ["-c", text];
+  actionContext.getStore().plan = { program, args, path: cwd, env: undefined };
   // Le dossier et le programme d'abord : le texte de la commande ne peut pas les imiter.
-  const detail = `Dans : ${cwd}\n${print ? `Programme : ${print.exe}\n` : ""}Ce dossier n'enferme pas la commande : elle a les mêmes droits que toi sur tout l'ordinateur.\n\nCommande :\n${text}`;
+  const detail = `Dans : ${cwd}\nProgramme : ${program}\nArguments : ${JSON.stringify(args)}\nCe dossier n'enferme pas la commande : elle a les mêmes droits que toi sur tout l'ordinateur.\n\nCommande :\n${text}`;
   if (!print || !dossiers.alwaysAllowed(print, store)) {
     const buttons = print ? ["Autoriser", "Toujours autoriser cette commande", "Refuser"] : ["Autoriser", "Refuser"];
     const answer = await ask(`${who} veut exécuter une commande.`, detail, buttons, buttons.length - 1);
@@ -223,11 +310,11 @@ async function command(req, who, store, stop, refused) {
   if (store?.isCut()) return CUT;
   if (req.dossierId && !folderOf(req, store)) return { erreur: "Ce dossier n'est plus confié à l'agent." };
   // Sans interpréteur quand c'est possible : ce qui a été montré est exactement ce qui part.
-  const r = print
-    ? await run(print.exe, print.args, cwd)
-    : process.platform === "win32"
-      ? await run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", text], cwd)
-      : await run("/bin/sh", ["-c", text], cwd);
+  if (print) {
+    const now = await dossiers.fingerprint(text, store, folder?.id);
+    if (!now || now.exe !== print.exe || now.sha256 !== print.sha256) return modified;
+  }
+  const r = await run(program, args, cwd);
   return { ok: r.code === 0, ...r, dossier: folder ? folder.nom : undefined };
 }
 
@@ -249,11 +336,25 @@ async function files(req, ctx, store) {
     if (!folder.ecriture) throw new dossiers.Refus(`Le dossier « ${folder.nom} » est en lecture seule.`);
     const recheck = () => {
       if (store.isCut()) return CUT;
+      const approval = approvalFailure();
+      if (approval) return approval;
       const now = folderOf(req, store);
       return now?.id === folder.id && now.ecriture ? null : { refuse: true, message: "Ce dossier n'est plus confié à l'agent en écriture." };
     };
+    actionContext.getStore().plan = { program: null, args: [], path: folder.chemin };
+    if (getAutonomy() !== "auto") {
+      const detail = `Dossier : ${folder.chemin}\nChemin : ${req.chemin || ""}${req.vers ? `\nVers : ${req.vers}` : ""}`;
+      if (!(await confirm(`${clean(req.agent) || "Noah"} veut ${req.action === "ecrire" ? "écrire un fichier" : req.action === "deplacer" ? "déplacer un élément" : req.action === "corbeille" ? "mettre un élément à la corbeille" : "créer un dossier"}.`, detail))) return { refuse: true, message: "L'utilisateur a refusé cette action." };
+      const blocked = recheck();
+      if (blocked) return blocked;
+      if (ctx.stillWanted && !(await ctx.stillWanted())) return expired;
+      const late = recheck();
+      if (late) return late;
+      const approval = approvalFailure(true);
+      if (approval) return approval;
+    }
     // Ranger un dossier confié en écriture : la personne l'a permis en le confiant, et tout se défait (rien d'écrasé, corbeille).
-    if (req.action === "deplacer") return await dossiers.move(folder, req.chemin, req.vers, { ask: confirm, recheck });
+    if (req.action === "deplacer") return await dossiers.move(folder, req.chemin, req.vers, { recheck });
     if (req.action === "creer_dossier") return dossiers.makeDir(folder, req.chemin);
     if (req.action === "corbeille") return await dossiers.toTrash(folder, req.chemin, ctx.trash || trash);
     const data = await ctx.download(req.id);
@@ -339,6 +440,7 @@ function listen(getOrigin, store) {
           method: "POST", headers: { ...link.headers, "Content-Type": "application/json" },
           body: JSON.stringify({ message, detail }), signal: AbortSignal.timeout(10000),
         });
+        if (r.status === 404 || r.status === 410) throw new Error("Cette demande a expiré sans avoir été affichée : rien n'a été fait.");
         if (!r.ok) throw new Error("L'accord n'a pas pu être synchronisé.");
         return r.json();
       },
@@ -353,12 +455,15 @@ function listen(getOrigin, store) {
     const ctx = {
       store,
       stillWanted: async () => {
+        if (stopped) return false;
+        const current = await auth();
+        if (!current) throw new Error("Session du bureau indisponible : rien n'a été fait.");
+        if (current.origin !== link.origin || current.token !== link.token) return false;
         if (legacy) return true;
-        try {
-          return (await fetch(`${link.origin}/api/desktop/encore/${req.id}`, { headers: link.headers, signal: AbortSignal.timeout(10000) })).ok;
-        } catch {
-          return false;
-        }
+        const r = await fetch(`${link.origin}/api/desktop/encore/${req.id}`, { headers: link.headers, signal: AbortSignal.timeout(10000) });
+        if (r.status === 404 || r.status === 410) return false;
+        if (!r.ok) throw new Error("Vérification de la demande indisponible : rien n'a été fait.");
+        return true;
       },
       upload: async (id, data) => {
         const r = await fetch(`${link.origin}/api/desktop/piece/${id}`, {
@@ -433,4 +538,4 @@ function listen(getOrigin, store) {
   };
 }
 
-module.exports = { confirm, listen, perform };
+module.exports = { configure, confirm, listen, perform };

@@ -8,6 +8,7 @@ import Module, { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { fakeElectron } from "./electron_factice.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const NAME = `noah-pont-reel-${process.pid}`;
@@ -32,7 +33,7 @@ writeFileSync(join(confie, ".env"), "CLE=secrete");
 writeFileSync(join(base, "dehors.txt"), "contenu-du-dehors");
 writeFileSync(join(lecture, "vacances.txt"), "souvenir");
 
-// Le serveur, avec un compte, un agent et deux sessions d'ordinateur.
+// Le serveur, avec un compte, un agent, sa conversation et une session d'ordinateur.
 const BOOT = `
 import json, os, sys
 sys.path.insert(0, "/app")
@@ -45,6 +46,8 @@ if first:
     user = auth.create_user("alice", "motdepasse-a")
     with db.connect() as c:
         c.execute("INSERT INTO agents (id, name, role, api_key, owner_id) VALUES ('a1', 'Nadine', '', 'k', ?)", (user,))
+    # Comme dans l'app : #36 rattache chaque accord à la conversation de l'agent.
+    main._new_conversation(user, "a1", "Pont réel", main=True)
     token = auth.new_session(user, "Bureau", "desktop")
 tool = hermes.AGENT_TOOL.replace("http://noah-server:8080/agent-api", "http://127.0.0.1:8080/agent-api").replace("__TOKEN__", relay.token_for("a1"))
 open("/tmp/noah.py", "w", encoding="utf8").write(tool)
@@ -112,23 +115,26 @@ if (!ready) {
   finish(2);
 }
 
-// L'application de bureau, sans sa fenêtre : seules les boîtes de dialogue et le cookie sont factices.
-let reponse = 1;
-const boites = [];
-const electron = {
-  BrowserWindow: { getAllWindows: () => [] },
-  clipboard: { writeText: () => {} },
-  dialog: { showMessageBox: async (_, o) => (boites.push(o), { response: reponse }) },
-  Notification: class { on() {} show() {} },
-  session: { defaultSession: { cookies: { get: async () => [{ value: ready.token }] } } },
-  shell: { openExternal: async () => {}, openPath: async () => "" },
+// L'application de bureau, sans sa fenêtre : seules les surfaces Electron sont factices.
+let autoriser = false;
+const bandeaux = [], clics = [];
+const electron = fakeElectron();
+electron.session.defaultSession.cookies.get = async () => [{ value: ready.token }];
+electron.shell = { openExternal: async () => {}, openPath: async () => "" };
+electron.onRequest = (shown) => {
+  bandeaux.push(shown);
+  const response = autoriser ? 0 : shown.refuseIndex;
+  // La vraie voie IPC de bandeau.js vérifie le fichier, la frame et l'identifiant d'affichage.
+  queueMicrotask(() => clics.push({ id: shown.id, response, accepte: electron.answer(shown.id, response) }));
 };
 const charger = Module._load;
 Module._load = function (demande, ...reste) {
   return demande === "electron" ? electron : charger.call(this, demande, ...reste);
 };
 const require = createRequire(import.meta.url);
-const { listen } = require(join(ROOT, "desktop/actions.js"));
+const { listen, configure } = require(join(ROOT, "desktop/actions.js"));
+require(join(ROOT, "desktop/bandeau.js")).create(electron.win);
+configure({ autonomy: () => "auto" });
 const dossiers = require(join(ROOT, "desktop/dossiers.js"));
 Module._load = charger;
 
@@ -164,7 +170,8 @@ check("l'agent écrit dans le dossier de l'ordinateur", out.ok === true && exist
 check("le fichier arrive identique", existsSync(ecrit) && sha(readFileSync(ecrit)) === sha(contenu));
 out = await agent("ordinateur", "ecrire", "Documents", "rapports/lundi.pdf", "/tmp/rapport.bin");
 check("le même nom : une copie à côté, l'ancien reste", out.chemin === "rapports/lundi (2).pdf" && readdirSync(join(confie, "rapports")).length === 2, JSON.stringify(out));
-const nbBoites = boites.length;
+const nbBandeaux = bandeaux.length;
+check("écrire en Auto ne demande aucun accord", nbBandeaux === 0);
 
 // 3. Lister et lire, sans fenêtre.
 out = await agent("ordinateur", "lister", "Documents");
@@ -173,7 +180,7 @@ check("lister montre le dossier, sans .env", noms.includes("note.txt") && noms.i
 out = await agent("ordinateur", "lire", "Documents", "note.txt");
 const lu = docker("exec", NAME, "cat", out.fichier ?? "/n-existe-pas");
 check("lire copie le fichier dans la machine de l'agent", out.ok === true && lu.stdout === "écrit par la personne", JSON.stringify(out) + lu.stderr);
-check("lire et écrire passent sans déranger la personne", boites.length === nbBoites);
+check("lire et écrire passent sans déranger la personne", bandeaux.length === nbBandeaux);
 
 // 4. Ce qui ne doit pas passer.
 out = await agent("ordinateur", "lire", "Documents", "../dehors.txt");
@@ -187,23 +194,33 @@ check("écrire en lecture seule : refusé", out.refuse === true && !existsSync(j
 out = await agent("ordinateur", "lister", "Inconnu");
 check("un dossier non confié : refusé", out.refuse === true, JSON.stringify(out));
 
-// 5. Une commande demande l'accord, et l'accord dit où elle tourne.
-const avant = boites.length;
-reponse = 1;
-const ordre = process.platform === "win32" ? "Get-Location" : "pwd";
+// 5. Refus puis accord par le bandeau réel : le fichier témoin prouve ce qui s'est exécuté.
+const avant = bandeaux.length;
+autoriser = false;
+const temoin = join(confie, "accord-execute.txt");
+const ordre = process.platform === "win32"
+  ? "Write-Output (Get-Location).Path; Set-Content -LiteralPath 'accord-execute.txt' -Value 'accorde'"
+  : "/bin/pwd; printf accorde > accord-execute.txt";
 out = await agent("ordinateur", "commande", ordre, "--dossier", "Documents");
-check("commande refusée dans la fenêtre : rien ne s'exécute", out.refuse === true && boites.length === avant + 1, JSON.stringify(out));
-check("la fenêtre dit que le dossier n'enferme pas la commande", /n'enferme pas/.test(boites.at(-1)?.detail ?? ""));
-reponse = 0;
+check("refus reçu par noah:accord depuis le bandeau", bandeaux.length === avant + 1 && clics.at(-1)?.id === bandeaux.at(-1)?.id
+  && clics.at(-1)?.response === bandeaux.at(-1)?.refuseIndex && clics.at(-1)?.accepte === true);
+check("commande refusée dans le bandeau : rien ne s'exécute", out.refuse === true && !existsSync(temoin), JSON.stringify(out));
+check("le bandeau dit que le dossier n'enferme pas la commande", /n'enferme pas/.test(bandeaux.at(-1)?.detail ?? ""));
+check("le bandeau montre le dossier et la commande exacts", bandeaux.at(-1)?.detail.startsWith(`Dans : ${confie}\n`)
+  && bandeaux.at(-1)?.detail.endsWith(`Commande :\n${ordre}`));
+autoriser = true;
 out = await agent("ordinateur", "commande", ordre, "--dossier", "Documents");
-check("commande acceptée : tourne dans le dossier confié", out.ok === true && (out.sortie ?? "").includes("Documents"), JSON.stringify(out));
+check("accord reçu par noah:accord depuis le nouveau bandeau", bandeaux.length === avant + 2 && clics.at(-1)?.id === bandeaux.at(-1)?.id
+  && clics.at(-1)?.response === 0 && clics.at(-1)?.accepte === true);
+check("commande acceptée : tourne dans le dossier confié", out.ok === true && out.code === 0 && out.dossier === "Documents"
+  && (out.sortie ?? "").trim() === confie && existsSync(temoin) && readFileSync(temoin, "utf8").trim() === "accorde", JSON.stringify(out));
 
 // 6. « Couper l'accès » arrête tout, tout de suite.
 store.setCut(true);
 out = await agent("ordinateur", "lister", "Documents");
 check("accès coupé : l'agent est arrêté", out.coupe === true, JSON.stringify(out));
 store.setCut(false);
-reponse = 1;
+autoriser = false;
 
 // 7. Ordinateur éteint : le fichier attend sur le serveur, et arrive à la reconnexion, une seule fois.
 listening.stop();

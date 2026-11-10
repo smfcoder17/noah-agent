@@ -6,6 +6,7 @@ import Module, { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { fakeElectron } from "./electron_factice.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const require = createRequire(import.meta.url);
@@ -110,14 +111,14 @@ check("remplacer refusé : copie, et l'accord a bien été demandé", readFileSy
 r = await d.write(ecriture, "note.txt", Buffer.from("remplacé"), { remplacer: true, ask: oui });
 check("remplacer accepté : remplacé d'un coup", readFileSync(join(racine, "note.txt"), "utf8") === "remplacé" && r.chemin === "note.txt", JSON.stringify(r));
 r = await d.write(ecriture, "lance.ps1", Buffer.from("x"), { ask: non });
-check("un programme demande un accord, refusé : rien d'écrit", r.refuse && !existsSync(join(racine, "lance.ps1")), JSON.stringify(r));
+check("écrire un programme ne le lance pas : pas d'accord lié au type", r.ok && existsSync(join(racine, "lance.ps1")), JSON.stringify(r));
 const avantActifs = asked;
 const actifs = ["a.scf", "desktop.ini", "autorun.inf", "a.pif", "a.docm", "a.chm", "a.iso", "a.library-ms", "a.settingcontent-ms", "a.msc", "a.application", "a.xll", ".gitconfig", ".bashrc", "Makefile", "package.json", ".vscode/tasks.json", "a.html", "a.svg", "sans-extension"];
 for (const nom of actifs) {
   r = await d.write(ecriture, nom, Buffer.from("x"), { ask: non });
-  check(`peut agir, donc accord demandé : ${nom}`, r.refuse === true && !existsSync(join(racine, nom)), JSON.stringify(r));
+  check(`écriture permise quel que soit le type : ${nom}`, r.ok === true && existsSync(join(racine, nom)), JSON.stringify(r));
 }
-check("chaque type actif a bien ouvert une fenêtre", asked === avantActifs + actifs.length, String(asked - avantActifs));
+check("aucun accord fondé sur l'extension", asked === avantActifs, String(asked - avantActifs));
 asked = 0;
 for (const nom of ["doc.pdf", "tableau.xlsx", "photo.jpg", "notes.md", "donnees.csv", "video.mp4", "config.json"]) {
   r = await d.write(ecriture, `sains/${nom}`, Buffer.from("x"), { ask: non });
@@ -211,28 +212,25 @@ check("un programme dans un dossier confié n'est jamais permis pour toujours", 
 let reponse = 1;
 const boites = [], colle = [], ouvert = [];
 let enCours = 0, maximum = 0;
-const electron = {
-  BrowserWindow: { getAllWindows: () => [] },
-  clipboard: { writeText: (t) => colle.push(t) },
-  dialog: {
-    showMessageBox: async (_, o) => {
-      enCours += 1;
-      maximum = Math.max(maximum, enCours);
-      boites.push(o);
-      await new Promise((res) => setTimeout(res, 15));
-      enCours -= 1;
-      return { response: reponse };
-    },
-  },
-  Notification: class { on() {} show() { ouvert.push("notification"); } },
-  session: {},
-  shell: { openExternal: async (u) => ouvert.push(u), openPath: async (p) => (ouvert.push(p), "") },
+const electron = fakeElectron();
+electron.clipboard.writeText = (t) => colle.push(t);
+electron.shell = { openExternal: async (u) => ouvert.push(u), openPath: async (p) => (ouvert.push(p), "") };
+electron.onRequest = async (o) => {
+  enCours += 1;
+  maximum = Math.max(maximum, enCours);
+  boites.push(o);
+  await new Promise((res) => setTimeout(res, 15));
+  enCours -= 1;
+  electron.answer(o.id, reponse);
 };
 const charger = Module._load;
 Module._load = function (demande, ...reste) {
   return demande === "electron" ? electron : charger.call(this, demande, ...reste);
 };
-const { perform } = require(join(ROOT, "desktop/actions.js"));
+const { perform, configure } = require(join(ROOT, "desktop/actions.js"));
+require(join(ROOT, "desktop/bandeau.js")).create(electron.win);
+let autonomie = "auto";
+configure({ autonomy: () => autonomie });
 Module._load = charger;
 
 let n = boites.length;
@@ -261,7 +259,7 @@ check("accord donné après l'expiration : rien ne se passe", out.erreur && coll
 maximum = 0;
 await Promise.all([1, 2, 3].map((i) => perform({ action: "presse_papiers", agent: "A", texte: String(i) })));
 check("une seule fenêtre d'accord à la fois", maximum === 1, String(maximum));
-check("une fenêtre d'accord expire d'elle-même", boites.at(-1).signal instanceof AbortSignal);
+check("le bandeau n'expose que l'affichage, aucun jeton", Object.keys(boites.at(-1)).sort().join() === "buttons,detail,id,message,refuseIndex");
 n = boites.length;
 out = await perform({ action: "presse_papiers", agent: "A", texte: "\n".repeat(1500) + "CACHÉ" });
 check("texte étiré sur des lignes pour cacher la fin : refusé", out.erreur && boites.length === n, JSON.stringify(out));
@@ -292,13 +290,13 @@ check("la fenêtre donne le vrai dossier avant le texte de la commande", lignes[
 const pendant = d.createStore(join(base, "profil5", "dossiers.json"));
 reponse = 0;
 const colleAvant = colle.length;
-const montre = electron.dialog.showMessageBox;
-electron.dialog.showMessageBox = async (p, o) => {
+const montre = electron.onRequest;
+electron.onRequest = async (o) => {
   pendant.setCut(true);
-  return montre(p, o);
+  return montre(o);
 };
 out = await perform({ action: "presse_papiers", agent: "A", texte: "coupé entre-temps" }, { store: pendant });
-electron.dialog.showMessageBox = montre;
+electron.onRequest = montre;
 check("coupé pendant la fenêtre : rien ne se passe après l'accord", out.coupe === true && colle.length === colleAvant, JSON.stringify(out));
 reponse = 1;
 
@@ -327,6 +325,8 @@ check("écrire en lecture seule : refusé", out.refuse && !existsSync(join(racin
 coupe.setWrite(dossier.id, true);
 out = await perform({ id: "w2", action: "ecrire", dossierId: dossier.id, chemin: "ecrit.txt", sha256: d.sha256(Buffer.from("x")) }, { store: coupe, download: async () => Buffer.from("x") });
 check("écrire avec le droit : écrit, sans fenêtre", out.ok && readFileSync(join(racine, "ecrit.txt"), "utf8") === "x" && boites.length === n, JSON.stringify(out));
+out = await perform({ id: "html", action: "ecrire", dossierId: dossier.id, chemin: "page.html" }, { store: coupe, download: async () => Buffer.from("<h1>Bonjour</h1>") });
+check("écrire un .html en Auto : vrai fichier, sans bandeau ni dialog", out.ok && readFileSync(join(racine, "page.html"), "utf8") === "<h1>Bonjour</h1>" && boites.length === n, JSON.stringify(out));
 out = await perform({ id: "w3", action: "ecrire", dossierId: dossier.id, chemin: "ecrit2.txt" }, { store: coupe, download: async () => { throw Object.assign(new Error("réseau"), { plusTard: true }); } });
 check("réseau coupé pendant la livraison : réessayée plus tard", out.plus_tard === true, JSON.stringify(out));
 
@@ -353,18 +353,23 @@ out = await perform({ action: "deplacer", dossierId: dossier.id, chemin: "rangem
 check("un dossier dans lui-même : refusé", out.refuse && existsSync(join(racine, "rangement")), JSON.stringify(out));
 reponse = 1;
 out = await perform({ action: "deplacer", dossierId: dossier.id, chemin: "rangement/occupe.txt", vers: "rangement/occupe.ps1" }, ctxRange);
-check("renommer en programme : fenêtre, refusé", out.refuse && boites.length === n + 1 && existsSync(join(racine, "rangement/occupe.txt")), JSON.stringify(out));
+check("renommer en programme en Auto : sans accord", out.ok && boites.length === n && existsSync(join(racine, "rangement/occupe.ps1")), JSON.stringify(out));
+await perform({ action: "deplacer", dossierId: dossier.id, chemin: "rangement/occupe.ps1", vers: "rangement/occupe.txt" }, ctxRange);
 // Revue : un dossier déplacé vers un endroit lu par un outil (.github) demande l'accord, comme ses fichiers un à un.
 mkdirSync(join(racine, "staging/workflows"), { recursive: true });
 writeFileSync(join(racine, "staging/workflows/run.yml"), "on: push");
 n = boites.length;
 out = await perform({ action: "deplacer", dossierId: dossier.id, chemin: "staging", vers: ".github" }, ctxRange);
-check("dossier déplacé vers .github : fenêtre, refusé", out.refuse && boites.length === n + 1 && existsSync(join(racine, "staging/workflows/run.yml")), JSON.stringify(out));
+check("dossier déplacé vers .github en Auto : sans accord", out.ok && boites.length === n && existsSync(join(racine, ".github/workflows/run.yml")), JSON.stringify(out));
 // Revue : l'accès coupé pendant la fenêtre arrête le déplacement.
-const montreAvant = electron.dialog.showMessageBox;
-electron.dialog.showMessageBox = async (...a) => { coupe.setWrite(dossier.id, false); return montreAvant(...a).then(() => ({ response: 0 })); };
+autonomie = "prudent";
+reponse = 0;
+const montreAvant = electron.onRequest;
+electron.onRequest = async (...a) => { coupe.setWrite(dossier.id, false); return montreAvant(...a); };
 out = await perform({ action: "deplacer", dossierId: dossier.id, chemin: "rangement/occupe.txt", vers: "rangement/occupe.bat" }, ctxRange);
-electron.dialog.showMessageBox = montreAvant;
+electron.onRequest = montreAvant;
+autonomie = "auto";
+reponse = 1;
 coupe.setWrite(dossier.id, true);
 check("écriture retirée pendant la fenêtre : rien ne bouge", out.refuse && existsSync(join(racine, "rangement/occupe.txt")) && !existsSync(join(racine, "rangement/occupe.bat")), JSON.stringify(out));
 n = boites.length;

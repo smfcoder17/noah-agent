@@ -2,15 +2,17 @@
 // ouvre son interface dans une fenêtre,
 // reste dans la zone de notification pour que les routines continuent, et donne le vrai sélecteur de dossier.
 const fichiers = require("./fichiers");
-const { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, safeStorage, session, shell, Tray } = require("electron");
+const { app, BrowserWindow, WebContentsView, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, safeStorage, session, shell, Tray } = require("electron");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const noah = require("./noah");
 const actions = require("./actions");
 const dossiers = require("./dossiers");
+const bandeau = require("./bandeau");
 
 let win = null;
+let page = null;
 let tray = null;
 let origin = "";
 let quitting = false;
@@ -27,6 +29,16 @@ const writeConfig = (patch) => {
   fs.mkdirSync(app.getPath("userData"), { recursive: true });
   fs.writeFileSync(configFile(), JSON.stringify({ ...readConfig(), ...patch }, null, 1));
 };
+const autonomy = require("./autonomie").create(readConfig, writeConfig);
+actions.configure({ autonomy: autonomy.get });
+function autonomyMenu() {
+  return { label: "Autonomie de cet ordinateur", submenu: [
+    ...[["auto", "Auto — agir dans les dossiers confiés"], ["prudent", "Prudent — demander avant d'écrire ou ranger"]].map(([value, label]) => ({
+      label, type: "radio", checked: autonomy.get() === value,
+      click: () => { autonomy.set(value); createMenu(); createTrayMenuState(); },
+    })),
+  ] };
+}
 const isNoahHome = (dir) => !!dir && fs.existsSync(path.join(dir, "docker-compose.yml")) && fs.existsSync(path.join(dir, "launcher"));
 
 /** Dossier où Noah est installé : mémorisé, sinon celui du projet (développement), sinon demandé une fois. */
@@ -55,7 +67,7 @@ div{text-align:center;max-width:420px;padding:24px}p{opacity:.75;line-height:1.5
 function status(text, failed = false) {
   if (!win || win.isDestroyed()) return;
   const js = `document.getElementById('s').textContent=${JSON.stringify(text)};document.getElementById('r').hidden=${!failed};`;
-  win.webContents.executeJavaScript(js).catch(() => {});
+  page.webContents.executeJavaScript(js).catch(() => {});
 }
 
 // Serveur injoignable (démarrage, ou coupé pendant l'usage) : nouvel essai toutes les 5 s, sans redemander
@@ -77,16 +89,16 @@ async function boot() {
   // Premier lancement (et pas une copie de développement avec Docker sous la main) : où vit Noah ?
   if (!config.mode && !isNoahHome(path.resolve(__dirname, ".."))) {
     origin = "";
-    return win.loadFile(path.join(__dirname, "setup.html"));
+    return page.webContents.loadFile(path.join(__dirname, "setup.html"));
   }
-  await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(LOADING)}`);
+  await page.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(LOADING)}`);
   if (config.mode === "remote") {
     if (serverOrigin(config.server || "") !== config.server) {
       // Adresse en http vers un serveur public (relié par une ancienne version) : on ne renvoie surtout pas la session
       // en clair pour la révoquer. On l'oublie ici ; l'écran de connexion dit de la déconnecter depuis Réglages.
       await forgetServer({ revoke: false });
-      win.webContents.once("did-finish-load", () =>
-        win.webContents.executeJavaScript(`document.getElementById("error").textContent = ${JSON.stringify(
+      page.webContents.once("did-finish-load", () =>
+        page.webContents.executeJavaScript(`document.getElementById("error").textContent = ${JSON.stringify(
           "Ton serveur était relié en http (non chiffré). Relie-le en https, puis déconnecte l'ancienne session dans Réglages → Appareils.",
         )}`).catch(() => {}),
       );
@@ -101,7 +113,7 @@ async function boot() {
     const changed = noah.ensureShareRoots(home);
     const url = await noah.start(home, status, changed);
     origin = new URL(url).origin;
-    await win.loadURL(url);
+    await page.webContents.loadURL(url);
   } catch (e) {
     status(e.message, true);
   }
@@ -117,7 +129,7 @@ function announceWindow(remote) {
   plainAgent ??= session.defaultSession.getUserAgent();
   const agent = remote ? `${plainAgent} NoahApp/${app.getVersion()} Desktop` : plainAgent;
   session.defaultSession.setUserAgent(agent); // service worker
-  win?.webContents.setUserAgent(agent); // la fenêtre garde sinon celui qu'elle avait à sa création
+  page?.webContents.setUserAgent(agent); // la fenêtre garde sinon celui qu'elle avait à sa création
 }
 let plainAgent = null;
 
@@ -144,7 +156,7 @@ async function openRemote(server) {
     return;
   }
   origin = new URL(server).origin;
-  await win.loadURL(server);
+  await page.webContents.loadURL(server);
 }
 
 /**
@@ -239,7 +251,7 @@ async function authorize(rawServer) {
     return { error: "Réponse inattendue du serveur." };
   }
   shell.openExternal(start.adresse);
-  win?.webContents.send("noah:setup-ask-number");
+  page?.webContents.send("noah:setup-ask-number");
   return waitForApproval(server, start.sondage, start.expire, "", generation, true);
 }
 
@@ -275,7 +287,7 @@ let typedNumber = ""; // voir « noah:setup-number »
 let pairingGeneration = 0; // change à chaque appairage et à chaque oubli : une attente plus ancienne n'adopte rien
 
 async function waitForApproval(server, sondage, expire, verification, generation, askNumber = false) {
-  if (!askNumber) win?.webContents.send("noah:setup-waiting", String(verification || ""));
+  if (!askNumber) page?.webContents.send("noah:setup-waiting", String(verification || ""));
   typedNumber = "";
   const until = Date.now() + (expire || 1200) * 1000;
   activePoll = { server, sondage }; // si l'app se ferme pendant l'attente, un dernier sondage récupère et révoque
@@ -435,7 +447,7 @@ async function forgetOnce({ revoke = true } = {}, asked, askedToken) {
     const cookie = (await session.defaultSession.cookies.get({ url: server, name: "noah_session" }).catch(() => []))[0]?.value;
     const tokens = [...new Set([token, cookie].filter(Boolean))];
     // Notifications et marqueur de session de la page : rien de l'ancien compte ne reste lisible ici.
-    await win?.webContents.executeJavaScript(
+    await page?.webContents.executeJavaScript(
       "navigator.serviceWorker?.getRegistration().then((r) => r?.getNotifications()).then((l) => (l || []).forEach((n) => n.close())).catch(() => {})",
     ).catch(() => {});
     await session.defaultSession.clearStorageData({ origin: server, storages: ["cachestorage", "serviceworkers"] }).catch(() => {});
@@ -448,7 +460,7 @@ async function forgetOnce({ revoke = true } = {}, asked, askedToken) {
   writeConfig({ mode: null, server: null, jeton: null });
   origin = "";
   show();
-  win.loadFile(path.join(__dirname, "setup.html"));
+  page.webContents.loadFile(path.join(__dirname, "setup.html"));
 }
 
 function createWindow() {
@@ -461,15 +473,24 @@ function createWindow() {
     title: "Noah Agent",
     icon: path.join(__dirname, "icon.png"),
     autoHideMenuBar: true,
-    show: false, // montrée une fois peinte : pas d'éclair blanc au lancement, en thème sombre surtout
+    show: false, // montrée au premier chargement de la vue de Noah
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#1c1a18" : "#faf8f5",
-    webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false, sandbox: true },
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
+  // La page et le bandeau ont chacun leur vue native : le bandeau réduit le vrai
+  // viewport de la page, sans injection de CSS dans le contenu du serveur.
+  page = new WebContentsView({ webPreferences: {
+    preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false, sandbox: true,
+  } });
+  win.contentView.addChildView(page);
+  bandeau.create(win, page);
+  const contents = page.webContents;
+  win.once("closed", () => { if (!contents.isDestroyed()) contents.close(); });
   if (saved.agrandie) win.maximize();
-  win.once("ready-to-show", () => win.show());
+  contents.once("did-finish-load", () => win.show());
   // Le titre de la barre reste le nom de l'app, quoi que dise la page ouverte.
   win.on("page-title-updated", (e) => e.preventDefault());
-  win.webContents.on("context-menu", contextMenu);
+  page.webContents.on("context-menu", contextMenu);
   // Requêtes (images comprises) vers l'hôte du serveur sur un autre port : bloquées. Le cookie de session ne
   // distingue pas les ports (RFC 6265 §8.5) ; il ne doit partir que vers l'adresse exacte du serveur.
   session.defaultSession.webRequest.onBeforeRequest((details, done) => {
@@ -488,7 +509,7 @@ function createWindow() {
     done({ cancel });
   });
   // Liens externes : dans le navigateur de l'utilisateur, jamais dans la fenêtre de Noah.
-  win.webContents.setWindowOpenHandler(({ url }) => {
+  page.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/.test(url)) shell.openExternal(url);
     return { action: "deny" };
   });
@@ -497,18 +518,18 @@ function createWindow() {
     e.preventDefault();
     if (/^https?:/.test(url)) shell.openExternal(url);
   };
-  win.webContents.on("will-navigate", stayHome);
-  win.webContents.on("will-redirect", stayHome); // une redirection du serveur ne passe pas par will-navigate
+  page.webContents.on("will-navigate", stayHome);
+  page.webContents.on("will-redirect", stayHome); // une redirection du serveur ne passe pas par will-navigate
   // Page du serveur qui ne charge plus (serveur coupé, réseau perdu) : écran d'attente, puis reconnexion seule.
-  win.webContents.on("did-fail-load", (_e, code, _desc, url, mainFrame) => {
+  page.webContents.on("did-fail-load", (_e, code, _desc, url, mainFrame) => {
     if (!mainFrame || code === -3 || readConfig().mode !== "remote" || !sameOrigin(url)) return; // -3 : navigation annulée
-    win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(LOADING)}`).then(() => {
+    page.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(LOADING)}`).then(() => {
       status("Connexion au serveur perdue. Reconnexion automatique…", true);
       reconnectLater();
     }).catch(() => {});
   });
   // « Réessayer » de l'écran de démarrage.
-  win.webContents.on("did-navigate-in-page", (_e, url) => {
+  page.webContents.on("did-navigate-in-page", (_e, url) => {
     if (url.endsWith("#retry")) boot();
   });
   // Fermer la fenêtre la cache : Noah continue (routines, fils de travail). Quitter depuis la zone de notification.
@@ -533,6 +554,7 @@ function show() {
   if (win.isMinimized()) win.restore();
   win.show();
   win.focus();
+  page?.webContents.focus();
 }
 
 const quit = () => {
@@ -586,6 +608,8 @@ function createTray() {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: "Ouvrir Noah Agent", click: show },
+      autonomyMenu(),
+      { label: "Voir l'accord en attente", click: () => bandeau.focus() },
       { label: "Changer de serveur…", click: changeServer },
       { type: "separator" },
       { id: "couper", label: "Couper l'accès de l'agent", type: "checkbox", checked: folders().isCut(), click: (item) => setCut(item.checked) },
@@ -601,6 +625,8 @@ function createMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     ...(process.platform === "darwin" ? [{ label: "Noah Agent", submenu: [{ role: "hide", label: "Masquer Noah Agent" }, { type: "separator" }, { label: "Quitter Noah Agent", accelerator: "Cmd+Q", click: quit }] }] : []),
     { label: "Fichier", submenu: [
+      autonomyMenu(),
+      { label: "Voir l'accord en attente", accelerator: "CommandOrControl+Shift+Space", click: () => bandeau.focus() },
       { label: "Changer de serveur…", click: changeServer },
       { type: "separator" },
       { role: "close", label: "Fermer la fenêtre" },
@@ -630,7 +656,7 @@ function createMenu() {
 /** Clic droit : sans ce menu, une fenêtre Electron n'en a aucun, pas même Copier et Coller. */
 function contextMenu(_e, params) {
   const items = [];
-  for (const word of params.dictionarySuggestions) items.push({ label: word, click: () => win.webContents.replaceMisspelling(word) });
+  for (const word of params.dictionarySuggestions) items.push({ label: word, click: () => page.webContents.replaceMisspelling(word) });
   if (items.length) items.push({ type: "separator" });
   if (params.linkURL && /^https?:/.test(params.linkURL)) items.push({ label: "Copier le lien", click: () => clipboard.writeText(params.linkURL) }, { type: "separator" });
   if (params.isEditable) {

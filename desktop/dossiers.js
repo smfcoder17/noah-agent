@@ -28,12 +28,6 @@ const SENSITIVE_FILE = new RegExp([
   "^(authorized_keys|known_hosts|wallet\\.\\w+|login data|web data|local state|cookies|logins\\.json|key[34]\\.db|cookies\\.sqlite|terraform\\.tfstate.*|login\\.keychain.*)$",
   "\\.(pem|key|p12|pfx|kdbx|keystore|keychain|jks|ppk|gpg|asc|ovpn)$",
 ].join("|"), "i");
-// Ce qui s'écrit sans déranger : des documents et des médias, qui ne font rien tant qu'on ne les ouvre pas avec leur programme.
-// Tout le reste peut agir (programme, raccourci, script, fichier de réglages lu par un outil) et demande un accord.
-const SAFE_WRITE = /\.(txt|md|rtf|csv|tsv|log|pdf|png|jpe?g|gif|webp|bmp|heic|tiff?|mp3|wav|m4a|flac|ogg|mp4|mov|mkv|webm|avi|docx|xlsx|pptx|odt|ods|odp|json|yaml|yml)$/i;
-const TOOL_READS = /^(package|composer|tsconfig|jsconfig|tasks|launch|settings|devcontainer)\.json$/i;
-const TOOL_DIR = /^(\.vscode|\.idea|\.github|\.devcontainer)$/i;
-const needsConsent = (target, parts) => !SAFE_WRITE.test(target) || path.basename(target).startsWith(".") || TOOL_READS.test(path.basename(target)) || parts.some((p) => TOOL_DIR.test(p));
 const TEMPORARY = /^\.noah-[0-9a-f]{16}\.tmp$/;
 
 class Refus extends Error {}
@@ -209,7 +203,7 @@ function publish(temporary, target) {
   throw new Refus("Trop de fichiers portent déjà ce nom.");
 }
 
-/** Écrit `data` dans le dossier. `ask(message, détail)` demande l'accord de la personne pour remplacer ou écrire un programme. */
+/** Écrit `data` dans le dossier. L'autonomie est vérifiée par actions.js pour tous les types de fichier. */
 async function write(folder, relative, data, { remplacer = false, attendu = "", id = "", journal = null, ask = async () => false, recheck = () => null, trash = null } = {}) {
   if (!folder.ecriture) throw new Refus(`Le dossier « ${folder.nom} » est en lecture seule.`);
   if (data.length > MAX_FILE) throw new Refus("Ce fichier dépasse 50 Mo.");
@@ -228,9 +222,6 @@ async function write(folder, relative, data, { remplacer = false, attendu = "", 
     }
   }
   const shown = pieces(relative).join("/");
-  if (needsConsent(target, pieces(relative)) && !(await ask(`Un agent veut enregistrer un fichier qui peut agir dans « ${folder.nom} ».`, `${shown}\n\nCe type de fichier peut lancer quelque chose quand on l'ouvre, ou être lu par un outil. Accepte seulement si tu l'attendais.`))) {
-    return { refuse: true, message: "L'utilisateur a refusé d'enregistrer ce fichier." };
-  }
   // Avec une corbeille, remplacer se défait : l'ancienne version y part, et rien n'est demandé. Sans corbeille, l'ancien contenu serait perdu.
   const replacing = remplacer && exists && (trash ? true : await ask(`Un agent veut remplacer un fichier de « ${folder.nom} ».`, `${shown}\n\nL'ancien contenu sera perdu. Sans ton accord, une copie est créée à côté.`));
   // Une fenêtre a pu rester ouverte longtemps : l'accès a peut-être été coupé, ou le dossier retiré, entre-temps.
@@ -283,38 +274,14 @@ function notRoot(root, target) {
   if (path.relative(root, target) === "") throw new Refus("C'est le dossier confié lui-même : choisis un élément dedans.");
 }
 
-/** Déplace ou renomme `from` vers `to`, deux chemins du même dossier. `ask` : un nom qui ferait agir le fichier demande l'accord. */
-/** Les fichiers d'un dossier, chemins relatifs à lui (au plus `max` : au-delà, null). */
-function filesUnder(dir, max = 2000) {
-  const out = [];
-  const walk = (d, rel) => {
-    for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
-      if (out.length > max) return;
-      const r = [...rel, entry.name];
-      if (entry.isDirectory()) walk(path.join(d, entry.name), r);
-      else out.push(r);
-    }
-  };
-  walk(dir, []);
-  return out.length > max ? null : out;
-}
-
-/** Ce déplacement rend-il actif quelque chose qui ne l'était pas (un programme, un dossier lu par un outil comme .github) ? */
-function becomesActive(source, dest, from, to) {
-  if (fs.statSync(source).isFile()) return needsConsent(dest, pieces(to)) && !needsConsent(source, pieces(from));
-  const inner = filesUnder(source);
-  if (!inner) return true; // trop gros pour tout regarder : la personne décide
-  return inner.some((rel) => needsConsent(path.join(dest, ...rel), [...pieces(to), ...rel]) && !needsConsent(path.join(source, ...rel), [...pieces(from), ...rel]));
-}
-
 const identity = (target) => {
   const st = fs.statSync(target);
   return `${st.dev}:${st.ino}:${st.isDirectory()}`;
 };
 
-/** Déplace ou renomme `from` vers `to`, deux chemins du même dossier. Ce qui deviendrait actif demande l'accord (`ask`) ;
+/** Déplace ou renomme `from` vers `to`, deux chemins du même dossier ;
  * après l'attente, tout se revérifie : droits (`recheck`), chemin et identité de la source, place libre à l'arrivée. */
-async function move(folder, from, to, { ask = async () => false, recheck = () => null } = {}) {
+async function move(folder, from, to, { recheck = () => null } = {}) {
   writable(folder);
   const source = resolve(folder.chemin, from);
   if (!source.exists) throw new Refus("Introuvable dans ce dossier.");
@@ -324,12 +291,6 @@ async function move(folder, from, to, { ask = async () => false, recheck = () =>
   if (dest.exists) throw new Refus("Un élément porte déjà ce nom à l'arrivée : choisis un autre nom, rien n'est écrasé.");
   if (inside(source.target, dest.target)) throw new Refus("Un dossier ne se range pas dans lui-même.");
   const before = identity(source.target);
-  if (becomesActive(source.target, dest.target, from, to)) {
-    const asked = await ask(`Un agent veut déplacer dans « ${folder.nom} » quelque chose qui pourra agir.`, `${pieces(from).join("/")} → ${pieces(to).join("/")}
-
-Accepte seulement si tu l'attendais.`);
-    if (!asked) return { refuse: true, message: "L'utilisateur a refusé ce déplacement." };
-  }
   const blocked = recheck();
   if (blocked) return blocked;
   writable(folder);
