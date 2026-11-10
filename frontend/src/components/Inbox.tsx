@@ -1,3 +1,4 @@
+import { subscribeUpdates } from "@/lib/events";
 // « À toi » : tout ce qui attend la personne, tous agents confondus. Un accord se donne ici ; le reste ouvre la conversation.
 import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -25,8 +26,8 @@ export function Inbox({ open, agents, onOpenChange, onOpenConversation }: {
     const load = () => get<InboxItem[]>("/api/a-toi").then((rows) => setItems(rows.filter((r) => !r.request_id))).catch((e) => setError((e as Error).message));
     void load();
     // Connexions et choix gardent leur relève existante ; les accords viennent exclusivement du bus et de /api/accords (secours 60 s).
-    const timer = setInterval(load, 3000);
-    return () => clearInterval(timer);
+    const timer = subscribeUpdates(load);
+    return () => timer();
   }, [open]);
   useEffect(() => {
     if (!open) return;

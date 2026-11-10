@@ -1,3 +1,6 @@
+import { SettingsTwoColumns } from "./desktop/SettingsTwoColumns";
+import { Appearance } from "./Appearance";
+import { Providers } from "./Providers";
 // Réglages : le cerveau des agents, les modèles de création (image, vidéo, musique), la voix et le téléphone.
 // Chaque type peut rester en « Automatique » : Noah Agent prend le meilleur modèle disponible avec la clé.
 import { Check, ChevronRight, Loader2, Play } from "lucide-react";
@@ -22,7 +25,7 @@ import { type MediaModel, ModelSelect } from "./ModelSelect";
 import { Dialog, DialogContent, Tabs, TabsContent, TabsList, TabsTrigger } from "./ui";
 import { Button, Input, Label } from "./ui";
 
-export type SettingsTab = "home" | "mail" | "brain" | "create" | "voice" | "phone" | "notifications" | "telephone" | "security" | "updates" | "privacy" | "profiles" | "diagnostic";
+export type SettingsTab = "appearance" | "providers" | "home" | "mail" | "brain" | "create" | "voice" | "phone" | "notifications" | "telephone" | "security" | "updates" | "privacy" | "profiles" | "diagnostic";
 
 type Kind = { label: string; setting: string; auto: string | null; routed?: boolean; models: MediaModel[] };
 type MediaState = {
@@ -37,11 +40,12 @@ type MediaState = {
 // Six rubriques, rangées par ce que la personne vient faire. Les anciens noms restent à l'intérieur : un message d'erreur qui dit « Réglages > Modèles et budget > Cerveau » reste vrai.
 function rubrics(owner: boolean): { id: string; label: string; tabs: [SettingsTab, string][] }[] {
   return [
+    { id: "appearance", label: "Apparence", tabs: [["appearance", "Apparence"]] },
     { id: "account", label: "Compte", tabs: [["security", "Sécurité"]] },
     { id: "devices", label: "Appareils", tabs: [["phone", "Appareils reliés"], ...(phoneSettingsAvailable() ? [["telephone", "Ce téléphone"] as [SettingsTab, string]] : [])] },
     { id: "notifications", label: "Notifications", tabs: [["notifications", "Notifications"]] },
     ...(owner ? [
-      { id: "models", label: "Modèles et budget", tabs: [["brain", "Cerveau"], ["create", "Création"], ["voice", "Voix"]] as [SettingsTab, string][] },
+      { id: "models", label: "Modèles et budget", tabs: [["brain", "Cerveau"], ["providers", "Fournisseurs"], ["create", "Création"], ["voice", "Voix"]] as [SettingsTab, string][] },
       { id: "people", label: "Personnes", tabs: [["profiles", "Personnes"]] as [SettingsTab, string][] },
       { id: "server", label: "Serveur", tabs: [["updates", "Mises à jour"], ["mail", "Courriel"], ["privacy", "Confidentialité"], ["diagnostic", "Diagnostic"]] as [SettingsTab, string][] },
     ] : []),
@@ -55,6 +59,14 @@ const HINTS: Record<string, string> = {
   speech: "Lit les réponses à voix haute.",
   transcription: "Ta voix en texte.",
 };
+
+function SettingsFrame({ open, onOpenChange, title, onBack, children }: { open: boolean; onOpenChange: (open: boolean) => void; title: string; onBack?: () => void; children: React.ReactNode }) {
+  const [wide, setWide] = useState(() => matchMedia("(min-width:768px)").matches);
+  useEffect(() => { const media = matchMedia("(min-width:768px)"); const update = () => setWide(media.matches); media.addEventListener("change", update); return () => media.removeEventListener("change", update); }, []);
+  useEffect(() => { if (!wide || !open) return; const close = (e: KeyboardEvent) => { if (e.key === "Escape") onOpenChange(false); }; window.addEventListener("keydown", close); return () => window.removeEventListener("keydown", close); }, [wide, open, onOpenChange]);
+  if (wide) return open ? <section className="desktop-settings" aria-label="Réglages"><header><h2>{title}</h2><button className="shell-icon" aria-label="Fermer les réglages" onClick={() => onOpenChange(false)}>✕</button></header>{children}</section> : null;
+  return <Dialog open={open} onOpenChange={onOpenChange}>{open && <DialogContent title={title} onBack={onBack} className="max-w-4xl">{children}</DialogContent>}</Dialog>;
+}
 
 export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainSaved }: {
   open: boolean;
@@ -73,9 +85,8 @@ export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainS
     if (tab !== "phone") setPairNow(false); // le code ne s'affiche d'office que quand on vient pour ça
   }, [tab]);
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      {open && (
-        <DialogContent title={home ? "Réglages" : rubric.label} onBack={home ? undefined : () => onTab("home")} className="max-w-4xl">
+    <SettingsFrame open={open} onOpenChange={onOpenChange} title={home ? "Réglages" : rubric.label} onBack={home ? undefined : () => onTab("home")}>
+          <SettingsTwoColumns navigation={all.map((r) => <button key={r.id} aria-current={rubric.id === r.id ? "page" : undefined} onClick={() => onTab(r.tabs[0][0])}>{r.label}</button>)}>
           {home ? (
             <nav aria-label="Rubriques" className="flex flex-col">
               <button type="button" onClick={() => { setPairNow(true); onTab("phone"); }} className="mb-2 flex cursor-pointer items-center justify-between rounded-xl bg-accent-soft px-3 py-3.5 text-left text-sm font-medium text-accent">
@@ -88,7 +99,7 @@ export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainS
               ))}
             </nav>
           ) : (<>
-          <div className="flex flex-wrap items-center justify-between gap-2 max-md:hidden">
+          <div className="hidden">
             <Tabs value={rubric.id} onValueChange={(id) => onTab(all.find((r) => r.id === id)!.tabs[0][0])} className="self-start">
               <TabsList aria-label="Rubriques" className="flex-wrap">
                 {all.map((r) => <TabsTrigger key={r.id} value={r.id}>{r.label}</TabsTrigger>)}
@@ -104,6 +115,8 @@ export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainS
               </TabsList>
             )}
             <Boundary key={tab} label="Cette rubrique">
+            <TabsContent value="appearance"><Appearance /></TabsContent>
+            <TabsContent value="providers"><Providers /></TabsContent>
             <TabsContent value="brain">
               <div className="flex flex-col gap-3">
                 <DecisionModel />
@@ -155,9 +168,8 @@ export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainS
             </Boundary>
           </Tabs>
           </>)}
-        </DialogContent>
-      )}
-    </Dialog>
+          </SettingsTwoColumns>
+    </SettingsFrame>
   );
 }
 

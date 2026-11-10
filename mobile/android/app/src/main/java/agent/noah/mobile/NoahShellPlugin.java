@@ -332,6 +332,39 @@ public class NoahShellPlugin extends Plugin {
         call.resolve();
     }
 
+    @PluginMethod public void openImage(PluginCall call) { element(call, "image"); }
+    @PluginMethod public void openPdf(PluginCall call) { element(call, "pdf"); }
+    @PluginMethod public void openWith(PluginCall call) { element(call, "openWith"); }
+    @PluginMethod public void share(PluginCall call) { element(call, "share"); }
+
+    private void element(PluginCall call, String mode) {
+        String address = call.getString("url", ""), name = call.getString("name", "fichier");
+        new Thread(() -> {
+            try {
+                NoahMedia.Local local = NoahMedia.fetch(getContext(), address, name);
+                if (getActivity() == null) { call.reject("Fenêtre fermée"); return; }
+                getActivity().runOnUiThread(() -> {
+                    try {
+                        Intent intent;
+                        if ("image".equals(mode) || "pdf".equals(mode)) {
+                            intent = new Intent(getContext(), ElementActivity.class).putExtra("file", local.file.getPath()).putExtra("name", name).putExtra("pdf", "pdf".equals(mode)).putExtra("mime", local.mime);
+                        } else if ("share".equals(mode)) {
+                            Intent share = new Intent(Intent.ACTION_SEND).setType(local.mime).putExtra(Intent.EXTRA_STREAM, local.uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                            share.setClipData(android.content.ClipData.newRawUri(name, local.uri));
+                            intent = Intent.createChooser(share, "Partager");
+                        } else {
+                            Intent open = new Intent(Intent.ACTION_VIEW).setDataAndType(local.uri, local.mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                            open.setClipData(android.content.ClipData.newRawUri(name, local.uri));
+                            intent = Intent.createChooser(open, "Ouvrir avec");
+                        }
+                        getActivity().startActivity(intent);
+                        call.resolve();
+                    } catch (Exception e) { call.reject("Aucune application ne peut ouvrir ce fichier."); }
+                });
+            } catch (Exception e) { call.reject("Fichier introuvable, trop volumineux ou accès refusé. Réessaie."); }
+        }).start();
+    }
+
     @PluginMethod
     public void info(PluginCall call) {
         JSObject out = new JSObject();

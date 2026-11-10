@@ -33,6 +33,8 @@ UPSTREAMS = {
     "ollama": "http://host.docker.internal:11434/v1",
     "ollama-cloud": "https://ollama.com/v1",
     "mammouth": "https://api.mammouth.ai/v1",
+    "mistral": "https://api.mistral.ai/v1",
+    "deepseek": "https://api.deepseek.com/v1",
 }
 # Ces fournisseurs acceptent une adresse choisie par l'utilisateur. Aucun prix connu : leur coût reste à 0.
 OWN_URL = {"ollama", "custom"}
@@ -495,7 +497,8 @@ async def relay(path: str, request: Request):
         """L'adresse et les en-têtes de ce maillon. Chaque clé ne part que vers son fournisseur."""
         if link["fournisseur"] == provider:
             return url, headers
-        return f"{upstream_base(link['fournisseur'])}/{path}", _upstream_headers(link["fournisseur"], modes.key_of(link["fournisseur"]))
+        from . import providers
+        return f"{upstream_base(link['fournisseur'], providers.base_of(link['fournisseur']))}/{path}", _upstream_headers(link["fournisseur"], modes.key_of(link["fournisseur"]))
 
     def retry_later(link: dict, status: int, retry_after: str | None = None) -> None:
         modes.cool(link, status, retry_after)

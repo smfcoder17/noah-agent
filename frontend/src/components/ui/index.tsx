@@ -116,7 +116,7 @@ export function DialogContent({
             )}
           </div>
           <DialogPrimitive.Close asChild>
-            <Button variant="ghost" size="icon-sm" aria-label="Fermer" className="max-md:hidden">
+            <Button variant="ghost" size="icon-sm" aria-label="Fermer" className="max-md:ml-auto">
               <X />
             </Button>
           </DialogPrimitive.Close>

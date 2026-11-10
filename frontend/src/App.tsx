@@ -1,6 +1,19 @@
+import { SensitiveProvider } from "@/components/SensitiveText";
+import { Shell as LayoutShell } from "@/components/Shell";
+import { ChatPane } from "@/components/ChatPane";
+import { KeepAlive } from "@/components/KeepAlive";
+import { BottomTabs } from "@/components/mobile/BottomTabs";
+import { MobileHeader } from "@/components/mobile/MobileHeader";
+import { Drawer } from "@/components/mobile/Drawer";
+import { CustomizeTabs } from "@/components/mobile/CustomizeTabs";
+import { AgentPage } from "@/components/mobile/AgentPage";
+import { PageHeader } from "@/components/mobile/ObjectPage";
+import { useNavPrefs, TAB_NAMES, type NavTab } from "@/lib/navPrefs";
+import { useNavigation } from "@/lib/navigation";
+import { subscribeUpdates } from "@/lib/events";
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import { QuoteContext, useQuoteState } from "@/lib/quotes";
-import { ArrowLeft, Bug, MonitorPlay, PanelRight, Plus, MessageCircle, Inbox as InboxIcon, Settings as SettingsIcon, Users, Clock, FolderOpen } from "lucide-react";
+import { Plus, Bug } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AuthScreen, TemporaryPassword } from "@/components/AuthScreen";
 import { CallScreen, type CallReport } from "@/components/Call";
@@ -10,12 +23,11 @@ import { ConnectedBanner } from "@/components/ConnectedBanner";
 import { DeviceApproval, keepApprovalRequest } from "@/components/DeviceApproval";
 import { NewDeviceAlert } from "@/components/NewDeviceAlert";
 import { HandoffBanner } from "@/components/Handoff";
-import { AgentFace, agentColor } from "@/components/Noah";
-import { AgentMenu } from "@/components/AgentOverview";
+import { agentColor } from "@/components/Noah";
 import { Boundary } from "@/components/Boundary";
 import { Inbox } from "@/components/Inbox";
 import type { PanelTab } from "@/components/SidePanel";
-import { STATE_WORD, Sidebar, StateShape } from "@/components/Sidebar";
+import { SideRail } from "@/components/desktop/SideRail";
 import { Thread } from "@/components/Thread";
 import type { SettingsTab } from "@/components/Settings";
 import { ViewerProvider } from "@/components/Viewer";
@@ -28,14 +40,14 @@ import { appShell, tooOld } from "@/lib/platform";
 import { forgetPushSession, reconcilePush } from "@/lib/push";
 import { useAgentChat } from "@/lib/useAgentChat";
 import { modeName, readableModel } from "@/lib/modes";
-import { AgentBrain } from "./components/AgentBrain";
+
 import { AppUpdate } from "./components/AppUpdate";
 import { Dialog, DialogContent } from "./components/ui";
-import { cn } from "@/lib/utils";
 import { listenFileMenus } from "@/lib/desktop";
 import { prefetchSeen } from "@/lib/seen";
 
 // Chargés à la première ouverture : le premier écran n'attend que le chat.
+const AgentBrain = lazy(() => import("@/components/AgentBrain").then((m) => ({ default: m.AgentBrain })));
 const AgentDialog = lazy(() => import("@/components/AgentDialog").then((m) => ({ default: m.AgentDialog })));
 const SidePanel = lazy(() => import("@/components/SidePanel").then((m) => ({ default: m.SidePanel })));
 const SettingsDialog = lazy(() => import("@/components/Settings").then((m) => ({ default: m.SettingsDialog })));
@@ -68,16 +80,6 @@ function same<T>(cur: T, next: T): T {
 }
 
 /** Relève périodique, en pause quand la fenêtre est cachée, relancée dès qu'elle revient. */
-function every(ms: number, fn: () => void) {
-  const t = setInterval(() => !document.hidden && fn(), ms);
-  const onShow = () => !document.hidden && fn();
-  document.addEventListener("visibilitychange", onShow);
-  return () => {
-    clearInterval(t);
-    document.removeEventListener("visibilitychange", onShow);
-  };
-}
-
 const conversationsCache = new Map<string, Conversation[]>();
 
 export default function App() {
@@ -297,14 +299,27 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const [listed, setListed] = useState<{ agent: string | null; list: Conversation[] | null }>({ agent: null, list: null });
   const conversations = listed.agent === agentId ? listed.list : agentId ? conversationsCache.get(agentId) ?? null : null;
   // Fil ouvert à la place de la conversation principale (null = conversation principale).
-  const [threadId, setThreadId] = useState<string | null>(null);
-  const [usage, setUsage] = useState<Usage | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [panel, setPanel] = useState<PanelTab | null>(null);
+  const navigation = useNavigation();
+  const { tabs, save: saveTabs, error: tabsError } = useNavPrefs();
+  const latest = <K extends (typeof navigation.stack)[number]["kind"]>(kind: K) => [...navigation.stack].reverse().find((r): r is Extract<(typeof navigation.stack)[number], { kind: K }> => r.kind === kind);
+  const currentTab = latest("tab")?.tab ?? "chat";
+  const threadId = latest("thread")?.id ?? null;
+  const setThreadId = (id: string | null) => navigation.dispatch(id ? { type: "push", route: { kind: "thread", id } } : { type: "close", kind: "thread" });
+  const goTab = useCallback((tab: NavTab) => navigation.dispatch({ type: "reset", route: { kind: "tab", tab } }), [navigation.dispatch]);
+  const [, setUsage] = useState<Usage | null>(null);
+  const sidebarOpen = !!latest("drawer");
+  const setSidebarOpen = (open: boolean) => navigation.dispatch(open ? { type: "push", route: { kind: "drawer" } } : { type: "close", kind: "drawer" });
+  const panel = latest("panel")?.tab ?? (currentTab === "chat" ? null : currentTab === "tasks" ? "routines" : currentTab);
+  const setPanel = (tab: PanelTab | null) => { if (tab) navigation.dispatch({ type: "push", route: { kind: "panel", tab } }); else { navigation.dispatch({ type: "close", kind: "panel" }); if (currentTab !== "chat") goTab("chat"); } };
+  const keptPanel = useRef<PanelTab>("activity");
+  if (panel) keptPanel.current = panel;
+  const [newBusy, setNewBusy] = useState(false);
+  const [navigationError, setNavigationError] = useState("");
   const [liveStatus, setLiveStatus] = useState<string | null>(null);
   const [agentDialog, setAgentDialog] = useState<{ open: boolean; agent: Agent | null }>({ open: false, agent: null });
   const [modelDialog, setModelDialog] = useState(false);
-  const [settings, setSettings] = useState<SettingsTab | null>(null);
+  const settings = latest("settings")?.tab ?? null;
+  const setSettings = (tab: SettingsTab | null) => navigation.dispatch(tab ? { type: "push", route: { kind: "settings", tab } } : { type: "close", kind: "settings" });
   const [details, setDetails] = useState(false);
   const [inbox, setInbox] = useState(false);
   const [goals, setGoals] = useState(false);
@@ -325,23 +340,21 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     }, 1500);
     return () => clearTimeout(timer);
   }, [prefetchFor]);
-  // Bouton Retour d'Android : ferme ce qui est ouvert, du plus proche au plus lointain. Les fenêtres se ferment sur Échap.
+  // Une pile commune pour toutes les pages de la coquille.
   useEffect(() => {
     window.noahRetour = () => {
-      if (document.querySelector('[role="dialog"]')) document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-      else if (panel) setPanel(null);
-      else if (sidebarOpen) setSidebarOpen(false);
-      else if (threadId) setThreadId(null);
-      else return false;
-      return true;
+      if (document.querySelector('[role="dialog"]')) { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); return true; }
+      if (document.querySelector(".video-mini,.audio-bar")) { window.dispatchEvent(new Event("noah:media-close")); return true; }
+      if (document.querySelector(".right-panel")) { window.dispatchEvent(new Event("noah:viewer-close")); return true; }
+      if (navigation.stack.length > 1) { navigation.dispatch({ type: "back" }); return true; }
+      if (currentTab !== "chat") { goTab("chat"); return true; }
+      return false;
     };
-    return () => {
-      delete window.noahRetour;
-    };
-  }, [panel, sidebarOpen, threadId]);
+    return () => { delete window.noahRetour; };
+  });
   // Message envoyé à l'agent depuis Détails : il part dans la conversation principale.
   useEffect(() => {
-    const toMain = () => setThreadId(null);
+    const toMain = (e: Event) => { const target = (e as CustomEvent<{ agentId?: string }>).detail?.agentId; if (target) setAgentId(target); goTab("chat"); setThreadId(null); };
     window.addEventListener("noah:ask", toMain);
     return () => window.removeEventListener("noah:ask", toMain);
   }, []);
@@ -404,17 +417,26 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   useEffect(() => {
     refreshAgents();
     refreshModel();
-    return every(4000, refreshAgents);
+    return subscribeUpdates(refreshAgents);
   }, [refreshAgents, refreshModel]);
   useEffect(() => {
     refreshConversations();
-    return every(4000, refreshConversations);
+    return subscribeUpdates(refreshConversations);
   }, [agentId, refreshConversations]);
 
   const selectAgent = (id: string) => {
+    goTab("chat");
     setAgentId(id);
     setThreadId(null);
     setSidebarOpen(false);
+  };
+
+  const newDiscussion = async () => {
+    if (!agent) { setAgentDialog({ open: true, agent: null }); return; }
+    if (!canTalk(agent) || newBusy) return;
+    setNewBusy(true); setNavigationError("");
+    try { const result = await send<{ id: string }>(`/api/agents/${agent.id}/conversations`, {}); await refreshConversations(); goTab("chat"); setThreadId(result.id); }
+    catch (e) { setNavigationError((e as Error).message); } finally { setNewBusy(false); }
   };
 
   useEffect(() => {
@@ -444,11 +466,6 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     setRefreshKey((k) => k + 1);
   }, [refreshConversations, refreshModel]);
 
-  const pin = async (a: Agent, pinned: boolean) => {
-    await send(`/api/agents/${a.id}/look`, { pinned }, "PATCH");
-    refreshAgents();
-  };
-
   const logout = async () => {
     // D'abord : si la réponse du serveur se perd après la suppression de la session, le marqueur est déjà effacé.
     await forgetPushSession();
@@ -461,7 +478,6 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     onLogout();
   };
 
-  const state = shown?.state ?? "idle";
   useEffect(() => {
     const open = () => setModelDialog(true);
     const tab = (e: Event) => { setSidebarOpen(false); setPanel((e as CustomEvent<PanelTab>).detail); };
@@ -469,8 +485,6 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     window.addEventListener("noah:ouvrir-panneau", tab);
     return () => { window.removeEventListener("noah:choisir-modele", open); window.removeEventListener("noah:ouvrir-panneau", tab); };
   }, []);
-  const door = settings ? "Réglages" : sidebarOpen ? "Agents" : panel === "files" ? "Fichiers" : panel === "routines" ? "Tâches" : "Discussion";
-  const waiting = agents.reduce((n, a) => n + (a.tasks?.approve ?? 0) + (a.tasks?.choice ?? 0), 0);
   const openFromInbox = (item: InboxItem) => {
     setInbox(false);
     setAgentId(item.agent_id);
@@ -479,7 +493,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     setPanel(null);
   };
   return (
-    <ViewerProvider>
+    <SensitiveProvider><ViewerProvider>
       <DeviceApproval />
       <ConnectedBanner />
       <NewDeviceAlert onChangePassword={() => setSettings("security")} />
@@ -490,116 +504,14 @@ function Shell({ onLogout }: { onLogout: () => void }) {
           setReport(r);
         }}
       />
-      {/* Le panneau devient une colonne seulement sur grand écran ; en dessous il glisse par-dessus le chat. */}
-      <div className={cn("grid h-full md:grid-cols-[264px_minmax(0,1fr)]", panel && "xl:grid-cols-[264px_minmax(0,1fr)_minmax(400px,40%)]")}>
-        {/* Colonne de gauche : les agents, rien d'autre */}
-        <aside
-          className={cn(
-            "fixed inset-y-0 left-0 z-30 flex w-[min(300px,85vw)] -translate-x-full flex-col gap-4 border-r border-border bg-sidebar p-3 pt-[max(12px,env(safe-area-inset-top))] pb-[max(12px,env(safe-area-inset-bottom))] transition-transform md:static md:w-auto md:translate-x-0",
-            sidebarOpen && "translate-x-0",
-          )}
-        >
-          <Sidebar
-            agents={agents}
-            agentId={agentId}
-            usage={usage}
-            waiting={waiting}
-            onInbox={() => setInbox(true)}
-            onGoals={() => {
-              setGoals(true);
-              setSidebarOpen(false);
-            }}
-            onOpen={(tab) => {
-              setPanel(tab);
-              setSidebarOpen(false);
-            }}
-            owner={me?.role === "owner"}
-            onClose={() => setSidebarOpen(false)}
-            onSelectAgent={selectAgent}
-            onPin={pin}
-            onCustomize={(a) => setAgentDialog({ open: true, agent: a })}
-            onNewAgent={() => setAgentDialog({ open: true, agent: null })}
-            onSettings={setSettings}
-            onLogout={logout}
-          />
-        </aside>
-        {sidebarOpen && <div className="fixed inset-0 z-20 bg-black/40 md:hidden" onClick={() => setSidebarOpen(false)} />}
-
-        {/* Conversation avec l'agent (ou l'un de ses fils) */}
-        <main className="flex min-h-0 min-w-0 flex-col">
-          <header className="flex items-center gap-2.5 border-b border-border px-3 py-2 pt-[max(8px,env(safe-area-inset-top))]">
-            {thread ? (
-              <Button variant="ghost" size="icon-sm" onClick={() => setThreadId(null)} aria-label={`Revenir à la conversation avec ${agent?.name}`}>
-                <ArrowLeft />
-              </Button>
-            ) : null}
-            {/* Le visage et le nom ouvrent la fiche de l'agent, comme chez Grok Bot et Muse : c'est là qu'on le cherche. */}
-            <div
-              className={cn("min-w-0 flex-1", agent && !thread && "-my-1 -ml-1 flex cursor-pointer items-center gap-2.5 rounded-xl py-1 pl-1 hover:bg-muted/60")}
-              {...(agent && !thread ? { role: "button", tabIndex: 0, "aria-label": `Ouvrir le panneau de ${agent.name}`, onClick: () => setPanel("activity"), onKeyDown: (e: React.KeyboardEvent) => (e.key === "Enter" || e.key === " ") && setPanel("activity") } : {})}
-            >
-              {agent && !thread && <AgentFace agent={agent} className="size-9 shrink-0" />}
-              <div className="min-w-0 flex-1">
-              <p className="truncate font-semibold">{thread ? thread.title : agent?.name ?? "Aucun agent"}</p>
-              <p className="truncate text-xs text-muted-foreground">
-                {!agent
-                  ? "Crée ton premier agent"
-                  : thread
-                    ? thread.de
-                      ? `Conversation de ${thread.de} · en lecture`
-                      : `Fil de ${agent.name}${thread.archived ? " · archivé" : ""}`
-                    : agent.step || liveStatus || (agent.online ? "En ligne" : "Sa machine ne répond pas")}
-              </p>
-              </div>
-            </div>
-            {/* Créer un agent depuis l'accueil du téléphone, comme le « + » de Grok Bot. */}
-            {!thread && <Button variant="ghost" size="icon-sm" className="md:hidden" onClick={() => setAgentDialog({ open: true, agent: null })} aria-label="Créer un agent" title="Créer un agent"><Plus /></Button>}
-            <Button variant="ghost" size="icon-sm" className="relative md:hidden" onClick={() => setInbox(true)} aria-label={waiting ? `À toi : ${waiting} en attente` : "À toi"} title="À toi">
-              <InboxIcon />
-              {waiting > 0 && <span className="absolute -top-0.5 -right-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-warn px-1 text-[10px] font-semibold text-surface">{waiting}</span>}
-            </Button>
-            {agent && !thread && <AgentMenu agent={agent} onOpen={setPanel} onEdit={() => setAgentDialog({ open: true, agent })} />}
-            {agent && !agent.online && !agent.step && canAdmin(agent) && (
-              <Button variant="outline" size="sm" className="shrink-0" onClick={() => send(`/api/agents/${agent.id}/repair`, {}).then(refreshAgents).catch(() => {})}>
-                Redémarrer
-              </Button>
-            )}
-            {STATE_WORD[state] && state !== "done" && (
-              <span
-                role="status"
-                className={cn(
-                  "hidden h-7 shrink-0 items-center gap-2 rounded-full px-3 text-xs font-semibold sm:inline-flex",
-                  state === "approve" || state === "choice" ? "bg-warn-soft text-warn" : state === "work" ? "bg-accent-soft text-accent" : "bg-muted text-muted-foreground",
-                )}
-              >
-                <StateShape state={state} />
-                {STATE_WORD[state].replace(/^./, (c) => c.toUpperCase())}
-              </span>
-            )}
-            <Button
-              variant={details ? "outline" : "ghost"}
-              size="icon-sm"
-              onClick={() => setDetails(!details)}
-              aria-pressed={details}
-              title="Afficher les détails techniques (appels d'outils)"
-              aria-label="Détails techniques"
-              className="max-sm:hidden"
-            >
-              <Bug />
-            </Button>
-            {agent && (
-              <Button variant={panel && panel !== "computer" ? "outline" : "ghost"} size="sm" className="max-sm:hidden" onClick={() => setPanel(panel && panel !== "computer" ? null : "activity")} aria-pressed={!!panel && panel !== "computer"}>
-                <PanelRight aria-label="Agent" /><span className="hidden sm:inline">Agent</span>
-              </Button>
-            )}
-            {agent && canAdmin(agent) && (
-              <Button variant={panel === "computer" ? "outline" : "default"} size="sm" onClick={() => setPanel(panel === "computer" ? null : "computer")} aria-pressed={panel === "computer"} aria-label="Ordinateur" className="max-sm:bg-transparent max-sm:text-foreground max-sm:shadow-none">
-                <MonitorPlay /><span className="hidden sm:inline">Ordinateur</span>
-              </Button>
-            )}
-          </header>
-          <AppUpdate />
-          <div id={CALL_SLOT} />
+      <LayoutShell>
+        <SideRail agent={agent} tabs={tabs} active={panel === "routines" ? "tasks" : panel ?? "chat"} conversations={conversations ?? []} onTab={goTab} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} onMenu={() => setSidebarOpen(true)} onThread={(id) => { goTab("chat"); setThreadId(id); }} onSettings={() => setSettings("home")} onGoals={() => setGoals(true)} onNew={() => void newDiscussion()} />
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <MobileHeader agent={agent} status={agent?.step || liveStatus || (agent?.online ? "En ligne" : "Hors ligne")} onMenu={() => setSidebarOpen(true)} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} busy={newBusy} onNew={() => void newDiscussion()} />
+          {navigationError && <p role="alert" className="offline-banner">{navigationError}<button onClick={() => void newDiscussion()}>Réessayer</button></p>}
+          <KeepAlive active={!panel} className="min-h-0 flex-1">
+          <ChatPane title={thread?.title || agent?.name || "Noah"} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} actions={<Button variant="ghost" size="icon-sm" aria-label="Détails techniques" onClick={() => setDetails(!details)}><Bug /></Button>}>
+          <AppUpdate /><div id={CALL_SLOT} />
           {agent && canAdmin(agent) && <HandoffBanner agentId={agent.id} onOpenScreen={() => setPanel("computer")} />}
           <div className="min-h-0 flex-1">
             {inCall && (inCall.chatKey !== liveKey || !conversations) && <div key={inCall.chatKey} hidden><AgentChat {...inCall} /></div>}
@@ -634,32 +546,15 @@ function Shell({ onLogout }: { onLogout: () => void }) {
               </div>
             )}
           </div>
-          {/* Sur un téléphone : les quatre portes, toujours au même endroit. Elles laissent la place au clavier. */}
-          <nav aria-label="Navigation" className="grid grid-cols-5 border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] md:hidden [body:has(textarea:focus)_&]:hidden">
-            {([
-              ["Discussion", MessageCircle, () => { setPanel(null); setSidebarOpen(false); }, 0],
-              ["Fichiers", FolderOpen, () => { setSidebarOpen(false); setPanel("files"); }, 0],
-              ["Tâches", Clock, () => { setSidebarOpen(false); setPanel("routines"); }, 0],
-              ["Agents", Users, () => { setPanel(null); setSidebarOpen(true); }, 0],
-              ["Réglages", SettingsIcon, () => { setPanel(null); setSidebarOpen(false); setSettings("home"); }, 0],
-            ] as const).map(([label, Icon, go, count]) => (
-              <button key={label} type="button" onClick={go} aria-current={door === label ? "page" : undefined} className={cn("relative flex cursor-pointer flex-col items-center gap-0.5 py-2 text-[11px] font-medium", door === label ? "text-accent" : "text-muted-foreground")}>
-                <Icon className="size-5" />{label}
-                {count > 0 && <span className="absolute top-1 left-1/2 ml-1 grid h-4 min-w-4 place-items-center rounded-full bg-warn px-1 text-[10px] font-semibold text-surface">{count}</span>}
-              </button>
-            ))}
-          </nav>
-        </main>
 
-        {/* Panneau de l'agent */}
-        {panel && agent && (
-          <Suspense fallback={null}>
-          <aside className="fixed inset-y-0 right-0 z-30 min-h-0 w-full max-md:bottom-[calc(54px+env(safe-area-inset-bottom))] border-l border-border bg-surface shadow-2xl sm:w-[min(520px,92vw)] xl:static xl:z-auto xl:w-auto xl:shadow-none">
-            <Boundary label="Le panneau de l'agent">
+          </ChatPane></KeepAlive>
+          {agent && <KeepAlive active={!!panel} className="shell-panel">
+            <PageHeader className={latest("panel") ? undefined : "desktop-only-heading"} title={TAB_NAMES[panel === "routines" ? "tasks" : panel ?? "activity"]} onBack={() => setPanel(null)} />
+            <Suspense fallback={<p role="status">Chargement…</p>}><Boundary label="Le panneau de l'agent">
             <SidePanel
               agent={agent}
               onAgentChanged={refreshAgents}
-              tab={(panel === "computer" ? canTalk(agent) : panel === "activity" || canAdmin(agent)) ? panel : "activity"}
+              tab={((panel ?? keptPanel.current) === "computer" ? canTalk(agent) : (panel ?? keptPanel.current) === "activity" || canAdmin(agent)) ? (panel ?? keptPanel.current) : "activity"}
               onTab={setPanel}
               onClose={() => setPanel(null)}
               onEditAgent={() => setAgentDialog({ open: true, agent })}
@@ -678,17 +573,19 @@ function Shell({ onLogout }: { onLogout: () => void }) {
               technical={details}
               onTechnical={setDetails}
             />
-            </Boundary>
-          </aside>
-          </Suspense>
-        )}
-
+            </Boundary></Suspense>
+          </KeepAlive>}
+          <BottomTabs tabs={tabs} active={panel === "routines" ? "tasks" : panel ?? "chat"} onSelect={goTab} onCustomize={() => navigation.dispatch({ type: "push", route: { kind: "customize" } })} />
+        </div>
+        {sidebarOpen && <Drawer agents={agents} agentId={agentId} conversations={conversations ?? []} tabs={tabs} onAgent={selectAgent} onThread={setThreadId} onTab={goTab} onNewAgent={() => { setSidebarOpen(false); setAgentDialog({ open: true, agent: null }); }} onCustomize={() => { setSidebarOpen(false); navigation.dispatch({ type: "push", route: { kind: "customize" } }); }} onSettings={() => { setSidebarOpen(false); setSettings("home"); }} onGoals={() => { setSidebarOpen(false); setGoals(true); }} onClose={() => setSidebarOpen(false)} onLogout={logout} />}
+        {latest("customize") && <CustomizeTabs tabs={tabs} save={saveTabs} error={tabsError} onClose={() => navigation.dispatch({ type: "close", kind: "customize" })} />}
+        {latest("agent") && agent && <AgentPage agent={agent} onClose={() => navigation.dispatch({ type: "close", kind: "agent" })} onPanel={(t) => { navigation.dispatch({ type: "close", kind: "agent" }); setPanel(t); }} onBrain={() => setModelDialog(true)} onEdit={() => setAgentDialog({ open: true, agent })} onNotifications={() => setSettings("notifications")} onAutonomy={() => setSettings("privacy")} />}
         <Suspense fallback={null}>
         {agent && (
           <Dialog open={modelDialog} onOpenChange={setModelDialog}>
             {modelDialog && (
               <DialogContent title={`Modèle de ${agent.name}`} description="Ton choix vaut pour cet agent seulement, tout de suite. Ses conversations restent." className="max-w-xl">
-                <AgentBrain agentId={agent.id} own={agent.model} mode={agent.mode} reasoning={agent.raisonnement} onChanged={() => { refreshAgents(); setModelDialog(false); }} openKey={1} bare />
+                <AgentBrain agentId={agent.id} own={agent.model} mode={agent.mode} reasoning={agent.raisonnement} onChanged={() => { refreshAgents(); }} openKey={1} bare />
               </DialogContent>
             )}
           </Dialog>
@@ -723,8 +620,8 @@ function Shell({ onLogout }: { onLogout: () => void }) {
           }}
         />}
         </Suspense>
-      </div>
-    </ViewerProvider>
+      </LayoutShell>
+    </ViewerProvider></SensitiveProvider>
   );
 }
 
@@ -793,7 +690,7 @@ function AgentChat(props: ChatProps) {
   useEffect(() => {
     if (!main) return;
     const send = () => {
-      const text = takeAsk();
+      const text = takeAsk(props.agent.id);
       if (text) say(text);
     };
     const first = setTimeout(send, 900);
@@ -802,7 +699,7 @@ function AgentChat(props: ChatProps) {
       clearTimeout(first);
       window.removeEventListener("noah:ask", send);
     };
-  }, [main, say]);
+  }, [main, say, props.agent.id]);
   // Valeur stable : tous les messages du fil lisent ce contexte, un objet neuf les redessinerait à chaque jeton.
   const { id, name, role } = props.agent;
   const { readOnly } = props;

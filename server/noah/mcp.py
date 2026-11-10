@@ -392,6 +392,8 @@ def _note(agent_id: str, name: str, etat: str, erreur: str = "", outils: list | 
                       (json.dumps(outils, ensure_ascii=False), agent_id, name))
         c.execute("UPDATE mcp_tools SET etat = ?, erreur = ?, vu_a = ? WHERE agent_id = ? AND nom = ?",
                   (etat, erreur, time.time(), agent_id, name))
+    from . import bus
+    bus.invalidate_all()
 
 
 GOOGLE_RIGHT = "@google"  # même nom que dans le plugin de l'agent : jamais celui d'un serveur MCP (un « @ » n'y entre pas)

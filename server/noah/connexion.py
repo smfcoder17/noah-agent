@@ -143,6 +143,8 @@ async def _finish(state: str, login: dict, params):
 async def _quietly(login: dict, params) -> bool:
     try:
         await login["finish"]("?" + urlencode({k: params[k] for k in FORWARDED if k in params}))
+        from . import bus
+        bus.invalidate_all()
         return True
     except Exception as e:  # noqa: BLE001 - la page dit que ça n'a pas abouti ; le détail ne part pas dans le navigateur
         print(f"[connexion] {login['agent']}/{login['nom']} : {str(e)[:200]}", flush=True)

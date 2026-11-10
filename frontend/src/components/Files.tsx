@@ -1,12 +1,12 @@
+import { memo } from "react";
 // Fichiers de l'agent : de vrais dossiers, un tri, et une sélection qu'on donne au chat ou qu'on supprime.
-import { ChevronDown, Download, ExternalLink, Eye, FileText, Folder, MessageSquarePlus, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { ChevronDown, Download, Eye, FileText, Folder, MessageSquarePlus, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { mediaUrl, rawFileUrl, send, type WorkspaceFile } from "@/lib/api";
 import { useAgentData } from "@/lib/useAgentData";
-import { inAndroidApp } from "@/lib/platform";
 import { cn, fileSize, messageMoment } from "@/lib/utils";
 import { Button, Dialog, DialogContent } from "./ui";
-import { canFrame, useDownload } from "./Viewer";
+import { canFrame, useDownload, useViewer } from "./Viewer";
 
 const WORKSPACE = "/opt/data/workspace/";
 const ROOT_NAMES: Record<string, string> = { outputs: "Livrables", apps: "Applications", captures: "Captures", uploads: "Envoyés par toi" };
@@ -47,14 +47,15 @@ function buildTree(files: WorkspaceFile[]): Node {
 const byOrder = <T extends { size: number; modified: number }>(sort: Sort, name: (t: T) => string) => (a: T, b: T) =>
   sort === "nom" ? name(a).localeCompare(name(b), "fr") : sort === "taille" ? b.size - a.size : b.modified - a.modified;
 
-export function Files({ agentId, refreshKey, canDelete, onGiven }: { agentId: string; refreshKey: number; canDelete: boolean; onGiven: () => void }) {
+export const Files = memo(function Files({ agentId, refreshKey, canDelete, onGiven }: { agentId: string; refreshKey: number; canDelete: boolean; onGiven: () => void }) {
   const path = `/api/agents/${agentId}/files`;
   const { data: files, error, setError, load } = useAgentData<WorkspaceFile[]>(path, { freshOnReload: false, refreshKey });
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<Sort>("recent");
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [opened, setOpened] = useState<Set<string>>(OPEN_FIRST);
-  const [preview, setPreview] = useState<{ title: string; url: string } | null>(null);
+  const view = useViewer();
+  const setPreview = (p: { title: string; url: string }) => view({ kind: "file", url: p.url, title: p.title });
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -169,23 +170,10 @@ export function Files({ agentId, refreshKey, canDelete, onGiven }: { agentId: st
         )}
       </Dialog>
 
-      <Dialog open={!!preview} onOpenChange={(o) => !o && setPreview(null)}>
-        {preview && (
-          <DialogContent title={preview.title} className="h-[min(85dvh,860px)] max-w-5xl p-4">
-            {!inAndroidApp() && (
-              <div className="flex justify-end">
-                <Button variant="outline" size="sm" asChild>
-                  <a href={preview.url} target="_blank" rel="noopener"><ExternalLink />Ouvrir dans un onglet</a>
-                </Button>
-              </div>
-            )}
-            <iframe src={preview.url} title={preview.title} sandbox="allow-scripts allow-forms allow-popups allow-modals" className="min-h-0 flex-1 rounded-lg border border-border bg-white" />
-          </DialogContent>
-        )}
-      </Dialog>
+
     </div>
   );
-}
+});
 
 type RowProps = {
   agentId: string;

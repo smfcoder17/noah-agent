@@ -228,6 +228,11 @@ async def check_key(provider: str, api_key: str) -> None:
 
 
 async def models_for(provider: str, api_key: str | None, base_url: str | None = None) -> list[dict]:
+    if provider in ("mistral", "deepseek"):
+        if not api_key:
+            return []
+        base = "https://api.mistral.ai/v1" if provider == "mistral" else "https://api.deepseek.com/v1"
+        return [{**m, "lab": provider} for m in await _openai_compatible(base, api_key)]
     if provider == "openrouter":
         return [m for m in await openrouter_catalog() if m["tools"]]
     if provider == "ollama":
@@ -305,3 +310,43 @@ def groups(provider: str, models: list[dict]) -> list[dict]:
     if free and provider == "openrouter":
         out.append({"id": "free", "title": "Gratuits", "hint": "Limités en débit, parfait pour essayer.", "models": free})
     return out
+
+# Icône du site choisi : garde SSRF partagée avec les aperçus de liens (#44a/C3).
+def provider_icon(base_url: str | None) -> tuple[bytes, str] | None:
+    import hashlib
+    from pathlib import Path
+    from urllib.parse import urljoin, urlsplit
+    from . import config, logos, safefetch
+
+    if not base_url:
+        return None
+    u = urlsplit(base_url)
+    home = f"{u.scheme}://{u.netloc}/"
+    folder = Path(config.DATA_DIR) / "provider-icons"
+    folder.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha256(home.encode()).hexdigest()
+    image, kind_file = folder / f"{digest}.bin", folder / f"{digest}.type"
+    if image.exists() and kind_file.exists() and time.time() - image.stat().st_mtime < 30 * 86400:
+        return image.read_bytes(), kind_file.read_text()
+    candidates = []
+    try:
+        page = safefetch.fetch(home, limit=400_000, timeout=5)
+        candidates = logos._candidates(page.body.decode("utf8", "replace"), page.url)
+    except (safefetch.UnsafeURL, OSError):
+        pass
+    for address in [*candidates[:2], urljoin(home, "favicon.ico")]:
+        try:
+            result = safefetch.fetch(address, limit=512_000, timeout=5)
+            kind = logos._kind(result.body)
+            if kind:
+                # Cache borné : aucune adresse saisie ne remplit indéfiniment le disque.
+                old = sorted(folder.glob("*.bin"), key=lambda p: p.stat().st_mtime)
+                for path in old[:-63]:
+                    path.unlink(missing_ok=True)
+                    path.with_suffix(".type").unlink(missing_ok=True)
+                image.write_bytes(result.body)
+                kind_file.write_text(kind)
+                return result.body, kind
+        except (safefetch.UnsafeURL, OSError):
+            continue
+    return None

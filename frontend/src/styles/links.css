@@ -1,0 +1,12 @@
+﻿.link-card,.link-list { display:flex; flex-direction:column; width:min(86%,340px); background:var(--card); border:1px solid var(--line); border-radius:var(--radius-14); overflow:hidden; margin:8px 0; }
+.link-card > a { display:block; text-decoration:none; color:var(--ink); }
+.link-card .link-thumb { width:100%; height:120px; object-fit:cover; }
+.link-meta { padding:8px 12px; display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+.link-meta b { font-size:13.5px; font-weight:600; flex:1; }
+.link-meta small { color:var(--soft); font-size:12px; }
+.link-row { display:flex; flex-direction:column; }
+.link-row + .link-row { border-top:1px solid var(--line); }
+.link-row a { text-decoration:none; color:var(--ink); }
+.link-row .link-meta { padding:9px 12px; }
+.link-row .link-meta b { white-space:nowrap; text-overflow:ellipsis; overflow:hidden; }
+.link-card > button,.link-row > button { font-size:12px; padding:8px 12px; color:var(--soft); }

@@ -3,18 +3,19 @@
 import { Check, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { type CurrentModel, get, send } from "@/lib/api";
-import { MODE_NAMES, type ModeId, type ModesState, modeName, readableModel, REASONING, type TierId } from "@/lib/modes";
+import { type ModeId, type ModesState, readableModel, REASONING, type TierId } from "@/lib/modes";
 import { cn } from "@/lib/utils";
 import { ModelSearch } from "./Modes";
-import { Button, ErrorText } from "./ui";
+import { ProviderLogo } from "./ProviderLogo";
+import { Providers } from "./Providers";
+import { ErrorText } from "./ui";
 
-const OTHER_MODES: ModeId[] = ["fast", "balanced", "smart", "gratuit", "custom"];
 const AUTO_LEVELS: [TierId, string][] = [["fast", "Simple"], ["balanced", "Moyen"], ["smart", "Complexe"]];
 
 export function AgentBrain({ agentId, own, mode, reasoning, onChanged, openKey = 0, bare = false }: { agentId: string; own: string | null | undefined; mode?: string | null; reasoning?: string | null; onChanged: () => void; openKey?: number; bare?: boolean }) {
   const [base, setBase] = useState<CurrentModel>(null);
   const [state, setState] = useState<ModesState | null>(null);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const [choosing, setChoosing] = useState<TierId | "precis" | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -71,7 +72,6 @@ export function AgentBrain({ agentId, own, mode, reasoning, onChanged, openKey =
     if (id === "custom") return state.custom.length > 0;
     return !!tierModel(id);
   };
-  const current = own || base?.model || "—";
   const chosen = mode || (own ? "precis" : "tous");
 
   const Row = ({ id, name, under, onPick, disabled }: { id: string; name: string; under?: React.ReactNode; onPick: () => void; disabled?: boolean }) => (
@@ -85,17 +85,19 @@ export function AgentBrain({ agentId, own, mode, reasoning, onChanged, openKey =
     </button>
   );
 
+  const [providersOpen, setProvidersOpen] = useState(false);
   const panel = (
     <div className="flex flex-col gap-3">
       <div role="radiogroup" aria-label="Modèle de l'agent" className="flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border">
         <div>
-          <Row id="auto" name="Auto" under="Le bon modèle pour chaque demande" onPick={() => pick({ mode: "auto" })} disabled={!usable("auto")} />
+          <Row id="auto" name="Auto" under="Simple, moyen ou complexe : Noah choisit" onPick={() => pick({ mode: "auto" })} disabled={!usable("auto")} />
           {state && (
             <ul className="flex flex-col gap-1 px-3 pb-3">
               {AUTO_LEVELS.map(([tier, label]) => (
                 <li key={tier} className="flex flex-col gap-1">
-                  <div className="flex items-center gap-2 text-xs">
+                  <div className="brain-tier">
                     <span className="w-16 shrink-0 text-muted-foreground">{label}</span>
+                    <ProviderLogo lab={tierModel(tier)?.fournisseur || base?.provider || ""} />
                     <span className="min-w-0 flex-1 truncate font-medium" title={tierModel(tier)?.nom}>{tierModel(tier) ? readableModel(tierModel(tier)!.modele) : "—"}</span>
                     <button type="button" className="cursor-pointer text-accent hover:underline" onClick={() => setChoosing(choosing === tier ? null : tier)}>
                       {choosing === tier ? "Fermer" : "Changer"}
@@ -107,8 +109,7 @@ export function AgentBrain({ agentId, own, mode, reasoning, onChanged, openKey =
             </ul>
           )}
         </div>
-        <Row id="tous" name="Comme tous mes agents" under={readableModel(base?.model || "")} onPick={() => pick({ model: null })} />
-        {OTHER_MODES.map((id) => <Row key={id} id={id} name={MODE_NAMES[id]} onPick={() => pick({ mode: id })} disabled={!usable(id)} />)}
+        <Row id="tous" name="Comme mes autres agents" under={readableModel(base?.model || "")} onPick={() => pick({ model: null })} />
         <Row id="precis" name="Un modèle précis" under={own && !mode ? readableModel(own) : undefined} onPick={() => setChoosing(choosing === "precis" ? null : "precis")} />
       </div>
       {choosing === "precis" && <ModelSearch level="cerveau" selected={!mode ? own || base?.model : null} onPick={(m) => pick({ model: m.id })} />}
@@ -120,20 +121,12 @@ export function AgentBrain({ agentId, own, mode, reasoning, onChanged, openKey =
           {REASONING.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
         </select>
       </label>
+      <button className="shell-row shell-group" onClick={() => setProvidersOpen(!providersOpen)} aria-expanded={providersOpen}>Fournisseurs<span className="ml-auto">›</span></button>
+      {providersOpen && <Providers />}
       {busy && <p className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" />Un instant…</p>}
-      <ErrorText>{error}</ErrorText>
+      <ErrorText>{error}</ErrorText>{error && <button onClick={() => { setError(""); void get<ModesState>("/api/modes/cerveau").then(setState).catch((e) => setError(e.message)); }}>Réessayer</button>}
     </div>
   );
 
-  if (bare) return panel;
-  return (
-    <div className="flex flex-col gap-2 text-sm">
-      <div className="flex items-center gap-2">
-        <span className="text-muted-foreground">Modèle :</span>
-        <span className="min-w-0 flex-1 truncate font-medium" title={current}>{mode ? modeName(mode) : readableModel(current)}</span>
-        <Button variant="ghost" size="sm" onClick={() => setOpen(!open)} aria-expanded={open}>{open ? "Fermer" : "Changer"}</Button>
-      </div>
-      {open && panel}
-    </div>
-  );
+  return panel;
 }

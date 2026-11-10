@@ -44,3 +44,18 @@ export function tooOld(version: string, min: string | undefined): boolean {
   for (let i = 0; i < 3; i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) < (b[i] ?? 0);
   return false;
 }
+
+/** Fichiers : seules les apps proposent les gestes du système. Le web garde Télécharger. */
+export function nativeElement(kind: string, url: string, name: string, failed: () => void): boolean {
+  const plugin = window.Capacitor?.Plugins?.NoahShell;
+  const method = kind === "image" ? plugin?.openImage : kind === "pdf" ? plugin?.openPdf : undefined;
+  if (!method) return false;
+  void method({ url: new URL(url, location.origin).href, name }).catch(failed);
+  return true;
+}
+export async function elementAction(action: "openWith" | "share", url: string, name: string): Promise<void> {
+  const method = window.Capacitor?.Plugins?.NoahShell?.[action];
+  if (method) { await method({ url: new URL(url, location.origin).href, name }); return; }
+  if (action === "openWith" && window.noahDesktop?.fileMenu) { await window.noahDesktop.fileMenu(new URL(url, location.origin).href, name); return; }
+  throw new Error("Ce geste demande l'application Noah.");
+}

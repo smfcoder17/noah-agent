@@ -1,11 +1,16 @@
 // Visionneuse : une image ou un fichier de l'agent s'ouvre ici, par-dessus le chat, sans quitter Noah Agent.
-import { Check, Copy, Download, ExternalLink } from "lucide-react";
-import { createContext, useCallback, useContext, useState } from "react";
-import { inAndroidApp } from "@/lib/platform";
+import { Check, Copy } from "lucide-react";
+import { createContext, useCallback, useContext, useEffect, useState, lazy, Suspense } from "react";
+import { inAndroidApp, nativeElement } from "@/lib/platform";
 import { downloadFile } from "@/lib/utils";
 import { Button, Dialog, DialogContent } from "./ui";
+const ElementViewer = lazy(() => import("./elements/ElementViewer").then((m) => ({ default: m.ElementViewer })));
+import { MediaPlayers } from "./elements/MediaPlayers";
+import { RightPanel } from "./desktop/RightPanel";
+import { kindOfFile, type ElementSpec } from "@/lib/elements";
 
 export type Viewable =
+  | { kind: "element"; element: ElementSpec; fullscreen?: boolean }
   | { kind: "image"; src: string; title?: string }
   | { kind: "file"; url: string; title: string }
   | { kind: "gone"; title: string };
@@ -21,24 +26,27 @@ export function useDownload() {
 
 export const isImagePath = (p: string) => /\.(png|jpe?g|gif|webp|avif)$/i.test(p);
 /** Dans l'app Android, un cadre PDF reste blanc et un cadre CSV se télécharge tout seul : ces fichiers ne s'y montrent pas. */
-export const canFrame = (p: string) => (inAndroidApp() ? /\.(html?|txt|md|json|svg|log)$/i : /\.(html?|pdf|txt|md|csv|json|svg|log)$/i).test(p);
+export const canFrame = (p: string) => (inAndroidApp() ? /\.(html?|txt|md|json|svg|log)$/i : /\.(html?|pdf|txt|md|csv|json|svg|log)$/i).test(p.split(/[?#]/, 1)[0]);
 
 export function ViewerProvider({ children }: { children: React.ReactNode }) {
   const [item, setItem] = useState<Viewable | null>(null);
-  return (
-    <ViewerContext.Provider value={setItem}>
-      {children}
-      <Dialog open={!!item} onOpenChange={(o) => !o && setItem(null)}>
-        {item?.kind === "image" && <ImageView item={item} />}
-        {item?.kind === "file" && <FileView item={item} />}
-        {item?.kind === "gone" && (
-          <DialogContent title={item.title} className="max-w-md gap-3 p-4">
-            <p className="text-sm">Fichier indisponible pour l'instant. Réessaie dans un moment : il a peut-être aussi été déplacé ou supprimé.</p>
-          </DialogContent>
-        )}
-      </Dialog>
-    </ViewerContext.Provider>
-  );
+  const [wide, setWide] = useState(() => matchMedia("(min-width:768px)").matches);
+  useEffect(() => { const media = matchMedia("(min-width:768px)"); const change = () => setWide(media.matches); media.addEventListener("change", change); return () => media.removeEventListener("change", change); }, []);
+  useEffect(() => { const close = (e: KeyboardEvent) => { if (e.key === "Escape") setItem(null); }; window.addEventListener("keydown", close); return () => window.removeEventListener("keydown", close); }, []);
+  useEffect(() => { const close = () => setItem(null); window.addEventListener("noah:viewer-close", close); return () => window.removeEventListener("noah:viewer-close", close); }, []);
+  const view = useCallback((next: Viewable) => {
+    const shown: Viewable = next.kind === "image" ? { kind: "element", element: { type: "element", kind: "image", title: next.title || "Image", url: next.src, source: "noah" } } : next.kind === "file" ? { kind: "element", element: { type: "element", kind: kindOfFile(next.url), title: next.title, url: next.url, source: "noah" } } : next;
+    if (shown.kind === "element" && shown.element.url && nativeElement(shown.element.kind, shown.element.url, shown.element.title, () => setItem(shown))) return;
+    setItem(shown);
+  }, []);
+  const panel = wide && item?.kind === "element" && !item.fullscreen;
+  return <ViewerContext.Provider value={view}><MediaPlayers>{children}
+    {panel && item?.kind === "element" && <RightPanel title={item.element.title} onClose={() => setItem(null)} onExpand={() => setItem({ ...item, fullscreen: true })}><Suspense fallback={<p role="status">Chargement…</p>}><ElementViewer key={item.element.title + item.element.url} spec={item.element} onClose={() => setItem(null)} /></Suspense></RightPanel>}
+    <Dialog open={!!item && !panel} onOpenChange={(o) => !o && setItem(null)}>
+      {item?.kind === "element" && !panel && <DialogContent title={item.element.title} className="max-w-6xl"><ElementViewer key={item.element.title + item.element.url} spec={item.element} onClose={() => setItem(null)} /></DialogContent>}
+      {item?.kind === "gone" && <DialogContent title={item.title}><p>Fichier introuvable.</p><button onClick={() => setItem(null)}>Réessayer</button></DialogContent>}
+    </Dialog>
+  </MediaPlayers></ViewerContext.Provider>;
 }
 
 /** Image en PNG, seul format que tous les presse-papiers acceptent. */
@@ -89,64 +97,5 @@ export function CopyImageButton({ src, compact }: { src: string; compact?: boole
       {copied === "ok" ? <Check /> : <Copy />}
       <span className={compact && !copied ? "max-sm:hidden" : undefined}>{label}</span>
     </Button>
-  );
-}
-
-function ImageView({ item }: { item: Extract<Viewable, { kind: "image" }> }) {
-  const download = useDownload();
-  const name = item.title || decodeURIComponent(item.src).split(/[/=]/).pop() || "image";
-  // L'app Android ne suit pas l'attribut download : une image de l'agent passe par le téléchargement de Noah.
-  const ownMedia = /\/media\?path=/.test(item.src);
-  return (
-    <DialogContent title={item.title || "Image"} className="max-w-6xl gap-3 p-4">
-      <div className="grid min-h-0 flex-1 place-items-center overflow-auto rounded-xl bg-[repeating-conic-gradient(var(--muted)_0_25%,transparent_0_50%)] bg-[length:16px_16px]">
-        <img src={item.src} alt={item.title || ""} className="max-h-[72dvh] w-auto max-w-full object-contain" />
-      </div>
-      <div className="flex flex-wrap justify-end gap-2">
-        <CopyImageButton src={item.src} />
-        <Button variant="outline" size="sm" asChild>
-          <a
-            href={item.src}
-            download={name}
-            onClick={(e) => {
-              if (!ownMedia) return;
-              e.preventDefault();
-              download(`${item.src}&download=1`, name);
-            }}
-          >
-            <Download />Télécharger
-          </a>
-        </Button>
-        {!inAndroidApp() && (
-          <Button variant="ghost" size="sm" asChild>
-            <a href={item.src} target="_blank" rel="noopener"><ExternalLink />Ouvrir dans un onglet</a>
-          </Button>
-        )}
-      </div>
-    </DialogContent>
-  );
-}
-
-function FileView({ item }: { item: Extract<Viewable, { kind: "file" }> }) {
-  const download = useDownload();
-  return (
-    <DialogContent title={item.title} className="h-[min(88dvh,900px)] max-w-6xl gap-3 p-4">
-      <iframe
-        src={item.url}
-        title={item.title}
-        sandbox="allow-scripts allow-forms allow-popups allow-modals"
-        className="min-h-0 flex-1 rounded-lg border border-border bg-white"
-      />
-      <div className="flex flex-wrap justify-end gap-2">
-        <Button variant="outline" size="sm" asChild>
-          <a href={`${item.url}?download=1`} onClick={(e) => { e.preventDefault(); download(`${item.url}?download=1`, item.title); }}><Download />Télécharger</a>
-        </Button>
-        {!inAndroidApp() && (
-          <Button variant="ghost" size="sm" asChild>
-            <a href={item.url} target="_blank" rel="noopener"><ExternalLink />Ouvrir dans un onglet</a>
-          </Button>
-        )}
-      </div>
-    </DialogContent>
   );
 }

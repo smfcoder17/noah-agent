@@ -29,7 +29,7 @@ import httpx
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
-from . import db, desktop, machine
+from . import bus, db, desktop, machine
 from .config import BROWSER_TIMEZONE, DATA_DIR, LAUNCHER_KEY, LAUNCHER_URL
 
 VERSION = os.environ.get("NOAH_VERSION", "dev")
@@ -75,6 +75,7 @@ def _patch(change) -> dict:
         tmp = STATE.with_suffix(f".{threading.get_ident()}.tmp")
         tmp.write_text(json.dumps(state, ensure_ascii=False))
         os.replace(tmp, STATE)
+        bus.invalidate_all()
         return state
 
 

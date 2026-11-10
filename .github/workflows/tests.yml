@@ -12,6 +12,19 @@ on:
         default: false
 
 jobs:
+  interface:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npx tsc --noEmit && npx tsc -p tsconfig.app.json --noEmit --incremental false && npm test
+        working-directory: frontend
   updates:
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -70,6 +83,9 @@ jobs:
           node tests/desktop/accords_sync_test.mjs
       - name: "Bureau sans boîte système : bandeau isolé, accord unique et autonomie locale (#35)"
         run: node tests/desktop/accord_test.mjs
+      - name: "Lot 2 : SSRF, préférences par compte, reprise et aperçus"
+        run: |
+          docker run --rm -v "$PWD:/repo:ro" python:3.12-slim sh -c "pip install -q -r /repo/server/requirements.txt && python /repo/tests/exposition/safefetch_test.py && python /repo/tests/exposition/lot2_test.py"
       - name: Notifications Web Push (vérifiées par http_ece et PyJWT)
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \

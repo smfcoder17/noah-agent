@@ -1,0 +1,9 @@
+﻿.sensitive-token { background:var(--muted); border-radius:6px; padding:0 5px; font-family:ui-monospace,monospace; font-size:12.5px; border:1px dashed var(--soft); cursor:pointer; }
+.sensitive-token.shown { background:var(--accent-soft); border-style:solid; border-color:var(--accent-soft); font-family:inherit; }
+.sensitive-copy { margin-left:4px; color:var(--accent); font-size:11px; cursor:pointer; }
+.brain-tier { display:flex; align-items:center; gap:8px; padding:7px 0 7px 32px; font-size:13.5px; }
+.provider-letter { width:26px; height:26px; border-radius:7px; background:var(--muted); display:grid; place-items:center; }
+:root[data-texte=petit] { font-size:14px; } :root[data-texte=grand] { font-size:18px; }
+.shell-panel { display:flex; flex-direction:column; }
+.shell-panel > div { height:auto; min-height:0; flex:1; }
+@media(max-width:767px) { .chat-pane [data-noah-msg] > div.rounded-2xl { border-radius:18px; padding:10px 13px; font-size:14.5px; } .chat-pane [data-noah-msg] > div.rounded-br-md { background:var(--accent); color:#fff; border-bottom-right-radius:6px; } }

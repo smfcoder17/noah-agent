@@ -223,6 +223,8 @@ PROVIDERS = {
     "anthropic": {"label": "Anthropic (Claude)", "env": "ANTHROPIC_API_KEY", "model": "claude-sonnet-4-5"},
     "openai": {"label": "OpenAI", "env": "OPENAI_API_KEY", "model": "gpt-5"},
     "gemini": {"label": "Google Gemini", "env": "GEMINI_API_KEY", "model": "gemini-2.5-pro"},
+    "mistral": {"label": "Mistral", "env": "MISTRAL_API_KEY", "model": "mistral-small-latest"},
+    "deepseek": {"label": "DeepSeek", "env": "DEEPSEEK_API_KEY", "model": "deepseek-chat"},
     "mammouth": {"label": "Mammouth", "env": "MAMMOUTH_API_KEY", "model": "mammouth-recommended"},
     "ollama": {"label": "Ollama (cette machine ou une adresse)", "env": None, "model": "gpt-oss:20b"},
     "ollama-cloud": {"label": "Ollama Cloud", "env": "OLLAMA_API_KEY", "model": "gpt-oss:120b"},

@@ -53,6 +53,22 @@ def prune(c) -> None:
     c.execute("DELETE FROM evenements WHERE created <= ?", (time.time() - KEEP,))
 
 
+def invalidate(user: int | None) -> None:
+    """Signal sans contenu : chaque écran relit ses propres routes et leurs droits."""
+    if user is not None:
+        with db.connect() as c:
+            publish(c, user, "donnees.changees", {})
+
+
+def invalidate_all() -> None:
+    """État partagé changé en arrière-plan. Aucun contenu ne sort des routes autorisées."""
+    with db.connect() as c:
+        if not c.execute("SELECT 1 FROM sqlite_master WHERE name='evenements'").fetchone():
+            return  # démarrage ou test avant la migration
+        for row in c.execute("SELECT id FROM users").fetchall():
+            publish(c, row["id"], "donnees.changees", {})
+
+
 def replay(user: int, after: int | None):
     with db.connect() as c:
         # Même instantané pour le compteur et les lignes, y compris si un autre thread publie.

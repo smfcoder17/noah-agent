@@ -12,6 +12,9 @@ import { useQuotes, widgetQuote } from "@/lib/quotes";
 import { Button } from "./ui";
 import { VideoEmbed } from "./VideoEmbed";
 import { canFrame, CopyImageButton, isImagePath, useDownload, useViewer } from "./Viewer";
+import { kindOfFile, parseElement, type ElementSpec } from "@/lib/elements";
+import { ElementCard } from "./elements/ElementCard";
+import { SandboxedFrame } from "./elements/SandboxedFrame";
 
 type Series = { name?: string; values: number[] };
 type ChartSpec = { type: "chart"; title?: string; kind?: "bar" | "line"; labels: string[]; series: Series[]; note?: string };
@@ -21,7 +24,7 @@ type GridSpec = { type: "grid"; title?: string; items: GridItem[]; note?: string
 type ChoiceSpec = { type: "choice"; question: string; options: string[] };
 type PreviewSpec = { type: "preview"; path: string; title?: string; note?: string };
 type VideoSpec = { type: "video"; url: unknown; title?: unknown };
-type Spec = ChartSpec | TableSpec | GridSpec | ChoiceSpec | PreviewSpec | VideoSpec;
+type Spec = ChartSpec | TableSpec | GridSpec | ChoiceSpec | PreviewSpec | VideoSpec | ElementSpec;
 
 // Palette des séries (distincte des couleurs d'état).
 const SERIES = ["#2a47c9", "#0f766e", "#b4541a", "#7c3aed"];
@@ -63,7 +66,7 @@ function CsvButton({ columns, rows, name }: { columns: string[]; rows: (string |
   );
 }
 
-function Chart({ spec }: { spec: ChartSpec }) {
+export function Chart({ spec }: { spec: ChartSpec }) {
   const [asTable, setAsTable] = useState(false);
   const labels = spec.labels ?? [];
   const series = (spec.series ?? []).filter((s) => Array.isArray(s.values));
@@ -161,7 +164,7 @@ function TableBody({ columns, rows }: { columns: string[]; rows: (string | numbe
   );
 }
 
-function Table({ spec }: { spec: TableSpec }) {
+export function Table({ spec }: { spec: TableSpec }) {
   return (
     <Frame title={spec.title} note={spec.note} actions={<CsvButton columns={spec.columns} rows={spec.rows} name={spec.title ?? "tableau"} />}>
       <TableBody columns={spec.columns ?? []} rows={spec.rows ?? []} />
@@ -169,7 +172,7 @@ function Table({ spec }: { spec: TableSpec }) {
   );
 }
 
-function Grid({ spec }: { spec: GridSpec }) {
+export function Grid({ spec }: { spec: GridSpec }) {
   const { agentId } = useContext(AgentContext);
   const view = useViewer();
   const src = (image?: string) => (!image ? undefined : image.startsWith("/opt/data/") ? mediaUrl(agentId, image) : /^https?:\/\//.test(image) ? safeMedia(image) : undefined);
@@ -226,7 +229,7 @@ function Frozen({ onWake, page }: { onWake: () => void; page: boolean }) {
 }
 
 /** Un fichier créé par l'agent, montré dans la conversation : application, page, PDF, image, son, vidéo ou carte de téléchargement. */
-function Preview({ spec }: { spec: PreviewSpec }) {
+export function Preview({ spec }: { spec: PreviewSpec }) {
   const { agentId } = useContext(AgentContext);
   const when = useAuiState((s) => s.message.createdAt);
   const working = useAuiState((s) => s.message.status?.type === "running");
@@ -329,11 +332,10 @@ function Preview({ spec }: { spec: PreviewSpec }) {
       ) : frame && page && !link ? (
         <div className="h-[560px] bg-muted" />
       ) : frame ? (
-        <iframe
+        <SandboxedFrame
           src={page ? opened.current ?? url : url}
           title={title}
           loading="lazy"
-          sandbox="allow-scripts allow-forms allow-popups allow-modals"
           className={cn("block w-full border-0 bg-white", page ? "h-[560px]" : "h-80")}
         />
       ) : (
@@ -422,11 +424,12 @@ export function NoahWidget({ code, components }: SyntaxHighlighterProps) {
     return <div className="my-3 h-24 animate-pulse rounded-2xl border border-border bg-muted/60" aria-label="Widget en préparation" />;
   }
   switch (spec.type) {
-    case "chart": return <Quotable spec={spec}><Chart spec={spec} /></Quotable>;
-    case "table": return <Quotable spec={spec}><Table spec={spec} /></Quotable>;
-    case "grid": return <Quotable spec={spec}><Grid spec={spec} /></Quotable>;
+    case "element": { const e = parseElement(spec); return e ? <ElementCard spec={e} /> : null; }
+    case "chart":
+    case "table":
+    case "grid": return <Quotable spec={spec}><ElementCard spec={{ type: "element", kind: spec.type, title: spec.title || ({ chart: "Graphique", table: "Tableau", grid: "Grille" })[spec.type], description: spec.note, source: "noah", size: new TextEncoder().encode(code).length, data: spec as unknown as Record<string, unknown> }} /></Quotable>;
     case "choice": return <Choice spec={spec} />;
-    case "preview": return <Quotable spec={spec}><Preview spec={spec} /></Quotable>;
+    case "preview": return <Quotable spec={spec}><ElementCard spec={{ type: "element", kind: kindOfFile(spec.path), title: spec.title || spec.path.split("/").pop() || "Fichier", path: spec.path, description: spec.note, source: "noah" }} /></Quotable>;
     case "video": return <Quotable spec={spec}><VideoEmbed url={spec.url} title={spec.title} /></Quotable>;
     default:
       return <components.Pre><components.Code>{code}</components.Code></components.Pre>;

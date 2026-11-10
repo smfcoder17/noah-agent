@@ -1,3 +1,4 @@
+import { subscribeUpdates } from "./events";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { ApiError, get } from "./api";
 import { SEEN, SeenActive, seenGeneration } from "./seen";
@@ -41,5 +42,6 @@ export function useAgentData<T>(path: string, { freshOnReload = true, refreshKey
   }, [read, freshOnReload]);
   useEffect(() => { setData((SEEN.get(path) as T) ?? null); }, [path]);
   useEffect(() => { if (active) void read(false); }, [read, active, refreshKey]);
+  useEffect(() => active ? subscribeUpdates(load) : undefined, [active, load]);
   return { data, setData, error, setError, load };
 }

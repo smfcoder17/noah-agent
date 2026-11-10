@@ -506,6 +506,8 @@ def _held(agent_id: str) -> str | None:
 def _save_note(agent_id: str, error: str) -> None:
     with db.connect() as c:
         c.execute("UPDATE proactive SET last_error = ? WHERE agent_id = ?", (error[:300], agent_id))
+    from . import bus
+    bus.invalidate_all()
 
 
 def _save_pass(agent_id: str, now: float, seen: dict | None, error: str, cost: float = 0) -> None:
@@ -514,6 +516,8 @@ def _save_pass(agent_id: str, now: float, seen: dict | None, error: str, cost: f
                   (now, error[:300], float(cost or 0), agent_id))
         if seen is not None:
             c.execute("UPDATE proactive SET seen = ? WHERE agent_id = ?", (json.dumps(seen), agent_id))
+    from . import bus
+    bus.invalidate_all()
 
 
 async def _read_all(agent_id: str, seen: dict) -> tuple[list[dict], dict, str]:

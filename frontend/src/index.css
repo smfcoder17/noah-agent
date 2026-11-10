@@ -1,42 +1,10 @@
 @import "tailwindcss";
-
-/* Palette : neutres légèrement bleutés, accent cobalt. Toutes les couleurs passent par ces jetons. */
-:root {
-  --background: #f6f7f9;
-  --surface: #ffffff;
-  --sidebar: #eef0f4;
-  --muted: #eceff3;
-  --border: #dde2e8;
-  --foreground: #141b24;
-  --muted-foreground: #5d6875;
-  --accent: #2a47c9;
-  --accent-foreground: #ffffff;
-  --accent-soft: #e4e9fb;
-  --warn: #b45309;
-  --warn-soft: #fdf1e3;
-  --danger: #b42318;
-  --ok: #13804b;
-  color-scheme: light;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0e1318;
-    --surface: #151c24;
-    --sidebar: #11171e;
-    --muted: #1d2630;
-    --border: #2a3542;
-    --foreground: #e6ebf0;
-    --muted-foreground: #95a3b1;
-    --accent: #8ea5ff;
-    --accent-foreground: #0e1318;
-    --accent-soft: #1d2852;
-    --warn: #f09a62;
-    --warn-soft: #3f261a;
-    --danger: #f97066;
-    --ok: #32d583;
-    color-scheme: dark;
-  }
-}
+@import "./styles/tokens.css";
+@import "./styles/elements.css";
+@import "./styles/shell.css";
+@import "./styles/desktop.css";
+@import "./styles/privacy.css";
+@import "./styles/links.css";
 
 @theme inline {
   --color-background: var(--background);
@@ -53,7 +21,7 @@
   --color-warn-soft: var(--warn-soft);
   --color-danger: var(--danger);
   --color-ok: var(--ok);
-  --font-sans: "Geist Variable", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  --font-sans: var(--font);
   --font-mono: "Geist Mono Variable", ui-monospace, "Cascadia Code", Consolas, monospace;
 }
 

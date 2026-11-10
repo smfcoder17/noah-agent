@@ -1,3 +1,5 @@
+import { Approvals } from "./mobile/Approvals";
+import { subscribeUpdates } from "@/lib/events";
 // Panneau de l'agent : ce qu'il fait, à quoi il a accès, son ordinateur, ses routines, sa mémoire.
 import { Archive, ArchiveRestore, Brain, ChevronDown, ChevronRight, Clock, ExternalLink, FolderOpen, Hand, History, Loader2, LogIn, Monitor, MonitorPlay, Pencil, Plug, Power, RefreshCw, Sparkles, Sunrise, Users, X } from "lucide-react";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
@@ -76,7 +78,7 @@ export function SidePanel({
   const admin = canAdmin(agent);
   return (
     <Tabs value={tab} onValueChange={(v) => onTab(v as PanelTab)} className="flex h-full min-h-0 flex-col gap-3 p-3 pt-[max(12px,env(safe-area-inset-top))]">
-      <div className="flex items-center justify-between gap-2">
+      <div data-shell-tabs className="flex items-center justify-between gap-2">
         <TabsList className="max-w-full overflow-x-auto max-sm:grid max-sm:flex-1 max-sm:auto-cols-fr max-sm:grid-flow-col max-sm:overflow-visible max-sm:[&>button]:flex max-sm:[&>button]:flex-col max-sm:[&>button]:items-center max-sm:[&>button]:gap-0.5 max-sm:[&>button]:px-0.5 max-sm:[&>button]:text-[10.5px] [&_svg]:size-4 sm:[&_svg]:hidden">
           {([
             ["activity", "Activité", History, true],
@@ -94,15 +96,16 @@ export function SidePanel({
       </div>
       <Boundary key={agent.id} label="Le panneau de l'agent">
       <KeptTab value="activity" shown={tab === "activity"} className="min-h-0 flex-1 overflow-y-auto">
-        <Details agent={agent} onEdit={onEditAgent} refreshKey={refreshKey} onAgentChanged={onAgentChanged} onTab={onTab} onGoals={onGoals}>
+        <Approvals agentId={agent.id} />
+        <ActivityLog agentId={agent.id} refreshKey={refreshKey} onOpen={(id, isMain) => { onOpenThread(isMain && id === main?.id ? null : id); onClose(); }} />
+        <details className="mt-2"><summary className="text-sm text-muted-foreground cursor-pointer">Fils et réglages</summary><Details agent={agent} onEdit={onEditAgent} refreshKey={refreshKey} onAgentChanged={onAgentChanged} onTab={onTab} onGoals={onGoals}>
           <Threads threads={threads} threadId={threadId} onOpen={onOpenThread} onArchive={onArchiveThread} />
           {agent.partage && main && <ConversationVisibility conversation={main} onChanged={onConversationChanged} />}
-          <ActivityLog agentId={agent.id} refreshKey={refreshKey} onOpen={(id, isMain) => onOpenThread(isMain && id === main?.id ? null : id)} />
           <label className="flex items-center justify-between gap-3 py-1 text-sm sm:hidden">
             Afficher les détails techniques
             <input type="checkbox" checked={technical} onChange={(e) => onTechnical(e.target.checked)} className="size-5 accent-[var(--accent)]" />
           </label>
-        </Details>
+        </Details></details>
       </KeptTab>
       <KeptTab value="files" shown={tab === "files"} className="min-h-0 flex-1 overflow-y-auto">
         <Files key={agent.id} agentId={agent.id} refreshKey={refreshKey} canDelete={admin} onGiven={() => window.matchMedia("(max-width: 767px)").matches && onClose()} />
@@ -135,7 +138,7 @@ function ComputerTab({ agent, admin, refreshKey, onClose }: { agent: Agent; admi
   return (
     <Tabs value={part} onValueChange={setPart} className="flex min-h-0 flex-1 flex-col gap-3">
       {admin && (
-        <TabsList className="max-w-full self-start overflow-x-auto">
+        <TabsList className="max-w-full self-start overflow-x-auto order-last">
           <TabsTrigger value="screen">Écran</TabsTrigger>
           <TabsTrigger value="files">Fichiers</TabsTrigger>
           <TabsTrigger value="folders">Dossiers</TabsTrigger>
@@ -615,7 +618,12 @@ function Computer({ agentId }: { agentId: string }) {
     if (!visible) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
+    let reading = false;
+    const stop = subscribeUpdates(() => { if (!cancelled) return poll(); });
     const poll = async () => {
+      if (reading || cancelled) return;
+      clearTimeout(timer);
+      reading = true;
       try {
         const [s, link] = await Promise.all([
           request(`/api/agents/${agentId}/screen-status`, { signal: AbortSignal.timeout(8000) }).then((r) => r.json() as Promise<ScreenStatus>),
@@ -659,10 +667,11 @@ function Computer({ agentId }: { agentId: string }) {
         if (pageReloads.current >= 3) failed.current = Math.max(2, failed.current);
         setFailures(failed.current);
       }
-      if (!cancelled) timer = setTimeout(poll, 3000 * 2 ** Math.min(Math.max(failed.current - 2, 0), 2));
+      reading = false;
+      if (!cancelled && failed.current) timer = setTimeout(poll, Math.min(12000, 3000 * 2 ** Math.min(2, failed.current - 1)));
     };
     void poll();
-    return () => { cancelled = true; clearTimeout(timer); };
+    return () => { cancelled = true; stop(); clearTimeout(timer); };
   }, [agentId, visible, retry, changeControl]);
 
   const fix = async (how: "wake" | "restart") => {
