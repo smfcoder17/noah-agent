@@ -1625,12 +1625,16 @@ async def set_model(body: ModelChoice, tasks: BackgroundTasks, user: int = Depen
     if not p:
         raise HTTPException(400, "Fournisseur inconnu")
     base_url = _clean_base_url(body.base_url) if body.provider in relay.OWN_URL else None
+    if "base_url" not in body.model_fields_set and body.provider in relay.OWN_URL:
+        base_url = provider_accounts.base_of(body.provider)
     if body.provider == "custom" and not base_url:
         raise HTTPException(400, "Indique l'adresse du service, par exemple http://mon-serveur:8000/v1")
     previous = current_model()
     # Garder la clé déjà enregistrée si on ne change que le modèle : jamais vers un autre fournisseur ni une autre adresse.
     same_target = previous and previous["provider"] == body.provider and previous["base_url"] == base_url
     api_key = body.api_key or (previous["api_key"] if same_target else None)
+    if not api_key and base_url == provider_accounts.base_of(body.provider):
+        api_key = provider_accounts.key_of(body.provider)
     if p["env"] and not api_key:
         raise HTTPException(400, "Cette option demande une clé API")
     if not (body.model or p["model"]):
@@ -1647,6 +1651,7 @@ async def set_model(body: ModelChoice, tasks: BackgroundTasks, user: int = Depen
     if previous:
         provider_accounts.remember(previous["provider"], previous["api_key"], previous["base_url"])
     provider_accounts.remember(body.provider, api_key, base_url)
+    modes.clear_active_brain()
     db.set_setting("provider", body.provider)
     db.set_setting("model", body.model or p["model"])
     db.set_setting("base_url", base_url or "")
@@ -2062,7 +2067,7 @@ async def agent_model(agent_id: str, body: AgentModel, tasks: BackgroundTasks, u
         await modes.set_agent_mode(agent_id, body.mode)
     elif "model" in sent or "mode" in sent:
         modes.clear_agent_mode(agent_id)
-        if body.model and body.model != db.get_setting("model"):
+        if body.model and (body.model != db.get_setting("model") or modes.active(modes.BRAIN) == modes.AUTO):
             db.set_setting(f"model_{agent_id}", body.model)
         else:
             with db.connect() as c:

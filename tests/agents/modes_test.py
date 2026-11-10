@@ -329,6 +329,75 @@ assert modes.reasoning("a1") is None
 modes.rotation = real_rotation
 print("18. changer le raisonnement ne touche pas au mode ; « celui de tous » revient à l'héritage")
 
+# --- Auto par défaut, hérité sans écraser les choix individuels -------------------------------------------------------------
+
+from noah import complexite, providers  # noqa: E402
+
+saved_modes = db.get_setting("modes")
+real_tier_for = complexite.tier_for
+real_decision_model = decision.model
+selected_tier = {"value": "fast"}
+
+
+async def selected_complexity(agent_id, body):
+    return selected_tier["value"]
+
+
+complexite.tier_for = selected_complexity
+decision.model = lambda: "lab/c"  # le petit modèle ne doit pas devenir le nom inscrit du cerveau Auto
+for tier, model in (("fast", "lab/c"), ("balanced", "lab/a"), ("smart", "lab/cerveau")):
+    assert web.put("/api/modes/cerveau", json={"mode": tier, "modele": model}).status_code == 200
+assert other.put("/api/modes/cerveau", json={"actif": "auto"}).status_code == 403
+r = web.put("/api/modes/cerveau", json={"actif": "auto"})
+assert r.status_code == 200 and r.json()["actif"] == "auto", r.text
+assert web.get("/api/modes/cerveau").json()["actif"] == "auto", "Auto doit persister à la relecture"
+assert db.get_setting("model") == "lab/a", "ne pas confondre cerveau et petit modèle de décision"
+for tier, model in (("fast", "lab/c"), ("balanced", "lab/a"), ("smart", "lab/cerveau")):
+    selected_tier["value"] = tier
+    reset()
+    assert ask().status_code == 200 and tried() == [model], (tier, tried())
+    reset()
+    assert ask(agent2).status_code == 200 and tried() == [model], (tier, tried())
+reset()
+behavior["lab/cerveau"] = 429
+assert ask().status_code == 200 and tried() == ["lab/cerveau", "lab/a"], tried()
+reset()
+assert web.put("/api/agents/a2/model", json={"model": "lab/a"}).json()["model"] == "lab/a"
+assert ask(agent2).status_code == 200 and tried() == ["lab/a"], "un modèle précis égal au modèle global quitte quand même Auto"
+assert web.put("/api/agents/a2/model", json={"mode": "fast"}).status_code == 200
+reset()
+assert ask(agent2).status_code == 200 and tried() == ["lab/c"], "le mode individuel prime sur Auto global"
+assert web.put("/api/agents/a2/model", json={"model": None}).status_code == 200
+reset()
+assert ask(agent2).status_code == 200 and tried() == ["lab/cerveau"], "retour à l'héritage Auto"
+reset()
+assert ask(model="lab/c").status_code == 200 and tried() == ["lab/c"], "les petits travaux gardent leur modèle"
+r = web.put("/api/modes/cerveau", json={"mode": "smart", "modele": "lab/b"})
+assert r.status_code == 200 and r.json()["actif"] == "auto", "changer un niveau conserve Auto global"
+reset()
+assert ask().status_code == 200 and tried() == ["lab/b"], "le niveau modifié est pris en compte dès l'appel suivant"
+assert web.put("/api/modes/image", json={"actif": "auto"}).status_code == 400, "Auto du cerveau ne change pas les modes média"
+same_model = db.get_setting("model")
+assert web.post("/api/model", json={"provider": "openrouter", "model": same_model}).status_code == 200
+assert web.get("/api/modes/cerveau").json()["actif"] is None, "le choix précis quitte Auto même à modèle identique"
+complexite.tier_for, decision.model = real_tier_for, real_decision_model
+db.set_setting("modes", saved_modes or "{}")
+db.set_setting("model", "lab/cerveau")
+print("18b. Auto global persiste : trois niveaux, secours, héritage, priorité individuelle et choix précis identique")
+
+# Le modèle précis peut venir de tout fournisseur déjà branché ; sa clé ne part jamais vers une autre adresse.
+providers.remember("custom", "cle-locale-enregistree", "http://local:8000/v1")
+r = web.post("/api/model", json={"provider": "custom", "model": "local-1"})
+assert r.status_code == 200 and main.current_model()["api_key"] == "cle-locale-enregistree", r.text
+assert main.current_model()["base_url"] == "http://local:8000/v1"
+r = web.post("/api/model", json={"provider": "custom", "model": "local-2", "base_url": "http://autre:8000/v1"})
+assert r.status_code == 200 and main.current_model()["api_key"] is None, "la clé enregistrée ne suit pas une autre adresse"
+assert web.post("/api/model", json={"provider": "openrouter", "model": "lab/cerveau"}).status_code == 200
+with db.connect() as c:
+    for key in ("provider_key:custom", "provider_base:custom", "provider_connected:custom"):
+        c.execute("DELETE FROM settings WHERE key = ?", (key,))
+print("18c. modèle précis d'un fournisseur branché : adresse et clé réutilisées, jamais vers une autre adresse")
+
 # --- Par routine ----------------------------------------------------------------------------------------------------------
 
 reset()

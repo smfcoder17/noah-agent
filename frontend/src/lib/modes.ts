@@ -30,7 +30,7 @@ export type ModeLink = {
 
 export type ModesState = {
   niveau: Level;
-  actif: ModeId | null;
+  actif: ModeId | "auto" | null;
   en_service: string;
   modes: { id: TierId; personnalise: boolean; modele: ModeLink | null }[];
   gratuit: ModeLink[];

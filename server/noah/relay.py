@@ -403,7 +403,7 @@ async def _chain_of(agent_id: str, asked: str, body: dict | None = None) -> list
     helper = decision.model()
     if helper and helper != db.get_setting("model") and asked == helper:  # ses petits travaux restent au modèle de décision
         return single
-    if db.get_setting(f"model_mode_{agent_id}") == modes.AUTO:
+    if modes.agent_mode(agent_id) == modes.AUTO:
         return await modes.auto_chain(agent_id, body or {}) or single
     return await modes.agent_chain(agent_id) or single
 

@@ -422,7 +422,7 @@ WHITELIST = {
     ("DELETE", "/api/goals/{goal_id}"): "Seulement l'auteur de l'objectif, 404 pour tout autre compte (proactif_test).",
     ("GET", "/api/modes/{level}"): "Niveau fixe, pas une ressource : le cerveau se lit sans clé, création et voix réservées au propriétaire (modes_test).",
     ("GET", "/api/modes/{level}/modeles"): "Mêmes droits que la lecture du niveau (modes_test).",
-    ("PUT", "/api/modes/{level}"): "Réservé au propriétaire par access.owner_only (modes_test).",
+    ("PUT", "/api/modes/{level}"): "Réservé au propriétaire, Auto global compris (test_default_brain_access et modes_test).",
     ("POST", "/api/agents/{agent_id}/connexions/{ask_id}"): "Droit usage sur l'agent, refusé à un invité séparé, demande propre à cet agent (coffre_test).",
     ("DELETE", "/api/agents/{agent_id}/coffre/{login_id}"): "Droit admin sur l'agent, et la ligne doit être à cet agent (coffre_test).",
     ("GET", "/api/post-image/{name}"): "Publique : la plateforme vient chercher l'image. Adresse tirée au hasard, de courte durée, retirée après la publication (publication_test).",
@@ -1237,6 +1237,19 @@ def test_desktop() -> None:
     print("12. application de bureau : file, état et réponses par compte")
 
 
+def test_default_brain_access() -> None:
+    fixture()
+    # Le réglage global n'est pas un droit d'administration sur un agent partagé.
+    before = db.get_setting("modes")
+    for name in ("bruno", "lea", "uma", "ada"):
+        r = WEB[name].put("/api/modes/cerveau", json={"actif": "auto"})
+        assert r.status_code == 403, (name, r.text)
+        assert db.get_setting("modes") == before
+        assert WEB[name].get("/api/modes/cerveau").status_code == 200
+    assert TestClient(app).put("/api/modes/cerveau", json={"actif": "auto"}).status_code == 401
+    print("Auto global : lecture sans secret, écriture refusée aux profils et administrateurs d'agents partagés")
+
+
 def test_secrets() -> None:
     fixture()
     bruno = WEB["bruno"]
@@ -1375,6 +1388,7 @@ WEB["uma"] = client(UMA)
 test_budget()
 test_notifications()
 test_desktop()
+test_default_brain_access()
 test_secrets()
 test_profiles()
 print("Tout est vert : profils et partage")

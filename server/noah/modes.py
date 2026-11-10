@@ -27,7 +27,7 @@ LEVELS = (BRAIN, *MEDIA_LEVELS)
 TIERS = ("fast", "balanced", "smart")
 CHAINED = ("gratuit", "custom")
 MODES = (*TIERS, *CHAINED)
-AUTO = "auto"  # par agent seulement : le niveau suit chaque demande (complexite.py)
+AUTO = "auto"  # global ou propre à un agent : le niveau suit chaque demande (complexite.py)
 REASONING = ("low", "medium", "high")
 
 FREE_CHAIN_MAX = 8
@@ -92,7 +92,16 @@ def active(level: str) -> str | None:
     """Le mode en service. Un modèle précis choisi depuis (par l'écran ou par l'agent) l'a quitté."""
     data = _level(level)
     mode = data.get("actif")
-    return mode if mode in MODES and data.get("pose") == _in_service(level) else None
+    allowed = (*MODES, AUTO) if level == BRAIN else MODES
+    return mode if mode in allowed and data.get("pose") == _in_service(level) else None
+
+
+def clear_active_brain() -> None:
+    """Un choix précis quitte aussi Auto, même s'il reprend le modèle déjà inscrit."""
+    data = _level(BRAIN)
+    if data.get("actif"):
+        data["actif"] = None
+        _save_level(BRAIN, data)
 
 
 def forget_unusable() -> None:
@@ -253,10 +262,15 @@ async def links_of(level: str, mode: str, rotate: bool = True) -> list[dict]:
     return _keep_usable(_level(level).get("custom") or []) if level == BRAIN else list(_level(level).get("custom") or [])
 
 
+def agent_mode(agent_id: str) -> str | None:
+    """Le choix propre à l'agent prime ; sans choix propre, il suit celui de tous."""
+    return db.get_setting(f"model_mode_{agent_id}") or (None if db.get_setting(f"model_{agent_id}") else active(BRAIN))
+
+
 async def agent_chain(agent_id: str) -> list[dict] | None:
     """La chaîne de cet agent ; None : un seul modèle, celui que le relais lit déjà (relay._current_brain)."""
     own = db.get_setting(f"model_mode_{agent_id}")
-    mode = own or (None if db.get_setting(f"model_{agent_id}") else active(BRAIN))
+    mode = agent_mode(agent_id)
     if mode not in MODES:
         return None
     links = _keep_usable(await links_of(BRAIN, mode))
@@ -491,14 +505,18 @@ async def _apply(level: str, data: dict) -> None:
     """Le mode actif pose son premier modèle dans le réglage en service. Gratuit via OpenRouter sans ce fournisseur pour cerveau : le
     réglage garde un modèle que le fournisseur du cerveau comprend, et la chaîne seule passe par OpenRouter."""
     mode = data.get("actif")
-    if mode not in MODES:
+    if mode not in MODES and not (level == BRAIN and mode == AUTO):
         return
-    links = await links_of(level, mode, rotate=False)
+    links = ([link for tier in TIERS for link in await links_of(level, tier, rotate=False)]
+             if mode == AUTO else await links_of(level, mode, rotate=False))
     if not links:
         raise HTTPException(400, "Ce mode n'a encore aucun modèle disponible.")
     if level == BRAIN:
         provider = db.get_setting("provider")
-        first = next((link["modele"] for link in links if link["fournisseur"] == provider), None) or _in_service(level)
+        from . import decision
+        # Hermes réserve ce nom aux petits travaux : le cerveau inscrit doit en rester distinct en Auto.
+        first = next((link["modele"] for link in links if link["fournisseur"] == provider
+                      and (mode != AUTO or link["modele"] != decision.model())), None) or _in_service(level)
     else:
         first = links[0]["modele"]
     db.set_setting(_setting_key(level), first)
@@ -544,7 +562,8 @@ async def _change_modes(level: str, body: ModeChange):
             own.pop(body.mode, None)
         data["surcharges"] = own
     if "actif" in fields:
-        if body.actif and body.actif not in MODES:
+        allowed = (*MODES, AUTO) if level == BRAIN else MODES
+        if body.actif and body.actif not in allowed:
             raise HTTPException(400, "Mode inconnu")
         if not body.actif and level != BRAIN:
             db.set_setting(_setting_key(level), "auto")

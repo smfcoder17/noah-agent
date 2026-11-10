@@ -70,7 +70,19 @@ try {
       await capture("2-modeles-et-budget");
       await brain.click();
       assert.equal(await brain.getAttribute("aria-selected"), "true");
-      await dialog.locator('input[type="number"]').first().waitFor({ state: "visible" });
+      const choices = dialog.getByRole("radiogroup", { name: "Cerveau par défaut", exact: true });
+      await choices.getByRole("radio", { name: /^Auto/ }).waitFor({ state: "visible" });
+      await choices.getByRole("radio", { name: /^Un modèle précis/ }).waitFor({ state: "visible" });
+      assert.equal(await choices.getByRole("radio").count(), 2);
+      const levels = choices.getByRole("list", { name: "Niveaux Auto" });
+      for (const level of ["Simple", "Moyen", "Complexe"]) {
+        const row = levels.getByRole("listitem").filter({ has: p.getByText(level, { exact: true }) });
+        await row.getByRole("button", { name: `Changer le modèle ${level}`, exact: true }).waitFor({ state: "visible" });
+        assert.ok((await row.locator("span[title]").count()) >= 2, `${level} : logo et modèle présents`);
+        assert.ok(!(await row.textContent()).includes("Aucun modèle disponible"), `${level} : modèle chargé`);
+      }
+      await dialog.getByRole("button", { name: "Enregistrer le budget", exact: true }).waitFor({ state: "visible" });
+      await dialog.locator('input[type="number"]:enabled').first().waitFor({ state: "visible" });
       await capture("3-cerveau");
       await dialog.getByRole("tab", { name: "Fournisseurs", exact: true }).click();
       await dialog.getByRole("region", { name: "Fournisseurs", exact: true }).waitFor({ state: "visible" });

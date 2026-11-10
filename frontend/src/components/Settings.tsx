@@ -10,7 +10,7 @@ import { noahPaused, setNoahPaused } from "@/lib/noahFace";
 import { Boundary } from "./Boundary";
 import { DoubleVerification } from "./DoubleVerification";
 import { MailConfirmation } from "./MailConfirmation";
-import { ModelPicker } from "./ModelPicker";
+import { DefaultBrain } from "./DefaultBrain";
 import { PhonePairing } from "./PhonePairing";
 import { NotificationSettings } from "./NotificationSettings";
 import { PhoneSettings, phoneSettingsAvailable } from "./PhoneSettings";
@@ -115,8 +115,8 @@ export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainS
             <TabsContent value="providers"><Providers /></TabsContent>
             <TabsContent value="brain">
               <div className="flex flex-col gap-3">
+                <DefaultBrain onCancel={() => onOpenChange(false)} onDone={onBrainSaved} />
                 <DecisionModel />
-                <ModelPicker onCancel={() => onOpenChange(false)} onDone={onBrainSaved} />
               </div>
             </TabsContent>
             <TabsContent value="create">
