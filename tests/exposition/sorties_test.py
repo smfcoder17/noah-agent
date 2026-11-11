@@ -59,6 +59,11 @@ KNOWN = {
     # Grille : fournisseur de modèle choisi (un seul à la fois, voir plus bas)
     "openrouter.ai": "fournisseur", "api.openai.com": "fournisseur", "api.anthropic.com": "fournisseur",
     "generativelanguage.googleapis.com": "fournisseur", "ollama.com": "fournisseur", "api.mammouth.ai": "fournisseur",
+    "api.mistral.ai": "fournisseur", "api.deepseek.com": "fournisseur",  # 0.1.6 : fournisseurs branchés par la personne (providers.py)
+    # Page Meta où Noah lit le jeton Instagram, seulement si la personne branche Instagram (mcp.py)
+    "business.facebook.com": "à la demande", "www.facebook.com": "à la demande",
+    # Textes d’exemple seulement, jamais appelés : aide de la saisie et test
+    "www.linkedin.com": "lien montré", "mon-fournisseur.fr": "lien montré", "exemple.org": "lien montré",
     # Modèle de décision choisi par le propriétaire, avec sa clé (decision.py)
     "api.typesafe.ai": "fournisseur",
     # Lecteurs de vidéo dans le fil : rien ne se charge avant le clic de la personne (chatMedia.ts, exposition.py)
