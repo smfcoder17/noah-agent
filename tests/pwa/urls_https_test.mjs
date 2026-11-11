@@ -18,7 +18,8 @@ const check = (nom, ok, detail = "") => {
 // http:// suivi d'une IP, ou d'une variable ou d'un exemple qui en tient lieu.
 const HTTP_IP = /http:\/\/(?:\d{1,3}(?:\.\d{1,3}){3}|<[^>\s]*(?:ip|adresse)[^>\s]*>|\$\{[^}]*\b(?:ip|lan\w*|addr\w*)\b[^}]*\}|\$(?:ip|lan\w*|addr\w*)\b|\{(?:ip|lan\w*|addr\w*)\}|ip[:/`\s])/i;
 // Ne sont pas montrés comme adresse de Noah : tests et textes qui citent le critère ou d'autres projets.
-const HORS_CHAMP = /^(tests\/|docs\/(references|grille-validation|journal-hill-climb|etat)\.md$|LICENSE$|.*package-lock\.json$|mobile\/android\/)/;
+// tools/eval, docs/epics/<version>/mesures et rapports : bancs et traces de travail des bancs locaux, jamais publiées ni affichées.
+const HORS_CHAMP = /^(tests\/|docs\/epics\/[^/]+\/(mesures\/|rapport)|docs\/(references|grille-validation|journal-hill-climb|etat)\.md$|LICENSE$|.*package-lock\.json$|mobile\/android\/)/;
 // Adresses de la boucle locale qui ne servent jamais d'adresse de Noah à un autre appareil.
 const INTERNES = [
   ["desktop/noah.js", "http://127.0.0.1:${env.NOAH_PORT", "la fenêtre de l'app de bureau charge Noah en local, sans barre d'adresse"],
