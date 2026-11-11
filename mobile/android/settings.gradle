@@ -6,14 +6,6 @@ pluginManagement {
     }
 }
 
-pluginManagement {
-    repositories {
-        google()
-        mavenCentral()
-        gradlePluginPortal()
-    }
-}
-
 plugins {
     // gradle-daemon-jvm.properties (toolchainVersion=21) : le démon Gradle démarre toujours sur JDK 21.
     id 'org.gradle.toolchains.foojay-resolver-convention' version '0.10.0'
