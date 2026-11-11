@@ -20,7 +20,12 @@ if grep -rnEi "$INTERDIT" "$A/app/src/main" "$M/www"; then fail "stockage dépr�
 echo "1. EncryptedSharedPreferences et security-crypto absents des dépendances déclarées et du code"
 
 # 2. Le jeton n'a pas d'autre rangement : Pairing est seul à écrire, et rien ne le journalise ni ne le met en clair ailleurs.
-OTHERS=$(grep -rlE 'getSharedPreferences|openFileOutput|FileOutputStream|getExternalFilesDir' "$A/app/src/main/java" | grep -v '/Pairing.java$' || true)
+OTHERS=$(grep -rlE 'getSharedPreferences|openFileOutput|FileOutputStream|getExternalFilesDir' "$A/app/src/main/java" | grep -vE '/(Pairing|NoahMedia).java$' || true)
+# NoahMedia (0.1.6) écrit seulement les médias téléchargés, dans le cache, pour les ouvrir. Il lit le jeton pour
+# s'authentifier auprès de Noah, mais ne doit ni le ranger, ni le passer à FileOutputStream, ni écrire hors du cache.
+MEDIA="$A/app/src/main/java/agent/noah/mobile/NoahMedia.java"
+grep -q 'getCacheDir()' "$MEDIA" || fail "NoahMedia écrit hors du cache"
+if grep -nE 'getSharedPreferences|openFileOutput|getExternalFilesDir|write\(.*([tT]oken|pairing)' "$MEDIA"; then fail "NoahMedia range le jeton"; fi
 [ -z "$OTHERS" ] || fail "autre rangement sur le disque : $OTHERS"
 if grep -rnE 'Log\.[a-z]+\(.*([tT]oken|[sS]ession)|System\.out.*[tT]oken|printStackTrace' "$A/app/src/main/java"; then fail "jeton journalisé"; fi
 if grep -nE 'localStorage|sessionStorage|indexedDB|document\.cookie' "$M/www/app.js"; then fail "l'écran de connexion range quelque chose en clair"; fi
