@@ -942,7 +942,10 @@ assert garde._transform_tool_result(tool_name="browser_snapshot", args={}, resul
 piege = conversation(origin="agent", text=watch.WAKE.format(name="Factures", criteria="c", instruction="classe", url="u", resume="r", items=trap))
 out = to_server("", {"outil": "send_message", "args": SEND, "session": f"noah-{piege}"})
 assert out["verdict"] == "refuse" and "routine" in out["raison"], out
-print("tri : cadre aléatoire, aucun outil, aucun message envoyé au tri, extrait borné, cache, plafond, panne et signal local conservés")
+# Le relevé d'une veille se lit par l'agent, jamais par le juge : le prompt ne porte pas ce que la page disait.
+turn_piege = asyncio.run(juge._read_turn("a1", juge.Call(outil="send_message", args=SEND, session=f"noah-{piege}")))
+assert trap not in turn_piege.instruction and trap not in juge._prompt(juge.Call(outil="send_message", args=SEND, session=f"noah-{piege}"), turn_piege), turn_piege.instruction[:300]
+print("tri : cadre aléatoire, aucun outil, aucun message envoyé au tri, extrait borné, cache, plafond, panne et signal local conservés ; relevé de veille invisible au juge")
 
 # --- Réglages et séparation : repli global, choix par agent, authentification -----------------------------------------
 reset()

@@ -188,6 +188,8 @@ assert web.get("/api/a-toi").json() == []
 with db.connect() as c:
     c.execute("INSERT INTO agent_shares (agent_id, user_id, droit) VALUES ('a1', ?, 'usage')", (eve,))
 hers = main._new_conversation(eve, "a1", "Mon secret", main=True)
+main.task_state[hers] = "choice"
+assert web.get("/api/a-toi").json() == [], "une conversation privée, même une question posée, reste à son autrice"
 main.task_state[hers] = "approve"
 seed_approval(hers, {"demande": "Ton agent veut publier sur Instagram.", "apercu": ["Texte privé"]})
 assert [i["conversation_id"] for i in other.get("/api/a-toi").json()] == [hers]
