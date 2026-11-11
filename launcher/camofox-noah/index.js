@@ -496,8 +496,7 @@ async function readToken(req, res, ctx) {
     if (!allowed.includes(origin)) return res.status(409).json({ error: "La page ouverte n'est pas celle de la plateforme.", origine: origin });
     const found = new Set();
     for (const frame of sameOriginFrames(page, origin)) {
-      const text = await frame.evaluate(() => [document.body?.innerText || "", ...[...document.querySelectorAll("input, textarea")].map((el) => el.value || "")].join("
-")).catch(() => "");
+      const text = await frame.evaluate(() => [document.body?.innerText || "", ...[...document.querySelectorAll("input, textarea")].map((el) => el.value || "")].join("\n")).catch(() => "");
       for (const m of text.matchAll(shape)) if (found.size < 5) found.add(m[0]);
     }
     res.json({ ok: true, origine: origin, jetons: [...found] });
