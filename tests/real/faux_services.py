@@ -45,6 +45,10 @@ def _small_reply(system: str, user: str) -> str:
     if "Tu fais le tri" in system:
         return json.dumps({"pertinent": True, "resume": "Un bloc urgent est apparu sur la page.", "retenues": [1]} if "URGENT" in user
                           else {"pertinent": False, "resume": "", "retenues": []})
+    if system.startswith("Tu aides le juge des actions"):
+        # Juge (#34) : une routine de l'agent est un réglage local, ligne 2 du tableau ; le reste reste au doute.
+        local = "routine" in user or "cronjob_manage" in user
+        return json.dumps({"ligne": 2 if local else 6, "motif": "demande" if local else "doute", "certitude": 90 if local else 40})
     if system.startswith("Une note de mémoire"):
         lines = user.splitlines()
         return json.dumps({"refus": [{"n": i, "raison": "Détail d'installation."} for i, line in enumerate(lines, 1) if "installation" in line.lower()]})
