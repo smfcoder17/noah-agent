@@ -239,6 +239,7 @@ main.task_state[conv] = "approve"
 seed_approval(conv, {"demande": "Ton agent veut publier une première fois.", "request_id": "r1"}, run="run-x")
 assert web.post("/api/agents/a1/runs/run-x/approval", json={"request_id": "r1", "generation": 1, "approve": False}).status_code == 200
 assert [i["request_id"] for i in web.get("/api/a-toi").json()] == ["r2"], "le second accord reste à donner"
+assert main.task_state[conv] == "approve", "le badge attend encore : un second accord est en attente"
 newest = web.get("/api/agents/a1/activite").json()[0]
 assert newest["etat"] == "refuse" and "première fois" in newest["titre"], newest
 main.task_state[conv] = "done"
