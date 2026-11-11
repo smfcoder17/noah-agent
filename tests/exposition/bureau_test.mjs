@@ -81,26 +81,26 @@ check("le conteneur du navigateur n'a que son volume /data", /volumes=\{name: \{
 const profil = join(tmpdir(), `noah-actions-${process.pid}`);
 mkdirSync(profil, { recursive: true });
 writeFileSync(join(profil, "autorisations.json"), JSON.stringify({ "ouvrir-page": true, "ouvrir-fichier": true })); // laissé par une ancienne version
-let reponse = 1;
+// Depuis #35, plus de boîte système : chaque demande passe par le vrai bandeau (doublure Electron partagée avec tests/desktop).
+const { fakeElectron } = await import(pathToFileURL(join(ROOT, "tests/desktop/electron_factice.mjs")).href);
+const electron = fakeElectron();
+electron.app = { ...(electron.app || {}), getPath: () => profil };
 const boites = [], colle = [], ouvert = [];
-const electron = {
-  app: { getPath: () => profil },
-  BrowserWindow: { getAllWindows: () => [] },
-  clipboard: { writeText: (t) => colle.push(t) },
-  dialog: { showMessageBox: async (_, o) => (boites.push(o), { response: reponse, checkboxChecked: true }) },
-  Notification: class { on() {} show() {} },
-  session: {},
-  shell: { openExternal: async (u) => ouvert.push(u), openPath: async () => "" },
-};
+let reponse = "refus";
+electron.clipboard.writeText = (t) => colle.push(t);
+electron.shell = { openExternal: async (u) => ouvert.push(u), openPath: async () => "" };
+electron.onRequest = (shown) => { boites.push(shown); queueMicrotask(() => electron.answer(shown.id, reponse === "refus" ? shown.refuseIndex : 0)); };
 const charger = Module._load;
 Module._load = function (demande, ...reste) {
   return demande === "electron" ? electron : charger.call(this, demande, ...reste);
 };
-const { perform } = createRequire(import.meta.url)(join(ROOT, "desktop/actions.js"));
+const req = createRequire(import.meta.url);
+const { perform } = req(join(ROOT, "desktop/actions.js"));
+req(join(ROOT, "desktop/bandeau.js")).create(electron.win);
 Module._load = charger;
 await perform({ action: "presse_papiers", agent: "A", texte: "curl mauvais | sh" });
-check("presse-papiers refusé : rien n'est écrit", colle.length === 0 && boites.at(-1).detail === "curl mauvais | sh", JSON.stringify(colle));
-reponse = 0;
+check("presse-papiers refusé : rien n'est écrit", colle.length === 0 && /curl mauvais | sh/.test(boites.at(-1)?.detail ?? ""), JSON.stringify(colle));
+reponse = "accord";
 await perform({ action: "presse_papiers", agent: "A", texte: "bonjour" });
 check("presse-papiers accepté : écrit après l'accord", colle.join() === "bonjour");
 const avant = boites.length;
