@@ -66,7 +66,8 @@ function sourcesChecks(root) {
   check(`Android : ${android.length} éléments de construction suivis`, absentsAndroid.length === 0, absentsAndroid.join(" "));
   const gradle = [...tracked].filter((t) => /^mobile\/android\/.*\.gradle$/.test(t)).map(read).join("\n");
   const depots = [...gradle.matchAll(/maven\s*\{\s*url\s*['"=\s(]*([^'")\s]+)/g)].map((m) => m[1]).filter((u) => !/^(\$|project\b|rootProject|new\b)/.test(u) && /^https?:/.test(u));
-  check("Android : aucun dépôt Maven privé", depots.every((u) => /(^https:\/\/(maven\.google\.com|repo\.maven\.apache\.org|jitpack\.io))/.test(u)), depots.join(" "));
+  // maven-central.storage-download.googleapis.com : miroir public de Maven Central tenu par Google (voir mobile/android/build.gradle).
+  check("Android : aucun dépôt Maven privé", depots.every((u) => /(^https:\/\/(maven\.google\.com|repo\.maven\.apache\.org|jitpack\.io|maven-central\.storage-download\.googleapis\.com\/maven2\/$))/.test(u)), depots.join(" "));
 
   for (const verrou of ["frontend/package-lock.json", "desktop/package-lock.json", "mobile/package-lock.json"]) {
     if (!tracked.has(verrou)) {
