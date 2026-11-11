@@ -100,6 +100,10 @@ asyncio.run(save(provider="custom", base_url="http://autre/v1", model="m"))
 assert not db.get_setting("api_key"), "la clé d'un service ne suit pas vers une autre adresse"
 asyncio.run(save(provider="ollama", model="kimi-k3:cloud"))
 assert not db.get_setting("api_key") and not db.get_setting("base_url")
+# 0.1.6 : un service déjà branché garde son adresse ; « sans adresse » veut dire qu'aucune n'est connue.
+from noah import providers as _comptes
+assert _comptes.base_of("custom") == "http://autre/v1", "l'adresse du service branché est retenue"
+db.set_setting("provider_base:custom", "")
 for bad, why in (({"provider": "custom", "model": "m"}, "adresse"), ({"provider": "ollama-cloud", "model": "m"}, "clé")):
     try:
         asyncio.run(save(**bad))

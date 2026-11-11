@@ -1011,8 +1011,12 @@ def no_effect(tool_name: str, args: dict | None) -> bool:
     """Sans effet dehors, d'après les règles seules : aucun appel au juge."""
     args = args if isinstance(args, dict) else {}
     # Les écritures locales suivent la ligne 2 du tableau, même en Prudent.
-    if tool_name in ("memory", "todo", "image_generate", "video_generate", "text_to_speech", "skill_manage"):
-        return tool_name == "memory" and args.get("action") in ("read", "list") and "operations" not in args
+    # La mémoire de l'agent n'est pas un fichier de la personne : ses ajouts passent déjà par le juge de la mémoire
+    # (check_memory, memoire-juger) ; lire, retirer ou remplacer une note ne sort rien et ne coûte aucun appel.
+    if tool_name == "memory":
+        return True
+    if tool_name in ("todo", "image_generate", "video_generate", "text_to_speech", "skill_manage"):
+        return False
     if tool_name in NO_EFFECT:
         return True
     if tool_name == "browser_navigate":
