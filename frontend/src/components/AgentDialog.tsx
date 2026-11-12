@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { type Agent, del, send } from "@/lib/api";
+import { forgetPresets, type Preset, usePresets } from "@/lib/presets";
 import { cn } from "@/lib/utils";
 import { NOAH_COLORS, NoahTile, agentColor } from "./Noah";
+import { PresetNote, PresetPicker } from "./PresetPicker";
 import { Button, Dialog, DialogContent, ErrorText, Input, Label, Textarea } from "./ui";
 import { DictateButton, NO_AGENT, useCanDictate, useFieldDictation } from "./Voice";
 
@@ -41,37 +43,72 @@ function AgentForm({ agent, onSaved, onDeleted, onCancel }: { agent: Agent | nul
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(false);
+  const [preset, setPreset] = useState<Preset | null>(null);
+  const presets = usePresets();
   const canDictate = useCanDictate();
   // Un agent pas encore créé n'a pas d'identifiant : la dictée est celle du compte qui parle.
   const dictation = useFieldDictation(agent?.id ?? NO_AGENT, (text) => setRole((cur) => (cur.trim() ? `${cur.trimEnd()} ${text}` : text).slice(0, ROLE_MAX)));
 
+  // Un modèle pré-remplit le nom, le rôle et la couleur ; tout reste modifiable avant « Créer ».
+  const pick = (p: Preset | null) => {
+    setPreset(p);
+    setName(p?.nom ?? "");
+    setRole(p?.role ?? "");
+    setColor(p?.couleur ?? NOAH_COLORS[0].hex);
+  };
+
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
+    setError("");
+    if (!agent) return create();
     try {
       // Le nom et le rôle redémarrent l'agent ; la couleur seule non.
-      let id = agent?.id;
-      if (!agent) id = (await send<{ id: string }>("/api/agents", { name: name.trim(), role: role.trim() })).id;
-      else if (name.trim() !== agent.name || role.trim() !== agent.role)
+      if (name.trim() !== agent.name || role.trim() !== agent.role)
         await send(`/api/agents/${agent.id}`, { name: name.trim(), role: role.trim() }, "PATCH");
-      await send(`/api/agents/${id}/look`, { color }, "PATCH");
-      onSaved(id!);
+      await send(`/api/agents/${agent.id}/look`, { color }, "PATCH");
+      onSaved(agent.id);
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);
     }
   };
 
+  const create = async () => {
+    let id: string;
+    try {
+      id = (await send<{ id: string }>("/api/agents", { name: name.trim(), role: role.trim(), preset: preset?.id ?? "" })).id;
+    } catch (err) {
+      setError((err as Error).message);
+      setBusy(false);
+      return;
+    }
+    forgetPresets(); // l'écran vide du nouvel agent relit son modèle
+    // L'agent existe déjà : un échec de la couleur ne doit pas laisser recliquer « Créer » (un deuxième agent).
+    // La couleur du modèle est posée par le serveur ; elle se change ensuite dans le panneau de l'agent.
+    if (color !== preset?.couleur) await send(`/api/agents/${id}/look`, { color }, "PATCH").catch(() => {});
+    onSaved(id);
+  };
+
   const remove = async () => {
     if (!agent) return;
     if (!confirm) return setConfirm(true);
     setBusy(true);
-    await del(`/api/agents/${agent.id}`);
+    setError("");
+    try {
+      await del(`/api/agents/${agent.id}`);
+    } catch (err) {
+      setError(`La suppression n'a pas abouti : ${(err as Error).message}`);
+      setBusy(false);
+      setConfirm(false);
+      return;
+    }
     onDeleted();
   };
 
   return (
     <form onSubmit={save} className="flex flex-col gap-4">
+      {!agent && presets && presets.presets.length > 0 && <PresetPicker presets={presets.presets} value={preset?.id ?? ""} onPick={pick} />}
       <div className="flex items-center gap-4">
         <NoahTile color={color} className="size-20" />
         <fieldset className="flex flex-col gap-2">
@@ -115,6 +152,7 @@ function AgentForm({ agent, onSaved, onDeleted, onCancel }: { agent: Agent | nul
           </span>
         )}
       </div>
+      {preset && <PresetNote preset={preset} />}
       <ErrorText>{error}</ErrorText>
       <div className="flex flex-wrap justify-end gap-2">
         {agent?.droit === "proprietaire" && (
