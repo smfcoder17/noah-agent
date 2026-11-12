@@ -8,7 +8,7 @@ import {
   useExternalStoreRuntime,
 } from "@assistant-ui/react";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { SeenActive } from "./seen";
+import { onForget, SeenActive, seenGeneration } from "./seen";
 import { ApiError, type ChatEvent, get, type LoginAsked, send, type Reactions, type Recu, type StoredMessage, request, StreamLost, streamChat, uploadFile } from "./api";
 import { accordLabel, refreshAccords, useAccords } from "./events";
 
@@ -187,6 +187,51 @@ function apply(msg: ChatMessage, ev: ChatEvent | ChoiceEvent, runId: string | nu
 }
 
 const messagesCache = new Map<string, ChatMessage[]>();
+const CACHED_CONVERSATIONS = 20;
+/** Garde les messages d'une conversation pour la rouvrir sans attendre ; au-delà de vingt, la plus ancienne sort. */
+function remember(conv: string, messages: ChatMessage[]) {
+  messagesCache.delete(conv);
+  messagesCache.set(conv, messages);
+  while (messagesCache.size > CACHED_CONVERSATIONS) messagesCache.delete(messagesCache.keys().next().value as string);
+}
+
+// Une même page demandée par plusieurs effets au même instant (ouverture d'une conversation) : une seule requête part.
+const reading = new Map<string, Promise<StoredMessage[]>>();
+function readMessages(url: string): Promise<StoredMessage[]> {
+  const flying = reading.get(url);
+  if (flying) return flying;
+  const generation = seenGeneration();
+  const asked = get<StoredMessage[]>(url)
+    .then((rows) => {
+      // Lue pour le compte d'avant : elle ne remplit ni l'écran ni la mémoire du compte suivant.
+      if (generation !== seenGeneration()) throw new Error("compte changé");
+      return rows;
+    })
+    .finally(() => {
+      if (reading.get(url) === asked) reading.delete(url);
+    });
+  reading.set(url, asked);
+  // Partagée seulement par les lectures parties dans le même élan : une lecture demandée plus tard (fin de tour, mise à jour
+  // reçue) veut l'état d'après, pas la réponse d'une requête partie avant l'événement.
+  setTimeout(() => {
+    if (reading.get(url) === asked) reading.delete(url);
+  }, 0);
+  return asked;
+}
+
+/** Changement de compte : rien de ce que le précédent a lu ne reste en mémoire, ni une lecture encore en route. */
+export function forgetChat() {
+  messagesCache.clear();
+  windows.clear();
+  reading.clear();
+}
+onForget(forgetChat);
+
+const waitsApproval = (p: Part) => p.type === "tool-call" && p.toolName === "approval" && p.result === undefined;
+/** Les messages à l'écran, sans les demandes d'accord encore ouvertes (elles ont leur carte). Un message qui n'en porte pas
+ * garde son identité : assistant-ui ne reconvertit alors, à chaque image du flux, que le message qui change. */
+export const visibleMessages = (messages: ChatMessage[]): ChatMessage[] =>
+  messages.map((m) => (m.content.some(waitsApproval) ? { ...m, content: m.content.filter((p) => !waitsApproval(p)) } : m));
 
 export type WhileBusyApi = {
   active: boolean;
@@ -290,14 +335,20 @@ export function useAgentChat(opts: {
     setMore(windows.get(conversationId)?.more ?? false);
     let cancelled = false;
     const asked = anchorOf(conversationId);
-    get<StoredMessage[]>(windowUrl(conversationId))
+    readMessages(windowUrl(conversationId))
       .then((rows) => {
         if (cancelled) return;
         if (!current(conversationId, asked, rows)) return setMore(windows.get(conversationId)?.more ?? false);
         setMore(windows.get(conversationId)?.more ?? false);
         setMessages(rows.map(fromStored));
       })
-      .catch(() => !cancelled && setMessages((cur) => (cur.length ? cur : [])));
+      .catch((e) => {
+        // Conversation refusée ou disparue : ce que la mémoire en gardait ne reste pas à l'écran.
+        if (!(e instanceof ApiError) || (e.status !== 403 && e.status !== 404)) return;
+        messagesCache.delete(conversationId);
+        windows.delete(conversationId);
+        if (!cancelled) setMessages([]);
+      });
     return () => {
       cancelled = true;
     };
@@ -306,13 +357,13 @@ export function useAgentChat(opts: {
   const running = useRef(false);
   running.current = isRunning;
   useEffect(() => {
-    if (conversationId && !isRunning) messagesCache.set(conversationId, messages);
+    if (conversationId && !isRunning) remember(conversationId, messages);
   }, [conversationId, isRunning, messages]);
   useEffect(() => {
     if (!conversationId || !updatedAt || running.current) return;
     let cancelled = false;
     const asked = anchorOf(conversationId);
-    get<StoredMessage[]>(windowUrl(conversationId))
+    readMessages(windowUrl(conversationId))
       .then((rows) => {
         if (!current(conversationId, asked, rows)) return;
         if (!cancelled) setMore(windows.get(conversationId)?.more ?? false);
@@ -361,7 +412,7 @@ export function useAgentChat(opts: {
 
   const reload = useCallback(async (conv: string) => {
     const asked = anchorOf(conv);
-    const rows = await get<StoredMessage[]>(windowUrl(conv));
+    const rows = await readMessages(windowUrl(conv));
     if (!current(conv, asked, rows)) return;
     if (ownConversation.current === conv) setMore(windows.get(conv)?.more ?? false);
     if (ownConversation.current === conv && !running.current) {
@@ -645,8 +696,12 @@ export function useAgentChat(opts: {
       const tasks = (event as CustomEvent<Promise<unknown>[]>).detail;
       const conv = ownConversation.current;
       tasks.push(refreshNow());
-      if (conv) tasks.push(get<StoredMessage[]>(windowUrl(conv)).then((rows) => {
-        if (ownConversation.current === conv) setMessages(rows.map(fromStored));
+      if (!conv) return;
+      const asked = anchorOf(conv);
+      tasks.push(readMessages(windowUrl(conv)).then((rows) => {
+        if (!current(conv, asked, rows)) return;
+        // Réponse en cours d'écriture : elle n'est pas encore enregistrée, la relecture l'effacerait. Elle se relit à la fin du tour.
+        if (ownConversation.current === conv && !running.current) setMessages(rows.map(fromStored));
       }));
     };
     window.addEventListener("noah:resync", resyncAll);
@@ -669,7 +724,7 @@ export function useAgentChat(opts: {
     return () => window.removeEventListener("noah:connexion-repondue", answered);
   }, []);
   const shown = useMemo<ChatMessage[]>(() => {
-    const base: ChatMessage[] = messages.map((m) => ({ ...m, content: m.content.filter((p) => p.type !== "tool-call" || p.toolName !== "approval" || p.result !== undefined) }));
+    const base = visibleMessages(messages);
     const storedClosed = new Set(messages.map((m) => m.id));
     for (const closed of closedAccords.filter((a) => a.conv_id === conversationId)) {
       const label = accordLabel(closed);

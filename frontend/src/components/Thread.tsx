@@ -421,7 +421,9 @@ const QUICK_EMOJI = ["👍", "❤️", "👎", "😂", "😮", "😢", "🙏", "
 /** Les réactions d'un message, et de quoi y réagir : visible au survol, toujours là sur un écran tactile. */
 function MessageReactions() {
   const id = useAuiState((s) => s.message.id);
-  const custom = useAuiState((s) => s.message.metadata?.custom) as { storedId?: number; reactions?: { user?: string; agent?: string; retenu?: string } } | undefined;
+  // Une chaîne, pas l'objet : celui-ci est neuf à chaque conversion, et redessinerait les réactions de tout le fil.
+  const customKey = useAuiState((s) => JSON.stringify(s.message.metadata?.custom ?? null));
+  const custom = useMemo(() => JSON.parse(customKey) as { storedId?: number; reactions?: { user?: string; agent?: string; retenu?: string } } | null, [customKey]);
   const { react } = useContext(HistoryContext);
   const { readOnly } = useContext(AgentContext);
   const [open, setOpen] = useState(false);
@@ -685,6 +687,7 @@ function Composer({ onVoiceMode, inCall }: { onVoiceMode: () => void; inCall: bo
         <ToolsChip />
         <ComposerPrimitive.Input
           data-composer-input
+          aria-label="Message à ton agent"
           rows={1}
           autoFocus={FINE_POINTER}
           placeholder={dictating ? "Parle, le texte arrive ici…" : running ? "Précise, pose une question, ou ajoute une demande…" : "Écris à ton agent…"}

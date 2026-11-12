@@ -7,11 +7,18 @@ export const SeenActive = createContext(true);
 export const SEEN = new Map<string, unknown>();
 
 let generation = 0;
+const forgetters = new Set<() => void>();
+
+/** Une mémoire tenue ailleurs (messages, listes de conversations) s'inscrit ici : elle se vide avec le reste au changement de compte. */
+export function onForget(clear: () => void) {
+  forgetters.add(clear);
+}
 
 /** Le compte peut changer : tout s'oublie, et une réponse encore en route ne reviendra pas remplir la mémoire. */
 export function forgetSeen() {
   generation += 1;
   SEEN.clear();
+  for (const clear of forgetters) clear();
 }
 
 export const seenGeneration = () => generation;
