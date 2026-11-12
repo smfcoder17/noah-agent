@@ -106,6 +106,8 @@ def reset():
     juge._refused_in_a_row.clear()
     juge._sorts.clear()
     juge._sorted.clear()
+    mcp._grants.clear()
+    mcp._asked.clear()
     garde._seen.clear()
     garde._hardened.clear()
     garde._reported_hardened.clear()
@@ -160,11 +162,12 @@ TABLE_CASES = [
     (5, "terminal", {"command": "python3 /opt/data/noah.py ordinateur corbeille Bureau vieux.txt"}),
     (6, "terminal", {"command": "rm outputs/vieux.txt"}),
 ]
-EXPECTED = {"agir": ("passe", "passe", "passe", "passe", "passe", "accord"),
+EXPECTED = {"agir": ("passe", "passe", "passe", "passe", "passe", "passe"),
             "auto": ("passe", "passe", "passe", "accord", "passe", "accord"),
             "prudent": ("passe", "accord", "accord", "accord", "accord", "accord"),
             "signaler": ("passe", "refuse", "refuse", "refuse", "refuse", "refuse")}
-# Agir : les lignes 1 à 5 passent, l'effacement définitif (6) demande toujours. Autre subtilité testée : un envoi (4) passe sans accord, le C2 du serveur et le droit réel du connecteur le vérifieront ensuite.
+# Agir : pilote automatique, tout passe (le droit réel du connecteur et le C2 du serveur restent). Auto : l'envoi (4), le clic aveugle
+# et l'effacement définitif (6) demandent ; le reste passe. Le durci d'un tour durci ne change que la ligne 3 en Auto.
 for hardened in (False, True):
     for column, expected in EXPECTED.items():
         for row, tool, args in TABLE_CASES:
@@ -182,7 +185,7 @@ for hardened in (False, True):
             if column == "signaler" and row != 1:
                 assert "Me signaler" in out["message"], out
             assert not provider.judged(), "le tableau décide avant tout modèle"
-print("tableau + durci : 4 modes × 6 lignes × 2 états ; agir laisse les clics et passe l'envoi au C2 du serveur ; durci conserve les lignes 1 et 2")
+print("tableau + durci : 4 modes × 6 lignes × 2 états ; agir est un pilote automatique et passe tout ; durci conserve les lignes 1 et 2")
 
 # --- Classification : une lecture ne peut pas masquer une écriture ou un programme arbitraire ------------------------
 reset()
@@ -808,7 +811,17 @@ def test_agir_derniere_ligne():
             reason = juge.ONLY_REPORT if column == "signaler" else juge.REASONS[motif]
             assert out["action"] == wanted and reason in out["message"], (column, motif, out)
             assert provider.judged(), "le faux juge a reconnu la dernière ligne"
-    print("agir + dernière ligne : paiement, secret, droits, suppression reconnus demandent ; sans réponse, rien ne part")
+    # Agir est un pilote automatique : même une dernière ligne reconnue par le modèle passe, sans carte.
+    # Un connecteur branché trancherait avant le tableau (le droit « agir » passe, « confirmer » demande toujours) :
+    # c'est la branche du tableau qu'on éprouve ici, par un appel sans droit particulier.
+    for motif in ("paiement", "secrets", "protections", "irreversible"):
+        reset()
+        db.set_setting("juge_mode", "agir")
+        session = f"noah-{conversation(text='Traite la fiche par un script maison')}"
+        provider.verdict = {"ligne": 6, "motif": motif, "certitude": 95}
+        assert call("terminal", session, command="python3 /opt/data/mystere.py") is None, motif
+        assert provider.judged(), motif
+    print("agir + dernière ligne : paiement, secret, droits, suppression demandent en Auto et Prudent ; en Agir, le tableau passe tout")
 
 
 def test_confirmer_toujours():

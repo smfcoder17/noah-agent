@@ -685,10 +685,9 @@ async def judge(agent_id: str, body: Call) -> dict:
             row = 3
     column = "signaler" if turn.mode == "signaler" else mode(agent_id)
     if column == "agir":
-        # Agir : l'irréversible, le masqué, l'effacement de masse (must_ask) et l'effacement définitif (rm, ligne 6)
-        # demandent toujours, durci compris. Un envoi attendra le C2 du serveur et le droit réel du connecteur.
-        # Un clic dans une page passe, même durci : c'est lui qui visait.
-        verdict, reason = ("passe", "") if row in (1, 2, 3, 4, 5) else ("accord", REASONS[motif])
+        # Pilote automatique : les cartes ne servaient qu'au durci et au non-classable ; le droit réel du connecteur et
+        # le C2 du serveur restent en place. Le tableau ne dérange plus, l'agent rend compte après.
+        verdict, reason = "passe", ""
     else:
         verdict, reason = AUTONOMY[row][column], REASONS[motif]
     if body.droit == "confirmer" and not connection_read and verdict != "accord":

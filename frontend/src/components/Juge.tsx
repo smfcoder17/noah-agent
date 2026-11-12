@@ -35,11 +35,11 @@ export function JudgeSetting() {
           <legend className="font-medium">Autonomie</legend>
           <label className="flex cursor-pointer items-start gap-2">
             <input type="radio" name="juge-mode" className="mt-1" checked={(judge.mode ?? "auto") === "agir"} onChange={() => change({ mode: "agir" })} />
-            <span><b>Agir</b> : l'agent fait tout ce que le dossier confié permet et il clique dans les pages, sans te déranger. Un envoi dehors, un paiement ou un effacement définitif te sont toujours montrés.</span>
+            <span><b>Agir</b> : pilote automatique. L'agent fait tout, commandes et clics compris, et te dira ce qu'il a fait après. Seuls les refus nets (effacement de masse, secrets, protections) l'arrêtent : aucune carte n'apparaît.</span>
           </label>
           <label className="flex cursor-pointer items-start gap-2">
             <input type="radio" name="juge-mode" className="mt-1" checked={(judge.mode ?? "auto") === "auto"} onChange={() => change({ mode: "auto" })} />
-            <span><b>Auto</b> : l'agent avance seul, routines comprises. Il ne te demande que ce qui envoie, publie, paie, clique sans accord visible ou ne se défait pas.</span>
+            <span><b>Auto</b> : l'agent avance seul, routines comprises. Il ne te demande que ce qui sort vraiment : envoi, publication, paiement, effacement définitif, clic sans but visible, ou action qu'il ne sait pas classer. Tout ce qui reste sur sa machine passe sans toi.</span>
           </label>
           <label className="flex cursor-pointer items-start gap-2">
             <input type="radio" name="juge-mode" className="mt-1" checked={judge.mode === "prudent"} onChange={() => change({ mode: "prudent" })} />
