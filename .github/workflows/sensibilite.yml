@@ -1,0 +1,52 @@
+# Sensibilité des tests : on abîme le code exprès, un défaut à la fois (tools/eval/sabotage.mjs). Un test qui reste
+# vert devant un défaut ne protège rien.
+#
+# La règle :
+#   - Ces sabotages ne bloquent plus chaque passage de tests.yml : près de 250 conteneurs, la CI est payée à la minute.
+#   - Chaque lundi, tout est rejoué.
+#   - À la main, avec l'entrée « depuis » (une étiquette, en général la dernière, comme v0.1.8) : seuls les
+#     sabotages dont le fichier cible, ou le test qui doit le voir, a changé depuis cette référence sont rejoués
+#     (git diff --name-only).
+#     Sans entrée : tout est rejoué.
+#   - Avant une version, lance-le avec « depuis » sur l'étiquette précédente. Un défaut « NON VU » se corrige
+#     dans le test, jamais en retirant le sabotage.
+# En local : node tools/eval/sabotage.mjs [--depuis v0.1.8] ; --liste nomme ce qui serait rejoué sans rien lancer.
+name: Sensibilité des tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      depuis:
+        description: "Référence git (ex. v0.1.8) : seuls les sabotages dont le fichier a changé depuis. Vide : tous."
+        type: string
+        required: false
+        default: ""
+  schedule:
+    - cron: "0 3 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  sabotages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # git diff depuis une étiquette : il faut l'historique et les étiquettes
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Option --depuis
+        run: node tests/eval/depuis_test.mjs
+      - name: Ce qui sera rejoué
+        env:
+          DEPUIS: ${{ inputs.depuis }}
+        run: |
+          if [ -n "$DEPUIS" ]; then node tools/eval/sabotage.mjs --depuis "$DEPUIS" --liste; else node tools/eval/sabotage.mjs --liste; fi
+      - name: Sabotages
+        env:
+          DEPUIS: ${{ inputs.depuis }}
+        run: |
+          if [ -n "$DEPUIS" ]; then node tools/eval/sabotage.mjs --depuis "$DEPUIS"; else node tools/eval/sabotage.mjs; fi

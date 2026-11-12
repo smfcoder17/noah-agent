@@ -1969,15 +1969,8 @@ async def _provision(agent: Agent, soul: str) -> None:
 @app.get("/api/agents")
 async def list_agents(user: int = Depends(auth.current_user)):
     """Les agents de ce profil et ceux qui lui sont partagés, rien d'autre. Leur état ne compte que ses conversations."""
-    everyone = _agents()
-    rights = {a["id"]: access.right(user, a["id"]) for a in everyone}
-    agents = [a for a in everyone if rights[a["id"]]]
+    agents, rights, owners, convs, shared, names, own_models, reasonings = await asyncio.to_thread(_agents_listing, user)
     online = await asyncio.gather(*(_health(a) for a in agents))
-    with db.connect() as c:
-        convs = c.execute("SELECT id, agent_id, main FROM conversations WHERE user_id = ?", (user,)).fetchall()
-        shared = {r["agent_id"] for r in c.execute("SELECT DISTINCT agent_id FROM agent_shares")}
-        names = {r["id"]: r["username"] for r in c.execute("SELECT id, username FROM users")}
-        own_models = {r["key"][6:]: r["value"] for r in c.execute("SELECT key, value FROM settings WHERE key LIKE 'model\\_%' ESCAPE '\\'")}
     by_agent: dict[str, list[str]] = {}
     mains: dict[str, str] = {}
     for r in convs:
@@ -1999,13 +1992,38 @@ async def list_agents(user: int = Depends(auth.current_user)):
             "pinned": bool(a["pinned"]),
             "model": own_models.get(a["id"]),
             "mode": own_models.get(f"mode_{a['id']}"),
-            "raisonnement": modes.reasoning(a["id"]),
+            "raisonnement": reasonings.get(a["id"]) if reasonings.get(a["id"]) in modes.REASONING else None,
             "droit": rights[a["id"]],
             "partage": rights[a["id"]] != "proprietaire" or a["id"] in shared,
-            "partage_par": names.get(access.owner_of(a["id"])) if rights[a["id"]] != "proprietaire" else None,
+            "partage_par": names.get(owners[a["id"]]) if rights[a["id"]] != "proprietaire" else None,
         }
         for a, ok in zip(agents, online)
     ]
+
+
+def _agents_listing(user: int):
+    """Tout ce que la liste lit, en une connexion : elle est relue toutes les 4 s par chaque fenêtre ouverte.
+    Mêmes règles que access.right et access.owner_of, sans une connexion par agent."""
+    with db.connect() as c:
+        everyone = [dict(r) for r in c.execute(
+            "SELECT id, name, role, api_key, color, shape, detail, pinned, owner_id FROM agents ORDER BY pinned DESC, created_at")]
+        mine = {r["agent_id"]: r["droit"] for r in c.execute("SELECT agent_id, droit FROM agent_shares WHERE user_id = ?", (user,))}
+        # Sans owner_id (base ancienne) : le compte de sa conversation principale, la plus récente ; puis le propriétaire.
+        by_conv: dict[str, int] = {}
+        for r in c.execute("SELECT agent_id, user_id FROM conversations ORDER BY main DESC, updated_at DESC"):
+            by_conv.setdefault(r["agent_id"], r["user_id"])
+        first = c.execute("SELECT id FROM users ORDER BY role = 'owner' DESC, id LIMIT 1").fetchone()
+        convs = c.execute("SELECT id, agent_id, main FROM conversations WHERE user_id = ?", (user,)).fetchall()
+        shared = {r["agent_id"] for r in c.execute("SELECT DISTINCT agent_id FROM agent_shares")}
+        names = {r["id"]: r["username"] for r in c.execute("SELECT id, username FROM users")}
+        own_models = {r["key"][6:]: r["value"] for r in c.execute("SELECT key, value FROM settings WHERE key LIKE 'model\\_%' ESCAPE '\\'")}
+        reasonings = {r["key"][10:]: r["value"] for r in c.execute("SELECT key, value FROM settings WHERE key LIKE 'reasoning\\_%' ESCAPE '\\'")}
+    owners = {a["id"]: a["owner_id"] or by_conv.get(a["id"]) or (first["id"] if first else None) for a in everyone}
+    rights: dict[str, str | None] = {}
+    for a in everyone:
+        rights[a["id"]] = None if user in access.closing else "proprietaire" if owners[a["id"]] == user else mine.get(a["id"])
+    agents = [a for a in everyone if rights[a["id"]]]
+    return agents, rights, owners, convs, shared, names, own_models, reasonings
 
 
 # Santé des agents gardée quelques secondes : la liste est interrogée toutes les 4 s par chaque fenêtre ouverte,
