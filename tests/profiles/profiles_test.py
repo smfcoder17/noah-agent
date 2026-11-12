@@ -342,6 +342,12 @@ ROUTES = {
     ("POST", "/api/agents/{agent_id}/competences"): "admin",
     ("PUT", "/api/agents/{agent_id}/competences/{name}"): "admin",
     ("DELETE", "/api/agents/{agent_id}/competences/{name}"): "admin",
+    # 0.1.7 : skills visibles et aperçu texte des fichiers bureautiques (machine._check exige admin ; _usable exige usage).
+    ("GET", "/api/agents/{agent_id}/skills"): "admin",
+    ("GET", "/api/agents/{agent_id}/skills/{name:path}"): "admin",
+    ("PUT", "/api/agents/{agent_id}/skills/{name:path}"): "admin",
+    ("DELETE", "/api/agents/{agent_id}/skills/{name:path}"): "admin",
+    ("GET", "/api/agents/{agent_id}/fichier/texte/{path:path}"): "usage",
     ("GET", "/api/agents/{agent_id}/folders"): "admin",
     ("PUT", "/api/agents/{agent_id}/folders"): "proprietaire",  # et rôle owner : c'est son ordinateur (voir test_secrets)
     ("GET", "/api/agents/{agent_id}/google"): "admin",
@@ -367,7 +373,7 @@ ROUTES = {
     ("DELETE", "/api/agents/{agent_id}/shares/{user_id}"): "proprietaire",
 }
 FILL = {"agent_id": A, "conv_id": CA, "run_id": RUN, "routine_id": "routine-1", "name": "notion", "nom": "notion", "wid": WID, "audio_id": AUDIO,
-        "rid": RID, "user_id": str(ZED), "path:path": "index.html", "host": "example.org"}
+        "rid": RID, "user_id": str(ZED), "path:path": "index.html", "name:path": "notion", "host": "example.org"}
 BODIES = {
     "/api/conversations/{conv_id}/messages/{message_id}/reaction": lambda: {"emoji": "👍"},
     "/api/agents/{agent_id}/files/supprimer": lambda: {"chemins": ["uploads/a.txt"]},
@@ -399,6 +405,7 @@ BODIES = {
     "/api/agents/{agent_id}/connecteurs/{nom}": lambda: {"pour_tous": False},
     "/api/agents/{agent_id}/competences": lambda: {"titre": "t", "texte": "x"},
     "/api/agents/{agent_id}/competences/{name}": lambda: {"titre": "t", "texte": "x"},
+    "/api/agents/{agent_id}/skills/{name:path}": lambda: {"titre": "t", "texte": "x"},
     "/api/agents/{agent_id}/folders": lambda: {"dossiers": []},
     "/api/agents/{agent_id}/google/connect": lambda: {"permissions": [next(iter(__import__("noah.accounts").accounts.PERMS))]},
     "/api/agents/{agent_id}/google/ajouter": lambda: {"permissions": [next(iter(__import__("noah.accounts").accounts.PERMS))]},
