@@ -100,6 +100,29 @@ assert decide(send)["action"] == "block", "routine : personne pour confirmer"
 alone[0] = False
 print("écrire : « confirmer » demande, « agir » passe par le tableau, « lire » refuse, une routine ne reste pas bloquée : OK")
 
+# --- Mode Agir (0.1.9, lot A) : les trois cas réels passent sans carte, même juge en panne ------------------------------
+# Le juge lève ici une exception à chaque appel : c'est la panne du constat 12. Le mode Agir ne doit pas en faire une carte.
+create = G("calendar create --summary Dentiste --start 2026-11-10T10:00")
+routine = "python3 /opt/data/noah.py routine veille-credits 'every 1h' --fichier consigne.txt"
+
+
+def mode(autonomy, google="confirmer"):
+    json.dump({"@mode": autonomy, "@google": google}, open(RIGHTS, "w"))
+
+
+mode("agir")
+assert decide(create) is None, "Agir : ajouter à l'agenda avec Google en « confirmer » passe sans carte"
+assert decide(routine) is None, "Agir : créer une routine passe sans carte, juge en panne"
+assert garde.check_juge("skill_manage", {"action": "create", "name": "x", "content": "y"}, None, {"session_id": "s1"}) is None, \
+    "Agir : créer un skill passe sans carte, juge en panne"
+mode("agir", "lire")
+assert decide(create)["action"] == "block", "Agir ne passe jamais une connexion en lecture seule"
+mode("prudent")
+assert decide(create)["action"] == "approve", "Prudent : écrire dans l'agenda demande l'accord"
+mode("auto")
+assert decide(create)["action"] == "approve", "Auto : écrire dans l'agenda demande l'accord"
+print("mode Agir : agenda, routine et skill passent sans carte ; lecture seule refusée ; Auto et Prudent demandent : OK")
+
 # --- Un script réécrit après le démarrage n'est plus Google -----------------------------------------------------------
 open(SCRIPT, "a").write("import os  # réécrit\n")
 assert garde.google_call(G("calendar list")) is None
