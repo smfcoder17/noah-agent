@@ -244,6 +244,13 @@ assert r.status_code == 200, r.text
 assert ordre == ["arret", "creation", "retrait"], ordre
 assert ancien.stop.call_args.kwargs.get("timeout"), "arrêt propre, pas brutal"
 client.containers.create.side_effect = None
+ancien.reset_mock()
+client.containers.get.side_effect = None
+client.containers.get.return_value = MagicMock(name="reste")  # un « -ancien » d'une opération coupée
+r = web.put("/agents/essai/folders", json={"dossiers": []})
+assert r.status_code == 409, r.text
+assert not ancien.stop.called and not ancien.rename.called, "un reste -ancien : l'agent ne doit pas être arrêté"
+client.containers.get.side_effect = docker.errors.NotFound()
 print("11. dossiers partagés : arrêt propre, création, puis seulement retrait de l'ancien ; sinon il revient")
 
 # 12. Suppression : les restes « -ancien » d'une opération coupée partent aussi, sinon les volumes restent.

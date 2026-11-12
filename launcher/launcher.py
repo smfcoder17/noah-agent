@@ -608,8 +608,16 @@ def set_folders(agent_id: str, body: AgentFolders):
     # Recréer avant de retirer : un montage refusé (dossier disparu, chemin interdit) laissait la personne sans agent.
     was_running = c.status == "running"
     name = PREFIX + agent_id
+    if _exists_container(name + "-ancien"):  # vérifié avant l'arrêt : sinon le renommage échoue et l'agent reste arrêté
+        raise HTTPException(409, "Une opération précédente sur cet agent n'est pas terminée (conteneur « -ancien » encore "
+                                 "présent) : rien n'est modifié.")
     c.stop(timeout=10)  # arrêt propre : Hermes finit d'écrire, puis le volume est libre pour le nouveau
-    c.rename(name + "-ancien")
+    try:
+        c.rename(name + "-ancien")
+    except Exception:
+        if was_running:
+            c.start()
+        raise
     try:
         out = _run_agent(agent_id, key, folders)
     except Exception:
