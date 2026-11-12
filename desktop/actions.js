@@ -30,7 +30,31 @@ const approvalContext = new AsyncLocalStorage();
 const actionContext = new AsyncLocalStorage();
 // Les seuls appelants de configure sont le processus principal et les tests : aucun IPC de la page web.
 let getAutonomy = () => "prudent";
-const configure = ({ autonomy }) => { getAutonomy = autonomy; };
+// Résultat d'une action : renvoyé après une coupure, 1, 3 puis 9 s plus tard. Transferts : 2 minutes au plus,
+// sinon deux fichiers figés bloqueraient toute la file (MAX_FILES_RUNNING).
+let resultDelays = [1000, 3000, 9000];
+const RESULT_TIMEOUT = 10000;
+const TRANSFER_TIMEOUT = 120000;
+const MAX_FINISHED = 50; // résultats gardés pour ne jamais refaire une action que le serveur redonne
+const configure = ({ autonomy, resultDelays: delays }) => {
+  if (autonomy) getAutonomy = autonomy;
+  if (delays) resultDelays = delays;
+};
+
+/** Envoie le résultat jusqu'à ce que le serveur l'ait pris. Un refus net (4xx) n'est pas retenté : la demande n'existe plus. */
+async function sendResult(link, id, result) {
+  const body = JSON.stringify(result);
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      const r = await fetch(`${link.origin}/api/desktop/result/${id}`, {
+        method: "POST", headers: { ...link.headers, "Content-Type": "application/json" }, body, signal: AbortSignal.timeout(RESULT_TIMEOUT),
+      });
+      if (r.ok || (r.status >= 400 && r.status < 500 && r.status !== 408 && r.status !== 429)) return true;
+    } catch { /* réseau coupé : nouvel essai */ }
+    if (attempt >= resultDelays.length) return false;
+    await new Promise((res) => setTimeout(res, resultDelays[attempt]));
+  }
+}
 const grants = new Map(); // jetons conservés uniquement dans ce processus
 const fingerprint = (state, plan = state.plan) => createHash("sha256").update(JSON.stringify({ request: state.req, plan })).digest("hex");
 function approvalFailure(consume = false, plan) {
@@ -421,6 +445,7 @@ function listen(getOrigin, store) {
   };
   const running = new Set();
   const inFlight = new Set(); // une demande redonnée par le serveur n'ouvre pas une seconde fenêtre
+  const finished = new Map(); // demande → résultat déjà obtenu
   let filesRunning = 0;
   const slots = [];
   const fileSlot = async (work) => {
@@ -470,13 +495,16 @@ function listen(getOrigin, store) {
           method: "POST",
           headers: { ...link.headers, "Content-Type": "application/octet-stream" },
           body: data,
+          signal: AbortSignal.timeout(TRANSFER_TIMEOUT),
+        }).catch(() => {
+          throw Object.assign(new Error("Le réseau a coupé pendant l'envoi du fichier."), { plusTard: true });
         });
         if (!r.ok) throw Object.assign(new Error("Le serveur n'a pas pris ce fichier."), { plusTard: true });
       },
       download: async (id) => {
         let r;
         try {
-          r = await fetch(`${link.origin}/api/desktop/piece/${id}`, { headers: link.headers });
+          r = await fetch(`${link.origin}/api/desktop/piece/${id}`, { headers: link.headers, signal: AbortSignal.timeout(TRANSFER_TIMEOUT) });
           if (!r.ok) throw Object.assign(new Error("Le fichier n'est plus sur le serveur."), { plusTard: r.status >= 500 });
           return Buffer.from(await r.arrayBuffer());
         } catch (e) {
@@ -484,6 +512,9 @@ function listen(getOrigin, store) {
         }
       },
     };
+    // Demande redonnée après un résultat qui n'est jamais arrivé : on renvoie le même résultat, l'action n'est pas refaite.
+    const key = `${link.origin}|${link.token}|${req.id}`;
+    if (finished.has(key)) return void (await sendResult(link, req.id, finished.get(key)));
     let result;
     try {
       const heavy = req.action === "lire" || req.action === "ecrire";
@@ -491,7 +522,9 @@ function listen(getOrigin, store) {
     } catch (e) {
       result = { erreur: dossiers.explain(e).message };
     }
-    await fetch(`${link.origin}/api/desktop/result/${req.id}`, { method: "POST", headers: { ...link.headers, "Content-Type": "application/json" }, body: JSON.stringify(result) });
+    finished.set(key, result);
+    if (finished.size > MAX_FINISHED) finished.delete(finished.keys().next().value);
+    await sendResult(link, req.id, result);
   };
   let received = "";
   const loop = async () => {

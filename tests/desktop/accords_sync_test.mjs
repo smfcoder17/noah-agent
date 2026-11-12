@@ -226,6 +226,58 @@ try {
       Date.now = realNow; globalThis.setTimeout = realSetTimeout;
     }
   }
+
+  // 0.1.8 lot F : résultat perdu sur une coupure. Il est renvoyé (503, puis réseau coupé, puis reçu), avec un délai
+  // sur chaque envoi ; la même demande redonnée par le serveur renvoie le même résultat sans refaire l'action.
+  {
+    log = [];
+    response = 0;
+    actions.configure({ resultDelays: [5, 5, 5] });
+    let served = 0, posts = 0, finish;
+    const bodies = [];
+    const done = new Promise((resolve) => { finish = resolve; });
+    require("../../desktop/bandeau.js").create(electron.createWindow()); // le scénario « fenetre-fermee » a fermé la précédente
+    let firstDelivered;
+    const delivered = new Promise((resolve) => { firstDelivered = resolve; });
+    electron.onRequest = (shown) => queueMicrotask(() => electron.answer(shown.id, 0));
+    globalThis.fetch = async (url, options = {}) => {
+      if (url.endsWith("/battement")) return { ok: true, json: async () => ({ compte: "alice" }) };
+      if (url.includes("/next?")) {
+        // Deuxième remise seulement après un résultat reçu : le serveur, lui, ne l'a pas vu.
+        served += 1;
+        if (served === 2) await delivered;
+        else if (served > 2) return new Promise(() => {});
+        return { status: 200, json: async () => ({ id: "reessai", action: "presse_papiers", texte: "une seule fois" }) };
+      }
+      if (url.endsWith("/encore/reessai")) return { ok: true };
+      if (url.endsWith("/accords/reessai")) return { ok: true, json: async () => ({ id: "accord-reessai" }) };
+      if (url.endsWith("/accords/reessai/reponse")) return { ok: true };
+      if (url.endsWith("/result/reessai")) {
+        posts += 1;
+        assert.ok(options.signal instanceof AbortSignal, "chaque envoi du résultat a un délai");
+        if (posts === 1) return { ok: false, status: 503 };
+        if (posts === 2) throw new Error("Connexion coupée");
+        bodies.push(JSON.parse(options.body));
+        if (bodies.length === 1) realSetTimeout(firstDelivered, 0); // après la fin de l'action et la sortie de inFlight
+        if (bodies.length === 2) finish();
+        return { ok: true };
+      }
+      throw new Error(`Requête inattendue : ${url}`);
+    };
+    const listener = actions.listen(() => "https://noah.test");
+    let timeout;
+    try {
+      await Promise.race([done, new Promise((_, reject) => { timeout = realSetTimeout(() => reject(new Error("Résultat jamais renvoyé")), 3000); })]);
+      assert.equal(posts, 4); // 503, coupure, reçu, puis renvoi pour la demande redonnée
+      assert.deepEqual(bodies[0], bodies[1]);
+      assert.equal(bodies[0].ok, true, JSON.stringify(bodies[0]));
+      assert.deepEqual(log.filter((x) => x === "action"), ["action"]); // l'action n'a eu lieu qu'une fois
+      console.log("OK 0.1.8 F : résultat renvoyé après 503 et coupure, demande redonnée sans action refaite");
+    } finally {
+      clearTimeout(timeout); listener.stop();
+      actions.configure({ resultDelays: [1000, 3000, 9000] });
+    }
+  }
 } finally {
   globalThis.fetch = realFetch;
   globalThis.setInterval = realSetInterval;

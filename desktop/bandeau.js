@@ -87,7 +87,15 @@ function create(win, mainPage) {
   ipcMain.handle("noah:accord", (e, id, response) => trusted(e) && answer(id, response));
   ipcMain.handle("noah:bandeau-etat", (e) => trusted(e) ? state() : null);
   // Reçoit les frappes natives même si le focus est resté dans la page du serveur.
+  // Sous Windows, AltGr envoie Ctrl+Alt : sur un clavier AZERTY, AltGr+A tapé dans la page aurait autorisé l'action.
+  // Le raccourci ne vaut donc qu'avec la touche Alt de gauche : tant que celle de droite (AltGr) est tenue, rien ne passe.
+  let altGr = false;
+  const releaseAltGr = () => { altGr = false; };
+  win.on("blur", releaseAltGr); // relâchée hors de la fenêtre : la prochaine frappe la signale de nouveau
   const shortcut = (event, input) => {
+    if (input.code === "AltRight" || input.key === "AltGraph") altGr = input.type === "keyDown";
+    const modifiers = Array.isArray(input.modifiers) ? input.modifiers.map((m) => String(m).toLowerCase()) : [];
+    if (altGr || modifiers.includes("altgr") || modifiers.includes("altgraph")) return;
     if (!alive() || !pending || input.type !== "keyDown" || input.isAutoRepeat || !input.control || !input.alt) return;
     const key = input.key.toLowerCase();
     if (key !== "a" && key !== "r") return;
@@ -139,6 +147,7 @@ function create(win, mainPage) {
     win.removeListener("resize", layout);
     container.removeListener("bounds-changed", layout);
     win.removeListener("closed", dispose);
+    win.removeListener("blur", releaseAltGr);
     pageContents.removeListener("before-input-event", shortcut);
     if (!win.isDestroyed()) container.removeChildView(view);
     ipcMain.removeHandler("noah:accord");
