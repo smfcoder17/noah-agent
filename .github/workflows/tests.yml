@@ -175,7 +175,7 @@ jobs:
       - name: Profils et partage (isolation sur toutes les routes)
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \
-            "pip install -q -r /app/requirements.txt && python /tests/profiles/profiles_test.py"
+            "pip install -q -r /app/requirements.txt && python /tests/profiles/profiles_test.py && python /tests/agents/liste_agents_test.py"
       - name: Outils MCP au choix (adresses, jeton, droits, panne, accès)
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/launcher:/l" -v "$PWD/tests:/tests" \
@@ -255,11 +255,12 @@ jobs:
         run: node tests/pwa/urls_https_test.mjs
       - name: Sources de tout ce qui est distribué (suivies par git, sans dépôt privé)
         run: node tests/sources/sources_test.mjs --local
-      - name: Score par niveau de preuve et sensibilité des tests
+      # Les sabotages (près de 250 conteneurs) tournent à part : .github/workflows/sensibilite.yml.
+      - name: Score par niveau de preuve et option --depuis des sabotages
         run: |
           node tests/eval/score_test.mjs
           node tools/eval/score.mjs --check
-          node tools/eval/sabotage.mjs
+          node tests/eval/depuis_test.mjs
       - name: Transaction sur conteneurs
         if: ${{ !inputs.rapide }}
         run: sh tests/updates/docker_test.sh

@@ -1,6 +1,7 @@
 // Sensibilité des tests : on abîme le code exprès, un défaut à la fois, sur une copie. Un test qui reste vert ne protège rien.
-//     node tools/eval/sabotage.mjs
+//     node tools/eval/sabotage.mjs [--depuis <ref>] [--liste]
 import { spawnSync } from "node:child_process";
+import { fichiersChanges, filtrer, lireDepuis } from "./depuis.mjs";
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -353,7 +354,18 @@ function run(item) {
 }
 
 // Témoin : la même chaîne sans défaut doit rester verte, sinon un « vu » ne prouve rien.
-const CHOISIS = SABOTAGES.filter((s) => !process.env.NOAH_SABOTAGE || new RegExp(process.env.NOAH_SABOTAGE, "i").test(s[0]));
+// --depuis <ref> : seulement les sabotages dont le fichier cible a changé depuis <ref>. --liste : les nomme sans rien lancer.
+const DEPUIS = lireDepuis(process.argv.slice(2));
+const PAR_NOM = SABOTAGES.filter((s) => !process.env.NOAH_SABOTAGE || new RegExp(process.env.NOAH_SABOTAGE, "i").test(s[0]));
+const CHOISIS = DEPUIS ? filtrer(PAR_NOM, fichiersChanges(DEPUIS, ROOT)) : PAR_NOM;
+if (process.argv.includes("--liste")) {
+  console.log(JSON.stringify(CHOISIS.map((s) => s[0]), null, 1));
+  process.exit(0);
+}
+if (!CHOISIS.length) {
+  console.log(`Aucun fichier saboté n'a changé depuis ${DEPUIS} : rien à rejouer.`);
+  process.exit(0);
+}
 const TEMOINS = [...new Set(CHOISIS.map((s) => s[4]))].map((cmd) => run(["témoin", cmd === DOSSIERS ? "desktop/dossiers.js" : cmd === MEDIAS ? "frontend/src/lib/chatMedia.ts" : cmd === ENVOI || cmd === CONNEXION_PAGE ? PLUGIN : "noah/auth.py", "", "", cmd]));
 if (TEMOINS.some((t) => t.resultat !== "NON VU")) {
   console.error("Un témoin échoue sans sabotage : les résultats ne valent rien.", TEMOINS.filter((t) => t.resultat !== "NON VU"));
