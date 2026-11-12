@@ -417,7 +417,7 @@ TIDY = re.compile(r"(?:[ \t]*#[^\n]*\n)*[ \t]*(?:timeout[ \t]+\d+[ \t]+)?(?:/opt
                   r"/opt/data/noah\.py[ \t]+ordinateur[ \t]+(?P<ordre>lister|lire|ecrire|deplacer|creer-dossier|corbeille)[ \t][^;|&`$<>\n\r\\(){}]*")
 TIDY_READS = {"lister", "lire"}
 # Une commande opaque ne prouve pas qu'elle reste dans le dossier confié.
-LOCAL_TOOLS = {"todo", "todo_list", "memory", "image_generate", "video_generate", "text_to_speech"}
+LOCAL_TOOLS = {"todo_list", "memory", "image_generate", "video_generate", "text_to_speech"}
 LOCAL_PROGRAMS = {"mkdir", "touch", "cp", "mv", "ffmpeg", "unzip"}
 NOT_LOCAL_ARG = re.compile(r"://|^[a-z][\w+.-]{1,15}:|^-.*(?:exec|filter|script|command|checkpoint)", re.I)
 
@@ -488,8 +488,10 @@ def classify(tool: str, args: dict) -> tuple[int | None, str]:
         return (5 if target and in_workspace(target) else 6), "doute"
     if tool in ("write_file", "patch"):
         return 6, "doute"
-    if is_blind(tool, args):
-        return 6, "doute"  # le modèle ne voit pas la page et ne peut pas attester l'effet d'un clic
+    if is_blind(tool, args) or tool.startswith("browser_"):
+        # Le modèle ne voit pas la page et ne peut pas attester l'effet d'un clic, d'une saisie ou d'une touche. Liste fermée :
+        # ce qui passe sans accord est déjà sorti plus haut (lecture, défilement, adresse) ou dans le garde (lien de navigation).
+        return 6, "doute"
     if tool == "terminal":
         for words in command_segments(_command(tool, args)):
             words = strip_command_prefix(words)
