@@ -3186,6 +3186,12 @@ async def agent_files(agent_id: str, user: int = Depends(auth.current_user)):
 FILE_GONE = '<!doctype html><meta charset="utf-8"><body style="font:15px system-ui;color:#666;padding:1em">Fichier indisponible : il a peut-être été déplacé ou supprimé.'
 
 
+def _file_type(name: str) -> str:
+    """Le type d'un fichier servi. Certains textes n'ont pas de type mime déclaré partout : le navigateur
+    les téléchargerait sans les montrer. Un type inconnu reste un octet-stream (programmes, binaires)."""
+    return mimetypes.guess_type(name)[0] or ("text/plain" if re.search(r"\.(log|ya?ml|toml|ini)$", name, re.I) else "application/octet-stream")
+
+
 @app.get("/api/agents/{agent_id}/files/raw/{path:path}")
 async def agent_file(agent_id: str, path: str, request: Request, download: bool = False, user: int = Depends(auth.current_user)):
     """Sert un fichier de l'espace de travail. Les pages HTML (aperçu d'app) tournent dans un bac à sable :
@@ -3198,7 +3204,7 @@ async def agent_file(agent_id: str, path: str, request: Request, download: bool 
             return Response(FILE_GONE, r.status_code, media_type="text/html; charset=utf-8")
         raise HTTPException(r.status_code, "Fichier indisponible")
     name = path.rsplit("/", 1)[-1]
-    ctype = mimetypes.guess_type(name)[0] or "application/octet-stream"
+    ctype = _file_type(name)
     headers = {
         "Content-Security-Policy": "sandbox allow-scripts allow-forms allow-popups allow-modals",
         "X-Content-Type-Options": "nosniff",
@@ -3288,7 +3294,7 @@ async def preview_file(token: str, path: str, request: Request, download: bool =
         if request.headers.get("sec-fetch-dest") == "iframe":
             return Response(FILE_GONE, r.status_code, media_type="text/html; charset=utf-8")
         raise HTTPException(r.status_code, "Fichier indisponible")
-    return Response(r.content, media_type=mimetypes.guess_type(wanted)[0] or "application/octet-stream", headers={
+    return Response(r.content, media_type=_file_type(posixpath.basename(wanted)), headers={
         "Content-Security-Policy": "sandbox allow-scripts allow-forms allow-popups allow-modals",
         "X-Content-Type-Options": "nosniff",
         "Referrer-Policy": "no-referrer",  # le lien ne part pas vers les sites que la page appelle
