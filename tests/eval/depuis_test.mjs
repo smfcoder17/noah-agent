@@ -23,6 +23,11 @@ assert.deepEqual(filtrer(S, ["server/noah/juge.py", "README.md"]).map((s) => s[0
 assert.deepEqual(filtrer(S, ["desktop\\dossiers.js\r", ""]).map((s) => s[0]), ["b"], "chemins Windows et fins de ligne");
 assert.deepEqual(filtrer(S, ["noah/juge.py"]), [], "noah/juge.py hors de server/ n'est pas le fichier saboté");
 assert.deepEqual(filtrer(S, []), []);
+// Un test affaibli sans toucher au code : le sabotage qui le vise est rejoué, pas les autres.
+const T = [["d", "noah/juge.py", "", "", "pip install && python /tests/tools/juge_test.py"], ["e", "desktop/dossiers.js", "", "", "node /repo/tests/desktop/dossiers_test.mjs"]];
+assert.deepEqual(filtrer(T, ["tests/tools/juge_test.py"]).map((s) => s[0]), ["d"]);
+assert.deepEqual(filtrer(T, ["tests/desktop/dossiers_test.mjs"]).map((s) => s[0]), ["e"]);
+assert.deepEqual(filtrer(T, ["tests/tools/juge_test.p", "tools/juge_test.py"]), [], "ni préfixe ni chemin hors de tests/");
 
 assert.equal(lireDepuis([]), null);
 assert.equal(lireDepuis(["--depuis", "v0.1.8"]), "v0.1.8");

@@ -1,4 +1,5 @@
-// --depuis <ref> : seulement les sabotages dont le fichier cible a changé depuis cette référence (git diff --name-only).
+// --depuis <ref> : seulement les sabotages dont le fichier cible, ou le test qui doit le voir, a changé depuis cette
+// référence (git diff --name-only). Un test affaibli sans toucher au code doit être rejoué lui aussi.
 import { spawnSync } from "node:child_process";
 
 // Un sabotage nomme son fichier comme le voit sa copie : « noah/… » vit dans server/, le reste part de la racine.
@@ -8,7 +9,8 @@ export function cheminDepot(path) {
 
 export function filtrer(sabotages, changes) {
   const touches = new Set(changes.map((f) => f.trim().replaceAll("\\", "/")).filter(Boolean));
-  return sabotages.filter((s) => touches.has(cheminDepot(s[1])));
+  const tests = [...touches].filter((f) => f.startsWith("tests/"));
+  return sabotages.filter((s) => touches.has(cheminDepot(s[1])) || tests.some((f) => ` ${s[4]} `.includes(`/${f} `)));
 }
 
 // Fichiers changés entre la référence et l'arbre de travail. Une référence inconnue arrête tout : mieux vaut rien que faux.

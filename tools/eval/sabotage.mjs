@@ -354,7 +354,7 @@ function run(item) {
 }
 
 // Témoin : la même chaîne sans défaut doit rester verte, sinon un « vu » ne prouve rien.
-// --depuis <ref> : seulement les sabotages dont le fichier cible a changé depuis <ref>. --liste : les nomme sans rien lancer.
+// --depuis <ref> : seulement les sabotages dont le fichier cible ou le test a changé depuis <ref>. --liste : les nomme sans rien lancer.
 const DEPUIS = lireDepuis(process.argv.slice(2));
 const PAR_NOM = SABOTAGES.filter((s) => !process.env.NOAH_SABOTAGE || new RegExp(process.env.NOAH_SABOTAGE, "i").test(s[0]));
 const CHOISIS = DEPUIS ? filtrer(PAR_NOM, fichiersChanges(DEPUIS, ROOT)) : PAR_NOM;
@@ -363,7 +363,7 @@ if (process.argv.includes("--liste")) {
   process.exit(0);
 }
 if (!CHOISIS.length) {
-  console.log(`Aucun fichier saboté n'a changé depuis ${DEPUIS} : rien à rejouer.`);
+  console.log(DEPUIS ? `Ni fichier saboté ni test concerné n'a changé depuis ${DEPUIS} : rien à rejouer.` : "Aucun sabotage ne correspond à NOAH_SABOTAGE : rien à rejouer.");
   process.exit(0);
 }
 const TEMOINS = [...new Set(CHOISIS.map((s) => s[4]))].map((cmd) => run(["témoin", cmd === DOSSIERS ? "desktop/dossiers.js" : cmd === MEDIAS ? "frontend/src/lib/chatMedia.ts" : cmd === ENVOI || cmd === CONNEXION_PAGE ? PLUGIN : "noah/auth.py", "", "", cmd]));
