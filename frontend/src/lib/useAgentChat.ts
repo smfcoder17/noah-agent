@@ -202,6 +202,11 @@ function readMessages(url: string): Promise<StoredMessage[]> {
       if (reading.get(url) === asked) reading.delete(url);
     });
   reading.set(url, asked);
+  // Partagée seulement par les lectures parties dans le même élan : une lecture demandée plus tard (fin de tour, mise à jour
+  // reçue) veut l'état d'après, pas la réponse d'une requête partie avant l'événement.
+  setTimeout(() => {
+    if (reading.get(url) === asked) reading.delete(url);
+  }, 0);
   return asked;
 }
 
