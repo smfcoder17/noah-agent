@@ -74,6 +74,8 @@ plugin = written["plugins/noah-garde/__init__.py"]
 seconds = int(re.search(r"^HOOK_SECONDS = (\d+)", plugin, re.M).group(1))
 timeout = config()["plugins"]["hook_callback_timeout"]
 assert timeout == seconds <= 600, (timeout, seconds)
-assert "timeout=HOOK_SECONDS - 30)" in plugin, "le réveil doit finir avant qu'Hermes coupe le crochet"
+# 0.1.8 : le réveil a deux délais (premier réveil avec téléchargement, puis réveil court) ; les deux finissent avant le crochet.
+wake = int(re.search(r"^WAKE_SECONDS = (\d+)", plugin, re.M).group(1))
+assert "WAKE_SECONDS if _browser_ever_awake else HOOK_SECONDS - 30" in plugin and wake < seconds - 30, "le réveil doit finir avant qu'Hermes coupe le crochet"
 assert "noah-garde" in config()["plugins"]["enabled"]
 print(f"réveil du navigateur : Hermes laisse {timeout} s au crochet, et le crochet s'arrête avant")
