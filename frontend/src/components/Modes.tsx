@@ -47,20 +47,54 @@ export function ModelRow({ m, selected, onPick }: { m: Pick<Model, "id" | "name"
   );
 }
 
-/** Tout ce que les clés de la personne permettent à ce niveau : une recherche, une liste. */
+/** Un groupe = un fournisseur, dans l'ordre servi par /api/modes/…/modeles. Le libellé vient du serveur ; à défaut, il se devine. */
+function groupByBrand(models: ListedModel[], brands: { id: string; label: string }[]) {
+  const byBrand = new Map<string, ListedModel[]>();
+  for (const m of models) {
+    const got = byBrand.get(m.fournisseur) ?? [];
+    got.push(m);
+    byBrand.set(m.fournisseur, got);
+  }
+  return [...byBrand.entries()].map(([id, got]) => ({
+    key: id,
+    label: (brands.find((b) => b.id === id)?.label) || readableModel(id).replace(/^./, (c) => c.toUpperCase()),
+    models: got,
+  }));
+}
+
+/** Tout ce que les clés de la personne permettent à ce niveau : une recherche, un filtre par fournisseur, des groupes.
+ * Un même identifiant proposé par deux fournisseurs (Ollama et OpenRouter…) reste deux choix distincts. */
 export function ModelSearch({ level, selected, onPick }: { level: Level; selected?: string | null; onPick: (m: ListedModel) => void }) {
   const [models, setModels] = useState<ListedModel[] | null>(null);
+  const [brands, setBrands] = useState<{ id: string; label: string }[]>([]);
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
+  const [brand, setBrand] = useState<string | null>(null);
   useEffect(() => {
-    get<{ modeles: ListedModel[] }>(`/api/modes/${level}/modeles`).then((r) => setModels(r.modeles)).catch((e) => setError((e as Error).message));
+    get<{ modeles: ListedModel[]; fournisseurs?: { id: string; label: string }[] }>(`/api/modes/${level}/modeles`)
+      .then((r) => { setModels(r.modeles); setBrands(r.fournisseurs ?? []); })
+      .catch((e) => setError((e as Error).message));
   }, [level]);
-  const list = useMemo(() => {
+  const counts = useMemo(() => {
+    const got = new Map<string, string>();
+    for (const b of brands) got.set(b.id, b.label);
+    const rows = new Map<string, { label: string; n: number }>();
+    for (const m of models ?? []) {
+      const known = rows.get(m.fournisseur);
+      rows.set(m.fournisseur, { label: got.get(m.fournisseur) || known?.label || readableModel(m.fournisseur).replace(/^./, (c) => c.toUpperCase()),
+                               n: (known?.n ?? 0) + 1 });
+    }
+    for (const b of brands) if (!rows.has(b.id)) rows.set(b.id, { label: b.label, n: 0 });
+    return [...rows.entries()].map(([id, row]) => ({ id, ...row })).sort((a, b) => a.label.localeCompare(b.label, "fr") || a.id.localeCompare(b.id));
+  }, [models, brands]);
+  const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const all = models ?? [];
-    const found = q ? all.filter((m) => `${m.id} ${m.name}`.toLowerCase().includes(q)) : [...all].sort((a, b) => Number(b.id === selected) - Number(a.id === selected) || b.created - a.created);
-    return found.slice(0, 50);
-  }, [models, query, selected]);
+    let all = models ?? [];
+    if (brand) all = all.filter((m) => m.fournisseur === brand);
+    if (q) all = all.filter((m) => `${m.id} ${m.name}`.toLowerCase().includes(q));
+    const ranked = [...all].sort((a, b) => Number(b.id === selected) - Number(a.id === selected) || b.created - a.created);
+    return groupByBrand(ranked, brands);
+  }, [models, query, brand, selected, brands]);
   if (error) return <ErrorText>{error}</ErrorText>;
   if (!models) return <p className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" />Lecture des modèles…</p>;
   return (
@@ -69,10 +103,51 @@ export function ModelSearch({ level, selected, onPick }: { level: Level; selecte
         <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input type="search" className="h-9 pl-9" placeholder="Rechercher un modèle" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Rechercher un modèle" />
       </div>
+      {brands.length > 1 && (
+        <div className="flex flex-wrap gap-1" role="group" aria-label="Fournisseurs">
+          <button
+            type="button"
+            aria-pressed={!brand}
+            onClick={() => setBrand(null)}
+            className={cn(
+              "h-7 cursor-pointer rounded-full border px-2.5 text-xs font-medium",
+              !brand ? "border-accent bg-accent-soft text-accent" : "border-muted-foreground/50 text-muted-foreground",
+            )}
+          >
+            Tous<span className="ml-1 font-normal text-muted-foreground tabular-nums">{models.length}</span>
+          </button>
+          {counts.map((b) => (
+            <button
+              key={b.id}
+              type="button"
+              aria-pressed={brand === b.id}
+              onClick={() => { setBrand(brand === b.id ? null : b.id); setQuery(""); }}
+              className={cn(
+                "flex h-7 cursor-pointer items-center gap-1.5 rounded-full border py-0 pr-2.5 pl-1 text-xs font-medium",
+                brand === b.id ? "border-accent bg-accent-soft text-accent" : "border-muted-foreground/50 text-muted-foreground",
+              )}
+            >
+              <ProviderLogo lab={b.id} className="size-5 rounded-full" />
+              {b.label}
+              <span className="font-normal text-muted-foreground tabular-nums">{b.n}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <p className="flex justify-end px-2.5 text-[11px] text-muted-foreground">Prix d'une tâche type</p>
       <div role="radiogroup" aria-label="Modèles" className="flex max-h-64 flex-col overflow-y-auto max-md:max-h-[55dvh]">
-        {list.map((m) => <ModelRow key={`${m.fournisseur}:${m.id}`} m={m} selected={selected === m.id} onPick={() => onPick(m)} />)}
-        {!list.length && <p className="p-3 text-sm text-muted-foreground">Aucun modèle ne correspond.</p>}
+        {groups.map((g) => (
+          <section key={g.key} aria-label={g.label}>
+            {brands.length > 1 && (
+              <h4 className="flex items-center justify-between border-b border-border/60 px-2.5 py-1 text-[11px] tracking-wide text-muted-foreground uppercase">
+                <span className="min-w-0 flex-1 truncate font-semibold">{g.label}</span>
+                <span className="tabular-nums">{g.models.length}</span>
+              </h4>
+            )}
+            {g.models.map((m) => <ModelRow key={`${m.fournisseur}:${m.id}`} m={m} selected={selected === m.id} onPick={() => onPick(m)} />)}
+          </section>
+        ))}
+        {!groups.some((g) => g.models.length) && <p className="p-3 text-sm text-muted-foreground">Aucun modèle ne correspond.</p>}
       </div>
     </div>
   );

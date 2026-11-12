@@ -485,7 +485,16 @@ async def get_mode_models(level: str, user: int = Depends(auth.current_user)):
     _check_level(level)
     _owner_for_level(level, user)
     keep = ("id", "name", "lab", "created", "context", "price_in", "price_out", "vision", "free", "fournisseur", "prix")
-    return {"modeles": [{k: m.get(k) for k in keep} for m in await available(level)]}
+    models = await available(level)
+    # Rangée des fournisseurs réellement présents dans la liste : la recherche les groupe au lieu de les deviner.
+    if level != BRAIN:
+        brands: list[dict] = []  # voix et création ne servent qu'OpenRouter : un seul groupe, aucun filtre n'aide
+    else:
+        from . import hermes
+        labels = {p: v["label"] for p, v in hermes.PROVIDERS.items()}
+        brands = sorted(({"id": p, "label": labels.get(p, p)} for p in {m["fournisseur"] for m in models} if p),
+                        key=lambda b: b["label"].lower())
+    return {"modeles": [{k: m.get(k) for k in keep} for m in models], "fournisseurs": brands}
 
 
 class Link(BaseModel):

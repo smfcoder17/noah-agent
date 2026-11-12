@@ -1,13 +1,12 @@
 import { send } from "@/lib/api";
 import { appShell, elementAction } from "@/lib/platform";
 import { SensitiveContext, SensitiveText } from "../SensitiveText";
-import { useContext, useEffect, useState } from "react";
 import { sensitiveParts } from "@/lib/sensitive";
 import { Dialog, DialogContent } from "../ui";
 import { SENSITIVE_MARKDOWN } from "../SensitiveMarkdown";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-﻿import { useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { elementName, elementUrl, sourceName, type ElementSpec } from "@/lib/elements";
 import { askAgent } from "@/lib/askAgent";
 import { SandboxedFrame } from "./SandboxedFrame";

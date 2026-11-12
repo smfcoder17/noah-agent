@@ -638,4 +638,38 @@ assert got["methode"] == "generation" and got["modele"] and not [n for n in note
 assert routed[0]["reasoning"] == {"effort": "low", "exclude": True} and routed[0]["max_tokens"] == 600, routed[0]
 print("32. routeur de médias : un modèle à raisonnement réfléchit peu, et une réponse vide n'est plus une erreur")
 
+# --- La liste complète de la recherche : toutes les clés branchées, pas seulement le cerveau ----------------------------
+
+reset()
+real_usable, real_models_of = modes.usable_providers, modes._models_of
+async def two_keys():
+    return ["openrouter", "anthropic"]
+async def per_provider(provider):
+    if provider == "openrouter":
+        return [m("lab/cerveau", 3, 15), m("anthropic/claude-sonnet", 3, 15), m("lab/gratuit:free", 0, 0, True)]
+    return [m("claude-sonnet-4-5", 3, 15), m("claude-haiku-4", 0.1, 0.5), m("claude-sonnet-4-5")] if provider == "anthropic" else []
+modes.usable_providers = lambda: ["openrouter", "anthropic"]
+modes._models_of = per_provider
+shown = web.get("/api/modes/cerveau/modeles").json()
+assert [x["fournisseur"] for x in shown["modeles"]].count("openrouter") == 3, shown
+assert [x["fournisseur"] for x in shown["modeles"]].count("anthropic") == 3, shown
+assert len(shown["modeles"]) == 6, shown  # le même identifiant chez deux fournisseurs reste deux rangées
+assert shown["fournisseurs"] == [{"id": "anthropic", "label": "Anthropic (Claude)"}, {"id": "openrouter", "label": "OpenRouter"}], shown["fournisseurs"]
+modes.usable_providers = real_usable
+modes._models_of = real_models_of
+db.set_setting("provider_connected:custom", "1")  # branché mais injoignable ici : la liste de l'autre ne meurt pas pour lui
+modes._listed.clear()
+modes.usable_providers = lambda: ["openrouter", "anthropic", "custom"]
+async def broken(provider):
+    if provider == "custom":
+        raise RuntimeError("panne")
+    return await per_provider(provider)
+modes._models_of = broken
+shown = web.get("/api/modes/cerveau/modeles").json()
+assert [b["id"] for b in shown["fournisseurs"]] == ["anthropic", "openrouter"], shown["fournisseurs"]
+assert len(shown["modeles"]) == 6, "une clé en panne n'enlève pas les autres"
+modes.usable_providers, modes._models_of = real_usable, real_models_of
+modes._listed.clear()
+print("33. la recherche voit toutes les clés branchées, chaque fournisseur avec son nom ; une clé en panne cache ses modèles seuls")
+
 print("Tout est tenu.")
