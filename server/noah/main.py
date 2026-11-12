@@ -2553,6 +2553,7 @@ def _conversation_run(conv_id: str) -> str | None:
 
 
 STEER_OK, STEER_REFUSED, STEER_UNSURE = "ok", "refuse", "incertain"
+STEER_ACK = "Noté, je l'ajoute à ce que je fais."  # l'accusé immédiat : le travail continue, la consigne le rejoint
 UNSURE_STEER = "Je ne sais pas si l'agent a reçu ce message : la transmission a été coupée. Regarde sa réponse, et renvoie-le si besoin."
 
 
@@ -2621,7 +2622,7 @@ async def chat_while_busy(body: WhileBusy, user: int = Depends(auth.current_user
         else:
             _save_message(conv_id, "user", text)
             handoff.release_waiters(agent.id)  # transmise après l'outil en cours : pas après la réponse à un appel
-            reply = UNSURE_STEER if outcome == STEER_UNSURE else reply or "C'est transmis : il en tient compte après ce qu'il est en train de faire."
+            reply = UNSURE_STEER if outcome == STEER_UNSURE else reply or STEER_ACK
     else:
         kind, status = "tache", pendant.WAITING
     result = {"type": kind, "reponse": reply, "conversation_id": conv_id}
@@ -2874,6 +2875,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
         final: dict | None = None
         delegated: list[tuple[str, bool]] = []  # (fil, en arrière-plan) des délégations en cours, dans l'ordre
         ledger = recu.Ledger()  # ce que ses outils font : ce à quoi sa réponse sera comparée
+        plan = events.Plan()  # son plan (outil todo), s'il en tient un : la ligne de travail dit l'étape en cours
         try:
             async for kind, data in live_events():
                 if kind == "noah.relance":
@@ -2898,7 +2900,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
                     if said:
                         (kept if _SHOWS_SOMETHING.search(said) else steps).append(said)
                         yield _sse({"type": "etape"})
-                out = events.translate(kind, data, details)
+                out = events.translate(kind, data, details, plan)
                 if not out:
                     continue
                 if out["type"] == "done" and gave_up[0]:

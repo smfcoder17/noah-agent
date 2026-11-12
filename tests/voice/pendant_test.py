@@ -141,6 +141,13 @@ async def everything():
     assert rows()[-1] == ("user", "Plutôt en anglais") and not pending()
     print("3. précision : transmise au run en cours, sans l'interrompre")
 
+    # 3 bis. Sans phrase du tri, la personne reçoit tout de suite l'accusé : le travail continue, sa consigne le rejoint.
+    next_triage = {"type": "precision", "reponse": ""}
+    r = await say("Ajoute aussi les horaires")
+    assert r["type"] == "precision" and r["reponse"] == "Noté, je l'ajoute à ce que je fais.", r
+    assert steered[-1] == ("run-en-cours", "Ajoute aussi les horaires") and rows()[-1] == ("user", "Ajoute aussi les horaires")
+    print("3 bis. consigne en cours de route : accusé immédiat, sans arrêter le travail")
+
     # 4. La transmission échoue : rien n'est perdu.
     steer_fails[0] = True
     r = await say("Et ajoute un titre")
@@ -532,4 +539,27 @@ leak = events.translate("tool.started", {"tool": "outil_inconnu", "preview": "--
 assert "VerySecret" not in leak, leak
 assert "Travaille sur ta demande" not in {said(t) for t in ("web_search", "read_file", "terminal", "memory", "un_outil_inconnu")}
 print("15. activité : ce qu'il fait vraiment, jamais de secret")
+
+# 15 bis. Un plan tenu (outil todo) : la ligne dit l'étape en cours et sa place, même pendant les outils qui suivent.
+plan = events.Plan()
+step = lambda tool, data: events.translate("tool.started", {"tool": tool, **data}, False, plan)["label"]  # noqa: E731
+todos = [{"id": "1", "content": "Cherche les vols", "status": "completed"}, {"id": "2", "content": "Compare les prix", "status": "in_progress"},
+         {"id": "3", "content": "Note le moins cher", "status": "pending"}, {"id": "4", "content": "Abandonné", "status": "cancelled"},
+         {"id": "5", "content": "Écris le résumé", "status": "pending"}]
+assert step("todo", {"args": {"todos": todos}}) == "Étape 2 sur 4 : compare les prix"
+assert step("browser_navigate", {"args": {"url": "https://vols.example.com"}}) == "Étape 2 sur 4 : compare les prix"
+assert step("todo", {"args": {"todos": [{"id": "2", "status": "completed"}, {"id": "3", "status": "in_progress"}], "merge": True}}) == "Étape 3 sur 4 : note le moins cher"
+assert step("todo", {"args": {}}) == "Étape 3 sur 4 : note le moins cher", "une lecture du plan ne le change pas"
+assert step("todo", {"args": {"todos": [{"id": "x", "content": "Teste la clé sk-or-v1-abcdefghijklmnop", "status": "in_progress"}]}}).count("abcdefghijklmnop") == 0
+step("todo", {"args": {"todos": [{"id": "1", "content": "Fini", "status": "completed"}]}})
+assert step("terminal", {"args": {"command": "npm run build"}}) == "Lance : npm run build", "plan fini : l'étiquette de l'outil reprend"
+assert events.translate("tool.started", {"tool": "terminal", "args": {"command": "ls"}}, False)["label"] == "Regarde les fichiers", "sans plan : rien ne change"
+# Sans arguments, l'aperçu donne la partie sûre seulement : programme, site, nom de fichier.
+seen = lambda tool, preview: events.translate("hermes.tool.progress", {"tool_name": tool, "preview": preview}, False)["label"]  # noqa: E731
+assert seen("terminal", "pytest -k x --token=sk-or-v1-abcdefghijklmnop") == "Lance : pytest"
+assert seen("terminal", "deploy --password VerySecret123") == "Lance : deploy"
+assert seen("browser_navigate", "https://bob:pw@www.exemple.fr/x?jeton=abc") == "Ouvre exemple.fr"
+assert seen("read_file", "/opt/data/workspace/notes/rapport.pdf") == "Lit rapport.pdf"
+assert seen("browser_navigate", "vers la page des prix") == "Ouvre une page", "un aperçu qui n'est pas une adresse n'est pas cité"
+print("15 bis. étapes : « Étape 2 sur 4 : … » avec un plan ; sans plan, la partie sûre de l'aperçu")
 print("OK")
