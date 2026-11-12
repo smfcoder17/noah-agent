@@ -20,7 +20,8 @@ export const costLabel = (m: Priced) => {
   if (c == null) return "Prix inconnu";
   return c < 0.01 ? "moins d'1 centime par tâche" : `≈ ${money(c)} $ par tâche`;
 };
-export const shortName = (name: string) => readableModel(name.replace(/^[^:]+:\s*/, ""));
+// « Anthropic: Claude Sonnet » perd son labo ; « glm-5.3:cloud » (étiquette Ollama, sans espace) garde son nom.
+export const shortName = (name: string) => readableModel(name.replace(/^[^:]+:\s+/, ""));
 
 export function ModelRow({ m, selected, onPick }: { m: Pick<Model, "id" | "name" | "vision" | "context"> & Priced; selected: boolean; onPick: () => void }) {
   return (

@@ -17,7 +17,8 @@ export type MediaModel = {
   description?: string;
 };
 
-const shortName = (name: string) => name.replace(/^[^:]+:\s*/, "");
+// « Anthropic: Claude Sonnet » perd son labo ; « glm-5.3:cloud » (étiquette Ollama, sans espace) garde son nom.
+const shortName = (name: string) => name.replace(/^[^:]+:\s+/, "");
 
 function Dots({ value, icon: Icon, label }: { value?: number | null; icon: typeof Star; label: string }) {
   if (!value) return <span className="w-16 text-xs text-muted-foreground">—</span>;

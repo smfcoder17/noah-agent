@@ -94,3 +94,10 @@ it("une recherche ne touche que le texte, un clic choisit exactement le modèle 
   expect(chain).toHaveBeenCalledOnce();
   expect(chain.mock.calls[0][0].fournisseur).toBe("ollama");
 });
+
+it("une étiquette Ollama garde son nom : « glm-5.3:cloud » ne s'affiche pas « cloud »", async () => {
+  const { shortName } = await import("./Modes");
+  expect(shortName("glm-5.3:cloud")).not.toBe("cloud");
+  expect(shortName("glm-5.3:cloud").toLowerCase()).toContain("glm");
+  expect(shortName("Anthropic: Claude Sonnet 4.5")).toBe("Claude Sonnet 4.5");
+});
