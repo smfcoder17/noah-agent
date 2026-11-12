@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Mode sombre du téléphone : même fond sombre que l'écran de connexion, pas d'éclair blanc au lancement. -->
+    <color name="noah_fond">#1C1A18</color>
+</resources>

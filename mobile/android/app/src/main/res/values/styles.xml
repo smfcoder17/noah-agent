@@ -13,6 +13,8 @@
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        <!-- Fond clair ou sombre selon le téléphone (values-night) : la fenêtre ne flashe pas avant la page. -->
+        <item name="android:windowBackground">@color/noah_fond</item>
     </style>
 
 
