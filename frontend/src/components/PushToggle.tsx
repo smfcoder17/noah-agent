@@ -3,6 +3,7 @@
 import { Bell, BellOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import { del, get, send } from "@/lib/api";
+import { appShell } from "@/lib/platform";
 import { pushSupported as supported, reconcilePush } from "@/lib/push";
 import { Button, ErrorText } from "./ui";
 
@@ -74,7 +75,18 @@ function AndroidPushStatus() {
 
 export function PushToggle() {
   if (window.Capacitor?.Plugins?.NoahShell) return <AndroidPushStatus />;
+  // App de bureau : Web Push n'y aboutit pas ; l'app montre elle-même les notifications de Noah.
+  if (appShell()?.kind === "desktop") return <DesktopPushStatus />;
   return <WebPushToggle />;
+}
+
+export function DesktopPushStatus() {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <p className="text-xs font-semibold text-muted-foreground">Notifications sur cet ordinateur</p>
+      <p className="text-xs text-muted-foreground">Elles passent par l'app de bureau : rien à activer ici.</p>
+    </div>
+  );
 }
 
 function WebPushToggle() {
