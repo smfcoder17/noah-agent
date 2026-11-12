@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { get, send } from "@/lib/api";
 import { ErrorText } from "./ui";
 
-type Judge = { actif: boolean; modele: string; nom: string; cout_mois: number; appels: number; refus: number; accords: number; pannes: number; tris: number; signales: number; mode?: "auto" | "prudent"; seconds_avis?: number; autonomes?: number };
+type Judge = { actif: boolean; modele: string; nom: string; cout_mois: number; appels: number; refus: number; accords: number; pannes: number; tris: number; signales: number; mode?: "agir" | "auto" | "prudent"; seconds_avis?: number; autonomes?: number };
 
 export function JudgeSetting() {
   const [judge, setJudge] = useState<Judge | null>(null);
@@ -12,7 +12,7 @@ export function JudgeSetting() {
     get<Judge>("/api/juge").then(setJudge).catch(() => {}); // réservé au propriétaire : sinon, rien à montrer ici
   }, []);
   if (!judge) return null;
-  const change = async (choice: { actif?: boolean; mode?: "auto" | "prudent" }) => {
+  const change = async (choice: { actif?: boolean; mode?: "agir" | "auto" | "prudent" }) => {
     setError("");
     try {
       setJudge(await send<Judge>("/api/juge", choice));
@@ -34,8 +34,12 @@ export function JudgeSetting() {
         <fieldset className="flex flex-col gap-1">
           <legend className="font-medium">Autonomie</legend>
           <label className="flex cursor-pointer items-start gap-2">
+            <input type="radio" name="juge-mode" className="mt-1" checked={(judge.mode ?? "auto") === "agir"} onChange={() => change({ mode: "agir" })} />
+            <span><b>Agir</b> : l'agent fait tout ce que le dossier confié permet et il clique dans les pages, sans te déranger. Un envoi dehors, un paiement ou un effacement définitif te sont toujours montrés.</span>
+          </label>
+          <label className="flex cursor-pointer items-start gap-2">
             <input type="radio" name="juge-mode" className="mt-1" checked={(judge.mode ?? "auto") === "auto"} onChange={() => change({ mode: "auto" })} />
-            <span><b>Auto</b> : l'agent avance seul, routines comprises. Il ne te demande que ce qui envoie, publie, paie ou ne se défait pas.</span>
+            <span><b>Auto</b> : l'agent avance seul, routines comprises. Il ne te demande que ce qui envoie, publie, paie, clique sans accord visible ou ne se défait pas.</span>
           </label>
           <label className="flex cursor-pointer items-start gap-2">
             <input type="radio" name="juge-mode" className="mt-1" checked={judge.mode === "prudent"} onChange={() => change({ mode: "prudent" })} />

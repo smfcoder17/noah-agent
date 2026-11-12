@@ -44,7 +44,7 @@ REFUSALS_IN_A_ROW = 3  # une action refusée trois fois de suite : l'agent cherc
 SORTS_PER_HOUR = 30  # par agent : au-delà, seuls les motifs gratuits
 SECOND_SECONDS = 12.0  # le second avis vient d'un modèle plus grand : plus lent, mais il évite de déranger la personne
 SURE_ENOUGH = 70  # sous cette certitude, le petit modèle ne tranche pas seul
-MODE_KEY = "juge_mode"  # « auto » (par défaut) ou « prudent »
+MODE_KEY = "juge_mode"  # « agir » (tout passe sauf les risques reconnus), « auto » (par défaut) ou « prudent »
 # Les six lignes du PBI. « signaler » est le mode du tour, pas l'autonomie de l'agent.
 AUTONOMY = {
     1: {"auto": "passe", "prudent": "passe", "signaler": "passe"},
@@ -124,11 +124,11 @@ class ToSort(BaseModel):
 
 class Setting(BaseModel):
     actif: bool | None = None
-    mode: str | None = Field(default=None, pattern="^(auto|prudent)$")
+    mode: str | None = Field(default=None, pattern="^(agir|auto|prudent)$")
 
 
 class AgentSetting(BaseModel):
-    mode: str = Field(pattern="^(auto|prudent)$")
+    mode: str = Field(pattern="^(agir|auto|prudent)$")
 
 
 @dataclass
@@ -405,9 +405,9 @@ async def _ask_model(agent_id: str, body: Call, turn: Turn, *, fallback_row: int
 def mode(agent_id: str | None = None) -> str:
     """Le choix de cet agent ; sans choix propre, le réglage global existant."""
     chosen = db.get_setting(f"{MODE_KEY}_{agent_id}") if agent_id else None
-    if chosen not in ("auto", "prudent"):
+    if chosen not in ("agir", "auto", "prudent"):
         chosen = db.get_setting(MODE_KEY)
-    return "prudent" if chosen == "prudent" else "auto"
+    return chosen if chosen in ("agir", "prudent") else "auto"
 
 
 # Ranger un dossier confié : l'application de bureau tient le droit d'écriture, n'écrase rien et met à la corbeille. Une seule commande, sans enchaînement.
@@ -684,11 +684,16 @@ async def judge(agent_id: str, body: Call) -> dict:
         if exact:
             row = 3
     column = "signaler" if turn.mode == "signaler" else mode(agent_id)
-    verdict = AUTONOMY[row][column]
-    if body.droit == "confirmer" and not connection_read:
+    if column == "agir":
+        # Agir : l'irréversible, le masqué, l'effacement de masse (must_ask) et l'effacement définitif (rm, ligne 6)
+        # demandent toujours, durci compris. Un envoi attendra le C2 du serveur et le droit réel du connecteur.
+        # Un clic dans une page passe, même durci : c'est lui qui visait.
+        verdict, reason = ("passe", "") if row in (1, 2, 3, 4, 5) else ("accord", REASONS[motif])
+    else:
+        verdict, reason = AUTONOMY[row][column], REASONS[motif]
+    if body.droit == "confirmer" and not connection_read and verdict != "accord":
         verdict = "accord"
-    reason = REASONS[motif]
-    if _is_hardened(agent_id, turn) and row in (3, 4, 6):
+    if column != "agir" and _is_hardened(agent_id, turn) and row in (3, 4, 6):
         verdict, reason = "accord", REASONS["durci"]
     if row == 3 and verdict == "passe" and body.outil.startswith("mcp__"):
         from . import mcp
