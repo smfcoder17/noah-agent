@@ -1,7 +1,7 @@
 // Lot E (0.1.8) : le fil reste fluide pendant qu'une réponse s'écrit, une relecture ne l'efface pas, et rien ne passe d'un compte à l'autre.
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { beforeEach, expect, it, vi } from "vitest";
+import { beforeEach, expect, it, type Mock, vi } from "vitest";
 
 const api = vi.hoisted(() => ({ get: vi.fn(), send: vi.fn(async () => ({})), request: vi.fn(async () => ({ json: async () => [] })), streamChat: vi.fn(), uploadFile: vi.fn() }));
 vi.mock("./api", () => {
@@ -129,4 +129,30 @@ it("une lecture lancée pour le compte d'avant ne remplit pas l'écran du suivan
   const next = await open("c14");
   expect(textOf(next.chat())).toEqual([]);
   await next.close();
+});
+
+it("pendant le travail, un message entre dans le fil tout de suite et reçoit l'accusé sans arrêter le travail", async () => {
+  // Le travail tourne sur le serveur ; la page de messages reste en route (une relecture par-dessus est l'affaire d'autres tests).
+  let opened = false;
+  api.get.mockImplementation(async (path: string) => {
+    if (path.endsWith("/en-cours")) return { occupe: true, activite: "Étape 2 sur 5 : compare les prix", run_id: "r1", file: [], accord: null };
+    if (opened) return new Promise(() => {});
+    opened = true;
+    return [];
+  });
+  let answer!: (r: { type: string; reponse: string }) => void;
+  const send = api.send as unknown as Mock<(path: string) => Promise<unknown>>;
+  send.mockImplementation(async (path: string) => (path === "/api/chat/pendant" ? new Promise((resolve) => { answer = resolve; }) : {}));
+  const screen = await open("c9");
+  const said = () => textOf(screen.chat()).filter(Boolean); // la bulle vide est la ligne de travail de l'agent
+  await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+  expect(screen.chat().whileBusy.active).toBe(true);
+  await act(async () => { screen.chat().whileBusy.send("Ajoute aussi les horaires"); await new Promise((r) => setTimeout(r, 20)); });
+  // Le tri n'a pas encore répondu : le message est déjà dans le fil, et rien n'a demandé l'arrêt du travail.
+  expect(said()).toEqual(["Ajoute aussi les horaires"]);
+  expect(send.mock.calls.map(([path]) => path)).toEqual(["/api/chat/pendant"]);
+  await act(async () => { answer({ type: "precision", reponse: "Noté, je l'ajoute à ce que je fais." }); await new Promise((r) => setTimeout(r, 20)); });
+  expect(said()).toEqual(["Ajoute aussi les horaires", "Noté, je l'ajoute à ce que je fais."]);
+  expect(screen.chat().whileBusy.active).toBe(true);
+  await screen.close();
 });

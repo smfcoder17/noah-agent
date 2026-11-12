@@ -107,6 +107,12 @@ const stepsOf = (parts: Part[]): string[] => {
 const withoutSteps = (parts: Part[]) => parts.filter((p) => !(p.type === "tool-call" && p.toolName === "steps"));
 const SHOWS_SOMETHING = /```noah|^MEDIA:|\/opt\/data\/workspace\/(?:outputs|apps|captures)\/\S+\.\w/m;
 
+/** Insère avant la réponse en cours d'écriture : ce qui se dit pendant le travail se lit au-dessus de ce qu'il écrit. */
+const insertBeforeRunning = (all: ChatMessage[], news: ChatMessage[]): ChatMessage[] => {
+  const i = all.findIndex((m) => m.running);
+  return i < 0 ? [...all, ...news] : [...all.slice(0, i), ...news, ...all.slice(i)];
+};
+
 /** Retire la ligne de travail : elle ne sert que pendant que l'agent agit. */
 const settle = (parts: Part[]): Part[] => parts.filter((p) => !(p.type === "tool-call" && p.toolName === "activity"));
 
@@ -453,18 +459,17 @@ export function useAgentChat(opts: {
     return subscribeUpdates(() => { if (!document.hidden) return refreshNow(); });
   }, [watching, refreshNow]);
 
-  const addBeforeRunning = useCallback((news: ChatMessage[]) => {
-    setMessages((all) => {
-      const i = all.findIndex((m) => m.running);
-      return i < 0 ? [...all, ...news] : [...all.slice(0, i), ...news, ...all.slice(i)];
-    });
-  }, []);
+  const addBeforeRunning = useCallback((news: ChatMessage[]) => setMessages((all) => insertBeforeRunning(all, news)), []);
 
   const deliver = useCallback(
     async (item: Outgoing) => {
       if (delivering.has(item.id)) return;
       delivering.add(item.id);
       setSending((s) => (s.some((x) => x.id === item.id) ? s : [...s, { id: item.id, text: item.text, late: false }]));
+      // Le message entre dans le fil tout de suite, sans attendre le tri : la personne voit qu'il est parti, le travail continue.
+      const shownId = `u-${item.id}`;
+      const user: ChatMessage = { id: shownId, role: "user", content: [{ type: "text", text: item.text }] };
+      if (ownConversation.current === item.conv) setMessages((all) => (all.some((m) => m.id === shownId) ? all : insertBeforeRunning(all, [user])));
       let result: { type: string; reponse?: string } | null = null;
       let refused = "";
       for (let attempt = 0; !result && !refused && !givenUp.current.has(item.id); attempt++) {
@@ -486,16 +491,17 @@ export function useAgentChat(opts: {
       writeOutbox(readOutbox().filter((x) => x.id !== item.id));
       setSending((s) => s.filter((x) => x.id !== item.id));
       if (ownConversation.current === item.conv) {
-        const user: ChatMessage = { id: uid("u"), role: "user", content: [{ type: "text", text: item.text }] };
         if (refused) {
           addBeforeRunning([
-            user,
             { id: uid("r"), role: "assistant", content: [{ type: "tool-call", toolCallId: uid("e"), toolName: "error", args: { message: refused, detail: "" }, result: true }] },
           ]);
         } else if (result && result.type !== "tache") {
           const parts: Part[] = result.reponse ? [{ type: "text", text: result.reponse }] : [];
           if (result.type === "question") parts.push({ type: "tool-call", toolCallId: uid("s"), toolName: "send_aside", args: { id: item.id } });
-          addBeforeRunning(parts.length ? [user, { id: uid("r"), role: "assistant", content: parts }] : [user]);
+          if (parts.length) addBeforeRunning([{ id: uid("r"), role: "assistant", content: parts }]);
+        } else {
+          // À la suite : elle vit dans la file au-dessus de la saisie (maintenant, retirer), pas deux fois à l'écran.
+          setMessages((all) => all.filter((m) => m.id !== shownId));
         }
       }
       void refreshNow();
@@ -547,6 +553,7 @@ export function useAgentChat(opts: {
         givenUp.current.add(id);
         writeOutbox(readOutbox().filter((x) => x.id !== id));
         setSending((s) => s.filter((x) => x.id !== id));
+        setMessages((all) => all.filter((m) => m.id !== `u-${id}`)); // abandonné : il n'est pas parti, il ne reste pas dans le fil
       },
     }),
     [agentId, isRunning, serverNow, sending, sendWhileBusy, refreshNow, addBeforeRunning],

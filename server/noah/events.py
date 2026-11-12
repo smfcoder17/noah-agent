@@ -95,7 +95,17 @@ def _command_label(command: str) -> str:
 
 def tool_label(name: str, args: dict | None = None, preview: str | None = None) -> str | None:
     """La ligne de travail : ce que fait cet appel-ci, pas le nom de l'outil. Déterministe, donc immédiate et gratuite."""
-    args = args if isinstance(args, dict) else {}
+    args = dict(args) if isinstance(args, dict) else {}
+    # Sans arguments (un simple suivi d'avancement), l'aperçu porte la commande, l'adresse ou le chemin : on n'en garde que la
+    # partie sûre, par les mêmes fonctions (programme, nom d'hôte, nom de fichier), jamais l'aperçu brut.
+    seen = " ".join(str(preview or "").split())
+    if seen:
+        if name == "terminal" and not args.get("command"):
+            args["command"] = seen
+        elif name == "browser_navigate" and not args.get("url") and " " not in seen and "." in seen:
+            args["url"] = seen
+        elif name in ("read_file", "write_file", "patch") and not args.get("path") and " " not in seen and "/" in seen:
+            args["path"] = seen
     named = {
         "web_search": lambda: f"Cherche « {_quoted(args.get('query'))} »" if args.get("query") else "Cherche sur le web",
         "web_extract": lambda: f"Lit {_site((args.get('urls') or [''])[0] if isinstance(args.get('urls'), list) else args.get('url'))}" if (args.get("urls") or args.get("url")) else "Lit une page web",
@@ -176,6 +186,41 @@ _KNOWN = (
 )
 
 
+class Plan:
+    """Le plan que l'agent tient avec l'outil todo, le temps d'un run : la ligne de travail dit l'étape en cours et sa place."""
+
+    def __init__(self) -> None:
+        self.items: list[dict] = []
+
+    def feed(self, args: object) -> None:
+        todos = args.get("todos") if isinstance(args, dict) else None
+        if not isinstance(todos, list):
+            return  # une simple lecture du plan : rien ne change
+        given = [t for t in todos if isinstance(t, dict)]
+        if not args.get("merge"):
+            self.items = [dict(t) for t in given]
+            return
+        known = {str(t.get("id")): t for t in self.items if t.get("id") is not None}
+        for t in given:
+            if t.get("id") is not None and str(t.get("id")) in known:
+                known[str(t["id"])].update({k: v for k, v in t.items() if v is not None})
+            else:
+                self.items.append(dict(t))
+
+    def label(self) -> str | None:
+        steps = [t for t in self.items if t.get("status") != "cancelled"]
+        current = next((t for t in steps if t.get("status") == "in_progress"), None) \
+            or next((t for t in steps if t.get("status") in (None, "pending")), None)
+        text = " ".join(str((current or {}).get("content") or "").split())
+        if not text:
+            return None  # plan fini ou vide : les étiquettes de chaque outil reprennent
+        if len(text) > 1 and not text[:2].isupper():
+            text = text[0].lower() + text[1:]
+        line = f"Étape {steps.index(current) + 1} sur {len(steps)} : {text}"
+        line = mask(line)  # écrit par le modèle : il peut recopier une clé
+        return line if len(line) <= LABEL_MAX else line[:LABEL_MAX - 1] + "…"
+
+
 def friendly_error(raw: str) -> str:
     if not raw:
         return "Le travail s'est arrêté avant la fin."
@@ -187,7 +232,7 @@ def friendly_error(raw: str) -> str:
     return "Le travail s'est arrêté sur une erreur que je ne sais pas expliquer. Clique sur « Voir les détails » : tu peux les donner à un agent pour la diagnostiquer."
 
 
-def translate(kind: str, data: dict, details: bool) -> dict | None:
+def translate(kind: str, data: dict, details: bool, plan: Plan | None = None) -> dict | None:
     if kind in ("message.delta", "assistant.delta", "response.output_text.delta"):
         text = data.get("delta") or data.get("text") or data.get("content") or ""
         return {"type": "message", "text": text} if text else None
@@ -197,8 +242,11 @@ def translate(kind: str, data: dict, details: bool) -> dict | None:
         if tool.startswith("_"):  # réflexion interne
             return None
         args = data.get("args") or data.get("arguments")
+        if plan is not None and tool == "todo":
+            plan.feed(args)
         label = tool_label(tool, args, data.get("preview"))
         label = mask(label)[:LABEL_MAX] if label else label  # une commande peut contenir une clé
+        label = (plan.label() if plan is not None else None) or label  # un plan tenu : l'étape dit mieux où il en est
         if details:
             return {"type": "activity", "label": label or tool, "detail": {"tool": tool, "preview": data.get("preview")}}
         return {"type": "activity", "label": label} if label else None
