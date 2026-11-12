@@ -35,7 +35,11 @@ export type ModesState = {
   modes: { id: TierId; personnalise: boolean; modele: ModeLink | null }[];
   gratuit: ModeLink[];
   custom: ModeLink[];
+  /** Cerveau seulement : les agents qui gardent leur propre modèle ou mode, que le cerveau de tous ne touche pas. */
+  agents_propres?: OwnBrain[];
 };
+
+export type OwnBrain = { id: string; nom: string; modele: string | null; mode: string | null; fournisseur: string | null; fournisseur_nom: string | null };
 
 export type ListedModel = {
   id: string;

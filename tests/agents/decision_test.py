@@ -651,6 +651,51 @@ assert line["vers"] == "api.anthropic.com" and line["detail"] == small and KEY n
 assert any("relevé" in f["quand"] for f in flows)
 print("22. /api/flux déclare le modèle de décision et les relevés")
 
+# --- 7. Clé globale plafonnée, cerveau en Auto chez un autre fournisseur : les petits travaux suivent le cerveau en service ---------
+from noah import modes  # noqa: E402
+
+OLLAMA_KEY = "CLE-OLLAMA-XYZ"
+configure("openrouter", "openai/gpt-6.1-terra")
+db.set_setting("provider_key:ollama-cloud", OLLAMA_KEY, secret=True)
+db.set_setting("provider_connected:ollama-cloud", "1")
+behavior["openai/gpt-6.1-terra"] = 402  # la clé OpenRouter a atteint son plafond
+behavior["kimi-k3:cloud"] = json.dumps({"ok": True})
+real_active, real_links = modes.active, modes.links_of
+asked_links: list[str] = []
+
+
+async def auto_links(level, mode, rotate=True):
+    asked_links.append(mode)
+    return [{"modele": "kimi-k3:cloud", "fournisseur": "ollama-cloud"}] if mode == "fast" else [{"modele": "mammouth-x", "fournisseur": "mammouth"}]
+
+modes.active = lambda level: "auto" if level == modes.BRAIN else None
+modes.links_of = auto_links
+try:
+    answer = asyncio.run(decision.ask("a1", "Réponds en JSON.", "test"))
+    assert answer.model == "kimi-k3:cloud" and answer.data == {"ok": True}, answer
+    assert [c["model"] for c in calls] == ["openai/gpt-6.1-terra", "kimi-k3:cloud"], [c["model"] for c in calls]
+    assert calls[0]["url"].startswith("https://openrouter.ai") and calls[0]["auth"] == f"Bearer {KEY}"
+    assert calls[1]["url"] == "https://ollama.com/v1/chat/completions" and calls[1]["auth"] == f"Bearer {OLLAMA_KEY}", calls[1]
+    assert "provider" not in calls[1]["body"] and "usage" not in calls[1]["body"], "les réglages d'OpenRouter ne partent pas chez Ollama"
+    # Le fournisseur global répond : le secours n'est même pas lu.
+    calls.clear()
+    asked_links.clear()
+    behavior["openai/gpt-6.1-terra"] = json.dumps({"ok": 1})
+    assert asyncio.run(decision.ask("a1", "s", "u")).model == "openai/gpt-6.1-terra" and not asked_links and len(calls) == 1
+    # Sans cerveau ailleurs (modèle précis chez le même fournisseur) : l'erreur reste, rien n'est inventé.
+    behavior["openai/gpt-6.1-terra"] = 402
+    modes.active = lambda level: None
+    calls.clear()
+    try:
+        asyncio.run(decision.ask("a1", "s", "u"))
+        raise AssertionError("aucun secours ne devait répondre")
+    except decision.DecisionError:
+        pass
+    assert [c["model"] for c in calls] == ["openai/gpt-6.1-terra"], calls
+finally:
+    modes.active, modes.links_of = real_active, real_links
+print("22b. Clé globale plafonnée, cerveau Auto chez Ollama Cloud : le modèle de décision et le juge retombent sur le cerveau en service, avec sa clé")
+
 sys.stdout = real_stdout
 leaked = captured.getvalue()
 assert KEY not in leaked, "une clé dans les journaux"

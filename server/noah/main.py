@@ -1674,7 +1674,7 @@ async def set_model(body: ModelChoice, tasks: BackgroundTasks, user: int = Depen
         tasks.add_task(_write_configs, [a["id"] for a in agents])
     decision.schedule_refresh()  # ce que cette clé offre, ses prix, sa vitesse : l'écran ne l'attend pas
     rapide.schedule()  # le modèle rapide de cette clé : mesuré en tâche de fond
-    return {"ok": True}
+    return {"ok": True, "agents_propres": modes.own_brains(user)}  # ceux que ce choix ne touche pas : leur choix prime
 
 
 # --- Agents ------------------------------------------------------------------------------

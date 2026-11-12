@@ -111,8 +111,28 @@ def _parse(text: str) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
-async def _complete(agent_id: str, name: str, system: str, user: str, max_tokens: int, timeout: float, as_json: bool) -> Answer:
-    provider, key, base_url = _credentials()
+async def _brain_elsewhere() -> list[dict]:
+    """Le cerveau en service chez un autre fournisseur que le réglage global (Auto ou un mode) : chaque maillon avec sa propre clé."""
+    from . import modes
+    provider = db.get_setting("provider") or ""
+    mode = modes.active(modes.BRAIN)
+    wanted = modes.TIERS if mode == modes.AUTO else (mode,) if mode in modes.MODES else ()
+    links: list[dict] = []
+    for tier in wanted:
+        for link in await modes.links_of(modes.BRAIN, tier, rotate=False):
+            if link.get("fournisseur") and link["fournisseur"] != provider and link not in links:
+                links.append(link)
+    return modes._keep_usable(links)
+
+
+async def _complete(agent_id: str, name: str, system: str, user: str, max_tokens: int, timeout: float, as_json: bool,
+                    via: str | None = None) -> Answer:
+    """via : un autre fournisseur que le global, avec sa clé et son adresse ; chaque clé ne part que vers son fournisseur."""
+    if via:
+        from . import modes, providers
+        provider, key, base_url = via, modes.key_of(via), providers.base_of(via)
+    else:
+        provider, key, base_url = _credentials()
     base = relay.upstream_base(provider or "", base_url)
     if not base:
         raise DecisionError("Aucun fournisseur n'est configuré.")
@@ -146,21 +166,36 @@ async def _complete(agent_id: str, name: str, system: str, user: str, max_tokens
 
 async def ask(agent_id: str, system: str, user: str, *, max_tokens: int = 400, timeout: float = 30, as_json: bool = True) -> Answer:
     """Un appel au modèle de décision, compté dans le suivi et soumis aux plafonds comme tout ce qui dépense. S'il échoue ou
-    rend un JSON illisible, le cerveau prend le relais. DecisionError si les deux échouent ou si un plafond est atteint."""
+    rend un JSON illisible, le cerveau prend le relais. Si le cerveau en service est chez un autre fournisseur (Auto ou un mode),
+    son premier modèle est le dernier essai : une clé globale refusée ou plafonnée n'arrête pas les petits travaux.
+    DecisionError si tout échoue ou si un plafond est atteint."""
     refused = relay.spending_refusal(agent_id)
     if refused:
         raise DecisionError(refused)
     last: Exception | None = None
-    for name in dict.fromkeys(m for m in (model(), _brain()) if m):
+
+    async def attempt(name: str, via: str | None) -> Answer | None:
+        nonlocal last
         try:
-            answer = await _complete(agent_id, name, system, user, max_tokens, timeout, as_json)
+            answer = await _complete(agent_id, name, system, user, max_tokens, timeout, as_json, via)
         except (httpx.HTTPError, DecisionError) as e:
             last = e
-            continue
+            return None
         if as_json and answer.data is None:
             last = DecisionError("Réponse illisible.")
-            continue
+            return None
         return answer
+
+    for name in dict.fromkeys(m for m in (model(), _brain()) if m):
+        if answer := await attempt(name, None):
+            return answer
+    try:  # lu seulement après l'échec du fournisseur global : un appel qui réussit n'attend rien de plus
+        rescue = (await _brain_elsewhere())[:1]
+    except Exception:  # noqa: BLE001 - un secours illisible ne masque pas l'erreur d'origine
+        rescue = []
+    for link in rescue:
+        if answer := await attempt(link["modele"], link["fournisseur"]):
+            return answer
     raise DecisionError(str(last) if isinstance(last, DecisionError) else "Le modèle de décision ne répond pas.")
 
 
