@@ -11,7 +11,7 @@ type FastState = { modele: string; ms: number | null; en_cours: boolean; mesure:
 export function fastLine(s: FastState) {
   if (s.en_cours) return "Mesure en cours…";
   if (!s.mesure) return "Pas encore mesuré.";
-  if (!s.modele) return "Aucun modèle léger n'a répondu juste : ton cerveau répond à sa place.";
+  if (!s.modele) return "Aucun modèle léger n'a répondu juste : Noah garde son modèle de secours.";
   return s.ms === null ? s.modele : `${s.modele}, premier mot en ${s.ms} ms`;
 }
 

@@ -648,8 +648,9 @@ _voice_pick: dict[str, float | str] = {"at": 0.0, "model": ""}
 
 async def _voice_target() -> tuple[str, dict, list[str]]:
     """Où parle la voix rapide : (adresse, en-têtes, modèles à essayer). Elle suit le fournisseur du cerveau. Sur OpenRouter, la liste
-    VOICE_MODELS reste : c'est le premier mot qui compte, mesuré à ~0,25 s sur les hébergeurs les plus rapides. Ailleurs, le modèle de
-    décision, mesuré sur cette clé-là (decision.py) ; sinon le cerveau."""
+    VOICE_MODELS reste : c'est le premier mot qui compte, mesuré à ~0,25 s sur les hébergeurs les plus rapides. Voix en automatique : le
+    modèle rapide mesuré sur cette clé (rapide.py) passe en tête, partout. Ailleurs qu'OpenRouter, sans lui, le modèle de décision
+    (decision.py), sinon le cerveau."""
     provider = db.get_setting("provider")
     fast = rapide.model() if (db.get_setting("media_voice_brain") or "auto") == "auto" else ""  # mesuré sur cette clé : le premier mot le plus rapide
     if provider == "openrouter" or not provider:
