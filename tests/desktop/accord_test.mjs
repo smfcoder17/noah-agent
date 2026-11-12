@@ -228,6 +228,71 @@ try {
   assert.equal(require("../../desktop/autonomie.js").create(read, write).get(), "auto");
   settings.set("prudent");
   actions.configure({ autonomy: settings.get });
+
+  // 0.1.8 lot F : config.json écrit d'un bloc, lu une fois ; un fichier tronqué ne fait pas oublier le serveur.
+  {
+    const file = join(base, "atomique", "config.json");
+    const cfg = require("../../desktop/config.js").create(file);
+    assert.deepEqual(cfg.read(), {});
+    cfg.write({ mode: "remote", serveur: "https://a.test" });
+    cfg.write({ autonomie: "auto" });
+    assert.deepEqual(JSON.parse(readFileSync(file, "utf8")), { mode: "remote", serveur: "https://a.test", autonomie: "auto" });
+    assert.equal(existsSync(`${file}.${process.pid}.tmp`), false);
+    const copy = cfg.read(); copy.mode = "local";
+    assert.equal(cfg.read().mode, "remote"); // la copie reçue ne change pas les réglages
+    writeFileSync(file, "{\"mode\": \"rem"); // coupure pendant une écriture d'un autre outil
+    assert.equal(cfg.read().mode, "remote"); // lu une fois : la mémoire fait foi
+    const reopened = require("../../desktop/config.js").create(file);
+    assert.equal(reopened.read().serveur, "https://a.test"); // la copie de secours prend le relais
+    reopened.write({ autonomie: "prudent" });
+    assert.deepEqual(JSON.parse(readFileSync(file, "utf8")), { mode: "remote", serveur: "https://a.test", autonomie: "prudent" });
+    console.log("OK 0.1.8 F : config.json atomique, lu une fois, copie de secours après un fichier tronqué");
+  }
+
+  // 0.1.8 lot F : démarrage avec l'ordinateur, coupé tant que la personne ne l'a pas choisi.
+  {
+    let saved = {}; const calls = []; let login = { openAtLogin: false };
+    const fakeApp = { isPackaged: true, setLoginItemSettings: (o) => { calls.push(o); login = { openAtLogin: o.openAtLogin }; }, getLoginItemSettings: () => login };
+    const make = (argv, platform = "win32") => require("../../desktop/demarrage.js").create(fakeApp, () => ({ ...saved }), (p) => { saved = { ...saved, ...p }; }, { argv, platform });
+    let startup = make(["noah.exe", "--cache"]);
+    assert.equal(startup.get(), false);
+    assert.equal(startup.discreet(), false); // l'argument seul ne cache pas la fenêtre
+    assert.deepEqual(calls, []); // rien n'est inscrit sans un clic
+    login = { openAtLogin: true }; // inscrit par un autre moyen, jamais choisi ici
+    assert.equal(startup.get(), false);
+    login = { openAtLogin: false };
+    assert.equal(startup.set(true), true);
+    assert.deepEqual(calls.at(-1), { openAtLogin: true, args: ["--cache"] });
+    assert.equal(saved.demarrage_auto, true);
+    assert.equal(startup.discreet(), true);
+    assert.equal(make(["noah.exe"]).discreet(), false); // ouverte à la main : la fenêtre se montre
+    login = { openAtLogin: false }; // coupé depuis les réglages de Windows
+    assert.equal(startup.get(), false);
+    assert.equal(startup.set(false), false);
+    assert.deepEqual(calls.at(-1), { openAtLogin: false, args: ["--cache"] });
+    assert.equal(make([], "linux").available(), false);
+    fakeApp.isPackaged = false;
+    assert.equal(make([]).set(true), false); // en développement on inscrirait electron.exe : rien
+    console.log("OK 0.1.8 F : démarrage avec Windows désactivé par défaut, activé par la personne seule, lancement discret");
+  }
+
+  // 0.1.8 lot F : notifications accordées à la page de Noah seulement ; aucune autre permission ajoutée.
+  {
+    const { allowed } = require("../../desktop/permissions.js");
+    const noah = "https://noah.test";
+    assert.equal(allowed(noah, `${noah}/reglages`, "notifications"), true);
+    assert.equal(allowed(noah, `${noah}/reglages`, "notifications", `${noah}/`), true);
+    assert.equal(allowed(noah, `${noah}/reglages`, "notifications", "https://video.test/"), false);
+    assert.equal(allowed(noah, "https://autre.test/", "notifications"), false);
+    assert.equal(allowed("", `${noah}/`, "notifications"), false);
+    for (const p of ["media", "fullscreen"]) assert.equal(allowed(noah, `${noah}/`, p), true);
+    for (const p of ["geolocation", "midi", "openExternal", "pointerLock", "display-capture", "clipboard-read", "unknown"]) {
+      assert.equal(allowed(noah, `${noah}/`, p, `${noah}/`), false, p);
+    }
+    assert.equal(allowed(noah, `${noah}/`, "clipboard-sanitized-write", `${noah}/`), true);
+    assert.equal(allowed(noah, `${noah}/`, "clipboard-sanitized-write"), false);
+    console.log("OK 0.1.8 F : permissions, notifications pour Noah seulement, liste fermée");
+  }
   const folderPath = join(base, "confie"); mkdirSync(folderPath);
   const store = dossiers.createStore(join(base, "dossiers.json"));
   const folder = store.add(folderPath); store.setWrite(folder.id, true);
@@ -345,6 +410,13 @@ try {
       electron.win.webContents.emit("before-input-event", event, { ...input, ...patch });
       assert.equal(view.visible, true);
     }
+    // 0.1.8 lot F : sous Windows, AltGr arrive comme Ctrl+Alt. AltGr+A ou AltGr+R tapé dans la page ne décide rien.
+    const altGr = { type: "keyDown", control: true, alt: true, key: "AltGraph", code: "AltRight", isAutoRepeat: false };
+    electron.win.webContents.emit("before-input-event", event, altGr);
+    electron.win.webContents.emit("before-input-event", event, input);
+    assert.equal(view.visible, true);
+    assert.equal(prevented, 0);
+    electron.win.webContents.emit("before-input-event", event, { ...altGr, type: "keyUp", control: false, alt: false });
     electron.win.webContents.emit("before-input-event", event, input);
     const result = await work;
     assert.equal(accepted ? result.ok : result.refuse, true);
@@ -466,6 +538,9 @@ try {
     "./actions": { configure() {} }, "./dossiers": {},
     "./bandeau": { create: (win, view) => { assert.equal(win, ui.win); mainView = view; } },
     "./autonomie": require("../../desktop/autonomie.js"),
+    // 0.1.8 lot F : main.js s'appuie sur ces modules ; les vrais, chargés tels quels.
+    "./config": require("../../desktop/config.js"), "./demarrage": require("../../desktop/demarrage.js"),
+    "./permissions": require("../../desktop/permissions.js"),
   };
   runInNewContext(`${readFileSync(require.resolve("../../desktop/main.js"), "utf8")}\ncreateWindow();`, {
     require: (id) => mainModules[id] ?? require(id), __dirname: join(require.resolve("../../desktop/main.js"), ".."),

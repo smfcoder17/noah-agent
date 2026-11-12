@@ -10,6 +10,7 @@ const noah = require("./noah");
 const actions = require("./actions");
 const dossiers = require("./dossiers");
 const bandeau = require("./bandeau");
+const permissions = require("./permissions");
 
 let win = null;
 let page = null;
@@ -17,20 +18,22 @@ let tray = null;
 let origin = "";
 let quitting = false;
 
-const configFile = () => path.join(app.getPath("userData"), "config.json");
-const readConfig = () => {
-  try {
-    return JSON.parse(fs.readFileSync(configFile(), "utf8"));
-  } catch {
-    return {};
-  }
-};
-const writeConfig = (patch) => {
-  fs.mkdirSync(app.getPath("userData"), { recursive: true });
-  fs.writeFileSync(configFile(), JSON.stringify({ ...readConfig(), ...patch }, null, 1));
-};
+// config.json : lu une fois, écrit d'un bloc (config.js). Une seule instance de l'app tourne, la mémoire fait donc foi.
+let configStore = null;
+const config = () => (configStore ??= require("./config").create(path.join(app.getPath("userData"), "config.json")));
+const readConfig = () => config().read();
+const writeConfig = (patch) => config().write(patch);
 const autonomy = require("./autonomie").create(readConfig, writeConfig);
 actions.configure({ autonomy: autonomy.get });
+// Démarrage avec l'ordinateur : coupé tant que la personne ne l'a pas choisi dans le menu (demarrage.js).
+const startup = require("./demarrage").create(app, readConfig, writeConfig);
+function startupMenu() {
+  if (!startup.available()) return [];
+  return [{
+    label: "Lancer Noah au démarrage de l'ordinateur", type: "checkbox", checked: startup.get(),
+    click: (item) => { startup.set(item.checked); createMenu(); createTrayMenuState(); },
+  }];
+}
 function autonomyMenu() {
   return { label: "Autonomie de cet ordinateur", submenu: [
     ...[["auto", "Auto — agir dans les dossiers confiés"], ["prudent", "Prudent — demander avant d'écrire ou ranger"]].map(([value, label]) => ({
@@ -463,6 +466,10 @@ async function forgetOnce({ revoke = true } = {}, asked, askedToken) {
   page.webContents.loadFile(path.join(__dirname, "setup.html"));
 }
 
+let firstWindow = true; // seule la fenêtre du lancement peut rester cachée
+let crashes = []; // dates des derniers plantages du rendu
+let asking = false; // une seule boîte « ne répond plus » à la fois
+
 function createWindow() {
   const saved = readConfig().fenetre || {};
   win = new BrowserWindow({
@@ -487,7 +494,37 @@ function createWindow() {
   const contents = page.webContents;
   win.once("closed", () => { if (!contents.isDestroyed()) contents.close(); });
   if (saved.agrandie) win.maximize();
-  contents.once("did-finish-load", () => win.show());
+  // Lancée par le système à l'ouverture de session : pas de fenêtre, l'icône de la zone de notification suffit.
+  // Sauf si rien n'est encore relié : l'écran de connexion doit se voir.
+  const quiet = firstWindow && startup.discreet() && !!readConfig().mode;
+  firstWindow = false;
+  contents.once("did-finish-load", () => { if (!quiet) win.show(); });
+  // Rendu planté (mémoire, pilote graphique) : sans ceci la fenêtre reste blanche jusqu'à « Quitter ».
+  // Au troisième plantage en une minute, on arrête de relancer et on laisse le bouton « Réessayer ».
+  contents.on("render-process-gone", (_e, details) => {
+    if (details?.reason === "clean-exit" || quitting || contents.isDestroyed()) return;
+    const now = Date.now();
+    crashes = crashes.filter((t) => now - t < 60000).concat(now);
+    contents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(LOADING)}`).then(() => {
+      if (crashes.length >= 3) return status("L'affichage de Noah s'est arrêté plusieurs fois de suite. Tes agents continuent sur le serveur.", true);
+      return boot();
+    }).catch(() => {});
+  });
+  win.on("unresponsive", async () => {
+    if (asking || quitting) return;
+    asking = true;
+    try {
+      const r = await dialog.showMessageBox(win, {
+        type: "warning", title: "Noah Agent", message: "Noah ne répond plus.", detail: "Tu peux recharger la fenêtre, ou attendre encore un peu.",
+        buttons: ["Recharger", "Attendre"], defaultId: 0, cancelId: 1, noLink: true,
+      });
+      if (r.response === 0 && !contents.isDestroyed()) {
+        contents.forcefullyCrashRenderer(); // un rendu figé n'obéit pas à « recharger » : render-process-gone le relève
+      }
+    } finally {
+      asking = false;
+    }
+  });
   // Le titre de la barre reste le nom de l'app, quoi que dise la page ouverte.
   win.on("page-title-updated", (e) => e.preventDefault());
   page.webContents.on("context-menu", contextMenu);
@@ -594,30 +631,32 @@ async function setCut(cut) {
   return foldersState();
 }
 
+/** Le menu change, l'icône reste : la détruire la renvoyait dans la zone masquée de Windows. */
 function createTrayMenuState() {
   if (!tray) return;
-  tray.destroy();
-  tray = null;
-  createTray();
+  tray.setContextMenu(trayMenu());
+  tray.setToolTip(folders().isCut() ? "Noah Agent — accès de l'agent coupé" : "Noah Agent");
+}
+
+function trayMenu() {
+  return Menu.buildFromTemplate([
+    { label: "Ouvrir Noah Agent", click: show },
+    autonomyMenu(),
+    { label: "Voir l'accord en attente", click: () => bandeau.focus() },
+    { label: "Changer de serveur…", click: changeServer },
+    ...startupMenu(),
+    { type: "separator" },
+    { id: "couper", label: "Couper l'accès de l'agent", type: "checkbox", checked: folders().isCut(), click: (item) => setCut(item.checked) },
+    { type: "separator" },
+    { label: "Quitter", click: quit },
+  ]);
 }
 
 function createTray() {
   const icon = nativeImage.createFromPath(path.join(__dirname, "icon.png")).resize({ width: 16, height: 16 });
   tray = new Tray(icon);
-  tray.setToolTip("Noah Agent");
-  tray.setContextMenu(
-    Menu.buildFromTemplate([
-      { label: "Ouvrir Noah Agent", click: show },
-      autonomyMenu(),
-      { label: "Voir l'accord en attente", click: () => bandeau.focus() },
-      { label: "Changer de serveur…", click: changeServer },
-      { type: "separator" },
-      { id: "couper", label: "Couper l'accès de l'agent", type: "checkbox", checked: folders().isCut(), click: (item) => setCut(item.checked) },
-      { type: "separator" },
-      { label: "Quitter", click: quit },
-    ]),
-  );
   tray.on("click", show);
+  createTrayMenuState();
 }
 
 /** Menu de l'app, en français (Alt l'affiche sous Windows). Celui d'Electron est en anglais et ouvre les outils de développement. */
@@ -628,6 +667,7 @@ function createMenu() {
       autonomyMenu(),
       { label: "Voir l'accord en attente", accelerator: "CommandOrControl+Shift+Space", click: () => bandeau.focus() },
       { label: "Changer de serveur…", click: changeServer },
+      ...startupMenu(),
       { type: "separator" },
       { role: "close", label: "Fermer la fenêtre" },
       ...(process.platform === "darwin" ? [] : [{ label: "Quitter", click: quit }]),
@@ -787,11 +827,8 @@ if (!app.requestSingleInstanceLock()) {
     createMenu();
     // Micro (dictée, mode vocal) : accordé à l'interface de Noah, refusé à toute autre page. Écrire une image dans le presse-papiers
     // aussi : la page qui le demande doit être Noah, pas le lecteur d'une vidéo. Le plein écran sert au lecteur, dans la fenêtre de Noah.
-    const allowed = (wc, permission, asking) => {
-      if (!origin || !wc || !sameOrigin(wc.getURL())) return false;
-      if (permission === "clipboard-sanitized-write") return !!asking && sameOrigin(asking);
-      return permission === "media" || permission === "fullscreen";
-    };
+    // Notifications : accordées à Noah seulement, sinon Réglages → Notifications mène à une impasse (permissions.js).
+    const allowed = (wc, permission, asking) => !!wc && permissions.allowed(origin, wc.getURL(), permission, asking);
     session.defaultSession.setPermissionRequestHandler((wc, permission, done, details) => {
       done(allowed(wc, permission, details?.requestingUrl));
     });
