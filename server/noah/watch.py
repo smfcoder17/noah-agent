@@ -414,9 +414,10 @@ def _failed(w: dict, now: float, error: str, gesture: str, save_message, main_co
                   (now, error[:200], w["id"]))
     if w["fails"] + 1 == FAILS_WARN:
         # La notification ne montre que le titre et la première phrase : la cause va dans le titre, le geste en premier.
+        # Le texte de l'erreur peut venir de dehors (réponse d'un outil MCP) : il reste sur la veille, hors du contexte de l'agent.
         cause = error.split(" : ", 1)[0].lower()
         _deliver(w, f"Veille « {w['name']} » en panne : {cause}",
-                 f"{gesture}\n\nTa veille « {w['name']} » a raté {FAILS_WARN} passages d'affilée. Détail : {error[:200]}",
+                 f"{gesture}\n\nTa veille « {w['name']} » a raté {FAILS_WARN} passages d'affilée. Le détail de l'erreur est affiché sur la veille.",
                  save_message, main_conversation)
 
 

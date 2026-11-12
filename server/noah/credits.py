@@ -69,4 +69,7 @@ async def check() -> str | None:
 async def run_forever() -> None:
     while True:
         await asyncio.sleep(EVERY)  # pas au démarrage : un redémarrage ne doit pas solliciter le fournisseur
-        await check()
+        try:
+            await check()
+        except Exception:  # une erreur imprévue (base, clé illisible) n'arrête pas la surveillance pour toujours
+            pass
