@@ -1667,7 +1667,7 @@ async def set_model(body: ModelChoice, tasks: BackgroundTasks, user: int = Depen
     if agents:  # le relais applique déjà le nouveau modèle : on met les fichiers à jour sans couper l'agent, et sans faire attendre
         tasks.add_task(_write_configs, [a["id"] for a in agents])
     decision.schedule_refresh()  # ce que cette clé offre, ses prix, sa vitesse : l'écran ne l'attend pas
-    return {"ok": True}
+    return {"ok": True, "agents_propres": modes.own_brains(user)}  # ceux que ce choix ne touche pas : leur choix prime
 
 
 # --- Agents ------------------------------------------------------------------------------

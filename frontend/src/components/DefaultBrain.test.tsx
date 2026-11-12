@@ -2,6 +2,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import recorded from "../__fixtures__/cerveau/reponses.json?raw";
+import type { OwnBrain } from "@/lib/modes";
 import { DefaultBrain } from "./DefaultBrain";
 import { SettingsDialog } from "./Settings";
 
@@ -84,6 +85,65 @@ it("montre une erreur du cerveau et permet de recharger ses choix", async () => 
   fetchApi.mockImplementation(realFetch);
   await act(async () => button("Réessayer le cerveau").click());
   expect(host.querySelectorAll('[aria-label="Niveaux Auto"] li')).toHaveLength(3);
+});
+
+const OWN: OwnBrain[] = [
+  { id: "noah", nom: "Noah", modele: "openai/gpt-6.1-terra", mode: null, fournisseur: "openrouter", fournisseur_nom: "OpenRouter" },
+  { id: "bmd", nom: "BMD", modele: "openai/gpt-6.1-terra", mode: null, fournisseur: "openrouter", fournisseur_nom: "OpenRouter" },
+];
+
+it("sans agent qui garde son propre modèle, aucune ligne en plus", async () => {
+  await render();
+  expect(host.querySelector('[aria-label="Agents avec leur propre modèle"]')).toBeNull();
+});
+
+it("Auto choisi : la réponse dit que Noah et BMD gardent leur modèle OpenRouter, et un bouton les remet sur le cerveau de tous", async () => {
+  const realFetch = fetchApi.getMockImplementation()!;
+  let own = OWN.map((a) => ({ ...a }));
+  const reset: string[] = [];
+  fetchApi.mockImplementation(async (path: string, init?: RequestInit) => {
+    const m = /^\/api\/agents\/(\w+)\/model$/.exec(path);
+    if (m && init?.method === "PUT") {
+      expect(JSON.parse(String(init.body))).toEqual({ model: null }); // même effet que « Comme mes autres agents »
+      reset.push(m[1]);
+      own = own.filter((a) => a.id !== m[1]);
+      return Response.json({ model: null, mode: null, raisonnement: null });
+    }
+    if (path === "/api/modes/cerveau") {
+      const r = await realFetch(path, init);
+      return Response.json({ ...(await r.json()), agents_propres: init?.method === "PUT" ? own : [] });
+    }
+    return realFetch(path, init);
+  });
+  await render();
+  expect(host.querySelector('[aria-label="Agents avec leur propre modèle"]')).toBeNull();
+  await act(async () => host.querySelector<HTMLButtonElement>('[role="radio"]')!.click());
+  const line = host.querySelector('[aria-label="Agents avec leur propre modèle"]')!;
+  expect(line.textContent).toMatch(/^Noah et BMD gardent leur propre modèle \(OpenRouter · .*6\.1.*Terra.*\)\. Ce cerveau ne s'applique pas à eux\./i);
+  fetchApi.mockImplementation(async (path: string, init?: RequestInit) => {
+    if (path === "/api/modes/cerveau" && !init?.method) return Response.json({ ...modes, agents_propres: own });
+    const m = /^\/api\/agents\/(\w+)\/model$/.exec(path);
+    if (m && init?.method === "PUT") { reset.push(m[1]); own = own.filter((a) => a.id !== m[1]); return Response.json({ model: null }); }
+    return realFetch(path, init);
+  });
+  await act(async () => button("Leur appliquer ce cerveau").click());
+  expect(reset).toEqual(["noah", "bmd"]);
+  expect(host.querySelector('[aria-label="Agents avec leur propre modèle"]')).toBeNull();
+});
+
+it("chaque agent avec le sien quand leurs modèles diffèrent, au singulier pour un seul", async () => {
+  const realFetch = fetchApi.getMockImplementation()!;
+  let own: OwnBrain[] = [OWN[0], { id: "bmd", nom: "BMD", modele: null, mode: "fast", fournisseur: null, fournisseur_nom: null }];
+  fetchApi.mockImplementation(async (path: string, init?: RequestInit) =>
+    path === "/api/modes/cerveau" && !init?.method ? Response.json({ ...modes, agents_propres: own }) : realFetch(path, init));
+  await render();
+  expect(host.querySelector('[aria-label="Agents avec leur propre modèle"]')!.textContent).toMatch(/^Noah \(OpenRouter · .+\) et BMD \(mode Rapide\) gardent leur propre modèle\./);
+  await act(async () => root.unmount());
+  root = createRoot(host);
+  own = [OWN[1]];
+  await render();
+  expect(host.querySelector('[aria-label="Agents avec leur propre modèle"]')!.textContent).toMatch(/^BMD garde son propre modèle \(OpenRouter · .+\)\. Ce cerveau ne s'applique pas à lui\./);
+  expect(button("Lui appliquer ce cerveau")).toBeTruthy();
 });
 
 it("branche cet écran dans Réglages > Modèles et budget > Cerveau", async () => {

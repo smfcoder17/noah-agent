@@ -2,13 +2,24 @@
 // sans dépendre du catalogue d'un fournisseur ni du temps de calcul de la consommation.
 import { useEffect, useState } from "react";
 import { type CurrentModel, get, send, type Usage } from "@/lib/api";
-import { type ListedModel, type ModesState, type TierId, MODE_NAMES, readableModel } from "@/lib/modes";
+import { type ListedModel, type ModesState, type OwnBrain, type TierId, MODE_NAMES, modeName, readableModel } from "@/lib/modes";
 import { cn, money } from "@/lib/utils";
 import { ModelSearch, shortName } from "./Modes";
 import { ProviderLogo } from "./ProviderLogo";
 import { Button, ErrorText, Input } from "./ui";
 
 const LEVELS: [TierId, string][] = [["fast", "Simple"], ["balanced", "Moyen"], ["smart", "Complexe"]];
+
+const names = (list: string[]) => list.length > 1 ? `${list.slice(0, -1).join(", ")} et ${list[list.length - 1]}` : list[0];
+const ownLabel = (a: OwnBrain) => a.mode ? `mode ${modeName(a.mode)}` : [a.fournisseur_nom, readableModel(a.modele)].filter(Boolean).join(" · ");
+
+/** « Noah et BMD gardent leur propre modèle (OpenRouter · GPT 6.1 Terra) », ou chacun avec le sien s'ils diffèrent. */
+function ownSentence(own: OwnBrain[]): string {
+  const labels = own.map(ownLabel);
+  const verb = own.length > 1 ? "gardent leur propre modèle" : "garde son propre modèle";
+  if (labels.every((l) => l === labels[0])) return `${names(own.map((a) => a.nom))} ${verb} (${labels[0]})`;
+  return `${names(own.map((a, i) => `${a.nom} (${labels[i]})`))} ${verb}`;
+}
 
 export function DefaultBrain({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
   const [state, setState] = useState<ModesState | null>(null);
@@ -64,6 +75,13 @@ export function DefaultBrain({ onDone, onCancel }: { onDone: () => void; onCance
     await send("/api/budget", { monthly: monthly === "" ? null : Number(monthly), daily: daily === "" ? null : Number(daily) });
     onDone();
   });
+  // Le choix propre à un agent prime, c'est voulu : on le montre, et on propose de le ramener sur le cerveau de tous.
+  const own = state?.agents_propres ?? [];
+  const applyToAll = () => change(async () => {
+    try {
+      for (const a of own) await send(`/api/agents/${a.id}/model`, { model: null }, "PUT"); // comme « Comme mes autres agents »
+    } finally { await loadBrain(); }
+  });
   const auto = state?.actif === "auto";
   const canAuto = state?.modes.some((m) => m.modele);
   const row = (name: string, checked: boolean, under: string, onClick: () => void, disabled = false) => (
@@ -101,6 +119,10 @@ export function DefaultBrain({ onDone, onCancel }: { onDone: () => void; onCance
       </div>
       {state.actif && state.actif !== "auto" && <p className="text-xs text-muted-foreground">Mode actuel : {MODE_NAMES[state.actif]}. Choisis Auto ou un modèle précis pour le remplacer.</p>}
       {choosing === "precis" && <ModelSearch level="cerveau" selected={!state.actif ? current?.model : null} onPick={precise} />}
+      {own.length > 0 && <div role="status" aria-label="Agents avec leur propre modèle" className="flex flex-col items-start gap-2 rounded-xl border border-warn/40 bg-warn/5 p-3 text-sm">
+        <p>{ownSentence(own)}. Ce cerveau ne s'applique pas à {own.length > 1 ? "eux" : "lui"}.</p>
+        <Button variant="outline" disabled={busy} onClick={applyToAll}>{own.length > 1 ? "Leur appliquer ce cerveau" : "Lui appliquer ce cerveau"}</Button>
+      </div>}
     </>}
     <fieldset disabled={busy || !usage} className="flex flex-col gap-2 rounded-2xl border border-border p-4">
       <legend className="px-1.5 text-sm font-semibold">Budget</legend>
