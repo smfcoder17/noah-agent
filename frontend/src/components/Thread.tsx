@@ -16,7 +16,7 @@ import {
   useAuiState,
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
-import { ArrowDown, ArrowUp, Check, ChevronRight, ChevronUp, Copy, FileText, Loader2, Paperclip, Reply, SmilePlus, Square, TriangleAlert, X, ChevronDown, Plug } from "lucide-react";
+import { ArrowUp, Check, ChevronRight, ChevronUp, Copy, FileText, Loader2, Paperclip, Reply, SmilePlus, Square, TriangleAlert, X, ChevronDown, Plug } from "lucide-react";
 import { Children, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import remarkGfm from "remark-gfm";
 import { WhileBusyContext, AgentContext, HistoryContext } from "@/lib/agentContext";
@@ -832,11 +832,6 @@ export const Thread = memo(function Thread({ report, onReportRead, onCall }: { r
             <ThreadPrimitive.Messages components={{ UserMessage, AssistantMessage }} />
           </div>
           <ThreadPrimitive.ViewportFooter className="sticky bottom-0 mx-auto flex w-full max-w-3xl flex-col items-center gap-2 bg-gradient-to-t from-background via-background to-transparent pt-4 pb-[max(16px,env(safe-area-inset-bottom))]">
-            <ThreadPrimitive.ScrollToBottom asChild>
-              <Button variant="outline" size="icon-sm" className="rounded-full disabled:invisible" aria-label="Aller en bas">
-                <ArrowDown />
-              </Button>
-            </ThreadPrimitive.ScrollToBottom>
             {readOnly ? (
               <p className="w-full rounded-2xl border border-border bg-surface p-3 text-center text-sm text-muted-foreground">Tu peux lire ici, pas écrire.</p>
             ) : (

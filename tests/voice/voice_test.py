@@ -182,6 +182,25 @@ refused = httpx.Response(401, json={"error": {"message": "Invalid API key: sk-se
                          request=httpx.Request("POST", "http://voix/x", headers={"Authorization": "Bearer sk-secret"}))
 assert "sk-secret" not in str(media._fail(refused)), "une clé répétée par le serveur de voix sort vers le profil"
 
+# Un 402 n'affirme un manque de crédit que si la réponse le dit : un solde rechargé ne doit pas s'entendre accuser à tort.
+def failed(status: int, body: dict, headers: dict | None = None) -> str:
+    r = httpx.Response(status, json=body, headers=headers or {}, request=httpx.Request("POST", "https://openrouter.ai/api/v1/x"))
+    return str(media._fail(r))
+
+
+inflight = failed(402, {"error": {"message": "In-flight spending budget exceeded", "metadata": {"limit_source": "openrouter_in_flight_budget"}}},
+                  {"retry-after": "3"})
+assert "crédit insuffisant" not in inflight and "quelques secondes" in inflight, inflight
+other_reason = failed(402, {"error": {"message": "provider returned an error, retry later"}})
+assert "crédit insuffisant" not in other_reason and "approvisionné" in other_reason, other_reason
+real = failed(402, {"error": {"message": "Insufficient credits on your account"}})
+assert "crédit insuffisant" in real, real
+capped = failed(403, {"error": {"code": 403, "message": "Budget limit exceeded (weekly limit). $52.00 of $50.00 used; resets 2026-10-12T00:00:00.000Z.",
+                                "metadata": {"limit_source": "openrouter_key_limit", "limit_usd": 50, "spend_usd": 52, "resets_at": "2026-10-12T00:00:00.000Z"}}})
+assert "plafond" in capped and "52" in capped and "2026-10-12" in capped, capped
+assert "clé" not in capped.split("OpenRouter")[0], "un plafond de compte n'accuse pas la clé"
+print("voix : un 402 de crédit, un budget en vol et un plafond de compte se disent différemment")
+
 
 async def speech_is_counted() -> None:
     """OpenRouter ne rend pas le coût d'une synthèse : sans estimation, la voix échappait au plafond."""

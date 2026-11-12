@@ -155,8 +155,12 @@ _KNOWN = (
      "Ta clé API a expiré. Crée-en une nouvelle chez ton fournisseur, puis colle-la dans Réglages > Modèles et budget > Cerveau."),
     (r"\b40[13]\b|authenticat|unauthorized|api key|x-api-key|invalid.{0,12}key|forbidden",
      "Le fournisseur a refusé ta clé API : elle est invalide ou n'a plus accès. Remplace-la dans Réglages > Modèles et budget > Cerveau."),
-    (r"\b402\b|credit|quota|insufficient|billing",
-     "Le compte du fournisseur n'a plus de crédit ou a atteint sa limite. Recharge-le, ou choisis un autre modèle dans Réglages > Modèles et budget > Cerveau."),
+    (r"insufficient.?credit|insufficient.?quota|insufficient.?funds|not enough credit|no credit|credit balance|out of credit|"
+     r"exceeds? your (?:current )?quota|billing (?:hard )?limit|payment required|"
+     r"\b402\b[^\n]{0,60}?(?:insufficient|credit|quota|balance|payment|billing)",
+     "Le fournisseur refuse pour crédit insuffisant : le solde de la clé est épuisé, ou son plafond est atteint. Vérifie-le chez lui, "
+     "ou choisis un autre modèle dans Réglages > Modèles et budget > Cerveau. Si ton solde est approvisionné, ce n'est pas un manque "
+     "de crédit : réessaie, et lis le détail avec « Voir les détails »."),
     (r"no endpoints|model.{0,40}(not found|not exist|unavailable|invalid)|not a valid model|\b404\b",
      "Ce modèle n'est plus disponible chez le fournisseur. Choisis-en un autre dans Réglages > Modèles et budget > Cerveau."),
     (r"context.{0,20}(length|window|size)|too (long|large)|token limit",

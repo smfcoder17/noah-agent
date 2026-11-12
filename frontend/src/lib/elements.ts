@@ -31,5 +31,25 @@ export function parseElement(raw: unknown): ElementSpec | null {
 
 export function kindOfFile(path: string): ElementKind {
   const ext = path.split(/[?#]/, 1)[0].split(".").pop()?.toLowerCase() || "";
-  return ({ png: "image", jpg: "image", jpeg: "image", gif: "image", webp: "image", avif: "image", pdf: "pdf", mp4: "video", webm: "video", mov: "video", mp3: "audio", wav: "audio", ogg: "audio", m4a: "audio", html: "page", htm: "page", svg: "page", csv: "csv", xlsx: "table", docx: "document", doc: "document", pptx: "presentation", zip: "archive", js: "code", ts: "code", py: "code", json: "code", txt: "code", md: "code", diff: "diff", patch: "diff", vcf: "contact" } as Record<string, ElementKind>)[ext] || "unknown";
+  const IMAGE = "png jpg jpeg gif webp avif bmp ico svgz".split(" ");
+  const VIDEO = "mp4 webm mov m4v mkv avi ogv".split(" ");
+  const AUDIO = "mp3 wav ogg oga m4a aac flac opus wma aiff".split(" ");
+  const TEXT = ("md markdown mdx txt text log json jsonc json5 yml yaml toml ini cfg conf properties env csv tsv xml " +
+    "html htm css scss sass less js jsx mjs cjs ts tsx py pyi ipynb java kt kts scala groovy gradle c h cc cpp cxx hpp " +
+    "cs go rs rb php swift m mm pl lua r jl sh bash zsh fish ps1 bat cmd sql graphql gql proto dockerfile makefile " +
+    "cmake gitignore editorconfig srt vtt tex rst adoc org nfo readme license").split(" ");
+  const TABLE = "xlsx xlsm csv tsv".split(" ");
+  const DOCTEXT = "docx docm dotx odt ods odp".split(" ");
+  if (IMAGE.includes(ext)) return "image";
+  if (VIDEO.includes(ext)) return "video";
+  if (AUDIO.includes(ext)) return "audio";
+  if (ext === "pdf") return "pdf";
+  if (ext === "pptx" || ext === "pptm") return "presentation";
+  if (TABLE.includes(ext)) return "table";
+  if (DOCTEXT.includes(ext)) return "document";
+  if (ext === "diff" || ext === "patch") return "diff";
+  if (ext === "zip" || ext === "tar" || ext === "gz" || ext === "tgz" || ext === "bz2" || ext === "xz" || ext === "7z" || ext === "rar") return "archive";
+  if (ext === "vcf" || ext === "contact") return "contact";
+  if (TEXT.includes(ext)) return "code";
+  return "unknown";
 }

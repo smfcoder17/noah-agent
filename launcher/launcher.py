@@ -749,13 +749,20 @@ def admin(agent_id: str, action: str, body: dict = Body(default_factory=dict)):
 
 
 TOOL_RIGHTS = ("lire", "agir", "confirmer")
+MODE_RIGHT = "@mode"  # l'autonomie de l'agent, lue par le garde : « agir » ne demande jamais
+AUTONOMY = ("agir", "auto", "prudent")
 
 
 def _seal_rights(c, rights: dict) -> None:
     """Les droits des outils, lus par le plugin de garde à chaque appel. Ils vivent hors du volume, écrits par root : l'agent
     peut lire son droit, pas se le donner, ni renommer un dossier parent qui lui appartient. Perdus si le conteneur est
-    recréé : le serveur les réécrit à la configuration, et un droit absent vaut « confirmer »."""
-    clean = json.dumps({str(k): v for k, v in (rights or {}).items() if v in TOOL_RIGHTS}, ensure_ascii=False)
+    recréé : le serveur les réécrit à la configuration, et un droit absent vaut « confirmer ».
+
+    `@mode` porte l'autonomie choisie (agir, auto, prudent) : le garde l'applique sans appel réseau, donc une action ne
+    peut pas attendre un accord qui n'arrivera jamais quand la personne a réglé « Agir »."""
+    clean_rights = {str(k): v for k, v in (rights or {}).items()
+                    if v in TOOL_RIGHTS or (str(k) == MODE_RIGHT and v in AUTONOMY)}
+    clean = json.dumps(clean_rights, ensure_ascii=False)
     res = c.exec_run(["sh", "-c", 'mkdir -p /etc/noah && printf %s "$1" > /etc/noah/mcp-droits.tmp && '
                       "chmod 644 /etc/noah/mcp-droits.tmp && mv -f /etc/noah/mcp-droits.tmp /etc/noah/mcp-droits.json", "droits", clean], user="root")
     if res.exit_code != 0:

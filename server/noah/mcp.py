@@ -399,11 +399,24 @@ def _note(agent_id: str, name: str, etat: str, erreur: str = "", outils: list | 
 GOOGLE_RIGHT = "@google"  # même nom que dans le plugin de l'agent : jamais celui d'un serveur MCP (un « @ » n'y entre pas)
 
 
+MODE_RIGHT = "@mode"  # l'autonomie, lue par le garde de l'agent avant toute carte : « agir » ne demande jamais
+
+
+def _autonomy(agent_id: str) -> str:
+    """Le mode du juge pour cet agent, replié sur le réglage global comme le fait juge.mode(). Lu en base ici pour que le
+    garde de l'agent le connaisse sans appel réseau : c'est lui qui décide d'afficher une carte ou non."""
+    chosen = db.get_setting(f"juge_mode_{agent_id}")
+    if chosen not in ("agir", "auto", "prudent"):
+        chosen = db.get_setting("juge_mode")
+    return chosen if chosen in ("agir", "auto", "prudent") else "auto"
+
+
 def _rights(agent_id: str) -> dict[str, str]:
     rights = {r["nom"]: r["droit"] for r in _rows(agent_id)}
     google = db.get_setting(f"google_droit_{agent_id}")
     if google in ("lire", "agir", "confirmer"):
         rights[GOOGLE_RIGHT] = google
+    rights[MODE_RIGHT] = _autonomy(agent_id)
     return rights
 
 
@@ -413,8 +426,9 @@ def connection_rows(agent_id: str) -> list:
 
 
 def connection_rights(agent_id: str) -> dict[str, str]:
-    """Droits enregistrés de l'agent, indépendants des affirmations de sa machine."""
-    return _rights(agent_id)
+    """Droits enregistrés de l'agent, indépendants des affirmations de sa machine. Les réglages du garde (« @mode »,
+    « @google ») en sont exclus : ce sont des droits, pas des serveurs."""
+    return {name: right for name, right in _rights(agent_id).items() if not str(name).startswith("@")}
 
 
 def is_read_only(tool: dict) -> bool:

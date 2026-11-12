@@ -28,7 +28,7 @@ import { agentColor } from "@/components/Noah";
 import { Boundary } from "@/components/Boundary";
 import { Inbox } from "@/components/Inbox";
 import type { PanelTab } from "@/components/SidePanel";
-import { SideRail } from "@/components/desktop/SideRail";
+import { SideRail, RAIL_AGENTS } from "@/components/desktop/SideRail";
 import { Thread } from "@/components/Thread";
 import type { SettingsTab } from "@/components/Settings";
 import { ViewerProvider } from "@/components/Viewer";
@@ -410,6 +410,26 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     return subscribeUpdates(refreshConversations);
   }, [agentId, refreshConversations]);
 
+  // Les discussions des agents montrés dans le rail sont lues d'avance : la sidebar ne doit jamais attendre un clic pour les
+  // afficher. Une seule lecture par agent et par session, sauf si le cache a été vidé par un changement de compte.
+  const prefetched = useRef<Set<string>>(new Set());
+  const [railThreads, setRailThreads] = useState<Record<string, Conversation[]>>({});
+  useEffect(() => {
+    const shown = agents.slice(0, RAIL_AGENTS).map((a) => a.id);
+    for (const id of shown) {
+      const known = id === agentId ? conversations : conversationsCache.get(id);
+      if (known) {
+        setRailThreads((cur) => (same(cur[id], known) ? cur : { ...cur, [id]: known }));
+        continue;
+      }
+      if (prefetched.current.has(id)) continue;
+      prefetched.current.add(id);
+      get<Conversation[]>(`/api/agents/${id}/conversations`)
+        .then((list) => { conversationsCache.set(id, list); setRailThreads((cur) => ({ ...cur, [id]: list })); })
+        .catch(() => prefetched.current.delete(id)); // le serveur redémarre : on réessaiera au prochain relevé
+    }
+  }, [agents, agentId, conversations]);
+
   const selectAgent = (id: string) => {
     goTab("chat");
     setAgentId(id);
@@ -490,7 +510,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
         }}
       />
       <LayoutShell>
-        <SideRail waiting={waiting} onInbox={() => setInbox(true)} agent={agent} tabs={tabs} active={panel === "routines" ? "tasks" : panel ?? "chat"} conversations={conversations ?? []} onTab={goTab} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} onMenu={() => setSidebarOpen(true)} onThread={(id) => { goTab("chat"); setThreadId(id); }} onSettings={() => setSettings("home")} onGoals={() => setGoals(true)} onNew={() => void newDiscussion()} />
+        <SideRail waiting={waiting} onInbox={() => setInbox(true)} agent={agent} agents={agents} threads={railThreads} tabs={tabs} active={panel === "routines" ? "tasks" : panel ?? "chat"} conversations={conversations ?? []} activeThread={threadId} onTab={goTab} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} onPickAgent={selectAgent} onOpenAgentThread={(id, conv) => { selectAgent(id); setThreadId(conv); }} onMenu={() => setSidebarOpen(true)} onThread={(id) => { goTab("chat"); setThreadId(id); }} onSettings={() => setSettings("home")} onGoals={() => setGoals(true)} onNew={() => void newDiscussion()} />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <MobileHeader agent={agent} status={agent?.step || liveStatus || (agent?.online ? "En ligne" : "Hors ligne")} onMenu={() => setSidebarOpen(true)} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} busy={newBusy} onNew={() => void newDiscussion()} />
           {navigationError && <p role="alert" className="offline-banner">{navigationError}<button onClick={() => void newDiscussion()}>Réessayer</button></p>}

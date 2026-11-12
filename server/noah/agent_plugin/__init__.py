@@ -192,6 +192,22 @@ def _rights() -> dict:
         return {}
 
 
+MODE_RIGHT = "@mode"  # l'autonomie choisie, écrite par le serveur avec les droits : « agir » ne demande jamais
+JUDGE_MODES = ("agir", "auto", "prudent")
+
+
+def _autonomy() -> str:
+    """Ce que la personne a réglé : « agir » (pilote automatique), « auto » (défaut) ou « prudent ». Un fichier absent,
+    illisible, ou un mode inconnu vaut « auto » : le garde ne devine jamais « agir »."""
+    chosen = _rights().get(MODE_RIGHT)
+    return chosen if chosen in JUDGE_MODES else "auto"
+
+
+# « agir » : l'agent est payé pour faire, pas pour attendre — aucune carte, jamais. Ce qui peut encore l'arrêter n'est pas une
+# demande d'accord mais un refus : un refus net des règles (effacement de masse, secrets, protections) et une connexion que la
+# personne a elle-même laissée en lecture seule. On ne contourne pas un droit qu'elle a retiré.
+
+
 def _mcp_parts(tool_name: str, rights: dict) -> tuple[str, str]:
     """mcp__<serveur>__<outil> : Hermes remplace « - » par « _ » dans le nom, sa table d'outils garde le vrai serveur."""
     server = ""
@@ -202,7 +218,8 @@ def _mcp_parts(tool_name: str, rights: dict) -> tuple[str, str]:
     except Exception:  # noqa: BLE001 - hors d'Hermes, ou table en cours de changement : on déduit du nom
         pass
     rest = tool_name.removeprefix("mcp__")
-    known = {name.replace("-", "_"): name for name in rights}
+    # Les réglages du garde (« @mode », « @google ») ne sont pas des serveurs : un outil ne doit jamais s'y rattacher.
+    known = {name.replace("-", "_"): name for name in rights if not str(name).startswith("@")}
     if not server:
         head = rest.split("__", 1)[0]
         server = known.get(head, head)
@@ -253,6 +270,10 @@ def check_mcp(tool_name: str, args: dict) -> dict | None:
             f"Noah refuse : « {server} » demande la confirmation de l'utilisateur et personne ne peut la donner pendant une "
             "routine. Continue sans cet outil et signale-le dans ton compte rendu ; l'utilisateur peut passer ce droit à "
             "« agir » dans l'onglet Connexions de l'agent.")}
+    if _autonomy() == "agir":
+        # Mode Agir : la personne a réglé « fais tout, dis-moi après ». La connexion est en « confirmer », pas en « lire » :
+        # elle permet d'écrire, et l'appel passe. C'est le seul endroit où l'autonomie lève une carte de connexion.
+        return None
     shown = json.dumps(args, ensure_ascii=False, default=str)
     if len(shown) > 600:  # le serveur compare à ce qui a été montré : ce qui dépasse compte aussi, par son empreinte
         shown = f"{shown[:600]}… [empreinte {hashlib.sha256(shown.encode()).hexdigest()[:16]}]"
@@ -347,6 +368,8 @@ def check_google(command: str) -> dict | None | bool:
             f"Noah refuse : écrire avec Google (« {service} {action} ») demande la confirmation de l'utilisateur, et "
             "personne ne peut la donner pendant une routine. Signale-le dans ton compte rendu ; l'utilisateur peut passer "
             "le droit de Google à « agir » dans l'onglet Connexions de l'agent.")}
+    if _autonomy() == "agir":  # mode Agir : la personne a réglé « fais tout, dis-moi après »
+        return None
     return {"action": "approve", "rule_key": f"noah-google-{uuid.uuid4().hex}",
             "message": f"Ton juge demande ton accord : écrire avec Google ({service} {action}).\n{command[:600]}"}
 
@@ -1384,6 +1407,9 @@ def _bounded_json(value) -> str | None:
 def _oversized_call(tool_name: str, args: dict, directive: dict | None, alone: bool, instructions: list[str] | None = None) -> dict:
     """Aucune donnée partielle ne peut obtenir un passage C2 ni ouvrir le relais."""
     reason = "cet appel est trop volumineux pour être vérifié automatiquement."
+    if _autonomy() == "agir":
+        # Mode Agir : trop gros pour être montré n'est pas une raison de s'arrêter. L'agent continue ; l'Activité le note.
+        return directive
     if alone:
         return {"action": "block", "message": f"Noah refuse : {reason} Personne ne peut donner son accord pendant une routine. Signale-le dans ton compte rendu."}
     comparison = {"demande": [], "propose": outgoing_call(tool_name, args), "ecarts": [reason]} if sends_out(tool_name, args) else None
@@ -1428,6 +1454,8 @@ def check_juge(tool_name: str, args: dict, directive: dict | None, hook: dict) -
         blocked = _require_write_right(tool_name, context)
         if blocked:
             return blocked
+        if _autonomy() == "agir":  # mode Agir : une page piégée lue n'arrête pas le travail, l'agent continue
+            return directive
         return _ask_after_instructions(tool_name, args, directive, alone, session)
     reported_hardened = _reported_hardened.get(session, 0) > time.time()
     instructions = _instruction_excerpts.get(session) if right == "agir" and reported_hardened else None
@@ -1466,6 +1494,8 @@ def check_juge(tool_name: str, args: dict, directive: dict | None, hook: dict) -
             blocked = _require_write_right(tool_name, context)
             if blocked:
                 return blocked
+            if _autonomy() == "agir":
+                return directive
             return _ask_after_instructions(tool_name, args, directive, alone, session)
         if answer.get("durci") is False:  # le serveur sait qu'un nouveau message ouvre le tour suivant
             _reported_hardened.pop(session, None)
@@ -1475,9 +1505,14 @@ def check_juge(tool_name: str, args: dict, directive: dict | None, hook: dict) -
         # applique le droit relu par le serveur, y compris un retour à « confirmer ».
         return directive
     if verdict == "accord":
+        if _autonomy() == "agir":  # mode Agir : la personne a réglé « fais tout et dis-moi après »
+            return directive
         return _ask_person(tool_name, args, str(answer.get("raison") or "cette action est sensible."), directive, answer.get("comparaison"),
                            _instruction_excerpts.get(session) if right == "agir" and answer.get("durci") else None)
     if verdict == "passe":
+        return directive
+    if _autonomy() == "agir":
+        # Mode Agir : ni la panne du juge, ni un accord demandé par un droit ne doivent arrêter une automatisation.
         return directive
     if directive:  # une panne ne retire jamais un accord déjà demandé par la connexion
         return directive

@@ -129,19 +129,50 @@ async def _speech_cost(model: str, chars: int) -> float | None:
 
 def _fail(r: httpx.Response) -> MediaError:
     try:
-        error = r.json().get("error", {})
+        payload = r.json()
+        error = payload.get("error", {})
         msg = (error.get("message") if isinstance(error, dict) else error) or r.text
+        meta = error.get("metadata") if isinstance(error, dict) else None
     except (ValueError, AttributeError):  # pas du JSON, ou une liste : le texte brut
-        msg = r.text
+        msg, meta = r.text, None
     # Un serveur peut répéter la clé reçue dans son erreur, et l'erreur part chez un profil qui n'a pas à la connaître.
     sent = r.request.headers.get("authorization", "").removeprefix("Bearer ").strip()
     if sent:
         msg = str(msg).replace(sent, "***")
     if r.status_code == 402:
-        return MediaError("Le compte OpenRouter n'a plus de crédit.")
+        return MediaError(_out_of_credit(msg, meta if isinstance(meta, dict) else {}))
     if r.status_code in (401, 403):
+        if r.status_code == 403 and isinstance(meta, dict) and meta.get("limit_source"):
+            return MediaError(_budget_blocked(meta))  # un plafond de compte, pas une clé invalide
         return MediaError("Le fournisseur a refusé la clé de la voix et de la création : elle est invalide ou expirée. Remplace-la dans Réglages > Voix.")
     return MediaError(f"Le modèle a refusé la demande ({r.status_code}) : {str(msg)[:300]}", temporary=r.status_code in RETRYABLE)
+
+
+def _budget_blocked(meta: dict) -> str:
+    """Un plafond de compte OpenRouter (403) : les chiffres sont dans la réponse, on les donne au lieu d'accuser la clé."""
+    spent, limit = meta.get("spend_usd"), meta.get("limit_usd")
+    resets = str(meta.get("resets_at") or "")
+    figures = f" ({_money(float(spent))} $ sur {_money(float(limit))} $" if isinstance(spent, (int, float)) and isinstance(limit, (int, float)) else ""
+    when = f", jusqu'au {resets[:10]}" if resets[:10] else ""
+    return (f"Le plafond de ton compte OpenRouter est atteint{figures}{when}). Augmente-le sur openrouter.ai, "
+            "ou choisis un autre modèle dans Réglages > Modèles et budget.")
+
+
+def _out_of_credit(msg: str, meta: dict) -> str:
+    """Un 402 dit rarement « plus de crédit » : OpenRouter l'utilise aussi pour son budget en vol et pour une limite de clé.
+    On rend le motif exact plutôt qu'une phrase qui envoie la personne recharger un compte déjà approvisionné."""
+    reason = str(msg or "")
+    source = str(meta.get("limit_source") or "")
+    if source == "openrouter_in_flight_budget" or "in flight" in reason.lower() or "in_flight" in reason.lower():
+        return "Trop de demandes en même temps pour ton solde OpenRouter. Réessaie dans quelques secondes."
+    if source in ("openrouter_guardrail_budget", "openrouter_workspace_budget", "openrouter_key_limit"):
+        return _budget_blocked({**meta, "limit_source": source})
+    if "insufficient" in reason.lower() or "credit" in reason.lower() or not reason:
+        return (f"OpenRouter refuse pour crédit insuffisant : « {reason[:180]} ». Vérifie le solde de la clé sur "
+                "openrouter.ai/credits, ou choisis un autre modèle dans Réglages > Modèles et budget.")
+    # Un 402 qui parle d'autre chose : le dire tel quel, sans accuser le solde.
+    return (f"OpenRouter a refusé la demande (402) : « {reason[:220]} ». Si ton solde est approvisionné, ce n'est pas un manque "
+            "de crédit : réessaie, ou choisis un autre modèle dans Réglages > Modèles et budget.")
 
 
 # --- Catalogue ---------------------------------------------------------------------------

@@ -1,14 +1,17 @@
 import { memo } from "react";
 // Compétences : ce que la personne a enseigné à son agent, « voici comment je veux que tu fasses telle chose ». L'agent s'en sert seul.
-// Ce qu'il apprend de lui-même reste interne : le serveur ne le montre pas ici.
-import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+// Dessous, tous ses skills : ceux qu'il a appris seul, ceux qu'on lui a enseignés, ceux fournis avec Noah — lisibles et modifiables.
+import { Loader2, Lock, Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { del, send } from "@/lib/api";
 import { useAgentData } from "@/lib/useAgentData";
+import { cn } from "@/lib/utils";
 import { Button, ErrorText, Input, Textarea } from "./ui";
 import { DictateButton, useCanDictate, useFieldDictation } from "./Voice";
 
 export type Competence = { nom: string; titre: string; texte: string };
+/** Un skill tel que l'agent le connaît : fourni avec Noah, enseigné par la personne, ou appris par l'agent. */
+export type Skill = { nom: string; titre: string; resume: string; texte: string; origine: string; categorie: string; fourni: boolean; modifiable: boolean };
 
 function Editor({ agentId, start, onDone, onCancel }: { agentId: string; start?: Competence; onDone: () => void; onCancel: () => void }) {
   const [titre, setTitre] = useState(start?.titre ?? "");
@@ -56,6 +59,23 @@ export const Competences = memo(function Competences({ agentId }: { agentId: str
   const list = data?.competences ?? null;
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState("");
+  // Les skills : tout ce que l'agent sait faire, y compris ce qu'il a appris seul (hors de « compétences »).
+  const skillsPath = `/api/agents/${agentId}/skills`;
+  const { data: skillsData, error: skillsError, setError: setSkillsError, load: loadSkills } = useAgentData<{ skills: Skill[] }>(skillsPath, { freshOnReload: false });
+  const skills = skillsData?.skills ?? null;
+  const [openSkill, setOpenSkill] = useState("");
+  const [draft, setDraft] = useState({ titre: "", texte: "" });
+  const [skillBusy, setSkillBusy] = useState(false);
+  const removeSkill = async (s: Skill) => {
+    if (!confirm(`Retirer « ${s.titre} » ? L'agent ne s'en servira plus.`)) return;
+    setSkillsError("");
+    try {
+      await del(`/api/agents/${agentId}/skills/${s.nom}`);
+      loadSkills();
+    } catch (e) {
+      setSkillsError((e as Error).message);
+    }
+  };
   const remove = async (c: Competence) => {
     if (!confirm(`Retirer « ${c.titre} » ? L'agent ne s'en servira plus.`)) return;
     try {
@@ -87,8 +107,45 @@ export const Competences = memo(function Competences({ agentId }: { agentId: str
       ) : list && (
         <Button variant="outline" size="sm" className="self-start" onClick={() => setAdding(true)}><Plus />Enseigner quelque chose</Button>
       )}
-      <ErrorText>{error}</ErrorText>
-      {list && <p className="text-xs text-muted-foreground">Ce qu'il apprend seul reste interne. Pour le connaître, demande-le-lui.</p>}
+      {error && <ErrorText>{error}</ErrorText>}
+      <div className="mt-4 flex flex-col gap-2 border-t border-border pt-4">
+        <div className="flex items-baseline justify-between gap-2">
+          <h3 className="text-sm font-semibold">Ce que ton agent sait faire</h3>
+          <span className="text-xs text-muted-foreground">{skills ? `${skills.length}` : ""}</span>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Tout ce qui est dans son dossier de skills, y compris ce qu'il a appris seul : tu peux le relire, le corriger ou le retirer.
+          Ceux fournis avec Noah reviennent à chaque mise à jour, d'où le cadenas.
+        </p>
+        {!skills && !skillsError && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture…</p>}
+        {skills?.map((s) => (
+          <article key={s.nom} className="flex flex-col gap-1 rounded-xl border border-border p-2.5">
+            <div className="flex items-center gap-1">
+              <h4 className="min-w-0 flex-1 truncate text-sm font-medium">{s.titre}</h4>
+              <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium",
+                s.origine === "enseigné par toi" ? "bg-accent-soft text-accent" : s.fourni ? "bg-muted text-muted-foreground" : "bg-warn-soft text-warn")}>{s.origine}</span>
+              {s.modifiable ? (
+                <>
+                  <Button size="icon-sm" variant="ghost" onClick={() => { setOpenSkill(openSkill === s.nom ? "" : s.nom); setDraft({ titre: s.titre, texte: s.texte }); }} aria-label={`Relire « ${s.titre} »`}><Pencil /></Button>
+                  <Button size="icon-sm" variant="ghost" onClick={() => void removeSkill(s)} aria-label={`Retirer « ${s.titre} »`}><Trash2 /></Button>
+                </>
+              ) : <Lock className="size-3.5 shrink-0 text-muted-foreground" aria-label="Fourni avec Noah" />}
+            </div>
+            {s.resume && <p className="line-clamp-2 text-xs text-muted-foreground">{s.resume}</p>}
+            {openSkill === s.nom && (
+              <form className="flex flex-col gap-2 border-t border-border pt-2" onSubmit={async (e) => { e.preventDefault(); setSkillBusy(true); setSkillsError(""); try { await send(`/api/agents/${agentId}/skills/${s.nom}`, draft, "PUT"); setOpenSkill(""); loadSkills(); } catch (err) { setSkillsError((err as Error).message); } finally { setSkillBusy(false); } }}>
+                <Input value={draft.titre} onChange={(e) => setDraft({ ...draft, titre: e.target.value })} maxLength={120} aria-label="Titre du skill" />
+                <Textarea value={draft.texte} onChange={(e) => setDraft({ ...draft, texte: e.target.value })} rows={10} maxLength={20000} className="font-mono text-xs" aria-label="Contenu du skill" />
+                <div className="flex justify-end gap-2">
+                  <Button type="button" size="sm" variant="ghost" onClick={() => setOpenSkill("")}>Fermer</Button>
+                  <Button type="submit" size="sm" disabled={skillBusy || !draft.titre.trim() || !draft.texte.trim()}>{skillBusy && <Loader2 className="animate-spin" />}Enregistrer</Button>
+                </div>
+              </form>
+            )}
+          </article>
+        ))}
+        <ErrorText>{skillsError}</ErrorText>
+      </div>
     </section>
   );
 });

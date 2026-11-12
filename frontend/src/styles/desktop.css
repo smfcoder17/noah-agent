@@ -6,7 +6,15 @@
 .rail-row[aria-current] { background:var(--card); color:var(--ink); font-weight:600; box-shadow:var(--shadow-active); }
 .rail-bottom { margin-top:auto; display:grid; gap:2px; }
 .rail-threads { overflow-y:auto; min-height:0; }
-.rail-thread { display:block; padding:6px 10px; width:100%; border-radius:var(--radius-8); color:var(--soft); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-align:left; cursor:pointer; }
+.rail-thread { position:relative; display:flex; align-items:center; gap:6px; padding:6px 10px; width:100%; border-radius:var(--radius-8); color:var(--soft); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-align:left; cursor:pointer; }
+.rail-thread[aria-current] { background:var(--card); color:var(--ink); font-weight:600; }
+.rail-dot { width:6px; height:6px; flex:none; border-radius:999px; background:var(--warn); }
+.rail-agents { display:grid; gap:1px; margin-bottom:2px; border-top:1px solid var(--line); padding-top:4px; }
+.rail-agent-row { min-height:34px; padding:4px 10px; font-size:13.5px; }
+.rail-agent-row[aria-current] { background:var(--card); color:var(--ink); font-weight:600; box-shadow:var(--shadow-active); }
+.rail-agent-block { display:flex; flex-direction:column; min-width:0; }
+.rail-subthread { padding:4px 10px 4px 34px; font-size:12.5px; color:var(--soft); }
+.rail-count { flex:none; min-width:18px; padding:0 5px; border-radius:999px; background:var(--warn); color:var(--bg); font-size:11px; font-weight:700; line-height:18px; text-align:center; }
 .right-panel { position:fixed; top:0; right:0; bottom:0; width:var(--right-width); display:flex; flex-direction:column; border-left:1px solid var(--line); background:var(--card); z-index:35; }
 .right-panel > header { height:56px; flex:none; display:flex; align-items:center; gap:8px; padding:0 12px 0 18px; border-bottom:1px solid var(--line); }
 .right-panel > header b { flex:1; font-size:14px; overflow:hidden; text-overflow:ellipsis; }

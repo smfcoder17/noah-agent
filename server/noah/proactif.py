@@ -362,8 +362,11 @@ RULES = {
     SIGNALER: ("Mode « Me signaler » : tu regardes, tu prépares et tu proposes. Tu ne fais aucune action qui change quelque chose dehors : pas d'envoi, "
                "pas de publication, pas de paiement, pas de suppression, pas de réservation, pas de changement dans un compte. Un brouillon dans tes "
                "fichiers, oui. Ce qui irait plus loin, tu le proposes dans ton compte rendu."),
-    AGIR: ("Mode « Agir et me dire » : fais ce qui sert la personne, dans les droits de tes connexions. Les accords restent valables : une action qui en "
-           "demande un le demande toujours, et la demande arrive dans « À toi ». Dans le doute, prépare et propose."),
+    AGIR: ("Mode « Agir » : pilote automatique. Fais le travail, entièrement : aucune étape n'attend un accord, ni un envoi, ni une publication, ni un "
+           "clic dans une page. Tu es payé pour faire — pense et trouve un chemin quand quelque chose bloque (autre moyen, autre page, autre outil, "
+           "installation de ce qui manque) au lieu de t'arrêter. Seuls deux murs restent : un refus net de Noah (effacement de masse, secrets, "
+           "protections de l'agent) et une connexion que la personne a laissée en lecture seule ; dis-les dans ton compte rendu et continue le reste. "
+           "Ce qui est fait compte plus que ce qui est proposé : à la fin, dis en une à trois phrases ce que tu as réellement fait."),
 }
 
 

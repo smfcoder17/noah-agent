@@ -528,7 +528,7 @@ export function RightSelect({ agentId, name, droit, onChange, onError }: { agent
 const LOGOS = new Map<string, string | null>();
 
 /** Le vrai logo, récupéré par le serveur Noah : le navigateur ne parle à aucun tiers. La lettre reste tant qu'il n'y en a pas. */
-function AppLogo({ host, name }: { host?: string | null; name: string }) {
+function AppLogo({ host, name, className }: { host?: string | null; name: string; className?: string }) {
   const box = useRef<HTMLSpanElement>(null);
   const [src, setSrc] = useState<string | null>(host ? LOGOS.get(host) ?? null : null);
   useEffect(() => {
@@ -548,8 +548,8 @@ function AppLogo({ host, name }: { host?: string | null; name: string }) {
     return () => { gone = true; seen.disconnect(); };
   }, [host]);
   return (
-    <span ref={box} className={cn("grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg text-sm font-bold", src ? "bg-white ring-1 ring-border" : "bg-muted")}>
-      {src ? <img src={src} alt="" className="size-6 object-contain" onError={() => setSrc(null)} /> : name[0].toUpperCase()}
+    <span ref={box} className={cn("grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg text-sm font-bold", src ? "bg-white ring-1 ring-border" : "bg-muted", className)}>
+      {src ? <img src={src} alt="" className={cn("object-contain", className ? "size-3.5" : "size-6")} onError={() => setSrc(null)} /> : name[0].toUpperCase()}
     </span>
   );
 }
@@ -610,6 +610,32 @@ export function Connections({ agentId, shared = false, owner = false }: { agentI
   return (
     <Section title="Connexions" count={(google?.connecte ? 1 : 0) + connected.filter((a) => a.connecte).length + tools.filter((t) => t.connecte).length} alone>
       {!data && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture…</p>}
+      {/* En haut : parcourir le catalogue et voir d'un coup ce qui est branché. Le reste (Google, outils par adresse,
+          sites du navigateur) vient dessous. */}
+      {data && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Button variant={browsing ? "default" : "outline"} size="sm" onClick={() => setBrowsing((b) => !b)} aria-expanded={browsing}>
+            <Plus />Autres applications
+          </Button>
+          {connected.filter((a) => a.connecte).map((a) => (
+            <span key={a.nom} className="flex items-center gap-1.5 rounded-full border border-border bg-surface py-0.5 pr-2.5 pl-1 text-xs">
+              <AppLogo host={a.hote ?? hostOf(a.source)} name={a.nom} className="size-5" />
+              <span className="font-medium">{appLabel(a.nom)}</span>
+            </span>
+          ))}
+          {!connected.filter((a) => a.connecte).length && !browsing && <span className="text-xs text-muted-foreground">Rien de branché pour l'instant.</span>}
+        </div>
+      )}
+      {data && browsing && (
+        <div className="flex flex-col gap-1.5 rounded-xl border border-border p-2">
+          <Input value={query} onChange={(e) => setQuery(e.target.value)} className="h-9" placeholder="Notion, Todoist, Linear, Figma, brollss…" aria-label="Chercher une application" autoFocus />
+          <div className="flex max-h-80 flex-col gap-0.5 overflow-y-auto">
+            {others.map((a) => <AppRow key={a.nom} agentId={agentId} app={a} waiting={waiting[a.nom]} onWait={(m) => wait(a.nom, m)} onChange={load} onError={setError} />)}
+            {!others.length && <p className="p-2 text-xs text-muted-foreground">Aucune application ne correspond.</p>}
+          </div>
+          <Button size="sm" variant="ghost" className="self-end" onClick={() => setBrowsing(false)}>Fermer</Button>
+        </div>
+      )}
       {google?.disponible && data && <GoogleCard agentId={agentId} onError={setError} />}
       {google?.connecte && scope("google")}
       {connected.map((a) => <AppRow key={a.nom} agentId={agentId} app={a} waiting={waiting[a.nom]} onWait={(m) => wait(a.nom, m)} onChange={load} onError={setError} extra={a.connecte ? scope(a.nom) : null} />)}
@@ -619,18 +645,6 @@ export function Connections({ agentId, shared = false, owner = false }: { agentI
       {data && <BrowserSites agentId={agentId} />}
       <SavedLogins agentId={agentId} />
       {arriving && <p className="text-xs text-muted-foreground">« {arriving} » arrive chez l'agent en moins d'une minute.</p>}
-      {data && (browsing ? (
-        <div className="flex flex-col gap-1.5 rounded-xl border border-border p-2">
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} className="h-9" placeholder="Notion, Todoist, Linear, Figma…" aria-label="Chercher une application" autoFocus />
-          <div className="flex max-h-72 flex-col gap-0.5 overflow-y-auto">
-            {others.map((a) => <AppRow key={a.nom} agentId={agentId} app={a} waiting={waiting[a.nom]} onWait={(m) => wait(a.nom, m)} onChange={load} onError={setError} />)}
-            {!others.length && <p className="p-2 text-xs text-muted-foreground">Aucune application ne correspond.</p>}
-          </div>
-          <Button size="sm" variant="ghost" className="self-end" onClick={() => setBrowsing(false)}>Fermer</Button>
-        </div>
-      ) : (
-        <Button variant="outline" size="sm" className="self-start" onClick={() => setBrowsing(true)}><Plus />Autres applications</Button>
-      ))}
       {data && (adding ? (
         <AddTool agentId={agentId} shared={shared} onClose={() => setAdding(false)}
           onAdded={(name, mode) => { setAdding(false); if (mode) wait(name, mode); else setArriving(name); load(); }} />

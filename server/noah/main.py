@@ -27,7 +27,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Str
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import access, accounts, apprentissage, appareils, auth, catalog, chauffe, coffre, connecteurs, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, public, publication, push, recu, recuperation, relay, sites, updates, watch
+from . import access, accounts, apprentissage, appareils, auth, bureautique, catalog, chauffe, coffre, connecteurs, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, public, publication, push, recu, recuperation, relay, sites, updates, watch
 from . import config
 from . import accords, bus, ui_preferences, linkpreview, providers as provider_accounts
 from .config import WEB_DIR, forget_setup_code
@@ -3190,6 +3190,35 @@ def _file_type(name: str) -> str:
     """Le type d'un fichier servi. Certains textes n'ont pas de type mime déclaré partout : le navigateur
     les téléchargerait sans les montrer. Un type inconnu reste un octet-stream (programmes, binaires)."""
     return mimetypes.guess_type(name)[0] or ("text/plain" if re.search(r"\.(log|ya?ml|toml|ini)$", name, re.I) else "application/octet-stream")
+
+
+# Le texte d'un .docx/.xlsx/.pptx lu une fois : la même archive n'est pas redécompressée à chaque ouverture.
+_OFFICE_TEXT: dict[tuple[str, float, int], str] = {}
+
+
+@app.get("/api/agents/{agent_id}/fichier/texte/{path:path}")
+async def agent_file_text(agent_id: str, path: str, user: int = Depends(auth.current_user)):
+    """Le texte lisible d'un fichier bureautique (Word, Excel, PowerPoint, OpenDocument), montré dans la visionneuse.
+    Un format non pris en charge, ou un fichier qui n'est pas ce que son nom annonce, répond 415 : l'interface propose alors
+    le téléchargement."""
+    _usable(user, agent_id)
+    name = path.rsplit("/", 1)[-1]
+    if not bureautique.readable(name):
+        raise HTTPException(415, "Ce format n'a pas d'aperçu texte")
+    r = await hermes.read_file(agent_id, path)
+    if r.status_code != 200:
+        raise HTTPException(r.status_code, "Fichier indisponible")
+    key = (f"{agent_id}/{path}", len(r.content), hash(r.content[:4096]))
+    cached = _OFFICE_TEXT.get(key)
+    if cached is None:
+        try:
+            cached = bureautique.text_of(name, r.content)
+        except ValueError as e:
+            raise HTTPException(415, f"Aperçu indisponible : {e}") from None
+        if len(_OFFICE_TEXT) > 200:  # un aperçu n'est pas une archive : on garde les plus récents
+            _OFFICE_TEXT.pop(next(iter(_OFFICE_TEXT)))
+        _OFFICE_TEXT[key] = cached
+    return PlainTextResponse(cached, headers={"Cache-Control": "private, no-cache", "X-Content-Type-Options": "nosniff"})
 
 
 @app.get("/api/agents/{agent_id}/files/raw/{path:path}")

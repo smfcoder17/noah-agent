@@ -332,6 +332,8 @@ async def configure(agent_id: str, model: dict, role: str | None = None, restart
     if role is not None:
         files["SOUL.md"] = role.strip() + "\n"
     files["noah.py"] = AGENT_TOOL.replace("__TOKEN__", token_for(agent_id))
+    # Les applications que Noah ajoute au catalogue d'Hermes (brollss…) : l'outil d'administration les lit ici.
+    files["applications_extra.py"] = (Path(__file__).parent / "applications_extra.py").read_text(encoding="utf-8")
 
     await _launcher("PUT", f"/agents/{agent_id}/files", json={"files": files})
     if role is not None:  # nouvelles consignes : les conversations en cours doivent les voir

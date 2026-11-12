@@ -44,15 +44,16 @@ REFUSALS_IN_A_ROW = 3  # une action refusée trois fois de suite : l'agent cherc
 SORTS_PER_HOUR = 30  # par agent : au-delà, seuls les motifs gratuits
 SECOND_SECONDS = 12.0  # le second avis vient d'un modèle plus grand : plus lent, mais il évite de déranger la personne
 SURE_ENOUGH = 70  # sous cette certitude, le petit modèle ne tranche pas seul
-MODE_KEY = "juge_mode"  # « agir » (tout passe sauf les risques reconnus), « auto » (par défaut) ou « prudent »
-# Les six lignes du PBI. « signaler » est le mode du tour, pas l'autonomie de l'agent.
+MODE_KEY = "juge_mode"  # « agir » (pilote automatique), « auto » (par défaut) ou « prudent »
+# Les six lignes du PBI. « signaler » est le mode du tour, pas l'autonomie de l'agent. La colonne « agir » ne sert qu'aux
+# lectures d'une connexion déjà en lecture seule : tout le reste est tranché plus haut, sans consulter le tableau.
 AUTONOMY = {
-    1: {"auto": "passe", "prudent": "passe", "signaler": "passe"},
-    2: {"auto": "passe", "prudent": "accord", "signaler": "accord"},
-    3: {"auto": "passe", "prudent": "accord", "signaler": "accord"},
-    4: {"auto": "accord", "prudent": "accord", "signaler": "accord"},
-    5: {"auto": "passe", "prudent": "accord", "signaler": "accord"},
-    6: {"auto": "accord", "prudent": "accord", "signaler": "accord"},
+    1: {"agir": "passe", "auto": "passe", "prudent": "passe", "signaler": "passe"},
+    2: {"agir": "passe", "auto": "passe", "prudent": "accord", "signaler": "accord"},
+    3: {"agir": "passe", "auto": "passe", "prudent": "accord", "signaler": "accord"},
+    4: {"agir": "passe", "auto": "accord", "prudent": "accord", "signaler": "accord"},
+    5: {"agir": "passe", "auto": "passe", "prudent": "accord", "signaler": "accord"},
+    6: {"agir": "passe", "auto": "accord", "prudent": "accord", "signaler": "accord"},
 }
 MESSAGES = 8
 MESSAGE_CHARS = 800
@@ -509,6 +510,8 @@ def _real_right(agent_id: str, tool: str) -> str | None:
     from . import mcp
     if tool.startswith("mcp__"):
         for name, right in mcp.connection_rights(agent_id).items():
+            if name.startswith("@"):  # des réglages du garde (« @mode », « @google »), jamais un serveur MCP
+                continue
             if tool.startswith(f"mcp__{re.sub(r'[^A-Za-z0-9_]', '_', name)}__"):
                 return right
     return None
@@ -650,6 +653,25 @@ async def judge(agent_id: str, body: Call) -> dict:
     outright = refused_outright(body.outil, body.args)
     if outright:
         return _answer(agent_id, turn, body, "refuse", outright, "regles")
+    connection_read = _connection_read(agent_id, body.outil)
+    if not connection_read and body.droit == "lire":
+        return _answer(agent_id, turn, body, "refuse", "cette connexion est en lecture seule.", "regles")
+    column = "signaler" if turn.mode == "signaler" else mode(agent_id)
+    if column == "agir" and not connection_read:
+        # Pilote automatique : aucune carte, jamais. Ni l'envoi, ni le clic aveugle, ni le tour durci, ni l'adresse lue dans
+        # une page ne l'arrêtent ; il pense et trouve son chemin. Ce qui l'arrête est plus bas : un refus net des règles
+        # (effacement de masse, secrets, protections) et une connexion en lecture seule. La ligne est gardée pour l'Activité.
+        row, motif = classify(body.outil, body.args)
+        if row == 4:  # envoi exact : la ligne 3 le dit, même si le verdict ne change plus
+            exact, _ = exact_request(agent_id, body, turn)
+            row = 3 if exact else 4
+        answer = _answer(agent_id, turn, body, "passe", "", "tableau")
+        answer.update(ligne=row, durci=_is_hardened(agent_id, turn))
+        if body.outil.startswith("mcp__"):
+            # Le relais ne sert un outil de connexion qu'avec un passage : celui-ci est mécanique, pas un accord humain.
+            from . import mcp
+            mcp.allow_exact_once(agent_id, body.outil, body.args)
+        return answer
     problem = _address_problem(body, turn) if body.droit != "agir" else None
     if problem:
         answer = _answer(agent_id, turn, body, problem[0], problem[1], "regles")
@@ -657,11 +679,8 @@ async def judge(agent_id: str, body: Call) -> dict:
             _, answer["comparaison"] = exact_request(agent_id, body, turn)
         return answer
     row, motif = classify(body.outil, body.args)
-    connection_read = _connection_read(agent_id, body.outil)
     if connection_read:
         row = 1
-    elif body.droit == "lire":
-        return _answer(agent_id, turn, body, "refuse", "cette connexion est en lecture seule.", "regles")
     if body.droit == "agir" and not connection_read:
         # Le droit par outil prime sur l'autonomie. Seules les consignes lues et
         # une dernière ligne reconnue demandent ; une absence d'avis ne la prouve pas.
@@ -683,16 +702,10 @@ async def judge(agent_id: str, body: Call) -> dict:
         exact, comparison = exact_request(agent_id, body, turn)
         if exact:
             row = 3
-    column = "signaler" if turn.mode == "signaler" else mode(agent_id)
-    if column == "agir":
-        # Pilote automatique : les cartes ne servaient qu'au durci et au non-classable ; le droit réel du connecteur et
-        # le C2 du serveur restent en place. Le tableau ne dérange plus, l'agent rend compte après.
-        verdict, reason = "passe", ""
-    else:
-        verdict, reason = AUTONOMY[row][column], REASONS[motif]
+    verdict, reason = AUTONOMY[row][column], REASONS[motif]
     if body.droit == "confirmer" and not connection_read and verdict != "accord":
         verdict = "accord"
-    if column != "agir" and _is_hardened(agent_id, turn) and row in (3, 4, 6):
+    if _is_hardened(agent_id, turn) and row in (3, 4, 6):
         verdict, reason = "accord", REASONS["durci"]
     if row == 3 and verdict == "passe" and body.outil.startswith("mcp__"):
         from . import mcp
@@ -783,6 +796,23 @@ def get_judge(_: int = Depends(access.owner_only)):
     return public()
 
 
+def _seal_all() -> None:
+    """Le mode est lu par le garde de l'agent (fichier des droits) : le changer doit l'y réécrire, sinon la personne règle
+    « Agir » et l'agent continue de lui demander des accords. Sans lanceur, l'ancien fichier reste : on ne bloque rien."""
+    from . import mcp
+
+    for agent_id in _agent_ids():
+        try:
+            asyncio.run(mcp.seal_rights(agent_id))
+        except Exception as e:  # noqa: BLE001 - le lanceur redémarre peut-être : la prochaine configuration réécrira
+            print(f"[juge] droits non réécrits pour {agent_id} : {type(e).__name__}", flush=True)
+
+
+def _agent_ids() -> list[str]:
+    with db.connect() as c:
+        return [r["id"] for r in c.execute("SELECT id FROM agents")]
+
+
 @router.post("/api/juge")
 def set_judge(body: Setting, _: int = Depends(access.owner_only)):
     """Réservé au propriétaire, depuis l'écran. Aucune commande de l'agent n'y mène ; coupé, les refus nets et les règles restent."""
@@ -790,6 +820,7 @@ def set_judge(body: Setting, _: int = Depends(access.owner_only)):
         db.set_setting(ACTIVE_KEY, "1" if body.actif else "0")
     if body.mode:
         db.set_setting(MODE_KEY, body.mode)
+        _seal_all()
     return public()
 
 
@@ -803,4 +834,5 @@ def get_agent_judge(agent_id: str, user: int = Depends(auth.current_user)):
 def set_agent_judge(agent_id: str, body: AgentSetting, user: int = Depends(auth.current_user)):
     access.access(user, agent_id, "admin")
     db.set_setting(f"{MODE_KEY}_{agent_id}", body.mode)
+    _seal_all()
     return public(agent_id)

@@ -811,7 +811,8 @@ def test_agir_derniere_ligne():
             reason = juge.ONLY_REPORT if column == "signaler" else juge.REASONS[motif]
             assert out["action"] == wanted and reason in out["message"], (column, motif, out)
             assert provider.judged(), "le faux juge a reconnu la dernière ligne"
-    # Agir est un pilote automatique : même une dernière ligne reconnue par le modèle passe, sans carte.
+    # Agir est un pilote automatique : même une dernière ligne reconnue par le modèle passe, sans carte — et le modèle n'est
+    # même pas consulté, puisqu'aucun verdict ne dépend plus de lui.
     # Un connecteur branché trancherait avant le tableau (le droit « agir » passe, « confirmer » demande toujours) :
     # c'est la branche du tableau qu'on éprouve ici, par un appel sans droit particulier.
     for motif in ("paiement", "secrets", "protections", "irreversible"):
@@ -820,8 +821,8 @@ def test_agir_derniere_ligne():
         session = f"noah-{conversation(text='Traite la fiche par un script maison')}"
         provider.verdict = {"ligne": 6, "motif": motif, "certitude": 95}
         assert call("terminal", session, command="python3 /opt/data/mystere.py") is None, motif
-        assert provider.judged(), motif
-    print("agir + dernière ligne : paiement, secret, droits, suppression demandent en Auto et Prudent ; en Agir, le tableau passe tout")
+        assert not provider.judged(), f"en Agir, aucun modèle n'est consulté ({motif})"
+    print("agir + dernière ligne : paiement, secret, droits, suppression demandent en Auto et Prudent ; en Agir, le tableau passe tout sans consulter de modèle")
 
 
 def test_confirmer_toujours():

@@ -43,7 +43,7 @@ cases = {
     "HTTP 401: invalid x-api-key": "refusé ta clé",
     "AuthenticationError: bad token": "refusé ta clé",
     "Error code: 403 - key has no access": "refusé ta clé",
-    "Error code: 402 - insufficient credits": "plus de crédit",
+    "Error code: 402 - insufficient credits": "crédit insuffisant",
     "Error code: 429 - rate limit exceeded": "limite les requêtes",
     "HTTP 429: quota exceeded": "limite les requêtes",
     "HTTP 403: content policy violation": "selon ses règles",
@@ -68,6 +68,15 @@ for own in ("Budget mensuel de 5.00 $ atteint. Augmente-le dans Noah Agent pour 
     assert "sk-or" not in events.friendly_error("Budget exhausted; key=sk-or-v1-syntheticsecret123"), "un préfixe de Noah ne laisse pas passer une clé"
     assert "syntheticsecret" not in events.friendly_error("Budget exhausted; token=syntheticsecret123")
 print("1. les erreurs connues sont traduites, les autres renvoient aux détails")
+
+# Un 402 n'est pas toujours un manque de crédit : OpenRouter l'utilise aussi pour son budget en vol. Ce qui compte, c'est
+# qu'un solde approvisionné ne renvoie jamais la personne recharger un compte qui a de l'argent.
+for wording in ("402 - model is temporarily unavailable, try again", "402: upstream provider returned an error"):
+    said = events.friendly_error(wording)
+    assert "crédit insuffisant" not in said, f"un 402 qui n'est pas un manque de crédit ne doit pas l'affirmer : {wording!r} → {said!r}"
+assert "crédit insuffisant" in events.friendly_error("402 - you exceeded your current quota, please check your plan")
+assert "crédit insuffisant" in events.friendly_error("insufficient credits on your account")
+print("1b. un 402 qui n'est pas un manque de crédit ne l'affirme pas")
 
 # 2. Les détails ne laissent passer aucun secret.
 leaky = "401 sk-or-v1-abcdef123456 Bearer abcdefghijkl123 x-api-key: zzzzzzzzzzzz sk-or-v1-secretdelapersonne"

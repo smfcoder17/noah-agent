@@ -15,7 +15,12 @@ import { Chart } from "../Widgets";
 
 const ACTIONS: Partial<Record<ElementSpec["kind"], string>> = { pr: "Voir l'analyse", email: "Relire le brouillon", thread: "Relire le fil", appointment: "Dans la discussion", routine: "Modifier la routine", watch: "Modifier la veille", task: "Voir le résultat", skill: "Dans la discussion", approval: "Ouvrir la demande" };
 /** Un fichier texte ou Markdown (.md, .txt, .log…) : son contenu se lit ici, sans passer par le téléchargement. */
-const TEXT_EXT = /\.(md|markdown|txt|log|json|ya?ml|toml|ini|csv|tsv)$/i;
+/** Un fichier dont le contenu se lit comme du texte : code, données, notes, tout ce qui n'est pas binaire. La liste est
+ * large à dessein — un .java, un .ps1, un .srt ou un .conf se lisent aussi. Le serveur transe le type ; ici on ne fait que
+ * proposer la lecture. */
+const TEXT_EXT = /\.(md|markdown|mdx|txt|text|log|json|jsonc|json5|ya?ml|toml|ini|cfg|conf|properties|env|csv|tsv|xml|html?|css|scss|sass|less|js|jsx|mjs|cjs|ts|tsx|py|pyi|ipynb|java|kt|kts|scala|groovy|gradle|c|h|cc|cpp|cxx|hpp|cs|go|rs|rb|php|swift|m|mm|pl|lua|r|jl|sh|bash|zsh|fish|ps1|bat|cmd|sql|graphql|gql|proto|dockerfile|makefile|cmake|gitignore|editorconfig|diff|patch|srt|vtt|tex|rst|adoc|org|nfo|readme|license)$/i;
+/** Un fichier bureautique : son texte est extrait par le serveur. */
+const OFFICE_EXT = /\.(docx|docm|dotx|pptx|pptm|xlsx|xlsm|odt|ods|odp)$/i;
 
 /** Le contenu vient d'un fichier de l'agent, pas du chat : les liens externes partent dans l'onglet, les autres restent du texte. */
 const TEXT_MARKDOWN: NonNullable<React.ComponentProps<typeof ReactMarkdown>["components"]> = {
@@ -38,20 +43,27 @@ export function ElementViewer({ spec, onClose }: { spec: ElementSpec; onClose?: 
   const data = spec.data ?? {};
   const [enabled, setEnabled] = useState(Boolean(data.active ?? data.enabled));
   const [fields, setFields] = useState<Record<string, string>>({});
-  // Un fichier texte ou Markdown : son contenu se charge à l'ouverture et se montre comme un document.
-  const rawText = spec.path && TEXT_EXT.test(spec.path.split("?")[0]);
-  const [text, setText] = useState<string | null | undefined>(rawText ? null : undefined);
+  // Un fichier texte, Markdown ou bureautique : son contenu se charge à l'ouverture et se montre comme un document.
+  const ext = (spec.path || "").split("?")[0].split(".").pop()?.toLowerCase() || "";
+  const rawText = !!spec.path && TEXT_EXT.test(spec.path.split("?")[0]) && !OFFICE_EXT.test(spec.path.split("?")[0]);
+  const office = !!spec.path && OFFICE_EXT.test(spec.path.split("?")[0]);
+  const needsText = !!spec.path && (rawText || office);
+  const [text, setText] = useState<string | null | undefined>(needsText ? null : undefined);
   useEffect(() => {
     let live = true;
-    if (!rawText || text !== null) return;
-    const target = spec.path ? `/api/agents/${spec.agentId}/files/raw/${spec.path.replace(/^\/opt\/data\/workspace\//, "").split("/").map(encodeURIComponent).join("/")}` : undefined;
-    if (!target) return;
+    if (!needsText || text !== null) return;
+    const trimmed = (spec.path || "").replace(/^\/opt\/data\/workspace\//, "").split("/").map(encodeURIComponent).join("/");
+    // Un fichier bureautique passe par l'extraction du serveur ; un texte se lit tel quel.
+    const target = office
+      ? `/api/agents/${encodeURIComponent(spec.agentId || "")}/fichier/texte/${trimmed}`
+      : `/api/agents/${spec.agentId}/files/raw/${trimmed}`;
+    if (!spec.path) return;
     fetch(target, { credentials: "same-origin" })
       .then((r) => (r.ok ? r.text() : Promise.reject(new Error(String(r.status)))))
-      .then((body) => { if (live) setText(body); })
+      .then((body) => { if (live) setText(office ? `# ${spec.title}\n\n${body}` : body); })
       .catch(() => { if (live) setText(undefined); });
     return () => { live = false; };
-  }, [rawText, spec.path, spec.agentId, text]);
+  }, [needsText, office, spec.path, spec.agentId, spec.title, text]);
   const toggle = async () => { if (!spec.agentId || typeof data.id !== "string") return; try { await send(`/api/agents/${encodeURIComponent(spec.agentId)}/${spec.kind === "routine" ? "routines" : "watches"}/${encodeURIComponent(data.id)}/${enabled ? "pause" : "reprendre"}`, {}); setEnabled(!enabled); setActionError(""); } catch (e) { setActionError((e as Error).message); } };
   const rows = Array.isArray(data.rows) ? data.rows.filter(Array.isArray) as unknown[][] : [];
   const columns = Array.isArray(data.columns) ? data.columns : [];
@@ -73,8 +85,10 @@ export function ElementViewer({ spec, onClose }: { spec: ElementSpec; onClose?: 
         <img src={url} alt={display(spec.description || spec.title)} onError={() => setError(true)} style={{ transform: `scale(${zoom})` }} /><label>Zoom <input type="range" min="1" max="4" step=".1" value={zoom} onChange={(e) => setZoom(Number(e.target.value))} /></label></div>
       : spec.kind === "pdf" && url ? <><div className="flex gap-3 items-center"><button disabled={page === 1} onClick={() => setPage(page - 1)}>Page précédente</button><span>Page {page}{Number(data.pages) > 0 ? ` / ${Number(data.pages)}` : ""}</span><button disabled={Number(data.pages) > 0 && page >= Number(data.pages)} onClick={() => setPage(page + 1)}>Page suivante</button><label>Zoom <input type="range" min=".5" max="3" step=".1" value={zoom} onChange={(e) => setZoom(Number(e.target.value))} /></label></div><SandboxedFrame title={elementName(spec)} src={url.split("#")[0] + `#page=${page}&zoom=${zoom * 100}`} className="element-frame" onError={() => setError(true)} /></>
       : spec.kind === "page" && url ? <SandboxedFrame title={elementName(spec)} src={url} className="element-frame" onError={() => setError(true)} />
-      : rawText && text ? <div className="element-frame prose-chat max-w-none overflow-auto bg-surface px-6 py-4 text-[15px] leading-relaxed"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ ...SENSITIVE_MARKDOWN, a: TEXT_MARKDOWN.a, img: TEXT_MARKDOWN.img }}>{text}</ReactMarkdown></div>
-      : rawText && text !== null && text === undefined ? <p role="alert">Ce texte n'a pas pu être lu. Télécharge-le pour le lire. <button onClick={() => download(url || spec.path || "", spec.title)}>Télécharger</button></p>
+      : spec.kind === "video" && url ? <video src={url} controls playsInline preload="metadata" className="element-frame max-h-[70vh] w-full bg-black" onError={() => setError(true)}>Ce format vidéo n'est pas lu par ce navigateur. <button onClick={() => download(url, spec.title)}>Télécharger</button></video>
+      : spec.kind === "audio" && url ? <div className="flex flex-col gap-2 px-4 py-5"><audio src={url} controls preload="metadata" className="w-full" onError={() => setError(true)} /><span className="text-xs text-muted-foreground">{ext ? `Audio ${ext.toUpperCase()}` : "Audio"} · <button className="cursor-pointer underline" onClick={() => download(url, spec.title)}>télécharger</button></span></div>
+      : needsText && text ? <div className="element-frame prose-chat max-w-none overflow-auto bg-surface px-6 py-4 text-[15px] leading-relaxed"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ ...SENSITIVE_MARKDOWN, a: TEXT_MARKDOWN.a, img: TEXT_MARKDOWN.img }}>{text}</ReactMarkdown></div>
+      : needsText && text !== null && text === undefined ? <p role="alert">Ce fichier n'a pas pu être lu ici. Télécharge-le pour l'ouvrir. <button onClick={() => download(url || spec.path || "", spec.title)}>Télécharger</button></p>
       : spec.kind === "grid" || spec.kind === "batch" ? <div className="element-grid">{items.map((it, i) => <article key={i}>{elementUrl(String(it.image ?? "")) && <img src={elementUrl(String(it.image))} alt={String(it.title ?? "")} loading="lazy" />}<b><SensitiveText text={String(it.title ?? "")} /></b><p><SensitiveText text={String(it.subtitle ?? "")} /></p></article>)}</div>
       : spec.kind === "chart" && Array.isArray(data.series) && Array.isArray(data.labels) ? <Chart spec={data as unknown as React.ComponentProps<typeof Chart>["spec"]} />
       : ["table", "csv", "chart"].includes(spec.kind) && rows.length ? <div className="overflow-auto"><table><thead><tr>{columns.map((c, i) => <th key={i}>{String(c)}</th>)}</tr></thead><tbody>{rows.map((row, i) => <tr key={i}>{row.map((cell, j) => <td key={j}><SensitiveText text={String(cell)} /></td>)}</tr>)}</tbody></table></div>

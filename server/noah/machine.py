@@ -126,6 +126,35 @@ async def competence_remove(agent_id: str, name: str, user: int = Depends(auth.c
     return await admin(_check(agent_id, user), "competence_retirer", {"nom": name})
 
 
+# --- Skills : tout ce que l'agent sait faire, y compris ce qu'il a appris seul ------------------------------------------------
+# L'agent crée ses skills avec l'outil d'Hermes, sans catégorie : ils restaient invisibles. Ces routes les montrent tous,
+# disent d'où ils viennent, et laissent la personne modifier ou retirer les siens (un skill fourni revient à chaque mise à jour).
+
+class SkillBody(BaseModel):
+    titre: str = Field(min_length=1, max_length=120)
+    texte: str = Field(min_length=1, max_length=20000)
+
+
+@router.get("/api/agents/{agent_id}/skills")
+async def skills(agent_id: str, user: int = Depends(auth.current_user)):
+    return await admin(_check(agent_id, user), "skills")
+
+
+@router.get("/api/agents/{agent_id}/skills/{name:path}")
+async def skill_read(agent_id: str, name: str, user: int = Depends(auth.current_user)):
+    return await admin(_check(agent_id, user), "skill_lire", {"nom": name})
+
+
+@router.put("/api/agents/{agent_id}/skills/{name:path}")
+async def skill_write(agent_id: str, name: str, body: SkillBody, user: int = Depends(auth.current_user)):
+    return await admin(_check(agent_id, user), "skill_ecrire", {"nom": name, "titre": body.titre.strip(), "texte": body.texte.strip()})
+
+
+@router.delete("/api/agents/{agent_id}/skills/{name:path}")
+async def skill_remove(agent_id: str, name: str, user: int = Depends(auth.current_user)):
+    return await admin(_check(agent_id, user), "skill_retirer", {"nom": name})
+
+
 # --- Routines -------------------------------------------------------------------------------
 
 class RoutineChoices(BaseModel):

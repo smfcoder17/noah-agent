@@ -19,6 +19,15 @@ NOAH = DATA / ".noah"
 GOOGLE = DATA / "skills/productivity/google-workspace/scripts/setup.py"
 MEMORY_SEP = "\n§\n"
 
+# Les applications que Noah connaît en plus du catalogue d'Hermes (brollss…), par nom. Un fichier du volume de l'agent :
+# le lanceur le dépose avec le garde, et une version publiée peut en ajouter d'autres sans reconstruire l'image.
+sys.path.insert(0, str(DATA))
+try:
+    from applications_extra import CATALOG as _EXTRA
+except Exception:  # noqa: BLE001 - une installation sans ce fichier garde le catalogue d'Hermes seul
+    _EXTRA = []
+EXTRA_APPS = {a["nom"]: a for a in _EXTRA}
+
 
 def out(obj):
     print(json.dumps(obj, ensure_ascii=False, default=str))
@@ -464,6 +473,13 @@ def apps(_):
                     "installe": cfg is not None, "connecte": bool(cfg) and _mcp_connected(e.name, cfg),
                     "url": (cfg or {}).get("url")})
     catalog = {a["nom"] for a in out}
+    # Les applications que Noah connaît en plus du catalogue d'Hermes (brollss…) : même carte, même parcours.
+    for extra in _EXTRA:
+        cfg = installed.get(extra["nom"])
+        out.append({**{k: extra[k] for k in ("nom", "description", "source", "hote")},
+                    "oauth": bool(extra["oauth"]), "installe": cfg is not None,
+                    "connecte": bool(cfg) and _mcp_connected(extra["nom"], cfg), "url": (cfg or {}).get("url") or extra["url"]})
+        catalog.add(extra["nom"])
     # Les outils ajoutés par adresse : seul Hermes sait si leur connexion OAuth a abouti.
     personal = {name: {"connecte": _mcp_connected(name, cfg)} for name, cfg in _get_mcp_servers().items() if name not in catalog}
     return {"applications": out, "personnels": personal}
@@ -480,7 +496,13 @@ def _check_name(name):
 def app_connect(body):
     from hermes_cli import mcp_catalog
     from hermes_cli.mcp_config import _save_mcp_server
-    entry = _check_name(body.get("nom"))
+    name = str(body.get("nom") or "")
+    extra = EXTRA_APPS.get(name)
+    if extra:  # une application ajoutée par Noah, absente du catalogue d'Hermes
+        if not _save_mcp_server(name, {"url": extra["url"], "auth": "oauth" if extra["oauth"] else "none", "enabled": True}):
+            fail("Configuration refusée par Hermes")
+        return _start_login(name, body.get("retour") or "") if extra["oauth"] else {"connecte": True}
+    entry = _check_name(name)
     if entry.auth.type != "oauth" and entry.auth.env:
         fail("Cette application demande des clés : pas encore prise en charge ici")
     if not _save_mcp_server(entry.name, mcp_catalog.card_install_config(entry)):
@@ -759,6 +781,161 @@ def competence_remove(body):
     return {"ok": True}
 
 
+# --- Skills vus par la personne : tout ce que l'agent sait faire, d'où qu'il vienne -------------------------------------
+# L'agent crée ses skills avec l'outil d'Hermes, qui les range à la racine de son dossier de skills, sans catégorie. Ils
+# n'apparaissaient donc nulle part : l'écran ne lisait que `competences/`. Ici : tout skill présent, avec son origine
+# (fourni avec Noah, enseigné, ou appris par l'agent), et les mêmes gestes qu'une compétence — lire, modifier, supprimer.
+# Le manifeste `.bundled_manifest` (nom:empreinte) dit ce qui est fourni : le reste est à la personne ou à l'agent.
+
+SKILL_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+
+
+def _skills_root():
+    from tools.skill_manager_tool import _skills_dir
+    return _skills_dir()
+
+
+def _bundled() -> set[str]:
+    try:
+        text = (_skills_root() / ".bundled_manifest").read_text(encoding="utf-8")
+    except OSError:
+        return set()
+    names = set()
+    for line in text.splitlines():
+        name = line.split(":", 1)[0].strip()
+        if name:
+            names.add(name)
+    return names
+
+
+def _skill_dirs():
+    """Tous les SKILL.md sous le dossier de skills, un par skill. Les noms de dossier imbriqués (catégorie/skill)
+    restent acceptés : Hermes les cherche ainsi."""
+    root = _skills_root()
+    if not root.is_dir():
+        return []
+    found = []
+    for path in root.rglob("SKILL.md"):
+        if any(part.startswith(".") for part in path.relative_to(root).parts):
+            continue
+        found.append(path.parent)
+    return sorted(found)
+
+
+def _front(text: str) -> tuple[dict, str]:
+    """Le frontmatter YAML minimal (clé: valeur) et le corps. On ne charge pas YAML ici : deux champs suffisent, et un
+    frontmatter exotique ne doit pas faire échouer la liste."""
+    raw = text.lstrip("\ufeff")
+    if not raw.startswith("---"):
+        return {}, raw.strip()
+    _, _, rest = raw.partition("---")
+    head, sep, body = rest.partition("\n---")
+    if not sep:
+        return {}, raw.strip()
+    fields: dict[str, str] = {}
+    for line in head.splitlines():
+        key, colon, value = line.partition(":")
+        if colon and key.strip() and not value.startswith((" ", "\t")):
+            fields[key.strip()] = value.strip().strip("'\"")
+        elif colon and key.strip() in fields:  # une valeur repliée sur plusieurs lignes
+            fields[key.strip()] += " " + value.strip().strip("'\"")
+    return fields, body.strip()
+
+
+def _skill_shown(folder, bundled: set[str]) -> dict:
+    try:
+        raw = (folder / "SKILL.md").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return {}
+    fields, body = _front(raw)
+    name = fields.get("name") or folder.name
+    root = _skills_root()
+    try:
+        rel = folder.relative_to(root).as_posix()
+    except ValueError:
+        rel = folder.name
+    category = rel.rsplit("/", 1)[0] if "/" in rel else ""
+    taught = category.split("/")[0] == COMPETENCES or rel.startswith(COMPETENCES + "/")
+    origin = "fourni avec Noah" if name in bundled or folder.name in bundled else ("enseigné par toi" if taught else "appris par ton agent")
+    # Le titre se lit avant de retirer la ligne « # Titre » du corps : l'écran l'affiche déjà comme titre.
+    title = _title_of(body, fields.get("description") or folder.name)
+    body = re.sub(r"^#\s+[^\n]{1,200}\n+", "", body.lstrip(), count=1)
+    return {"nom": rel, "titre": title,
+            "resume": (fields.get("description") or "")[:300], "texte": body[:200_000], "origine": origin,
+            "categorie": category, "fourni": origin == "fourni avec Noah", "modifiable": origin != "fourni avec Noah"}
+
+
+def _title_of(body: str, fallback: str) -> str:
+    found = re.search(r"^#\s+(.{1,120})$", body, re.M)
+    return found.group(1).strip() if found else fallback
+
+
+def skill_list(_):
+    bundled = _bundled()
+    out = [shown for shown in (_skill_shown(f, bundled) for f in _skill_dirs()) if shown]
+    order = {"enseigné par toi": 0, "appris par ton agent": 1, "fourni avec Noah": 2}
+    return {"skills": sorted(out, key=lambda s: (order.get(s["origine"], 3), s["titre"].lower()))}
+
+
+def _skill_folder(name):
+    """Le dossier d'un skill par son nom relatif (`categorie/skill`) ou son nom simple, s'il est unique."""
+    wanted = str(name or "").strip().strip("/")
+    if not wanted or ".." in wanted.split("/") or not all(SKILL_NAME.fullmatch(p) for p in wanted.split("/")):
+        fail("Ce skill n'existe pas")
+    root = _skills_root()
+    for folder in _skill_dirs():
+        try:
+            rel = folder.relative_to(root).as_posix()
+        except ValueError:
+            continue
+        if rel == wanted or folder.name == wanted:
+            return folder
+    fail("Ce skill n'existe pas")
+
+
+def _skill_writable(folder):
+    if folder.name in _bundled() or _skill_shown(folder, _bundled()).get("fourni"):
+        fail("Ce skill vient avec Noah : il revient à chaque mise à jour, le modifier ici ne servirait à rien. "
+             "Enseigne plutôt une compétence, qui reste et prime sur lui.")
+    return folder
+
+
+def skill_read(body):
+    return _skill_shown(_skill_folder(body.get("nom")), _bundled())
+
+
+def skill_write(body):
+    """Modifier le texte libre d'un skill. Le frontmatter est conservé tel quel : seul le corps change."""
+    folder = _skill_folder(body.get("nom"))
+    _skill_writable(folder)
+    title, text = " ".join(str(body.get("titre") or "").split()), str(body.get("texte") or "").strip()
+    if not title or not text:
+        fail("Il faut un titre et un texte")
+    try:
+        raw = (folder / "SKILL.md").read_text(encoding="utf-8")
+    except OSError:
+        fail("Ce skill n'existe pas")
+    fields, _ = _front(raw)
+    head, sep, _ = raw.lstrip("\ufeff").partition("\n---")
+    front = (head + "\n---\n\n") if sep else f"---\nname: {folder.name}\ndescription: {json.dumps(title[:60], ensure_ascii=False)}\n---\n\n"
+    (folder / "SKILL.md").write_text(f"{front}# {title}\n\n{text}\n", encoding="utf-8")
+    return _skill_shown(folder, _bundled())
+
+
+def skill_remove(body):
+    folder = _skill_folder(body.get("nom"))
+    _skill_writable(folder)
+    rel = str(folder.relative_to(_skills_root()).as_posix())
+    # Hermes refuse de supprimer un skill épinglé. Épingler n'est utile qu'aux compétences enseignées (le tri d'Hermes ne
+    # les archive ni ne les fusionne) ; ici, la personne a demandé la suppression, elle passe avant.
+    _pin(folder.name, False)
+    answer = _skill_call("delete", rel)
+    if not answer.get("success"):
+        _pin(folder.name, True)
+        fail(f"Skill non retiré : {str(answer.get('error') or answer)[:300]}")
+    return {"ok": True}
+
+
 # --- Profil d'une personne avec qui l'agent est partagé (G12.5) ----------------------------------------------------------
 # Un vrai profil Hermes dans la même machine : sa mémoire, ses sessions, ses compétences et son identité de navigateur à lui.
 # Il reçoit le modèle et le rôle de l'agent, jamais ses comptes : ni serveurs MCP, ni jetons Google, ni le .env en entier.
@@ -849,6 +1026,7 @@ ACTIONS = {
     "google_installer": google_install, "google_lire": google_read, "source_google": source_google,
     "competences": competence_list, "competence_ajouter": competence_add, "competence_modifier": competence_edit,
     "competence_retirer": competence_remove,
+    "skills": skill_list, "skill_lire": skill_read, "skill_ecrire": skill_write, "skill_retirer": skill_remove,
 }
 
 if __name__ == "__main__":

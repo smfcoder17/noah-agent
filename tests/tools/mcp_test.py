@@ -795,6 +795,47 @@ for raw, command, expected in (("rm -rf /", True, "commande sensible"), ("Execut
     said = plain_request(raw, command)["demande"]
     assert expected in said and "rm -rf" not in said, (raw, said)
 print("accord : une phrase claire et ce qui serait envoyé, le technique reste pour les détails")
+
+# --- L'autonomie descend jusqu'au garde : en « agir », plus aucune carte de connexion ni de Google ------------
+# Le mode est écrit avec les droits, hors du volume : un conteneur recréé le retrouve, et l'agent ne peut pas le changer.
+def set_mode(mode: str) -> None:
+    text = json.loads(RIGHTS_FILE.read_text())
+    text["@mode"] = mode
+    RIGHTS_FILE.write_text(json.dumps(text))
+
+
+assert "libre" in json.loads(RIGHTS_FILE.read_text()), "le serveur de test existe déjà"
+set_right("libre", "confirmer")
+garde._read_only = lambda server, tool: tool == "lire_fiche"
+for mode, attendu in (("auto", "approve"), ("prudent", "approve"), ("agir", None)):
+    set_mode(mode)
+    assert garde._autonomy() == mode, mode
+    assert action_of("libre", "creer_fiche") == attendu, (mode, action_of("libre", "creer_fiche"))
+    assert plugin("libre", "lire_fiche") is None, "une lecture déclarée ne demande jamais"
+# La lecture seule reste un refus : on ne contourne pas un droit que la personne a retiré, même en agir.
+set_right("libre", "lire")
+set_mode("agir")
+assert action_of("libre", "creer_fiche") == "block"
+set_right("libre", "confirmer")
+# Un mode absent, illisible ou inconnu vaut « auto » : le garde ne devine jamais « agir ».
+kept_mode = RIGHTS_FILE.read_text()
+RIGHTS_FILE.write_text(json.dumps({"libre": "confirmer"}))
+assert garde._autonomy() == "auto"
+RIGHTS_FILE.write_text(json.dumps({"libre": "confirmer", "@mode": "tout"}))
+assert garde._autonomy() == "auto"
+RIGHTS_FILE.write_text("{pas du json")
+assert garde._autonomy() == "auto"
+RIGHTS_FILE.write_text(kept_mode)
+# C'est bien l'autonomie de cet agent, telle que le serveur la lit en base, qui part dans le fichier des droits.
+db.set_setting("juge_mode", "agir")
+assert mcp._rights("a1")["@mode"] == "agir", mcp._rights("a1")
+db.set_setting("juge_mode_a1", "prudent")
+assert mcp._rights("a1")["@mode"] == "prudent", "le mode propre à l'agent prime"
+assert "@mode" not in mcp.connection_rights("a1"), "un réglage n'est pas une connexion"
+db.set_setting("juge_mode", "auto")
+db.set_setting("juge_mode_a1", "auto")
+print("autonomie : le mode descend jusqu'au garde ; agir ne demande plus rien, sauf une lecture seule ; absent, illisible ou inconnu vaut auto")
+
 assert not [line for line in LOGS if JETON in line], "jeton en clair dans les journaux"
 print("OK")
 # Tout a été vérifié. Une extension C plante parfois à la fermeture de Python (segfault après ce OK), sans lien avec le code testé :
