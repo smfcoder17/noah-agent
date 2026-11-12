@@ -29,4 +29,8 @@ Pour trancher, il faut lire sur le serveur, au moment d'une carte :
 
 ## Non fait
 
-Aucun code changé et aucun test ajouté : aucune règle de `main` ne produit de carte dans ces trois cas en Agir, donc il n'y a pas de test rouge à écrire.
+Aucun code changé : aucune règle de `main` ne produit de carte dans ces trois cas en Agir.
+
+## Test ajouté à la relecture
+
+`tests/tools/google_droit_test.py`, section « Mode Agir » : avec le juge en panne, en Agir et Google en « confirmer », `calendar create`, `noah.py routine` et `skill_manage` passent sans carte ; Google en « lire » est refusé ; en Auto et en Prudent, `calendar create` demande l'accord. Le test passe : il fige le comportement du garde, il ne tranche pas les hypothèses ci-dessus. `juge_test.py` (corpus d'attaques compris) reste vert.
