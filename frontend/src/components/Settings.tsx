@@ -19,6 +19,7 @@ import { Updates } from "./Updates";
 import { Flows } from "./Flows";
 import { JudgeSetting } from "./Juge";
 import { DecisionModel } from "./DecisionModel";
+import { FastModel } from "./FastModel";
 import { ModeRows } from "./Modes";
 import type { Level } from "@/lib/modes";
 import { type MediaModel, ModelSelect } from "./ModelSelect";
@@ -116,6 +117,7 @@ export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainS
             <TabsContent value="brain">
               <div className="flex flex-col gap-3">
                 <DefaultBrain onCancel={() => onOpenChange(false)} onDone={onBrainSaved} />
+                <FastModel />
                 <DecisionModel />
               </div>
             </TabsContent>

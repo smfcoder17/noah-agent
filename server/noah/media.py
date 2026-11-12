@@ -15,7 +15,7 @@ from pathlib import Path
 
 import httpx
 
-from . import catalog, db, decision, diagnostics, modes, relay
+from . import catalog, db, decision, diagnostics, modes, rapide, relay
 
 BASE = "https://openrouter.ai/api/v1"
 CACHE_SECONDS = 3600
@@ -648,17 +648,19 @@ _voice_pick: dict[str, float | str] = {"at": 0.0, "model": ""}
 
 async def _voice_target() -> tuple[str, dict, list[str]]:
     """Où parle la voix rapide : (adresse, en-têtes, modèles à essayer). Elle suit le fournisseur du cerveau. Sur OpenRouter, la liste
-    VOICE_MODELS reste : c'est le premier mot qui compte, mesuré à ~0,25 s sur les hébergeurs les plus rapides. Ailleurs, le modèle de
-    décision, mesuré sur cette clé-là (decision.py) ; sinon le cerveau."""
+    VOICE_MODELS reste : c'est le premier mot qui compte, mesuré à ~0,25 s sur les hébergeurs les plus rapides. Voix en automatique : le
+    modèle rapide mesuré sur cette clé (rapide.py) passe en tête, partout. Ailleurs qu'OpenRouter, sans lui, le modèle de décision
+    (decision.py), sinon le cerveau."""
     provider = db.get_setting("provider")
+    fast = rapide.model() if (db.get_setting("media_voice_brain") or "auto") == "auto" else ""  # mesuré sur cette clé : le premier mot le plus rapide
     if provider == "openrouter" or not provider:
-        model = await voice_model()
+        model = fast or await voice_model()
         return BASE, _headers(), [model, model, *[m for m in VOICE_MODELS if m != model][:2]]
     key = db.get_setting("api_key", secret=True) if db.get_setting("api_key") else None
     base_url = db.get_setting("base_url") or None
     brain = db.get_setting("model")
     chosen = db.get_setting("media_voice_brain") or "auto"
-    model = chosen if chosen != "auto" else decision.model() or brain
+    model = chosen if chosen != "auto" else fast or decision.model() or brain
     return relay.upstream_base(provider, base_url), {"Authorization": f"Bearer {key}"} if key else {}, [model, model, brain]
 
 
