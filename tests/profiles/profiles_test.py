@@ -459,6 +459,8 @@ WHITELIST = {
 # Routes sans identifiant : la configuration globale, refusée à un profil…
 OWNER_ROUTES = {
     ("GET", "/api/fournisseurs"): None,
+    ("GET", "/api/modele-rapide"): None,  # 0.1.9 : modèle rapide, réservé au propriétaire (rapide.py)
+    ("POST", "/api/modele-rapide/mesurer"): None,
     ("POST", "/api/setup/done"): None,
     ("POST", "/api/model"): {"provider": "openrouter", "api_key": "CLE-DU-FOURNISSEUR", "model": "modele-de-base"},
     ("POST", "/api/budget"): {"monthly": None},
