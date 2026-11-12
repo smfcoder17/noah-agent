@@ -7,6 +7,7 @@ services:
       context: .
       dockerfile: server/Dockerfile
     container_name: noah-server
+    logging: {driver: json-file, options: {max-size: "10m", max-file: "3"}}  # 30 Mo de journaux au plus
     restart: unless-stopped
     ports:
       # 127.0.0.1 par défaut. Pour un autre appareil, donne à Noah une adresse HTTPS (README, « Relier le téléphone »).
@@ -31,6 +32,7 @@ services:
   launcher:
     build: launcher
     container_name: noah-launcher
+    logging: {driver: json-file, options: {max-size: "10m", max-file: "3"}}  # 30 Mo de journaux au plus
     restart: unless-stopped
     environment:
       LAUNCHER_KEY: ${LAUNCHER_KEY}

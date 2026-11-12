@@ -151,5 +151,19 @@ assert res.json()["supprimes"] == wanted, "tout est traité"
 assert len(calls) > 1 and all(len(json.dumps(part)) < 131072 for part in calls), "par lots : un seul argument de commande ne dépasse pas la limite du système"
 assert TestClient(launcher.app).post("/agents/a1/files/supprimer", json={"chemins": ["a"]}).status_code in (401, 403), "le lanceur demande sa clé"
 print("le lanceur borne et découpe")
+
+# Régression 0.1.7 : tout fichier que hermes.configure envoie doit être dans la liste du lanceur, sinon toute configuration
+# d'agent échoue (« Fichier non autorisé : applications_extra.py »). Lu dans le code des deux côtés, pour que l'écart ne revienne pas.
+import inspect  # noqa: E402
+import re  # noqa: E402
+
+source = inspect.getsource(hermes.configure)
+envoyes = set(re.findall(r'files\["([^"]+)"\]', source))
+if 'files[f"plugins/noah-garde/{name}"]' in source:
+    envoyes |= {"plugins/noah-garde/plugin.yaml", "plugins/noah-garde/__init__.py"}
+assert {"config.yaml", "noah.py", "applications_extra.py"} <= envoyes, f"lecture du code à revoir : {envoyes}"
+assert len(re.findall(r"files\[", source)) == len(re.findall(r'files\["[^"]+"\]', source)) + 1, "un fichier envoyé sous un nom que ce test ne sait pas lire"
+assert envoyes <= set(launcher.CONFIG_FILES), f"le lanceur refuserait : {sorted(envoyes - set(launcher.CONFIG_FILES))}"
+print("tout fichier envoyé par la configuration est accepté par le lanceur")
 asyncio.run(asyncio.sleep(0))
 print("OK")

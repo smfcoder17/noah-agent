@@ -87,11 +87,17 @@ BROWSER_LABEL = "noah.browser"
 BROWSER_VERSION = "16"
 
 
+FROZEN_WAIT = 30  # secondes ; sous le délai de 120 s du serveur (hermes._launcher)
+
+
 def _frozen(agent_id: str):
     """Opération sur le parc (créer, supprimer, recréer un agent ou un navigateur) : elle tient le verrou des mises à
-    jour pendant toute sa durée. Une transaction qui démarre l'attend ; pendant une transaction, elle est refusée."""
-    if not updater._lock.acquire(blocking=False):
-        raise HTTPException(409, "Noah installe une mise à jour : réessaie dans quelques minutes.")
+    jour pendant toute sa durée. Une transaction qui démarre l'attend ; pendant une transaction, elle est refusée.
+    Une autre opération en cours (un navigateur qui s'arrête, un agent qui se crée) : on attend son tour, un temps borné,
+    au lieu d'un faux « Noah installe une mise à jour »."""
+    if not updater._lock.acquire(timeout=FROZEN_WAIT):
+        not_updating(agent_id)  # une vraie mise à jour : son propre message
+        raise HTTPException(409, "Une autre opération sur tes agents est en cours : réessaie dans une minute.")
     try:
         not_updating(agent_id)
         yield
@@ -144,6 +150,31 @@ def _cpus(wanted: int) -> int:
         return wanted * 1_000_000_000
 
 
+GO = 2**30
+MEM_MAX = 4 * GO
+MEM_FLOOR_AGENT = 1 * GO  # Hermes et ses outils
+MEM_FLOOR_BROWSER = 2 * GO  # un onglet de la console Google Cloud dépasse à lui seul 1,8 Go
+# Journaux des agents et navigateurs : 30 Mo au plus par conteneur. Sans ça, json-file grossit sans fin et remplit le disque.
+LOG_CONFIG = {"type": "json-file", "config": {"max-size": "10m", "max-file": "3"}}
+
+
+@functools.lru_cache(maxsize=1)
+def _ram() -> int | None:
+    return client.info().get("MemTotal")
+
+
+def _mem(share: float, floor: int) -> int:
+    """Limite de mémoire selon la machine : 4 Go fixes laissaient un agent et son navigateur réclamer 8 Go sur un VPS de 4,
+    et le noyau tuait alors au hasard, serveur compris. Jamais sous le plancher, qui garde de quoi tourner."""
+    try:
+        total = _ram()
+    except Exception:  # noqa: BLE001 - Docker occupé : la limite voulue
+        total = None
+    if not total:
+        return MEM_MAX
+    return max(floor, min(MEM_MAX, int(total * share)))
+
+
 @app.exception_handler(docker.errors.APIError)
 async def docker_refused(request: Request, error: Exception):
     """Sans ça, le serveur ne reçoit qu'« Internal Server Error » et ne peut rien dire de plus."""
@@ -185,7 +216,11 @@ def _ensure_browser(agent_id: str, body: BrowserKeys, image: str | None = None, 
     version = f"{BROWSER_VERSION}:{body.locale}:{body.timezone}"
     try:
         c = client.containers.get(name)
-        if c.labels.get("noah.browser.version") == version:
+        current = c.labels.get("noah.browser.version", "")
+        # Langue et fuseau inconnus (ipinfo.io muet) : on garde l'identité en place plutôt que de recréer en UTC/en-US.
+        same = current == version or (not (body.locale and body.timezone)
+                                      and current.split(":")[0] == BROWSER_VERSION)
+        if same:
             if c.status != "running":
                 c.start()
             return {"host": name, "created": False}
@@ -230,7 +265,10 @@ def _ensure_browser(agent_id: str, body: BrowserKeys, image: str | None = None, 
         restart_policy={"Name": "unless-stopped"},
         # Firefox sans carte graphique dessine tout au processeur : avec 2 cœurs, la console Google Cloud mettait 10 à
         # 30 s par clic et l'écran partagé ramait. Un onglet de cette console dépasse à lui seul 1,8 Go.
-        mem_limit="4g",
+        # Moitié de la RAM, 4 Go au plus, 2 Go au moins. À court de mémoire, le navigateur part avant le serveur.
+        mem_limit=_mem(0.5, MEM_FLOOR_BROWSER),
+        oom_score_adj=500,
+        log_config=LOG_CONFIG,
         nano_cpus=_cpus(4),
         shm_size="1g",
         security_opt=["no-new-privileges"],
@@ -567,8 +605,19 @@ def set_folders(agent_id: str, body: AgentFolders):
     c = container(check_id(agent_id))
     key = _agent_key(c)
     rights = c.exec_run(["cat", "/etc/noah/mcp-droits.json"], user="root")
+    # Recréer avant de retirer : un montage refusé (dossier disparu, chemin interdit) laissait la personne sans agent.
+    was_running = c.status == "running"
+    name = PREFIX + agent_id
+    c.stop(timeout=10)  # arrêt propre : Hermes finit d'écrire, puis le volume est libre pour le nouveau
+    c.rename(name + "-ancien")
+    try:
+        out = _run_agent(agent_id, key, folders)
+    except Exception:
+        c.rename(name)  # l'agent d'avant revient tel quel
+        if was_running:
+            c.start()
+        raise
     c.remove(force=True)
-    out = _run_agent(agent_id, key, folders)
     if rights.exit_code == 0:
         _seal_rights(container(agent_id), json.loads(rights.output))
     threading.Thread(target=_restore_packages, daemon=True).start()
@@ -603,7 +652,8 @@ def _run_agent(agent_id: str, api_key: str, folders: list[Folder]):
         volumes=volumes,
         network=NETWORK,
         restart_policy={"Name": "unless-stopped"},
-        mem_limit="4g",
+        mem_limit=_mem(0.4, MEM_FLOOR_AGENT),  # 40 % de la RAM, 4 Go au plus, 1 Go au moins
+        log_config=LOG_CONFIG,
         nano_cpus=_cpus(2),
         security_opt=["no-new-privileges"],
         cap_drop=["NET_RAW", "SYS_ADMIN", "MKNOD"],
@@ -619,8 +669,9 @@ def _run_agent(agent_id: str, api_key: str, folders: list[Folder]):
 
 
 # Fichiers que le serveur peut écrire dans /opt/data : config d'Hermes, rôle, l'outil `noah.py` de l'agent,
-# et la liste des dossiers partagés (pour que l'agent sache ce qu'ils sont).
-CONFIG_FILES = (".env", "config.yaml", "SOUL.md", "noah.py", "dossiers.json",
+# la liste des dossiers partagés (pour que l'agent sache ce qu'ils sont) et les applications que Noah ajoute au catalogue
+# d'Hermes (lues par agent_admin.py). Tout fichier envoyé par hermes.configure doit être ici (test fil_fichiers_test.py).
+CONFIG_FILES = (".env", "config.yaml", "SOUL.md", "noah.py", "dossiers.json", "applications_extra.py",
                 "plugins/noah-garde/plugin.yaml", "plugins/noah-garde/__init__.py")  # garde de Noah (G7.6)
 
 
@@ -807,13 +858,16 @@ def install(agent_id: str, body: Packages):
 def _restore_packages() -> None:
     """Au démarrage du lanceur : réinstalle dans chaque agent les paquets qu'il avait ajoutés."""
     for c in client.containers.list(filters={"label": LABEL}):
-        res = c.exec_run(["sh", "-c", f"cat {PACKAGES_FILE} 2>/dev/null"], user="root")
-        wanted = [p for p in res.output.decode().split() if PACKAGE_RE.match(p)]
-        if not wanted:
-            continue
-        missing = [p for p in wanted if c.exec_run(["dpkg", "-s", p], user="root").exit_code != 0]
-        if missing:
-            _apt(c, missing)
+        try:
+            res = c.exec_run(["sh", "-c", f"cat {PACKAGES_FILE} 2>/dev/null"], user="root")
+            wanted = [p for p in res.output.decode().split() if PACKAGE_RE.match(p)]
+            if not wanted:
+                continue
+            missing = [p for p in wanted if c.exec_run(["dpkg", "-s", p], user="root").exit_code != 0]
+            if missing:
+                _apt(c, missing)
+        except Exception as e:  # noqa: BLE001 - un agent arrêté entre-temps ne prive pas les suivants de leurs paquets
+            print(f"[lanceur] paquets de {c.name} non restaurés : {e}", flush=True)
 
 
 @app.on_event("startup")
@@ -835,18 +889,26 @@ def delete(agent_id: str):
     except HTTPException as e:
         if e.status_code != 404:
             raise
-    try:
-        b = client.containers.get(BROWSER_PREFIX + agent_id)
-        if b.labels.get(BROWSER_LABEL) == agent_id:
-            b.remove(force=True)
-    except NotFound:
-        pass
+    # Le navigateur, et les restes « -ancien » d'une opération coupée (dossiers, mise à jour) : sinon ils retiennent les
+    # volumes. Seulement ceux qui portent l'étiquette de cet agent.
+    for name, label in ((BROWSER_PREFIX + agent_id, BROWSER_LABEL), (PREFIX + agent_id + "-ancien", LABEL),
+                        (BROWSER_PREFIX + agent_id + "-ancien", BROWSER_LABEL)):
+        try:
+            b = client.containers.get(name)
+            if b.labels.get(label) == agent_id:
+                b.remove(force=True)
+        except NotFound:
+            pass
+    left = []
     for volume in (PREFIX + agent_id, BROWSER_PREFIX + agent_id):
         try:
             client.volumes.get(volume).remove(force=True)
         except NotFound:
             pass
-    return {"ok": True}
+        except docker.errors.APIError as e:  # encore utilisé : on le nomme au lieu d'échouer en silence au milieu
+            print(f"[lanceur] volume {volume} gardé : {e}", flush=True)
+            left.append(volume)
+    return {"ok": True, "restes": left}
 
 
 # --- Mises à jour (détail dans updater.py) --------------------------------------------------------------
