@@ -4,6 +4,7 @@ Un rappel n'est pas un appel de handoff.py : là, l'agent attend que l'utilisate
 fait sonner l'appareil et donne un compte rendu oral, qui reste écrit dans sa conversation principale même sans réponse.
 """
 import asyncio
+import contextlib
 import json
 import re
 import sqlite3
@@ -420,6 +421,7 @@ def _ring(agent_id: str, texte: str, actions: str = "", user: int | None = None)
     with db.connect() as c:
         c.execute("INSERT INTO voice_calls (id, agent_id, user_id, conversation_id, texte, etat, created_at) "
                   "VALUES (?, ?, ?, ?, ?, 'sonne', ?)", (call_id, agent_id, user, conv, texte, now))
+    _calls_changed()
     written = f"**Je t'ai appelé.** {texte}{actions}"
     _h["save"](conv, "agent", written)
     if conv not in relay.active.get(agent_id, []):  # depuis un fil : sa conversation principale ne le sait pas encore
@@ -456,6 +458,27 @@ ENDINGS = {"repondu": "Appel pris.", "refuse": "Appel refusé : le compte rendu 
            "manque": "Appel manqué : le compte rendu reste écrit ici."}
 
 
+# Les téléphones en attente longue dorment jusqu'à un appel créé ou fini : la base n'est relue qu'à ce moment-là.
+_call_waiters: set[asyncio.Event] = set()
+_call_loop: asyncio.AbstractEventLoop | None = None
+CALLS_FALLBACK = 5  # relecture de secours, au cas où un réveil se perdrait
+
+
+def _calls_changed() -> None:
+    """Depuis n'importe quel thread : réveille les attentes longues."""
+    loop = _call_loop
+    if loop is None or not _call_waiters:
+        return
+
+    def wake():
+        for event in _call_waiters:
+            event.set()
+    try:
+        loop.call_soon_threadsafe(wake)
+    except RuntimeError:  # boucle fermée : la relecture de secours prend le relais
+        pass
+
+
 def _close(call_id: str, etat: str) -> bool:
     """Passe de « sonne » à son issue, une seule fois, et l'écrit dans la conversation."""
     with db.connect() as c:
@@ -463,6 +486,7 @@ def _close(call_id: str, etat: str) -> bool:
                          (etat, time.time(), call_id)).rowcount == 1
         row = c.execute("SELECT conversation_id FROM voice_calls WHERE id = ?", (call_id,)).fetchone()
     if done:
+        _calls_changed()
         try:
             _h["save"](row["conversation_id"], "agent", ENDINGS[etat])
         except sqlite3.IntegrityError:  # conversation supprimée entre-temps
@@ -511,13 +535,23 @@ def calls_pending(user: int = Depends(auth.current_user)):
 @router.get("/api/calls/wait")
 async def calls_wait(secondes: int = 50, connus: str = "", user: int = Depends(auth.current_user)):
     """Attente longue d'un téléphone sans service de notification : répond dès que les appels qui sonnent changent."""
+    global _call_loop
     known = {k for k in connus.split(",") if k}
     limit = time.monotonic() + max(1, min(secondes, 55))
-    while True:
-        found = calls_pending(user)
-        if {a["id"] for a in found["appels"]} != known or time.monotonic() >= limit:
-            return found
-        await asyncio.sleep(1)
+    _call_loop = asyncio.get_running_loop()
+    wake = asyncio.Event()
+    _call_waiters.add(wake)  # avant la lecture : un appel créé entre les deux réveille quand même
+    try:
+        while True:
+            wake.clear()
+            found = await asyncio.to_thread(calls_pending, user)
+            left = limit - time.monotonic()
+            if {a["id"] for a in found["appels"]} != known or left <= 0:
+                return found
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(wake.wait(), min(left, CALLS_FALLBACK))
+    finally:
+        _call_waiters.discard(wake)
 
 
 @router.get("/api/calls/{call_id}")

@@ -195,20 +195,17 @@ async def delete_files(agent_id: str, paths: list[str]) -> dict:
 
 
 async def read_file(agent_id: str, path: str) -> httpx.Response:
-    async with httpx.AsyncClient(timeout=120) as c:
-        return await c.get(f"{LAUNCHER_URL}/agents/{agent_id}/file", params={"path": path}, headers=LAUNCHER)
+    return await http().get(f"{LAUNCHER_URL}/agents/{agent_id}/file", params={"path": path}, headers=LAUNCHER, timeout=120)
 
 
 async def upload(agent_id: str, name: str, data: bytes, folder: str = "uploads") -> str:
-    async with httpx.AsyncClient(timeout=120) as c:
-        r = await c.put(f"{LAUNCHER_URL}/agents/{agent_id}/upload", params={"name": name, "folder": folder}, content=data, headers=LAUNCHER)
+    r = await http().put(f"{LAUNCHER_URL}/agents/{agent_id}/upload", params={"name": name, "folder": folder}, content=data, headers=LAUNCHER, timeout=120)
     r.raise_for_status()
     return r.json()["path"]
 
 
 async def media(agent_id: str, path: str) -> httpx.Response:
-    async with httpx.AsyncClient(timeout=30) as c:
-        return await c.get(f"{LAUNCHER_URL}/agents/{agent_id}/media", params={"path": path}, headers=LAUNCHER)
+    return await http().get(f"{LAUNCHER_URL}/agents/{agent_id}/media", params={"path": path}, headers=LAUNCHER, timeout=30)
 
 
 async def _read(agent_id: str, name: str) -> str:
@@ -951,26 +948,24 @@ async def run_events(agent: Agent, run_id: str) -> AsyncIterator[tuple[str, dict
 
 
 async def answer_approval(agent: Agent, run_id: str, request_id: str, generation: int, approve: bool) -> None:
-    async with httpx.AsyncClient(timeout=10) as c:
-        r = await c.post(
-            f"{agent.url}/v1/runs/{run_id}/approval",
-            headers=agent.headers,
-            json={
-                "request_id": request_id,
-                "execution_generation": generation,
-                "choice": "once" if approve else "deny",
-            },
-        )
+    r = await http().post(
+        f"{agent.url}/v1/runs/{run_id}/approval",
+        headers=agent.headers,
+        json={
+            "request_id": request_id,
+            "execution_generation": generation,
+            "choice": "once" if approve else "deny",
+        },
+        timeout=10,
+    )
     r.raise_for_status()
 
 
 async def steer_run(agent: Agent, run_id: str, text: str) -> None:
     """Glisse un message dans un run en cours, sans l'interrompre : Hermes le lui donne après le lot d'outils en cours."""
-    async with httpx.AsyncClient(timeout=10) as c:
-        r = await c.post(f"{agent.url}/v1/runs/{run_id}/steer", headers=agent.headers, json={"input": text})
+    r = await http().post(f"{agent.url}/v1/runs/{run_id}/steer", headers=agent.headers, json={"input": text}, timeout=10)
     r.raise_for_status()
 
 
 async def stop_run(agent: Agent, run_id: str) -> None:
-    async with httpx.AsyncClient(timeout=10) as c:
-        await c.post(f"{agent.url}/v1/runs/{run_id}/stop", headers=agent.headers)
+    await http().post(f"{agent.url}/v1/runs/{run_id}/stop", headers=agent.headers, timeout=10)
