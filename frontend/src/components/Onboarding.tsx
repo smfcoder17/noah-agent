@@ -2,7 +2,9 @@
 // compte propriétaire, modèle, premier agent, puis un vrai échange avec le modèle. Il ne se termine qu'après la réponse.
 import { lazy, Suspense, useEffect, useState } from "react";
 import { type Agent, ApiError, get, request, send, type Status, streamChat } from "@/lib/api";
+import { forgetPresets, type Preset, usePresets } from "@/lib/presets";
 import { cn } from "@/lib/utils";
+import { PresetNote, PresetPicker } from "./PresetPicker";
 import { Button, ErrorText, Input, Label, Textarea } from "./ui";
 const ModelPicker = lazy(() => import("./ModelPicker").then((m) => ({ default: m.ModelPicker })));
 
@@ -287,6 +289,14 @@ function AgentStep({ onNext }: { onNext: (agentId: string) => void }) {
   const [role, setRole] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [preset, setPreset] = useState<Preset | null>(null);
+  const presets = usePresets();
+  // Un modèle pré-remplit le nom et le rôle ; « Partir de zéro » revient au nom par défaut.
+  const pick = (p: Preset | null) => {
+    setPreset(p);
+    setName(p?.nom ?? "Noah");
+    setRole(p?.role ?? "");
+  };
   useEffect(() => {
     get<Agent[]>("/api/agents")
       .then((list) => {
@@ -303,7 +313,11 @@ function AgentStep({ onNext }: { onNext: (agentId: string) => void }) {
     setBusy(true);
     setError("");
     try {
-      if (!agent) return onNext((await send<{ id: string }>("/api/agents", { name: name.trim(), role })).id);
+      if (!agent) {
+        const { id } = await send<{ id: string }>("/api/agents", { name: name.trim(), role, preset: preset?.id ?? "" });
+        forgetPresets(); // l'écran vide du nouvel agent relit son modèle
+        return onNext(id);
+      }
       // Inchangé : pas de reconfiguration de la machine de l'agent pour rien.
       if (name.trim() !== agent.name || role !== agent.role) await send(`/api/agents/${agent.id}`, { name: name.trim(), role }, "PATCH");
       onNext(agent.id);
@@ -316,6 +330,7 @@ function AgentStep({ onNext }: { onNext: (agentId: string) => void }) {
     <form onSubmit={submit} className="max-w-xl">
       <Card>
         <h2 className="text-lg font-semibold">Ton premier agent</h2>
+        {loaded && !agent && presets && presets.presets.length > 0 && <PresetPicker presets={presets.presets} value={preset?.id ?? ""} onPick={pick} />}
         <Label>
           Nom
           <Input required maxLength={40} value={name} onChange={(e) => setName(e.target.value)} />
@@ -324,6 +339,7 @@ function AgentStep({ onNext }: { onNext: (agentId: string) => void }) {
           Son rôle, en quelques phrases
           <Textarea rows={4} maxLength={4000} value={role} onChange={(e) => setRole(e.target.value)} />
         </Label>
+        {preset && !agent && <PresetNote preset={preset} />}
         <ErrorText>{error}</ErrorText>
         <Button type="submit" size="lg" disabled={busy || !loaded || !name.trim()}>Continuer</Button>
       </Card>

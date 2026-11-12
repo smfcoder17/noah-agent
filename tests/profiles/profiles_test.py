@@ -542,6 +542,7 @@ OPEN_ROUTES = {
     ("GET", "/api/voice/ready"): "Une raison de refus, sans clé ni adresse ; un profil ne lit qu'une phrase générale (cle_refusee_test).",
     ("GET", "/api/agents"): "Filtrée par droit (vérifié par test_lists).",
     ("POST", "/api/agents"): "L'agent créé est à ce compte (vérifié par test_budget).",
+    ("GET", "/api/presets"): "Modèles d'agent livrés, communs à tous ; le modèle de chaque agent filtré par droit (presets_test).",
     ("GET", "/api/calls/pending"): "Filtrée par compte et par droit (vérifié par test_lists).",
     ("GET", "/api/calls/wait"): "Même lecture que /api/calls/pending, en attente longue.",
     ("GET", "/api/desktop/next"): "File de ce compte (vérifié par test_desktop).",

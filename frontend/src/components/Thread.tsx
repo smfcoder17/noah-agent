@@ -36,6 +36,7 @@ import { canFrame, useDownload, useViewer } from "./Viewer";
 import { AttachPosition } from "./PhoneSettings";
 import { DictateButton, useDictation, VoiceMode, VoiceModeButton } from "./Voice";
 import { readableModel } from "@/lib/modes";
+import { demandesFor, usePresets } from "@/lib/presets";
 import { refreshAccords } from "@/lib/events";
 import { NoahWidget } from "./Widgets";
 
@@ -773,6 +774,27 @@ function WhileBusyPanel() {
   );
 }
 
+/** Écran vide : 4 demandes à toucher, celles du modèle de l'agent ou des générales. Un toucher remplit la saisie, rien ne part seul. */
+export function EmptySuggestions({ agentId }: { agentId: string }) {
+  const aui = useAui();
+  const demandes = demandesFor(usePresets(), agentId);
+  if (!demandes.length) return null;
+  return (
+    <div className="mt-3 grid w-full grid-cols-1 gap-2 sm:grid-cols-2">
+      {demandes.map((d) => (
+        <button
+          key={d}
+          type="button"
+          onClick={() => aui.thread().composer().setText(d)}
+          className="min-h-11 cursor-pointer rounded-xl border border-border bg-surface px-3 py-2 text-left text-sm transition-colors hover:bg-muted"
+        >
+          {d}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function EmptyNoah() {
   const { agentColor, agentShape, agentDetail } = useContext(AgentContext);
   const face = useRef<NoahHandle>(null);
@@ -827,6 +849,7 @@ export const Thread = memo(function Thread({ report, onReportRead, onCall }: { r
                 <EmptyNoah />
                 <p className="text-xl font-semibold">Que doit faire {agentName} ?</p>
                 <p className="text-sm text-muted-foreground">{hint}</p>
+                {!readOnly && <EmptySuggestions agentId={agentId} />}
               </div>
             </ThreadPrimitive.Empty>
             <ThreadPrimitive.Messages components={{ UserMessage, AssistantMessage }} />

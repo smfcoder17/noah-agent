@@ -705,7 +705,7 @@ function AgentChat(props: ChatProps) {
     };
   }, [main, say, props.agent.id]);
   // Valeur stable : tous les messages du fil lisent ce contexte, un objet neuf les redessinerait à chaque jeton.
-  const { id, name, role } = props.agent;
+  const { id, name } = props.agent;
   const { readOnly } = props;
   const color = agentColor(props.agent);
   const { shape, detail } = props.agent;
@@ -721,12 +721,13 @@ function AgentChat(props: ChatProps) {
       agentModel: model,
       details: props.details,
       conversationId: props.conversationId,
-      hint: role ? role.slice(0, 180) : "Pose une question, confie une tâche ou envoie un fichier.",
+      // Le rôle est une consigne écrite pour l'agent, pas pour la personne : l'écran vide montre des demandes à toucher.
+      hint: "Pose une question, confie une tâche ou envoie un fichier.",
       readOnly,
       canWatch: canAdmin(props.agent),
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [say, id, name, color, shape, detail, model, props.details, role, readOnly, props.conversationId, canAdmin(props.agent)],
+    [say, id, name, color, shape, detail, model, props.details, readOnly, props.conversationId, canAdmin(props.agent)],
   );
   return (
     <AssistantRuntimeProvider runtime={runtime}>

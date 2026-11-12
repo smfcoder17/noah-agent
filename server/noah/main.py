@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field
 
 from . import access, accounts, apprentissage, appareils, auth, bureautique, catalog, chauffe, coffre, connecteurs, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, public, publication, push, recu, recuperation, relay, sites, updates, watch
 from . import config
-from . import accords, bus, ui_preferences, linkpreview, providers as provider_accounts
+from . import accords, bus, presets, ui_preferences, linkpreview, providers as provider_accounts
 from .config import WEB_DIR, forget_setup_code
 from .hermes import Agent
 
@@ -153,6 +153,7 @@ app.include_router(accords.router)
 app.include_router(linkpreview.router)
 app.include_router(ui_preferences.router)
 app.include_router(provider_accounts.router)
+app.include_router(presets.router)
 
 # Agents en cours de création : id -> message d'étape ou d'erreur affiché dans l'interface.
 provisioning: dict[str, str] = {}
@@ -2104,13 +2105,18 @@ def agent_look(agent_id: str, body: AgentLook, user: int = Depends(auth.current_
 class AgentBody(BaseModel):
     name: str = Field(min_length=1, max_length=40)
     role: str = Field(default="", max_length=4000)
+    # Modèle d'agent choisi à la création (presets.json) ; ignoré ensuite : la personne modifie ce qu'elle veut.
+    preset: str = Field(default="", max_length=40)
 
 
 @app.post("/api/agents")
 async def create_agent(body: AgentBody, user: int = Depends(auth.current_user)):
     if not current_model():
         raise HTTPException(400, "Choisis d'abord un modèle")
-    return {"id": await _start_agent(body.name.strip(), body.role, user)}
+    preset = presets.find(body.preset)  # inconnu : refusé avant de créer une machine
+    agent_id = await _start_agent(body.name.strip(), body.role if body.role.strip() or not preset else preset["role"], user)
+    presets.apply(agent_id, preset)
+    return {"id": agent_id}
 
 
 @app.post("/api/agents/{agent_id}/repair")
