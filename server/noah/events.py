@@ -226,6 +226,15 @@ def friendly_error(raw: str) -> str:
         return "Le travail s'est arrêté avant la fin."
     if _OWN.match(raw):
         return mask(raw)[:500]  # un préfixe ne prouve pas l'origine : ce qui suit peut venir du fournisseur
+    over = re.search(r"spend\W{0,3}([\d.]+)\D{1,40}budget\W{0,3}([\d.]+)", raw, re.I)
+    if over and re.search(r"exceeded.?budget|over budget", raw, re.I):
+        try:
+            spent, cap = float(over.group(1)), float(over.group(2))
+            return (f"Le fournisseur a arrêté ta clé : {spent:.2f} $ dépensés pour un plafond de {cap:.2f} $. Ce plafond est posé chez lui "
+                    "(Mammouth, OpenRouter…), pas dans Noah : relève-le dans ton compte chez ce fournisseur, ou choisis un modèle "
+                    "d'un autre fournisseur dans Réglages > Modèles et budget > Cerveau.")
+        except ValueError:
+            pass
     for pattern, sentence in _KNOWN:
         if re.search(pattern, raw, re.I):
             return sentence
