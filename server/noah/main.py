@@ -4153,8 +4153,9 @@ _background: set[asyncio.Task] = set()
 def _spawn(coro) -> asyncio.Task:
     """Lance une tâche de fond et la retient : la boucle seule n'en garde qu'une référence faible."""
     task = asyncio.create_task(coro)
-    _background.add(task)
-    task.add_done_callback(_background.discard)
+    if task is not None:  # un banc qui remplace create_task peut ne rien rendre
+        _background.add(task)
+        task.add_done_callback(_background.discard)
     return task
 
 

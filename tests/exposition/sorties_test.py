@@ -64,6 +64,7 @@ KNOWN = {
     "business.facebook.com": "à la demande", "www.facebook.com": "à la demande",
     # Textes d’exemple seulement, jamais appelés : aide de la saisie et test
     "www.linkedin.com": "lien montré", "mon-fournisseur.fr": "lien montré", "exemple.org": "lien montré",
+    "brollss.com": "à la demande",  # application du catalogue (MCP distant), contactée seulement si la personne la connecte
     # Modèle de décision choisi par le propriétaire, avec sa clé (decision.py)
     "api.typesafe.ai": "fournisseur",
     # Lecteurs de vidéo dans le fil : rien ne se charge avant le clic de la personne (chatMedia.ts, exposition.py)
