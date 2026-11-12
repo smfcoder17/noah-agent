@@ -1,9 +1,12 @@
 import { send } from "@/lib/api";
 import { appShell, elementAction } from "@/lib/platform";
 import { SensitiveContext, SensitiveText } from "../SensitiveText";
-import { useContext } from "react";
+import { useContext, useEffect, useState } from "react";
 import { sensitiveParts } from "@/lib/sensitive";
 import { Dialog, DialogContent } from "../ui";
+import { SENSITIVE_MARKDOWN } from "../SensitiveMarkdown";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 ﻿import { useRef, useState } from "react";
 import { elementName, elementUrl, sourceName, type ElementSpec } from "@/lib/elements";
 import { askAgent } from "@/lib/askAgent";
@@ -12,6 +15,15 @@ import { useDownload } from "../Viewer";
 import { Chart } from "../Widgets";
 
 const ACTIONS: Partial<Record<ElementSpec["kind"], string>> = { pr: "Voir l'analyse", email: "Relire le brouillon", thread: "Relire le fil", appointment: "Dans la discussion", routine: "Modifier la routine", watch: "Modifier la veille", task: "Voir le résultat", skill: "Dans la discussion", approval: "Ouvrir la demande" };
+/** Un fichier texte ou Markdown (.md, .txt, .log…) : son contenu se lit ici, sans passer par le téléchargement. */
+const TEXT_EXT = /\.(md|markdown|txt|log|json|ya?ml|toml|ini|csv|tsv)$/i;
+
+/** Le contenu vient d'un fichier de l'agent, pas du chat : les liens externes partent dans l'onglet, les autres restent du texte. */
+const TEXT_MARKDOWN: NonNullable<React.ComponentProps<typeof ReactMarkdown>["components"]> = {
+  a: ({ children, href, ...props }) => /^https?:/i.test(href || "") ? <a {...props} href={href} target="_blank" rel="noopener noreferrer">{children}</a> : <span>{children}</span>,
+  img: ({ children }) => <span>{children}</span>,
+};
+
 export function ElementViewer({ spec, onClose }: { spec: ElementSpec; onClose?: () => void }) {
   const hidden = useContext(SensitiveContext);
   const display = (text: string) => hidden ? sensitiveParts(text).map((p) => p.masked).join("") : text;
@@ -27,6 +39,20 @@ export function ElementViewer({ spec, onClose }: { spec: ElementSpec; onClose?: 
   const data = spec.data ?? {};
   const [enabled, setEnabled] = useState(Boolean(data.active ?? data.enabled));
   const [fields, setFields] = useState<Record<string, string>>({});
+  // Un fichier texte ou Markdown : son contenu se charge à l'ouverture et se montre comme un document.
+  const rawText = spec.path && TEXT_EXT.test(spec.path.split("?")[0]);
+  const [text, setText] = useState<string | null | undefined>(rawText ? null : undefined);
+  useEffect(() => {
+    let live = true;
+    if (!rawText || text !== null) return;
+    const target = spec.path ? `/api/agents/${spec.agentId}/files/raw/${spec.path.replace(/^\/opt\/data\/workspace\//, "").split("/").map(encodeURIComponent).join("/")}` : undefined;
+    if (!target) return;
+    fetch(target, { credentials: "same-origin" })
+      .then((r) => (r.ok ? r.text() : Promise.reject(new Error(String(r.status)))))
+      .then((body) => { if (live) setText(body); })
+      .catch(() => { if (live) setText(undefined); });
+    return () => { live = false; };
+  }, [rawText, spec.path, spec.agentId, text]);
   const toggle = async () => { if (!spec.agentId || typeof data.id !== "string") return; try { await send(`/api/agents/${encodeURIComponent(spec.agentId)}/${spec.kind === "routine" ? "routines" : "watches"}/${encodeURIComponent(data.id)}/${enabled ? "pause" : "reprendre"}`, {}); setEnabled(!enabled); setActionError(""); } catch (e) { setActionError((e as Error).message); } };
   const rows = Array.isArray(data.rows) ? data.rows.filter(Array.isArray) as unknown[][] : [];
   const columns = Array.isArray(data.columns) ? data.columns : [];
@@ -48,6 +74,8 @@ export function ElementViewer({ spec, onClose }: { spec: ElementSpec; onClose?: 
         <img src={url} alt={display(spec.description || spec.title)} onError={() => setError(true)} style={{ transform: `scale(${zoom})` }} /><label>Zoom <input type="range" min="1" max="4" step=".1" value={zoom} onChange={(e) => setZoom(Number(e.target.value))} /></label></div>
       : spec.kind === "pdf" && url ? <><div className="flex gap-3 items-center"><button disabled={page === 1} onClick={() => setPage(page - 1)}>Page précédente</button><span>Page {page}{Number(data.pages) > 0 ? ` / ${Number(data.pages)}` : ""}</span><button disabled={Number(data.pages) > 0 && page >= Number(data.pages)} onClick={() => setPage(page + 1)}>Page suivante</button><label>Zoom <input type="range" min=".5" max="3" step=".1" value={zoom} onChange={(e) => setZoom(Number(e.target.value))} /></label></div><SandboxedFrame title={elementName(spec)} src={url.split("#")[0] + `#page=${page}&zoom=${zoom * 100}`} className="element-frame" onError={() => setError(true)} /></>
       : spec.kind === "page" && url ? <SandboxedFrame title={elementName(spec)} src={url} className="element-frame" onError={() => setError(true)} />
+      : rawText && text ? <div className="element-frame prose-chat max-w-none overflow-auto bg-surface px-6 py-4 text-[15px] leading-relaxed"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ ...SENSITIVE_MARKDOWN, a: TEXT_MARKDOWN.a, img: TEXT_MARKDOWN.img }}>{text}</ReactMarkdown></div>
+      : rawText && text !== null && text === undefined ? <p role="alert">Ce texte n'a pas pu être lu. Télécharge-le pour le lire. <button onClick={() => download(url || spec.path || "", spec.title)}>Télécharger</button></p>
       : spec.kind === "grid" || spec.kind === "batch" ? <div className="element-grid">{items.map((it, i) => <article key={i}>{elementUrl(String(it.image ?? "")) && <img src={elementUrl(String(it.image))} alt={String(it.title ?? "")} loading="lazy" />}<b><SensitiveText text={String(it.title ?? "")} /></b><p><SensitiveText text={String(it.subtitle ?? "")} /></p></article>)}</div>
       : spec.kind === "chart" && Array.isArray(data.series) && Array.isArray(data.labels) ? <Chart spec={data as unknown as React.ComponentProps<typeof Chart>["spec"]} />
       : ["table", "csv", "chart"].includes(spec.kind) && rows.length ? <div className="overflow-auto"><table><thead><tr>{columns.map((c, i) => <th key={i}>{String(c)}</th>)}</tr></thead><tbody>{rows.map((row, i) => <tr key={i}>{row.map((cell, j) => <td key={j}><SensitiveText text={String(cell)} /></td>)}</tr>)}</tbody></table></div>
