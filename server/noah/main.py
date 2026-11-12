@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field
 
 from . import access, accounts, apprentissage, appareils, auth, bureautique, catalog, chauffe, coffre, connecteurs, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, public, publication, push, recu, recuperation, relay, sites, updates, watch
 from . import config
-from . import accords, bus, presets, ui_preferences, linkpreview, providers as provider_accounts
+from . import accords, bus, presets, rapide, ui_preferences, linkpreview, providers as provider_accounts
 from .config import WEB_DIR, forget_setup_code
 from .hermes import Agent
 
@@ -136,6 +136,7 @@ app.include_router(proactif.router)
 app.include_router(juge.router)
 app.include_router(apprentissage.router)
 app.include_router(decision.router)
+app.include_router(rapide.router)
 app.include_router(modes.router)
 app.include_router(coffre.router)
 app.include_router(handoff.router)
@@ -195,6 +196,7 @@ async def startup() -> None:
     _spawn(watch.run_watches(_save_message, _main_conversation))
     _spawn(_after_updates(proactif.run_forever))
     _spawn(decision.keep_fresh())
+    _spawn(rapide.first_measure())
     _spawn(handoff.keep_browser_sessions())
     _spawn(_rest_browsers_loop())
     _spawn(accounts.keep_google_fresh())
@@ -1667,6 +1669,7 @@ async def set_model(body: ModelChoice, tasks: BackgroundTasks, user: int = Depen
     if agents:  # le relais applique déjà le nouveau modèle : on met les fichiers à jour sans couper l'agent, et sans faire attendre
         tasks.add_task(_write_configs, [a["id"] for a in agents])
     decision.schedule_refresh()  # ce que cette clé offre, ses prix, sa vitesse : l'écran ne l'attend pas
+    rapide.schedule()  # le modèle rapide de cette clé : mesuré en tâche de fond
     return {"ok": True}
 
 
@@ -1907,7 +1910,13 @@ outputs/ et apps/ ne gardent que ce que l'utilisateur voudra retrouver : le rés
 - Quand c'est naturel, réagis au message de la personne : commence ta réponse par une réaction entre doubles crochets, comme [[👍]], [[👂]] (compris), [[❤️]], [[🔥]] ou [[🎉]]. Elle s'affiche sur son message, jamais dans ton texte. Pas à chaque message.
 - Tu apprends sans qu'on te le demande : Noah fait relire ce qu'elle corrige ou préfère, et tu relis tes tâches. Ne demande pas « veux-tu que je m'en souvienne ? », et ne l'annonce pas : applique, sans phrase de plus. Si elle demande ce que tu sais d'elle ou comment tu fais telle tâche, dis-le simplement.
 - Une réaction de sa part (👍, ❤️) dit ce qu'elle a aimé, jamais qu'elle accepte : une action ne part que sur sa demande ou son accord explicite. Après un 👎, ne te justifie pas.
-- Réponds en français, de façon brève et concrète. Pas de pavés de texte : une liste courte ou un widget vaut mieux qu'un paragraphe."""
+- Réponds en français, de façon brève et concrète. Pas de pavés de texte : une liste courte ou un widget vaut mieux qu'un paragraphe.
+
+## Comment tu parles
+- Ta première phrase répond. Pour une tâche, elle dit ce que tu as compris et ce que tu lances.
+- Pendant un long travail, si on te parle, dis en une phrase à quelle étape tu en es.
+- Termine par ce qui a été fait, pas par ce que tu comptais faire.
+- Pas de jargon : des mots que la personne emploie. Pas de liste quand une phrase suffit."""
 
 
 def _soul(name: str, role: str) -> str:
