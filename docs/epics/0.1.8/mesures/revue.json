@@ -1,0 +1,1392 @@
+{
+ "docs": {
+  "resume": "État connu de Noah 0.1.7, lu dans les docs, les issues et recoupé dans le code (lecture seule, rien lancé).\nPROUVÉ : presque rien en conditions réelles. docs/etat.md : 0 parcours tenu sur 10, 1 objectif sur 17 au seuil (G6 Mises à jour, 9,1). Tout le reste plafonne au niveau 2 (local) alors que le niveau 3 (VPS neuf, téléphone, 4G) est exigé.\nMESURÉ : chat local, première réaction 534 à 861 ms (score 4 939 -> 1 996 ms) ; « bonjour » à chaud, notre part 210 ms ; premier mot par fournisseur 400 à 900 ms ; vocal 2 277 à 2 303 ms depuis la fin de la parole (cible 1,2 s), dont 2,3 s de délai de fin de tour ; facilité 16,7/20 ordinateur et 15,5/20 téléphone (cible 18) ; juge 40/40 sur son corpus ; script d'entrée 306 Ko bruts / 100 Ko gzip.\nOUVERT : 39 issues, dont tout le chantier 0.1.6 (#32 à #48) encore « à faire » ou « en cours » alors que 0.1.7 est sortie ; #31 (écarts face aux références), #29 (parcours réels), #27 (petits défauts).\nÉCARTS face à Grok Bot et Muse (comportements.md) : 0 comportement « au niveau », 7 faits non prouvés, 12 en dessous, 1 absent (silence vocal pendant le travail). Les plus coûteux : portée des accords, carte d'accord sans cible ni montant, appel fragile, journal incomplet.\nREPORTÉ : relance des courriels sans réponse, « oublie ça » vérifiable, relecture mensuelle des objectifs (0.1.8) ; appels à des tiers et canal Telegram (0.2) ; iOS natif, paquets Play Store et Microsoft Store (#48), choix Camoufox contre Chrome (#47), comparaisons à l'aveugle G15.2 et G15.3.\nATTENTION : une partie de l'état écrit est périmée. Le code a déjà la pagination de l'historique, le tri des messages envoyés pendant le travail (pendant.py) et le compteur de jetons en cache, que les docs donnent encore comme manquants. Non vérifié faute de temps : si les routines écrivent maintenant dans l'onglet Activité, et si la police Figtree est bien embarquée.",
+  "constats": [
+   {
+    "titre": "Aucun preset à la création d'un agent",
+    "type": "capacite",
+    "gravite": "haute",
+    "preuve": "frontend/src/components/AgentDialog.tsx:38-40 : seuls nom, rôle et couleur sont des états du formulaire ; :98 et :106 n'offrent que des exemples en placeholder (« Ex. Léa, Assistant courriels, Veille »). Une recherche de « preset|gabarit » dans server/noah/*.py et frontend/src/components ne trouve qu'AgentPowers.tsx, rien côté création. docs/facilite.md:15 : la référence Grok Bot crée un agent en 3 gestes.",
+    "correction": "Ajouter un fichier de presets (par exemple server/noah/routing/presets.json : nom, rôle rédigé, couleur, compétences, routines et connexions proposées) pour 6 à 8 profils du quotidien (courriels, agenda, veille, recherche, réseaux sociaux, fichiers, achats). Une route GET /api/presets dans main.py, et une rangée de cartes en tête d'AgentDialog.tsx qui pré-remplit nom, rôle et couleur, tous modifiables ensuite. Reprendre la même rangée dans Onboarding.tsx.",
+    "effort": "M",
+    "gain": "Demande explicite de la version suivante ; un agent utile en 2 gestes au lieu d'une consigne à rédiger."
+   },
+   {
+    "titre": "Accord : seulement Autoriser ou Refuser, aucune portée",
+    "type": "ux",
+    "gravite": "haute",
+    "preuve": "frontend/src/components/Thread.tsx:226-227 : deux boutons, « Autoriser » et « Refuser ». Écart noté dans docs/comportements.md:219 (C14, « partiel »), docs/recherche-agents-proactifs.md:36 (« À ajouter : pour cette tâche, pour ce site, toujours, révocables ») et issue #31 point 5.",
+    "correction": "Ajouter à la carte un menu de portée (une fois, pour cette tâche, pour ce site, toujours). L'envoyer dans answer() de Thread.tsx et d'Inbox.tsx:91-92, le stocker dans server/noah/accords.py, le faire lire par juge.py avant de redemander, et lister les accords durables révocables dans Réglages (Juge.tsx).",
+    "effort": "M",
+    "gain": "Moins de cartes répétées : c'est le premier reproche de la personne (« le juge demande pour rien ») et un écart direct face à Muse et Grok Bot."
+   },
+   {
+    "titre": "Une veille en panne ne prévient jamais",
+    "type": "bug",
+    "gravite": "haute",
+    "preuve": "server/noah/watch.py:429-433 (source injoignable) et :447-451 (tri impossible) : l'erreur est écrite dans last_error puis la fonction rend la main, sans notification. La table (watch.py:41) n'a qu'un last_error, aucun compteur d'échecs. docs/recherche-agents-proactifs.md:41 : « À ajouter : une veille qui échoue deux fois de suite prévient ».",
+    "correction": "Ajouter une colonne fails (migration dans watch.py), l'incrémenter aux deux endroits et la remettre à 0 à la ligne 453. À fails == 2, écrire une ligne dans la conversation de l'agent et envoyer une notification (« Ta veille X ne répond plus depuis … »), une seule fois par panne. Ajouter un cas dans les tests des veilles.",
+    "effort": "S",
+    "gain": "Une veille cassée qui se tait est pire qu'aucune veille : la confiance dans l'autonomie en dépend."
+   },
+   {
+    "titre": "Carte d'accord sans cible ni montant identifiables",
+    "type": "ux",
+    "gravite": "moyenne",
+    "preuve": "frontend/src/components/Thread.tsx:212-224 : la carte affiche args.demande, args.pourquoi, des lignes d'aperçu et args.summary dans un bloc <pre>. Aucun champ fixe. docs/comportements.md:199 (C12 : « résumé libre, sans champs fixes pour la cible et le montant ») et issue #31 point 4.",
+    "correction": "Faire renseigner par le juge (server/noah/juge.py) et la demande d'accord (accords.py) trois champs optionnels : action, cible (destinataire, site, fichier), montant. Les afficher en lignes libellées au-dessus des boutons dans Thread.tsx et Inbox.tsx, le résumé brut restant sous « Voir les détails ».",
+    "effort": "M",
+    "gain": "On sait en un coup d'œil ce qu'on autorise, comme chez Muse et Duet."
+   },
+   {
+    "titre": "Ni heures actives ni budget de notifications",
+    "type": "capacite",
+    "gravite": "moyenne",
+    "preuve": "Recherche de « heures actives|heures calmes|quiet|budget.*notif » dans server/noah/proactif.py, notifications.py et push.py : aucun résultat. Seule limite trouvée : proactif.py:9 et :459 (« Une fois par jour au plus » pour l'idée du jour). docs/recherche-agents-proactifs.md:38 et docs/comportements.md:255 (C17, partiel).",
+    "correction": "Deux réglages par compte dans notifications.py (plage de silence, nombre maximal de notifications non urgentes par jour), appliqués dans push.py avant l'envoi : hors plage ou au-delà du plafond, le non-urgent est regroupé et livré à la prochaine heure active ; les accords et appels urgents passent toujours. Deux rangées dans NotificationSettings.tsx.",
+    "effort": "M",
+    "gain": "Le bruit tue la proactivité : condition pour laisser l'agent agir de lui-même sans le couper."
+   },
+   {
+    "titre": "Pas de briefing du matin intégré",
+    "type": "capacite",
+    "gravite": "moyenne",
+    "preuve": "Recherche de « briefing » dans frontend/src : aucun résultat ; aucun module dédié dans server/noah. docs/recherche-agents-proactifs.md:42 : « Possible par une routine. À ajouter : un briefing intégré, réglable en un geste ». Besoin cité dans les 3 enquêtes (recherche-agents-proactifs.md:20-27).",
+    "correction": "Un interrupteur « Briefing du matin » avec une heure dans Proactive.tsx, qui crée une routine préparée (agenda du jour, courriels à traiter, tâches en attente, veilles) par la voie existante des routines. À livrer aussi comme élément d'un preset « Assistant personnel ».",
+    "effort": "M",
+    "gain": "Usage quotidien le plus demandé ; donne une raison d'ouvrir Noah chaque matin."
+   },
+   {
+    "titre": "Vocal : 2,3 s avant le premier son, cible 1,2 s",
+    "type": "perf",
+    "gravite": "haute",
+    "preuve": "docs/perf.md:115 : « temps entendu de 2 277 ms en médiane » depuis la fin de la parole. Journal (docs/journal-hill-climb.md, tour gpt-audio-mini) : médiane 2 303 ms, « c'est le délai de fin de tour lui-même (2,3 s) : descendre plus bas demande une autre fin de tour, pas un autre modèle ». docs/etat.md:56 : G10.1 exige une médiane de 1,2 s, atteint 0. docs/evaluation.md:103 : H1 (fin de tour par le sens) jamais faite.",
+    "correction": "Tour H1 du plan : détecter la fin de tour par le sens (Smart Turn ou un classement par la voix rapide sur la transcription partielle) pour confirmer dès 0,6 à 0,8 s de silence quand la phrase est complète, et garder 2,3 s seulement si elle ne l'est pas. Fichiers : frontend/src/components/Voice.tsx et server/noah/media.py. Mesurer avec tools/eval/voice_browser.mjs, base appariée.",
+    "effort": "L",
+    "gain": "Environ 1 s de moins par tour de parole : le plus gros écart mesuré face aux références en appel."
+   },
+   {
+    "titre": "En appel, silence pendant que l'agent travaille",
+    "type": "ux",
+    "gravite": "moyenne",
+    "preuve": "frontend/src/components/Voice.tsx:974 : « s'en occupe… tu peux continuer à parler » n'est qu'un texte à l'écran. docs/comportements.md:141 (C7, seul comportement « absent ») et :297, issue #31 point 3. Recoupement partiel : je n'ai pas relu tout Voice.tsx pour exclure une parole d'étape ajoutée depuis.",
+    "correction": "Abonner le mode vocal aux étapes de l'agent (le bus d'événements existe : server/noah/bus.py, frontend/src/lib/events.ts) et faire dire à la voix rapide une courte phrase d'étape si rien n'a été entendu depuis 8 à 10 s, au plus une toutes les 15 s, construite sur le libellé réel de l'étape (events.py) pour ne rien inventer.",
+    "effort": "M",
+    "gain": "Tient G10.6 (jamais plus de 3 s de silence inexpliqué) et ferme le seul comportement absent de la grille."
+   },
+   {
+    "titre": "Fluidité sur téléphone jamais mesurée, longues listes non allégées",
+    "type": "perf",
+    "gravite": "moyenne",
+    "preuve": "docs/epics/0.1.6/rapport-lot2.md:177 : « Aucun seuil (<300 ms, 1,5/3 s, 95 % sans saut) n'est déclaré atteint ». Journal du 8 novembre, tour F : « GARDÉ, non mesuré sur téléphone ». docs/etat.md:96 : G14.5 atteint 0. docs/perf.md:88 : piste « content-visibility sur les messages » non faite, et la recherche de « content-visibility|contentVisibility » dans frontend/src ne trouve rien. Issue #46 ouverte.",
+    "correction": "1) Ajouter content-visibility:auto et contain-intrinsic-size sur le conteneur d'un message (feuille de styles du fil, Thread.tsx). 2) Écrire un banc Playwright en émulation de téléphone lent (CPU x4) : ouverture à chaud et à froid, changement d'onglet (p75), défilement de 1 000 messages, sur le modèle de tests/real/vitesse_ecran.mjs. 3) Reporter les chiffres dans perf.md.",
+    "effort": "M",
+    "gain": "Premier chiffre réel pour l'app mobile ; décide du passage ou non à React Native prévu dans plan-natif.md:39."
+   },
+   {
+    "titre": "Facilité à 16,7 et 15,5 sur 20, cible 18",
+    "type": "ux",
+    "gravite": "moyenne",
+    "preuve": "docs/facilite.md:54-56 : 16,7/20 ordinateur, 15,5/20 téléphone ; « Ce qui manque pour 18 : … créer un agent et connecter un outil en un geste de trop sur téléphone, aucune confirmation visible après Créer l'agent ou Connecter, noms de modèles obscurs ». Le bouton est à frontend/src/components/AgentDialog.tsx:127.",
+    "correction": "Après « Créer l'agent » et après « Connecter » : un retour visible (toast ou état « Agent créé », puis ouverture directe de sa conversation). Sur téléphone, mettre « + » et « Connecter » à un geste depuis l'accueil. Afficher le nom lisible du modèle au lieu de l'identifiant (ModelPicker.tsx, catalog.py). Rejouer tools/eval/facilite.mjs sur les deux appareils.",
+    "effort": "M",
+    "gain": "Les 1,3 à 2,5 points manquants face à Grok Bot sur les gestes de tous les jours."
+   },
+   {
+    "titre": "Reçu : « J'ai commandé le build » pris pour un achat",
+    "type": "bug",
+    "gravite": "basse",
+    "preuve": "server/noah/recu.py:124 : le motif « payer » contient command[ée]e?s? sans contexte d'achat. Défaut relevé par la flotte du 7 novembre, issue #27, premier point, toujours ouverte.",
+    "correction": "Dans recu.py, n'accepter « commandé » et « réservé » comme achat que si la même phrase porte un indice de paiement (montant, devise, panier, commande n°, marchand) ou si un outil de la famille payer (_PAY_WORDS, ligne 35) a réellement tourné. Ajouter les cas « commandé le build » et « commandé une pizza à 12 € » au test du reçu.",
+    "effort": "S",
+    "gain": "Un reçu juste : une fausse alerte d'achat coûte la confiance, le fichier le dit lui-même (recu.py:11)."
+   },
+   {
+    "titre": "État écrit périmé : docs et tickets ne reflètent plus le code",
+    "type": "architecture",
+    "gravite": "moyenne",
+    "preuve": "docs/perf.md:88-89 donne l'historique paginé et le taux de cache comme non faits, or server/noah/main.py:2265-2277 et frontend/src/lib/useAgentChat.ts:52 et :697 paginent, et relay.py:283 avec main.py:1433 comptent les jetons en cache. docs/comportements.md:175 dit qu'à l'écrit seul Arrêter existe pendant le travail, or server/noah/pendant.py:1-5 trie et transmet les messages. docs/roadmap.md:6 s'arrête au 29-30 octobre. Les 17 issues du chantier 0.1.6 (#32 à #48) sont ouvertes alors que la 0.1.7 est publiée, et docs/epics ne contient que 0.1.6.",
+    "correction": "Passe de mise à jour, sans code : repasser C1 à C20 contre le code actuel dans comportements.md, corriger la section « Prochaines pistes » de perf.md, réécrire roadmap.md à partir de l'état réel, fermer ou réétiqueter les issues livrées avec le commit en preuve, créer docs/epics/0.1.8/. Relancer node tools/eval/score.mjs pour régénérer etat.md.",
+    "effort": "S",
+    "gain": "Le plan de la version suivante part d'un état vrai ; évite de refaire ce qui existe déjà."
+   },
+   {
+    "titre": "Numéros de version différents selon le paquet",
+    "type": "bug",
+    "gravite": "basse",
+    "preuve": "version-affichee.txt : 0.1.7 ; frontend/package.json:5 : \"version\": \"0.0.0\" ; desktop/package.json:6 : \"version\": \"0.1.0\". Côté Android, mobile/android/app/build.gradle:3 dit que la version est posée par la CI (NOAH_APK_VERSION). Issue #38 (« Version de l'app et version du serveur ») ouverte. Je n'ai pas lu les fichiers de CI : ils injectent peut-être le numéro au moment de l'étiquette.",
+    "correction": "Un script (scripts/, appelé par scripts/verifier.mjs) qui lit version-affichee.txt et échoue si frontend/package.json, desktop/package.json ou la version Android en diffèrent hors CI ; aligner les deux package.json sur 0.1.7 et laisser le script les monter à chaque version décidée par la personne.",
+    "effort": "S",
+    "gain": "Un seul numéro partout, comme demandé ; un bureau qui s'annonce 0.1.0 fausse le diagnostic de mise à jour."
+   },
+   {
+    "titre": "Aucun parcours prouvé en conditions réelles",
+    "type": "architecture",
+    "gravite": "haute",
+    "preuve": "docs/etat.md:5 : « Promesse : 0 parcours tenus sur 10 » ; :40 : « Objectifs au seuil : 1 sur 17 ». J4 (mise à jour avec retour arrière) et J5 (appel depuis le téléphone) sont au niveau 0 (etat.md:12-13). docs/comportements.md:324 : « Aucun comportement n'a de preuve en conditions réelles ». Issue #29 ouverte. Journal du 8 novembre : « Pas vérifié : un vrai téléphone Android, la vitesse sur le VPS, une vraie connexion Instagram ou X ».",
+    "correction": "Hors de portée d'un agent de code seul : il faut le VPS et le téléphone de la personne. Préparer ce qui peut l'être : une liste de contrôle par parcours J1 à J10 avec la commande ou le geste exact et le chiffre à relever, et un script qui enregistre chaque preuve de niveau 3 dans les données lues par tools/eval/score.mjs. Commencer par J1, J2, J3 et J8, déjà au niveau 2.",
+    "effort": "L",
+    "gain": "C'est la condition de sortie écrite dans evaluation.md:39 : sans elle, aucune version n'est « prête » selon la propre règle du projet."
+   }
+  ]
+ },
+ "serveur": {
+  "resume": "Zone lue : D:/Data/Multimedia/SmfCoder/YouTube/apollo/server/noah/ (23 000 lignes, dont main.py 4 418 lignes et 116 routes). Lecture seule, rien n'a été exécuté : les coûts en millisecondes sont des estimations, pas des mesures.\nArchitecture : une app FastAPI (un seul processus d'après le CMD du Dockerfile, à confirmer dans serve.py) sert l'API des écrans (/api/*), l'API des agents (/agent-api/*, réseau Docker seulement) et le relais de modèle (/relay/v1/*, relay.py).\nFlux d'un message : POST /api/chat (main.py:2404) vérifie le droit, enregistre le message, lance un run Hermes dans le conteneur de l'agent (hermes.start_run), puis _run (main.py:2788) lit le SSE d'Hermes, traduit chaque événement (events.translate), et le pousse dans une file vers le client avec un signe de vie toutes les 10 s. Le run continue si le client part ; la réponse finale est écrite en base. Pendant le run, Hermes appelle le modèle à travers relay.py, qui tient la clé, les plafonds, la bascule entre modèles et le comptage des coûts.\nStockage : un fichier SQLite en WAL (db.py), une connexion neuve par appel, réglages en table clé-valeur, secrets chiffrés Fernet. Les écrans se synchronisent par un flux d'événements durable (bus.py).\nForces : run suivi jusqu'au bout sans client, idempotence par client_id, révocation des flux en 2 s, bascule de modèle avant le premier octet, plafonds de dépense, clés jamais chez l'agent.\nFaiblesses : beaucoup de SQLite synchrone dans la boucle d'événements (bus toutes les 0,2 s, relais, liste des agents), fin de réponse retenue jusqu'à 7 s par les réponses à toucher, pas de reprise du flux après une coupure réseau, fichiers servis en mémoire sans Range, main.py monolithique.\nNon vérifié : le nombre de workers dans serve.py, le support de Range côté lanceur, et le comportement réel derrière un proxy qui met en tampon.",
+  "constats": [
+   {
+    "titre": "Le flux d'événements interroge SQLite 5 fois par seconde et par écran, dans la boucle d'événements",
+    "type": "perf",
+    "gravite": "haute",
+    "preuve": "server/noah/bus.py:14 `POLL = 0.2` ; bus.py:101-106 la boucle `await asyncio.sleep(POLL)` puis `replay(user, after)` ; bus.py:71-78 `replay` est synchrone : ouvre une connexion, BEGIN, deux SELECT. Chaque écran ouvert (web, bureau, téléphone) le fait en continu, même au repos, sur le fil qui diffuse aussi les réponses du chat.",
+    "correction": "Dans bus.py : un `asyncio.Event` par compte, réveillé par `publish()` via `loop.call_soon_threadsafe` (publish est appelé depuis des threads, voir main.py:2915 `asyncio.to_thread(bus.invalidate, ...)`). `stream()` attend l'événement avec un délai de secours de 2 à 5 s au lieu de 0,2 s, et lance `replay` par `asyncio.to_thread`. Vérifier d'abord dans serve.py qu'il n'y a qu'un processus.",
+    "effort": "M",
+    "gain": "Environ 15 transactions SQLite par seconde en moins avec 3 écrans au repos ; moins de saccades dans le streaming du chat et moins de CPU sur un petit VPS."
+   },
+   {
+    "titre": "La fin d'une réponse attend jusqu'à 7 s les « réponses à toucher »",
+    "type": "ux",
+    "gravite": "haute",
+    "preuve": "server/noah/main.py:2930-2934 : avant d'émettre `done`, `await _quick_reply_block(...)` ; main.py:2343-2346 : déclenché dès que le message finit par « ? » ou « dis-moi/choisis/confirme », avec `asyncio.wait_for(media.quick_replies(...), 7)` ; media.py:803 appel au petit modèle avec `timeout=6`. Pendant ce temps l'écran reste en état « travaille » alors que le texte est fini.",
+    "correction": "Dans `_run.body` (main.py) : émettre `done` tout de suite avec `reponse`, puis calculer les options en tâche de fond et les envoyer par un événement séparé (`{\"type\":\"choix\", ...}`) avant de fermer le flux, et les ajouter au message enregistré. Côté écran, frontend/src/lib/useAgentChat.ts doit accepter cet événement après `done`. Variante minimale en 15 minutes : baisser le délai à 2,5 s.",
+    "effort": "M",
+    "gain": "Chaque réponse qui pose une question se termine à l'écran jusqu'à 7 s plus tôt ; c'est la latence perçue la plus visible face à Grok ou Meta."
+   },
+   {
+    "titre": "Une coupure réseau fait perdre le streaming : aucune route pour se rattacher à un run en cours",
+    "type": "capacite",
+    "gravite": "haute",
+    "preuve": "server/noah/main.py:2997-2999 `if listening[0]: queue.put_nowait(chunk)` avec le commentaire « client parti : on suit le run sans plus rien garder en mémoire pour lui » ; main.py:3050-3051 `listening[0] = False` à la fermeture, définitif. La seule route de rattrapage, main.py:2638-2651 `/api/conversations/{conv_id}/en-cours`, rend l'étiquette d'activité et le run_id, pas le texte en cours. Aucune des 116 routes ne rouvre le flux d'un run.",
+    "correction": "Dans main.py : garder par conversation un tampon borné des trames SSE du run en cours (liste numérotée, vidée à la fin du run), rempli dans `pump()` même sans client. Ajouter `GET /api/conversations/{conv_id}/flux?depuis=n` qui rejoue le tampon puis suit en direct, protégé par `auth.revocable` comme /api/chat. Les écrans (useAgentChat.ts, mobile) s'y rattachent quand `en-cours` dit `occupe`.",
+    "effort": "M",
+    "gain": "Sur téléphone (tunnel, veille, changement de réseau), la réponse continue de s'écrire au lieu d'apparaître d'un bloc à la fin."
+   },
+   {
+    "titre": "Fichiers de l'agent servis d'un bloc en mémoire, sans Range ni validation de cache",
+    "type": "bug",
+    "gravite": "haute",
+    "preuve": "server/noah/main.py:3228 `r = await hermes.read_file(agent_id, path)` puis main.py:3247 `Response(r.content, ...)` avec `Cache-Control: private, no-cache` (3243) et aucun ETag ; hermes.py:197-199 lit le fichier entier avec un client httpx neuf ; une recherche de « Range » dans main.py ne trouve aucun traitement de l'en-tête. Même schéma pour /media (main.py:3169-3173).",
+    "correction": "Dans hermes.py : `read_file` passe par `http().stream(...)` et transmet `Range` et `If-None-Match` au lanceur. Dans main.py `agent_file` : rendre un `StreamingResponse` avec le statut (200/206/304), `Content-Range`, `Accept-Ranges` et `ETag` reçus. Vérifier que la route `/agents/{id}/file` du lanceur (dossier launcher/, non lu) sait répondre 206, sinon l'ajouter.",
+    "effort": "M",
+    "gain": "Lecture et avance rapide des vidéos et sons dans la visionneuse (Safari iOS exige les réponses 206), plus de fichier de 200 Mo entier en RAM, et pas de re-téléchargement à chaque ouverture."
+   },
+   {
+    "titre": "Chaque appel au modèle ouvre une vingtaine de connexions SQLite avant de partir chez le fournisseur",
+    "type": "perf",
+    "gravite": "moyenne",
+    "preuve": "server/noah/relay.py:457-494 : `_agent_from` (relay.py:102-113) relit /proc/net/route, liste tous les agents et calcule un HMAC par agent ; puis `get_setting` pour provider, api_key deux fois, base_url (460-464) ; `spending_refusal` (191-196) fait trois SUM sur `usage` plus quatre lectures ; `modes.reasoning` et `_chain_of` relisent des réglages. Après la réponse, `_record` puis `check_spend` (290-304) refont les mêmes SUM. Tout est synchrone dans une route `async`, et db.py:293-297 ouvre une connexion neuve avec deux PRAGMA à chaque fois.",
+    "correction": "Dans db.py : cache mémoire de `get_setting`, invalidé par `set_setting`, plus un `delete_setting` pour remplacer les `DELETE FROM settings` directs (ex. main.py:2962). Dans relay.py : dictionnaire jeton vers agent recalculé quand la liste des agents change, `_routes()` lu une fois, et cumul du mois et du jour gardé en mémoire puis incrémenté dans `_record` (recalcul complet au démarrage et au changement de jour).",
+    "effort": "M",
+    "gain": "Temps avant le premier mot réduit à chaque appel (un run avec outils en fait 5 à 30), et boucle d'événements libérée pendant le streaming."
+   },
+   {
+    "titre": "Un client httpx neuf à chaque arrêt, accord, consigne, fichier et envoi",
+    "type": "perf",
+    "gravite": "moyenne",
+    "preuve": "server/noah/hermes.py:36-37 dit : « Créer un client httpx coûte ~15 ms (contexte TLS), en bloquant la boucle : un seul client ». Pourtant hermes.py:198, 203, 210 (`read_file`, `upload`, `media`) et hermes.py:954, 969, 975 (`answer_approval`, `steer_run`, `stop_run`) font `async with httpx.AsyncClient(...)`.",
+    "correction": "Dans hermes.py : remplacer ces six `async with httpx.AsyncClient(timeout=N) as c` par `http()` avec `timeout=N` passé à l'appel. Aucun autre fichier à toucher.",
+    "effort": "S",
+    "gain": "Environ 15 ms de blocage en moins par image affichée, fichier ouvert, accord donné ou bouton Arrêter ; une galerie de 20 images ne fige plus le streaming."
+   },
+   {
+    "titre": "La liste des agents, relue en boucle par chaque fenêtre, fait un N+1 SQLite",
+    "type": "perf",
+    "gravite": "moyenne",
+    "preuve": "server/noah/main.py:2005-2006 : « la liste est interrogée toutes les 4 s par chaque fenêtre ouverte ». main.py:1967 `access.right(user, a[\"id\"])` par agent, qui ouvre une connexion puis `owner_of` qui en ouvre d'autres (access.py:57-74) ; main.py:1996 `modes.reasoning(a[\"id\"])` (un `get_setting` par agent, modes.py:303-305) ; main.py:1999 `access.owner_of` encore. La route est `async def` : tout bloque la boucle.",
+    "correction": "Dans `list_agents` (main.py:1963) : une seule requête qui joint `agents` et `agent_shares` pour ce compte, et lire les `reasoning_%` dans le même SELECT que `model_%` (main.py:1973). Déclarer la partie base dans `asyncio.to_thread`. Ensuite, côté écrans, ne relire la liste que sur l'événement `donnees.changees` du bus.",
+    "effort": "S",
+    "gain": "De 4 à 5 connexions par agent toutes les 4 s à une seule ; avec 5 agents et 3 écrans, environ 15 ouvertures de base par seconde en moins."
+   },
+   {
+    "titre": "Envoi de fichier et dictée lus entièrement en mémoire, sans plafond à l'entrée",
+    "type": "securite",
+    "gravite": "moyenne",
+    "preuve": "server/noah/main.py:3353 `data = await request.body()` dans `agent_upload`, sans aucune limite de taille ; main.py:3802-3803 la dictée lit tout le corps avant de vérifier les 20 Mo. À l'inverse, desktop.py:306-316 `_store_body` lit par morceaux et s'arrête à 50 Mo.",
+    "correction": "Dans main.py : lire `request.stream()` par morceaux avec un plafond (par exemple 200 Mo pour l'upload, 20 Mo pour la dictée) et répondre 413 au dépassement ; refuser d'emblée sur `Content-Length`. Idéalement transmettre le flux au lanceur sans le garder (hermes.upload avec `content=` en générateur).",
+    "effort": "S",
+    "gain": "Un compte invité ou une session volée ne peut plus saturer la mémoire du serveur ; les gros fichiers n'occupent plus deux fois leur taille en RAM."
+   },
+   {
+    "titre": "Un appel au modèle coupé en route n'est jamais compté dans les plafonds",
+    "type": "bug",
+    "gravite": "moyenne",
+    "preuve": "server/noah/relay.py:596-605 : l'usage n'est lu que dans une ligne `data:` qui contient `\"usage\"`, envoyée par le fournisseur en dernier ; relay.py:614-616 `_record(...)` part dans le `finally` ; relay.py:277-278 `if not usage: return None` sans rien écrire. Un run arrêté (bouton Arrêter, modèle coupé, redémarrage) laisse donc l'appel à zéro. Déduit de la lecture du code, non reproduit.",
+    "correction": "Dans `_passthrough` (relay.py) : compter les caractères de contenu transmis ; si `usage` est vide à la fin, enregistrer une estimation (sortie ≈ caractères / 4, entrée ≈ taille des messages / 4) au prix du catalogue. Lancer l'enregistrement par une tâche gardée dans un ensemble, pour qu'une annulation ne l'emporte pas.",
+    "effort": "M",
+    "gain": "Les plafonds du jour et du mois restent justes même quand la personne arrête souvent ses tâches ; pas de dépense invisible."
+   },
+   {
+    "titre": "Tâches asyncio lancées sans référence : elles peuvent disparaître en cours de route",
+    "type": "bug",
+    "gravite": "moyenne",
+    "preuve": "server/noah/main.py:3030 `asyncio.create_task(watch_model())`, 3037 `asyncio.create_task(deadline())`, 3053 `asyncio.create_task(hermes.stop_run(...))`, 1932, 2132 et 2142 `asyncio.create_task(_provision(...))`, et les 17 tâches de fond du démarrage (176-204). La boucle ne garde qu'une référence faible. Le même fichier fait bien les choses en 2984-2986 (`_background.add` puis `add_done_callback`).",
+    "correction": "Dans main.py : une petite fonction `_spawn(coro)` qui ajoute la tâche à `_background` et la retire à sa fin, puis remplacer ces `asyncio.create_task(` par `_spawn(`.",
+    "effort": "S",
+    "gain": "Plus de surveillance du modèle, de création d'agent ou de boucle de fond qui s'arrête sans trace après un passage du ramasse-miettes."
+   },
+   {
+    "titre": "La bascule de modèle efface les marqueurs de cache pour le modèle suivant",
+    "type": "bug",
+    "gravite": "basse",
+    "preuve": "server/noah/relay.py:415 `out = {**body, \"model\": ...}` est une copie de surface ; relay.py:416-417 `_strip_cache_marks(out[\"messages\"])` modifie donc la liste partagée avec `body` (relay.py:372-380 fait des `pop`). Si le premier maillon n'est pas un modèle à marqueurs et que le suivant est un Claude, ce dernier reçoit des messages déjà dépouillés.",
+    "correction": "Dans `_payload` (relay.py) : avant de retirer les marqueurs, faire `out[\"messages\"] = copy.deepcopy(out[\"messages\"])`.",
+    "effort": "S",
+    "gain": "Le cache du fournisseur continue de jouer après une bascule : appels de secours moins chers et plus rapides."
+   },
+   {
+    "titre": "Le flux du chat part sans en-têtes anti-tampon",
+    "type": "perf",
+    "gravite": "basse",
+    "preuve": "server/noah/main.py:2430-2432 `StreamingResponse(..., media_type=\"text/event-stream\")` sans en-têtes, de même que 2423 ; alors que main.py:4343 (`/api/health/stream`) pose `Cache-Control: no-cache`. AGENTS.md prévoit Traefik et signale que Noah n'a pas été testé derrière un relais.",
+    "correction": "Dans main.py : une fonction `_event_stream(gen)` qui rend le `StreamingResponse` avec `Cache-Control: no-cache, no-transform` et `X-Accel-Buffering: no`, utilisée par /api/chat, les autres flux de chat et bus.py.",
+    "effort": "S",
+    "gain": "Le texte arrive mot à mot derrière un proxy ou un relais qui met en tampon ou compresse, au lieu d'arriver par paquets."
+   },
+   {
+    "titre": "La page de messages relit toutes les réactions de la conversation",
+    "type": "perf",
+    "gravite": "basse",
+    "preuve": "server/noah/main.py:2282 : `SELECT r.message_id, r.who, r.emoji FROM reactions r JOIN messages m ... WHERE m.conversation_id = ?`, sans borne, alors que la page est limitée (main.py:2277-2278, et frontend/src/lib/useAgentChat.ts:52 demande `limit=PAGE`). La conversation principale est unique par agent (db.py:138) et grossit sans fin.",
+    "correction": "Dans `messages` (main.py:2264) : limiter la requête des réactions aux identifiants de la page (`r.message_id BETWEEN ? AND ?` avec le premier et le dernier id rendus).",
+    "effort": "S",
+    "gain": "Ouverture d'une conversation ancienne à coût constant, quel que soit son âge."
+   },
+   {
+    "titre": "main.py porte 116 routes et l'état des runs : chaque changement touche le même fichier",
+    "type": "architecture",
+    "gravite": "moyenne",
+    "preuve": "server/noah/main.py fait 4 418 lignes et 116 décorateurs `@app.` ; il mêle connexion et appairage (356-1241), modèles et budget (1252-1672), chat et runs (2212-3160), fichiers (3166-3362), écran du navigateur (3364-3662, 4229-4300), voix (3724-3945), API des agents (3962-4227), mises à jour (4301-4370). relay.py:26 et bus.py:27 montrent que le découpage en `APIRouter` existe déjà.",
+    "correction": "Par étapes d'une heure, sans changer le comportement : 1) sortir l'état partagé (`task_state`, `_runs`, `task_activity`, `_run`) dans un module `runs.py` ; 2) déplacer la voix dans `routes_voix.py` avec un `APIRouter` ; 3) puis l'écran du navigateur, l'API des agents et les mises à jour. `node scripts/verifier.mjs` après chaque étape.",
+    "effort": "L",
+    "gain": "Des agents de code peuvent travailler en parallèle sans conflit, et chaque zone se relit et se teste seule ; condition pour tenir le rythme des prochaines versions."
+   }
+  ]
+ },
+ "presets": {
+  "resume": "Racine : D:/Data/Multimedia/SmfCoder/YouTube/apollo. Un agent se crée aujourd'hui avec trois champs seulement : nom, rôle libre (4000 caractères au plus) et couleur. Il n'existe aucun preset d'agent, aucune persona livrée, et aucun skill écrit par Noah dans le dépôt.\nParcours : frontend/src/components/AgentDialog.tsx (et Onboarding.tsx pour le premier agent) envoie POST /api/agents {name, role}, puis PATCH /look pour la couleur. Le même écran sert le web, le bureau (Electron) et le mobile (Capacitor) : un seul changement d'interface couvre les trois.\nServeur : main.py create_agent -> _start_agent (conteneur via le lanceur, ligne SQLite) -> _provision (attend Hermes, hermes.configure écrit config.yaml, SOUL.md, noah.py, plugin noah-garde, redémarre, puis synchronise les connecteurs).\nCe qui définit un agent : table agents (id, name, role, api_key, color, pinned, shape, detail, owner_id) ; réglages model_<id>, mode et raisonnement ; volume Docker de l'agent (/opt/data : SOUL.md = intro + CAPABILITIES communes + nom + rôle, config.yaml, skills/, cron/jobs.json, mémoire) ; tables mcp_tools, agent_shares, proactive.\nSkills : ce sont ceux d'Hermes. « Fourni avec Noah » désigne le manifeste .bundled_manifest de l'image nousresearch/hermes-agent ; les compétences enseignées vont dans skills/competences/ via launcher/agent_admin.py competence_add (épinglées). Outils : aucun réglage par agent, seulement par routine (modes.ROUTINE_TOOLS, 7 familles) ; les MCP se règlent par agent (mcp_tools) ou pour tous (connecteurs).\nForces : briques déjà là pour appliquer un preset sans rien inventer (competence_ajouter, routine_creer avec en_pause, _save_message, look). Faiblesses : création bloquante sans progression, double démarrage, deux bugs dans le dialogue, état vide pauvre (pas de suggestions).\nNon vérifié faute de temps : la liste réelle des skills de l'image Hermes, et si Hermes accepte une config écrite avant son premier démarrage.",
+  "constats": [
+   {
+    "titre": "Presets, étape 1 : fichier de données versionné et route GET /api/presets",
+    "type": "capacite",
+    "gravite": "haute",
+    "preuve": "D:/Data/Multimedia/SmfCoder/YouTube/apollo/server/noah/main.py:2104-2106 : AgentBody ne porte que name et role. Aucun fichier preset/persona dans le dépôt (git ls-files : rien). server/Dockerfile:16 copie tout server/noah, donc un JSON posé là part dans l'image sans autre changement (comme server/noah/routing/models.json).",
+    "correction": "Créer server/noah/presets.json (liste) et server/noah/presets.py (chargement une fois, validation, router GET /api/presets, à inclure dans main.py comme les autres routers). Schéma par preset : id, nom, accroche (1 phrase à la 3e personne), couleur, shape, detail (valeurs de AgentLook main.py:2083-2084), role (persona, 4000 max), competences [{titre <= 80, texte}], routines [{nom, consigne, quand au format de AgentPowers.tsx:69-75 comme 'every day at 8am', outils = clés de modes.ROUTINE_TOOLS, en_pause: true}], connexions (noms d'apps suggérées), suggestions (3 ou 4 demandes prêtes), premier_message. Tests : nouveau tests/agents/presets_test.py calqué sur tests/agents/look_test.py (chaque preset valide : longueurs, outils connus, shape/detail permis, quand non vide) ; ajouter la route à l'inventaire tests/profiles/profiles_test.py:543-544.",
+    "effort": "S",
+    "gain": "La base de tout le système de presets ; ajouter un preset devient une modification de données, sans code."
+   },
+   {
+    "titre": "Presets, étape 2 : appliquer le preset à la création, une seule fois",
+    "type": "capacite",
+    "gravite": "haute",
+    "preuve": "server/noah/main.py:1925-1933 (_start_agent) et 1944-1960 (_provision) : rien d'autre que le SOUL n'est posé. _provision est aussi relancé par repair (main.py:2132) et par PATCH (main.py:2142) : une application naïve du preset se rejouerait à chaque réparation ou changement de rôle. Briques existantes : machine.admin(agent, 'competence_ajouter') (machine.py:112), machine._create_routine (machine.py:193-196, accepte en_pause), _new_conversation(..., main=True) (main.py:2727) et _save_message (main.py:2383).",
+    "correction": "1) db.py:127 : ajouter la colonne agents.preset via _add_columns. 2) AgentBody : champs facultatifs preset, color, shape, detail ; create_agent refuse un id inconnu (400). 3) _start_agent enregistre preset et l'apparence dans l'INSERT. 4) Nouvelle fonction _apply_preset(agent_id) appelée dans _provision juste après connecteurs.sync_agent (main.py:1955), gardée par un réglage preset_applique_<id> : compétences, routines créées en pause, puis conversation principale du propriétaire et premier_message en rôle 'agent'. Chaque morceau dans son try pour qu'un échec n'empêche pas l'agent d'être utilisable. Le rôle du preset est envoyé par le client dans role (la personne peut l'avoir modifié) : le serveur ne le réécrit pas. Test : étendre presets_test.py avec hermes.configure et machine.admin remplacés par des faux (motif de look_test.py:34-38), vérifier une seule application après deux _provision.",
+    "effort": "M",
+    "gain": "Un agent prêt à l'emploi dès la première seconde : persona, savoir-faire, routines proposées et premier message."
+   },
+   {
+    "titre": "Presets, étape 3 : choix du modèle d'agent dans le dialogue et dans l'onboarding",
+    "type": "ux",
+    "gravite": "haute",
+    "preuve": "frontend/src/components/AgentDialog.tsx:74-129 : le formulaire ne propose que couleur, nom et un grand champ « Rôle et consignes » vide. frontend/src/components/Onboarding.tsx:315-331 : même page blanche pour le premier agent, nom par défaut « Noah » (ligne 295), sans exemple ni placeholder.",
+    "correction": "Créer frontend/src/components/PresetPicker.tsx (grille de cartes : visage NoahTile, nom, accroche ; première carte « Partir de zéro »), chargée par get('/api/presets'). Dans AgentForm, l'afficher seulement si !agent ; un choix pré-remplit name, role, color et garde presetId ; le rôle reste modifiable (« ajoute ce que tu veux »). Afficher sous le rôle ce que le preset apporte (n compétences, n routines en pause, connexions suggérées). Même composant dans AgentStep de Onboarding.tsx. Ajouter le type Preset dans frontend/src/lib/api.ts. Test : frontend/src/components/AgentDialog.test.tsx sur le modèle de AgentBrain.test.tsx (choisir une carte remplit les champs, le POST porte preset).",
+    "effort": "M",
+    "gain": "Création en deux clics sur web, bureau et mobile ; c'est le point où Grok et Muse sont en avance."
+   },
+   {
+    "titre": "Bug : un échec de la couleur après la création fait créer un deuxième agent",
+    "type": "bug",
+    "gravite": "haute",
+    "preuve": "frontend/src/components/AgentDialog.tsx:54-61 : POST /api/agents puis PATCH /look dans le même try. Si le PATCH échoue, l'erreur s'affiche, busy repasse à false, et un nouveau clic sur « Créer l'agent » refait le POST : deux conteneurs de 4 Go (launcher/launcher.py:603).",
+    "correction": "Envoyer color (et shape, detail) dans le POST de création (voir étape 2) et supprimer le second appel à la création ; à défaut, garder l'id créé dans un useRef et ne pas refaire le POST. Test vitest dans AgentDialog.test.tsx : PATCH qui rejette puis second envoi = un seul POST.",
+    "effort": "S",
+    "gain": "Plus d'agent fantôme qui consomme mémoire et disque."
+   },
+   {
+    "titre": "Bug : la suppression d'un agent qui échoue bloque le dialogue sans message",
+    "type": "bug",
+    "gravite": "moyenne",
+    "preuve": "frontend/src/components/AgentDialog.tsx:65-71 : remove() fait setBusy(true) puis await del(...) sans try/catch. Or server/noah/main.py:2158-2160 renvoie 502 « La machine de l'agent n'a pas pu être effacée : réessaie. » : la promesse rejette, busy reste vrai, tous les boutons restent grisés et le message n'apparaît jamais.",
+    "correction": "Entourer d'un try/catch comme save() : setError(message), setBusy(false), setConfirm(false). Ajouter le cas au test AgentDialog.test.tsx.",
+    "effort": "S",
+    "gain": "Le message prévu par le serveur atteint enfin la personne."
+   },
+   {
+    "titre": "Création bloquante et sans progression : la ligne en base n'existe qu'après le conteneur",
+    "type": "perf",
+    "gravite": "haute",
+    "preuve": "server/noah/main.py:1927-1931 : provisioning[id] = « Création de la machine… » est posé avant await hermes.create_container, mais l'INSERT vient après ; list_agents (main.py:1966) ne lit que la base, donc ce message n'est jamais visible. launcher/launcher.py:591-592 : _ensure_image peut télécharger l'image dans cet appel. Pendant ce temps le dialogue n'a qu'un bouton grisé (AgentDialog.tsx:127).",
+    "correction": "Dans _start_agent : générer api_key côté serveur (déplacer secrets.token_hex(32) de hermes.py:65 vers l'appelant, create_container reçoit la clé), faire l'INSERT d'abord, rendre l'id tout de suite, et lancer création + _provision dans la même tâche de fond ; en cas d'échec, provisioning[id] = message et la route repair existante sait recréer un conteneur absent (main.py:2125-2126). Étendre tests/profiles/profiles_test.py (test_budget crée déjà un agent) pour vérifier que l'agent apparaît dans la liste avec step avant la fin.",
+    "effort": "M",
+    "gain": "Le dialogue se ferme aussitôt et la personne voit les étapes ; plus de délai muet sur un VPS neuf."
+   },
+   {
+    "titre": "État vide du chat : le rôle brut sert d'accroche, coupé à 180 caractères, et aucune suggestion",
+    "type": "copie",
+    "gravite": "haute",
+    "preuve": "frontend/src/App.tsx:724 : hint = role.slice(0, 180), sans ellipse, alors que le rôle est écrit à la 2e personne pour l'agent (placeholder AgentDialog.tsx:106 : « Tu tries mes courriels… »). frontend/src/components/Thread.tsx:825-830 : l'état vide n'affiche que « Que doit faire {agentName} ? » et ce texte ; aucune demande cliquable.",
+    "correction": "Renvoyer dans list_agents (main.py:1982-2000) accroche et suggestions tirées du preset de l'agent (colonne preset) ; type Agent dans frontend/src/lib/api.ts:148. App.tsx:724 : hint = accroche du preset, sinon la phrase par défaut (ne plus afficher le rôle brut). Thread.tsx:828-829 : sous le hint, 3 ou 4 boutons qui appellent say(texte) du AgentContext. Sans preset : 4 suggestions génériques dans presets.json (entrée « defaut »).",
+    "effort": "S",
+    "gain": "Le premier écran dit quoi demander : c'est la différence la plus visible avec Grok et Muse en facilité."
+   },
+   {
+    "titre": "Skills d'un preset : les livrer comme compétences, avec une origine juste",
+    "type": "capacite",
+    "gravite": "moyenne",
+    "preuve": "launcher/agent_admin.py:749-760 : competence_add crée un skill dans competences/ et l'épingle ; 676 et 691 : description limitée à 60 caractères. 858-859 : tout skill de competences/ est étiqueté « enseigné par toi », et « fourni avec Noah » ne désigne que le manifeste de l'image Hermes (798-808, image figée launcher/launcher.py:44). Le dépôt ne contient aucun SKILL.md.",
+    "correction": "competence_add accepte un champ facultatif origine ('preset') écrit dans le frontmatter par _competence_md ; _skill_shown (ligne 859) lit fields.get('origine') et affiche « venu avec le modèle d'agent » (modifiable et supprimable comme une compétence). _apply_preset passe origine. Étendre tests/skills/guard_test.py ou tests/pwa/skills_reel.py pour l'étiquette. Les textes de skills vivent dans presets.json, donc versionnés et en français.",
+    "effort": "S",
+    "gain": "Noah livre enfin ses propres savoir-faire, versionnés, sans dépendre de ce que contient l'image Hermes."
+   },
+   {
+    "titre": "Aucun réglage d'outils par agent : un preset ne peut restreindre que ses routines",
+    "type": "architecture",
+    "gravite": "moyenne",
+    "preuve": "server/noah/modes.py:50-58 : ROUTINE_TOOLS n'existe que pour les routines ; server/noah/machine.py:187 et launcher/agent_admin.py:127-129 passent enabled_toolsets au job seulement. server/noah/hermes.py:304-305 : la seule clé d'outils écrite pour l'agent est tools.connectors.enabled = False.",
+    "correction": "Chemin court pour la prochaine version : le preset fixe les outils de ses routines (champ outils, déjà validé par modes.routine_toolsets) et liste des connexions suggérées, montrées comme boutons « Connecter » après la création (machine.py:349 /connections). Réglage d'outils par agent : à faire ensuite dans hermes.configure, après avoir vérifié quelle clé de config Hermes filtre les toolsets d'une session (non vérifié ici).",
+    "effort": "S",
+    "gain": "Évite de promettre dans l'écran un réglage d'outils que le moteur n'applique pas."
+   },
+   {
+    "titre": "Création : deux démarrages d'Hermes à la suite et une pause fixe",
+    "type": "perf",
+    "gravite": "moyenne",
+    "preuve": "server/noah/main.py:1947-1958 : attendre le premier démarrage (jusqu'à 180 s), écrire la config, redémarrer (hermes.py:341-342), asyncio.sleep(3), attendre encore (180 s). launcher/launcher.py:609-611 montre qu'on sait déjà écrire .env dans le volume avant c.start().",
+    "correction": "Essai mesuré : écrire aussi SOUL.md, noah.py, le plugin et config.yaml avant le premier c.start() (nouvelle route lanceur ou champ files dans NewAgent, launcher.py:549), puis sauter le redémarrage si Hermes démarre sain avec cette config ; hermes.configure sait partir d'une config vide (hermes.py:265). Non vérifié : qu'Hermes ne réécrive pas ces fichiers à son premier démarrage ; garder l'ancien chemin en repli. Mesurer avec tests/real/parcours_agents.py. Gain sûr tout de suite : remplacer sleep(3) par une attente de « hors ligne puis en ligne ».",
+    "effort": "M",
+    "gain": "Environ un démarrage de machine en moins à chaque création d'agent."
+   },
+   {
+    "titre": "Changer le nom ou le rôle redémarre la machine, même en pleine tâche",
+    "type": "bug",
+    "gravite": "moyenne",
+    "preuve": "server/noah/main.py:2136-2143 : update_agent lance _provision sans regarder task_state ; _configure redémarre par défaut (main.py:306-312, hermes.py:341-342) alors que hermes.py:339-340 rafraîchit déjà les prompts des conversations en cours.",
+    "correction": "Dans update_agent : si une conversation de l'agent est en 'work' (même lecture que _task_counts, main.py:2019-2029), répondre 409 « {nom} travaille : réessaie quand il a fini » ; l'afficher via ErrorText dans AgentDialog (déjà géré par le catch de save). À vérifier ensuite : si refresh-prompts suffit pour SOUL.md, passer restart=False. Test : cas ajouté à tests/agents/reglages_test.py.",
+    "effort": "S",
+    "gain": "Personnaliser un agent (geste encouragé par les presets) ne coupe plus son travail."
+   },
+   {
+    "titre": "Aucune limite au nombre d'agents, chacun pouvant prendre 4 Go",
+    "type": "securite",
+    "gravite": "moyenne",
+    "preuve": "server/noah/main.py:2109-2113 : create_agent n'exige que auth.current_user (un membre suffit) et un modèle choisi, sans plafond. launcher/launcher.py:603-604 : mem_limit 4g et 2 CPU par agent ; AGENTS.md demande 4 Go de mémoire au minimum pour tout le serveur.",
+    "correction": "Dans create_agent : compter les agents du compte et du serveur ; au-delà d'un plafond (réglage agents_max, défaut calculé depuis la mémoire lue par le lanceur, action 'ordinateur'), répondre 400 avec un texte clair et un bouton vers la suppression. Test : tests/agents/petit_vps_test.py.",
+    "effort": "S",
+    "gain": "Les presets feront créer plus d'agents : sans plafond, un petit VPS tombe."
+   },
+   {
+    "titre": "Onboarding : le premier essai est une phrase figée, pas une vraie demande",
+    "type": "ux",
+    "gravite": "basse",
+    "preuve": "frontend/src/components/Onboarding.tsx:379 : le texte envoyé est « Bonjour ! Présente-toi en une phrase. » ; ligne 306 : le rôle part sans trim (AgentDialog.tsx:54 le fait).",
+    "correction": "Après l'étape 3 : TrialStep envoie la première suggestion du preset choisi (sinon la phrase actuelle) et montre la réponse comme premier résultat utile ; ajouter role.trim() ligne 306 et 308.",
+    "effort": "S",
+    "gain": "La première minute montre ce que l'agent sait faire, pas qu'il sait dire bonjour."
+   },
+   {
+    "titre": "La liste des agents renvoie le rôle entier toutes les 4 secondes",
+    "type": "perf",
+    "gravite": "basse",
+    "preuve": "server/noah/main.py:1985 : 'role': a['role'] (jusqu'à 4000 caractères par agent) ; main.py:2005 : la liste est interrogée toutes les 4 s par chaque fenêtre. Les personas de presets seront longues.",
+    "correction": "Garder role dans la liste mais éviter la répétition : ETag sur GET /api/agents (hash du JSON, réponse 304) ou, plus simple, role envoyé seulement par GET /api/agents/{id} et lu par AgentDialog/AgentOverview à l'ouverture. Test : frontend/src/lib/events.resync.test.ts.",
+    "effort": "M",
+    "gain": "Moins d'octets et de rendu sur mobile avec plusieurs agents à longue persona."
+   }
+  ],
+  "catalogue": [
+   {
+    "nom": "Presets ou personas d'agent",
+    "role": "Modèle d'agent prêt à l'emploi à la création",
+    "source": "aucun fichier dans le dépôt ; server/noah/main.py:2104 (AgentBody)",
+    "etat": "absent"
+   },
+   {
+    "nom": "SOUL commun (CAPABILITIES)",
+    "role": "Consignes communes à tous les agents, suivies du nom puis du rôle propre",
+    "source": "server/noah/main.py:1907-1917",
+    "etat": "existe"
+   },
+   {
+    "nom": "Skills fournis",
+    "role": "Skills de l'image Hermes, étiquetés « fourni avec Noah », non modifiables",
+    "source": "launcher/agent_admin.py:798-808 et 859 ; image launcher/launcher.py:44",
+    "etat": "existe, liste non versionnée dans le dépôt (non vérifiée)"
+   },
+   {
+    "nom": "Compétences enseignées",
+    "role": "Skills écrits par la personne, rangés dans competences/, épinglés",
+    "source": "launcher/agent_admin.py:749-781 ; server/noah/machine.py:105-126",
+    "etat": "existe"
+   },
+   {
+    "nom": "Skills appris par l'agent",
+    "role": "Skills créés par Hermes après une tâche de 6 étapes ou plus",
+    "source": "server/noah/hermes.py:315 et 345 ; agent_admin.py:873-877",
+    "etat": "existe"
+   },
+   {
+    "nom": "Outils de routine",
+    "role": "7 familles réglables par routine : internet, navigateur, fichiers, commandes, memoire, images_vues, competences",
+    "source": "server/noah/modes.py:50-58",
+    "etat": "existe, par routine seulement"
+   },
+   {
+    "nom": "Moments de routine",
+    "role": "5 horaires prêts : chaque matin 8 h, semaine 9 h, lundi 9 h, chaque soir 18 h, toutes les heures",
+    "source": "frontend/src/components/AgentPowers.tsx:69-75",
+    "etat": "existe"
+   },
+   {
+    "nom": "Apparence",
+    "role": "Couleur, forme (gomme, bulle, cube, goutte, pastille), détail (lunettes, antenne, sourcils, joues)",
+    "source": "server/noah/main.py:2080-2085",
+    "etat": "existe"
+   },
+   {
+    "nom": "Modes de cerveau par agent",
+    "role": "auto, fast, balanced, smart, gratuit, custom ; raisonnement low, medium, high",
+    "source": "server/noah/main.py:2050-2053",
+    "etat": "existe"
+   },
+   {
+    "nom": "Actions d'administration de l'agent",
+    "role": "applications, outils MCP, ordinateur, mémoire, routines, Google, compétences, skills, profils invités",
+    "source": "launcher/agent_admin.py:1015-1030",
+    "etat": "existe"
+   },
+   {
+    "nom": "Plugin noah-garde",
+    "role": "Garde des skills tiers, coffre de connexions, fichiers protégés (SOUL.md, config.yaml)",
+    "source": "server/noah/agent_plugin/__init__.py:741 ; server/noah/hermes.py:316-329",
+    "etat": "existe"
+   },
+   {
+    "nom": "Preset « Assistant personnel »",
+    "role": "Courriels, agenda, rappels ; routine du matin en pause",
+    "source": "à écrire dans server/noah/presets.json",
+    "etat": "proposé"
+   },
+   {
+    "nom": "Preset « Veille »",
+    "role": "Suit des sujets et des pages, résume chaque matin",
+    "source": "à écrire dans server/noah/presets.json",
+    "etat": "proposé"
+   },
+   {
+    "nom": "Preset « Recherche »",
+    "role": "Enquête sourcée, rapport avec liens",
+    "source": "à écrire dans server/noah/presets.json",
+    "etat": "proposé"
+   },
+   {
+    "nom": "Preset « Créateur de contenu »",
+    "role": "Idées, posts, images, publication avec accord",
+    "source": "à écrire dans server/noah/presets.json",
+    "etat": "proposé"
+   },
+   {
+    "nom": "Preset « Bricoleur d'apps »",
+    "role": "Petites applications et scripts dans apps/, avec aperçu",
+    "source": "à écrire dans server/noah/presets.json",
+    "etat": "proposé"
+   },
+   {
+    "nom": "Preset « Achats et démarches »",
+    "role": "Compare, remplit des formulaires dans le navigateur, demande l'accord avant de payer",
+    "source": "à écrire dans server/noah/presets.json",
+    "etat": "proposé"
+   }
+  ]
+ },
+ "agent": {
+  "resume": "L'agent est un Hermes par conteneur ; Noah y pose un plugin de garde (server/noah/agent_plugin/__init__.py) qui filtre chaque appel d'outil par règles, puis interroge le juge du serveur (juge.py) : six lignes d'autonomie, trois modes (agir, auto, prudent), petit modèle puis second avis.\nLes capacités propres à Noah passent par la commande noah.py (gabarit dans hermes.py:396-470) : médias, routines, veilles, fils, appels, ordinateur de la personne, publication.\nForces : garde très soignée (secrets, injection, envoi exact comparé côté serveur), mode Agir sans carte, routines à condition sans modèle, coffre d'identifiants, prompt « Va au bout ».\nFaiblesses d'autonomie : en mode auto (le défaut), chaque clic du navigateur demande un accord ; toute commande non reconnue coûte un appel de modèle et retombe en carte au moindre doute ou délai ; les outils MCP sans indication de lecture demandent un accord et sont refusés en routine.\nFaiblesses de délai : appels au juge synchrones jusqu'à 20 s, réveil du navigateur jusqu'à 570 s sans retour, tri de chaque longue page.\nCapacités manquantes face à Grok et Meta Muse : aucun preset d'agent (création = nom + rôle libre), courriel et agenda seulement via Google, pas de rappel simple sans réveiller le modèle, aucune consigne de recherche web dans le prompt.\nLimite de cette revue : lecture seule en 12 minutes, rien n'a été exécuté ; mcp.py, proactif.py et decision.py n'ont été lus qu'en plan, et l'état « présent » du catalogue vient du code, pas d'un essai.",
+  "constats": [
+   {
+    "titre": "En mode auto (défaut), chaque clic du navigateur demande un accord",
+    "type": "ux",
+    "gravite": "haute",
+    "preuve": "server/noah/juge.py:491-492 : is_blind -> ligne 6 ; juge.py:56 : ligne 6 en « auto » = « accord » ; juge.py:406-411 : sans réglage, le mode est « auto ». tests/tools/juge_test.py:372 l'affirme (browser_click == \"approve\"). Le commentaire agent_plugin/__init__.py:775 dit pourtant « Il compte seulement dans un tour durci ». Idem browser_press Entrée (plugin:1072).",
+    "correction": "Dans juge.py classify(), rendre (2, \"doute\") pour is_blind ; le tour durci force déjà l'accord pour les lignes 3, 4 et 6 (juge.py:708), donc ajouter 2 à cette liste uniquement quand is_blind(tool, args). Mettre à jour juge_test.py:372 (clic hors tour durci = passe) et garder :934 (clic durci = approve).",
+    "effort": "S",
+    "gain": "Les tâches de navigateur (achats, réservations, formulaires) avancent sans carte à chaque clic, sans passer en mode Agir."
+   },
+   {
+    "titre": "Commande inconnue : un appel de modèle, puis carte au moindre doute ou délai",
+    "type": "perf",
+    "gravite": "haute",
+    "preuve": "juge.py:468-505 : classify rend None pour python3 x.py, git commit, npm run build, pdftotext… ; juge.py:353-399 : _ask_model, repli ligne 6 si certitude < 70 (l.46), panne ou délai (2,5 s puis 12 s, l.37 et 45) ; ligne 6 en auto = accord avec « je n'ai pas pu vérifier à temps ». LOCAL_PROGRAMS (l.421) ne contient que mkdir, touch, cp, mv, ffmpeg, unzip.",
+    "correction": "Dans juge.py surely_local() : accepter aussi une commande simple (sans opérateur shell) dont le programme est dans une liste élargie (python3, node, git add|commit|status, npm run, pytest, pdftotext, pandoc, convert, zip, tar, sed sans -i hors dossier) quand tous les chemins sont dans le dossier confié et que sends_out() est faux. Ajouter les cas de LEGIT (juge_test.py:1108-1110) comme attendus en ligne 2 sans appel au modèle.",
+    "effort": "M",
+    "gain": "Moins d'appels au juge (latence et coût) et moins de cartes pendant le travail sur fichiers."
+   },
+   {
+    "titre": "Outil MCP sans indication de lecture : accord à chaque appel, refus en routine",
+    "type": "ux",
+    "gravite": "haute",
+    "preuve": "agent_plugin/__init__.py:230-242 : _read_only rend False si le serveur ne déclare pas readOnlyHint ; :257 droit par défaut « confirmer » ; :266-282 : carte d'accord à chaque appel ; :268-272 : refus pendant une routine. juge.py:706-707 force « accord » pour tout droit « confirmer ».",
+    "correction": "Dans _read_only (plugin) et _connection_read (juge.py:520) : si le serveur ne déclare aucune indication pour aucun de ses outils, traiter comme lecture les noms qui commencent par get_, list_, search_, read_, fetch_, query_ et qui ne contiennent pas les motifs de SEND_TOOL ni MASS_TOOL. Ajouter un cas dans tests/tools/mcp_test.py. Décision de sécurité à valider par le propriétaire.",
+    "effort": "M",
+    "gain": "Les connexions tierces servent en routine et sans carte pour une simple lecture."
+   },
+   {
+    "titre": "Aucun preset d'agent : la création ne prend qu'un nom et un rôle libre",
+    "type": "capacite",
+    "gravite": "haute",
+    "preuve": "server/noah/main.py:2109-2113 : create_agent(body.name, body.role) ; main.py:1907-1917 : _soul = capacités communes + rôle. Le seul PRESETS du frontend (frontend/src/components/AgentPowers.tsx:69) liste des horaires de routine.",
+    "correction": "Créer server/noah/presets.py (8 à 10 presets : assistant quotidien, courriel et agenda, veille et recherche, achats et comparatifs, réseaux sociaux, études, voyage, finances perso) avec pour chacun : rôle, routines proposées, connexions conseillées, autonomie conseillée. Exposer GET /api/agent-presets, accepter preset dans AgentBody, et l'afficher à la création (web, mobile, bureau). Test dans tests/agents.",
+    "effort": "M",
+    "gain": "Objectif produit : partir d'un agent prêt à l'emploi puis l'ajuster."
+   },
+   {
+    "titre": "Le réveil du navigateur peut bloquer un outil 570 s sans rien dire, erreurs avalées",
+    "type": "perf",
+    "gravite": "moyenne",
+    "preuve": "agent_plugin/__init__.py:388 : subprocess.run(..., timeout=HOOK_SECONDS - 30) avec HOOK_SECONDS = 600 (:378) ; :391-392 : toute erreur finit en pass. Appelé pour chaque outil browser_* (:1554-1556), revérifié toutes les 60 s (:385).",
+    "correction": "Dans _wake_browser : délai à 120 s pour un navigateur déjà installé, et rendre un bool ; dans _guard_tool, si le réveil échoue, rendre {\"action\":\"block\",\"message\":\"Navigateur injoignable : lance noah.py etat puis navigateur redemarrer\"} au lieu de laisser l'outil échouer plus tard. Garder le long délai seulement au premier usage (téléchargement d'image).",
+    "effort": "S",
+    "gain": "Fin des longues attentes muettes ; l'agent répare tout de suite."
+   },
+   {
+    "titre": "Tri des contenus : appel synchrone avec délai de 20 s pour chaque longue page",
+    "type": "perf",
+    "gravite": "moyenne",
+    "preuve": "agent_plugin/__init__.py:1311 : tout résultat externe >= LONG_TEXT (8000, :1182) part au tri même sans motif ; :1320 -> _juge_call, délai fixe JUGE_SECONDS = 20 (:719, :1283). Sont concernés tous les browser_* (:1250-1251), donc chaque browser_snapshot long. Côté serveur le tri vise 2 s (juge.py:38) et 30 par heure (juge.py:44).",
+    "correction": "Donner à _juge_call un paramètre timeout et l'appeler avec 4 s pour /tri. Ne pas envoyer au tri un texte sans aucun motif (level vide) quand l'outil est browser_snapshot ou browser_scroll déjà triés pour la même adresse dans le tour (petit cache par session et empreinte du texte).",
+    "effort": "S",
+    "gain": "Navigation et lecture web plus rapides, quota de tri préservé."
+   },
+   {
+    "titre": "Tri en panne : un simple « vous devez » dans une page durcit le tour 30 minutes",
+    "type": "bug",
+    "gravite": "moyenne",
+    "preuve": "agent_plugin/__init__.py:1326-1331 : en cas d'exception, flagged = bool(level) ; level vaut aussi « faible » (:1241-1247), et WEAK_SIGNS (:1178-1181) contient « tu dois », « vous devez », « you must », « ai assistant ». Puis _hardened[session] = +1800 s (:1192, :1331), ce qui force l'accord sur envois et lignes 6 (juge.py:708) et un refus en routine (juge.py:303-305).",
+    "correction": "Ligne 1327 : flagged = level == \"fort\". Ajouter un cas dans tests/tools/juge_test.py : tri injoignable + page avec « vous devez » = pas de durcissement ; motif fort = durcissement.",
+    "effort": "S",
+    "gain": "Moins de cartes et de refus de routine injustifiés quand le serveur est lent."
+   },
+   {
+    "titre": "todo passe par le juge à chaque appel et demande un accord en mode Prudent",
+    "type": "ux",
+    "gravite": "moyenne",
+    "preuve": "agent_plugin/__init__.py:1041-1042 exclut « todo » de no_effect alors que NO_EFFECT le contient (:765-766) ; il part donc au serveur (appel réseau, lecture de la base dans _read_turn juge.py:237-245) ; juge.py:420 LOCAL_TOOLS -> ligne 2 ; juge.py:52 : ligne 2 en « prudent » = accord.",
+    "correction": "Retirer \"todo\" du tuple de la ligne 1041 (garder images, vidéo, voix, skill_manage, qui coûtent ou persistent) et de LOCAL_TOOLS dans juge.py:420. Ajuster l'assertion correspondante de juge_test.py.",
+    "effort": "S",
+    "gain": "Un aller-retour réseau de moins par étape de plan, et plus de carte pour une liste de tâches interne."
+   },
+   {
+    "titre": "Pas de rappel simple : « rappelle-moi à 17 h » crée une routine qui réveille le modèle",
+    "type": "capacite",
+    "gravite": "moyenne",
+    "preuve": "server/noah/hermes.py:411-470 : l'aide de noah.py n'a aucune commande de rappel ; « rappeler » (l.445) est un appel vocal de compte rendu. Le prompt (main.py, section « Veilles et routines », vers l.1749) renvoie les demandes « une seule fois, plus tard » à la commande routine avec « in 5m ».",
+    "correction": "Ajouter `noah.py rappel \"texte\" \"quand\"` dans AGENT_TOOL et un point /agent-api/rappel côté serveur qui programme une notification push + un message dans la conversation, sans tour d'agent. L'ajouter à NOAH_NO_EFFECT (plugin:772) et GUEST_NOAH, et l'indiquer dans CAPABILITIES. Test dans tests/agents.",
+    "effort": "M",
+    "gain": "Rappels instantanés et gratuits, parité avec les assistants grand public."
+   },
+   {
+    "titre": "Courriel et agenda : Google seulement",
+    "type": "capacite",
+    "gravite": "moyenne",
+    "preuve": "agent_plugin/__init__.py:290-296 : seul chemin, le script google_api.py (gmail, calendar, drive, contacts, sheets, docs) ; server/noah/courriel.py:1-11 ne sert qu'aux codes de confirmation du compte. Les sources de veille acceptent gmail et agenda uniquement (hermes.py, aide de veille/routine-si).",
+    "correction": "Ajouter un skill « courriel-imap » (IMAP/SMTP, mots de passe d'application via le coffre) et « agenda-caldav » livrés avec l'agent, plus leurs lectures dans une table équivalente à GOOGLE_READS pour qu'elles passent sans carte ; ou proposer des connexions MCP préréglées (Outlook, iCloud) dans connecteurs.py. À cadrer avant de coder.",
+    "effort": "L",
+    "gain": "Couvre Outlook, iCloud, Proton, boîtes pro : indispensable pour un agent du quotidien."
+   },
+   {
+    "titre": "Aucune consigne de recherche web ni de citation des sources dans le prompt",
+    "type": "capacite",
+    "gravite": "moyenne",
+    "preuve": "server/noah/main.py:1697-1906 : CAPABILITIES a des sections Mémoire, Ordinateur, Veilles, Google, Navigateur, Publier, Widgets, Médias, mais aucune sur la recherche ; hermes.py:266-327 n'écrit aucun réglage de moteur de recherche (recherche de firecrawl, tavily, searx sans résultat dans launcher/ et server/noah/hermes.py). Le moteur réellement utilisé par web_search reste à confirmer dans l'image Hermes.",
+    "correction": "Ajouter une section « Chercher sur le web » à CAPABILITIES : web_search puis web_extract avant le navigateur, plusieurs requêtes en parallèle, dates vérifiées, sources en liens à la fin, widget grid pour les comparatifs. Vérifier dans un agent en marche quel moteur répond et, s'il manque une clé, le dire dans `noah.py etat`.",
+    "effort": "S",
+    "gain": "Réponses sourcées et rapides, le terrain où Grok est le plus fort."
+   },
+   {
+    "titre": "Juge en panne en mode auto : chaque action hors règles devient une carte, jusqu'à 20 s d'attente",
+    "type": "ux",
+    "gravite": "moyenne",
+    "preuve": "agent_plugin/__init__.py:1480-1484 : toute exception donne verdict None ; :1519-1522 : refus en routine, sinon carte « ton juge ne répond pas ». Délai JUGE_SECONDS = 20 (:719) à chaque appel, sans coupe-circuit ni mémoire de la panne.",
+    "correction": "Ajouter un coupe-circuit dans le plugin : après 2 échecs de suite, pendant 60 s, ne plus appeler le serveur et appliquer localement les règles (no_effect, must_ask, sends_out) ; ne demander l'accord que pour sends_out ou must_ask, laisser passer le reste dans le dossier confié. Test dans juge_test.py avec to_server en erreur.",
+    "effort": "M",
+    "gain": "Un serveur lent ne fige plus l'agent et ne noie plus la personne de cartes."
+   },
+   {
+    "titre": "Verdict « question » traité par le plugin mais jamais émis par le serveur",
+    "type": "architecture",
+    "gravite": "basse",
+    "preuve": "agent_plugin/__init__.py:1490-1491 bloque sur verdict == \"question\" ; aucune occurrence de ce verdict dans server/noah/juge.py (recherche de \"question\" : seulement apprentissage.py, main.py, media.py, bench.py).",
+    "correction": "Retirer la branche morte, ou l'utiliser : quand le second avis doute (juge.py:388) et que la personne est là, rendre « question » avec le motif pour que l'agent précise son intention au lieu d'afficher une carte.",
+    "effort": "S",
+    "gain": "Code plus clair, et une piste pour remplacer des cartes par une reformulation de l'agent."
+   },
+   {
+    "titre": "Écrire un fichier hors du dossier confié demande toujours un accord en auto",
+    "type": "ux",
+    "gravite": "basse",
+    "preuve": "juge.py:489-490 : write_file ou patch hors in_workspace -> ligne 6 ; in_workspace (agent_plugin/__init__.py:1027-1030) n'accepte que /opt/data/workspace et /tmp. Les dossiers partagés de l'ordinateur (/opt/data/dossiers/…, cités dans l'aide hermes.py « ordinateur ouvrir ») n'y sont pas.",
+    "correction": "Vérifier d'abord si /opt/data/dossiers est accessible en écriture directe ; si oui, l'ajouter à in_workspace en ligne 2 (ou ligne 5 pour un remplacement), avec un test dans juge_test.py. Sinon ne rien changer.",
+    "effort": "S",
+    "gain": "Moins de cartes quand l'agent range des fichiers dans un dossier confié."
+   }
+  ],
+  "catalogue": [
+   {
+    "nom": "terminal",
+    "role": "Commandes dans la machine de l'agent ; filtrées par règles puis juge",
+    "source": "Hermes ; garde agent_plugin/__init__.py:145, 871, 1000",
+    "etat": "présent, garde testée (tests/tools/juge_test.py), non exécuté ici"
+   },
+   {
+    "nom": "read_file / search_files / write_file / patch",
+    "role": "Lire, chercher, écrire des fichiers ; écriture libre dans /opt/data/workspace et /tmp",
+    "source": "Hermes ; juge.py:433-437, 489",
+    "etat": "présent ; écriture hors dossier = accord en auto"
+   },
+   {
+    "nom": "web_search / web_extract / x_search",
+    "role": "Recherche web, lecture de page, recherche sur X ; résultats triés contre l'injection",
+    "source": "Hermes ; plugin:765, 776",
+    "etat": "présent ; moteur de recherche non vérifié, aucune consigne dans le prompt"
+   },
+   {
+    "nom": "browser_navigate / snapshot / click / type / press / scroll / back / vision / get_images",
+    "role": "Navigateur Firefox anti-détection piloté par l'agent, visible dans l'onglet Ordinateur",
+    "source": "Hermes + launcher/camofox-noah ; plugin:381, 1045-1049",
+    "etat": "partiel : chaque clic demande un accord en mode auto"
+   },
+   {
+    "nom": "browser_vault",
+    "role": "Coffre d'identifiants : lister, remplir, demander une connexion par carte",
+    "source": "agent_plugin/__init__.py:633-710, server/noah/coffre.py",
+    "etat": "présent, testé (tests/tools/coffre_test.py) ; réservé au propriétaire"
+   },
+   {
+    "nom": "memory / session_search",
+    "role": "Mémoire durable (notes jugées avant d'entrer) et recherche dans les sessions passées",
+    "source": "Hermes ; plugin:533 check_memory, decision.py",
+    "etat": "présent"
+   },
+   {
+    "nom": "todo / clarify / delegate_task",
+    "role": "Plan de tâche, question à la personne, sous-agent",
+    "source": "Hermes ; plugin:765-766",
+    "etat": "présent ; todo passe inutilement par le juge"
+   },
+   {
+    "nom": "skills_list / skill_view / skill_manage",
+    "role": "Lire, créer et compléter des skills ; installation tierce limitée à 4 dépôts vérifiés",
+    "source": "Hermes ; plugin:44-45 TRUSTED, 145 check ; tests/skills/guard_test.py",
+    "etat": "présent ; pas de bibliothèque de skills du quotidien livrée par Noah (hors google-workspace)"
+   },
+   {
+    "nom": "vision_analyze / video_analyze",
+    "role": "Regarder une image ou une vidéo",
+    "source": "Hermes ; plugin:765, 776",
+    "etat": "présent"
+   },
+   {
+    "nom": "image_generate / video_generate / text_to_speech",
+    "role": "Outils médias natifs d'Hermes ; le prompt impose de passer par noah.py à la place",
+    "source": "Hermes ; plugin:1041 ; main.py « Créer des images »",
+    "etat": "présent mais doublon avec noah.py image/video/voix"
+   },
+   {
+    "nom": "noah.py image / video / musique / voix",
+    "role": "Création de médias par le routeur de Noah, avec budget",
+    "source": "server/noah/hermes.py:424-428, server/noah/media.py",
+    "etat": "présent"
+   },
+   {
+    "nom": "noah.py routine / routine-si / veille / routines / veille-action / routine-regler",
+    "role": "Routines planifiées, routines à condition et veilles sans modèle (page, flux, gmail, agenda, outil connecté)",
+    "source": "hermes.py:430-441, server/noah/watch.py",
+    "etat": "présent ; pas de rappel simple sans réveil du modèle"
+   },
+   {
+    "nom": "Tours « De lui-même » (proactif)",
+    "role": "L'agent lit ses sources, trie les nouveautés et agit ou signale selon le mode (Coupé, Me signaler, Agir et me dire), 12 tours par jour au plus",
+    "source": "server/noah/proactif.py:31-40, 553-647",
+    "etat": "présent, testé (tests/agents/proactif_test.py) ; lu en plan seulement"
+   },
+   {
+    "nom": "noah.py appeler / attendre / rappeler / notifier",
+    "role": "Appeler la personne pour une connexion ou un code, la rappeler à la voix, la notifier",
+    "source": "hermes.py:442-446, plugin:772",
+    "etat": "présent"
+   },
+   {
+    "nom": "noah.py fil / fil-etat",
+    "role": "Fils de travail parallèles visibles dans Détails",
+    "source": "hermes.py:422-423",
+    "etat": "présent (tests/agents/fil_fichiers_test.py)"
+   },
+   {
+    "nom": "noah.py agents / demander / demande-etat / demandes",
+    "role": "Confier une tâche à un autre agent et suivre le résultat",
+    "source": "hermes.py:447-451, server/noah/coordination.py",
+    "etat": "présent"
+   },
+   {
+    "nom": "noah.py ordinateur (ouvrir, notifier, copier, lancer, commande, lister, lire, ecrire, deplacer, creer-dossier, corbeille)",
+    "role": "Agir sur l'ordinateur de la personne via l'application de bureau et ses dossiers confiés",
+    "source": "hermes.py:461-470, 772 ; juge.py:416-427 ; server/noah/desktop.py",
+    "etat": "présent ; demande l'application de bureau ouverte"
+   },
+   {
+    "nom": "noah.py navigateur (reveiller, redemarrer, telecharger, envoyer)",
+    "role": "Réparer le navigateur, ranger un fichier en ligne, joindre un fichier à une page",
+    "source": "hermes.py:418-421, 626-723",
+    "etat": "présent"
+   },
+   {
+    "nom": "noah.py etat / reglages / regler / installer",
+    "role": "Diagnostic, réglages non sensibles, installation de paquets Debian",
+    "source": "hermes.py:414-416, 429",
+    "etat": "présent"
+   },
+   {
+    "nom": "Google Workspace (skill google-workspace)",
+    "role": "Gmail, Agenda, Drive, Contacts, Sheets, Docs par google_api.py ; lectures sans accord, écritures selon le droit",
+    "source": "agent_plugin/__init__.py:285-375 ; tests/tools/google_droit_test.py",
+    "etat": "présent ; seul chemin courriel et agenda"
+   },
+   {
+    "nom": "publier_post (Instagram, X)",
+    "role": "Publier un post ou un carrousel et rendre son adresse, sans doublon",
+    "source": "server/noah/publication.py:109-148 ; tests/tools/publication_test.py",
+    "etat": "présent pour Instagram et X ; autres réseaux par le navigateur"
+   },
+   {
+    "nom": "Outils MCP (mcp__serveur__outil)",
+    "role": "Connexions tierces relayées par Noah, droit par serveur : lire, confirmer (défaut), agir",
+    "source": "server/noah/mcp.py, server/noah/connecteurs.py ; plugin:211-282 ; tests/tools/mcp_test.py, connecteurs_test.py",
+    "etat": "partiel : sans indication de lecture, accord à chaque appel et refus en routine"
+   },
+   {
+    "nom": "noah.py recette / reseau-instagram / reseau-x / google-identifiants / google-accord / site-connecte",
+    "role": "Brancher Google, Instagram, X et noter les sites où l'agent est connecté",
+    "source": "hermes.py:452-460 ; server/noah/sites.py",
+    "etat": "présent (tests/tools/sites_test.py)"
+   },
+   {
+    "nom": "a2a_discover / a2a_list / a2a_history / a2a_call",
+    "role": "Échanges entre agents au protocole A2A d'Hermes",
+    "source": "plugin:767, 776",
+    "etat": "reconnu par la garde ; usage réel non vérifié"
+   },
+   {
+    "nom": "Juge des actions et tri des contenus",
+    "role": "Décide passe, accord ou refus pour chaque action ; encadre les contenus qui donnent des consignes",
+    "source": "server/noah/juge.py:648-719, 756 ; plugin:1303, 1427",
+    "etat": "présent, très testé (tests/tools/juge_test.py) ; trop de cartes en mode auto"
+   },
+   {
+    "nom": "Apprentissage et relecture",
+    "role": "Relit les corrections et tâches pour écrire une note ou un skill",
+    "source": "server/noah/apprentissage.py ; plugin:602-611 ; tests/agents/apprendre_test.py",
+    "etat": "présent"
+   },
+   {
+    "nom": "Presets d'agent",
+    "role": "Partir d'un agent prêt à l'emploi à la création",
+    "source": "server/noah/main.py:2109-2113",
+    "etat": "absent"
+   },
+   {
+    "nom": "Courriel et agenda hors Google (IMAP, Outlook, iCloud, CalDAV)",
+    "role": "Lire et écrire courriels et événements d'autres fournisseurs",
+    "source": "server/noah/courriel.py:1-11 (codes de confirmation seulement)",
+    "etat": "absent, sauf connexion MCP ajoutée par la personne"
+   },
+   {
+    "nom": "Achats et paiement",
+    "role": "Commander en ligne",
+    "source": "main.py CAPABILITIES « Va au bout » ; juge.py:71 motif paiement",
+    "etat": "partiel : navigateur seulement, paiement toujours laissé à la personne, clics soumis à accord en auto"
+   },
+   {
+    "nom": "Rappel simple à heure fixe",
+    "role": "Notifier la personne à une heure donnée sans tour d'agent",
+    "source": "hermes.py:411-470 (aucune commande)",
+    "etat": "absent : passe par une routine à passage unique"
+   }
+  ]
+ },
+ "mobile": {
+  "resume": "L'app Android est une coquille Capacitor 8 : tant qu'elle n'est pas reliée, elle affiche un écran d'appairage embarqué (mobile/www) ; une fois reliée, la WebView charge l'interface du serveur lui-même (setServerUrl), avec un jeton d'appareil chiffré au Keystore échangé contre une session courte posée en cookie. Autour : UnifiedPush pour les notifications, un service d'attente longue pour les appels (CallWatch), un écran d'appel natif, une bulle flottante de dictée, PiP en appel.\nForces : sécurité soignée (jeton jamais dans la WebView, origine stricte port compris, file de révocation), ressources à empreinte en cache immutable, appel natif en CallStyle, retour Android géré.\nFaiblesses : le démarrage attend un aller-retour réseau avant de charger quoi que ce soit ; sans l'app tierce ntfy il n'y a aucune notification de fin de tâche ; l'écran « serveur injoignable » est une impasse ; l'app native ne reçoit pas le partage Android et ses notifications n'ont aucune action. C'est là que l'écart avec Grok et Meta AI est le plus visible (un pouce, zéro configuration).\nCôté consommation : un service permanent non désactivable, des boucles de fond qui tournent app cachée, et un long-poll serveur qui lit la base chaque seconde.\nNon vérifié faute de temps : le comportement clavier en edge-to-edge (targetSdk 36), NoahBubble en détail, et l'activité réelle du service worker dans la WebView.",
+  "constats": [
+   {
+    "titre": "Sans ntfy, aucune notification de fin de tâche ni de routine sur Android",
+    "type": "capacite",
+    "gravite": "haute",
+    "preuve": "mobile/android/app/src/main/java/agent/noah/mobile/CallWatch.java:76 ne sonde que /api/calls/wait (appels). NoahPush.java:146 et 166 : show() n'est appelé que depuis onMessage (UnifiedPush). frontend/src/components/PushToggle.tsx:61-64 demande d'installer l'app tierce ntfy. Un utilisateur standard n'a donc que la sonnerie d'appel.",
+    "correction": "Généraliser l'attente longue : nouvel endpoint /api/push/wait (modèle : server/noah/coordination.py:511) qui rend aussi les notifications en attente pour la session de l'appareil ; dans CallWatch.watch() les afficher via NoahPush.show rendu static (canaux noah / noah-taches déjà définis). ntfy devient une option d'économie de batterie, plus un prérequis. Mettre à jour le texte de PushToggle.tsx.",
+    "effort": "M",
+    "gain": "Notifications dès l'installation, sans app tierce : parité de base avec Grok et Meta AI, et condition de l'autonomie (l'agent prévient quand il a fini)."
+   },
+   {
+    "titre": "Démarrage : un échange réseau séquentiel bloque le premier chargement, et un chargement est lancé pour rien",
+    "type": "perf",
+    "gravite": "haute",
+    "preuve": "MainActivity.java:169 super.load() démarre le chargement du serveur, :175 removeAllCookies, :241 stopLoading(), :242 openPage -> :327 renewWindow -> Pairing.java:89-116 (POST /api/devices/self/fenetre, TLS neuf, jusqu'à 5 s + 8 s) avant :331 loadUrl. Rien ne s'affiche pendant cet aller-retour, alors que l'init de la WebView (super.onCreate, :108) aurait pu tourner en parallèle.",
+    "correction": "Dans MainActivity.onCreate, dès la ligne 99 (avant super.onCreate), lancer pairing.openWindow() sur un thread et garder le résultat (CompletableFuture) ; renewWindow consomme ce résultat au premier appel au lieu de relancer l'échange. Bonus : frontend/src/lib/api.ts:48-58 sait déjà renouveler sur 401, donc loadUrl peut partir sans attendre quand l'état est inconnu.",
+    "effort": "S",
+    "gain": "Environ un aller-retour TLS en moins (200 à 600 ms en 4G) à chaque ouverture à froid, et une requête inutile supprimée."
+   },
+   {
+    "titre": "Écran « Ton serveur ne répond pas » : une impasse sans bouton ni sortie",
+    "type": "ux",
+    "gravite": "haute",
+    "preuve": "MainActivity.java:348-351 : la page OFFLINE n'a ni bouton Réessayer ni moyen de changer de serveur, et elle est chargée par loadDataWithBaseURL(null, …) (:189, :336) donc sans pont natif. Si le serveur change d'adresse ou disparaît, seule la suppression des données de l'app débloque. Couleurs claires fixes (#EEF1F4) même en mode sombre.",
+    "correction": "Ajouter à OFFLINE deux liens : « Réessayer » et « Changer de serveur » (schéma interne type noah-app://reessayer et noah-app://oublier), interceptés dans shouldOverrideUrlLoading (:206) : le premier appelle reload, le second ouvre un AlertDialog de confirmation puis new Pairing(this).forget() + recreate(). Ajouter prefers-color-scheme dans le style, et afficher l'hôte du serveur pour que la personne sache lequel ne répond pas.",
+    "effort": "S",
+    "gain": "Plus aucun utilisateur bloqué ; écran cohérent avec le thème."
+   },
+   {
+    "titre": "L'app native ne reçoit pas le partage Android (lien, texte, image)",
+    "type": "capacite",
+    "gravite": "haute",
+    "preuve": "mobile/android/app/src/main/AndroidManifest.xml : MainActivity n'a que deux intent-filter (MAIN/LAUNCHER et VIEW noah://connexion), aucun ACTION_SEND. Le partage n'existe que pour la PWA : frontend/public/manifest.webmanifest:17-25 et frontend/src/lib/share.ts:1-18. MainActivity.java:365-368 ne lit que l'extra « url ».",
+    "correction": "Ajouter un intent-filter ACTION_SEND (text/plain, puis image/*) sur MainActivity. Dans onCreate/onNewIntent, lire EXTRA_TEXT/EXTRA_SUBJECT et les passer à la page par bridge.eval d'un événement (pas par l'adresse : elle finirait dans les journaux du serveur) ; ajouter dans share.ts un écouteur qui alimente la même variable que captureShare. Images : second temps, via l'envoi de fichier existant.",
+    "effort": "M",
+    "gain": "« Partager > Noah » depuis n'importe quelle app : le geste du quotidien qui fait d'un agent un réflexe, à un pouce."
+   },
+   {
+    "titre": "Notifications sans aucune action : impossible de répondre ou d'approuver sans ouvrir l'app",
+    "type": "ux",
+    "gravite": "moyenne",
+    "preuve": "NoahPush.java:248-253 : le Builder n'a ni addAction ni RemoteInput, seulement setContentIntent. La bulle sait pourtant déjà poster un message hors de la WebView (NoahBubble.java:506, POST /api/chat/pendant).",
+    "correction": "Ajouter une action « Répondre » (RemoteInput) traitée par un BroadcastReceiver qui poste sur /api/chat/pendant avec le jeton d'appareil (extraire le post de NoahBubble en utilitaire partagé). Pour les demandes d'accord de l'agent, deux actions « Autoriser » / « Refuser » quand le message porte un identifiant de demande (champ à ajouter au push côté serveur).",
+    "effort": "M",
+    "gain": "Répondre et valider depuis le volet de notifications ou l'écran verrouillé, comme une messagerie."
+   },
+   {
+    "titre": "La page d'accueil attend toujours le réseau avant de s'afficher",
+    "type": "perf",
+    "gravite": "moyenne",
+    "preuve": "frontend/public/sw.js:37-46 : tout ce qui n'est pas une ressource à empreinte, dont « / », est en « réseau d'abord, cache en secours ». server/noah/main.py:4405-4409 sert index.html en no-cache. Sur un réseau mobile lent, l'ouverture est suspendue à cette requête alors que la coquille est déjà en cache (SHELL, sw.js:4).",
+    "correction": "Dans sw.js, servir « / » en stale-while-revalidate : répondre tout de suite avec le cache, rafraîchir en fond, et monter CACHE en noah-v14. Les ressources à empreinte restent en cache (sw.js:22-35), donc l'ancienne page reste cohérente jusqu'au prochain lancement. À vérifier sur appareil : que le service worker est bien actif dans la WebView Capacitor.",
+    "effort": "S",
+    "gain": "Coquille affichée sans attendre le réseau, sur mobile comme sur le web installé."
+   },
+   {
+    "titre": "Service d'appels permanent, non désactivable, et qui ne sonne pas forcément en veille",
+    "type": "ux",
+    "gravite": "moyenne",
+    "preuve": "CallWatch démarre pour tout appareil relié sans distributeur : MainActivity.java:127, NoahShellPlugin.java:392, BootReceiver.java:14 ; le seul arrêt est à la déconnexion (NoahPush.java:76). Notification permanente « Noah peut t'appeler » (CallWatch.java:53-55). Aucun WakeLock, et après une coupure la pause monte jusqu'à 300 s (CallWatch.java:86) sans être remise à zéro au retour du réseau.",
+    "correction": "Ajouter un interrupteur « Recevoir les appels de mes agents » dans frontend/src/components/PhoneSettings.tsx, stocké dans Pairing.options, lu par startCallWatch et BootReceiver. Dans CallWatch, enregistrer un NetworkCallback qui interrompt le sleep au retour du réseau. Dire clairement dans l'écran que l'exemption batterie (déjà proposée) est nécessaire pour sonner écran éteint.",
+    "effort": "S",
+    "gain": "Moins de batterie et une notification permanente en moins pour qui n'utilise pas les appels ; sonnerie fiable pour les autres."
+   },
+   {
+    "titre": "Le long-poll des appels lit la base chaque seconde par téléphone, en bloquant la boucle du serveur",
+    "type": "perf",
+    "gravite": "moyenne",
+    "preuve": "server/noah/coordination.py:511-520 : calls_wait est async mais appelle calls_pending(user) (synchrone, db.connect + _expire()) dans une boucle avec asyncio.sleep(1), 24 h sur 24 pour chaque téléphone sans distributeur.",
+    "correction": "Remplacer la boucle par un asyncio.Event par utilisateur, réveillé là où un appel est créé, décidé ou expiré (même fichier, _decide et la création) ; ne relire la base qu'au réveil ou à l'échéance. À défaut : await asyncio.to_thread(calls_pending, user) et un pas de 3 s.",
+    "effort": "S",
+    "gain": "Charge de fond du serveur quasi nulle, sonnerie plus rapide, et base prête à porter aussi les notifications (constat 1)."
+   },
+   {
+    "titre": "Boucles de fond actives même app cachée : toutes les 5 min, et toutes les 5 s hors ligne",
+    "type": "perf",
+    "gravite": "moyenne",
+    "preuve": "MainActivity.java:91-96 : Handler relancé toutes les 5 min tant que l'activité vit, qui déclenche resumePush -> :143-146 un GET /api/push/subscription (NoahPush.serverHasUs) à chaque tour quand le push est inscrit. Hors ligne : :191, :202 et :337 relancent openPage toutes les 5 s, sans backoff ni pause en arrière-plan ; rien n'est arrêté avant onDestroy (:163).",
+    "correction": "Arrêter les deux boucles dans onStop et les relancer dans onStart. Pour le hors-ligne : backoff 5 s -> 60 s, et relance immédiate depuis NetworkCallback.onAvailable (:82) qui existe déjà.",
+    "effort": "S",
+    "gain": "Radio et CPU au repos quand l'app est en arrière-plan ou sans réseau."
+   },
+   {
+    "titre": "Flash clair au lancement en mode sombre",
+    "type": "ux",
+    "gravite": "basse",
+    "preuve": "mobile/capacitor.config.json:1-10 : aucun backgroundColor. mobile/android/app/src/main/res/values/styles.xml : AppTheme hérite de Theme.AppCompat.Light, pas de variante nuit. Entre l'écran de lancement et le premier rendu (rallongé par l'échange de session), la WebView est blanche.",
+    "correction": "Dans MainActivity.load(), poser bridge.getWebView().setBackgroundColor selon le mode nuit du système (#faf8f5 / #1c1a18, les couleurs de mobile/www/index.html:9-10) ; même fond pour la fenêtre.",
+    "effort": "S",
+    "gain": "Lancement sans flash, perçu comme plus rapide."
+   },
+   {
+    "titre": "Mise à jour de l'app : l'installateur peut ne jamais s'ouvrir",
+    "type": "bug",
+    "gravite": "moyenne",
+    "preuve": "NoahShellPlugin.java:310-326 : startActivity(install) est lancé depuis un BroadcastReceiver à la fin du téléchargement. Android 10+ bloque en général l'ouverture d'une activité quand l'app n'est plus au premier plan (non reproduit ici). :330 : receiver exporté, jamais désenregistré si le téléchargement ne se termine pas.",
+    "correction": "À la fin du téléchargement : si l'activité est au premier plan, ouvrir l'installateur ; sinon poster une notification « Mise à jour prête. Touche pour installer » avec un PendingIntent vers le même Intent. Désenregistrer le receiver sur échec et passer à RECEIVER_NOT_EXPORTED via ContextCompat.",
+    "effort": "S",
+    "gain": "Mises à jour qui aboutissent même si la personne a quitté l'app pendant le téléchargement."
+   },
+   {
+    "titre": "Appairage : suppose un ordinateur à côté et utilise une boîte de dialogue brute",
+    "type": "copie",
+    "gravite": "basse",
+    "preuve": "mobile/www/index.html:33 : « Sur ton ordinateur, ouvre Noah puis Réglages → Appareils… ». mobile/www/app.js:122 : window.confirm natif. Le collage d'un lien est géré mais invisible (app.js:135-141, détecté seulement si on colle dans le champ adresse).",
+    "correction": "Ajouter un bouton « Coller le lien » (lecture du presse-papiers puis parseLink + claim) pour qui a ouvert Noah dans le navigateur du même téléphone ; reformuler en « Ouvre Noah où il est déjà connecté » ; remplacer window.confirm par un bloc de confirmation dans la page avec l'hôte en gras.",
+    "effort": "S",
+    "gain": "Appairage faisable avec le téléphone seul, texte plus court."
+   },
+   {
+    "titre": "Numéros de version incohérents entre les paquets",
+    "type": "architecture",
+    "gravite": "basse",
+    "preuve": "mobile/package.json:4 « 0.1.0 », mobile/android/app/build.gradle:5 valeur par défaut « 0.1.0 », frontend/package.json:5 « 0.0.0 », desktop/package.json:6 « 0.1.0 », pour une version 0.1.7. Un APK de débogage local s'annonce NoahApp/0.1.0 (MainActivity.java:105) et envoie X-Noah-Version 0.1.0 (app.js:77-78), ce que tooOld (frontend/src/lib/platform.ts:43) peut juger trop ancien.",
+    "correction": "Un fichier VERSION à la racine, lu par build.gradle (à la place du défaut 0.1.0) et recopié dans les package.json par le script de montée de version ; ajouter le contrôle à scripts/verifier.mjs.",
+    "effort": "S",
+    "gain": "Un seul numéro partout, plus de faux « app trop ancienne » en essai local."
+   }
+  ]
+ },
+ "bureau": {
+  "resume": "Zone lue : desktop/ (main.js 847 l., actions.js, bandeau.js, noah.js, fichiers.js, preload, package.json) et tests/desktop. L'app est une coquille Electron : une WebContentsView charge l'interface du serveur (VPS ou Docker local), une seconde vue locale (« bandeau ») porte les accords, une boucle long-poll (actions.js) exécute les demandes de l'agent sur le PC.\nForces : sécurité soignée (contextIsolation + sandbox partout, IPC vérifiés par origine exacte, session chiffrée par safeStorage, cookie de session non persistant, navigation et window.open verrouillés, accords liés par empreinte, révocations rejouées), et de vrais tests sur actions/bandeau/dossiers.\nFaiblesses : tout ce qui fait une app « du quotidien » manque. Aucune mise à jour automatique, aucun démarrage avec Windows, aucun raccourci global, notifications cassées côté réglages et pauvres au clic, zone de notification sans état. Electron est figé sur 38.2.0 (hors support en novembre 2026). Côté robustesse : résultat d'action perdu sur une coupure réseau, transferts sans délai qui bloquent la file, config.json écrit sans atomicité, page blanche si le rendu plante, mode local sans reconnexion.\nRisque non vérifié à l'exécution, à tester : Ctrl+Alt+A autorise un accord même quand le focus est dans la page (bandeau.js:90-96) ; sous Windows AltGr = Ctrl+Alt, donc AltGr+A sur AZERTY peut valider une commande par erreur.\nRien n'a été modifié ni lancé.",
+  "constats": [
+   {
+    "titre": "Aucune mise à jour automatique de l'app de bureau",
+    "type": "capacite",
+    "gravite": "haute",
+    "preuve": "desktop/package.json:14-18 : seules dépendances electron, electron-builder, rcedit ; aucun bloc build.publish. Recherche de autoUpdater/electron-updater dans desktop/*.js : zéro résultat. .github/workflows/apps.yml:114 : electron-builder --publish never. .github/workflows/release.yml:192 : seul le Setup.exe est copié (renommé noah-agent-windows-setup.exe), pas de latest.yml. frontend/src/components/AppUpdate.tsx:19 et :32 : l'offre de mise à jour ne s'affiche que si shell.kind === \"android\". desktop/package.json:6 : version 0.1.0 alors que version-affichee.txt dit 0.1.7 (montée seulement sur étiquette, apps.yml:110-112).",
+    "correction": "Ajouter electron-updater. Dans desktop/package.json : build.publish = { provider: \"github\", owner: \"smfcoder17\", repo: \"noah-agent\" } et build.nsis.artifactName = \"noah-agent-windows-setup.exe\" pour que latest.yml pointe sur le nom publié. Dans main.js après whenReady : autoUpdater.checkForUpdates() au démarrage puis toutes les 6 h, entrée de plateau « Redémarrer pour mettre à jour » sur l'événement update-downloaded (quitting = true puis quitAndInstall). Dans release.yml:190-194 : publier aussi latest.yml et le .blockmap. Secours en moins d'une heure : étendre AppUpdate.tsx au bureau avec un champ app_bureau de /api/status et un lien vers la release. Aligner desktop/package.json sur 0.1.7.",
+    "effort": "M",
+    "gain": "Les utilisateurs restent à jour sans retélécharger un installateur ; fin des apps trop anciennes bloquées par l'écran « update » (App.tsx:148)."
+   },
+   {
+    "titre": "Pas de démarrage avec Windows : après un redémarrage, l'agent perd l'ordinateur",
+    "type": "capacite",
+    "gravite": "haute",
+    "preuve": "Recherche de setLoginItemSettings/openAtLogin dans desktop/*.js : zéro résultat. desktop/main.js:1-3 : l'app « reste dans la zone de notification pour que les routines continuent ». desktop/actions.js:383 : la boucle d'écoute ne vit que « tant que l'application tourne ». desktop/main.js:490 : la fenêtre est toujours montrée au premier chargement, pas de lancement discret.",
+    "correction": "main.js : case à cocher dans createTray() et dans le menu Fichier « Lancer au démarrage de l'ordinateur » → app.setLoginItemSettings({ openAtLogin, args: [\"--cache\"] }), état lu par app.getLoginItemSettings(). Ligne 490 : ne pas appeler win.show() si process.argv contient --cache. L'activer par défaut à la fin du premier appairage (adopt(), ligne 225) avec la bulle déjà prévue ligne 545.",
+    "effort": "S",
+    "gain": "Autonomie réelle : routines, dossiers confiés et notifications disponibles dès l'ouverture de session, sans geste."
+   },
+   {
+    "titre": "Résultat d'action perdu et transferts sans délai : l'agent refait ou reste bloqué",
+    "type": "bug",
+    "gravite": "haute",
+    "preuve": "desktop/actions.js:494 : le POST /api/desktop/result/{id} n'a ni délai ni nouvel essai, et son échec est avalé ligne 519 (.catch(() => {})). L'action est faite sur le PC (fichier écrit, commande lancée) mais l'agent reçoit une expiration. desktop/actions.js:469-473 (upload) et :479 (download) : fetch sans AbortSignal ; avec MAX_FILES_RUNNING = 2 (ligne 20), deux transferts figés bloquent toutes les lectures et écritures jusqu'au redémarrage de l'app.",
+    "correction": "actions.js : AbortSignal.timeout(120000) sur upload et download ; pour le résultat, 3 essais espacés de 1, 3 et 9 s avec AbortSignal.timeout(10000). Ajouter un cas dans tests/desktop/accords_sync_test.mjs : première réponse 503, le résultat arrive au second essai.",
+    "effort": "S",
+    "gain": "Plus d'action exécutée deux fois ni de file de fichiers figée après une coupure réseau."
+   },
+   {
+    "titre": "Electron figé sur 38.2.0, hors support en novembre 2026",
+    "type": "securite",
+    "gravite": "haute",
+    "preuve": "desktop/package.json:15 : \"electron\": \"38.2.0\" (version exacte, branche sortie à l'automne 2025). Electron ne maintient que les trois dernières branches majeures : celle-ci ne reçoit plus les correctifs de Chromium, alors que la fenêtre affiche une page distante et du contenu produit par l'agent (main.js:159, loadURL(server)).",
+    "correction": "Monter electron à la dernière branche stable maintenue (à lire sur releases.electronjs.org) et electron-builder en conséquence dans desktop/package.json, régénérer package-lock, repasser tests/desktop/accord_test.mjs, accords_sync_test.mjs, dossiers_test.mjs, fichiers_test.mjs, pont_reel.mjs, puis une fumée manuelle (appairage, bandeau, micro). Vérifier WebContentsView et safeStorage.getSelectedStorageBackend.",
+    "effort": "M",
+    "gain": "Correctifs de sécurité Chromium à jour ; prérequis raisonnable avant d'ajouter la mise à jour automatique."
+   },
+   {
+    "titre": "Réglages des notifications cassés dans l'app de bureau",
+    "type": "bug",
+    "gravite": "haute",
+    "preuve": "desktop/main.js:790-794 : le gestionnaire de permissions n'accorde que media, fullscreen et clipboard-sanitized-write ; « notifications » est refusé. frontend/src/components/PushToggle.tsx:75-77 : hors Capacitor, le bureau reçoit WebPushToggle. PushToggle.tsx:94-95 : Notification.requestPermission() échoue donc avec « Autorise-les pour ce site dans les réglages du navigateur », message sans issue dans l'app. Le vrai canal existe pourtant : server/noah/desktop.py:675-681 (send_native) pousse une notification native quand l'app est ouverte.",
+    "correction": "PushToggle.tsx : si window.noahDesktop est présent, rendre un état « Sur cet ordinateur, Noah te prévient par l'application tant qu'elle est ouverte » avec un bouton d'essai qui appelle une route de test passant par send_native. Ne pas proposer l'abonnement Web Push (Electron n'a pas de service de push).",
+    "effort": "S",
+    "gain": "Fin d'une impasse visible dès Réglages → Notifications ; l'utilisateur comprend comment il est prévenu sur son ordinateur."
+   },
+   {
+    "titre": "Notification native : clic fragile et sans destination",
+    "type": "bug",
+    "gravite": "moyenne",
+    "preuve": "desktop/actions.js:182-185 : l'objet Notification est une variable locale, sans référence gardée (le ramasse-miettes peut emporter l'écouteur du clic), et le clic fait BrowserWindow.getAllWindows()[0]?.show() : ni restauration d'une fenêtre réduite, ni focus, ni navigation. server/noah/desktop.py:680 : la charge envoyée n'a pas d'adresse, alors que notify_user en reçoit une (desktop.py:683, paramètre url).",
+    "correction": "actions.js : garder les notifications dans un Set jusqu'à leur événement close ou click ; configure({ onNotification }) fourni par main.js qui appelle show() puis, si req.url est un chemin de même origine, page.webContents.loadURL(origin + url). desktop.py : ajouter \"url\" à la charge de send_native et le passer depuis notify_user. Test dans tests/desktop/accord_test.mjs avec electron_factice.",
+    "effort": "S",
+    "gain": "Un clic sur « ta routine a fini » ouvre le bon fil, comme sur Android."
+   },
+   {
+    "titre": "Aucun raccourci global pour appeler Noah",
+    "type": "capacite",
+    "gravite": "moyenne",
+    "preuve": "Recherche de globalShortcut dans desktop/*.js : zéro résultat. desktop/main.js:629 : le seul raccourci, CommandOrControl+Shift+Space, est un accélérateur de menu (actif fenêtre au premier plan seulement) et ne sert qu'à « Voir l'accord en attente ».",
+    "correction": "main.js : après whenReady, globalShortcut.register(readConfig().raccourci || \"Alt+Space\", basculer) où basculer cache la fenêtre si elle a le focus, sinon show() puis page.webContents.focus() et un événement « noah:nouveau-message » que l'interface écoute pour placer le curseur dans la zone de saisie. Si register rend false, essayer \"Control+Shift+Space\". Entrée de plateau pour le couper ; globalShortcut.unregisterAll() dans before-quit. Exposer l'événement dans preload.js.",
+    "effort": "S",
+    "gain": "Parité avec les apps de bureau concurrentes : poser une question en une touche depuis n'importe où."
+   },
+   {
+    "titre": "Page blanche si le rendu plante ou se fige",
+    "type": "bug",
+    "gravite": "moyenne",
+    "preuve": "desktop/main.js:521-534 : seuls did-fail-load et did-navigate-in-page sont écoutés sur la page principale. render-process-gone n'existe que pour le bandeau (desktop/bandeau.js:128) ; aucun écouteur unresponsive. Comme fermer la fenêtre la cache (main.js:540-542), un rendu mort reste blanc jusqu'à « Quitter » dans le plateau.",
+    "correction": "main.js, dans createWindow : page.webContents.on(\"render-process-gone\", (_e, d) => { if (d.reason !== \"clean-exit\") boot(); }) ; win.on(\"unresponsive\") → boîte « Noah ne répond plus » avec Recharger / Attendre. Cas à ajouter dans la suite 4 de tests/desktop/accord_test.mjs.",
+    "effort": "S",
+    "gain": "L'app se relève seule après un plantage mémoire, sans que l'utilisateur doive deviner qu'il faut quitter."
+   },
+   {
+    "titre": "Reconnexion : rien en mode local, écran qui clignote en mode serveur",
+    "type": "bug",
+    "gravite": "moyenne",
+    "preuve": "desktop/main.js:525 : did-fail-load sort tout de suite si mode !== \"remote\" ; main.js:81 : reconnectLater ne relance que le mode remote. En local, Recharger (main.js:645) avec Docker arrêté laisse la page d'erreur de Chromium. En remote, chaque essai (toutes les 5 s, main.js:75) repasse par boot() qui recharge l'écran d'attente (main.js:94) puis réécrit le texte (main.js:142, :148) : clignotement sans fin, sans espacement croissant.",
+    "correction": "main.js : dans did-fail-load, traiter aussi le mode local (écran d'attente puis boot(), noah.start relance docker compose). Séparer la sonde du rechargement : une fonction probe() qui refait seulement le fetch /api/status et ne charge la page qu'au succès, avec délais 5, 10, 20 puis 30 s.",
+    "effort": "S",
+    "gain": "Reprise propre après une coupure dans les deux modes, sans écran qui saute."
+   },
+   {
+    "titre": "config.json écrit sans atomicité et relu du disque à chaque accès",
+    "type": "bug",
+    "gravite": "moyenne",
+    "preuve": "desktop/main.js:21-31 : readConfig relit et analyse le fichier à chaque appel, et rend {} sur toute erreur ; writeConfig fait un writeFileSync direct. Le fichier est réécrit à chaque fermeture de fenêtre (main.js:539). Un fichier tronqué (coupure pendant l'écriture) fait oublier mode, server et jeton : retour à l'écran de premier lancement et session orpheline côté serveur. desktop/autonomie.js:3 relit ce fichier à chaque action sur fichier (actions.js:345) et à chaque construction de menu.",
+    "correction": "main.js : cache mémoire chargé une fois ; writeConfig écrit config.json.tmp puis fs.renameSync, et garde config.json.bak ; readConfig retombe sur le .bak si l'analyse échoue. Même recette à vérifier dans dossiers.js (createStore).",
+    "effort": "S",
+    "gain": "Plus d'appairage perdu après une coupure de courant ; moins de lectures disque synchrones dans le processus principal."
+   },
+   {
+    "titre": "Téléchargement d'un fichier : tout en mémoire avant de vérifier la taille",
+    "type": "perf",
+    "gravite": "moyenne",
+    "preuve": "desktop/fichiers.js:45-46 : Buffer.from(await r.arrayBuffer()) puis seulement ensuite le test data.length > MAX_FILE (200 Mo, ligne 9). Une vidéo de 2 Go est entièrement chargée dans le processus principal avant d'être refusée. fichiers.js:49 : writeFileSync bloque l'interface pendant l'écriture.",
+    "correction": "fichiers.js : refuser d'abord sur l'en-tête content-length, puis écrire en flux avec stream.pipeline(Readable.fromWeb(r.body), compteur qui coupe au-delà de MAX_FILE, fs.createWriteStream(target)) et supprimer le fichier partiel en cas d'échec. Adapter tests/desktop/fichiers_test.mjs (faux fetch avec body en flux).",
+    "effort": "S",
+    "gain": "Mémoire stable et fenêtre fluide quand on ouvre une vidéo ou une archive produite par l'agent."
+   },
+   {
+    "titre": "Zone de notification : icône détruite à chaque changement, floue, sans état",
+    "type": "ux",
+    "gravite": "moyenne",
+    "preuve": "desktop/main.js:597-602 : createTrayMenuState fait tray.destroy() puis createTray() à chaque changement d'autonomie ou de coupure (appelé lignes 38, 588, 592) : l'icône disparaît et peut repartir dans la zone masquée de Windows. main.js:605 : icône réduite à 16×16 fixe, floue à 150-200 %. main.js:612 : « Voir l'accord en attente » toujours présent même sans accord. Aucun signe d'un accord en attente, d'un accès coupé ou d'un serveur injoignable.",
+    "correction": "main.js : garder l'objet Tray et appeler tray.setContextMenu(construire()) ; icône à plusieurs tailles (16, 24, 32) ; n'afficher « Voir l'accord en attente » que si bandeau expose un état pending ; tray.setToolTip selon l'état (« accord en attente », « accès coupé », « serveur injoignable ») et win.flashFrame(true) quand bandeau.request démarre (bandeau.js:103-121).",
+    "effort": "S",
+    "gain": "Un accord en attente se voit sans ouvrir la fenêtre ; l'icône reste stable et nette."
+   },
+   {
+    "titre": "Clic droit sur une image : aucun menu",
+    "type": "ux",
+    "gravite": "moyenne",
+    "preuve": "desktop/main.js:657-670 : contextMenu ne traite que les suggestions d'orthographe, « Copier le lien », les champs éditables et la sélection de texte ; aucune branche pour params.mediaType === \"image\". Sur une image générée par l'agent, la liste est vide et rien ne s'ouvre (ligne 669).",
+    "correction": "main.js, contextMenu : si params.mediaType === \"image\", ajouter « Copier l'image » (page.webContents.copyImageAt(params.x, params.y)) et « Enregistrer l'image sous… » (page.webContents.downloadURL(params.srcURL) si sameOrigin). Ajouter aussi « Ouvrir le lien dans le navigateur » et « Ajouter au dictionnaire » (session.defaultSession.addWordToSpellCheckerDictionary(params.misspelledWord)).",
+    "effort": "S",
+    "gain": "Geste quotidien attendu pour une app qui produit des images : copier ou enregistrer en deux clics."
+   },
+   {
+    "titre": "Démarrage : deux chargements et une sonde avant la première image ; filtre réseau sur toutes les requêtes",
+    "type": "perf",
+    "gravite": "basse",
+    "preuve": "desktop/main.js:94 : boot() charge d'abord l'écran d'attente, puis openRemote attend un fetch /api/status (main.js:144, délai 15 s) avant loadURL(server) (main.js:159) : un aller-retour TLS complet avant tout affichage de l'interface, pourtant en cache par le service worker. main.js:496 : onBeforeRequest est posé sans filtre d'adresses, donc chaque requête (images, scripts, flux) fait un aller-retour par le processus principal.",
+    "correction": "main.js, openRemote : poser le cookie (useToken) puis charger la page tout de suite, la sonde /api/status en parallèle ; l'échec est déjà rattrapé par did-fail-load (ligne 524). Poser onBeforeRequest avec un filtre { urls } limité à l'hôte du serveur (tous ports, http/https/ws/wss), reposé quand origin change (lignes 115 et 158). Mesurer avant et après avec le délai jusqu'à did-finish-load.",
+    "effort": "S",
+    "gain": "Fenêtre utile plus tôt au lancement (un aller-retour réseau en moins) et moins de travail du processus principal pendant l'usage."
+   }
+  ],
+  "catalogue": [
+   {
+    "nom": "notifier",
+    "role": "Notification native sur l'ordinateur, sans accord, même accès coupé",
+    "source": "desktop/actions.js:181-186",
+    "etat": "en place ; clic sans destination"
+   },
+   {
+    "nom": "presse_papiers",
+    "role": "Remplace le presse-papiers après accord dans le bandeau (texte montré en entier, 2000 caractères et 30 lignes au plus)",
+    "source": "desktop/actions.js:187-198",
+    "etat": "en place"
+   },
+   {
+    "nom": "ouvrir",
+    "role": "Ouvre une adresse http(s), un dossier ou un document/média (liste blanche d'extensions) après accord",
+    "source": "desktop/actions.js:199-232",
+    "etat": "en place"
+   },
+   {
+    "nom": "lancer",
+    "role": "Lance une application par son nom (Start-Process ou menu Démarrer sous Windows, open -a sous macOS) après accord",
+    "source": "desktop/actions.js:233-254",
+    "etat": "en place"
+   },
+   {
+    "nom": "commande",
+    "role": "Exécute une commande (PowerShell ou sh) après accord, avec « Toujours autoriser cette commande » par dossier confié ; délai 120 s",
+    "source": "desktop/actions.js:275-319",
+    "etat": "en place"
+   },
+   {
+    "nom": "lister / lire",
+    "role": "Liste ou lit un fichier d'un dossier confié, sans fenêtre (lecture envoyée au serveur)",
+    "source": "desktop/actions.js:321-334, desktop/dossiers.js",
+    "etat": "en place ; transferts sans délai"
+   },
+   {
+    "nom": "ecrire / deplacer / creer_dossier / corbeille",
+    "role": "Écrit et range dans un dossier confié en écriture ; accord demandé sauf autonomie « auto » ; rien d'écrasé sans accord, suppression par la corbeille",
+    "source": "desktop/actions.js:335-363, desktop/autonomie.js",
+    "etat": "en place"
+   },
+   {
+    "nom": "Pont window.noahDesktop",
+    "role": "Gestes offerts à la page : pickFolder, openPath, fileMenu, forgetServer, dossiers, dossierAjouter, dossierRetirer, dossierDroit, couper, dossierOuvrir, commandeOublier, version",
+    "source": "desktop/preload.js:4-17",
+    "etat": "en place ; chaque IPC vérifie l'origine exacte"
+   },
+   {
+    "nom": "Bandeau d'accord",
+    "role": "Vue locale isolée (partition sans réseau) qui montre l'action exacte ; Ctrl+Alt+A autorise, Ctrl+Alt+R refuse ; expire après 280 s",
+    "source": "desktop/bandeau.js, bandeau.html, bandeau-preload.js",
+    "etat": "en place ; risque AltGr à tester"
+   },
+   {
+    "nom": "Appairage",
+    "role": "Flux navigateur avec nombre à 3 chiffres, ou code court ; session chiffrée par safeStorage ; révocation rejouée hors ligne",
+    "source": "desktop/main.js:232-411",
+    "etat": "en place"
+   },
+   {
+    "nom": "Plateau et menu",
+    "role": "Ouvrir, autonomie Auto/Prudent, voir l'accord, changer de serveur, couper l'accès, quitter",
+    "source": "desktop/main.js:604-654",
+    "etat": "en place ; sans état ni démarrage auto"
+   },
+   {
+    "nom": "Mise à jour auto, démarrage avec Windows, raccourci global",
+    "role": "Intégrations système attendues au quotidien",
+    "source": "absentes de desktop/*.js",
+    "etat": "manquant"
+   }
+  ]
+ },
+ "web": {
+  "resume": "L'interface web est une SPA React 19 + assistant-ui (ExternalStoreRuntime) : App.tsx démarre (status, me), monte Shell, puis useAgentChat traduit le flux SSE en messages, appliqués une fois par image. Forces : jetons groupés par requestAnimationFrame, convertMessage stable, panneaux lourds en lazy (SidePanel, Settings), boîte d'envoi sans perte ni doublon, visage Noah mis en pause hors écran, service worker avec cache des fichiers à empreinte.\nFaiblesses mesurées dans le code : (1) deux fuites annulent en partie l'optimisation du streaming : `shown` reclone tous les messages à chaque image (le cache WeakMap d'assistant-ui rate à chaque fois) et ConversationRail remesure le DOM à chaque image ; (2) le premier écran télécharge 1,19 Mo de JS (dist/index.html précharge conversation 452 Ko + markdown 162 Ko même pour l'écran de connexion) et enchaîne 5 allers-retours avant le premier message, dont /api/me deux fois et les messages trois fois ; (3) la police de marque Figtree n'est pas embarquée (repli Segoe UI / système) ; (4) aucun preset à la création d'agent et aucun exemple de demande sur l'écran vide, deux écarts directs avec Grok et Meta ; (5) quelques textes d'attente et d'erreur restent obscurs ou bruts ; (6) un événement resync efface la réponse en cours d'écriture, et les caches de messages survivent à un changement de compte.\nNon vérifié faute de temps : AgentPowers.tsx et Voice.tsx en détail (seulement leurs imports et requêtes), noahMotion (la boucle d'animation de noahFace.ts paraît saine : pause sur document.hidden, IntersectionObserver, reduced-motion).",
+  "constats": [
+   {
+    "titre": "Streaming : tous les messages sont reclonés à chaque image, le cache d'assistant-ui ne sert à rien",
+    "type": "perf",
+    "gravite": "haute",
+    "preuve": "frontend/src/lib/useAgentChat.ts:663 : `messages.map((m) => ({ ...m, content: m.content.filter(...) }))` crée un objet neuf pour CHAQUE message à chaque changement de `messages` (donc à chaque image du flux). Or node_modules/@assistant-ui/core/dist/runtimes/external-store/thread-message-converter.js garde son cache dans une WeakMap dont la clé est l'objet message : tout le fil est reconverti par convertMessage à chaque image, ce que le commentaire de useAgentChat.ts:219-220 voulait justement éviter. Effet de bord : frontend/src/components/Thread.tsx:423 `useAuiState((s) => s.message.metadata?.custom)` reçoit un objet neuf (useAgentChat.ts:226) et redessine MessageReactions de tous les messages à chaque image.",
+    "correction": "Dans useAgentChat.ts:663, ne cloner que si le filtre retire quelque chose : `const pending = (p: Part) => p.type === \"tool-call\" && p.toolName === \"approval\" && p.result === undefined; const base = messages.map((m) => (m.content.some(pending) ? { ...m, content: m.content.filter((p) => !pending(p)) } : m));`. Dans Thread.tsx:423, sélectionner des valeurs primitives (storedId, reactions.user, reactions.agent, reactions.retenu) au lieu de l'objet custom. Ajouter un test vitest : après un événement `message`, les objets des messages précédents gardent la même identité dans `shown`.",
+    "effort": "S",
+    "gain": "Coût par image du flux ramené de O(nombre de messages) à O(1) : fil de 60 à 300 messages fluide sur téléphone pendant que la réponse s'écrit."
+   },
+   {
+    "titre": "ConversationRail remesure le DOM de chaque repère à chaque image du flux",
+    "type": "perf",
+    "gravite": "haute",
+    "preuve": "frontend/src/components/ConversationRail.tsx:37-38 : `messages = useAuiState((s) => s.thread.messages)` puis `marks = useMemo(..., [messages])` ; le tableau change à chaque image du flux. L'effet des lignes 46-78 dépend de `[marks]` : il se relance, appelle `update()` tout de suite (ligne 72), qui fait un `querySelector` + `getBoundingClientRect` par repère (lignes 56-61) et trois setState. Mise en page forcée synchrone à chaque jeton.",
+    "correction": "Rendre `marks` stable : sélectionner une chaîne dans useAuiState (`s.thread.messages.map(m => markOf(m)).filter(Boolean)` sérialisé en JSON, ou id+label joints) et reconstruire `marks` par useMemo sur cette chaîne ; l'effet ne se relance alors que lorsqu'un repère apparaît. Bonus : remplacer la boucle de mesures par un IntersectionObserver sur les `[data-noah-msg]` des repères.",
+    "effort": "S",
+    "gain": "Supprime un reflow forcé par image pendant le streaming ; gain net sur mobile et sur longues conversations."
+   },
+   {
+    "titre": "Création d'agent : aucun preset, seulement un nom et un rôle à écrire",
+    "type": "capacite",
+    "gravite": "haute",
+    "preuve": "frontend/src/components/AgentDialog.tsx:37-39 : l'état du formulaire se limite à name, role, color ; ligne 53 : `send(\"/api/agents\", { name, role })`. Lignes 98 et 106 : seuls deux placeholders servent d'exemple (« Ex. Léa, Assistant courriels, Veille »). Aucun fichier de presets dans frontend/src (grep preset/gabarit : seulement AgentPowers.tsx:323, qui concerne les routines).",
+    "correction": "Créer frontend/src/lib/agentPresets.ts : 8 presets (Assistant personnel, Courriels et agenda, Veille et recherche, Rédaction, Budget et papiers, Voyages et sorties, Études, Développeur) avec { id, nom, accroche d'une ligne, role prêt à l'emploi, couleur, suggestions[4], outils conseillés }. Dans AgentForm, quand `agent === null`, afficher d'abord une grille de cartes « Partir d'un modèle » + « Partir de zéro » ; un clic préremplit name, role et color, qui restent modifiables. Après création, ouvrir le panneau Connexions si le preset conseille des outils (événement `noah:ouvrir-panneau` déjà existant, App.tsx:488). Étape suivante côté serveur : accepter `preset` dans POST /api/agents pour activer skills et outils.",
+    "effort": "M",
+    "gain": "Répond à l'objectif produit : un agent utile en deux clics, sans savoir écrire un prompt."
+   },
+   {
+    "titre": "Écran vide : pas d'exemples de demandes, et l'indice affiché est le prompt de rôle tronqué",
+    "type": "ux",
+    "gravite": "haute",
+    "preuve": "frontend/src/components/Thread.tsx:825-831 : l'état vide ne montre que le visage, « Que doit faire {agentName} ? » et `hint`. frontend/src/App.tsx:724 : `hint: role ? role.slice(0, 180) : \"Pose une question, confie une tâche ou envoie un fichier.\"` : la personne lit donc une consigne écrite pour l'agent (« Tu tries mes courriels… »), coupée à 180 caractères.",
+    "correction": "Dans Thread.tsx, sous le titre, afficher 4 puces cliquables (boutons) qui remplissent la saisie via `aui.thread().composer().setText(...)` (déjà utilisé ligne 306) : suggestions du preset de l'agent si connu, sinon 4 génériques (« Résume ce document », « Rappelle-moi chaque matin… », « Cherche et compare… », « Prépare un courriel pour… »). Remplacer le hint par une phrase courte fixe ; ne plus afficher le rôle brut (retirer le slice dans App.tsx:724).",
+    "effort": "S",
+    "gain": "Première minute comparable à Grok et Meta : la personne voit quoi demander, un clic suffit."
+   },
+   {
+    "titre": "Un événement « resync » efface la réponse en cours d'écriture",
+    "type": "bug",
+    "gravite": "moyenne",
+    "preuve": "frontend/src/lib/useAgentChat.ts:639-641 : sur `noah:resync`, `setMessages(rows.map(fromStored))` s'exécute sans tester `running.current` ni `current(conv, asked, rows)`, contrairement aux autres relectures (lignes 311, 333, 358). Pendant un flux, la bulle `reply` (id local, ligne 514) n'est pas encore en base : elle disparaît, et `update` (ligne 519-520) ne trouve plus son id, donc les jetons suivants ne s'affichent plus jusqu'à la fin du tour. Le resync est émis par frontend/src/lib/events.ts:89 après une reprise du flux d'événements.",
+    "correction": "Ligne 639-641 : capturer `const asked = anchorOf(conv)` puis `.then((rows) => { if (!current(conv, asked, rows)) return; if (ownConversation.current === conv && !running.current) setMessages(rows.map(fromStored)); })`. Ajouter un test dans les tests de useAgentChat : resync pendant un flux, le message en cours reste.",
+    "effort": "S",
+    "gain": "Plus de réponse qui disparaît en plein milieu après une micro-coupure réseau (fréquent sur mobile)."
+   },
+   {
+    "titre": "Ouverture d'une conversation : la même page de messages est demandée trois fois",
+    "type": "perf",
+    "gravite": "moyenne",
+    "preuve": "frontend/src/lib/useAgentChat.ts:284 (effet [conversationId, agentId]), :306 (effet [conversationId, updatedAt], lancé aussi au montage puisque updatedAt est défini) et :374 via refreshNow appelé au montage ligne 380 (`reload(conv)` → ligne 355) : trois `GET /api/conversations/{id}/messages?limit=60` identiques, plus `/en-cours`. frontend/src/lib/api.ts:107 : `get` n'a aucun dédoublonnage des requêtes en vol.",
+    "correction": "Le plus simple : dans api.ts, dédoublonner les GET en vol (Map<path, Promise<Response.json>> vidée au settle) pour les chemins `/api/conversations/*/messages`. Ou, dans useAgentChat.ts, ignorer la première exécution de l'effet updatedAt (ref `firstUpdate`) et ne pas appeler `reload` dans refreshNow quand la lecture initiale est en cours.",
+    "effort": "S",
+    "gain": "Deux requêtes et deux JSON de 60 messages en moins à chaque changement de conversation ; sensible sur VPS distant et en 4G."
+   },
+   {
+    "titre": "Démarrage : 5 allers-retours en cascade avant le premier message, dont /api/me deux fois",
+    "type": "perf",
+    "gravite": "moyenne",
+    "preuve": "frontend/src/App.tsx:141 `await get(\"/api/status\")`, puis :153 `await get(\"/api/me\")`, puis Shell refait `/api/me` (:295) et lance `/api/agents` (:388), puis `/api/agents/{id}/conversations` (:397) ; le chat n'est monté qu'une fois la liste reçue (:523 `agent && conversations ?`), et seulement alors les messages partent (useAgentChat.ts:284). Entre-temps l'écran affiche « Chargement… » (:204) puis « Chargement de la conversation… » (:544).",
+    "correction": "Dans boot (App.tsx:141-153), lancer status, me et agents en parallèle (`Promise.allSettled`) et passer `me` et `agents` en props à Shell (supprimer le fetch de la ligne 295, initialiser `agents`). Mémoriser dans localStorage le dernier agentId et sa liste de conversations (conversationsCache, ligne 84) pour monter le chat immédiatement, la version serveur arrivant derrière. Option serveur : un seul `GET /api/boot` qui rend status + me + agents + conversations de l'agent courant.",
+    "effort": "M",
+    "gain": "Premier message visible 2 à 3 allers-retours plus tôt (200 à 600 ms sur un VPS, davantage en mobile)."
+   },
+   {
+    "titre": "Premier chargement : 1,19 Mo de JS préchargé, même pour l'écran de connexion",
+    "type": "perf",
+    "gravite": "moyenne",
+    "preuve": "frontend/dist/index.html : script index-hCeNHjpy.js (310 Ko) + modulepreload de react (224 Ko), icones (43 Ko), markdown (162 Ko) et conversation (452 Ko). Cause : frontend/src/App.tsx:19-32 importe statiquement AuthScreen, CallScreen, Onboarding, Inbox, Thread, et les pages mobiles (:5-10) ; frontend/src/components/Thread.tsx:37 importe Voice.tsx (1 014 lignes, mode vocal compris) et :40 Widgets. docs/perf.md note 949 Ko pour le script principal.",
+    "correction": "1) Sortir `Shell` + `AgentChat` de App.tsx dans components/AppShell.tsx chargé par `lazy()` : l'écran de connexion, l'appairage et l'assistant ne téléchargent plus assistant-ui ni markdown ; lancer `import(\"./components/AppShell\")` en parallèle de boot() pour ne rien perdre côté connecté. 2) `lazy` pour Onboarding, AuthScreen/TemporaryPassword, Inbox, AgentPage, CustomizeTabs, Drawer. 3) Scinder Voice.tsx : garder DictateButton/VoiceModeButton, charger VoiceMode + CallStage à l'ouverture (Thread.tsx:839). Vérifier avec `vite build` que index descend sous 150 Ko.",
+    "effort": "M",
+    "gain": "Écran de connexion et premier affichage à froid nettement plus rapides sur téléphone ; moins de JS à analyser à chaque ouverture de la PWA."
+   },
+   {
+    "titre": "La police de marque Figtree n'est pas embarquée : l'interface s'affiche en Segoe UI ou police système",
+    "type": "ux",
+    "gravite": "moyenne",
+    "preuve": "frontend/src/styles/tokens.css:6 : `--font:\"Figtree\",\"Segoe UI\",system-ui,sans-serif`. frontend/src/main.tsx:10-12 charge `./assets/fonts/Figtree.ttf` par import.meta.glob, mais le dossier frontend/src/assets/fonts n'existe pas (seul `providers` s'y trouve, aucun .ttf suivi par git) : `figtree` vaut undefined, rien n'est chargé. docs/epics/0.1.6/rapport-lot2.md:113 le confirme : « Figtree n'est pas encore embarquée ». frontend/package.json déclare en plus `@fontsource-variable/geist`, jamais importé.",
+    "correction": "`npm i @fontsource-variable/figtree` dans frontend, `import \"@fontsource-variable/figtree\"` dans main.tsx à la place des lignes 9-12, et `--font:\"Figtree Variable\",\"Figtree\",\"Segoe UI\",system-ui,sans-serif` dans tokens.css:6. Retirer `@fontsource-variable/geist` de package.json. Le woff2 latin (environ 30 Ko, à empreinte) est mis en cache par le service worker existant (sw.js:21).",
+    "effort": "S",
+    "gain": "Même identité visuelle sur Windows, Android, iOS et bureau ; fin du rendu « application système »."
+   },
+   {
+    "titre": "Longues conversations : aucun `content-visibility`, tout le fil reste mis en page",
+    "type": "perf",
+    "gravite": "moyenne",
+    "preuve": "grep `content-visibility|contain-intrinsic` dans frontend/src : aucun résultat. docs/perf.md (« Prochaines pistes (non faites) ») le liste encore. frontend/src/lib/useAgentChat.ts:702 : « Charger les messages précédents » empile les pages de 60 sans limite, et frontend/src/components/Thread.tsx:832 rend tous les messages (Markdown, widgets, images) sans virtualisation.",
+    "correction": "Dans frontend/src/index.css : `[data-noah-msg]:not(:last-of-type){content-visibility:auto;contain-intrinsic-size:auto 140px;}`. Vérifier trois points : le visage collant (Thread.tsx:601-603, position sticky), le rétablissement du défilement d'OlderMessages (Thread.tsx:468-475, qui lit scrollHeight) et `scrollIntoView` du rail. Si `:last-of-type` ne convient pas à la structure, poser un attribut `data-last` sur le dernier message.",
+    "effort": "S",
+    "gain": "Mise en page et peinture limitées aux messages visibles : défilement et frappe fluides après plusieurs pages d'historique."
+   },
+   {
+    "titre": "Service worker : ouverture bloquée en réseau lent, et premier lancement hors ligne sans scripts",
+    "type": "perf",
+    "gravite": "moyenne",
+    "preuve": "frontend/public/sw.js:36-45 : la page est servie « réseau d'abord » sans délai maximal ; le cache ne sert qu'après l'échec complet du fetch (réseau faible : attente longue). sw.js:4 : `SHELL = [\"/\", \"/assets/icon.svg\"]` : les JS et CSS à empreinte ne sont mis en cache qu'au passage (ligne 21-33), donc pas lors de la première visite, où le service worker s'installe après leur chargement. sw.js:3 : `CACHE = \"noah-v13\"` changé à la main ; les anciens fichiers à empreinte ne sont jamais purgés.",
+    "correction": "1) Pour les navigations : course entre le réseau et un délai de 2,5 s, puis cache, avec mise à jour du cache en arrière-plan. 2) À l'installation : lire « / », en extraire les `/assets/*.js|css` (regex sur le HTML) et les ajouter au cache. 3) À l'activation ou après chaque nouvelle page « / » : supprimer du cache les `/assets/*-<empreinte>.*` absents du HTML courant. Incrémenter CACHE.",
+    "effort": "S",
+    "gain": "La PWA s'ouvre en moins de 3 s même en réseau faible, marche hors ligne dès l'installation, et le cache ne grossit plus à chaque version."
+   },
+   {
+    "titre": "Textes d'attente et d'erreur obscurs ou bruts",
+    "type": "copie",
+    "gravite": "moyenne",
+    "preuve": "frontend/src/App.tsx:264 : « Impossible de joindre le serveur Noah Agent : {error} » affiche l'erreur brute du navigateur (ex. « Failed to fetch »). App.tsx:255-257 : écran de mise à jour en trois lignes, avec une parenthèse redondante et aucun bouton. frontend/src/components/Thread.tsx:749 : « Réception à vérifier » ; :340 : « Il a fini : c'est mis à la suite. », « Transmission non confirmée : regarde sa réponse. » ; :346 : « Le transmettre aussi à l'agent » ; :836 : « Tu peux lire ici, pas écrire. » ; App.tsx:518 : bouton icône insecte « Détails techniques » dans l'en-tête de tous les utilisateurs.",
+    "correction": "App.tsx:264 → « Noah ne répond pas. Vérifie ta connexion. » + « Nouvel essai dans quelques secondes… », l'erreur brute dans un <details>. App.tsx:253-257 → titre « Mets à jour l'app », texte « Ton serveur est plus récent que cette app. Installe la dernière version : rien n'est perdu. » + bouton vers la page des versions. Thread.tsx:749 → « Pas encore reçu » ; :340 → « Ajouté à la suite de son travail. » et « Pas sûr que ce soit passé. Vérifie sa réponse. » ; :346 → « Envoyer aussi à l'agent » ; :836 → « Conversation en lecture seule. ». Déplacer le bouton « Détails techniques » dans Réglages (ou le réserver au propriétaire), avec aria-pressed.",
+    "effort": "S",
+    "gain": "Textes courts, sans jargon, au niveau de Grok et Meta ; moins de moments où la personne ne sait pas quoi faire."
+   },
+   {
+    "titre": "Les caches de messages et de conversations survivent à un changement de compte",
+    "type": "securite",
+    "gravite": "moyenne",
+    "preuve": "frontend/src/lib/useAgentChat.ts:180 `messagesCache` et :49 `windows`, frontend/src/App.tsx:84 `conversationsCache` : des Map de module, jamais vidées (grep : aucun `.clear()`). frontend/src/lib/seen.ts:12-15 `forgetSeen()` ne vide que SEEN, alors que api.ts:61 affirme « un autre compte ne voit pas, même un instant, l'écran du précédent ». Après déconnexion puis connexion d'un autre profil sans recharger la page, App.tsx:301 ressort la liste en cache d'un agent partagé, et useAgentChat.ts:256 affiche ses messages en cache ; en cas d'erreur serveur, la ligne 291 les garde à l'écran. Scénario non reproduit dans un navigateur : déduit du code.",
+    "correction": "Exporter `forgetChat()` depuis useAgentChat.ts (messagesCache.clear(), windows.clear()) et `conversationsCache.clear()` côté App ; les appeler dans `forgetSeen()` (seen.ts) ou sur l'événement `noah:auth-epoch` déjà émis (events.ts:152). Ligne 291 : sur une erreur 403/404, vider l'affichage au lieu de garder le cache. Borner aussi messagesCache à 20 conversations (suppression de la plus ancienne).",
+    "effort": "S",
+    "gain": "Aucun message d'un autre profil ne peut s'afficher, même une fraction de seconde ; mémoire bornée sur les longues sessions."
+   },
+   {
+    "titre": "Accessibilité : saisie sans nom, sélecteur d'émojis sans Échap, états non annoncés, éclair blanc en mode sombre",
+    "type": "ux",
+    "gravite": "basse",
+    "preuve": "frontend/src/components/Thread.tsx:685-690 : ComposerPrimitive.Input n'a qu'un placeholder, pas d'aria-label. Thread.tsx:446-452 : le sélecteur de réactions s'ouvre sans gestion d'Échap, de clic extérieur ni de focus (grep Escape/pointerdown : rien). frontend/src/components/ChatPane.tsx:2 : bouton-titre sans type ni libellé d'action. frontend/src/App.tsx:518 : bascule « Détails techniques » sans aria-pressed ; :204 et :544 : « Chargement… » sans role=\"status\". Thread.tsx:173 : `aria-live` posé sur une ligne montée puis démontée à chaque étape (souvent non annoncée). frontend/index.html:7 et :14 : un seul theme-color clair et un #root vide, alors que tokens.css:18 gère le mode sombre.",
+    "correction": "Thread.tsx:685 : `aria-label=\"Message à ton agent\"`. Sélecteur d'émojis : fermer sur Échap et clic extérieur, focus sur le premier émoji à l'ouverture, retour du focus au bouton. ChatPane.tsx:2 : `type=\"button\" aria-label={\"Ouvrir la fiche de \" + title}`. App.tsx:518 : `aria-pressed={details}` ; :204/:544 : `role=\"status\"`. Remplacer les aria-live par une seule région persistante (sr-only) dans Thread qui reçoit le libellé d'activité. index.html : `<style>` en ligne avec le fond clair/sombre via prefers-color-scheme, deux `<meta name=\"theme-color\" media=...>`, et un squelette minimal dans #root.",
+    "effort": "S",
+    "gain": "Utilisable au clavier et au lecteur d'écran sur le chemin principal ; plus d'éclair blanc ni de barre bleue en mode sombre."
+   }
+  ]
+ },
+ "lanceur": {
+  "resume": "Racine : D:/Data/Multimedia/SmfCoder/YouTube/apollo (chemins ci-dessous relatifs à cette racine).\nCycle de vie : le serveur appelle le lanceur (seul à parler à Docker). POST /agents/{id} crée `noah-agent-<id>` depuis l'image Hermes épinglée par empreinte (4 Go), volume `noah-agent-<id>` sur /opt/data, 4 Go de RAM, 2 CPU, jeton posé dans .env avant le démarrage. Le serveur attend /health, écrit la config (config.yaml, SOUL.md, noah.py, garde), redémarre le conteneur et attend encore. Le navigateur `noah-browser-<id>` (Camofox + bureau Openbox, noVNC, volume à part, 4 Go + 1 Go de shm) n'est créé qu'au premier usage, arrêté après 30 min + 5 min de repos, relancé par `_browser_wake`. Les mises à jour sont une transaction signée : arrêt, instantané à froid, renommage en `-ancien`, recréation, santé, 120 s d'observation, retour arrière, relais pour le lanceur.\nForces : isolation sérieuse (pas de socket côté serveur, jetons hors de `docker inspect`, droits scellés en root), mises à jour rejouables avec retour arrière, images préchargées au démarrage.\nFaiblesses : une régression bloquante de la 0.1.7 (fichier `applications_extra.py` refusé par le lanceur, donc toute configuration d'agent échoue) ; un verrou global non bloquant qui refuse à tort les opérations simultanées ; un téléchargement d'image fait dans la requête, plus long que le délai du serveur ; deux démarrages à froid d'Hermes par création ; aucune limite adaptée à la RAM du VPS ni rotation des journaux.\nNon vérifié : rien n'a été exécuté, tout vient de la lecture du code ; je n'ai pas lu restore.py ni le détail des plugins Camofox.",
+  "constats": [
+   {
+    "titre": "Régression 0.1.7 : le lanceur refuse applications_extra.py, toute configuration d'agent échoue",
+    "type": "bug",
+    "gravite": "haute",
+    "preuve": "server/noah/hermes.py:336 ajoute files[\"applications_extra.py\"] (commit ee164da, 0.1.7) puis l'envoie ligne 338 par PUT /agents/{id}/files. launcher/launcher.py:623-624 : CONFIG_FILES ne contient pas ce nom (ligne datée du 02/11, commit 0651a553), et launcher.py:649-651 répond 400 « Fichier non autorisé : applications_extra.py ». server/noah/main.py:312 (_configure) et 1952 (_provision) passent par là : création, réparation et changement de modèle tombent en « Erreur pendant la création ».",
+    "correction": "Ajouter \"applications_extra.py\" à CONFIG_FILES dans launcher/launcher.py:623. Ajouter un test qui compare les clés produites par hermes.configure à CONFIG_FILES du lanceur (import des deux modules), pour que l'écart ne revienne pas. À vérifier ensuite sur une vraie création d'agent.",
+    "effort": "S",
+    "gain": "Débloque la création et la reconfiguration de tout agent : sans ça la 0.1.7 n'est pas livrable."
+   },
+   {
+    "titre": "Verrou global non bloquant : deux opérations simultanées donnent un faux « Noah installe une mise à jour »",
+    "type": "bug",
+    "gravite": "haute",
+    "preuve": "launcher/launcher.py:93-94 : _frozen prend updater._lock sans attendre et répond 409 « Noah installe une mise à jour » s'il est pris. Il garde ce verrou pendant toute l'opération : téléchargement d'image (launcher.py:197 et 592), c.stop(timeout=20) (192, 285), restart (826). Le serveur arrête les navigateurs au repos chaque minute (server/noah/main.py:3570, 3578) ; un réveil ou une création pour un autre agent au même moment reçoit 409, que main.py:3519-3525 transforme en « Le navigateur n'a pas pu démarrer… ne réessaie pas en boucle ».",
+    "correction": "Dans launcher/launcher.py : _frozen attend le verrou (acquire(timeout=30)) au lieu de refuser, et ne dit « mise à jour » que si not_updating() le confirme. Sortir _ensure_image du verrou (le faire avant la dépendance, ou dans une première passe sans verrou). Ajouter un verrou par agent pour sérialiser les gestes sur un même conteneur. Test : deux POST /browser pour deux agents en parallèle doivent répondre 200.",
+    "effort": "M",
+    "gain": "Plus de refus fantômes dès qu'il y a deux agents ; le navigateur se réveille même pendant qu'un autre s'arrête."
+   },
+   {
+    "titre": "Création d'agent : image de 4 Go téléchargée dans la requête, délai serveur de 120 s, conteneur orphelin",
+    "type": "bug",
+    "gravite": "haute",
+    "preuve": "server/noah/hermes.py:51 : délai par défaut 120 s ; hermes.py:64-67 create_container ne le relève pas. launcher/launcher.py:591-592 : _run_agent appelle _ensure_image, qui télécharge sans progression (112-117 ; le préchargement 120-127 n'écrit qu'un print). server/noah/main.py:1927-1931 : la ligne en base n'est écrite qu'après le retour. Si le délai tombe, le lanceur finit quand même, crée et démarre un conteneur (restart unless-stopped, 4 Go) dont le serveur a jeté la clé et qu'aucune table ne connaît.",
+    "correction": "Lanceur : garder l'état du téléchargement (client.api.pull(stream=True, decode=True), octets reçus / total) et l'exposer par GET /images ; POST /agents/{id} répond tout de suite 409 « image en cours de téléchargement » avec le pourcentage si l'image manque. Serveur (main.py:_start_agent) : afficher « Téléchargement de l'agent : 43 % » dans provisioning, réessayer quand c'est prêt, et appeler delete_container si la création lève une erreur.",
+    "effort": "M",
+    "gain": "Premier agent sur un VPS neuf : une barre de progression au lieu d'un échec muet et d'un conteneur fantôme qui mange de la RAM."
+   },
+   {
+    "titre": "Deux démarrages à froid d'Hermes par création, plus des attentes fixes",
+    "type": "perf",
+    "gravite": "haute",
+    "preuve": "server/noah/main.py:1944-1958 : _provision attend le premier démarrage (_wait_online, sonde toutes les 2 s, main.py:1936-1941), configure, dort 3 s (1953), puis attend un second démarrage. server/noah/hermes.py:338-342 : configure écrit les fichiers puis redémarre le conteneur. launcher/launcher.py:611-614 : seul .env est posé avant c.start().",
+    "correction": "Étape 1 (S) : sonde à 0,5 s dans _wait_online et suppression du sleep(3). Étape 2 (M) : NewAgent (launcher.py:77) accepte un dictionnaire `files` ; _run_agent les dépose par put_archive (propriétaire HERMES_UID) avant c.start(). Le serveur garde en réglage le config.yaml par défaut lu au premier démarrage du premier agent (par empreinte d'image) et s'en sert de gabarit pour les suivants : un seul démarrage. À confirmer sur l'image réelle qu'Hermes ne réécrit pas un config.yaml déjà présent.",
+    "effort": "M",
+    "gain": "Temps de création à peu près divisé par deux, de l'ordre de 5 à 10 s gagnées sur les sondes seules."
+   },
+   {
+    "titre": "Limites mémoire fixes de 4 Go par conteneur, sans rapport avec la RAM du VPS",
+    "type": "perf",
+    "gravite": "haute",
+    "preuve": "launcher/launcher.py:606 (agent mem_limit=\"4g\"), 233-235 (navigateur 4g + shm 1g). _cpus (138-144) borne le CPU aux cœurs réels, rien n'existe pour la mémoire. AGENTS.md demande 4 Go au minimum : un agent plus son navigateur peuvent réclamer 9 Go, et le noyau tue alors au hasard, serveur compris. Aucun pids_limit (recherche vide dans launcher/ et deploy/).",
+    "correction": "Dans launcher/launcher.py, ajouter _mem(voulu, part) sur client.info()[\"MemTotal\"] : navigateur = min(4 Go, 50 % de la RAM), agent = min(4 Go, 40 %), avec memswap_limit égal. Ajouter pids_limit=1024 aux deux containers.create et oom_score_adj=500 au navigateur pour qu'il parte avant le serveur. Monter BROWSER_VERSION pour recréer les navigateurs ; les agents existants prennent la limite à la prochaine recréation.",
+    "effort": "S",
+    "gain": "Plus de serveur tué par manque de mémoire sur un VPS de 4 à 8 Go ; un onglet lourd ne fait tomber que le navigateur."
+   },
+   {
+    "titre": "Journaux Docker sans rotation : le disque se remplit",
+    "type": "perf",
+    "gravite": "moyenne",
+    "preuve": "Aucun log_config dans launcher/launcher.py:199-237 (navigateur) ni 593-610 (agent), aucun bloc logging dans deploy/docker-compose.yml:21-74 ni docker-compose.yml (recherche de log_config, logging:, max-size : vide). Par défaut Docker écrit en json-file sans limite ; AGENTS.md cite déjà « Disque plein » comme cause de panne.",
+    "correction": "Ajouter log_config=docker.types.LogConfig(type=\"json-file\", config={\"max-size\":\"10m\",\"max-file\":\"3\"}) aux deux containers.create de launcher/launcher.py. Ajouter un bloc x-logging identique aux services server, launcher et caddy de deploy/docker-compose.yml, deploy/docker-compose.traefik.yml et docker-compose.yml.",
+    "effort": "S",
+    "gain": "Au plus 30 Mo de journaux par conteneur au lieu d'une croissance sans fin."
+   },
+   {
+    "titre": "Changer les dossiers partagés détruit le conteneur avant d'avoir réussi à le recréer",
+    "type": "bug",
+    "gravite": "moyenne",
+    "preuve": "launcher/launcher.py:567-571 : set_folders lit la clé, fait c.remove(force=True) (arrêt brutal, tour en cours perdu), puis _run_agent. Si Docker refuse le montage (chemin non partagé sous Docker Desktop, launcher.py:590) ou si l'image manque, l'agent n'a plus de conteneur et les droits scellés de /etc/noah sont perdus. Le serveur n'enregistre les dossiers qu'après un succès (server/noah/machine.py:463-467).",
+    "correction": "Reprendre le schéma de _migrate_agent_tokens (launcher.py:943-968) : c.stop(timeout=10), rename en `-ancien`, _run_agent, _seal_rights, puis suppression de l'ancien ; en cas d'erreur, supprimer le neuf par identifiant, renommer l'ancien et le redémarrer. Limiter _restore_packages à cet agent (aujourd'hui il parcourt tout le parc, ligne 574).",
+    "effort": "S",
+    "gain": "Un partage de dossier raté ne coûte plus l'agent ; l'arrêt est propre."
+   },
+   {
+    "titre": "Pendant une mise à jour, aucun navigateur au repos ne peut se réveiller",
+    "type": "ux",
+    "gravite": "moyenne",
+    "preuve": "launcher/launcher.py:171 : POST /browser dépend de _frozen ; launcher.py:995-996 : not_updating refuse tout tant qu'une transaction existe. launcher/updater.py:993 : apply tient le verrou pendant toute la transaction, qui dure par conteneur arrêt ≤ 30 s (748) + instantané à froid du volume entier (750-751) + au moins 10 s de santé (592-608, 3 réponses à 5 s d'écart), le tout en série (1079-1096), puis 120 s d'observation (52, 1099).",
+    "correction": "Dans launcher/launcher.py, sortir du gel le cas « conteneur présent, même version, arrêté » : un simple c.start() ne change pas le parc, à autoriser si ce nom n'est pas dans tx[\"elements\"] ou si son étape vaut « sain ». Passer la sonde de santé des agents à 2 s (NOAH_UPDATE_POLL) pour gagner environ 6 s d'arrêt par conteneur. Dire au serveur « mise à jour en cours, encore N min » plutôt qu'un échec de navigateur.",
+    "effort": "M",
+    "gain": "Une mise à jour de plusieurs minutes ne bloque plus les tâches web des agents non concernés."
+   },
+   {
+    "titre": "Identité du navigateur instable : un ipinfo.io muet fait recréer le conteneur",
+    "type": "bug",
+    "gravite": "moyenne",
+    "preuve": "launcher/launcher.py:185-193 : l'étiquette de version contient locale et fuseau ; si elle diffère, arrêt de 20 s puis recréation. server/noah/hermes.py:171-172 : en cas d'échec d'ipinfo.io, browser_identity rend des valeurs vides sans rien enregistrer (178 n'écrit que si le fuseau existe). Un réveil pendant une panne recrée donc le navigateur en UTC/en-US (signal de robot selon le commentaire launcher.py:106-107), et le réveil suivant le recrée encore.",
+    "correction": "Dans _ensure_browser (launcher.py:185-191) : si body.locale est vide et qu'un conteneur de même BROWSER_VERSION existe, le garder et le démarrer. Côté serveur (hermes.py:182) : sans identité connue, réessayer ipinfo une fois, et ne jamais remplacer une identité déjà posée par du vide.",
+    "effort": "S",
+    "gain": "Supprime des réveils de 30 s et plus, et des sessions qui passent pour des robots."
+   },
+   {
+    "titre": "Réveil du navigateur : le lanceur rend la main avant que Camofox réponde, le serveur sonde à 1 s",
+    "type": "perf",
+    "gravite": "moyenne",
+    "preuve": "launcher/launcher.py:189-191 et 253-255 : c.start() puis retour immédiat. server/noah/main.py:3526-3529 : jusqu'à 60 sondes espacées d'1 s, puis second passage complet de _browser_wake (/start délai 60 s, main.py:3507), puis jusqu'à 15 s d'attente de l'écran (3530-3534). Le conteneur est arrêté après 30 min sans appel + 5 min (launcher.py:224, main.py:3551), donc ce chemin froid est le cas courant.",
+    "correction": "Lanceur : après c.start(), sonder http://<nom>:9377/health toutes les 0,2 s (30 s au plus) et rendre {\"pret\": true}. Serveur : sauter sa boucle si pret, sinon sonder à 0,25 s. En plus, lancer ensure_browser en tâche de fond dès qu'un tour commence pour un agent dont le navigateur est arrêté (main.py, départ d'exécution), sans attendre le premier appel d'outil.",
+    "effort": "S",
+    "gain": "Environ 1 à 3 s de moins par réveil, et un réveil masqué derrière la réflexion du modèle."
+   },
+   {
+    "titre": "Chaque action d'administration : 2 exec Docker et 45 Ko de script passés en argument",
+    "type": "perf",
+    "gravite": "moyenne",
+    "preuve": "launcher/launcher.py:708 charge agent_admin.py (45 746 octets, 1 036 lignes) ; ligne 737 le passe entier à `python -c` à chaque appel, après un premier exec `stat` (_owner, 712-715). Python recompile tout à chaque fois, et un argument de commande est limité à 128 Kio sous Linux (rappelé launcher.py:403) : au-delà, toutes les actions échoueraient d'un coup. Le serveur appelle ces actions pour la mémoire, les connexions et le maintien au chaud (server/noah/machine.py:29-31, 359-372).",
+    "correction": "Mettre _owner en cache par identifiant de conteneur (dictionnaire dans launcher.py). Déposer agent_admin.py une fois par conteneur dans /opt/noah/noah_admin.py (root, 644, empreinte dans un fichier voisin), le précompiler en root avec compileall, et lancer `python -c \"import sys; sys.path.insert(0,'/opt/noah'); import noah_admin\"` avec les mêmes arguments ; redéposer si l'empreinte change.",
+    "effort": "M",
+    "gain": "Un exec et une compilation de moins par action, soit un écran Réglages et une mémoire plus réactifs ; plus de plafond de taille."
+   },
+   {
+    "titre": "Paquets apt de l'agent : restauration fragile et muette après chaque recréation",
+    "type": "bug",
+    "gravite": "basse",
+    "preuve": "launcher/launcher.py:807-816 : _restore_packages n'a aucun try par conteneur ; un agent qui s'arrête pendant la boucle lève une APIError qui tue le fil, et les agents suivants ne retrouvent pas leurs paquets. Il tourne après chaque mise à jour d'Hermes (915) et chaque changement de dossiers (574), avec apt-get update à chaque fois (781-787) : pendant ce temps l'agent n'a plus ffmpeg ou autre, sans le savoir.",
+    "correction": "Entourer le corps de la boucle d'un try/except avec un print. Écrire /opt/data/.noah/paquets-en-cours au début et le retirer à la fin, pour que noah.py puisse dire « tes outils reviennent dans une minute ». Accepter un agent_id en paramètre pour ne traiter que le conteneur recréé.",
+    "effort": "S",
+    "gain": "Plus d'outil manquant sans explication après une mise à jour."
+   },
+   {
+    "titre": "Suppression d'agent : les conteneurs `-ancien` restent et bloquent la suppression des volumes",
+    "type": "bug",
+    "gravite": "basse",
+    "preuve": "launcher/launcher.py:831-849 : delete retire `noah-agent-<id>` et `noah-browser-<id>`, puis les volumes. Un `noah-agent-<id>-ancien` laissé par une opération coupée (cas prévu launcher.py:938-942) monte encore le volume : volumes.remove lève une APIError, rendue en 502 (147-153), et le volume avec ses données reste sur le disque.",
+    "correction": "Dans delete, retirer aussi `<nom>-ancien` pour l'agent et le navigateur avant les volumes (après contrôle de l'étiquette). Entourer chaque volume.remove d'un try et rendre la liste de ce qui n'a pas pu partir.",
+    "effort": "S",
+    "gain": "Pas de volume fantôme de plusieurs Go ni de suppression en erreur."
+   }
+  ]
+ }
+}
