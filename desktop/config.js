@@ -24,8 +24,8 @@ function create(file) {
       return {};
     }
   };
-  /** Une copie : modifier ce qu'on reçoit ne change pas les réglages, seul write le fait. */
-  const read = () => ({ ...(cache ??= load()) });
+  /** Une copie entière (objets imbriqués compris) : modifier ce qu'on reçoit ne change pas les réglages, seul write le fait. */
+  const read = () => structuredClone(cache ??= load());
   const write = (patch) => {
     const next = { ...read(), ...patch };
     const text = JSON.stringify(next, null, 1);
