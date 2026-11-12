@@ -10,6 +10,7 @@ services:
   server:
     image: ghcr.io/smfcoder17/noah-server:${NOAH_TAG:-stable}
     container_name: noah-server
+    logging: {driver: json-file, options: {max-size: "10m", max-file: "3"}}  # 30 Mo de journaux au plus
     restart: unless-stopped
     environment:
       NOAH_DOMAIN: ${NOAH_DOMAIN:?NOAH_DOMAIN est obligatoire derrière Traefik}
@@ -39,6 +40,7 @@ services:
   launcher:
     image: ghcr.io/smfcoder17/noah-launcher:${NOAH_TAG:-stable}
     container_name: noah-launcher
+    logging: {driver: json-file, options: {max-size: "10m", max-file: "3"}}  # 30 Mo de journaux au plus
     restart: unless-stopped
     environment:
       # Hermes figé : la version que les tests font tourner. On la change seulement après avoir rejoué la suite dessus.
