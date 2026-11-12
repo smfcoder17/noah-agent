@@ -28,14 +28,23 @@ export function markOf(message: { id: string; role: string; content: readonly { 
   return routine ? { id: message.id, label: `Routine : ${routine[1]}`.slice(0, 70), when } : null;
 }
 
+// Un message qui ne change pas garde son objet : son repère n'est calculé qu'une fois.
+const markCache = new WeakMap<object, Mark | null>();
+function cachedMark(message: Parameters<typeof markOf>[0]): Mark | null {
+  if (!markCache.has(message)) markCache.set(message, markOf(message));
+  return markCache.get(message) ?? null;
+}
+
 /** La fenêtre de dix qui contient le repère `index` : 0 pour les dix plus anciens, jusqu'à la dernière page. */
 export function pageOf(index: number, total: number) {
   return Math.min(Math.max(0, Math.ceil(total / RAIL_PAGE) - 1), Math.max(0, Math.floor(index / RAIL_PAGE)));
 }
 
 export function ConversationRail() {
-  const messages = useAuiState((s) => s.thread.messages);
-  const marks = useMemo(() => messages.flatMap((m) => markOf(m as never) ?? []), [messages]);
+  // Les repères en une chaîne : pendant qu'une réponse s'écrit, la liste des messages change à chaque image, pas les repères.
+  // L'effet de mesure ci-dessous ne repart donc que lorsqu'un repère apparaît ou change.
+  const key = useAuiState((s) => JSON.stringify(s.thread.messages.flatMap((m) => cachedMark(m as never) ?? [])));
+  const marks = useMemo(() => JSON.parse(key) as Mark[], [key]);
   const rail = useRef<HTMLElement>(null);
   const [current, setCurrent] = useState<string | null>(null);
   const [page, setPage] = useState<number | null>(null); // null : la fenêtre suit la lecture

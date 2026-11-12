@@ -45,7 +45,7 @@ import { modeName, readableModel } from "@/lib/modes";
 import { AppUpdate } from "./components/AppUpdate";
 import { Dialog, DialogContent } from "./components/ui";
 import { listenFileMenus } from "@/lib/desktop";
-import { prefetchSeen } from "@/lib/seen";
+import { onForget, prefetchSeen } from "@/lib/seen";
 
 // Chargés à la première ouverture : le premier écran n'attend que le chat.
 const AgentBrain = lazy(() => import("@/components/AgentBrain").then((m) => ({ default: m.AgentBrain })));
@@ -82,6 +82,8 @@ function same<T>(cur: T, next: T): T {
 
 /** Relève périodique, en pause quand la fenêtre est cachée, relancée dès qu'elle revient. */
 const conversationsCache = new Map<string, Conversation[]>();
+// Changement de compte : la liste des conversations du précédent ne ressort pas, même un instant.
+onForget(() => conversationsCache.clear());
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("loading");
@@ -89,6 +91,7 @@ export default function App() {
   const [verification, setVerification] = useState("");
   const [linkedTo, setLinkedTo] = useState("");
   const [status, setStatus] = useState<Status | null>(null);
+  const [me, setMe] = useState<Me | null>(null);
 
   const boot = useCallback(async () => {
     try {
@@ -152,9 +155,11 @@ export default function App() {
       try {
         me = await get<Me>("/api/me");
       } catch (e) {
+        setMe(null);
         if (e instanceof ApiError && e.status === 401) return setScreen("login");
         throw e;
       }
+      setMe(me); // lu une fois ici : l'écran principal ne le redemande pas
       if (me.mot_de_passe_a_changer) return setScreen("password");
       // L'assistant de premier lancement configure le serveur : il ne concerne que son propriétaire.
       setScreen(status.onboarded || me.role !== "owner" ? "app" : "onboarding");
@@ -201,7 +206,7 @@ export default function App() {
     };
   }, []);
 
-  if (screen === "loading") return <p className="p-10 text-center text-muted-foreground">Chargement…</p>;
+  if (screen === "loading") return <p role="status" className="p-10 text-center text-muted-foreground">Chargement…</p>;
   if (screen === "pairing")
     return (
       <div className="mx-auto flex max-w-sm flex-col items-center gap-4 p-10 text-center">
@@ -261,8 +266,8 @@ export default function App() {
   if (screen === "error")
     return (
       <div className="flex flex-col gap-2 p-10 text-center">
-        <p className="text-danger">Impossible de joindre le serveur Noah Agent : {error}</p>
-        <p className="text-sm text-muted-foreground">Nouvel essai automatique toutes les 5 secondes…</p>
+        <p role="status" className="text-danger">Noah ne répond pas. Vérifie ta connexion.</p>
+        <p className="text-sm text-muted-foreground">Nouvel essai dans quelques secondes…</p>
       </div>
     );
   if (screen === "login") return <AuthScreen onDone={boot} />;
@@ -281,19 +286,21 @@ export default function App() {
         {status.has_account && <div className="mx-auto max-w-4xl px-4 pb-10"><DeviceApproval /></div>}
       </>
     );
-  return <Shell onLogout={boot} />;
+  return <Shell onLogout={boot} known={me} />;
 }
 
-function Shell({ onLogout }: { onLogout: () => void }) {
+function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) {
   // Abonnement aux notifications renouvelé par le navigateur pendant une indisponibilité : renvoyé au serveur dès
   // l'ouverture de l'app, sans attendre qu'on ouvre les réglages.
   useEffect(() => {
     reconcilePush().catch(() => {});
   }, []);
-  const [me, setMe] = useState<Me | null>(null);
+  // Le démarrage a déjà lu le compte : on ne le redemande que s'il manque (fin de l'assistant de premier lancement).
+  const [me, setMe] = useState<Me | null>(known);
   useEffect(() => {
+    if (known) return setMe(known);
     get<Me>("/api/me").then(setMe).catch(() => {});
-  }, []);
+  }, [known]);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [agentId, setAgentId] = useState<string | null>(null);
   // Liste associée à son agent : au retour sur un agent, celle du précédent ne doit pas lui donner une autre conversation.
@@ -541,7 +548,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
                 </Boundary>
               </div>
             ) : agent ? (
-              <p className="p-10 text-center text-sm text-muted-foreground">Chargement de la conversation…</p>
+              <p role="status" className="p-10 text-center text-sm text-muted-foreground">Chargement de la conversation…</p>
             ) : (
               <div className="grid h-full place-items-center p-6 text-center text-muted-foreground">
                 <div className="flex flex-col items-center gap-3">
