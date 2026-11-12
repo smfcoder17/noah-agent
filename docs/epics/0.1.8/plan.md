@@ -67,3 +67,24 @@ Chaque lot : preuve relue dans le code, changement, test, puis relecture par un 
 - Rapidité : `docs/perf.md` (première réaction 534 à 861 ms en local).
 - Autonomie : corpus du juge (40 sur 40) plus les nouveaux cas du lot C.
 - Avant publication : `node scripts/verifier.mjs`, build de l'interface, puis les parcours réels.
+
+## Livré en 0.1.8 (12 novembre)
+
+Sept lots codés en parallèle, chacun relu et corrigé par un second agent, fusionnés sans conflit sur `feat/018`.
+
+- **Lanceur.** La 0.1.7 refusait `applications_extra.py`, donc toute configuration d'agent échouait : corrigé, avec un test qui compare les fichiers envoyés à ceux acceptés. Le verrou attend 30 s au lieu de refuser. Les journaux tournent (10 Mo × 3). La mémoire suit la RAM du serveur, avec des planchers. Changer les dossiers partagés ne détruit plus rien en cas d'échec. Les conteneurs `-ancien` sont nettoyés.
+- **Presets.** Six modèles d'agent dans `server/noah/presets.json`, choisis dans la création et l'onboarding. L'écran vide propose quatre demandes à toucher. Le double agent après un échec de couleur est corrigé.
+- **Serveur.** Le flux d'événements se réveille à la publication au lieu de lire la base 5 fois par seconde. La réponse se termine avant les choix à toucher. En-têtes anti-tampon. Client HTTP partagé. Tâches de fond retenues. Attente longue des appels sans lecture chaque seconde.
+- **Autonomie.** En auto, naviguer, défiler, lire et suivre un lien de navigation ne demandent plus d'accord ; saisies, boutons, envois, achats et suppressions en demandent toujours un. `todo` hors juge. Un « vous devez » dans une page ne durcit plus le tour. Réveil du navigateur borné. Consigne de recherche sourcée.
+- **Web.** Les messages ne sont plus recopiés à chaque image. Les repères ne remesurent plus la page. Un resync garde la réponse en cours. Moins de requêtes au démarrage. Caches vidés au changement de compte.
+- **Bureau.** Résultat d'action renvoyé avec délai et nouvel essai, sans action exécutée deux fois. `config.json` écrit de façon atomique. Démarrage avec l'ordinateur, réglable, désactivé par défaut. Permissions limitées aux notifications. AltGr+A ne valide plus un accord.
+- **Android.** L'écran « Ton serveur ne répond pas » a « Réessayer » et « Changer de serveur ». Démarrage sans échange bloquant en double. Fond sombre au lancement. Boucles de fond arrêtées app cachée, les appels continuent.
+
+### À valider par Franck
+
+- Six presets au lieu de neuf : voyages, coach et bricoleur d'apps restent à écrire.
+- Autonomie en auto : une saisie dans le navigateur, même dans un champ de recherche, demande toujours un accord.
+
+### Reporté en 0.1.9
+
+Liste des agents sans N+1, cache des réglages, `content-visibility`, raccourci global, clic sur une notification de bureau, réglage des notifications côté interface, installateur de mise à jour Android, textes d'appairage, verrou par agent, routines des presets créées en pause.
