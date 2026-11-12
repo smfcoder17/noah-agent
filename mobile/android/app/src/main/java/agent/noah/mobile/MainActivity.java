@@ -36,6 +36,12 @@ public class MainActivity extends BridgeActivity {
     private ConnectivityManager.NetworkCallback onNetwork;
     private final Handler later = new Handler(Looper.getMainLooper());
     private Runnable retry;
+    private boolean exchanging; // un échange de session est en route (fil de l'interface)
+    private boolean started; // l'app est à l'écran : les boucles de fond ne tournent que là
+    private boolean wasStopped;
+    private boolean waiting; // la page d'attente est affichée
+    private int retryDelay = RETRY_MIN;
+    private static final int RETRY_MIN = 5000, RETRY_MAX = 60000;
     private boolean inCall;
     private final BroadcastReceiver hangUp = new BroadcastReceiver() {
         @Override
@@ -81,19 +87,21 @@ public class MainActivity extends BridgeActivity {
                 @Override
                 public void onAvailable(Network n) {
                     new Thread(pairing::revokeForgotten).start();
-                    runOnUiThread(() -> resumePush(pairing)); // au retour du réseau, sans attendre une réouverture
+                    runOnUiThread(() -> {
+                        resumePush(pairing); // au retour du réseau, sans attendre une réouverture
+                        if (waiting && started && !isDestroyed()) retryNow(); // page d'attente : nouvel essai tout de suite
+                    });
                 }
             };
             network.registerDefaultNetworkCallback(onNetwork);
         }
-        // … et toutes les 5 minutes (le VPS peut revenir sans que le réseau du téléphone change). Rien à faire si la
-        // file est vide : la boucle ne coûte presque rien.
+        // … et toutes les 5 minutes (le VPS peut revenir sans que le réseau du téléphone change), seulement tant que
+        // l'app est à l'écran : la boucle part dans onStart et s'arrête dans onStop.
         retry = () -> {
             new Thread(pairing::revokeForgotten).start();
             resumePush(pairing); // le VPS peut revenir sans que le réseau du téléphone change
             later.postDelayed(retry, 5 * 60 * 1000);
         };
-        later.postDelayed(retry, 5 * 60 * 1000);
         server = pairing.server();
         startCallWatch(pairing);
         token = server == null ? null : pairing.token();
@@ -104,6 +112,9 @@ public class MainActivity extends BridgeActivity {
                 .setServerUrl(server)
                 .setAppendedUserAgentString("NoahApp/" + BuildConfig.VERSION_NAME + " Android")
                 .create();
+            // L'échange de session part tout de suite, pendant que la fenêtre se prépare : la page n'attend plus un
+            // aller-retour lancé après coup (openPage et onResume reprennent cet échange, sans en relancer un).
+            exchange();
         }
         super.onCreate(savedInstanceState);
         // Retour : ferme d'abord ce qui est ouvert dans l'interface (fenêtre, panneau, menu, fil), comme une app native. Rien
@@ -155,6 +166,27 @@ public class MainActivity extends BridgeActivity {
     }
 
     @Override
+    public void onStart() {
+        super.onStart();
+        started = true;
+        later.removeCallbacks(retry);
+        // Retour à l'écran : ce que la boucle aurait fait pendant l'absence est fait maintenant.
+        if (wasStopped) later.post(retry);
+        else later.postDelayed(retry, 5 * 60 * 1000);
+        if (waiting && bridge != null && server != null) retryNow();
+    }
+
+    /** App cachée : plus aucune boucle de fond. La réception des appels (CallWatch, un service à part) continue. */
+    @Override
+    public void onStop() {
+        started = false;
+        wasStopped = true;
+        later.removeCallbacks(retry);
+        later.removeCallbacks(reload);
+        super.onStop();
+    }
+
+    @Override
     public void onDestroy() {
         unregisterReceiver(hangUp);
         CallSession.stop(this);
@@ -167,6 +199,13 @@ public class MainActivity extends BridgeActivity {
     @Override
     protected void load() {
         super.load();
+        // Capacitor vient de lancer l'adresse du serveur sans session : arrêtée tout de suite, la page ne part qu'avec
+        // la session (openPage, plus bas).
+        if (server != null && token != null) bridge.getWebView().stopLoading();
+        // Même fond que la page avant son premier rendu : pas d'éclair blanc au lancement en mode sombre.
+        int background = night() ? 0xFF1C1A18 : 0xFFFAF8F5;
+        bridge.getWebView().setBackgroundColor(background);
+        getWindow().getDecorView().setBackgroundColor(background);
         if (server == null || token == null) return;
         // Le jeton d'appareil ne va jamais dans la WebView : elle écrit ses cookies en clair sur le disque (Cookies), même
         // sans durée de vie. Rien d'une version précédente n'y reste non plus : la fenêtre n'a pas d'autre cookie.
@@ -184,11 +223,9 @@ public class MainActivity extends BridgeActivity {
                                         android.webkit.WebResourceError error) {
                 super.onReceivedError(view, request, error);
                 if (!request.isForMainFrame()) return;
-                // Serveur coupé ou réseau perdu : page d'attente, puis nouvel essai toutes les 5 s (G3.6), sans
-                // redemander l'appairage (le nouvel essai rouvre la session de la fenêtre).
-                view.loadDataWithBaseURL(null, OFFLINE, "text/html", "utf-8", null);
-                later.removeCallbacks(reload);
-                later.postDelayed(reload, 5000);
+                // Serveur coupé ou réseau perdu : page d'attente, puis nouvel essai après 5 s, de plus en plus espacé
+                // jusqu'à 60 s (G3.6), sans redemander l'appairage (le nouvel essai rouvre la session de la fenêtre).
+                showWait(false);
             }
 
             @Override
@@ -197,13 +234,19 @@ public class MainActivity extends BridgeActivity {
                 super.onReceivedHttpError(view, request, response);
                 // Caddy en place mais Noah arrêté (502), ou en plein redémarrage (503) : même attente qu'une coupure.
                 if (!request.isForMainFrame() || response.getStatusCode() < 500) return;
-                view.loadDataWithBaseURL(null, OFFLINE, "text/html", "utf-8", null);
-                later.removeCallbacks(reload);
-                later.postDelayed(reload, 5000);
+                showWait(false);
             }
 
             @Override
             public boolean shouldOverrideUrlLoading(android.webkit.WebView view, android.webkit.WebResourceRequest request) {
+                // Les deux boutons de la page d'attente. Écoutés seulement quand elle est affichée et que la personne a
+                // touché l'écran : aucune autre page ne peut faire oublier le serveur.
+                if ("noah-app".equals(request.getUrl().getScheme())) {
+                    if (!waiting || !request.isForMainFrame() || !request.hasGesture()) return true;
+                    if ("oublier".equals(request.getUrl().getHost())) changeServer();
+                    else retryNow();
+                    return true;
+                }
                 // Le lecteur d'une vidéo reste dans son cadre : il ne lance aucune app tout seul (vnd.youtube:, snssdk…).
                 if (!request.isForMainFrame()) return !"https".equalsIgnoreCase(request.getUrl().getScheme());
                 if (!home.equals(origin(request.getUrl().toString()))) {
@@ -238,7 +281,6 @@ public class MainActivity extends BridgeActivity {
         });
         // Une WebView ne télécharge rien d'elle-même : sans ça, un lien de téléchargement ne fait rien sur le téléphone.
         bridge.getWebView().setDownloadListener((url, agent, disposition, mime, length) -> download(url, agent, disposition, mime, home));
-        bridge.getWebView().stopLoading();
         openPage(page(getIntent()));
     }
 
@@ -293,18 +335,24 @@ public class MainActivity extends BridgeActivity {
     void renewWindow(java.util.function.Consumer<String> done) {
         runOnUiThread(() -> {
             renewing.add(done);
-            if (renewing.size() > 1) return;
-            Pairing pairing = new Pairing(this);
-            new Thread(() -> {
-                Pairing.Window window = pairing.openWindow();
-                runOnUiThread(() -> {
-                    if (!isDestroyed() && server != null && server.equals(pairing.server())) putInCookie(window);
-                    java.util.List<java.util.function.Consumer<String>> waiting = new java.util.ArrayList<>(renewing);
-                    renewing.clear();
-                    for (java.util.function.Consumer<String> each : waiting) each.accept(window.state);
-                });
-            }).start();
+            if (!exchanging) exchange();
         });
+    }
+
+    /** L'échange lui-même, hors du fil de l'interface. À appeler sur le fil de l'interface, jamais deux à la fois. */
+    private void exchange() {
+        exchanging = true;
+        Pairing pairing = new Pairing(this);
+        new Thread(() -> {
+            Pairing.Window window = pairing.openWindow();
+            runOnUiThread(() -> {
+                exchanging = false;
+                if (!isDestroyed() && server != null && server.equals(pairing.server())) putInCookie(window);
+                java.util.List<java.util.function.Consumer<String>> asked = new java.util.ArrayList<>(renewing);
+                renewing.clear();
+                for (java.util.function.Consumer<String> each : asked) each.accept(window.state);
+            });
+        }).start();
     }
 
     private volatile String windowSession; // en mémoire seulement, pour les téléchargements
@@ -328,14 +376,86 @@ public class MainActivity extends BridgeActivity {
             if (isDestroyed() || bridge == null) return;
             if (Pairing.Window.OPEN.equals(state) || Pairing.Window.REFUSED.equals(state)) {
                 retryPage = "/";
+                waiting = false;
+                retryDelay = RETRY_MIN;
+                later.removeCallbacks(reload); // une attente posée pendant l'échange ne recharge pas la page ouverte
                 bridge.getWebView().loadUrl(server + path);
                 return;
             }
             retryPage = path;
-            String page = Pairing.Window.SERVER_TOO_OLD.equals(state) ? TOO_OLD : OFFLINE;
-            bridge.getWebView().loadDataWithBaseURL(null, page, "text/html", "utf-8", null);
-            later.postDelayed(reload, 5000);
+            showWait(Pairing.Window.SERVER_TOO_OLD.equals(state));
         });
+    }
+
+    /**
+     * Page d'attente : dit quel serveur ne répond pas, et laisse toujours deux sorties (Réessayer, Changer de serveur).
+     * Les essais automatiques s'espacent de 5 s à 60 s, et s'arrêtent quand l'app est cachée (onStart les reprend).
+     */
+    private void showWait(boolean tooOld) {
+        if (bridge == null || server == null) return;
+        waiting = true;
+        String message = tooOld ? "Ton serveur doit être mis à jour pour cette version de l'app." : "Ton serveur ne répond pas.";
+        bridge.getWebView().loadDataWithBaseURL(null, waitPage(message), "text/html", "utf-8", null);
+        later.removeCallbacks(reload);
+        if (!started) return;
+        later.postDelayed(reload, retryDelay);
+        retryDelay = Math.min(retryDelay * 2, RETRY_MAX);
+    }
+
+    /** Demandé par la personne ou par le retour du réseau : tout de suite, et les essais suivants repartent de 5 s. */
+    private void retryNow() {
+        retryDelay = RETRY_MIN;
+        if (bridge != null && server != null) openPage(retryPage);
+    }
+
+    /**
+     * Changer de serveur depuis la page d'attente : après accord, même geste que « Oublier ce serveur » dans l'interface.
+     * Le jeton de l'ancien serveur est retiré (Pairing.forget), sa session de fenêtre aussi : rien de lui ne part vers
+     * le serveur suivant.
+     */
+    private void changeServer() {
+        new android.app.AlertDialog.Builder(this)
+            .setTitle("Changer de serveur ?")
+            .setMessage("Ce téléphone ne sera plus relié à " + host() + ". Tu pourras le relier de nouveau avec un QR code.")
+            .setNegativeButton("Annuler", null)
+            .setPositiveButton("Changer de serveur", (dialog, which) -> {
+                Pairing pairing = new Pairing(this);
+                pairing.forget();
+                NoahPush.stop(this);
+                NoahBubble.stop(this);
+                new Thread(pairing::revokeForgotten).start();
+                CookieManager.getInstance().removeAllCookies(null);
+                CookieManager.getInstance().flush();
+                windowSession = null;
+                later.removeCallbacks(reload);
+                recreate();
+            })
+            .show();
+    }
+
+    private String host() {
+        String host = server == null ? null : android.net.Uri.parse(server).getHost();
+        return host == null ? "ce serveur" : host;
+    }
+
+    private boolean night() {
+        return (getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+            == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+    }
+
+    /** Aux couleurs de l'écran de connexion (www/index.html), claires ou sombres comme le téléphone. */
+    private String waitPage(String message) {
+        boolean night = night();
+        String bg = night ? "#1c1a18" : "#faf8f5", fg = night ? "#e8e2da" : "#3a3530", muted = night ? "#a39a90" : "#7a7168";
+        String line = night ? "#3a3530" : "#ddd4c9", accent = night ? "#fb923c" : "#c2410c";
+        String button = "display:block;margin-top:12px;padding:14px 18px;border-radius:14px;text-decoration:none;";
+        return "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'>"
+            + "<body style='margin:0;min-height:100vh;display:grid;place-items:center;font:16px system-ui,sans-serif;background:" + bg + ";color:" + fg + "'>"
+            + "<div style='text-align:center;padding:24px;width:100%;max-width:360px'><h2>Noah Agent</h2><p>" + message + "</p>"
+            + "<p style='font-size:14px;word-break:break-all;color:" + muted + "'>" + android.text.TextUtils.htmlEncode(host())
+            + "<br>Nouvel essai automatique…</p>"
+            + "<a href='noah-app://reessayer' style='" + button + "margin-top:24px;font-weight:600;color:#fff;background:" + accent + "'>Réessayer</a>"
+            + "<a href='noah-app://oublier' style='" + button + "color:" + fg + ";border:1px solid " + line + "'>Changer de serveur</a></div>";
     }
 
     @Override
@@ -345,11 +465,6 @@ public class MainActivity extends BridgeActivity {
         if (server != null && token != null && bridge != null) renewWindow(state -> { });
     }
 
-    private static final String OFFLINE = "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'>"
-        + "<body style='margin:0;height:100vh;display:grid;place-items:center;font:16px sans-serif;background:#EEF1F4;color:#333'>"
-        + "<div style='text-align:center;padding:24px'><h2>Noah Agent</h2><p>Ton serveur ne répond pas.<br>"
-        + "Reconnexion automatique…</p></div>";
-    private static final String TOO_OLD = OFFLINE.replace("Ton serveur ne répond pas.", "Ton serveur doit être mis à jour pour cette version de l'app.");
     private final Runnable reload = () -> {
         if (bridge != null && server != null) openPage(retryPage);
     };

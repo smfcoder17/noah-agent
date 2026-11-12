@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Fond de la fenêtre avant le premier rendu de la page : celui de l'écran de connexion (www/index.html). -->
+    <color name="noah_fond">#FAF8F5</color>
+</resources>

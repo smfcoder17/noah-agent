@@ -46,6 +46,25 @@ grep -q 'windowSession = window\.token' "$J/MainActivity.java" || fail "windowSe
 if grep -rnE 'windowToken|getCookie|\.session\(\)' "$A/app/src/main/java"; then fail "le cookie est relu : fenêtre fermée, seul le jeton chiffré compte"; fi
 echo "2 bis. la fenêtre ne reçoit que sa session courte, et plus rien ne relit le cookie"
 
+# 0.1.8 : « Changer de serveur » sur la page d'attente efface le jeton de l'ancien serveur avant de rouvrir l'app, comme
+# « Oublier ce serveur » : sans ça, l'ancien jeton partirait vers le serveur suivant. Bouton écouté seulement sur la page
+# d'attente, après un toucher.
+CHANGE=$(sed -n '/private void changeServer()/,/^    }/p' "$J/MainActivity.java")
+[ -n "$CHANGE" ] || fail "changeServer introuvable : ce contrôle ne regarde rien"
+for step in 'pairing.forget();' 'NoahPush.stop(this);' 'revokeForgotten' 'removeAllCookies' 'windowSession = null;' 'recreate();'; do
+  echo "$CHANGE" | grep -qF "$step" || fail "changer de serveur sans $step"
+done
+[ "$(echo "$CHANGE" | grep -nF 'pairing.forget();' | cut -d: -f1)" -lt "$(echo "$CHANGE" | grep -nF 'recreate();' | cut -d: -f1)" ] \
+  || fail "l'app se rouvre avant d'oublier le jeton"
+grep -q 'if (!waiting || !request.isForMainFrame() || !request.hasGesture()) return true;' "$J/MainActivity.java" \
+  || fail "les boutons de la page d'attente répondent hors de la page d'attente ou sans toucher"
+# App cachée : la boucle de 5 minutes et les essais hors ligne s'arrêtent ; la réception des appels (CallWatch) reste.
+STOP=$(sed -n '/public void onStop()/,/^    }/p' "$J/MainActivity.java")
+echo "$STOP" | grep -q 'removeCallbacks(retry)' || fail "boucle de 5 minutes laissée app cachée"
+echo "$STOP" | grep -q 'removeCallbacks(reload)' || fail "essais hors ligne laissés app cachée"
+if echo "$STOP" | grep -q 'CallWatch'; then fail "app cachée : la réception des appels est coupée"; fi
+echo "2 ter. changer de serveur efface l'ancien jeton ; app cachée, plus de boucle, les appels restent"
+
 # 3. Le vrai Pairing.java, compilé tel quel, exécuté.
 W=$(mktemp -d)
 trap 'rm -rf "$W"' EXIT
