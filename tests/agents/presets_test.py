@@ -80,7 +80,12 @@ assert listed.status_code == 200, listed.text
 data = listed.json()
 assert data["version"] >= 1 and len(data["defaut"]["demandes"]) == 4, data["defaut"]
 ids = [p["id"] for p in data["presets"]]
-assert 4 <= len(ids) <= 6 and len(set(ids)) == len(ids), ids
+# 0.1.9 : trois modèles de plus (voyages et sorties, coach d'apprentissage, bricoleur d'apps), à dessein.
+assert 4 <= len(ids) <= 9 and len(set(ids)) == len(ids), ids
+assert {"voyages", "apprentissage", "applications"} <= set(ids), ids
+veilles = [r for r in presets.BY_ID["assistant"]["routines"] if r["nom"].startswith("Veille")]
+assert len(veilles) == 2 and all("en pause" in r["quand"] for r in veilles), veilles  # proposées, en pause tant qu'on ne les active pas
+assert any("ajoute-la à mon agenda" in r["consigne"] and "en une phrase" in r["consigne"] for r in veilles), veilles
 assert presets.ROLE_MAX == 4000 and main.AgentBody(name="x", role="x" * presets.ROLE_MAX)  # la même limite que la création
 for p in data["presets"]:
     assert 500 <= len(p["role"]) <= 1200 <= presets.ROLE_MAX, (p["id"], len(p["role"]))

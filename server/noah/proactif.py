@@ -322,14 +322,24 @@ def _main(agent_id: str) -> str:
     return _h["main_conversation"](agent_id) or _h["new_conversation"](access.owner_of(agent_id), agent_id, "Conversation", main=True)
 
 
-def _tell(agent_id: str, title: str, text: str) -> None:
-    """Dans sa conversation principale, et en notification si elle n'y est pas. L'agent en a connaissance à son prochain message."""
+def done_line(receipt: dict | None) -> str | None:
+    """Ce que le tour a fait, prouvé par ses outils, en une phrase : « J'ai ajouté le partiel du 3 décembre à ton agenda. »
+    Sans action prouvée : None, la notification garde la première phrase du compte rendu."""
+    proven = (receipt or {}).get("prouve") or []
+    if not proven:
+        return None
+    return proven[0]["dit"] if isinstance(proven[0], dict) else str(proven[0])
+
+
+def _tell(agent_id: str, title: str, text: str, short: str | None = None) -> None:
+    """Dans sa conversation principale, et en notification si elle n'y est pas. L'agent en a connaissance à son prochain message.
+    `short` : ce que la notification dit à la place de la première phrase, quand le tour a agi."""
     conv, owner = _main(agent_id), access.owner_of(agent_id)
     body = f"**{MARK} : {title}**\n\n{text}"
     _h["save"](conv, "agent", body)
     machine.add_context(conv, f"[Tu as écrit ceci de toi-même à la personne :]\n{body[:800]}")
     if owner is not None and not notifications.seen_recently(conv):
-        desktop.notify_user(owner, f"{_agent_row(agent_id)['name']} : {title}", notifications.first_sentence(text, 240), "routines",
+        desktop.notify_user(owner, f"{_agent_row(agent_id)['name']} : {title}", notifications.first_sentence(short or text, 240), "routines",
                             notifications.conversation_url(agent_id, conv))
     with db.connect() as c:
         c.execute("UPDATE proactive SET signals = signals + 1 WHERE agent_id = ?", (agent_id,))
@@ -425,7 +435,9 @@ async def _finish_turn(turn_id: str, agent_id: str, conv: str, title: str, strea
             return  # il a regardé, il n'y a rien : ça ne mérite pas de déranger
         _tell(agent_id, title, f"Je n'ai rien écrit de ce tour.{recu.report_line(receipt)}")  # « rien », mais un outil a agi : ça se dit
     elif ok:
-        _tell(agent_id, title, last["text"][:3000] + coordination._actions_line([conv]) + recu.report_line(receipt))
+        short = done_line(receipt)
+        _tell(agent_id, title, last["text"][:3000] + coordination._actions_line([conv]) + recu.report_line(receipt),
+              short=(recu.notice(receipt) + short) if short else None)
     else:
         reason = coordination._for_voice(last["text"]) if last else "le travail s'est arrêté sans réponse"
         _tell(agent_id, title, f"Je n'ai pas terminé : {reason}{coordination._actions_line([conv])}")

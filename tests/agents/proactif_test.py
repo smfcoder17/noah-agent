@@ -618,4 +618,91 @@ except proactif.HTTPException as e:
 finally:
     proactif._turning.pop("a1", None)
 print("33. un tour de lui-même n'ouvre ni fil ni demande : ses limites ne s'échappent pas")
+
+# --- 34. Une veille en panne prévient une fois, avec la cause et le geste ----------------------------------------------------
+import httpx  # noqa: E402
+
+from noah import credits, recu  # noqa: E402
+
+delivered: list[tuple] = []
+watch.desktop.notify = lambda *a, **k: delivered.append(a)
+with db.connect() as c:
+    c.execute("INSERT INTO watches (id, agent_id, name, url) VALUES ('wpanne', 'a1', 'Partiels', 'https://exemple.test/partiels')")
+
+
+async def broken_source(*a, **k):
+    raise httpx.ConnectError("injoignable")
+
+watch.read_source = broken_source
+saved: list[tuple] = []
+for _ in range(4):
+    run(watch.check("wpanne", lambda *a: saved.append(a), lambda agent_id: None))
+assert len(delivered) == 1, delivered  # deux passages ratés : prévenue ; les suivants : silence, une fois par panne
+title, text = delivered[0][0], delivered[0][1]
+assert "en panne" in title and "Partiels" in title and "source injoignable" in title and "Vérifier" in text, delivered  # sur le téléphone : titre et première phrase
+assert watch._row("wpanne")["fails"] == 4
+watch.read_source = read_source  # la source revient : le compteur repart de zéro, une nouvelle panne prévient de nouveau
+run(watch.check("wpanne", lambda *a: None, lambda agent_id: None))
+assert watch._row("wpanne")["fails"] == 0
+watch.read_source = broken_source
+for _ in range(2):
+    run(watch.check("wpanne", lambda *a: None, lambda agent_id: None))
+assert len(delivered) == 2, delivered
+watch.read_source = read_source
+print("34. une veille en panne prévient une fois par panne, avec la cause et le geste ; revenue, le compteur repart")
+
+# --- 35. Crédits OpenRouter : une notification par seuil (20 %, puis 5 %), rien pour un autre fournisseur -----------------
+balance = {"limit": 10.0, "limit_remaining": 5.0}
+to_openrouter: list[str] = []
+
+
+def openrouter(request: httpx.Request) -> httpx.Response:
+    to_openrouter.append(str(request.url))
+    assert request.headers["authorization"] == "Bearer cle-cerveau", "la clé du cerveau, et elle seule"
+    return httpx.Response(200, json={"data": dict(balance)})
+
+
+real_client = httpx.AsyncClient
+
+
+class Simulated(real_client):
+    def __init__(self, *a, **k):
+        k["transport"] = httpx.MockTransport(openrouter)
+        super().__init__(*a, **k)
+
+
+credits.httpx.AsyncClient = Simulated
+credits.desktop.notify = lambda *a, **k: delivered.append(("credits",) + a)
+db.set_setting("api_key", "cle-cerveau", secret=True)
+before = len(delivered)
+assert run(credits.check()) is None and len(delivered) == before  # 50 % : rien
+balance["limit_remaining"] = 1.8
+assert run(credits.check()) == "20" and run(credits.check()) is None  # 18 % : une fois
+balance["limit_remaining"] = 0.4
+assert run(credits.check()) == "5" and run(credits.check()) is None  # 4 % : une fois
+alerts = [d for d in delivered[before:] if d[0] == "credits"]
+assert len(alerts) == 2 and "20 %" in alerts[0][1] and "openrouter.ai" in alerts[0][2] and "1,80 $" in alerts[0][2], alerts
+balance["limit_remaining"] = 9.0  # rechargée : les seuils préviennent de nouveau
+assert run(credits.check()) is None
+balance["limit_remaining"] = 1.0
+assert run(credits.check()) == "20"
+balance["limit"] = None  # clé sans plafond : rien de lisible, rien d'annoncé
+assert run(credits.check()) is None
+n = len(to_openrouter)
+db.set_setting("provider", "anthropic")  # fournisseur sans solde lisible : aucun appel
+assert run(credits.check()) is None and len(to_openrouter) == n
+db.set_setting("provider", "openrouter")
+assert all(u == credits.KEY_URL for u in to_openrouter), to_openrouter
+credits.httpx.AsyncClient = real_client
+print("35. crédits : une notification à 20 %, une à 5 %, de nouveau après recharge ; rien sans plafond ni chez un autre fournisseur")
+
+# --- 36. Un tour qui a agi : la notification dit ce qui a été fait ----------------------------------------------------------
+receipt = {"prouve": [{"dit": "J'ai ajouté le partiel du 3 décembre à ton agenda.", "par": "agenda"}], "fait": ["agenda"]}
+assert proactif.done_line(receipt) == "J'ai ajouté le partiel du 3 décembre à ton agenda."
+assert proactif.done_line(None) is None and proactif.done_line({"fait": []}) is None
+notified.clear()
+proactif._tell("a1", "Courriels", "J'ai lu tes courriels ce matin. J'ai ajouté le partiel du 3 décembre à ton agenda.",
+               short=recu.notice(receipt) + proactif.done_line(receipt))
+assert notified and notified[-1][2] == "J'ai ajouté le partiel du 3 décembre à ton agenda.", notified
+print("36. compte rendu d'un tour qui a agi : la notification dit l'action prouvée, en une phrase")
 print("Tout est tenu.")
