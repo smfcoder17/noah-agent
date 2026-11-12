@@ -378,18 +378,39 @@ _browser_awake_at = 0.0
 HOOK_SECONDS = 600  # plugins.hook_callback_timeout, écrit par Noah (plafond d'Hermes) : au-delà, Hermes bloque l'outil
 
 
-def _wake_browser() -> None:
+_browser_ever_awake = False
+_browser_failed_at = 0.0
+_browser_failure = ""
+WAKE_SECONDS = 120  # navigateur déjà lancé une fois : au-delà, il est figé, et l'agent doit le savoir tout de suite
+FAILURE_SECONDS = 30  # une panne récente se redit sans refaire attendre
+
+
+def _wake_browser() -> str | None:
     """Le navigateur ne tourne que quand on s'en sert : le premier outil qui le demande attend qu'il soit prêt. Hermes coupe ce
-    crochet à plugins.hook_callback_timeout et bloque alors l'outil : l'attente reste en dessous."""
-    global _browser_awake_at
-    if time.monotonic() - _browser_awake_at < 60:
-        return
+    crochet à plugins.hook_callback_timeout et bloque alors l'outil : la première attente (téléchargement de l'image) reste en
+    dessous, les suivantes sont bornées à WAKE_SECONDS. Rend le message à donner à l'agent quand le navigateur ne répond pas."""
+    global _browser_awake_at, _browser_ever_awake, _browser_failed_at, _browser_failure
+    now = time.monotonic()
+    if now - _browser_awake_at < 60:
+        return None
+    if _browser_failed_at and now - _browser_failed_at < FAILURE_SECONDS:
+        return _browser_failure
+    timeout = WAKE_SECONDS if _browser_ever_awake else HOOK_SECONDS - 30
+    fix = ("Lance « python3 /opt/data/noah.py navigateur redemarrer », puis réessaie. S'il reste injoignable, "
+           "dis-le à la personne et continue sans navigateur.")
     try:
-        done = subprocess.run([sys.executable, "/opt/data/noah.py", "navigateur", "reveiller"], capture_output=True, timeout=HOOK_SECONDS - 30)
-        if json.loads(done.stdout).get("joignable"):
-            _browser_awake_at = time.monotonic()
+        done = subprocess.run([sys.executable, "/opt/data/noah.py", "navigateur", "reveiller"], capture_output=True, timeout=timeout)
+        answer = json.loads(done.stdout)
+        if answer.get("joignable"):
+            _browser_awake_at, _browser_ever_awake, _browser_failed_at = time.monotonic(), True, 0.0
+            return None
+        failure = f"Noah : le navigateur est injoignable ({str(answer.get('erreur') or 'sans raison donnée')[:200]}). {fix}"
+    except subprocess.TimeoutExpired:
+        failure = f"Noah : le navigateur ne répond pas après {timeout} s. {fix}"
     except (OSError, ValueError, AttributeError, subprocess.SubprocessError):
-        pass  # l'outil dira lui-même qu'il n'a pas de navigateur
+        return None  # réponse illisible : l'outil dira lui-même s'il n'a pas de navigateur
+    _browser_failed_at, _browser_failure = time.monotonic(), failure
+    return failure
 
 
 # --- Partage de l'agent (G12.5) ------------------------------------------------------------------------------------------
@@ -772,7 +793,20 @@ GIT_READS = {"status", "log", "diff", "show", "rev-parse", "ls-files", "blame", 
 NOAH_NO_EFFECT = {"etat", "reglages", "appareils", "fil", "fil-etat", "image", "video", "musique", "voix", "notifier", "rappeler", "appeler", "attendre", "agents",
                   "demandes", "demande-etat", "routines", "veilles", "recette", "memoire-juger", "coffre", "coffre-attendre", "coffre-annuler"}
 NOAH_BROWSER = {"reveiller", "redemarrer", "telecharger"}
-BLIND_TOOLS = {"browser_click"}  # le juge ne voit pas la page : il ne saurait pas juger ce clic. Il compte seulement dans un tour durci.
+BLIND_TOOLS = {"browser_click"}  # le juge ne voit pas la page : il ne saurait pas juger ce clic. Hors lien de navigation reconnu, il demande l'accord.
+# Navigateur en Auto, liste FERMÉE de ce qui passe sans accord : ouvrir une adresse, défiler, lire, capturer, revenir, suivre un lien de
+# navigation. Tout le reste (bouton, saisie, touche qui valide ou écrit, lien qui achète, supprime, connecte ou envoie) garde l'accord.
+SAFE_KEYS = {"pagedown", "pageup", "arrowdown", "arrowup", "arrowleft", "arrowright", "home", "end", "escape", "tab", "shift+tab"}
+BROWSER_READS = {"browser_snapshot", "browser_vision", "browser_get_images"}  # ne changent pas la page : ses références restent valables
+RISKY_LINK = re.compile(
+    r"achet|achat|command|panier|pay|paie|caisse|checkout|buy|order|cart|purchase|abonn|subscri|souscri|r[ée]serv|book|\bdon\b|donat|virement|transf"
+    r"|supprim|delete|remove|effac|retir|annul|cancel|vider|r[ée]sili|d[ée]sinscri|unsubscri"
+    r"|envo|send|submit|soumet|valid|confirm|accept|autori|allow|approuv|approve|sign|publi|post|partag|share|tweet|r[ée]pond|reply|like|j.aime|follow|suivre"
+    r"|connex|connect|log ?in|log ?out|identifi|inscri|register|compte|account|mot de passe|password"
+    r"|t[ée]l[ée]vers|upload|import|t[ée]l[ée]charg|download|install|ex[ée]cut|\brun\b|javascript:", re.I)
+SNAPSHOT_LINE = re.compile(r'^[ \t]*-[ \t]+([a-z]+)(?:[ \t]+"(.*?)")?[ \t]*((?:\[[^\]\n]*\][ \t]*)+):?[ \t]*$', re.M)
+SNAPSHOT_REF = re.compile(r"\[(?:ref=)?(e\d+)\]")
+_pages: dict[str, dict] = {}  # session -> référence de la dernière page lue -> (rôle, nom) ; None si vue deux fois
 UNTRUSTED_TOOLS = {"web_search", "web_extract", "x_search", "vision_analyze", "video_analyze", "feishu_doc_read", "a2a_call", "a2a_history"}
 READS_OUTSIDE = re.compile(r"\b(?:curl|wget)\b|noah\.py\s+(?:navigateur|ordinateur)\b")
 
@@ -1038,15 +1072,16 @@ def no_effect(tool_name: str, args: dict | None) -> bool:
     # (check_memory, memoire-juger) ; lire, retirer ou remplacer une note ne sort rien et ne coûte aucun appel.
     if tool_name == "memory":
         return True
-    if tool_name in ("todo", "image_generate", "video_generate", "text_to_speech", "skill_manage"):
+    # todo (tools/todo_tool.py d'Hermes) : une liste en mémoire de l'agent, ni fichier, ni réseau, ni coût. Il reste dans NO_EFFECT.
+    if tool_name in ("image_generate", "video_generate", "text_to_speech", "skill_manage"):
         return False
     if tool_name in NO_EFFECT:
         return True
     if tool_name == "browser_navigate":
         url = str(args.get("url") or "")
         return len(url.split("?", 1)[1]) <= 200 if "?" in url else True  # une adresse sert aussi à emporter des données
-    if tool_name == "browser_press":
-        return str(args.get("key") or "").lower() not in ("enter", "return")
+    if tool_name == "browser_press":  # défiler ou déplacer le focus ; Espace, Entrée ou une lettre valident ou écrivent
+        return str(args.get("key") or "").strip().lower() in SAFE_KEYS
     if tool_name in ("process", "process_manage"):
         return str(args.get("action") or "") in ("list", "poll", "log", "wait")
     return tool_name == "terminal" and reads_only(str(args.get("command") or "")) and not prepares_files(str(args.get("command") or ""))
@@ -1065,6 +1100,32 @@ def prepares_files(command: str) -> bool:
                for i, w in enumerate(words)):
             return True
     return False
+
+
+def _remember_page(session: str, result: str) -> None:
+    """Les références de la dernière page lue. Un texte de la page ne compte pas : seule une ligne d'élément
+    (« - link "nom" [e3] ») en donne une, et une référence vue deux fois ne prouve plus rien."""
+    try:
+        parsed = json.loads(result)
+        text = "\n".join(v for v in parsed.values() if isinstance(v, str)) if isinstance(parsed, dict) else result
+    except ValueError:
+        text = result
+    refs: dict = {}
+    for line in SNAPSHOT_LINE.finditer(text[:400000]):
+        for ref in SNAPSHOT_REF.findall(line.group(3)):
+            refs[ref] = None if ref in refs else (line.group(1), line.group(2) or "")
+    if refs:
+        if len(_pages) > 50 and session not in _pages:
+            _pages.pop(next(iter(_pages)))
+        _pages[session] = refs
+
+
+def navigation_link(session: str, tool_name: str, args: dict | None) -> bool:
+    """Un clic sur un lien de la dernière page lue, dont le nom ne promet ni achat, ni envoi, ni suppression, ni connexion. Dans le doute, non."""
+    if tool_name != "browser_click" or not isinstance(args, dict) or set(args) != {"ref"}:
+        return False
+    found = _pages.get(session, {}).get(str(args.get("ref") or "").strip().lstrip("@"))
+    return bool(found) and found[0] == "link" and bool(found[1].strip()) and not RISKY_LINK.search(found[1])
 
 
 def is_blind(tool_name: str, args: dict | None) -> bool:
@@ -1306,6 +1367,8 @@ def _transform_tool_result(tool_name: str = "", args: dict | None = None, result
     if not isinstance(result, str) or not result or not _is_untrusted(tool_name, args):
         return None
     session = str(session_id or "")
+    if tool_name.startswith("browser_"):
+        _remember_page(session, result)
     _remember_addresses(session, tool_name, result)
     level, where = signs_in(result)
     if not level and len(result) < LONG_TEXT:
@@ -1324,12 +1387,14 @@ def _transform_tool_result(tool_name: str = "", args: dict | None = None, result
                 _turns[session] = answer["tour"]
             _reported_hardened[session] = time.time() + HARDENED_SECONDS
     except Exception:  # noqa: BLE001 - le serveur ne saura pas : on le lui redira à la prochaine action
+        # Tri en panne : tout motif encadre le texte, seul un motif fort durcit le tour. « Vous devez » est trop courant pour
+        # figer 30 minutes de travail ; une consigne nette (« ignore tes instructions », balise système…) le durcit toujours.
         flagged, reason = bool(level), ""
-        if flagged:
+        if level == "fort":
             if context is None:
                 _turns.pop(session, None)  # ne jamais rattacher le nouveau signal à un ancien repère
             _hardened[session] = time.time() + HARDENED_SECONDS
-    if flagged:
+    if flagged and max(_hardened.get(session, 0), _reported_hardened.get(session, 0)) > time.time():
         excerpts = _instruction_excerpts.setdefault(session, [])
         if excerpt not in excerpts:
             excerpts.append(excerpt)
@@ -1445,6 +1510,10 @@ def check_juge(tool_name: str, args: dict, directive: dict | None, hook: dict) -
             directive = google or directive
         elif no_effect(tool_name, args):
             return directive
+        elif hook.get("_noah_lien") and _autonomy() != "prudent":
+            here = str(hook.get("session_id") or "")
+            if max(_hardened.get(here, 0), _reported_hardened.get(here, 0)) <= time.time():
+                return directive  # suivre un lien de navigation vaut ouvrir une adresse ; un tour durci, lui, redemande
     session = str(hook.get("session_id") or "")
     alone = _unattended()
     context = hook.get("_noah_context")
@@ -1525,6 +1594,10 @@ def check_juge(tool_name: str, args: dict, directive: dict | None, hook: dict) -
 def _pre_tool_call(tool_name: str = "", args: dict | None = None, **hook) -> dict | None:
     session = str(hook.get("session_id") or "")
     _start_local_turn(session, hook.get("turn_id"))
+    if tool_name.startswith("browser_"):
+        hook["_noah_lien"] = navigation_link(session, tool_name, args)
+        if tool_name not in BROWSER_READS:  # la page va changer : ses anciennes références ne prouvent plus rien
+            _pages.pop(session, None)
     if max(_hardened.get(session, 0), _reported_hardened.get(session, 0)) > time.time():
         hook["_noah_context"] = _server_context(tool_name, session)
     reviewing = session.startswith(REVIEW_SESSION)
@@ -1552,8 +1625,8 @@ def _guard_tool(tool_name: str = "", args: dict | None = None, **_) -> dict | No
         refused = check_memory(args if isinstance(args, dict) else {})
         return {"action": "block", "message": refused} if refused else None
     if tool_name.startswith("browser_"):
-        _wake_browser()
-        return None
+        failure = _wake_browser()
+        return {"action": "block", "message": failure} if failure else None
     if tool_name.startswith("mcp__"):  # avant le test des arguments : un appel sans argument passe aussi par le droit
         return check_mcp(tool_name, args if isinstance(args, dict) else {})
     if not isinstance(args, dict):
