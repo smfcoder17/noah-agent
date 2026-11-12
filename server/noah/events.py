@@ -161,6 +161,11 @@ _KNOWN = (
      "Le fournisseur refuse pour crédit insuffisant : le solde de la clé est épuisé, ou son plafond est atteint. Vérifie-le chez lui, "
      "ou choisis un autre modèle dans Réglages > Modèles et budget > Cerveau. Si ton solde est approvisionné, ce n'est pas un manque "
      "de crédit : réessaie, et lis le détail avec « Voir les détails »."),
+    # Plafond de dépense posé sur la clé ou le compte chez le fournisseur (ex. « ExceededBudget: User=… over budget.
+    # Spend=2.11, Budget=2.0 ») : ce n'est ni une panne ni un manque de crédit, c'est la limite choisie par la personne.
+    (r"exceeded.?budget|over budget|budget.{0,20}(exceeded|reached|limit)",
+     "Le plafond de dépense de ta clé chez le fournisseur est atteint. Relève-le dans ton compte chez lui (par exemple la limite "
+     "de la clé sur OpenRouter), ou choisis un autre modèle dans Réglages > Modèles et budget > Cerveau."),
     (r"no endpoints|model.{0,40}(not found|not exist|unavailable|invalid)|not a valid model|\b404\b",
      "Ce modèle n'est plus disponible chez le fournisseur. Choisis-en un autre dans Réglages > Modèles et budget > Cerveau."),
     (r"context.{0,20}(length|window|size)|too (long|large)|token limit",

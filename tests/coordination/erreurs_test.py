@@ -75,6 +75,9 @@ for wording in ("402 - model is temporarily unavailable, try again", "402: upstr
     said = events.friendly_error(wording)
     assert "crédit insuffisant" not in said, f"un 402 qui n'est pas un manque de crédit ne doit pas l'affirmer : {wording!r} → {said!r}"
 assert "crédit insuffisant" in events.friendly_error("402 - you exceeded your current quota, please check your plan")
+# Erreur réelle du 12 novembre : le plafond de la clé est atteint. Le 422 ne doit pas finir en « erreur inexpliquée ».
+said = events.friendly_error("HTTP 422: ExceededBudget: User=628911 over budget. Spend=2.112419388, Budget=2.0")
+assert "plafond de dépense de ta clé" in said and "inexpliqu" not in said, said
 assert "crédit insuffisant" in events.friendly_error("insufficient credits on your account")
 print("1b. un 402 qui n'est pas un manque de crédit ne l'affirme pas")
 
