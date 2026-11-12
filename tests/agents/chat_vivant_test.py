@@ -311,9 +311,12 @@ print("6. réaction de la personne : bornée, à elle seule, connue de l'agent")
 # Une question se touche.
 next_replies[0] = ["Oui", "Non"]
 script[:] = [delta("On publie ?"), DONE]
-asyncio.run(chat("question"))
+sent = asyncio.run(chat("question"))
 text = last_agent()["text"]
 assert text.startswith("On publie ?") and '"type": "choice"' in text and '"Oui"' in text, text
+kinds = [e["type"] for e in sent]
+assert kinds[-2:] == ["done", "choix"] and sent[-2]["reponse"] == "On publie ?", ("la fin du texte n'attend pas le petit modèle", kinds)
+assert sent[-2]["reponse"] + sent[-1]["text"] == text, "l'écran finit sur le message enregistré"
 assert main.task_state[conv] == "choice", "la question attend la personne"
 asked_replies.clear()
 script[:] = [delta('```noah\n{"type": "choice", "question": "x", "options": ["a", "b"]}\n```\nLequel préfères-tu ?'), DONE]

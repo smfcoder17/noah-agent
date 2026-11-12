@@ -110,9 +110,18 @@ const SHOWS_SOMETHING = /```noah|^MEDIA:|\/opt\/data\/workspace\/(?:outputs|apps
 /** Retire la ligne de travail : elle ne sert que pendant que l'agent agit. */
 const settle = (parts: Part[]): Part[] => parts.filter((p) => !(p.type === "tool-call" && p.toolName === "activity"));
 
-function apply(msg: ChatMessage, ev: ChatEvent, runId: string | null): ChatMessage {
+// Les réponses à toucher arrivent après « done » : le serveur ne fait plus attendre la fin du texte pour elles.
+type ChoiceEvent = { type: "choix"; text: string };
+
+function apply(msg: ChatMessage, ev: ChatEvent | ChoiceEvent, runId: string | null): ChatMessage {
   const parts = msg.content;
   switch (ev.type) {
+    case "choix": {
+      // Elles rejoignent la réponse, comme dans le message enregistré, même si le reçu ou les étapes la suivent.
+      const at = parts.map((p) => p.type).lastIndexOf("text");
+      if (at < 0) return { ...msg, content: [...parts, { type: "text", text: ev.text.replace(/^\n+/, "") }] };
+      return { ...msg, content: parts.map((p, i) => (i === at && p.type === "text" ? { ...p, text: p.text + ev.text } : p)) };
+    }
     case "message": {
       const last = parts[parts.length - 1];
       if (last?.type === "text") return { ...msg, content: [...parts.slice(0, -1), { type: "text", text: last.text + ev.text }] };

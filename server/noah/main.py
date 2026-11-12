@@ -173,35 +173,35 @@ AGENT_SETUP_VERSION = "41-juge-dialogue"  # 41 : le juge demande pourquoi à l'a
 async def startup() -> None:
     db.init()
     accords.sweep(live_runs=set())
-    asyncio.create_task(_keep_accords())
+    _spawn(_keep_accords())
     _first_account()
     if not auth.has_users():
         config.renew_setup_code()
     auth.hash_old_sessions()
-    asyncio.create_task(public.setup())
+    _spawn(public.setup())
     updates.announce = _announce_update
-    asyncio.create_task(updates.run(task_state))
-    asyncio.create_task(push.run_queue())
-    asyncio.create_task(desktop.keep_clean())
-    asyncio.create_task(_after_updates(lambda: machine.keep_connections_warm(lambda: [a["id"] for a in _agents()], _warmable)))
+    _spawn(updates.run(task_state))
+    _spawn(push.run_queue())
+    _spawn(desktop.keep_clean())
+    _spawn(_after_updates(lambda: machine.keep_connections_warm(lambda: [a["id"] for a in _agents()], _warmable)))
     _migrate_threads()
-    asyncio.create_task(_resume_requests())
-    asyncio.create_task(_after_updates(_refresh_browsers))
-    asyncio.create_task(machine.deliver_routines(_save_message, _main_conversation))
+    _spawn(_resume_requests())
+    _spawn(_after_updates(_refresh_browsers))
+    _spawn(machine.deliver_routines(_save_message, _main_conversation))
     watch.init()
     watch.setup(_save_message, _main_conversation, _wake_for_routine)
     accounts.setup(_save_message, _main_conversation, _resume_agent)
-    asyncio.create_task(watch.run_watches(_save_message, _main_conversation))
-    asyncio.create_task(_after_updates(proactif.run_forever))
-    asyncio.create_task(decision.keep_fresh())
-    asyncio.create_task(handoff.keep_browser_sessions())
-    asyncio.create_task(_rest_browsers_loop())
-    asyncio.create_task(accounts.keep_google_fresh())
+    _spawn(watch.run_watches(_save_message, _main_conversation))
+    _spawn(_after_updates(proactif.run_forever))
+    _spawn(decision.keep_fresh())
+    _spawn(handoff.keep_browser_sessions())
+    _spawn(_rest_browsers_loop())
+    _spawn(accounts.keep_google_fresh())
     handoff.setup(_resume_agent)
-    asyncio.create_task(chauffe.run(lambda: [Agent(a["id"], a["api_key"]) for a in _agents()], _warmable))
-    asyncio.create_task(_after_updates(coordination.recover))
+    _spawn(chauffe.run(lambda: [Agent(a["id"], a["api_key"]) for a in _agents()], _warmable))
+    _spawn(_after_updates(coordination.recover))
     if db.get_setting("agent_setup") != AGENT_SETUP_VERSION and current_model():
-        asyncio.create_task(_after_updates(_upgrade_agents))
+        _spawn(_after_updates(_upgrade_agents))
 
 
 async def _keep_accords():
@@ -2278,7 +2278,10 @@ def messages(conv_id: str, limit: int | None = None, avant: int | None = None, d
     with db.connect() as c:
         rows = [dict(r) for r in c.execute(query, args).fetchall()]
         given: dict[int, dict] = {}
-        for r in c.execute("SELECT r.message_id, r.who, r.emoji FROM reactions r JOIN messages m ON m.id = r.message_id WHERE m.conversation_id = ?", (conv_id,)):
+        # Seulement les réactions de la page rendue : une vieille conversation ne se relit pas en entier.
+        first, last = (rows[0]["id"], rows[-1]["id"]) if rows else (0, -1)
+        for r in c.execute("SELECT r.message_id, r.who, r.emoji FROM reactions r JOIN messages m ON m.id = r.message_id "
+                           "WHERE m.conversation_id = ? AND r.message_id BETWEEN ? AND ?", (conv_id, first, last)):
             given.setdefault(r["message_id"], {})[r["who"]] = r["emoji"]
     for row in rows:
         if row["id"] in given:
@@ -2420,7 +2423,7 @@ async def chat(body: ChatMessage, request: Request, noah_session: str | None = C
         async def known():  # déjà reçu : rien ne repart, l'écran recharge la conversation
             yield _sse({"type": "start", "conversation_id": conv_id, "run_id": _conversation_run(conv_id) or ""})
             yield _sse({"type": "deja"})
-        return StreamingResponse(known(), media_type="text/event-stream")
+        return StreamingResponse(known(), media_type="text/event-stream", headers=bus.event_headers())
     try:
         stream = await _run(agent, conv_id, prompt, body.details, _speaker(user, agent.id) + machine.pop_context(conv_id) + _left_open(agent.id, conv_id))
     except HTTPException:
@@ -2429,7 +2432,7 @@ async def chat(body: ChatMessage, request: Request, noah_session: str | None = C
         raise
     return StreamingResponse(auth.revocable(stream, auth.request_token(request, noah_session),
                                             allowed=lambda: access.allowed(user, agent.id, "usage")),
-                             media_type="text/event-stream")
+                             media_type="text/event-stream", headers=bus.event_headers())
 
 
 
@@ -2928,10 +2931,6 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
                         reply.append(text)
                         yield _sse({"type": "message", "text": text})
                     if out.get("status") in ("completed", None):
-                        block = "" if any(CHOICE_RE.search(k) for k in kept) else await _quick_reply_block(agent.id, "".join(reply).strip())
-                        if block:
-                            reply.append(block)
-                            yield _sse({"type": "message", "text": block})
                         # L'écran finit sur ce que la conversation garde : un texte coupé par des détails ou rangé trop tôt se répare ici.
                         settled, left = _final_answer(reply, steps, kept, out.get("output") or "", True)
                         out = {**out, "reponse": settled, "etapes": left, "recu": recu.of_turn(conv_id, settled, ledger)}
@@ -2953,6 +2952,13 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
         for thread, _ in delegated:  # run interrompu pendant une délégation
             _close_delegation(thread, None, True)
         succeeded = bool(final) and final.get("status") in ("completed", None)
+        if succeeded and not any(CHOICE_RE.search(k) for k in kept):
+            # Les réponses à toucher demandent un appel au petit modèle (jusqu'à 7 s) : la fin de la réponse est déjà
+            # partie, elles suivent dans un événement à part et rejoignent le message enregistré.
+            block = await _quick_reply_block(agent.id, "".join(reply).strip())
+            if block:
+                reply.append(block)
+                yield _sse({"type": "choix", "text": block})
         text, steps = _final_answer(reply, steps, kept, (final or {}).get("output") or "", succeeded)
         if not final or final.get("status") not in ("completed", None):
             task_state[conv_id] = "error" if final and final.get("status") == "failed" else "idle"
@@ -3027,14 +3033,14 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
                 with contextlib.suppress(Exception):
                     await hermes.stop_run(agent, run_id)
                 return
-    asyncio.create_task(watch_model())
+    _spawn(watch_model())
 
     if trial:
         async def deadline():
             await asyncio.sleep(TRIAL_LIMIT)
             if not task.done():
                 await hermes.stop_run(agent, run_id)
-        asyncio.create_task(deadline())
+        _spawn(deadline())
 
     async def stream():
         try:
@@ -3050,7 +3056,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
         finally:
             listening[0] = False
             if trial and not task.done():  # essai de l'assistant abandonné (réseau coupé, page quittée) : on l'arrête
-                asyncio.create_task(hermes.stop_run(agent, run_id))
+                _spawn(hermes.stop_run(agent, run_id))
 
     return stream()
 
@@ -4131,6 +4137,14 @@ class ThreadBody(BaseModel):
 
 # Runs de fond (fils ouverts par l'agent) : gardés ici pour ne pas être ramassés en cours de route.
 _background: set[asyncio.Task] = set()
+
+
+def _spawn(coro) -> asyncio.Task:
+    """Lance une tâche de fond et la retient : la boucle seule n'en garde qu'une référence faible."""
+    task = asyncio.create_task(coro)
+    _background.add(task)
+    task.add_done_callback(_background.discard)
+    return task
 
 
 async def _resume_agent(agent_id: str, text: str, note: str = "", author: str = "user") -> asyncio.Task | None:
