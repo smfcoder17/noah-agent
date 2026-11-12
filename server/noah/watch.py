@@ -68,6 +68,7 @@ def init() -> None:
             "last_wake": "REAL NOT NULL DEFAULT 0",
             "decision_cost": "REAL NOT NULL DEFAULT 0",
             "brain_cost": "REAL NOT NULL DEFAULT 0",
+            "fails": "INTEGER NOT NULL DEFAULT 0",  # passages ratés d'affilée : à FAILS_WARN, la personne est prévenue, une fois par panne
         })
     if db.get_setting("veille_cles") != KEYS:
         # Anciennes empreintes : la page entière paraîtrait nouvelle (un tri payant, une fausse alerte). Le passage
@@ -403,6 +404,23 @@ def _wake(w: dict, alert: dict, new: list[dict], now: float, save_message, main_
     task.add_done_callback(_waking.discard)
 
 
+FAILS_WARN = 2  # une panne passagère ne dérange personne ; la deuxième d'affilée, si
+
+
+def _failed(w: dict, now: float, error: str, gesture: str, save_message, main_conversation) -> None:
+    """Un passage raté : noté, et la personne prévenue une seule fois par panne, avec la cause et le geste."""
+    with db.connect() as c:
+        c.execute("UPDATE watches SET last_check = ?, last_error = ?, checks = checks + 1, fails = fails + 1 WHERE id = ?",
+                  (now, error[:200], w["id"]))
+    if w["fails"] + 1 == FAILS_WARN:
+        # La notification ne montre que le titre et la première phrase : la cause va dans le titre, le geste en premier.
+        # Le texte de l'erreur peut venir de dehors (réponse d'un outil MCP) : il reste sur la veille, hors du contexte de l'agent.
+        cause = error.split(" : ", 1)[0].lower()
+        _deliver(w, f"Veille « {w['name']} » en panne : {cause}",
+                 f"{gesture}\n\nTa veille « {w['name']} » a raté {FAILS_WARN} passages d'affilée. Le détail de l'erreur est affiché sur la veille.",
+                 save_message, main_conversation)
+
+
 def _row(wid: str) -> dict | None:
     with db.connect() as c:
         r = c.execute("SELECT * FROM watches WHERE id = ?", (wid,)).fetchone()
@@ -427,9 +445,9 @@ async def _check(wid: str, save_message, main_conversation) -> dict:
     try:
         items = await read_source(w["agent_id"], w["url"], seen)
     except (httpx.HTTPError, ValueError) as e:
-        with db.connect() as c:
-            c.execute("UPDATE watches SET last_check = ?, last_error = ?, checks = checks + 1 WHERE id = ?",
-                      (now, f"Source injoignable : {str(e)[:200]}", wid))
+        _failed(w, now, f"Source injoignable : {str(e)[:150]}",
+                "Vérifie que l'adresse s'ouvre encore, ou que la connexion est toujours branchée dans Réglages, puis lance « Vérifier » sur la veille.",
+                save_message, main_conversation)
         return {"erreur": "Source injoignable"}
     known = set(seen)
     new = [it for it in items if it["cle"] not in known]
@@ -445,12 +463,12 @@ async def _check(wid: str, save_message, main_conversation) -> dict:
         try:
             alert = await triage(w["agent_id"], w, new)
         except (httpx.HTTPError, decision.DecisionError) as e:
-            with db.connect() as c:
-                c.execute("UPDATE watches SET last_check = ?, last_error = ?, checks = checks + 1 WHERE id = ?",
-                          (now, f"Tri impossible : {str(e)[:200]}", wid))
+            _failed(w, now, f"Tri impossible : {str(e)[:150]}",
+                    "Vérifie le modèle de décision et sa clé dans Réglages > Modèles et budget ; rien n'est perdu, le tri reprend au prochain passage.",
+                    save_message, main_conversation)
             return {"erreur": "Tri impossible, nouvel essai au prochain passage"}  # « seen » inchangé : rien de perdu
     with db.connect() as c:
-        c.execute("UPDATE watches SET seen = ?, learned = 1, last_check = ?, last_error = '', checks = checks + 1, decision_cost = decision_cost + ? WHERE id = ?",
+        c.execute("UPDATE watches SET seen = ?, learned = 1, last_check = ?, last_error = '', checks = checks + 1, fails = 0, decision_cost = decision_cost + ? WHERE id = ?",
                   (json.dumps(seen), now, float((alert or {}).get("cout") or 0), wid))
     if not (alert and alert["pertinent"] and alert["resume"]):
         return result

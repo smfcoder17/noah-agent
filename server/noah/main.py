@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field
 
 from . import access, accounts, apprentissage, appareils, auth, bureautique, catalog, chauffe, coffre, connecteurs, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, public, publication, push, recu, recuperation, relay, sites, updates, watch
 from . import config
-from . import accords, bus, presets, rapide, ui_preferences, linkpreview, providers as provider_accounts
+from . import accords, bus, credits, presets, rapide, ui_preferences, linkpreview, providers as provider_accounts
 from .config import WEB_DIR, forget_setup_code
 from .hermes import Agent
 
@@ -195,6 +195,7 @@ async def startup() -> None:
     accounts.setup(_save_message, _main_conversation, _resume_agent)
     _spawn(watch.run_watches(_save_message, _main_conversation))
     _spawn(_after_updates(proactif.run_forever))
+    _spawn(credits.run_forever())  # solde de la clé OpenRouter du cerveau : prévient à 20 % puis 5 %
     _spawn(decision.keep_fresh())
     _spawn(rapide.first_measure())
     _spawn(handoff.keep_browser_sessions())
@@ -1546,6 +1547,9 @@ def outbound_flows(user: int = Depends(access.owner_only)):
     if db.get_setting("media_api_key") or db.get_setting("provider") == "openrouter":
         flows.append({"quoi": "Création et voix (images, vidéos, musique, dictée, lecture)", "vers": "openrouter.ai",
                       "quand": "seulement quand tu t'en sers"})
+    if db.get_setting("provider") == "openrouter":
+        flows.append({"quoi": "Solde de la clé du cerveau", "vers": "openrouter.ai",
+                      "quand": "une fois par heure, avec ta clé : pour te prévenir à 20 % puis 5 % du plafond"})
     if db.get_setting("voice_base_url"):
         flows.append({"quoi": "Voix et dictée, pour les fonctions qui ont un modèle sur ton serveur de voix", "vers": _host(db.get_setting("voice_base_url")),
                       "quand": "seulement quand tu t'en sers"})
