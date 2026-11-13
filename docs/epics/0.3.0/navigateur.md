@@ -30,6 +30,8 @@ Tenir nos propres corrections de Chromium demande de les refaire à chaque versi
 - Chrome réel, avec écran, piloté sans les traces connues (Patchright ou équivalent) ;
 - un Chromium corrigé entretenu par d'autres, s'il en existe un sérieux au moment de l'essai.
 
+Écarté le 13 novembre : CloakBrowser, le Chromium corrigé le plus cité. Son binaire est propriétaire, demande une clé de licence personnelle, la dernière version est payante, et sa licence interdit de le redistribuer : Noah ne peut pas l'embarquer. Le banc compare donc Chromium nu (témoin), Chrome réel piloté par Patchright, et Camoufox.
+
 Hypothèse de départ : Chromium pour Lecture, Camoufox pour Compte. Le banc tranche.
 
 ### C. Le rythme tenu par le lanceur
@@ -47,7 +49,7 @@ Le plus fort levier sur un VPS : faire sortir le navigateur Compte par une adres
 | Ce que la personne a | Sortie du navigateur Compte |
 |---|---|
 | Rien d'autre que le VPS (ou un iPhone) | Adresse du VPS, avec Lecture séparé et rythme du lanceur (A et C) : le socle |
-| L'appli de bureau ouverte | Relais par l'ordinateur, tant qu'il est allumé ; retour au socle sinon |
+| L'appli de bureau ouverte | Relais par l'ordinateur, tant qu'il est allumé ; retour au socle sinon. En arrière-plan, sans fenêtre ni alerte : il passe par notre navigateur intégré, jamais par le Chrome de la personne (décision de Franck) |
 | L'appli Android | Relais par le téléphone, seulement en Wi-Fi et en charge (service visible) ; retour au socle sinon |
 | Un relais résidentiel payé | Son adresse collée dans Réglages |
 
