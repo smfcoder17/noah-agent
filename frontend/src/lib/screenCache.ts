@@ -62,3 +62,29 @@ export function screenViewOnly(frame: HTMLIFrameElement | null, viewOnly: boolea
   input.dispatchEvent(event);
   return true;
 }
+
+/** noVNC marque sa page `noVNC_connected` tant que le flux passe. On suit ce marqueur au fil de l'eau, et non au relevé
+ * suivant du serveur : un relevé tombé pendant la connexion cachait l'écran derrière « Connexion à l'écran… » jusqu'au
+ * relevé d'après (30 à 60 s), puis le rendait : un écran qui « se recharge tout seul ». Une coupure plus courte que
+ * `grace` (noVNC se reconnecte de lui-même) ne change rien à l'écran. */
+export function watchScreenConnection(doc: Document, onChange: (connected: boolean) => void, grace = 3000): () => void {
+  const root = doc.documentElement;
+  let last: boolean | null = null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const report = (connected: boolean) => { if (last !== connected) { last = connected; onChange(connected); } };
+  const check = () => {
+    if (root.classList.contains("noVNC_connected")) {
+      clearTimeout(timer);
+      timer = undefined;
+      report(true);
+    } else if (last === null) {
+      report(false); // première connexion : l'écran attend, sans montrer la page de noVNC
+    } else if (last && timer === undefined) {
+      timer = setTimeout(() => { timer = undefined; if (!root.classList.contains("noVNC_connected")) report(false); }, grace);
+    }
+  };
+  const observer = new MutationObserver(check);
+  observer.observe(root, { attributes: true, attributeFilter: ["class"] });
+  check();
+  return () => { observer.disconnect(); clearTimeout(timer); };
+}
