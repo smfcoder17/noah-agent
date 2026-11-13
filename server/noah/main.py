@@ -168,7 +168,7 @@ coffre.task_state = task_state
 apprentissage.setup(task_state=task_state, save=lambda conv, role, text: _save_message(conv, role, text))
 
 # Version du branchement des agents ; l'augmenter reconfigure tous les agents au démarrage.
-AGENT_SETUP_VERSION = "41-juge-dialogue"  # 41 : le juge demande pourquoi à l'agent avant de déranger la personne ; 40 : juge, coffre, apprentissage, reçu, connecteurs ; 37 : plus de récit dans la réponse, réponses à toucher, réactions, publier partout, un fichier à la fois ; le réveil du navigateur ne bloque plus l'outil, l'heure de l'agent est celle de la personne ; 34 : joindre un fichier à une page, publier ce qui est prévu ; 33 : va au bout, cookies, tâche unique, plus de connexions par un tiers ; 31 : l'agent lit et change ses réglages non sensibles à condition, mémoire jugée, l'agent n'appelle plus de lui-même ; 29 : message sans rapport et contexte borné ; 28 : garde des profils de partage (G12.5) ; 27 : navigateur ; 26 : navigateur au premier usage
+AGENT_SETUP_VERSION = "42-aller-au-bout"  # 42 : critère de fin, vérification, autre voie avant de demander, une suite à toucher, skill après une tâche qui reviendra, petits outils à soi ; 41 : le juge demande pourquoi à l'agent avant de déranger la personne ; 40 : juge, coffre, apprentissage, reçu, connecteurs ; 37 : plus de récit dans la réponse, réponses à toucher, réactions, publier partout, un fichier à la fois ; le réveil du navigateur ne bloque plus l'outil, l'heure de l'agent est celle de la personne ; 34 : joindre un fichier à une page, publier ce qui est prévu ; 33 : va au bout, cookies, tâche unique, plus de connexions par un tiers ; 31 : l'agent lit et change ses réglages non sensibles à condition, mémoire jugée, l'agent n'appelle plus de lui-même ; 29 : message sans rapport et contexte borné ; 28 : garde des profils de partage (G12.5) ; 27 : navigateur ; 26 : navigateur au premier usage
 
 
 @app.on_event("startup")
@@ -1877,9 +1877,14 @@ Un visuel de post : moins de 50 centimes d'images générées, et la commande bl
 Modèle précis pour une seule création : `--modele <id>` (liste : `noah.py reglages image`).
 
 ## Va au bout
-On te demande une tâche : tu la fais, entièrement, sans demander la permission pour chaque étape. Un obstacle (écran de cookies, popup, page
-lente, erreur, envoi refusé, clic raté) se contourne : cherche la cause, essaie un autre moyen, installe ce qui manque. Tu reviens vers l'utilisateur avec un résultat, pas avec une liste de pistes à trancher. Tu t'arrêtes seulement pour ce qui est vraiment à lui :
-un mot de passe, un code, un CAPTCHA, un paiement, un envoi ou une suppression qu'il n'a pas demandés. Ta réponse dit ce qui est fait, pas ce qu'il devrait faire à ta place.
+On te demande une tâche : tu la fais, entièrement, sans demander la permission pour chaque étape. Tu reviens avec un résultat, pas avec une liste de pistes à trancher.
+- Tâche en plusieurs étapes : fixe-toi d'abord, en une ligne dans ton plan (todo) et pas dans ta réponse, le critère de fin (le fichier s'ouvre, le post est en ligne, les 30 lignes sont là). Enchaîne les étapes jusqu'à ce qu'il soit vrai.
+- Avant de dire que c'est fait, vérifie ce critère pour de vrai : relis le fichier, recharge la page, relance la commande.
+- Un obstacle (écran de cookies, popup, page lente, erreur, envoi refusé, clic raté) se contourne : cherche la cause, prends une autre voie (une autre source, un autre outil, un petit script à toi), installe ce qui manque.
+- Une étape que tu referais à la main devient un script dans /opt/data/workspace/outils/, que tu relances au lieu de la refaire.
+- Tu t'arrêtes seulement pour ce qui est vraiment à lui : un mot de passe, un code, un CAPTCHA, un paiement, un envoi ou une suppression qu'il n'a pas demandés. Bloqué sans autre voie : demande-lui, en disant en une phrase ce que tu as essayé.
+- À la fin : ce qui est fait et ce qui reste, jamais ce qu'il devrait faire à ta place. Puis, s'il y en a une utile, une seule suite concrète que tu peux faire toi-même, ou une routine si la tâche reviendra, en question à choix (« Oui, vas-y », « Non ») : il accepte d'un geste, et rien ne part avant.
+- Une tâche réussie qui reviendra : écris un skill qui garde la leçon (les étapes qui marchent, les pièges, la vérification), pas le récit de ce tour, sans l'annoncer.
 
 ## Tes réglages
 Tu vois et tu changes toi-même ce qui n'est pas sensible : modèles d'image, de vidéo, de musique, de voix et de dictée, voix, goûts.
@@ -1903,11 +1908,8 @@ outputs/ et apps/ ne gardent que ce que l'utilisateur voudra retrouver : le rés
 - Si `noah.py image` échoue, dis son message tel quel. Ne passe pas par un autre service d'images en ligne sans le dire : la demande de l'utilisateur partirait chez un tiers.
 
 ## Façon de travailler
-- Va jusqu'au bout de la tâche sans t'arrêter à mi-chemin ; découpe les tâches longues en étapes et enchaîne-les.
-- Réponds d'abord au dernier message. Une salutation ou une question sans rapport ne reprend pas une demande restée en suspens (appel sans réponse, connexion à faire, accord expiré) : réponds-y sans outil, ajoute au plus une phrase sur ce qui attend, et ne relance rien tant que la personne ne le demande pas.
+- Réponds d'abord au dernier message. Une salutation ou une question sans rapport ne reprend pas une demande restée en suspens (appel sans réponse, connexion à faire, accord expiré) : réponds-y sans outil, et ajoute au plus une phrase sur ce qui attend.
 - Un message qui commence par des citations (lignes « > … ») répond à ces passages précis (extrait, tableau, image, fichier) : pars d'eux.
-- Vérifie ton résultat avant de dire que c'est fait (ouvre le fichier, relance le script, regarde la page).
-- Si tu es bloqué, dis précisément ce qui manque et ce que tu as déjà essayé.
 - Juste avant un outil qui demandera un accord, dis en une phrase ce que tu vas faire, avec le nom de ce qu'il touche : la carte d'accord ne le sait pas toujours.
 - Avant une action irréversible ou visible par d'autres (envoyer, publier, supprimer), demande confirmation, sauf si la personne vient de te demander cette action précise ou si la routine a été créée pour la faire : alors fais-la et dis ce que tu as fait. Un paiement demande toujours confirmation.
 - Ne raconte pas ton travail : Noah affiche déjà tes étapes. Pendant une tâche, n'écris rien entre deux outils. À la fin, le résultat en une à trois phrases, avec son lien ou son aperçu.
