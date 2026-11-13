@@ -87,7 +87,15 @@ leaky = "401 sk-or-v1-abcdef123456 Bearer abcdefghijkl123 x-api-key: zzzzzzzzzzz
 masked = diagnostics.mask(leaky)
 for secret in ("abcdef123456", "abcdefghijkl123", "zzzzzzzzzzzz", "secretdelapersonne"):
     assert secret not in masked, masked
-print("2. les secrets sont masqués")
+# Erreur réelle du 12 novembre (routine) : l'adresse de gestion de la clé OpenRouter, en clair dans le message du fournisseur.
+key_id = "9b1e07c4d2a85f36" * 4
+real = (f"RuntimeError: HTTP 403: Key limit exceeded (monthly limit). Manage it using https://openrouter.ai/workspaces/default/keys/{key_id} "
+        "$20.78 of $20.00 used; resets 2026-12-01T00:00:00.000Z.")
+assert key_id not in diagnostics.mask(real) and "openrouter.ai/workspaces/default/keys/***" in diagnostics.mask(real), diagnostics.mask(real)
+assert "https://www.youtube.com/watch?v=dQw4w9WgXcQ" == diagnostics.mask("https://www.youtube.com/watch?v=dQw4w9WgXcQ"), "un lien ordinaire reste lisible"
+said = events.friendly_error(real)
+assert "20.78 $ dépensés pour une limite de 20.00 $" in said and "01/12/2026" in said and "invalide" not in said and key_id not in said, said
+print("2. les secrets sont masqués, l'adresse de gestion d'une clé aussi")
 
 # 3. Une tâche qui échoue garde ses détails, écran et historique.
 script: list = []

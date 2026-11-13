@@ -156,16 +156,42 @@ def routine_action(body):
     return _routine(job)
 
 
+_RUN_META = re.compile(r"^\*\*(Job ID|Run Time|Schedule|Mode|Status):\*\*")
+
+
+def _run_document(text):
+    """(réponse, erreur) d'un passage écrit par Hermes (cron/scheduler.py). Le document reprend la consigne de la routine,
+    précédée de la consigne interne d'Hermes : elles ne sortent jamais d'ici. Un passage qui a échoué (« (FAILED) », « BLOCKED »,
+    « script failed »…) n'a pas de « ## Response » : on en garde l'erreur seule. Un passage muet (« silent », « no_change ») : rien."""
+    if "\n## Response\n" in text:
+        return text.split("\n## Response\n", 1)[-1].strip(), None
+    if not text.startswith("# Cron Job:"):
+        return text.strip(), None
+    if re.search(r"^\*\*Status:\*\* (silent|no_change)", text, re.M):
+        return "", None
+    if "\n## Error\n" in text:
+        error = text.rsplit("\n## Error\n", 1)[1]
+    else:
+        error = "\n".join(line for line in text.split("\n## Prompt\n", 1)[0].splitlines()[1:] if not _RUN_META.match(line))
+        reason = re.search(r"^\*\*Status:\*\*.*$", text, re.M)
+        error = error.strip() or (reason.group(0) if reason else "")
+    error = error.strip().strip("`").strip()
+    return "", error[-4000:] or "Échec sans message"
+
+
 def routine_outputs(body):
-    """Résultats des routines plus récents que `depuis` (nom de fichier horodaté), pour la conversation."""
+    """Résultats des routines plus récents que `depuis` (nom de fichier horodaté), pour la conversation, et l'état du dernier
+    passage de chacune (`etats`) : une routine qui repasse sans rien écrire ([SILENT]) se voit quand même."""
     since = body.get("depuis", "")
     root = DATA / "cron" / "output"
-    found = []
+    found, states = [], {}
     if root.exists():
         names = {}
         try:
             from cron import jobs
-            names = {j["id"]: j.get("name") or j.get("prompt", "")[:40] for j in jobs.list_jobs(include_disabled=True)}
+            listed = jobs.list_jobs(include_disabled=True)
+            names = {j["id"]: j.get("name") or j.get("prompt", "")[:40] for j in listed}
+            states = {j["id"]: j.get("last_status") for j in listed if j.get("last_status")}
         except Exception:
             pass
         for d in root.iterdir():
@@ -174,14 +200,15 @@ def routine_outputs(body):
             for f in d.glob("*.md"):
                 if f.stem <= since:
                     continue
-                # Le fichier reprend la consigne et des métadonnées ; seule la réponse va dans la conversation.
-                text = f.read_text(encoding="utf-8", errors="replace")
-                text = text.split("\n## Response\n", 1)[-1].strip()
-                if text and text != "[SILENT]":
-                    found.append({"routine": d.name, "nom": names.get(d.name, d.name), "quand": f.stem,
-                                  "texte": text[:20000]})
+                text, error = _run_document(f.read_text(encoding="utf-8", errors="replace"))
+                entry = {"routine": d.name, "nom": names.get(d.name, d.name), "quand": f.stem}
+                if error is not None:
+                    # `texte` pour un serveur d'avant, qui l'écrirait tel quel : une phrase sans consigne ni trace.
+                    found.append({**entry, "texte": "Cette routine n'a pas pu passer.", "erreur": error})
+                elif text and text != "[SILENT]":
+                    found.append({**entry, "texte": text[:20000]})
     found.sort(key=lambda r: r["quand"])
-    return {"sorties": found[-20:]}
+    return {"sorties": found[-20:], "etats": states}
 
 
 # --- Google (Gmail, Agenda, Drive) via la compétence google-workspace d'Hermes --------------------
