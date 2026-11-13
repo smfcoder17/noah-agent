@@ -93,7 +93,11 @@ print("2. les secrets sont masqués")
 script: list = []
 
 
+sent: list = []
+
+
 async def start_run(agent, text, session_id):
+    sent.append(text)
     if script and script[0] == "refus":
         script.pop(0)
         raise httpx.ConnectError("agent en train de redémarrer")
@@ -134,6 +138,9 @@ last = stored()[-1]
 assert last["role"] == "error" and "a expiré" in last["text"] and "API key expired" in last["detail"], last
 assert stored()[-2]["detail"] is None
 print("3. une tâche échouée donne une phrase, et les détails restent après rechargement")
+# La conversation principale dure des semaines, et Hermes la date du jour où elle a commencé : chaque tour dit le jour à l'agent.
+assert sent and sent[-1].startswith("[Nous sommes le ") and " h " in sent[-1].split("]")[0], sent[-1][:120]
+print("3b. chaque tour dit à l'agent le jour et l'heure")
 
 # 4. Jamais de message sans réponse ni erreur.
 before = len(stored())

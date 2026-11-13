@@ -110,7 +110,14 @@ async def everything():
     routine = next(s for s in sent if s["title"] == "Routine « Brief »")
     assert not routine["urgent"] and routine["extra"]["type"] == "routines"
     assert "Rappel : Sortir le linge" in natives
-    print("3. rappel : « Rappel : Sortir le linge », notification urgente par défaut ; une routine reste « Routine « … » », discrète")
+    # Essai réel du 13 novembre : l'agent avait nommé la sienne « Rappel : sortir le linge », le titre disait « Rappel : Rappel : … ».
+    machine._note_reminder("a1", {"id": "j-arroser", "name": "Rappel : arroser les tomates", "schedule_display": "once in 5m",
+                                  "next_run_at": datetime.now(timezone.utc).isoformat()})
+    outputs[:] = [{"routine": "j-arroser", "nom": "j-arroser", "quand": "2026-11-13_10-05-00", "texte": "C'est l'heure d'arroser."}]
+    await machine.deliver_routines_once(main._save_message, main._main_conversation)
+    await real_sleep(0.02)
+    assert messages()[-1].startswith("**Rappel : arroser les tomates**"), messages()[-1]
+    print("3. rappel : « Rappel : Sortir le linge », notification urgente par défaut ; une routine reste « Routine « … » », discrète ; jamais « Rappel : Rappel »")
 
     # 4. « Routines et veilles » coupé dans Réglages > Notifications : le rappel s'écrit, sans notification.
     with db.connect() as c:

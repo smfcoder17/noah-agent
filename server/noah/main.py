@@ -16,6 +16,7 @@ import typing
 import unicodedata
 import uuid
 from dataclasses import replace
+from datetime import datetime
 from urllib.parse import quote, urlencode, urlsplit
 
 import anyio.from_thread
@@ -2882,6 +2883,18 @@ async def _start_run(agent: Agent, text: str, session: str) -> str:
     return await hermes.start_run(agent, text, session_id=session)
 
 
+DAYS = ("lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche")
+MONTHS = ("janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre")
+
+
+def _today() -> str:
+    """Hermes date une conversation du jour où elle a commencé (« Conversation started ») : la conversation principale dure des
+    semaines, et l'agent croyait encore être ce jour-là (« réponds avant jeudi » pour une fête le lendemain). Chaque tour lui dit
+    le jour et l'heure chez la personne."""
+    now = datetime.now(updates.local_zone())
+    return f"[Nous sommes le {DAYS[now.weekday()]} {now.day} {MONTHS[now.month - 1]} {now.year}, {now.hour} h {now.minute:02d}, heure de la personne.]\n\n"
+
+
 async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, context: str = "", author: str = "user",
                live: bool = True, tell_after: float = notifications.TELL_AFTER):
     """Lance un run Hermes dans une conversation et rend le générateur SSE qui l'enregistre au fil de l'eau.
@@ -2900,7 +2913,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
         rev = "aucune"
     trial = db.get_setting("onboarded") == "0"  # essai de l'assistant : borné, et arrêté s'il est abandonné
     launched_by = _conversation_owner(conv_id)  # avant l'attente : le profil peut disparaître, avec ses conversations
-    context = proactif.goals_context(launched_by, agent.id) + context
+    context = _today() + proactif.goals_context(launched_by, agent.id) + context
     if launched_by is not None and not access.allowed(launched_by, agent.id, "usage"):  # accès retiré depuis la demande : on ne prépare rien
         task_state[conv_id] = "idle"
         raise HTTPException(404, "Agent introuvable")

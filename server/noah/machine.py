@@ -356,7 +356,7 @@ async def deliver_routines_once(save_message, main_conversation, only_due: bool 
             if conv:
                 once = reminders.get(str(r.get("routine") or ""))
                 name = (once or {}).get("nom") or r["nom"]
-                title = f"Rappel : {name}" if once else f"Routine « {name} »"
+                title = f"Rappel : {re.sub(r'^\s*rappel\s*:\s*', '', name, flags=re.I)}" if once else f"Routine « {name} »"  # l'agent nomme souvent la sienne « Rappel : … »
                 text = f"**{title}**\n\n{r['texte'].strip()}"
                 save_message(conv, "agent", text)
                 add_context(conv, text)
