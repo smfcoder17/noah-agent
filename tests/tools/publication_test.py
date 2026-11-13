@@ -160,8 +160,11 @@ def x_api(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"data": {"id": "1", "username": "marque_x"}})
     if path == "/2/media/upload/initialize":
         body = json.loads(request.content)
-        assert body["media_category"] == "tweet_image" and body["total_bytes"] > 0
+        assert body["media_category"] == ("tweet_video" if body["media_type"] == "video/mp4" else "tweet_image") and body["total_bytes"] > 0
+        script["x_init"] = body
         return httpx.Response(200, json={"data": {"id": new_id()}})
+    if path.endswith("/append"):
+        script.setdefault("x_morceaux", []).append(int(request.content.split(b'name="segment_index"\r\n\r\n')[1].split(b"\r\n")[0]))
     if path.endswith("/finalize") and script.get("x_traitement"):
         return httpx.Response(200, json={"data": {"processing_info": {"state": "pending", "check_after_secs": 0}}})
     if path == "/2/media/upload":
@@ -175,6 +178,10 @@ def x_api(request: httpx.Request) -> httpx.Response:
             return httpx.Response(502, text="passerelle")
         if script.get("x_credit"):
             return httpx.Response(402, json={"title": "Credits depleted"})
+        if script.get("x_226"):
+            return httpx.Response(403, json={"errors": [{"code": 226, "message": "This request looks like it might be automated."}]})
+        if script.get("x_jour"):
+            return httpx.Response(429, json={"title": "Too Many Requests"}, headers={"x-user-limit-24hour-reset": str(int(time.time()) + 7200)})
         script["x_body"] = json.loads(request.content)
         return httpx.Response(201, json={"data": {"id": "777", "text": "x"}})
     return httpx.Response(404, json={})
@@ -531,6 +538,37 @@ wrong, text = call("x", "publier_post", texte="Sans crédit")
 assert wrong and "crédit" in text and "navigateur" in text and "Rien n'est parti" in text, text
 script.pop("x_credit")
 assert not call("x", "publier_post", texte="Sans crédit")[0], "refusé : repart une fois le crédit revenu"
+# Envoi jugé automatisé (226) : l'agent ne réessaie pas, ni ici ni par le navigateur, et Noah ne renvoie plus rien à X un moment.
+script["x_226"] = True
+wrong, text = call("x", "publier_post", texte="Bloqué 226")
+assert wrong and "226" in text and "Ne réessaie pas" in text and "navigateur" in text and "Rien n'est parti" in text, text
+script.pop("x_226")
+calls.clear()
+wrong, text = call("x", "publier_post", texte="Autre post, tout de suite après")
+assert wrong and "freine ce compte" in text and "environ 3 h" in text, text
+assert not [c for c in calls if c.url.path == "/2/tweets"], "rien n'est renvoyé à X pendant le frein"
+publication._halted.clear()
+# Limite du jour (429) : la reprise suit l'en-tête 24 h de X, pas les 15 min du quota court.
+script["x_jour"] = True
+wrong, text = call("x", "publier_post", texte="Limite du jour")
+assert wrong and "429" in text and "environ 2 h" in text, text
+script.pop("x_jour")
+publication._halted.clear()
+assert not call("x", "publier_post", texte="Limite du jour")[0], "repart une fois le frein levé"
+# Une vidéo : par morceaux de 4 Mo, catégorie vidéo, seule dans son post.
+FILES["/w/clip.mp4"] = b"\x00\x00\x00\x18ftypmp42" + b"v" * 9_000_000
+script.pop("x_morceaux", None)
+wrong, text = call("x", "publier_post", texte="Ma vidéo", video="/w/clip.mp4")
+assert not wrong and "/status/" in text, text
+assert script["x_init"]["media_category"] == "tweet_video" and script["x_morceaux"] == [0, 1, 2], script.get("x_morceaux")
+assert script["x_body"]["media"]["media_ids"], script["x_body"]
+wrong, text = call("x", "publier_post", texte="Les deux", video="/w/clip.mp4", images=["/w/1.jpg"])
+assert wrong and "pas les deux" in text, text
+FILES["/w/petit.mp4"] = FILES["/w/clip.mp4"][:20]
+wrong, text = call("x", "publier_post", texte="Vidéo en image", images=["/w/petit.mp4"])
+assert wrong and "champ video" in text, text
+wrong, text = call("x", "publier_post", texte="Pas une vidéo", video="/w/1.jpg")
+assert wrong and "pas une vidéo MP4" in text, text
 creds = json.loads(db.unseal(row("x")["jeton"]))
 creds["expire"] = time.time() - 1
 publication._save(A, "x", creds, creds["jeton"])

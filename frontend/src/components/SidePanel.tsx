@@ -4,7 +4,7 @@ import { subscribeUpdates } from "@/lib/events";
 import { Archive, ArchiveRestore, Brain, ChevronDown, ChevronRight, Clock, ExternalLink, FolderOpen, Hand, History, Loader2, LogIn, Monitor, MonitorPlay, Pencil, Plug, Power, RefreshCw, Sparkles, Sunrise, Users, X } from "lucide-react";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { ApiError, type Agent, canAdmin, canTalk, type Conversation, get, request, send, type Usage } from "@/lib/api";
-import { peekScreenUrl, refuseScreenUrl, screenControl, screenUrl, screenViewOnly } from "@/lib/screenCache";
+import { peekScreenUrl, refuseScreenUrl, screenControl, screenUrl, screenViewOnly, watchScreenConnection } from "@/lib/screenCache";
 import { SEEN, SeenActive, seenGeneration } from "@/lib/seen";
 import { wireClipboard } from "@/lib/vncClipboard";
 import { cn, money } from "@/lib/utils";
@@ -537,7 +537,7 @@ function Computer({ agentId }: { agentId: string }) {
   const [modeBusy, setModeBusy] = useState(false);
   const [url, setUrl] = useState(() => peekScreenUrl(agentId) ?? "");
   const [status, setStatus] = useState<ScreenStatus | null>(null);
-  const [reconnecting, setReconnecting] = useState(false);
+  const [reconnecting, setReconnecting] = useState(true); // jusqu'à ce que noVNC dise qu'il est connecté (watchScreenConnection)
   const [failures, setFailures] = useState(0);
   const failed = useRef(0);
   const [retry, setRetry] = useState(0);
@@ -547,6 +547,7 @@ function Computer({ agentId }: { agentId: string }) {
   const pageFailed = useRef(false);
   const pageReloads = useRef(0);
   const clipboard = useRef<(() => void) | undefined>(undefined);
+  const connection = useRef<(() => void) | undefined>(undefined);
   const mounted = useRef(true);
   const wantedControl = useRef(false);
   const mayHoldControl = useRef(false);
@@ -595,6 +596,7 @@ function Computer({ agentId }: { agentId: string }) {
       mounted.current = false;
       wantedControl.current = false;
       clipboard.current?.();
+      connection.current?.();
       document.removeEventListener("visibilitychange", visibility);
       // G7.7 : fermeture du panneau ou changement d'agent, y compris pendant une prise en main en route.
       if (mayHoldControl.current) void modeQueue.current.then(() => screenControl(agentId, false)).catch(() => {});
@@ -654,11 +656,9 @@ function Computer({ agentId }: { agentId: string }) {
           setReconnecting(true);
           // Un 200 peut encore servir une page d'erreur : borner les essais rapides tant que noVNC ne revient pas.
           if (pageReloads.current >= 3) throw new Error("Écran injoignable");
-        } else if (s.etat === "pret") {
-          const doc = frame.current?.contentDocument;
-          // noVNC se reconnecte lui-même : ce délai local n'est pas un échec des sondes serveur/lien.
-          setReconnecting(!!doc?.getElementById("noVNC_setting_view_only") && !doc.documentElement.classList.contains("noVNC_connected"));
         }
+        // L'état de la connexion noVNC vient de watchScreenConnection, posé au chargement de l'iframe : un relevé ici
+        // le figeait jusqu'au relevé suivant, et cachait un écran déjà reconnecté.
         failed.current = 0;
         setFailures(0);
       } catch {
@@ -699,6 +699,10 @@ function Computer({ agentId }: { agentId: string }) {
           const loaded = e.currentTarget;
           pageFailed.current = !screenViewOnly(loaded, !wantedControl.current || !control);
           if (!pageFailed.current) pageReloads.current = 0;
+          connection.current?.();
+          connection.current = !pageFailed.current && loaded.contentDocument
+            ? watchScreenConnection(loaded.contentDocument, (connected) => { if (mounted.current) setReconnecting(!connected); })
+            : undefined;
           clipboard.current = !pageFailed.current && wantedControl.current && control ? wireClipboard(loaded, agentId, setFixError) : undefined;
         }} />}
         {overlay && (
@@ -727,7 +731,7 @@ function Computer({ agentId }: { agentId: string }) {
         <Button variant={control ? "warn" : "default"} onClick={() => changeControl(!control)} disabled={modeBusy || (!control && !ready)}>
           <Hand />{control ? "Rendre la main à l'agent" : "Prendre le contrôle"}
         </Button>
-        <Button variant="outline" onClick={() => { frame.current?.contentWindow?.location.reload(); setRetry((n) => n + 1); }}><RefreshCw />Rafraîchir l'écran</Button>
+        <Button variant="outline" onClick={() => { setReconnecting(true); frame.current?.contentWindow?.location.reload(); setRetry((n) => n + 1); }}><RefreshCw />Rafraîchir l'écran</Button>
         {(status?.awake || unreachable) && <Button variant="ghost" onClick={() => fix("restart")} disabled={!!fixing}><Power />Redémarrer le navigateur</Button>}
         {url && ready && <Button variant="ghost" asChild><a href={url} target="_blank" rel="noopener"><ExternalLink />Plein écran</a></Button>}
         <CookieImport agentId={agentId} />
