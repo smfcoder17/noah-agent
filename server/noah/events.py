@@ -235,6 +235,21 @@ def friendly_error(raw: str) -> str:
                     "d'un autre fournisseur dans Réglages > Modèles et budget > Cerveau.")
         except ValueError:
             pass
+    # Limite posée sur la clé chez OpenRouter (réel, 13 novembre) : « HTTP 403: Key limit exceeded (monthly limit). Manage it
+    # using https://openrouter.ai/…/keys/<id> $20.78 of $20.00 used; resets 2026-12-01T00:00:00.000Z. » Un 403, mais la clé est bonne.
+    if re.search(r"key limit exceeded|limit exceeded \((daily|weekly|monthly)", raw, re.I):
+        used = re.search(r"\$\s?([\d.]+)\s+of\s+\$\s?([\d.]+)\s+used", raw, re.I)
+        reset = re.search(r"resets?\W{0,3}(\d{4})-(\d\d)-(\d\d)", raw, re.I)
+        amounts = ""
+        if used:
+            try:
+                amounts = f" : {float(used.group(1)):.2f} $ dépensés pour une limite de {float(used.group(2)):.2f} $"
+            except ValueError:
+                pass
+        again = f" Elle repart le {reset.group(3)}/{reset.group(2)}/{reset.group(1)}." if reset else ""
+        return (f"Le fournisseur a arrêté ta clé{amounts}. Cette limite est posée chez lui (OpenRouter…), pas dans Noah : "
+                f"relève-la dans ton compte chez ce fournisseur, ou choisis un modèle d'un autre fournisseur dans Réglages > "
+                f"Modèles et budget > Cerveau.{again}")
     for pattern, sentence in _KNOWN:
         if re.search(pattern, raw, re.I):
             return sentence

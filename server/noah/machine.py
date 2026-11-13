@@ -347,7 +347,8 @@ async def deliver_routines_once(save_message, main_conversation, only_due: bool 
             continue
         key = f"routines_vues_{agent_id}"
         try:
-            found = (await admin(agent_id, "routines_sorties", {"depuis": db.get_setting(key) or ""}, 30))["sorties"]
+            read = await admin(agent_id, "routines_sorties", {"depuis": db.get_setting(key) or ""}, 30)
+            found = read["sorties"]
         except Exception:
             continue  # agent arrêté ou en cours de création
         conv = main_conversation(agent_id)
@@ -357,7 +358,14 @@ async def deliver_routines_once(save_message, main_conversation, only_due: bool 
                 once = reminders.get(str(r.get("routine") or ""))
                 name = (once or {}).get("nom") or r["nom"]
                 title = f"Rappel : {re.sub(r'^\s*rappel\s*:\s*', '', name, flags=re.I)}" if once else f"Routine « {name} »"  # l'agent nomme souvent la sienne « Rappel : … »
+                error = _routine_error(r)
+                if error is not None:
+                    _routine_failed(save_message, agent_id, conv, r, title, error, now)
+                    db.set_setting(key, r["quand"])
+                    continue
                 text = f"**{title}**\n\n{r['texte'].strip()}"
+                if _routine_back(agent_id, r):
+                    text = f"**{title}**\n\n_De nouveau en marche après la panne signalée plus tôt._\n\n{r['texte'].strip()}"
                 save_message(conv, "agent", text)
                 add_context(conv, text)
                 owner = db.agent_owner(agent_id)  # son résultat est écrit chez lui : pas chez le profil en train de parler à l'agent
@@ -367,6 +375,77 @@ async def deliver_routines_once(save_message, main_conversation, only_due: bool 
                     desktop.notify_user(owner, title, notifications.first_sentence(r["texte"]), "routines",
                                         notifications.conversation_url(agent_id, conv))
             db.set_setting(key, r["quand"])
+        if conv:  # repassée sans rien écrire ([SILENT]) : Hermes note « ok » ; la panne signalée est finie, on le dit
+            for routine, state in (read.get("etats") or {}).items():
+                name = _failed_name(agent_id, routine)  # avant que la reprise n'efface la panne
+                if state == "ok" and _routine_back(agent_id, {"routine": routine}):
+                    once = reminders.get(str(routine))
+                    name = (once or {}).get("nom") or name
+                    title = f"Routine « {name} » repasse"
+                    text = f"**{title}**\n\nLe dernier passage a réussi : la panne signalée plus tôt est finie."
+                    save_message(conv, "agent", text)
+                    add_context(conv, text)
+                    owner = db.agent_owner(agent_id)
+                    if owner is not None:
+                        desktop.notify_user(owner, title, "Le dernier passage a réussi.", "routines", notifications.conversation_url(agent_id, conv))
+
+
+# Une routine en panne écrit à chaque passage (toutes les heures, parfois) : la personne est prévenue une fois par cause, puis au
+# plus une fois par jour tant que ça dure, et quand elle repasse. Chaque passage reste dans Réglages > Serveur > Diagnostic.
+FAILURE_REMINDER = 86400
+
+
+def _routine_error(r: dict) -> str | None:
+    """L'erreur d'un passage échoué, ou None. Un lanceur d'avant envoyait le document entier d'Hermes (consigne comprise) en `texte`."""
+    if r.get("erreur") is not None:
+        return str(r["erreur"])
+    text = str(r.get("texte") or "")
+    if text.startswith("# Cron Job:") and "(FAILED)" in text.split("\n", 1)[0]:
+        return text.rsplit("\n## Error\n", 1)[1].strip().strip("`").strip() if "\n## Error\n" in text else ""
+    return None
+
+
+def _failure_key(agent_id: str, routine: str) -> str:
+    return f"routine_panne_{agent_id}_{routine}"
+
+
+def _failed_name(agent_id: str, routine: str) -> str:
+    known = json.loads(db.get_setting(_failure_key(agent_id, routine)) or "{}")
+    return known.get("nom") or routine
+
+
+def _routine_back(agent_id: str, r: dict) -> bool:
+    """Vrai une seule fois, au premier passage réussi après une panne signalée."""
+    key = _failure_key(agent_id, str(r.get("routine") or ""))
+    if not db.get_setting(key):
+        return False
+    db.set_setting(key, "")
+    return True
+
+
+def _routine_failed(save_message, agent_id: str, conv: str, r: dict, title: str, error: str, now: float) -> None:
+    from . import diagnostics, events
+
+    routine = str(r.get("routine") or "")
+    diagnostics.record(f"routine {r.get('nom') or routine}", error, agent_id)  # chaque passage, masqué
+    last = next((line.strip() for line in reversed(error.strip().splitlines()) if line.strip()), "")
+    sentence = events.friendly_error(last or error)
+    cause = re.sub(r"[\d.,/]+", "#", sentence)  # même cause, montants qui bougent : la même panne
+    key = _failure_key(agent_id, routine)
+    known = json.loads(db.get_setting(key) or "{}")
+    if known.get("cause") == cause and now - float(known.get("dit") or 0) < FAILURE_REMINDER:
+        return
+    again = known.get("cause") == cause
+    db.set_setting(key, json.dumps({"cause": cause, "dit": now, "nom": r.get("nom") or routine}))
+    head = f"{title} n'a toujours pas pu passer" if again else f"{title} n'a pas pu passer"
+    text = f"{head}. {sentence} Je ne le répète pas à chaque passage : je te préviens quand elle repasse."
+    detail = diagnostics.mask("\n".join((f"Routine : {r.get('nom') or routine} ({routine})", f"Passage : {r.get('quand') or ''}",
+                                         f"Agent : {agent_id}", f"Erreur :\n{error}")))
+    save_message(conv, "error", text, detail)
+    add_context(conv, f"[{head}. {sentence}]")
+    owner = db.agent_owner(agent_id)
+    if owner is not None:
+        desktop.notify_user(owner, head, sentence, "routines", notifications.conversation_url(agent_id, conv))
 
 
 def _push_reminder(owner: int, title: str, text: str, url: str) -> None:

@@ -16,6 +16,9 @@ _PATTERNS = (
     re.compile(r"(?i)(x-api-key[\"']?\s*[:=]\s*[\"']?)[A-Za-z0-9._-]{8,}"),
     re.compile(r"(?i)((?:api[_-]?key|key|token|secret|password)[\"']?\s*[:=]\s*[\"']?)[^\s\"',;&]{6,}"),
     re.compile(r"(/api/apercu/)[^/\s\"']+"),  # ce lien vaut accès tant qu'il n'a pas expiré
+    # Un long identifiant dans une adresse : celle de gestion d'une clé (« openrouter.ai/workspaces/default/keys/<64 hex> »),
+    # un lien signé… Il désigne la clé ou vaut accès : il ne sort pas des détails.
+    re.compile(r"(https?://[^\s\"'<>]*?/)[A-Za-z0-9_-]{32,}"),
 )
 
 
