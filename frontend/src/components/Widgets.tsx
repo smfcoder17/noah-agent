@@ -1,9 +1,12 @@
 // Widgets que l'agent affiche dans le fil : un bloc ```noah (ou l'ancien ```noah) contenant un objet JSON.
-// Graphique, tableau, grille d'éléments, question à choix. Le JSON invalide retombe en bloc de code.
+// Graphique, tableau, grille, question à choix, aperçu, vidéo, posts, produits et liens (BlockCards).
+// Un bloc mal formé retombe en bloc de code lisible une fois la réponse finie ; pendant le streaming, une place l'attend.
 import type { SyntaxHighlighterProps } from "@assistant-ui/react-markdown";
 import { useAuiState } from "@assistant-ui/react";
 import { Check, Download, ExternalLink, FileText, Maximize2, Moon, Play, Reply } from "lucide-react";
-import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Component, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { normalizeBlock, wellFormed } from "@/lib/blocks";
+import { BlockCards } from "./BlockCards";
 import { mediaUrl, previewRenewIn, previewUrl, rawFileUrl } from "@/lib/api";
 import { inAndroidApp, nativeSave } from "@/lib/platform";
 import { cn, safeMedia } from "@/lib/utils";
@@ -412,26 +415,43 @@ function Quotable({ spec, children }: { spec: Spec; children: React.ReactNode })
   );
 }
 
+/** Une panne de rendu dans un bloc reste dans ce bloc : il retombe en texte, le reste du message s'affiche. */
+class WidgetBoundary extends Component<{ children: React.ReactNode; fallback: React.ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  componentDidCatch(error: unknown) { console.error("[bloc noah]", error); }
+  render() { return this.state.failed ? this.props.fallback : this.props.children; }
+}
+
 export function NoahWidget({ code, components }: SyntaxHighlighterProps) {
-  let spec: Spec | null = null;
+  const streaming = useAuiState((s) => s.message.status?.type === "running");
+  let parsed: unknown = null;
   try {
-    spec = JSON.parse(code);
+    parsed = JSON.parse(code);
   } catch {
-    spec = null;
+    parsed = null;
   }
-  // Pendant le streaming, le JSON est incomplet : on attend sans afficher le code brut.
-  if (!spec || typeof spec !== "object") {
-    return <div className="my-3 h-24 animate-pulse rounded-2xl border border-border bg-muted/60" aria-label="Widget en préparation" />;
+  const asText = <components.Pre><components.Code>{code}</components.Code></components.Pre>;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    // Pendant le streaming, le JSON est incomplet : on attend sans afficher le code brut. Une fois la réponse finie, il reste lisible.
+    return streaming ? <div className="my-3 h-24 animate-pulse rounded-2xl border border-border bg-muted/60" aria-label="Widget en préparation" /> : asText;
   }
+  const spec = parsed as Spec;
+  const block = normalizeBlock(spec);
+  if (block) return <WidgetBoundary fallback={asText}><Quotable spec={spec}><BlockCards block={block} /></Quotable></WidgetBoundary>;
+  if (!wellFormed(spec as unknown as Record<string, unknown>)) return asText;
+  return <WidgetBoundary fallback={asText}>{shown(spec, code) ?? asText}</WidgetBoundary>;
+}
+
+function shown(spec: Spec, code: string): React.ReactNode {
   switch (spec.type) {
     case "element": { const e = parseElement(spec); return e ? <ElementCard spec={e} /> : null; }
     case "chart":
     case "table":
     case "grid": return <Quotable spec={spec}><ElementCard spec={{ type: "element", kind: spec.type, title: spec.title || ({ chart: "Graphique", table: "Tableau", grid: "Grille" })[spec.type], description: spec.note, source: "noah", size: new TextEncoder().encode(code).length, data: spec as unknown as Record<string, unknown> }} /></Quotable>;
-    case "choice": return <Choice spec={spec} />;
+    case "choice": return <Choice spec={{ ...spec, question: typeof spec.question === "string" ? spec.question : "", options: [...new Set(spec.options.map(String))] }} />;
     case "preview": return <Quotable spec={spec}><ElementCard spec={{ type: "element", kind: kindOfFile(spec.path), title: spec.title || spec.path.split("/").pop() || "Fichier", path: spec.path, description: spec.note, source: "noah" }} /></Quotable>;
     case "video": return <Quotable spec={spec}><VideoEmbed url={spec.url} title={spec.title} /></Quotable>;
-    default:
-      return <components.Pre><components.Code>{code}</components.Code></components.Pre>;
+    default: return null;
   }
 }

@@ -152,6 +152,8 @@ const table = link(`| Nom | Fichier |\n|---|---|\n| a | ${A} |\n| b | x |\n\nFin
 assert.ok(/\| a \| `a\.png` \|\n\| b \| x \|\n+```noah/.test(table), "un tableau n'est pas coupé par l'image");
 // Une grille qui montre l'image compte aussi.
 assert.equal(previews(link(`MEDIA:${A}\n\n\`\`\`noah\n{"type":"grid","items":[{"title":"t","image":"${A}"}]}\n\`\`\``)).length, 0, "déjà dans une grille");
+assert.equal(previews(link(`MEDIA:${A}\n\n\`\`\`noah\n{"type":"posts","items":[{"text":"t","image":"${A}"}]}\n\`\`\``)).length, 0, "déjà dans un post");
+assert.equal(previews(link(`${A}\n\n\`\`\`noah\n{"type":"products","items":[{"title":"t","images":["${A}"]}]}\n\`\`\``)).length, 0, "déjà dans un produit");
 console.log("5. Chaque forme de citation (MEDIA, chemin nu, Markdown, plusieurs images) donne un seul widget");
 
 // Une réponse coupée par un outil : plusieurs parties, un seul affichage, y compris quand le flux reprend et répète un widget.

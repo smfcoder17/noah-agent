@@ -3,6 +3,7 @@
     docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/agents/config_agent_test.py"
 """
 import asyncio
+import json
 import os
 import re
 import sys
@@ -101,5 +102,52 @@ for needed, why in [
     assert needed in soul, why
 assert "ne relance rien" not in soul, "la phrase qui empêchait toute suite proposée est retirée"
 assert main._soul("Essai", "") == soul, "le prompt reste identique d'un appel à l'autre (cache du fournisseur)"
-assert main.AGENT_SETUP_VERSION.startswith("44-"), "les agents existants doivent recevoir le nouveau prompt"
+assert int(main.AGENT_SETUP_VERSION.split("-")[0]) >= 44, "les agents existants doivent recevoir le nouveau prompt"
 print("prompt : critère de fin, vérification, autre voie, suite à toucher, skill, petits outils ; plus de « ne relance rien »")
+
+# 0.2.0 : les widgets servent enfin. Une table dit quel bloc pour quoi, un exemple par bloc, trois blocs de plus.
+widgets = soul[soul.index("## Montrer plutôt qu'écrire"):soul.index("## Dépannage")]
+for row, block in [
+    ("une question dont la réponse se touche", "choice"),
+    ("un ou plusieurs posts de réseau social", "posts"),
+    ("des produits ou des offres pour un achat", "products"),
+    ("des sources, articles ou pages", "links"),
+    ("des vidéos, lieux, images ou idées à parcourir en vignettes", "grid"),
+    ("une comparaison de quelques lignes", "un tableau markdown"),
+    ("beaucoup de lignes, ou des données à télécharger", "table"),
+    ("des chiffres qui évoluent", "chart"),
+    ("un fichier que tu as créé", "preview"),
+    ("des étapes à suivre", "une liste numérotée"),
+]:
+    line = next((l for l in widgets.splitlines() if l.startswith("| " + row)), "")
+    assert line and line.split("|")[2].strip().startswith(block), f"table de décision : {row} → {block} ({line!r})"
+
+
+def first_object(text: str) -> str:
+    depth = 0
+    for i, c in enumerate(text):
+        depth += {"{": 1, "}": -1}.get(c, 0)
+        if depth == 0:
+            return text[: i + 1]
+    raise AssertionError(text)
+
+
+for kind in ("choice", "posts", "products", "links", "grid", "table", "chart", "preview", "video"):
+    example = next((l for l in widgets.splitlines() if f'{{"type": "{kind}"' in l), "")
+    assert example, f"un exemple minimal pour {kind}"
+    if kind in ("choice", "posts", "products", "links", "table", "preview"):
+        shown = json.loads(first_object(example[example.index("{"):]))
+        assert shown["type"] == kind, shown
+for needed, why in [
+    ('"state": "publié"', "un post dit son état"),
+    ("sans code d'erreur", "pas de « code 344 » dans un bilan de posts"),
+    ('"price": "129 €"', "un produit a son prix"),
+    ("jamais une liste qui le répète", "pas de liste à puces en double du bloc"),
+    ("termine ta réponse par un bloc links", "les sources en bloc links"),
+    ("dans un bloc posts", "le post publié se montre en bloc"),
+]:
+    assert needed in soul, why
+assert "liste compacte" not in soul and "Quand une structure aide plus qu'un paragraphe" not in soul, "l'ancienne consigne vague est retirée"
+assert len(widgets) < 3800, f"la section reste courte (3 000 caractères avant la table et les trois blocs) : {len(widgets)} caractères"
+assert main.AGENT_SETUP_VERSION.startswith("45-"), "les agents existants doivent recevoir la table des widgets"
+print(f"prompt : table « ce que tu présentes → le bloc », exemple par bloc, posts, products, links ({len(widgets)} caractères)")

@@ -209,13 +209,14 @@ function widgetsIn(text: string) {
   return out;
 }
 
-/** Les fichiers que des widgets montrent déjà : aperçu, et images d'une grille. */
+/** Les fichiers que des widgets montrent déjà : aperçu, et images d'une grille, d'un post ou d'un produit. */
 function shownByWidgets(text: string) {
   const out = new Set<string>();
   for (const spec of widgetsIn(text)) {
     if (spec.type === "preview" && typeof spec.path === "string") out.add(samePath(spec.path));
-    if (spec.type === "grid" && Array.isArray(spec.items)) {
-      for (const item of spec.items as { image?: unknown }[]) if (typeof item?.image === "string") out.add(samePath(item.image));
+    const items = Array.isArray(spec.items) ? spec.items as { image?: unknown; images?: unknown }[] : spec.type === "post" ? [spec as { image?: unknown; images?: unknown }] : [];
+    for (const item of items) {
+      for (const image of [item?.image, ...(Array.isArray(item?.images) ? item.images : [])]) if (typeof image === "string") out.add(samePath(image));
     }
   }
   return out;
