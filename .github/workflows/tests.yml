@@ -185,10 +185,11 @@ jobs:
           docker run --rm -v "$PWD/server:/app" -v "$PWD/launcher:/l" -v "$PWD/tests:/tests" \
             -v "$PWD/frontend/src/components:/front:ro" python:3.12-slim sh -c \
             "pip install -q -r /app/requirements.txt && python /tests/tools/mcp_test.py"
-      - name: "Juge des actions et tri des entrées : règles sans modèle, panne = accord, aveugle au contenu, corpus d'attaques"
+      - name: "Juge des actions et tri des entrées : règles sans modèle, panne = accord pour ce qui sort, aveugle au contenu, corpus d'attaques"
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/tools/juge_test.py"
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/tools/google_droit_test.py"
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/tools/travail_local_test.py && python /tests/agents/rappels_test.py"
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/tools/auto_test.py && python /tests/tools/sites_test.py"
       - name: "Connecteurs globaux et compétences : exclusion réelle, agent neuf, droits par agent, invités, autre compte"
         run: |

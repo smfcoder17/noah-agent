@@ -169,7 +169,7 @@ coffre.task_state = task_state
 apprentissage.setup(task_state=task_state, save=lambda conv, role, text: _save_message(conv, role, text))
 
 # Version du branchement des agents ; l'augmenter reconfigure tous les agents au démarrage.
-AGENT_SETUP_VERSION = "42-aller-au-bout"  # 42 : critère de fin, vérification, autre voie avant de demander, une suite à toucher, skill après une tâche qui reviendra, petits outils à soi ; 41 : le juge demande pourquoi à l'agent avant de déranger la personne ; 40 : juge, coffre, apprentissage, reçu, connecteurs ; 37 : plus de récit dans la réponse, réponses à toucher, réactions, publier partout, un fichier à la fois ; le réveil du navigateur ne bloque plus l'outil, l'heure de l'agent est celle de la personne ; 34 : joindre un fichier à une page, publier ce qui est prévu ; 33 : va au bout, cookies, tâche unique, plus de connexions par un tiers ; 31 : l'agent lit et change ses réglages non sensibles à condition, mémoire jugée, l'agent n'appelle plus de lui-même ; 29 : message sans rapport et contexte borné ; 28 : garde des profils de partage (G12.5) ; 27 : navigateur ; 26 : navigateur au premier usage
+AGENT_SETUP_VERSION = "43-carte-de-connexion"  # 43 : une page de connexion mène à la carte (ou à un appel), jamais à « ça attend ta réponse » sans rien ; tutoiement partout ; travail local rangé sans modèle en Auto ; 42 : critère de fin, vérification, autre voie avant de demander, une suite à toucher, skill après une tâche qui reviendra, petits outils à soi ; 41 : le juge demande pourquoi à l'agent avant de déranger la personne ; 40 : juge, coffre, apprentissage, reçu, connecteurs ; 37 : plus de récit dans la réponse, réponses à toucher, réactions, publier partout, un fichier à la fois ; le réveil du navigateur ne bloque plus l'outil, l'heure de l'agent est celle de la personne ; 34 : joindre un fichier à une page, publier ce qui est prévu ; 33 : va au bout, cookies, tâche unique, plus de connexions par un tiers ; 31 : l'agent lit et change ses réglages non sensibles à condition, mémoire jugée, l'agent n'appelle plus de lui-même ; 29 : message sans rapport et contexte borné ; 28 : garde des profils de partage (G12.5) ; 27 : navigateur ; 26 : navigateur au premier usage
 
 
 @app.on_event("startup")
@@ -1388,7 +1388,26 @@ def inbox(user: int = Depends(auth.current_user)):
             continue
         out.append({"agent_id": row["agent_id"], "agent": row["name"], "conversation_id": conv_id, "titre": row["title"], "main": bool(row["main"]), "a_moi": row["user_id"] == user, "etat": state,
                     "demande": "Une question attend ta réponse.", "apercu": [], "created": row["created"]})
+    out += _calls_waiting(user)
     return out + propositions.inbox(user)  # ce que ses agents proposent de lui-même
+
+
+def _calls_waiting(user: int) -> list[dict]:
+    """L'agent attend la personne pour une étape à elle (`noah.py appeler` : se connecter, un code, un CAPTCHA). Le bandeau ne se voit
+    que dans sa conversation : « À toi » le montre aussi, aux mêmes comptes que le bandeau (droit admin, comme GET …/appel)."""
+    found = []
+    for agent_id in list(handoff._calls):
+        call = handoff.current(agent_id)
+        if not call or call["attente"].done() or not access.allowed(user, agent_id, "admin"):
+            continue
+        conv_id = _main_conversation(agent_id, user)
+        with db.connect() as c:
+            row = c.execute("SELECT name FROM agents WHERE id = ?", (agent_id,)).fetchone()
+        if not row or not conv_id:
+            continue
+        found.append({"agent_id": agent_id, "agent": row["name"], "conversation_id": conv_id, "titre": "Conversation", "main": True, "a_moi": True,
+                      "etat": "approve", "demande": call["message"][:300], "apercu": [], "appel": handoff._public(call), "created": call["depuis"]})
+    return found
 
 
 JOURNAL_KEEP = 2000  # par agent
@@ -1817,6 +1836,7 @@ Tu pilotes un vrai navigateur (Firefox anti-détection). L'utilisateur peut voir
 Ne demande jamais de mot de passe, de code ou de carte bancaire dans la conversation. Un écran de cookies ou de consentement ne t'arrête jamais : accepte-le toi-même (« Tout accepter », « Accept all », « J'accepte ») et continue la tâche. Si un clic échoue,
 essaie le texte du bouton, un autre sélecteur, ou l'adresse directe de la page, sans en parler à l'utilisateur tant qu'il te reste un moyen.
 Quand une page demande une connexion, ou un code reçu par la personne : reste sur cette page et prends l'outil `browser_vault` (par tool_call s'il n'est pas dans ta liste ; tool_describe donne sa forme). D'abord action=list. Un identifiant existe pour ce site : action=fill avec son handle. Sinon action=save_login : la personne voit une carte dans la conversation, saisit ses identifiants, et le formulaire part tout seul ; tu ne vois jamais ce qu'elle saisit, et tu n'as rien à taper ni à cliquer. Un code : action=enter_code. Relis ensuite la page. Si elle refuse (save_declined), n'insiste pas.
+Seule cette carte, ou un appel (`noah.py appeler`), la prévient et lui montre ce qui l'attend : sans l'un des deux, rien ne l'attend. Ne finis donc jamais ton tour en disant qu'une connexion ou une demande attend sa réponse.
 Seulement si la page bloque ce moyen (CAPTCHA, QR code, clé de sécurité, validation dans une application) ou s'il échoue : appelle l'utilisateur (`noah.py appeler`, voir plus bas) pour qu'il le fasse lui-même dans l'onglet « Ordinateur », puis reprends. La session reste connectée ensuite.
 L'écran qu'il voit et tes onglets partagent les mêmes cookies. Quand il dit qu'il s'est connecté, recharge la page (ou rouvre l'adresse)
 avant de vérifier : une page chargée avant sa connexion reste affichée comme déconnectée. S'il insiste alors que la page semble
@@ -1920,6 +1940,7 @@ outputs/ et apps/ ne gardent que ce que l'utilisateur voudra retrouver : le rés
 - Réponds en français, de façon brève et concrète. Pas de pavés de texte : une liste courte ou un widget vaut mieux qu'un paragraphe.
 
 ## Comment tu parles
+- Tutoie toujours la personne, partout (réponse, question, compte rendu, notification) : « tu », jamais « vous ».
 - Ta première phrase répond. Pour une tâche, elle dit ce que tu as compris et ce que tu lances.
 - Pendant un long travail, si on te parle, dis en une phrase à quelle étape tu en es.
 - Termine par ce qui a été fait, pas par ce que tu comptais faire.
@@ -2589,7 +2610,8 @@ def _conversation_run(conv_id: str) -> str | None:
 
 
 STEER_OK, STEER_REFUSED, STEER_UNSURE = "ok", "refuse", "incertain"
-STEER_ACK = "Noté, je l'ajoute à ce que je fais."  # l'accusé immédiat : le travail continue, la consigne le rejoint
+STEER_ACK = "Noté, je l'intègre."  # l'accusé immédiat : le travail continue, la consigne le rejoint (aussi quand le tri n'a pas su)
+TRIAGE_WAIT = 3  # secondes : la personne attend l'accusé ; au-delà, le message rejoint le travail en cours sans tri
 UNSURE_STEER = "Je ne sais pas si l'agent a reçu ce message : la transmission a été coupée. Regarde sa réponse, et renvoie-le si besoin."
 
 
@@ -2636,11 +2658,12 @@ async def chat_while_busy(body: WhileBusy, user: int = Depends(auth.current_user
         with db.connect() as c:
             row = c.execute("SELECT name, role FROM agents WHERE id = ?", (agent.id,)).fetchone()
         try:
-            found = await media.triage(agent.id, row["name"], row["role"], text, _recent_turns(conv_id), task_activity.get(conv_id, ""))
+            found = await asyncio.wait_for(media.triage(agent.id, row["name"], row["role"], text, _recent_turns(conv_id), task_activity.get(conv_id, "")), TRIAGE_WAIT)
             kind, reply = found["type"], found["reponse"]
-        except media.MediaError as e:
-            diagnostics.record("tri pendant le travail", str(e), agent.id)
-            kind = "tache"
+        except (media.MediaError, asyncio.TimeoutError) as e:
+            # Tri en panne ou trop lent : dans le doute, le message rejoint le travail en cours. Seule une tâche reconnue attend son tour.
+            diagnostics.record("tri pendant le travail", str(e) or "pas de réponse à temps", agent.id)
+            kind = "precision"
         if not access.allowed(user, agent.id, "usage"):  # le tri prend du temps : l'accès a pu être retiré entre-temps
             pendant.settle(request_id, pendant.CANCELLED)
             raise HTTPException(404, "Agent introuvable")

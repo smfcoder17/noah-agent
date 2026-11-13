@@ -115,7 +115,7 @@ export function Inbox({ open, agents, onOpenChange, onOpenConversation, onOpenAg
                     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                       <span className="flex items-center gap-1.5 text-xs font-medium text-warn">
                         <StateShape state={item.etat} />
-                        {item.connexion ? "Attend ta connexion" : item.etat === "approve" ? "Attend ton accord" : "Attend ton choix"}
+                        {item.connexion ? "Attend ta connexion" : item.appel ? "Attend ton aide" : item.etat === "approve" ? "Attend ton accord" : "Attend ton choix"}
                       </span>
                       <span className="text-sm font-medium">{item.demande}</span>
                       {item.pourquoi && <span className="text-xs text-muted-foreground">{item.pourquoi}</span>}
