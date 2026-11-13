@@ -29,7 +29,7 @@ import { Boundary } from "@/components/Boundary";
 import { Inbox } from "@/components/Inbox";
 import { usePropositionCount } from "@/lib/propositions";
 import type { PanelTab } from "@/components/SidePanel";
-import { SideRail, RAIL_AGENTS } from "@/components/desktop/SideRail";
+import { SideRail } from "@/components/desktop/SideRail";
 import { Thread } from "@/components/Thread";
 import type { SettingsTab } from "@/components/Settings";
 import { ViewerProvider } from "@/components/Viewer";
@@ -419,26 +419,6 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
     return subscribeUpdates(refreshConversations);
   }, [agentId, refreshConversations]);
 
-  // Les discussions des agents montrés dans le rail sont lues d'avance : la sidebar ne doit jamais attendre un clic pour les
-  // afficher. Une seule lecture par agent et par session, sauf si le cache a été vidé par un changement de compte.
-  const prefetched = useRef<Set<string>>(new Set());
-  const [railThreads, setRailThreads] = useState<Record<string, Conversation[]>>({});
-  useEffect(() => {
-    const shown = agents.slice(0, RAIL_AGENTS).map((a) => a.id);
-    for (const id of shown) {
-      const known = id === agentId ? conversations : conversationsCache.get(id);
-      if (known) {
-        setRailThreads((cur) => (same(cur[id], known) ? cur : { ...cur, [id]: known }));
-        continue;
-      }
-      if (prefetched.current.has(id)) continue;
-      prefetched.current.add(id);
-      get<Conversation[]>(`/api/agents/${id}/conversations`)
-        .then((list) => { conversationsCache.set(id, list); setRailThreads((cur) => ({ ...cur, [id]: list })); })
-        .catch(() => prefetched.current.delete(id)); // le serveur redémarre : on réessaiera au prochain relevé
-    }
-  }, [agents, agentId, conversations]);
-
   const selectAgent = (id: string) => {
     goTab("chat");
     setAgentId(id);
@@ -519,7 +499,7 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
         }}
       />
       <LayoutShell>
-        <SideRail waiting={waiting} onInbox={() => setInbox(true)} agent={agent} agents={agents} threads={railThreads} tabs={tabs} active={panel === "routines" ? "tasks" : panel ?? "chat"} conversations={conversations ?? []} activeThread={threadId} onTab={goTab} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} onPickAgent={selectAgent} onOpenAgentThread={(id, conv) => { selectAgent(id); setThreadId(conv); }} onMenu={() => setSidebarOpen(true)} onThread={(id) => { goTab("chat"); setThreadId(id); }} onSettings={() => setSettings("home")} onGoals={() => setGoals(true)} onNew={() => void newDiscussion()} />
+        <SideRail waiting={waiting} onInbox={() => setInbox(true)} agent={agent} agents={agents} tabs={tabs} active={panel === "routines" ? "tasks" : panel ?? "chat"} conversations={conversations ?? []} activeThread={threadId} onTab={goTab} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} onPickAgent={selectAgent} onMenu={() => setSidebarOpen(true)} onThread={(id) => { goTab("chat"); setThreadId(id); }} onSettings={() => setSettings("home")} onGoals={() => setGoals(true)} onNewAgent={() => setAgentDialog({ open: true, agent: null })} />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <MobileHeader agent={agent} status={agent?.step || liveStatus || (agent?.online ? "En ligne" : "Hors ligne")} onMenu={() => setSidebarOpen(true)} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} busy={newBusy} onNew={() => void newDiscussion()} />
           {navigationError && <p role="alert" className="offline-banner">{navigationError}<button onClick={() => void newDiscussion()}>Réessayer</button></p>}
@@ -591,7 +571,7 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
           </KeepAlive>}
           <BottomTabs tabs={tabs} active={panel === "routines" ? "tasks" : panel ?? "chat"} onSelect={goTab} onCustomize={() => navigation.dispatch({ type: "push", route: { kind: "customize" } })} />
         </div>
-        {sidebarOpen && <Drawer waiting={waiting} onInbox={() => { setSidebarOpen(false); setInbox(true); }} agents={agents} agentId={agentId} conversations={conversations ?? []} tabs={tabs} onAgent={selectAgent} onThread={setThreadId} onTab={goTab} onNewAgent={() => { setSidebarOpen(false); setAgentDialog({ open: true, agent: null }); }} onCustomize={() => { setSidebarOpen(false); navigation.dispatch({ type: "push", route: { kind: "customize" } }); }} onSettings={() => { setSidebarOpen(false); setSettings("home"); }} onGoals={() => { setSidebarOpen(false); setGoals(true); }} onClose={() => setSidebarOpen(false)} onLogout={logout} />}
+        {sidebarOpen && <Drawer waiting={waiting} onInbox={() => { setSidebarOpen(false); setInbox(true); }} agents={agents} agentId={agentId} conversations={conversations ?? []} tabs={tabs} active={panel === "routines" ? "tasks" : panel ?? "chat"} activeThread={threadId} onAgent={selectAgent} onAgentPage={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} onThread={(id) => { goTab("chat"); setThreadId(id); }} onTab={goTab} onNewAgent={() => { setSidebarOpen(false); setAgentDialog({ open: true, agent: null }); }} onCustomize={() => { setSidebarOpen(false); navigation.dispatch({ type: "push", route: { kind: "customize" } }); }} onSettings={() => { setSidebarOpen(false); setSettings("home"); }} onGoals={() => { setSidebarOpen(false); setGoals(true); }} onClose={() => setSidebarOpen(false)} onLogout={logout} />}
         {latest("customize") && <CustomizeTabs tabs={tabs} save={saveTabs} error={tabsError} onClose={() => navigation.dispatch({ type: "close", kind: "customize" })} />}
         {latest("agent") && agent && <AgentPage agent={agent} onClose={() => navigation.dispatch({ type: "close", kind: "agent" })} onPanel={(t) => { navigation.dispatch({ type: "close", kind: "agent" }); setPanel(t); }} onBrain={() => setModelDialog(true)} onEdit={() => setAgentDialog({ open: true, agent })} onNotifications={() => setSettings("notifications")} onAutonomy={() => setSettings("privacy")} />}
         <Suspense fallback={null}>
