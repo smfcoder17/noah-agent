@@ -422,6 +422,7 @@ def _wake_browser() -> str | None:
 DATA = "/opt/data"
 GUEST_ROOT = f"{DATA}/profiles/"
 WORKSPACE = f"{DATA}/workspace"
+SCRATCH = f"{DATA}/cache/scratch"
 GUEST_TOOLS = {"memory", "session_search", "todo", "clarify", "web_search", "web_extract", "vision_analyze", "image_generate",
                "text_to_speech", "skills_list", "skill_view"}
 GUEST_FILES = {"read_file", "write_file", "patch", "search_files"}
@@ -1059,9 +1060,13 @@ def reads_only(command: str) -> bool:
 
 
 def in_workspace(path: str) -> bool:
-    """Chemin résolu dans le dossier confié ou dans /tmp, selon les règles communes du juge et du plugin."""
+    """Chemin résolu dans le dossier confié, dans /tmp ou dans le brouillon d’Hermes, selon les règles communes du juge et du plugin.
+
+    Le brouillon (« cache/scratch ») est le dossier de travail qu’Hermes donne à son terminal : l’agent y pose ses fichiers
+    intermédiaires comme dans /tmp. Essai du 13 novembre : y écrire « posts.txt » ouvrait une carte d’accord en Auto.
+    """
     full = os.path.realpath(_full_path(path))
-    return full == WORKSPACE or full.startswith(WORKSPACE + "/") or full.startswith("/tmp/")
+    return full == WORKSPACE or full.startswith((WORKSPACE + "/", "/tmp/", SCRATCH + "/"))
 
 
 def no_effect(tool_name: str, args: dict | None) -> bool:

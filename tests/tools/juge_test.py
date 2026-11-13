@@ -157,6 +157,7 @@ def proactive_turn(mode, request=None):
 TABLE_CASES = [
     (1, "terminal", {"command": "/bin/date"}),
     (2, "write_file", {"path": "outputs/rapport.md", "content": "rapport"}),
+    (2, "write_file", {"path": "/opt/data/cache/scratch/posts.txt", "content": "brouillons"}),  # le brouillon d'Hermes vaut /tmp (essai du 13 novembre)
     (3, "send_message", SEND),
     (4, "send_message", {**SEND, "text": "Texte non demandé"}),
     (5, "terminal", {"command": "python3 /opt/data/noah.py ordinateur corbeille Bureau vieux.txt"}),
