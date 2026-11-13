@@ -46,3 +46,8 @@ it("continue de masquer cartes, courriels et téléphones écrits dans une phras
   expect(shown("appelle +33 6 12 34 56 78 demain")).toBe("appelle +33 ••• •• 78 demain");
   expect(shown("Écris à marc@gmail.com ou va sur https://x.com/SmfCoder/status/2120656025690804594")).toBe("Écris à ma•••@g•••.com ou va sur https://x.com/SmfCoder/status/2120656025690804594");
 });
+it("ne prend pas pour une carte un identifiant écrit seul dans une phrase", () => {
+  for (const id of ["2120656025690804594", "2120957443479855511", "2120962987821539788"]) expect(sensitiveParts(`post ${id} publié`).every((p) => !p.sensitive)).toBe(true);
+  expect(sensitiveParts("carte 4111 1111 1111 1111").some((p) => p.sensitive)).toBe(true);
+  expect(sensitiveParts("Amex 3782 822463 10005").some((p) => p.sensitive)).toBe(true);
+});

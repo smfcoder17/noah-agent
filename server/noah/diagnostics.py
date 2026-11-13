@@ -17,8 +17,10 @@ _PATTERNS = (
     re.compile(r"(?i)((?:api[_-]?key|key|token|secret|password)[\"']?\s*[:=]\s*[\"']?)[^\s\"',;&]{6,}"),
     re.compile(r"(/api/apercu/)[^/\s\"']+"),  # ce lien vaut accès tant qu'il n'a pas expiré
     # Un long identifiant dans une adresse : celle de gestion d'une clé (« openrouter.ai/workspaces/default/keys/<64 hex> »),
-    # un lien signé… Il désigne la clé ou vaut accès : il ne sort pas des détails.
-    re.compile(r"(https?://[^\s\"'<>]*?/)[A-Za-z0-9_-]{32,}"),
+    # un lien signé… Il désigne la clé ou vaut accès : il ne sort pas des détails. Seulement après « keys/ », « tokens/ »… ou
+    # quand c'est une empreinte hexadécimale : l'identifiant d'un Google Doc ou d'une page Notion reste lisible dans une carte d'accord.
+    re.compile(r"(?i)(https?://[^\s\"'<>]*?/(?:api[_-]?keys?|keys?|tokens?|secrets?)/)[A-Za-z0-9_-]{16,}"),
+    re.compile(r"(https?://[^\s\"'<>]*?/)[0-9a-fA-F]{48,}(?![A-Za-z0-9_-])"),
 )
 
 
