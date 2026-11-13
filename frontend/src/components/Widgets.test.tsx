@@ -9,7 +9,8 @@ vi.mock("@assistant-ui/react", () => ({ useAuiState: (pick: (s: unknown) => unkn
 vi.mock("@/lib/api", () => ({ mediaUrl: (_a: string, p: string) => `/api/media?path=${p}`, previewRenewIn: () => 1e9, previewUrl: async () => "", rawFileUrl: (_a: string, p: string) => `/raw${p}`, get: vi.fn(async () => ({})), send: vi.fn(async () => ({})), currentAuthEpoch: () => "t", request: vi.fn() }));
 vi.mock("@/lib/events", () => ({ subscribeUpdates: () => () => {} }));
 vi.mock("@/lib/platform", () => ({ inAndroidApp: () => false, nativeSave: () => false }));
-vi.mock("./Viewer", () => ({ canFrame: () => false, CopyImageButton: () => null, isImagePath: () => false, useDownload: () => vi.fn(), useViewer: () => vi.fn() }));
+const viewed = vi.hoisted(() => ({ view: (() => {}) as (v: unknown) => void }));
+vi.mock("./Viewer", () => ({ canFrame: () => false, CopyImageButton: () => null, isImagePath: () => false, useDownload: () => () => {}, useViewer: () => viewed.view }));
 vi.mock("./VideoEmbed", () => ({ VideoEmbed: () => <div>vidéo</div> }));
 vi.mock("./elements/ElementCard", () => ({ ElementCard: ({ spec }: { spec: { kind: string; title: string } }) => <div data-element={spec.kind}>{spec.title}</div> }));
 vi.mock("./elements/SandboxedFrame", () => ({ SandboxedFrame: () => null }));
@@ -17,6 +18,7 @@ vi.mock("./elements/SandboxedFrame", () => ({ SandboxedFrame: () => null }));
 import { NoahWidget } from "./Widgets";
 import { SENSITIVE_MARKDOWN } from "./SensitiveMarkdown";
 
+URL.createObjectURL ??= () => "blob:csv"; // le bouton CSV du tableau ; jsdom ne l'a pas
 let host: HTMLDivElement, root: Root;
 beforeEach(() => { state.running = false; host = document.createElement("div"); document.body.append(host); root = createRoot(host); });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
@@ -82,9 +84,59 @@ it("les blocs existants s'affichent toujours : choix, grille, aperçu", async ()
   await widget({ type: "choice", question: "Je publie ?", options: ["Oui, vas-y", "Non"] });
   expect([...host.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Oui, vas-y", "Non"]);
   await widget({ type: "grid", title: "Vidéos", items: [{ title: "A" }] });
-  expect(host.querySelector('[data-element="grid"]')?.textContent).toBe("Vidéos");
+  expect(host.querySelector("h3")?.textContent).toBe("Vidéos");
+  expect(host.textContent).toContain("A");
   await widget({ type: "preview", path: "/opt/data/workspace/outputs/rapport.pdf" });
   expect(host.querySelector("[data-element]")?.textContent).toBe("rapport.pdf");
+});
+
+const button = (label: RegExp) => [...host.querySelectorAll<HTMLButtonElement>("button")].find((b) => label.test(b.getAttribute("aria-label") || b.textContent || ""));
+
+it("tableau : les premières lignes dans le fil, le reste et le tableau entier en grand", async () => {
+  const opened: unknown[] = []; viewed.view = (v) => opened.push(v);
+  const rows = Array.from({ length: 8 }, (_, i) => [`Ligne ${i + 1}`, i * 10]);
+  await widget({ type: "table", title: "Ventes", columns: ["Nom", "Montant"], rows });
+  expect(host.querySelector("[data-element]")).toBeNull();
+  expect([...host.querySelectorAll("th")].map((t) => t.textContent)).toEqual(["Nom", "Montant"]);
+  expect(host.querySelectorAll("tbody tr")).toHaveLength(5);
+  expect(host.textContent).toContain("Ligne 5");
+  expect(host.textContent).not.toContain("Ligne 6");
+  expect(button(/3 lignes de plus/)).toBeTruthy();
+  await act(async () => button(/Ouvrir « Ventes » en grand/)!.click());
+  await act(async () => button(/3 lignes de plus/)!.click());
+  expect(opened).toHaveLength(2);
+  expect(opened[0]).toMatchObject({ kind: "element", element: { kind: "table", title: "Ventes", data: { rows } } });
+});
+
+it("petit tableau : tout tient dans le fil, sans « de plus » ; une cellule objet ou une carte ne cassent rien", async () => {
+  await widget({ type: "table", columns: ["Nom", "Détail", "Paiement"], rows: [["A", { prix: 3 }, "4111 1111 1111 1111"]] });
+  expect(host.querySelector("h3")?.textContent).toBe("Tableau");
+  expect(host.querySelectorAll("tbody tr")).toHaveLength(1);
+  expect(host.textContent).toContain('{"prix":3}');
+  expect(host.textContent).not.toContain("4111 1111 1111 1111");
+  expect(host.textContent).not.toContain("de plus");
+});
+
+it("grille : quatre vignettes dans le fil, deux colonnes sur téléphone, les images servies, le reste en grand", async () => {
+  const opened: { element?: { data?: { items?: { image?: string }[] } } }[] = []; viewed.view = (v) => opened.push(v as never);
+  const items = Array.from({ length: 6 }, (_, i) => ({ title: `Vidéo ${i + 1}`, image: `/opt/data/workspace/captures/${i}.png` }));
+  await widget({ type: "grid", title: "Vidéos", items });
+  const grid = host.querySelector(".grid")!;
+  expect(grid.className).toContain("grid-cols-2");
+  expect(grid.children).toHaveLength(4);
+  expect(grid.querySelector("img")?.getAttribute("src")).toBe("/api/media?path=/opt/data/workspace/captures/0.png");
+  await act(async () => button(/2 éléments de plus/)!.click());
+  expect(opened[0].element?.data?.items).toHaveLength(6);
+  expect(opened[0].element?.data?.items?.[5].image).toBe("/api/media?path=/opt/data/workspace/captures/5.png");
+});
+
+it("graphique : dessiné en petit dans le fil avec un seul bouton pour l'ouvrir en grand", async () => {
+  const opened: unknown[] = []; viewed.view = (v) => opened.push(v);
+  await widget({ type: "chart", title: "Vues", kind: "bar", labels: ["S40", "S41"], series: [{ name: "Vues", values: [1200, 1800] }] });
+  expect(host.querySelector('svg[role="img"]')?.getAttribute("aria-label")).toBe("Vues");
+  expect(button(/^Tableau$/)).toBeUndefined();
+  await act(async () => button(/Ouvrir « Vues » en grand/)!.click());
+  expect(opened[0]).toMatchObject({ element: { kind: "chart", data: { labels: ["S40", "S41"] } } });
 });
 
 it("un tableau markdown se rend en vrai tableau, en-tête compris, et masque une carte mais pas un lien de post", async () => {

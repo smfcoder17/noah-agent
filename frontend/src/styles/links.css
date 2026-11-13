@@ -2,8 +2,10 @@
 .link-card > a { display:block; text-decoration:none; color:var(--ink); }
 .link-card .link-thumb { width:100%; height:120px; object-fit:cover; }
 .link-meta { padding:8px 12px; display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
-.link-meta b { font-size:13.5px; font-weight:600; flex:1; }
-.link-meta small { color:var(--soft); font-size:12px; }
+.link-meta { flex-wrap:nowrap; }
+.link-text { display:flex; flex-direction:column; min-width:0; flex:1; }
+.link-meta b { font-size:13.5px; font-weight:600; line-height:1.3; }
+.link-meta small { display:block; color:var(--soft); font-size:12px; line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .link-row { display:flex; flex-direction:column; }
 .link-row + .link-row { border-top:1px solid var(--line); }
 .link-row a { text-decoration:none; color:var(--ink); }
