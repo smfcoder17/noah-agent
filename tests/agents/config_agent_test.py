@@ -79,3 +79,27 @@ wake = int(re.search(r"^WAKE_SECONDS = (\d+)", plugin, re.M).group(1))
 assert "WAKE_SECONDS if _browser_ever_awake else HOOK_SECONDS - 30" in plugin and wake < seconds - 30, "le réveil doit finir avant qu'Hermes coupe le crochet"
 assert "noah-garde" in config()["plugins"]["enabled"]
 print(f"réveil du navigateur : Hermes laisse {timeout} s au crochet, et le crochet s'arrête avant")
+
+# 0.2.0, lot 3 : l'agent va au bout, et propose une suite sans relancer de lui-même.
+soul = main._soul("Essai", "")
+for needed, why in [
+    ("le critère de fin", "1. un critère de fin avant une tâche en plusieurs étapes"),
+    ("dans ton plan (todo) et pas dans ta réponse", "1. le critère reste dans le plan, pas dans le récit"),
+    ("vérifie ce critère pour de vrai : relis le fichier, recharge la page, relance la commande", "2. une vraie vérification"),
+    ("prends une autre voie (une autre source, un autre outil, un petit script à toi)", "3. une autre voie avant de demander"),
+    ("en disant en une phrase ce que tu as essayé", "3. ce qu'il a essayé, en une phrase"),
+    ("ce qui est fait et ce qui reste", "4. ce qui est fait et ce qui reste"),
+    ("une seule suite concrète que tu peux faire toi-même, ou une routine si la tâche reviendra, en question à choix", "4. une suite, à toucher"),
+    ("rien ne part avant", "4. la suite attend son geste"),
+    ("écris un skill qui garde la leçon", "5. un skill après une tâche réussie qui reviendra"),
+    ("pas le récit de ce tour", "5. une leçon, pas un journal"),
+    ("devient un script dans /opt/data/workspace/outils/", "6. ses propres petits outils"),
+    ("réponds-y sans outil, et ajoute au plus une phrase sur ce qui attend", "un « hi » ne reprend toujours pas une demande en suspens"),
+    ("Ne raconte pas ton travail", "pas de récit"),
+    ("Un paiement demande toujours confirmation", "les murs restent"),
+]:
+    assert needed in soul, why
+assert "ne relance rien" not in soul, "la phrase qui empêchait toute suite proposée est retirée"
+assert main._soul("Essai", "") == soul, "le prompt reste identique d'un appel à l'autre (cache du fournisseur)"
+assert main.AGENT_SETUP_VERSION.startswith("42-"), "les agents existants doivent recevoir le nouveau prompt"
+print("prompt : critère de fin, vérification, autre voie, suite à toucher, skill, petits outils ; plus de « ne relance rien »")
