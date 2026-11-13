@@ -27,7 +27,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Str
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import access, accounts, apprentissage, appareils, auth, bureautique, catalog, chauffe, coffre, connecteurs, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, public, publication, push, recu, recuperation, relay, sites, updates, watch
+from . import access, accounts, apprentissage, appareils, auth, bureautique, catalog, chauffe, coffre, connecteurs, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, propositions, public, publication, push, recu, recuperation, relay, sites, updates, watch
 from . import config
 from . import accords, bus, credits, presets, rapide, ui_preferences, linkpreview, providers as provider_accounts
 from .config import WEB_DIR, forget_setup_code
@@ -133,6 +133,7 @@ app.include_router(push.router)
 app.include_router(notifications.router)
 app.include_router(watch.router)
 app.include_router(proactif.router)
+app.include_router(propositions.router)  # « Fais-le » ou « Non » sur ce que l'agent propose de lui-même
 app.include_router(juge.router)
 app.include_router(apprentissage.router)
 app.include_router(decision.router)
@@ -1387,7 +1388,7 @@ def inbox(user: int = Depends(auth.current_user)):
             continue
         out.append({"agent_id": row["agent_id"], "agent": row["name"], "conversation_id": conv_id, "titre": row["title"], "main": bool(row["main"]), "a_moi": row["user_id"] == user, "etat": state,
                     "demande": "Une question attend ta réponse.", "apercu": [], "created": row["created"]})
-    return out
+    return out + propositions.inbox(user)  # ce que ses agents proposent de lui-même
 
 
 JOURNAL_KEEP = 2000  # par agent

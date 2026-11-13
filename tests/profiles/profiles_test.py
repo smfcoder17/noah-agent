@@ -427,6 +427,7 @@ WHITELIST = {
     ("POST", "/api/goals"): "Un objectif du compte connecté ; posé sur un agent, il faut en être le propriétaire (proactif_test).",
     ("PATCH", "/api/goals/{goal_id}"): "Seulement l'auteur de l'objectif, 404 pour tout autre compte (proactif_test).",
     ("DELETE", "/api/goals/{goal_id}"): "Seulement l'auteur de l'objectif, 404 pour tout autre compte (proactif_test).",
+    ("POST", "/api/propositions/{proposition_id}/reponse"): "Droit proprietaire sur l'agent de la proposition : 404 pour un autre compte, 403 pour une personne invitée (propositions_test).",
     ("GET", "/api/modes/{level}"): "Niveau fixe, pas une ressource : le cerveau se lit sans clé, création et voix réservées au propriétaire (modes_test).",
     ("GET", "/api/modes/{level}/modeles"): "Mêmes droits que la lecture du niveau (modes_test).",
     ("PUT", "/api/modes/{level}"): "Réservé au propriétaire, Auto global compris (test_default_brain_access et modes_test).",
