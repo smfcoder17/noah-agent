@@ -242,6 +242,6 @@ assert seen and seen.startswith(page) and "browser_vault" in seen and "save_logi
 assert garde._transform_tool_result(tool_name="browser_snapshot", args={}, result='- heading "Recettes" [ref=e1]', session_id=session) is None
 prompt = main._soul("Noah", "")
 assert "« tu », jamais « vous »" in prompt and "rien ne l'attend" in prompt, "tutoiement et carte de connexion dans les consignes"
-assert main.AGENT_SETUP_VERSION.startswith("44-")
+assert int(main.AGENT_SETUP_VERSION.split("-")[0]) >= 44, "les agents existants doivent recevoir ces consignes"
 print("6. page de connexion : le garde mène l'agent à browser_vault ; consignes : tutoiement partout, pas d'attente sans carte")
 print("OK")

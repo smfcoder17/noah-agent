@@ -1,6 +1,7 @@
 // Passages cités : un extrait de réponse, un tableau, une image… joints au prochain message.
 // Ils partent en tête du message sous forme de citations markdown (« > … »), que l'agent lit comme le contexte de la question.
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
+import { normalizeBlock } from "./blocks";
 
 export type Quote = { label: string; text: string };
 
@@ -64,6 +65,16 @@ export function widgetQuote(spec: Record<string, unknown>): Quote | null {
     const items = (spec.items as { title?: string; subtitle?: string; url?: string }[]).slice(0, 20);
     const lines = items.map((it, i) => `${i + 1}. ${it.title ?? ""}${it.subtitle ? ` (${it.subtitle})` : ""}${it.url ? ` ${it.url}` : ""}`);
     return { label: `Liste${title ? ` « ${title} »` : ""}`, text: `${title || "Liste"} :\n${lines.join("\n")}` };
+  }
+  const block = normalizeBlock(spec);
+  if (block) {
+    const lines = block.type === "posts"
+      ? block.items.map((p, i) => `${i + 1}. ${p.platform}${p.account ? ` ${p.account}` : ""}${p.state ? ` (${p.state.label})` : ""} : ${p.text ?? ""}${p.url ? ` ${p.url}` : ""}`)
+      : block.type === "products"
+        ? block.items.map((p, i) => `${i + 1}. ${p.title}${p.price ? ` · ${p.price}` : ""}${p.merchant ? ` · ${p.merchant}` : ""}${p.url ? ` ${p.url}` : ""}`)
+        : block.items.map((l, i) => `${i + 1}. ${l.title} ${l.url}`);
+    const name = { posts: "Posts", products: "Produits", links: "Liens" }[block.type];
+    return { label: `${name}${block.title ? ` « ${block.title} »` : ""}`, text: `${block.title || name} :\n${lines.slice(0, 20).join("\n")}` };
   }
   if (spec.type === "preview" && typeof spec.path === "string") {
     return { label: title || spec.path.split("/").pop()!, text: `Fichier : ${spec.path}` };
