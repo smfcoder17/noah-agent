@@ -18,6 +18,7 @@ connexions, plafonds) reste tenu ici quoi qu'il arrive à cette machine.
 import asyncio
 import hashlib
 import json
+import os
 import re
 import shlex
 import time
@@ -28,7 +29,8 @@ from pydantic import BaseModel, Field
 
 from . import access, auth, db, decision, diagnostics, events, machine, relay
 from .agent_plugin import (carries_local_data, destinations, must_ask, no_effect, refused_outright, sends_out, signs_in,
-                           outgoing_call, prepares_files, reads_only, is_blind, file_targets, in_workspace, command_segments, strip_command_prefix)
+                           outgoing_call, prepares_files, reads_only, is_blind, file_targets, in_workspace, command_segments, strip_command_prefix,
+                           creates_routine, local_work, stays_local)
 
 router = APIRouter()
 
@@ -75,8 +77,13 @@ REASONS = {
     "masque": "cette commande cache ce qu'elle lance.",
     "durci": "ce tour a lu un contenu qui donne des consignes à l'agent.",
     "panne": "je n'ai pas pu vérifier à temps.",
+    "panne_sortie": "le juge ne répond pas : je te demande pour cette action qui sort de ma machine.",
     "doute": "je ne suis pas sûr que ce soit ce que tu veux.",
 }
+OWN_MOTIFS = {"panne", "panne_sortie"}  # posés par le serveur seul, jamais choisis par un modèle
+# La personne vient de demander une routine, un rappel ou une veille : la créer est sa demande, pas une initiative de l'agent.
+ROUTINE_ASKED = re.compile(r"\b(?:rappel\w*|rappelle|routine|veille|surveill\w*|pr[ée]viens|alerte\w*|chaque|tous les|toutes les|programme\w*|planifi\w*"
+                           r"|every|remind\w*|schedule\w*|dans \d+\s*(?:s|sec\w*|min\w*|h|heures?)\b|(?:à|a) \d{1,2}\s*h)", re.I)
 
 
 def _command(tool: str, args: dict) -> str:
@@ -114,6 +121,9 @@ class Call(BaseModel):
     durci: bool = False
     adresses_page: list[str] = Field(default_factory=list, max_length=50)
     adresses_connexion: list[str] = Field(default_factory=list, max_length=50)
+    # Ses fichiers, d'après le garde de sa machine : scripts qu'il a écrits et relus, fichiers qu'il a créés. Ils ne servent qu'à ranger
+    # un travail local en ligne 2 ; aucun ne rend un envoi, une suppression dehors ou un refus net moins strict.
+    fichiers_a_lui: list[str] = Field(default_factory=list, max_length=20)
 
 
 class ToSort(BaseModel):
@@ -347,7 +357,7 @@ def _read_classification(data: dict | None) -> tuple[int, str, float] | None:
     if type(row) is not int or row not in AUTONOMY or type(sure) not in (int, float) or not 0 <= sure <= 100:
         return None
     # Même un modèle qui ne respecte pas le schéma ne peut attester l'exactitude.
-    return 4 if row == 3 else row, motif if isinstance(motif, str) and motif in REASONS and motif != "panne" else "doute", sure
+    return 4 if row == 3 else row, motif if isinstance(motif, str) and motif in REASONS and motif not in OWN_MOTIFS else "doute", sure
 
 
 async def _ask_model(agent_id: str, body: Call, turn: Turn, *, fallback_row: int | None = 6) -> tuple[int | None, str, str]:
@@ -357,8 +367,8 @@ async def _ask_model(agent_id: str, body: Call, turn: Turn, *, fallback_row: int
     Avec le droit « agir », None distingue une absence d'avis d'une ligne 6 reconnue.
     Le tableau s'applique après, y compris à une classification conservée en cache.
     """
-    if not active():
-        return fallback_row, "panne", "panne"
+    if not active():  # coupé par la personne : un choix, pas une panne
+        return fallback_row, "panne", "coupe"
     prompt = _prompt(body, turn)
     key = hashlib.sha256(json.dumps([agent_id, turn.mode, turn.alone, prompt, body.args], ensure_ascii=False, default=str).encode()).hexdigest()
     now = time.time()
@@ -465,11 +475,12 @@ def surely_local(tool: str, args: dict) -> bool:
     return True
 
 
-def classify(tool: str, args: dict) -> tuple[int | None, str]:
+def classify(tool: str, args: dict, own: list[str] | tuple = ()) -> tuple[int | None, str]:
     """Ligne du tableau et motif fermé. La ligne 4 ne devient 3 qu'après C2 côté serveur.
 
     (None, motif) : les règles ne savent pas ; la cascade de modèles propose une ligne.
     Un risque connu reste ligne 6, sans pouvoir être reclassé par un modèle.
+    `own` : les fichiers que le garde de sa machine dit à lui (son script relu, ce qu'il a écrit).
     """
     risk = must_ask(tool, args)
     if risk:
@@ -480,6 +491,11 @@ def classify(tool: str, args: dict) -> tuple[int | None, str]:
     if no_effect(tool, args) and not tool.startswith("mcp__"):
         return 1, "doute"
     if surely_local(tool, args):
+        return 2, "doute"
+    mine = {os.path.realpath(p) for p in own}
+    if local_work(tool, args, lambda path, run=False: os.path.realpath(path) in mine):
+        # Enchaînement de travail sur sa machine (mkdir, cd, cp, pip install, noah.py installer, son script, ses fichiers dans /tmp) :
+        # rien ne sort, Auto le laisse passer sans modèle, Prudent le demande.
         return 2, "doute"
     if sends_out(tool, args):
         return 4, "envoi"
@@ -647,6 +663,11 @@ def exact_request(agent_id: str, body: Call, turn: Turn) -> tuple[bool, dict]:
     return not issues, {"demande": turn.person, "propose": proposed, "ecarts": issues}
 
 
+def _routine_asked(turn: Turn) -> bool:
+    """Ses deux derniers messages demandent une routine, un rappel ou une veille. Un tour de lui-même ou une routine n'en demande aucune."""
+    return not turn.alone and not turn.mode and any(ROUTINE_ASKED.search(m) for m in turn.person[-2:])
+
+
 async def judge(agent_id: str, body: Call) -> dict:
     body.droit = _real_right(agent_id, body.outil)
     turn = await _read_turn(agent_id, body)
@@ -663,7 +684,7 @@ async def judge(agent_id: str, body: Call) -> dict:
         # Pilote automatique : aucune carte, jamais. Ni l'envoi, ni le clic aveugle, ni le tour durci, ni l'adresse lue dans
         # une page ne l'arrêtent ; il pense et trouve son chemin. Ce qui l'arrête est plus bas : un refus net des règles
         # (effacement de masse, secrets, protections) et une connexion en lecture seule. La ligne est gardée pour l'Activité.
-        row, motif = classify(body.outil, body.args)
+        row, motif = classify(body.outil, body.args, body.fichiers_a_lui)
         if row == 4:  # envoi exact : la ligne 3 le dit, même si le verdict ne change plus
             exact, _ = exact_request(agent_id, body, turn)
             row = 3 if exact else 4
@@ -680,7 +701,9 @@ async def judge(agent_id: str, body: Call) -> dict:
         if answer["verdict"] == "accord":
             _, answer["comparaison"] = exact_request(agent_id, body, turn)
         return answer
-    row, motif = classify(body.outil, body.args)
+    row, motif = classify(body.outil, body.args, body.fichiers_a_lui)
+    if row is None and creates_routine(body.outil, body.args) and _routine_asked(turn) and not _is_hardened(agent_id, turn):
+        row, motif = 2, "demande"  # la routine ou le rappel qu'elle vient de demander : rien ne sort maintenant, la routine sera jugée à chaque passage
     if connection_read:
         row = 1
     if body.droit == "agir" and not connection_read:
@@ -698,7 +721,13 @@ async def judge(agent_id: str, body: Call) -> dict:
             _, answer["comparaison"] = exact_request(agent_id, body, turn)
         return answer
     if row is None:
-        row, motif, _ = await _ask_model(agent_id, body, turn)
+        row, motif, source = await _ask_model(agent_id, body, turn)
+        if source == "panne" and column == "auto":
+            # Le juge ou son second avis ne répond pas. Auto : ce qui reste sur sa machine passe ; ce qui sort demande, en le disant.
+            if stays_local(body.outil, body.args):
+                row = 2
+            else:
+                motif = "panne_sortie"
     comparison = None
     if row == 4:
         exact, comparison = exact_request(agent_id, body, turn)

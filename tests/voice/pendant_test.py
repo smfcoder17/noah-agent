@@ -144,7 +144,7 @@ async def everything():
     # 3 bis. Sans phrase du tri, la personne reçoit tout de suite l'accusé : le travail continue, sa consigne le rejoint.
     next_triage = {"type": "precision", "reponse": ""}
     r = await say("Ajoute aussi les horaires")
-    assert r["type"] == "precision" and r["reponse"] == "Noté, je l'ajoute à ce que je fais.", r
+    assert r["type"] == "precision" and r["reponse"] == "Noté, je l'intègre.", r
     assert steered[-1] == ("run-en-cours", "Ajoute aussi les horaires") and rows()[-1] == ("user", "Ajoute aussi les horaires")
     print("3 bis. consigne en cours de route : accusé immédiat, sans arrêter le travail")
 
@@ -155,11 +155,33 @@ async def everything():
     assert r["type"] == "tache" and pending() == ["Et ajoute un titre"], (r, pending())
     print("4. transmission impossible : elle attend son tour")
 
-    # 5. Le tri est en panne : le message attend aussi, et la personne ne voit pas d'erreur.
-    next_triage = media.MediaError("pas de modèle rapide")
+    # 5. Le tri est en panne (réponse illisible : « Expecting value ») : dans le doute, le message rejoint le travail en cours.
+    # Avant, il attendait la fin du travail : vu en vrai, 6 minutes dans la file pour une consigne qui concernait ce travail.
+    next_triage = media.MediaError("Tri indisponible : Expecting value")
     r = await say("Le tri est en panne")
-    assert r["type"] == "tache" and pending()[-1] == "Le tri est en panne", r
-    print("5. tri indisponible : à la suite, jamais perdu")
+    assert r["type"] == "precision" and r["reponse"] == "Noté, je l'intègre.", r
+    assert steered[-1] == ("run-en-cours", "Le tri est en panne") and "Le tri est en panne" not in pending(), (steered, pending())
+    assert rows()[-1] == ("user", "Le tri est en panne")
+    # Tri trop lent : borné à quelques secondes, puis même chemin.
+    main.TRIAGE_WAIT, wait_before = 0.05, main.TRIAGE_WAIT
+
+    async def stuck_triage(*a):
+        await asyncio.sleep(5)
+        return {"type": "tache", "reponse": ""}
+
+    media.triage = stuck_triage
+    r = await say("Le tri traîne")
+    media.triage, main.TRIAGE_WAIT = triage, wait_before
+    assert r["type"] == "precision" and r["reponse"] == "Noté, je l'intègre." and steered[-1][1] == "Le tri traîne", r
+    # Réponse du modèle sans JSON, ou question sans réponse : précision, pas file d'attente.
+    for content in ("Je ne sais pas trop.", '{"type": "question", "reponse": ""}', None):
+        assert media._triage_answer({"choices": [{"message": {"content": content}}]}) == {"type": "precision", "reponse": ""}, content
+    assert media._triage_answer({"choices": [{"message": {"content": '{"type": "tache", "reponse": "Après."}'}}]})["type"] == "tache"
+    # Le tri dit clairement « tâche à part » : elle seule attend son tour.
+    next_triage = {"type": "tache", "reponse": ""}
+    r = await say("Ensuite, range mes photos")
+    assert r["type"] == "tache" and pending()[-1] == "Ensuite, range mes photos", r
+    print("5. tri indisponible, lent ou illisible : précision transmise avec « Noté, je l'intègre. » ; tâche reconnue : à la suite")
 
     # 6. Une demande retransmise n'en fait qu'une, même si la réponse s'est perdue.
     next_triage = {"type": "tache", "reponse": "Je le fais après."}

@@ -20,6 +20,7 @@ import hashlib
 import ipaddress
 import json
 import re
+import shlex
 import socket
 import time
 import uuid
@@ -961,6 +962,7 @@ _WHY = {
     "ce tour a lu un contenu qui donne des consignes à l'agent.": "Ton agent vient de lire un contenu qui lui donne des consignes.",
     "je n'ai pas pu vérifier à temps.": "La vérification automatique n'a pas répondu à temps.",
     "ton juge ne répond pas, alors la décision te revient.": "La vérification automatique ne répond pas.",
+    "le juge ne répond pas : je te demande pour cette action qui sort de ma machine.": "Le juge ne répond pas : je te demande pour cette action qui sort de ma machine.",
 }
 COMPARISON = "\nComparaison avec ta demande :\n"
 _SKILL = re.compile(r"/opt/data/skills/(?:[\w.-]+/)?([\w.-]+)/")
@@ -968,28 +970,73 @@ _TOOL_WORDS = {
     "write_file": "écrire dans un fichier", "patch": "modifier un fichier", "browser_click": "cliquer dans une page",
     "browser_type": "écrire dans une page", "send_message": "envoyer un message", "delegate_task": "confier une tâche à un autre agent",
     "skill_manage": "modifier une de ses compétences", "cronjob": "programmer une tâche", "image_generate": "créer une image",
+    "browser_press": "appuyer sur une touche dans une page", "browser_console": "lancer du code dans la page ouverte",
+    "execute_code": "lancer un programme Python qu'il vient d'écrire", "video_generate": "créer une vidéo", "text_to_speech": "préparer un message vocal",
+}
+_NOAH_WORDS = {
+    "routine": "programmer la routine « {} »", "routine-si": "programmer la routine « {} »", "veille": "surveiller « {} »",
+    "routine-action": "changer la routine {}", "routine-regler": "régler la routine {}", "notifier": "t'envoyer une notification",
+    "rappeler": "te rappeler au téléphone", "appeler": "t'appeler pour une étape", "demander": "confier une tâche à l'agent {}",
 }
 
 
+def _names(words: list[str], limit: int = 3) -> str:
+    """Les noms visés, courts : « a.txt, b.txt » ; au-delà, « et 2 autres »."""
+    shown = [w.rstrip("/").rsplit("/", 1)[-1] or w for w in words if w and not w.startswith("-")]
+    more = len(shown) - limit
+    return ", ".join(shown[:limit]) + (f" et {more} autre{'s' if more > 1 else ''}" if more > 0 else "")
+
+
 def _command_in_words(command: str) -> str:
-    """Ce que fait une commande, à l'infinitif, pour une personne qui ne lit pas de code. La commande reste dans les détails."""
+    """Ce que fait une commande, à l'infinitif, pour une personne qui ne lit pas de code : quoi, et sur quoi. La commande reste dans les détails."""
     lines = [line for line in command.splitlines() if line.strip() and not line.lstrip().startswith("#")]
-    words = lines[0].split() if lines else []
+    try:
+        words = shlex.split(lines[0]) if lines else []
+    except ValueError:
+        words = lines[0].split() if lines else []
+    while words and (re.fullmatch(r"\w+=\S*", words[0]) or words[0] in ("sudo", "env", "nohup", "time", "nice", "command", "exec")):
+        words = words[1:]
+    if len(words) > 2 and words[0] == "timeout":
+        words = words[2:]
     first = words[0].rsplit("/", 1)[-1] if words else ""
-    second = words[1] if len(words) > 1 else ""
+    rest = [w for w in words[1:] if w != "-u"] if first.startswith("python") else words[1:]
+    second = rest[0] if rest else ""
     skill = _SKILL.search(command)
     if skill:
         return f"se servir de sa compétence « {skill.group(1).replace('-', ' ')} »"
+    if first.startswith("python") and rest[:2] == ["-m", "pip"]:
+        first, rest = "pip", rest[2:]
+        second = rest[0] if rest else ""
+    if first.startswith("python") and second.rsplit("/", 1)[-1] == "noah.py" and len(rest) > 1:
+        order, named = rest[1], [w for w in rest[2:] if not w.startswith("-")]
+        if order == "installer":
+            return f"installer « {_names(named)} » sur sa machine" if named else "installer un logiciel sur sa machine"
+        if order == "ordinateur":
+            return f"agir sur ton ordinateur ({rest[2]})" if len(rest) > 2 else "agir sur ton ordinateur"
+        if order in _NOAH_WORDS:
+            return _NOAH_WORDS[order].format(named[0][:60] if named else "").replace(" « »", "").replace("  ", " ").strip()
+        return f"se servir de Noah ({order})"
     if first in ("pip", "pip3", "npm", "pnpm", "yarn", "apt", "apt-get") and second in ("install", "i", "add"):
-        return "installer un logiciel sur sa machine"
-    if first in ("rm", "rmdir"):
-        return "supprimer des fichiers sur sa machine"
+        named = rest[1:]
+        return f"installer « {_names(named)} » sur sa machine" if _names(named) else "installer un logiciel sur sa machine"
+    if first in ("rm", "rmdir", "unlink"):
+        return f"supprimer « {_names(rest)} » sur sa machine" if _names(rest) else "supprimer des fichiers sur sa machine"
+    if first == "mkdir":
+        return f"créer le dossier « {_names(rest)} » sur sa machine" if _names(rest) else "créer un dossier sur sa machine"
+    if first in ("cp", "mv"):
+        targets = [w for w in rest if not w.startswith("-")]
+        verb = "copier" if first == "cp" else "déplacer"
+        return f"{verb} « {_names(targets[:-1])} » vers « {_names(targets[-1:])} »" if len(targets) >= 2 else f"{verb} des fichiers sur sa machine"
     if first in ("curl", "wget"):
         site = next((re.sub(r"^www\.", "", w.split("://", 1)[1].split("/", 1)[0]) for w in words if "://" in w), "")
         return f"contacter {site}" if site else "contacter un site"
     if first == "git" and second == "push":
         return "envoyer son travail avec git"
-    if not first or first in ("python", "python3", "node", "bash", "sh") or not re.fullmatch(r"[\w.+-]{1,30}", first):
+    if first in ("python", "python3", "node", "bash", "sh"):
+        if second in ("-c", "-") or not second or "<<" in command:
+            return "lancer un petit programme qu'il vient d'écrire"
+        return f"lancer son script « {_names([second], 1)} »"
+    if not first or not re.fullmatch(r"[\w.+-]{1,30}", first):
         return "lancer un petit programme sur sa machine"
     return f"lancer « {first} » sur sa machine"
 
@@ -1001,11 +1048,19 @@ def _judged_action(tool: str, shown: str) -> tuple[str, list[str]]:
         found = re.search(r'"(?:command|code)"\s*:\s*"((?:[^"\\]|\\.)*)', shown)
         args = {"command": found.group(1).encode().decode("unicode_escape", "ignore") if found else ""}
     args = args if isinstance(args, dict) else {}
-    if tool in ("terminal", "execute_code"):
-        return _command_in_words(str(args.get("command") or args.get("code") or "")), []
+    if tool == "terminal":
+        return _command_in_words(str(args.get("command") or "")), []
+    if tool == "execute_code":
+        return _TOOL_WORDS["execute_code"], []
     if tool == "browser_navigate" and args.get("url"):
         return f"ouvrir {str(args['url']).split('://', 1)[-1].split('/', 1)[0]}", []
-    return _TOOL_WORDS.get(tool, "faire cette action"), _preview(shown)
+    if tool in ("write_file", "patch") and args.get("path"):
+        return f"{'écrire' if tool == 'write_file' else 'modifier'} le fichier « {_names([str(args['path'])], 1)} »", _preview(shown)
+    if tool == "browser_press" and args.get("key"):
+        return f"appuyer sur « {str(args['key'])[:20]} » dans la page ouverte", []
+    if tool in _TOOL_WORDS:
+        return _TOOL_WORDS[tool], _preview(shown)
+    return f"utiliser son outil « {tool[:60]} »", _preview(shown)
 
 
 def plain_request(summary: str, command: bool = False) -> dict:

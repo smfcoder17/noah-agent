@@ -831,21 +831,34 @@ async def triage(agent_id: str, name: str, role: str, text: str, history: list[d
             else:
                 body["reasoning_effort"] = "low"
         try:
-            r = await relay.upstream_client().post(f"{base}/chat/completions", json=body, headers=headers, timeout=12)
+            r = await relay.upstream_client().post(f"{base}/chat/completions", json=body, headers=headers, timeout=TRIAGE_TIMEOUT)
             if r.status_code != 200:
                 raise _fail(r)
             answer = r.json()
             _record(agent_id, model, (answer.get("usage") or {}).get("cost"))  # avant de le lire : illisible, il reste facturé
-            content = answer["choices"][0]["message"]["content"]
-            data = json.loads(content[content.find("{"): content.rfind("}") + 1])
-            kind = data.get("type")
-            if kind not in ("question", "precision", "tache") or (kind == "question" and not str(data.get("reponse", "")).strip()):
-                raise MediaError("Tri illisible.")
-            return {"type": kind, "reponse": str(data.get("reponse", "")).strip()[:1500]}
-        except (httpx.HTTPError, MediaError, ValueError, KeyError, IndexError, TypeError, AttributeError) as e:
+        except (httpx.HTTPError, MediaError, ValueError) as e:
             if i == len(fallbacks) - 1:
                 raise MediaError(f"Tri indisponible : {e}") from e
+            continue
+        return _triage_answer(answer)
     raise MediaError("Aucun modèle rapide.")
+
+
+TRIAGE_TIMEOUT = 3  # la personne attend l'accusé : au-delà, le message rejoint le travail en cours sans tri
+
+
+def _triage_answer(answer: dict) -> dict:
+    """Une réponse arrivée mais illisible (pas de JSON, type inconnu, question sans réponse) : dans le doute, c'est une précision.
+    Transmise au travail en cours, elle n'attend pas des minutes ; seule une tâche reconnue comme à part attend son tour."""
+    try:
+        content = answer["choices"][0]["message"]["content"] or ""
+        data = json.loads(content[content.find("{"): content.rfind("}") + 1])
+        kind, reply = data.get("type"), str(data.get("reponse", "")).strip()[:1500]
+    except (ValueError, KeyError, IndexError, TypeError, AttributeError):
+        return {"type": "precision", "reponse": ""}
+    if kind not in ("question", "precision", "tache") or (kind == "question" and not reply):
+        return {"type": "precision", "reponse": ""}
+    return {"type": kind, "reponse": reply}
 
 
 # --- Voix en flux ---------------------------------------------------------------------------

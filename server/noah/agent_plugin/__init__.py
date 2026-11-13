@@ -1084,7 +1084,191 @@ def no_effect(tool_name: str, args: dict | None) -> bool:
         return str(args.get("key") or "").strip().lower() in SAFE_KEYS
     if tool_name in ("process", "process_manage"):
         return str(args.get("action") or "") in ("list", "poll", "log", "wait")
+    if tool_name == "browser_console":  # lire la console de la page ; une expression, elle, s'exécute dans la page
+        return args.get("expression") in (None, "")
     return tool_name == "terminal" and reads_only(str(args.get("command") or "")) and not prepares_files(str(args.get("command") or ""))
+
+
+# --- Travail sur sa propre machine ------------------------------------------------------------------------------------------
+# « Tout ce qui reste sur sa machine passe sans toi » (Auto) : ces gestes vont au juge, qui les range en ligne 2 sans modèle. Prudent
+# les demande donc toujours. Ils ne touchent que son dossier de travail, /tmp et son cache, ou son propre environnement de logiciels.
+CACHE = f"{DATA}/.cache"
+LOCAL_RUNNERS = {"python", "python3", "node", "bash", "sh"}
+LOCAL_MOVES = {"mkdir", "touch", "cp", "mv", "unzip", "ffmpeg"}
+RM_FLAGS = {"-f", "-r", "-R", "-rf", "-fr", "-Rf", "-fR", "-v", "--force", "--recursive"}
+PIP_FLAGS = {"-q", "-qq", "--quiet", "-U", "--upgrade", "--user", "--no-cache-dir", "--break-system-packages", "--no-input",
+             "--disable-pip-version-check", "--progress-bar=off"}
+NPM_FLAGS = {"-S", "--save", "-D", "--save-dev", "--no-save", "--no-audit", "--no-fund", "-s", "--silent", "--quiet", "-g", "--global"}
+PIP_PACKAGE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,80}(?:\[[A-Za-z0-9,._-]+\])?(?:[<>=!~]=?[A-Za-z0-9.*+-]+(?:,[<>=!~]=?[A-Za-z0-9.*+-]+)*)?")
+NPM_PACKAGE = re.compile(r"(?:@[a-z0-9][\w.-]*/)?[a-z0-9][\w.-]{0,100}(?:@[\w.^~<>=*-]+)?", re.I)
+DEBIAN_PACKAGE = re.compile(r"[a-z0-9][a-z0-9.+-]{0,80}")
+ROUTINE_CREATION = {"routine", "routine-si", "veille"}
+# Ce qui sort de la machine, ou dont l'effet dehors ne se lit pas dans la commande : jamais « local » quand le juge ne répond pas.
+REACHES_OUT = re.compile(r"://|\b(?:curl|wget|ssh|scp|sftp|rsync|ftp|nc|ncat|netcat|socat|telnet|xurl|gh|git|aws|gcloud|az|kubectl|docker"
+                         r"|mail|sendmail|mutt|msmtp|smtplib|ftplib|paramiko|requests|httpx|urllib3?|aiohttp|socket|websockets?|http\.client"
+                         r"|fetch|axios|XMLHttpRequest|webbrowser|subprocess|os\.system|os\.popen|child_process)\b|noah\.py|google_api\.py", re.I)
+SCRIPT_MAX_BYTES = 256 * 1024
+
+
+def in_local_zone(path: str) -> bool:
+    """Son dossier de travail, /tmp ou son cache : rien de ce qui s'y passe ne sort de sa machine."""
+    full = os.path.realpath(_full_path(path))
+    return in_workspace(path) or full == CACHE or full.startswith(CACHE + "/")
+
+
+def _plain_word(word: str) -> bool:
+    return bool(word) and "://" not in word and not re.match(r"^[a-z][\w+.-]{1,15}:", word, re.I)
+
+
+SYSTEM_BIN = ("/bin/", "/usr/bin/", "/usr/local/bin/", "/opt/hermes/.venv/bin/")
+
+
+def _program(word: str) -> str | None:
+    """Le nom du programme, s'il vient du système et non d'un fichier posé ailleurs (/tmp/pip ne compte pas)."""
+    if "/" not in word:
+        return word
+    folder, name = word.rsplit("/", 1)
+    return name if folder + "/" in SYSTEM_BIN else None
+
+
+def installs_package(words: list[str]) -> bool:
+    """pip ou npm dans son propre environnement, ou un paquet système par `noah.py installer`, avec des noms simples : ni adresse,
+    ni fichier de dépendances, ni autre dépôt. Le code du paquet vient d'internet : c'est le choix d'Auto, Prudent le demande."""
+    words = strip_command_prefix(words)
+    name = _program(words[0]) if words else None
+    if not name:
+        return False
+    rest = [w for w in words[1:] if not (name.startswith("python") and w == "-u")]
+    if name in ("python", "python3") and rest[:2] == ["-m", "pip"]:
+        name, rest = "pip", rest[2:]
+    elif name in ("python", "python3") and len(rest) >= 3 and rest[1] == "installer":
+        return rest[0] == f"{DATA}/noah.py" and all(DEBIAN_PACKAGE.fullmatch(w) for w in rest[2:])
+    if name in ("pip", "pip3") and rest[:1] == ["install"]:
+        flags, packages, pattern = PIP_FLAGS, rest[1:], PIP_PACKAGE
+    elif name == "npm" and rest[:1] in (["install"], ["i"], ["add"]):
+        flags, packages, pattern = NPM_FLAGS, rest[1:], NPM_PACKAGE
+    else:
+        return False
+    names = [w for w in packages if not w.startswith("-")]
+    return bool(names) and all(w in flags for w in packages if w.startswith("-")) and all(pattern.fullmatch(w) for w in names)
+
+
+def creates_routine(tool_name: str, args: dict | None) -> bool:
+    """`noah.py routine`, `routine-si` ou `veille`, seule et sans construction du shell : la routine ou le rappel qu'on lui demande."""
+    if tool_name != "terminal":
+        return False
+    command = str((args or {}).get("command") or "")
+    if re.search(r"[|;&`<>\r\n]|\$\(", command):
+        return False
+    try:
+        words = strip_command_prefix(shlex.split(command))
+    except ValueError:
+        return False
+    if words and words[0] in ("/opt/hermes/.venv/bin/python3", "/usr/bin/python3"):
+        words = ["python3", *words[1:]]
+    words = [w for w in words if w != "-u"]
+    return (len(words) >= 4 and words[0] in ("python", "python3") and words[1] == f"{DATA}/noah.py" and words[2] in ROUTINE_CREATION
+            and all(in_local_zone(words[i + 1]) for i, w in enumerate(words[:-1]) if w == "--fichier"))
+
+
+def _local_segment(words: list[str], own, cwd: str) -> str | None:
+    """Le dossier courant après ce morceau s'il reste sur sa machine, sinon None. Les chemins relatifs partent de `cwd`."""
+    at = lambda w: os.path.normpath(os.path.join(cwd, _full_path(w) if w.startswith("~") else w))  # noqa: E731
+    words = [w for w in words if w]
+    if not words or installs_package(words):
+        return cwd
+    stripped = strip_command_prefix(words)
+    name = _program(stripped[0]) if stripped else None
+    rest = stripped[1:]
+    targets = [w for w in rest if not w.startswith("-")]
+    if name == "cd":
+        target = at(targets[0]) if targets else WORKSPACE
+        return target if len(targets) <= 1 and in_local_zone(target) else None
+    if _reading_segment(words):  # une lecture reconnue, la même que pour les commandes sans aucun effet
+        return cwd
+    if name in LOCAL_MOVES:
+        if name == "ffmpeg" and any(re.search(r"\.(?:txt|ffconcat|m3u8?)$", w, re.I) for w in targets):
+            return None  # une liste de médias peut désigner des ressources dehors
+        ok = all(_plain_word(w.split("=", 1)[-1]) for w in rest) and all(in_local_zone(at(t)) for t in targets) \
+            and not any(re.search(r"exec|filter|script|command|checkpoint", w, re.I) for w in rest if w.startswith("-"))
+        return cwd if ok else None
+    if name == "rm":
+        # /tmp est à lui ; dans son dossier de travail, seulement ce qu'il a écrit lui-même (own), pas un fichier de la personne.
+        ok = bool(targets) and all(w in RM_FLAGS for w in rest if w.startswith("-")) and all(
+            os.path.realpath(at(t)).startswith("/tmp/") or own(at(t)) for t in targets)
+        return cwd if ok else None
+    if name in LOCAL_RUNNERS:
+        rest = [w for w in rest if w != "-u"] if name.startswith("python") else rest
+        ok = bool(rest) and not rest[0].startswith("-") and own(at(rest[0]), True) and all(
+            in_local_zone(at(w)) if w.startswith(("/", "~", ".")) else _plain_word(w) for w in rest[1:])
+        return cwd if ok else None
+    return None
+
+
+def local_work(tool_name: str, args: dict | None, own=lambda path, run=False: False) -> bool:
+    """Un travail qui ne quitte pas sa machine, d'après les règles seules. `own(chemin absolu, lancé)` : un fichier que l'agent a écrit
+    lui-même (son script, relu avant d'être lancé). Sans lui, ni script lancé ni suppression dans son dossier de travail."""
+    args = args if isinstance(args, dict) else {}
+    if tool_name != "terminal":
+        return False
+    command = str(args.get("command") or "")
+    if not command.strip() or re.search(r"[`\r]|\$\(|<\(|>\(|\$\{?\w", command) or sends_out(tool_name, args) or refused_outright(tool_name, args) or must_ask(tool_name, args):
+        return False
+    quiet = re.sub(r"\d?>\s*/dev/null|\d>&\d", " ", command)
+    cwd = WORKSPACE
+    for line in quiet.split("\n"):
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        try:
+            lex = shlex.shlex(line, posix=True, punctuation_chars=True)
+            lex.whitespace_split = True
+            tokens = list(lex)
+        except ValueError:
+            return False
+        segment: list[str] = []
+        for token in [*tokens, ";"]:
+            if token and set(token) <= OPERATORS:
+                if token not in (";", "&&", "||", "|"):
+                    return False  # > >> & ( ) : une écriture hors des règles, un fond, un groupe
+                if token == "|" and segment and not _reading_segment(segment):
+                    return False
+                if segment:
+                    cwd = _local_segment(segment, own, cwd)
+                    if cwd is None:
+                        return False
+                segment = []
+            else:
+                segment.append(token)
+    return True
+
+
+def stays_local(tool_name: str, args: dict | None) -> bool:
+    """Quand le juge ne répond pas : rien dans l'appel ne sort de sa machine (ni réseau, ni connexion, ni Noah, ni envoi). En Auto, ce
+    travail passe ; ce qui sort, ou ce qu'on ne sait pas lire, demande l'accord de la personne."""
+    args = args if isinstance(args, dict) else {}
+    if tool_name in ("write_file", "patch"):
+        targets = file_targets(tool_name, args)
+        return bool(targets) and all(in_local_zone(t) for t in targets)
+    if tool_name not in ("terminal", "execute_code"):
+        return False
+    command = _command_of(tool_name, args)
+    return bool(command.strip()) and not sends_out(tool_name, args) and not must_ask(tool_name, args) \
+        and not any(REACHES_OUT.search(text) for text in variants(command))
+
+
+def script_is_plain(path: str) -> bool:
+    """Le contenu d'un script qu'il a écrit, relu avant de le lancer : ni réseau, ni programme lancé, ni secret, ni encodage. Sinon le
+    juge décide comme avant."""
+    try:
+        full = os.path.realpath(_full_path(path))
+        if os.path.getsize(full) > SCRIPT_MAX_BYTES:
+            return False
+        with open(full, encoding="utf-8") as f:
+            text = f.read()
+    except (OSError, UnicodeError):
+        return False
+    return not (_refused_command(text) or HIDDEN_RUN.search(text) or IRREVERSIBLE.search(text) or SENDS.search(text) or REACHES_OUT.search(text)
+                or re.search(r"\b(?:exec|eval|compile|__import__)\s*\(|\bimportlib\b|\bctypes\b|\bos\.(?:exec|spawn|fork|remove|unlink|rmdir)|shutil\.rmtree", text))
 
 
 def prepares_files(command: str) -> bool:
@@ -1361,7 +1545,53 @@ def _framed(text: str, reason: str) -> str:
             f"<<<donnee_non_fiable_{mark}>>>\n{text}\n<<<fin_donnee_non_fiable_{mark}>>>")
 
 
-def _transform_tool_result(tool_name: str = "", args: dict | None = None, result=None, session_id: str = "", **_) -> str | None:
+_written: set[str] = set()  # fichiers que l'agent a écrits lui-même (write_file, patch) dans sa machine : ses scripts, ses essais
+WRITTEN_MAX = 2000
+# Une page de connexion lue : la carte de connexion sûre est le seul chemin qui prévient la personne. Sans elle, l'agent dit « ça
+# attend ta réponse » et rien n'attend : ni carte dans « À toi », ni notification.
+LOGIN_FIELD = re.compile(r'\b(?:textbox|searchbox)\s+"[^"\n]*(?:password|mot de passe|passwort|contraseña|passcode|code de v[ée]rification|verification code)'
+                         r'|type=["\']?password', re.I)
+LOGIN_HINT = ("\n\n[Noah : cette page demande une connexion. Prends maintenant browser_vault (action=list, puis fill, ou save_login ; un code : "
+              "enter_code). C'est ce qui montre la carte à la personne et la prévient. Ne finis pas ton tour en disant qu'une demande l'attend : "
+              "sans carte ni appel (noah.py appeler), rien ne l'attend.]")
+
+
+def _note_written(tool_name: str, args: dict, result: str) -> None:
+    if re.search(r'"(?:error|erreur)"\s*:\s*(?!null)\S|"success"\s*:\s*false', result[:400], re.I):
+        return  # l'écriture a échoué : ce fichier n'est pas à lui
+    for target in file_targets(tool_name, args):
+        full = os.path.realpath(_full_path(target))
+        if in_local_zone(full):
+            if len(_written) >= WRITTEN_MAX:
+                _written.pop()
+            _written.add(full)
+
+
+def own_files(tool_name: str, args: dict) -> list[str]:
+    """Les fichiers à lui qui font d'une commande un travail local : ses scripts relus, ce qu'il a écrit et supprime. Le serveur les
+    reçoit tels quels ; rien d'autre ne sort de sa machine pour en décider."""
+    found: list[str] = []
+
+    def own(path: str, run: bool = False) -> bool:
+        full = os.path.realpath(path)
+        ok = full in _written and (not run or script_is_plain(full))
+        if ok:
+            found.append(full)
+        return ok
+
+    return list(dict.fromkeys(found))[:20] if local_work(tool_name, args, own) else []
+
+
+def _transform_tool_result(tool_name: str = "", args: dict | None = None, result=None, session_id: str = "", **hook) -> str | None:
+    if tool_name in ("write_file", "patch") and isinstance(result, str) and isinstance(args, dict):
+        _note_written(tool_name, args, result)
+    changed = _transform_outside(tool_name, args, result, session_id, **hook)
+    if tool_name.startswith("browser_") and isinstance(result, str) and LOGIN_FIELD.search(result[:400000]):
+        return (changed if changed is not None else result) + LOGIN_HINT
+    return changed
+
+
+def _transform_outside(tool_name: str = "", args: dict | None = None, result=None, session_id: str = "", **_) -> str | None:
     """Sur un résultat venu de dehors : aucune lecture n'est bloquée. Signalé, il est encadré et le juge durcit pour ce tour."""
     args = args if isinstance(args, dict) else {}
     if not isinstance(result, str) or not result or not _is_untrusted(tool_name, args):
@@ -1541,6 +1771,9 @@ def check_juge(tool_name: str, args: dict, directive: dict | None, hook: dict) -
             "durci": _hardened.get(session, 0) > time.time(),
             "adresses_page": [a for a, s in seen.items() if s == "page" and a in text][:20],
             "adresses_connexion": [a for a, s in seen.items() if s == "connexion" and a in text][:20]}
+    mine = own_files(tool_name, args) if tool_name == "terminal" else []
+    if mine:
+        body["fichiers_a_lui"] = mine
     if _bounded_json(body) is None:
         if refused:
             return {"action": "block", "message": f"Noah refuse : {refused} Dis-le à la personne, et ne cherche pas un autre chemin."}
@@ -1585,10 +1818,16 @@ def check_juge(tool_name: str, args: dict, directive: dict | None, hook: dict) -
         return directive
     if directive:  # une panne ne retire jamais un accord déjà demandé par la connexion
         return directive
+    auto = _autonomy() == "auto"
+    if auto and stays_local(tool_name, args):  # Auto : ce qui reste sur sa machine passe, même sans juge
+        return directive
     if alone:
         return {"action": "block", "message": ("Noah refuse : ton juge ne répond pas et personne ne peut donner son accord pendant une routine. Continue sans cette action et "
                                                "signale-le dans ton compte rendu.")}
-    return _ask_person(tool_name, args, "ton juge ne répond pas, alors la décision te revient.", None)
+    return _ask_person(tool_name, args, JUDGE_DOWN_OUT if auto else "ton juge ne répond pas, alors la décision te revient.", None)
+
+
+JUDGE_DOWN_OUT = "le juge ne répond pas : je te demande pour cette action qui sort de ma machine."
 
 
 def _pre_tool_call(tool_name: str = "", args: dict | None = None, **hook) -> dict | None:

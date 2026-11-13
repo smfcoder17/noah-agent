@@ -132,7 +132,7 @@ def tool_label(name: str, args: dict | None = None, preview: str | None = None) 
         "delegate_task": lambda: f"Confie à un sous-agent : {_quoted(args.get('goal'))}" if args.get("goal") else "Confie une partie du travail à un sous-agent",
         "cronjob": lambda: "Planifie une tâche",
         "memory": lambda: "Met à jour sa mémoire",
-        "session_search": lambda: "Cherche dans vos anciennes conversations",
+        "session_search": lambda: "Cherche dans tes anciennes conversations",
         "skill_view": lambda: f"Consulte la compétence {args.get('name')}" if args.get("name") else "Consulte une compétence",
         "skills_list": lambda: "Regarde ses compétences",
         "skill_manage": lambda: "Met à jour une compétence",

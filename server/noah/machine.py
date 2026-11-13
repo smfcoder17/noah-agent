@@ -4,10 +4,12 @@ Tout passe par le lanceur, qui exécute un petit outil d'administration dans le 
 avec les modules d'Hermes : l'agent et l'interface lisent et écrivent exactement les mêmes données.
 """
 import asyncio
+import contextlib
 import json
 import re
 import time
 import unicodedata
+from datetime import datetime
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -193,10 +195,11 @@ async def _routine_settings(agent_id: str, body: RoutineChoices) -> dict:
 async def _create_routine(agent_id: str, body: NewRoutine) -> dict:
     settings = await _routine_settings(agent_id, body)
     payload = {"nom": body.nom, "quand": body.quand, "en_pause": body.en_pause, "consigne": modes.with_image_note(body.consigne, body.image), **settings}
-    made = modes.shown_routine(agent_id, await admin(agent_id, "routine_creer", payload))
+    created = await admin(agent_id, "routine_creer", payload)
+    _note_reminder(agent_id, created)
     if body.nom and not body.en_pause:
         presets.consume_named(agent_id, body.nom)  # la même que celle du modèle, créée à la main : elle ne reste pas à activer
-    return made
+    return modes.shown_routine(agent_id, created)
 
 
 async def _activate_suggestion(agent_id: str, suggestion_id: int) -> dict:
@@ -211,6 +214,38 @@ async def _activate_suggestion(agent_id: str, suggestion_id: int) -> dict:
     except BaseException:
         presets.give_back(row)
         raise
+
+
+# --- Rappels : une routine qui ne passe qu'une fois (« in 2m », une heure précise) ------------------------------------------
+# Hermes relève ses routines toutes les 60 s, puis l'agent travaille, puis Noah relevait les résultats toutes les 60 s : un rappel
+# arrivait jusqu'à deux minutes après l'heure. Autour de l'heure d'un rappel, Noah relève cet agent toutes les 10 s.
+FAST_SECONDS = 10
+FULL_SECONDS = 60
+REMINDER_WINDOW = 600  # après l'heure prévue : l'agent a le temps de faire son tour
+
+
+def _reminders(agent_id: str) -> dict:
+    try:
+        found = json.loads(db.get_setting(f"rappels_{agent_id}") or "{}")
+    except ValueError:
+        return {}
+    return found if isinstance(found, dict) else {}
+
+
+def _note_reminder(agent_id: str, routine: dict) -> None:
+    """Hermes retire un rappel fait de sa liste : son nom et son heure sont gardés ici, pour le titre « Rappel : … » et la relève rapide."""
+    if not str(routine.get("schedule_display") or "").startswith("once") or not routine.get("id"):
+        return
+    at = time.time()
+    with contextlib.suppress(ValueError, TypeError):
+        at = datetime.fromisoformat(str(routine.get("next_run_at"))).timestamp()
+    found = {k: v for k, v in _reminders(agent_id).items() if v.get("a", 0) > time.time() - 7 * 86400}
+    found[str(routine["id"])] = {"nom": str(routine.get("name") or "")[:80], "a": at}
+    db.set_setting(f"rappels_{agent_id}", json.dumps(found))
+
+
+def _reminder_due(agent_id: str, now: float) -> bool:
+    return any(v.get("a", 0) - FAST_SECONDS <= now <= v.get("a", 0) + REMINDER_WINDOW for v in _reminders(agent_id).values())
 
 
 async def _edit_routine(agent_id: str, routine_id: str, body: RoutineEdit) -> dict:
@@ -290,33 +325,59 @@ async def agent_routine_action(body: AgentRoutineAction, request: Request):
 
 
 async def deliver_routines(save_message, main_conversation) -> None:
-    """Toutes les minutes : les résultats des routines arrivent dans la conversation de l'agent, comme un message de Noah,
-    et en notification. C'est ce qui rend l'initiative visible."""
+    """Toutes les minutes, et toutes les 10 s autour de l'heure d'un rappel : les résultats des routines arrivent dans la conversation
+    de l'agent, comme un message de Noah, et en notification. C'est ce qui rend l'initiative visible."""
+    last_full = 0.0  # la première relève est complète
     while True:
-        await asyncio.sleep(60)
-        await deliver_routines_once(save_message, main_conversation)
+        await asyncio.sleep(FAST_SECONDS)
+        now = time.time()
+        if now - last_full >= FULL_SECONDS:
+            last_full = now
+            await deliver_routines_once(save_message, main_conversation)
+        else:
+            await deliver_routines_once(save_message, main_conversation, only_due=True)
 
 
-async def deliver_routines_once(save_message, main_conversation) -> None:
+async def deliver_routines_once(save_message, main_conversation, only_due: bool = False) -> None:
     with db.connect() as c:
         ids = [r["id"] for r in c.execute("SELECT id FROM agents")]
+    now = time.time()
     for agent_id in ids:
+        if only_due and not _reminder_due(agent_id, now):
+            continue
         key = f"routines_vues_{agent_id}"
         try:
             found = (await admin(agent_id, "routines_sorties", {"depuis": db.get_setting(key) or ""}, 30))["sorties"]
         except Exception:
             continue  # agent arrêté ou en cours de création
         conv = main_conversation(agent_id)
+        reminders = _reminders(agent_id)
         for r in found:
             if conv:
-                text = f"**Routine « {r['nom']} »**\n\n{r['texte'].strip()}"
+                once = reminders.get(str(r.get("routine") or ""))
+                name = (once or {}).get("nom") or r["nom"]
+                title = f"Rappel : {name}" if once else f"Routine « {name} »"
+                text = f"**{title}**\n\n{r['texte'].strip()}"
                 save_message(conv, "agent", text)
                 add_context(conv, text)
                 owner = db.agent_owner(agent_id)  # son résultat est écrit chez lui : pas chez le profil en train de parler à l'agent
-                if owner is not None:
-                    desktop.notify_user(owner, f"Routine « {r['nom']} »", notifications.first_sentence(r["texte"]), "routines",
+                if owner is not None and once:
+                    _push_reminder(owner, title, notifications.first_sentence(r["texte"]), notifications.conversation_url(agent_id, conv))
+                elif owner is not None:
+                    desktop.notify_user(owner, title, notifications.first_sentence(r["texte"]), "routines",
                                         notifications.conversation_url(agent_id, conv))
             db.set_setting(key, r["quand"])
+
+
+def _push_reminder(owner: int, title: str, text: str, url: str) -> None:
+    """Un rappel sonne comme une demande : canal principal du téléphone, pas celui, discret, des routines. Couper « Routines et
+    veilles » dans Réglages > Notifications le coupe aussi."""
+    from . import push
+
+    if not notifications.wants(owner, "routines"):
+        return
+    push.notify(title, text, url=url, urgent=True, user_id=owner, extra={"type": "rappel"})
+    desktop.send_native(owner, title, text)
 
 
 def add_context(conv_id: str, text: str) -> None:

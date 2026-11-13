@@ -222,7 +222,7 @@ function Approval({ args, result, addResult }: ToolCallMessagePartProps) {
           {open ? "Masquer les détails" : "Voir les détails"}
         </button>
       )}
-      {(details || open) && <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-background p-2 font-mono text-[11.5px] text-muted-foreground">{String(args.summary)}</pre>}
+      {(details || open) && <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-background p-2 font-mono text-[11.5px] text-muted-foreground">{String(args.summary).replace(/^Ton juge demande ton accord : [^\n]*\n/, "") /* la raison est déjà dite au-dessus, en clair */}</pre>}
       <div className="flex gap-2">
         <Button variant="warn" size="sm" onClick={() => answer(true)}>Autoriser</Button>
         <Button variant="outline" size="sm" onClick={() => answer(false)}>Refuser</Button>
