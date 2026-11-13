@@ -7,6 +7,7 @@ import { Check, Download, ExternalLink, FileText, Maximize2, Moon, Play, Reply }
 import { Component, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { normalizeBlock, wellFormed } from "@/lib/blocks";
 import { BlockCards } from "./BlockCards";
+import { SensitiveText } from "./SensitiveText";
 import { mediaUrl, previewRenewIn, previewUrl, rawFileUrl } from "@/lib/api";
 import { inAndroidApp, nativeSave } from "@/lib/platform";
 import { cn, safeMedia } from "@/lib/utils";
@@ -69,7 +70,7 @@ function CsvButton({ columns, rows, name }: { columns: string[]; rows: (string |
   );
 }
 
-export function Chart({ spec }: { spec: ChartSpec }) {
+export function Chart({ spec, expand }: { spec: ChartSpec; expand?: React.ReactNode }) {
   const [asTable, setAsTable] = useState(false);
   const labels = spec.labels ?? [];
   const series = (spec.series ?? []).filter((s) => Array.isArray(s.values));
@@ -83,13 +84,14 @@ export function Chart({ spec }: { spec: ChartSpec }) {
     <Frame
       title={spec.title}
       note={spec.note}
-      actions={
+      // Dans le fil, le graphique reste petit et léger : un seul bouton, qui l'ouvre en grand avec son tableau et son CSV.
+      actions={expand ?? (
         <div className="flex shrink-0 gap-1" role="group" aria-label="Affichage">
           <Button size="sm" variant={asTable ? "outline" : "default"} aria-pressed={!asTable} onClick={() => setAsTable(false)}>Graphique</Button>
           <Button size="sm" variant={asTable ? "default" : "outline"} aria-pressed={asTable} onClick={() => setAsTable(true)}>Tableau</Button>
           <CsvButton columns={columns} rows={rows} name={spec.title ?? "graphique"} />
         </div>
-      }
+      )}
     >
       {asTable ? (
         <TableBody columns={columns} rows={rows} />
@@ -158,7 +160,7 @@ function TableBody({ columns, rows }: { columns: string[]; rows: (string | numbe
         <tbody>
           {rows.map((r, i) => (
             <tr key={i} className="border-b border-border/50 last:border-0">
-              {r.map((v, j) => <td key={j} className={cn("px-4 py-2 [overflow-wrap:normal]", String(v).length <= 12 && "whitespace-nowrap", typeof v === "number" && "text-right tabular-nums")}>{typeof v === "number" ? fmt(v) : v}</td>)}
+              {r.map((v, j) => <td key={j} className={cn("px-4 py-2 [overflow-wrap:normal]", cell(v).length <= 12 && "whitespace-nowrap", typeof v === "number" && "text-right tabular-nums")}>{typeof v === "number" ? fmt(v) : <SensitiveText text={cell(v)} />}</td>)}
             </tr>
           ))}
         </tbody>
@@ -167,30 +169,47 @@ function TableBody({ columns, rows }: { columns: string[]; rows: (string | numbe
   );
 }
 
-export function Table({ spec }: { spec: TableSpec }) {
+/** Une cellule écrite par l'agent : texte ou nombre attendus, un objet se lit comme du texte au lieu de casser le tableau. */
+const cell = (v: unknown) => (v == null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v));
+
+/** « 12 lignes de plus » : ce que l'aperçu du fil ne montre pas, et qui s'ouvre en grand. */
+function More({ count, unit, onOpen }: { count: number; unit: [string, string]; onOpen?: () => void }) {
+  if (count <= 0) return null;
+  const label = `${count} ${count > 1 ? unit[1] : unit[0]} de plus`;
+  return onOpen
+    ? <button type="button" onClick={onOpen} className="w-full border-t border-border/60 px-4 py-2 text-left text-xs font-medium text-accent hover:bg-muted">{label} · tout voir</button>
+    : <p className="border-t border-border/60 px-4 py-2 text-xs text-muted-foreground">{label}</p>;
+}
+
+export function Table({ spec, limit, expand, onOpen }: { spec: TableSpec; limit?: number; expand?: React.ReactNode; onOpen?: () => void }) {
+  const rows = (spec.rows ?? []).map((r) => r.map((v) => (typeof v === "number" ? v : cell(v))));
+  const columns = (spec.columns ?? []).map(cell);
   return (
-    <Frame title={spec.title} note={spec.note} actions={<CsvButton columns={spec.columns} rows={spec.rows} name={spec.title ?? "tableau"} />}>
-      <TableBody columns={spec.columns ?? []} rows={spec.rows ?? []} />
+    <Frame title={spec.title} note={spec.note} actions={<div className="flex shrink-0 gap-1"><CsvButton columns={columns} rows={rows} name={spec.title ?? "tableau"} />{expand}</div>}>
+      <TableBody columns={columns} rows={limit ? rows.slice(0, limit) : rows} />
+      {limit && <More count={rows.length - limit} unit={["ligne", "lignes"]} onOpen={onOpen} />}
     </Frame>
   );
 }
 
-export function Grid({ spec }: { spec: GridSpec }) {
+export function Grid({ spec, limit, expand, onOpen }: { spec: GridSpec; limit?: number; expand?: React.ReactNode; onOpen?: () => void }) {
   const { agentId } = useContext(AgentContext);
   const view = useViewer();
   const src = (image?: string) => (!image ? undefined : image.startsWith("/opt/data/") ? mediaUrl(agentId, image) : /^https?:\/\//.test(image) ? safeMedia(image) : undefined);
+  const items = spec.items ?? [];
   return (
-    <Frame title={spec.title} note={spec.note}>
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3 p-4">
-        {(spec.items ?? []).map((it, i) => {
+    <Frame title={spec.title} note={spec.note} actions={expand}>
+      {/* Deux colonnes sur téléphone, trois ou quatre quand la place le permet. */}
+      <div className="grid grid-cols-2 gap-3 p-3 @md:grid-cols-[repeat(auto-fill,minmax(180px,1fr))] sm:p-4">
+        {(limit ? items.slice(0, limit) : items).map((it, i) => {
           const body = (
             <>
               <div className="relative aspect-video overflow-hidden rounded-xl bg-muted">
                 {src(it.image) && <img src={src(it.image)} alt="" loading="lazy" className="size-full object-cover" />}
                 {it.badge && <span className="absolute top-1.5 left-1.5 rounded-md bg-surface px-1.5 py-px text-[11px] font-semibold shadow-sm">{it.badge}</span>}
               </div>
-              <span className="line-clamp-2 text-[13px] leading-snug font-medium">{it.title}</span>
-              {it.subtitle && <span className="text-xs text-muted-foreground tabular-nums">{it.subtitle}</span>}
+              <span className="line-clamp-2 text-[13px] leading-snug font-medium"><SensitiveText text={cell(it.title)} /></span>
+              {it.subtitle && <span className="text-xs text-muted-foreground tabular-nums"><SensitiveText text={cell(it.subtitle)} /></span>}
             </>
           );
           return it.url && /^https?:\/\//i.test(it.url) ? (
@@ -202,13 +221,14 @@ export function Grid({ spec }: { spec: GridSpec }) {
               key={i}
               type="button"
               className="flex min-w-0 cursor-zoom-in flex-col gap-1.5 text-left"
-              onClick={() => src(it.image) && view({ kind: "image", src: src(it.image)!, title: it.title })}
+              onClick={() => src(it.image) && view({ kind: "image", src: src(it.image)!, title: cell(it.title) })}
             >
               {body}
             </button>
           );
         })}
       </div>
+      {limit && <More count={items.length - limit} unit={["élément", "éléments"]} onOpen={onOpen} />}
     </Frame>
   );
 }
@@ -392,6 +412,26 @@ function Choice({ spec }: { spec: ChoiceSpec }) {
   );
 }
 
+/** Lignes d'un tableau et éléments d'une grille montrés dans le fil ; le reste s'ouvre en grand. */
+export const PREVIEW_ROWS = 5;
+export const PREVIEW_ITEMS = 4;
+
+/** Grille, tableau ou graphique : un aperçu directement dans le fil, et un bouton qui l'ouvre en grand. */
+function DataPreview({ spec, code }: { spec: ChartSpec | TableSpec | GridSpec; code: string }) {
+  const { agentId } = useContext(AgentContext);
+  const view = useViewer();
+  const title = spec.title || ({ chart: "Graphique", table: "Tableau", grid: "Grille" })[spec.type];
+  const open = () => {
+    // Le visualiseur lit les images de la grille par leur adresse servie, comme le faisait la carte.
+    const data = spec.type === "grid" ? { ...spec, items: spec.items.map((it) => ({ ...it, image: typeof it.image === "string" && it.image.startsWith("/opt/data/") ? mediaUrl(agentId, it.image) : it.image })) } : spec;
+    view({ kind: "element", element: { type: "element", kind: spec.type, title, description: spec.note, source: "noah", size: new TextEncoder().encode(code).length, data: data as unknown as Record<string, unknown>, agentId } });
+  };
+  const expand = <Button size="sm" variant="outline" onClick={open} aria-label={`Ouvrir « ${title} » en grand`}><Maximize2 /><span className="max-sm:hidden">Agrandir</span></Button>;
+  if (spec.type === "chart") return <Chart spec={{ ...spec, title }} expand={expand} />;
+  if (spec.type === "table") return <Table spec={{ ...spec, title }} limit={PREVIEW_ROWS} expand={expand} onOpen={open} />;
+  return <Grid spec={{ ...spec, title }} limit={PREVIEW_ITEMS} expand={expand} onOpen={open} />;
+}
+
 /** Un widget qu'on peut joindre au prochain message (« Répondre à ceci »), avec sa place réservée sous lui. */
 function Quotable({ spec, children }: { spec: Spec; children: React.ReactNode }) {
   const { add } = useQuotes();
@@ -448,7 +488,7 @@ function shown(spec: Spec, code: string): React.ReactNode {
     case "element": { const e = parseElement(spec); return e ? <ElementCard spec={e} /> : null; }
     case "chart":
     case "table":
-    case "grid": return <Quotable spec={spec}><ElementCard spec={{ type: "element", kind: spec.type, title: spec.title || ({ chart: "Graphique", table: "Tableau", grid: "Grille" })[spec.type], description: spec.note, source: "noah", size: new TextEncoder().encode(code).length, data: spec as unknown as Record<string, unknown> }} /></Quotable>;
+    case "grid": return <Quotable spec={spec}><DataPreview spec={spec} code={code} /></Quotable>;
     case "choice": return <Choice spec={{ ...spec, question: typeof spec.question === "string" ? spec.question : "", options: [...new Set(spec.options.map(String))] }} />;
     case "preview": return <Quotable spec={spec}><ElementCard spec={{ type: "element", kind: kindOfFile(spec.path), title: spec.title || spec.path.split("/").pop() || "Fichier", path: spec.path, description: spec.note, source: "noah" }} /></Quotable>;
     case "video": return <Quotable spec={spec}><VideoEmbed url={spec.url} title={spec.title} /></Quotable>;
