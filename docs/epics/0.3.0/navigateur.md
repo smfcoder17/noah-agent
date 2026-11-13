@@ -20,7 +20,7 @@ Camoufox est fort sur 3 et 4 : ses corrections sont dans le code du navigateur e
 
 L'agent choisit par règle du lanceur, pas par bonne volonté : une page ouverte « pour lire » part dans Lecture.
 
-Limite : X montre peu sans compte. Pour lire X, trois voies à comparer : l'API de lecture (payante), un compte secondaire réservé à la lecture, ou la lecture lente dans le navigateur Compte.
+Limite : X montre peu sans compte. Décision de Franck : la clé d'API X est un plus, jamais un prérequis. Sans clé, l'agent lit X lentement dans le navigateur Compte, au budget du rythme (C). Avec une clé collée dans Réglages, il lit et publie sur X par l'API, sans navigateur. Rien d'autre à configurer.
 
 ### B. Le moteur : choisir sur mesure, sans fabriquer le nôtre
 
@@ -40,13 +40,22 @@ Un budget par site et par heure (profils vus, recherches, gestes), des délais i
 
 Une fiche courte par site courant (X, LinkedIn, Google, Instagram) : chemin le plus court, ce qui se lit sans compte, ce qui déclenche un refus, quand passer par l'API.
 
-### E. Sortir par la maison (option)
+### E. Sortir par la maison (option, par paliers)
 
-Le plus fort levier sur un VPS : faire sortir le navigateur Compte par l'ordinateur de la personne (l'application de bureau comme relais) ou par un relais résidentiel qu'elle fournit. À rapprocher de l'extension Chrome de `agir-sur-ordinateur.md` : agir dans son vrai navigateur reste le moins détectable.
+Le plus fort levier sur un VPS : faire sortir le navigateur Compte par une adresse de maison. Ce n'est jamais un prérequis : la personne qui n'a qu'un VPS et un téléphone doit avoir un agent qui marche.
+
+| Ce que la personne a | Sortie du navigateur Compte |
+|---|---|
+| Rien d'autre que le VPS (ou un iPhone) | Adresse du VPS, avec Lecture séparé et rythme du lanceur (A et C) : le socle |
+| L'appli de bureau ouverte | Relais par l'ordinateur, tant qu'il est allumé ; retour au socle sinon |
+| L'appli Android | Relais par le téléphone, seulement en Wi-Fi et en charge (service visible) ; retour au socle sinon |
+| Un relais résidentiel payé | Son adresse collée dans Réglages |
+
+Le lanceur choisit seul le meilleur palier disponible et le montre dans l'écran Ordinateur. iOS ne permet pas de relais en arrière-plan. À rapprocher de l'extension Chrome de `agir-sur-ordinateur.md` : agir dans son vrai navigateur reste le moins détectable.
 
 ## Ordre
 
-1. **Banc anti-robot sur un VPS** (1 jour) : pages de test d'empreinte, Cloudflare, recherche Google, X et LinkedIn sans compte, Amazon ; pour chaque moteur : passe ou bloque, et temps. Étend `tools/eval/navigateur.mjs`.
+1. **Banc anti-robot sur le VPS de Franck** (1 jour) : pages de test d'empreinte, Cloudflare, recherche Google, X et LinkedIn sans compte, Amazon ; pour chaque moteur : passe ou bloque, et temps. Étend `tools/eval/navigateur.mjs`.
 2. **Deux navigateurs et rythme du lanceur** (2 à 3 jours).
 3. **Bascule du moteur** selon le banc.
 4. **Fiches par site**, puis **sortie par la maison**.
@@ -55,8 +64,8 @@ Le plus fort levier sur un VPS : faire sortir le navigateur Compte par l'ordinat
 
 Les conditions de X interdisent l'automatisation hors de son API. Ce plan réduit le risque pour le compte, il ne l'annule pas. La voie sans risque pour publier reste l'API.
 
-## À décider par Franck
+## Décisions de Franck (13 novembre)
 
-- Lire X : API payante, compte secondaire, ou lecture lente ?
-- Le banc tourne sur son VPS ou sur un VPS d'essai ?
-- La sortie par la maison entre-t-elle dans la 0.3.0 ?
+- Lire X : clé d'API facile à ajouter, jamais bloquante.
+- Le banc tourne sur son VPS.
+- Sortie par la maison : par paliers, le socle VPS seul doit suffire (question posée : « et si la personne a juste set up le vps et est sur mobile ? »).
