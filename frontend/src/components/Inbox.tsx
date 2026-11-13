@@ -1,21 +1,45 @@
 import { subscribeUpdates } from "@/lib/events";
 // « À toi » : tout ce qui attend la personne, tous agents confondus. Un accord se donne ici ; le reste ouvre la conversation.
-import { Loader2 } from "lucide-react";
-import { useEffect, useState } from "react";
-import { type Agent, get, type InboxItem, send } from "@/lib/api";
+import { Lightbulb, Loader2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { type Agent, get, type InboxItem, isProposition, type Proposition, send } from "@/lib/api";
 import { refreshAccords, useAccords } from "@/lib/events";
+import { refreshPropositions, setPropositionCount } from "@/lib/propositions";
 import { LoginCard } from "./LoginCard";
 import { AgentFace } from "./Noah";
 import { StateShape } from "./Sidebar";
 import { Button, Dialog, DialogContent, ErrorText } from "./ui";
 
-export function Inbox({ open, agents, onOpenChange, onOpenConversation }: {
+/** Une idée de l'agent : « Fais-le » la lance dans sa conversation principale, « Non » la range (et il s'en souvient). */
+export function PropositionCard({ item, agent, onAnswer }: { item: Proposition; agent?: Agent; onAnswer: (choix: "faire" | "non") => void }) {
+  return (
+    <li className="flex flex-col gap-2 rounded-xl border border-border p-2.5">
+      <div className="flex items-start gap-3">
+        {agent && <AgentFace agent={agent} className="size-9 shrink-0" />}
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><Lightbulb className="size-3.5" aria-hidden />{item.agent} te propose</span>
+          <span className="whitespace-pre-wrap break-words text-sm font-medium">{item.texte}</span>
+        </span>
+      </div>
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" size="sm" className="max-md:h-10 max-md:px-4" aria-label={`Non, pas cette proposition de ${item.agent}`} onClick={() => onAnswer("non")}>Non</Button>
+        <Button size="sm" className="max-md:h-10 max-md:px-4" aria-label={`Fais-le : lancer la proposition de ${item.agent}`} onClick={() => onAnswer("faire")}>Fais-le</Button>
+      </div>
+    </li>
+  );
+}
+
+export function Inbox({ open, agents, onOpenChange, onOpenConversation, onOpenAgent }: {
   open: boolean;
   agents: Agent[];
   onOpenChange: (open: boolean) => void;
   onOpenConversation: (item: InboxItem) => void;
+  /** Ouvre la conversation principale de cet agent. */
+  onOpenAgent?: (agentId: string) => void;
 }) {
   const [items, setItems] = useState<InboxItem[] | null>(null);
+  const [propositions, setPropositions] = useState<Proposition[]>([]);
+  const answered = useRef(new Set<string>()); // une relecture pendant l'envoi ne la fait pas revenir
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const { items: accords } = useAccords();
@@ -23,7 +47,11 @@ export function Inbox({ open, agents, onOpenChange, onOpenConversation }: {
     if (!open) return;
     setItems(null);
     setError("");
-    const load = () => get<InboxItem[]>("/api/a-toi").then((rows) => setItems(rows.filter((r) => !r.request_id))).catch((e) => setError((e as Error).message));
+    const load = () => get<(InboxItem | Proposition)[]>("/api/a-toi").then((rows) => {
+      const ideas = rows.filter(isProposition);
+      setPropositions(ideas.filter((p) => !answered.current.has(p.id)).sort((a, b) => a.cree - b.cree));
+      setItems(rows.filter((r): r is InboxItem => !isProposition(r) && !r.request_id));
+    }).catch((e) => setError((e as Error).message));
     void load();
     // Connexions et choix gardent leur relève existante ; les accords viennent exclusivement du bus et de /api/accords (secours 60 s).
     const timer = subscribeUpdates(load);
@@ -50,13 +78,33 @@ export function Inbox({ open, agents, onOpenChange, onOpenConversation }: {
       setBusy("");
     }
   };
+  /** La carte part tout de suite ; un échec la remet à sa place avec un mot. */
+  const reply = async (item: Proposition, choix: "faire" | "non") => {
+    setError("");
+    answered.current.add(item.id);
+    setPropositions((cur) => {
+      const left = cur.filter((p) => p.id !== item.id);
+      setPropositionCount(left.length);
+      return left;
+    });
+    try {
+      await send(`/api/propositions/${encodeURIComponent(item.id)}/reponse`, { choix });
+      if (choix === "faire") onOpenAgent?.(item.agent_id);
+    } catch {
+      answered.current.delete(item.id);
+      setPropositions((cur) => [...cur.filter((p) => p.id !== item.id), item].sort((a, b) => a.cree - b.cree));
+      setError(choix === "faire" ? `${item.agent} n'a pas pu lancer cette proposition. Réessaie dans un instant.` : "Ta réponse n'est pas passée. Réessaie dans un instant.");
+    } finally {
+      void refreshPropositions().catch(() => {});
+    }
+  };
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {open && (
         <DialogContent title="À toi" description="Ce que tes agents attendent de toi." className="max-w-lg">
           <ErrorText>{error}</ErrorText>
           {!items && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture…</p>}
-          {items?.length === 0 && !accords.length && <p className="py-4 text-sm text-muted-foreground">Rien ne t'attend pour le moment.</p>}
+          {items?.length === 0 && !accords.length && !propositions.length && <p className="py-4 text-sm text-muted-foreground">Rien ne t'attend pour le moment.</p>}
           <ul className="flex max-h-[60vh] flex-col gap-2 overflow-y-auto max-md:max-h-none max-md:overflow-visible">
             {[...accords, ...(items ?? [])].sort((a, b) => a.created - b.created).map((item) => {
               const agent = agents.find((a) => a.id === item.agent_id);
@@ -95,6 +143,7 @@ export function Inbox({ open, agents, onOpenChange, onOpenConversation }: {
                 </li>
               );
             })}
+            {propositions.map((p) => <PropositionCard key={p.id} item={p} agent={agents.find((a) => a.id === p.agent_id)} onAnswer={(choix) => void reply(p, choix)} />)}
           </ul>
         </DialogContent>
       )}
