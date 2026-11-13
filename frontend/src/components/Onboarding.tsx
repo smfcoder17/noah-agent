@@ -290,6 +290,8 @@ function AgentStep({ onNext }: { onNext: (agentId: string) => void }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [preset, setPreset] = useState<Preset | null>(null);
+  const [goal, setGoal] = useState("");
+  const [made, setMade] = useState<string | null>(null);
   const presets = usePresets();
   // Un modèle pré-remplit le nom et le rôle ; « Partir de zéro » revient au nom par défaut.
   const pick = (p: Preset | null) => {
@@ -313,14 +315,20 @@ function AgentStep({ onNext }: { onNext: (agentId: string) => void }) {
     setBusy(true);
     setError("");
     try {
-      if (!agent) {
-        const { id } = await send<{ id: string }>("/api/agents", { name: name.trim(), role, preset: preset?.id ?? "" });
+      let id = agent?.id ?? made;
+      if (!id) {
+        id = (await send<{ id: string }>("/api/agents", { name: name.trim(), role, preset: preset?.id ?? "" })).id;
         forgetPresets(); // l'écran vide du nouvel agent relit son modèle
-        return onNext(id);
+        setMade(id); // créé : un échec de l'objectif ne doit pas faire créer un deuxième agent au clic suivant
+      } else if (agent && (name.trim() !== agent.name || role !== agent.role)) {
+        // Inchangé : pas de reconfiguration de la machine de l'agent pour rien.
+        await send(`/api/agents/${id}`, { name: name.trim(), role }, "PATCH");
       }
-      // Inchangé : pas de reconfiguration de la machine de l'agent pour rien.
-      if (name.trim() !== agent.name || role !== agent.role) await send(`/api/agents/${agent.id}`, { name: name.trim(), role }, "PATCH");
-      onNext(agent.id);
+      if (goal.trim()) {
+        await send("/api/goals", { texte: goal.trim(), agent_id: id });
+        setGoal(""); // posé : un nouvel essai ne le recrée pas
+      }
+      onNext(id);
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);
@@ -330,7 +338,7 @@ function AgentStep({ onNext }: { onNext: (agentId: string) => void }) {
     <form onSubmit={submit} className="max-w-xl">
       <Card>
         <h2 className="text-lg font-semibold">Ton premier agent</h2>
-        {loaded && !agent && presets && presets.presets.length > 0 && <PresetPicker presets={presets.presets} value={preset?.id ?? ""} onPick={pick} />}
+        {loaded && !agent && !made && presets && presets.presets.length > 0 && <PresetPicker presets={presets.presets} value={preset?.id ?? ""} onPick={pick} />}
         <Label>
           Nom
           <Input required maxLength={40} value={name} onChange={(e) => setName(e.target.value)} />
@@ -340,6 +348,11 @@ function AgentStep({ onNext }: { onNext: (agentId: string) => void }) {
           <Textarea rows={4} maxLength={4000} value={role} onChange={(e) => setRole(e.target.value)} />
         </Label>
         {preset && !agent && <PresetNote preset={preset} />}
+        <Label>
+          Qu'est-ce que tu veux atteindre ? (facultatif)
+          <Input maxLength={300} placeholder="Ex. Publier deux posts par semaine, ne plus rater une facture" value={goal} onChange={(e) => setGoal(e.target.value)} />
+        </Label>
+        <p className="-mt-2 text-xs text-muted-foreground">Ton agent le garde en tête et te propose de lui-même ce qui t'en rapproche. Tu peux laisser vide.</p>
         <ErrorText>{error}</ErrorText>
         <Button type="submit" size="lg" disabled={busy || !loaded || !name.trim()}>Continuer</Button>
       </Card>

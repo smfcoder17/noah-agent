@@ -13,7 +13,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from . import access, auth, db, desktop, hermes, modes, notifications, relay
+from . import access, auth, db, desktop, hermes, modes, notifications, presets, relay
 from .config import LAUNCHER_URL
 from .hermes import LAUNCHER
 
@@ -209,7 +209,8 @@ async def _edit_routine(agent_id: str, routine_id: str, body: RoutineEdit) -> di
 
 async def _shown_routines(agent_id: str) -> dict:
     found = await admin(agent_id, "routines")
-    return {**found, "routines": [modes.shown_routine(agent_id, r) for r in found.get("routines") or []]}
+    # `suggerees` : celles du modèle d'agent, en pause dans Noah (presets.py). Hors de `routines` : Hermes ne les connaît pas encore.
+    return {**found, "routines": [modes.shown_routine(agent_id, r) for r in found.get("routines") or []], "suggerees": presets.suggested(agent_id)}
 
 
 @router.get("/api/agents/{agent_id}/routines")
@@ -220,6 +221,18 @@ async def routines(agent_id: str, user: int = Depends(auth.current_user)):
 @router.post("/api/agents/{agent_id}/routines")
 async def routine_create(agent_id: str, body: NewRoutine, user: int = Depends(auth.current_user)):
     return await _create_routine(_check(agent_id, user), body)
+
+
+@router.post("/api/agents/{agent_id}/routines/suggerees/{suggestion_id}/activer")
+async def routine_suggestion_activate(agent_id: str, suggestion_id: int, user: int = Depends(auth.current_user)):
+    """Un geste : la routine du modèle, en pause jusque-là, devient une vraie routine active. Une seule fois."""
+    agent_id = _check(agent_id, user)
+    row = presets.take(agent_id, suggestion_id)
+    try:
+        return await _create_routine(agent_id, NewRoutine(nom=row["nom"], consigne=row["consigne"], quand=row["horaire"]))
+    except BaseException:
+        presets.give_back(row)
+        raise
 
 
 @router.post("/api/agents/{agent_id}/routines/{routine_id}/{action}")
