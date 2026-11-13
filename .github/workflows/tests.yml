@@ -148,6 +148,9 @@ jobs:
       - name: "Objectifs et tour de lui-même : rien de neuf ne coûte rien, un seul tour à la fois, budget, tâche en cours, invité refusé"
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/agents/proactif_test.py"
+      - name: "Propositions : idée du jour sans objectif, « Fais-le » et « Non », heures actives, plafonds par agent et par compte, mise à jour sans bruit"
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/agents/propositions_test.py"
       - name: "Il apprend sans qu'on le demande : une relecture par correction, plafond, 👎 qui demande, une réaction n'autorise rien, rien de dehors ni d'un invité"
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/agents/apprendre_test.py"

@@ -132,7 +132,16 @@ for p in data["presets"]:
     assert any(p["role"] in s for s in souls), p["id"]  # la persona part bien dans la machine de l'agent
 assert len(machines) == len(ids), machines
 added = {k: v for k, v in settings().items() if before.get(k) != v}
-assert added == {f"preset_{created[i]}": i for i in ids}, added  # rien d'autre : ni mode, ni plafond, ni accord
+# 0.2.0 : le premier message, écrit par Noah à la place de l'agent, lui est aussi donné en contexte (comme un résultat de routine).
+# Exactement ce texte, rien d'autre : ni mode, ni plafond, ni accord.
+welcomed = {}
+for i in ids:
+    conv = main._main_conversation(created[i], ALICE)
+    with db.connect() as c:
+        first = c.execute("SELECT text FROM messages WHERE conversation_id = ? ORDER BY id", (conv,)).fetchall()
+    assert len(first) == 1, (i, first)
+    welcomed[f"contexte_{conv}"] = json.dumps([presets.agent_note(first[0]["text"], bool(presets.BY_ID[i]["routines"]))])
+assert added == {**{f"preset_{created[i]}": i for i in ids}, **welcomed}, added  # rien d'autre : ni mode, ni plafond, ni accord
 with db.connect() as c:
     tables = [r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type = 'table'")]
     for t in ("mcp_tools", "agent_shares", "proactive"):

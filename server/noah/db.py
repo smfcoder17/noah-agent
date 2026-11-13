@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import sqlite3
+import time
 from contextlib import contextmanager
 
 from cryptography.fernet import Fernet
@@ -251,8 +252,17 @@ def init() -> None:
         # 0.2.0 : heures actives, plafond de propositions par jour, briefing du matin ; un tour coupé se reprend une fois (`reprise`).
         _add_columns(db, "proactive", {"heures_de": "INTEGER NOT NULL DEFAULT 8", "heures_a": "INTEGER NOT NULL DEFAULT 21",
                                        "propositions_max": "INTEGER NOT NULL DEFAULT 3", "briefing_day": "TEXT NOT NULL DEFAULT ''",
-                                       "briefing_at": "REAL NOT NULL DEFAULT 0"})
+                                       "briefing_at": "REAL NOT NULL DEFAULT 0",
+                                       # une note « plafond atteint » par jour au plus ; l'idée du jour qui échoue attend (1 h, 4 h, demain)
+                                       "plafond_dit": "TEXT NOT NULL DEFAULT ''", "idee_echecs": "INTEGER NOT NULL DEFAULT 0",
+                                       "idee_echec_jour": "TEXT NOT NULL DEFAULT ''", "idee_reessai": "REAL NOT NULL DEFAULT 0"})
         _add_columns(db, "proactive_turns", {"reprise": "INTEGER NOT NULL DEFAULT 0"})
+        # Passage à la 0.2.0 : les agents déjà là passent tous à « Me signaler » d'un coup. Le jour du passage (24 h à partir de
+        # cette heure), une proposition par compte au plus, sans point du matin ni premier relevé (proactif.py). Écrit une fois :
+        # « 0 » pour une installation neuve, qui n'a rien à calmer.
+        if not db.execute("SELECT 1 FROM settings WHERE key = 'migr_020'").fetchone():
+            had = db.execute("SELECT 1 FROM agents LIMIT 1").fetchone()
+            db.execute("INSERT INTO settings (key, value) VALUES ('migr_020', ?)", (repr(time.time()) if had else "0",))
         # Ce qu'un agent propose de lui-même (propositions.py) : `demande` part telle quelle à l'agent si la personne dit « Fais-le ».
         db.execute("CREATE TABLE IF NOT EXISTS propositions (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, "
                    "owner INTEGER, genre TEXT NOT NULL, texte TEXT NOT NULL, demande TEXT NOT NULL, "

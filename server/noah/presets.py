@@ -102,7 +102,21 @@ def welcome(agent_id: str, name: str, preset: dict | None, conversation, save_me
     with db.connect() as c:
         if c.execute("SELECT 1 FROM messages WHERE conversation_id = ?", (conv,)).fetchone():
             return
-    save_message(conv, "agent", first_message(name, preset))
+    text = first_message(name, preset)
+    save_message(conv, "agent", text)
+    from . import machine  # machine importe ce module : ici seulement
+    machine.add_context(conv, agent_note(text, bool(preset["routines"])))  # comme un résultat de routine : il l'a en tête au prochain message
+
+
+def agent_note(text: str, routines: bool) -> str:
+    """Ce que l'agent reçoit de son premier message : Noah l'a écrit à sa place, il ne le saurait pas sinon. Avec les routines en
+    pause, la commande qui les active : « active la première » ne doit pas créer une routine en double."""
+    note = f"[Tu as écrit ceci à la personne à ta création, depuis ton modèle :]\n{text}"
+    if routines:
+        note += ("\n[Ces routines sont en pause dans Noah, pas encore dans ta liste. `python3 /opt/data/noah.py routines` les montre sous "
+                 "« suggerees », chacune avec son id. Si la personne te demande d'en activer une : "
+                 "`python3 /opt/data/noah.py routine-action suggeree-<id> reprendre`. N'en crée pas une nouvelle à la place.]")
+    return note
 
 
 def first_message(name: str, preset: dict) -> str:
@@ -112,7 +126,7 @@ def first_message(name: str, preset: dict) -> str:
         lines.append("Ce que je peux faire seul, à heure fixe, sans que tu me le redemandes :")
         lines += [f"- **{r['nom']}** ({r['quand'].split(',')[0]}) : {r['consigne']}" for r in preset["routines"]]
         lines += ["", "Ces routines sont en pause : rien ne part tant que tu ne les actives pas. "
-                  "Pour en activer une, touche « Activer » dans Détails, onglet Routines.", ""]
+                  "Pour en activer une, touche « Activer » dans Détails, onglet Routines, ou demande-le-moi.", ""]
     else:
         lines += ["Je travaille quand tu me le demandes. Si une tâche revient souvent, je te proposerai d'en faire une routine.", ""]
     lines.append("Pour commencer, tu peux me demander :")
@@ -135,6 +149,19 @@ def take(agent_id: str, suggestion_id: int) -> dict:
             raise HTTPException(404, "Cette routine n'est plus à activer.")
         c.execute("DELETE FROM routines_suggerees WHERE id = ?", (suggestion_id,))
     return dict(row)
+
+
+def same_name(a: str, b: str) -> bool:
+    return " ".join((a or "").split()).casefold() == " ".join((b or "").split()).casefold()
+
+
+def consume_named(agent_id: str, nom: str) -> None:
+    """Une routine du même nom vient d'être créée (par l'écran ou par l'agent) : la suggestion est faite, elle ne reste pas en pause."""
+    with db.connect() as c:
+        rows = c.execute("SELECT id, nom FROM routines_suggerees WHERE agent_id = ?", (agent_id,)).fetchall()
+        for r in rows:
+            if same_name(r["nom"], nom):
+                c.execute("DELETE FROM routines_suggerees WHERE id = ?", (r["id"],))
 
 
 def give_back(row: dict) -> None:

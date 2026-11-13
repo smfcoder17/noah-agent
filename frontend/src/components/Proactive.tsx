@@ -14,7 +14,10 @@ const MODES: [ProactiveMode, string, string][] = [
   ["agir", "Agir et me dire", "Il agit, puis te dit quoi."],
 ];
 const EVERY: [number, string][] = [[15, "Toutes les 15 min"], [30, "Toutes les 30 min"], [60, "Toutes les heures"], [120, "Toutes les 2 h"], [180, "Toutes les 3 h"], [360, "Toutes les 6 h"]];
-const HOURS = Array.from({ length: 24 }, (_, h) => h);
+const STARTS = Array.from({ length: 24 }, (_, h) => h); // 0 h à 23 h
+const ENDS = Array.from({ length: 24 }, (_, h) => h + 1); // 1 h à minuit, comme le serveur (1 à 24)
+const hourName = (h: number) => (h === 24 ? "minuit" : `${h} h`);
+const ORDER = "L'heure de fin vient après l'heure de début.";
 const MAX = Array.from({ length: 7 }, (_, n) => n);
 const DEFAULT_HOURS = { de: 8, a: 21 };
 const DEFAULT_MAX = 3;
@@ -85,18 +88,26 @@ function ModeChoice({ s, change }: { s: ProactiveState; change: (b: ProactiveCha
 function HoursAndMax({ s, change }: { s: ProactiveState; change: (b: ProactiveChange) => void }) {
   const hours = s.heures ?? DEFAULT_HOURS;
   const max = s.propositions_max ?? DEFAULT_MAX;
+  const [wrong, setWrong] = useState("");
+  /** Le début avant la fin, comme le serveur l'exige : sinon rien ne part, et la phrase le dit. */
+  const setHours = (de: number, a: number) => {
+    if (de >= a) return setWrong(ORDER);
+    setWrong("");
+    change({ heures: { de, a } });
+  };
   return (
     <div className="flex flex-col gap-2 text-sm">
       <p className="flex flex-wrap items-center gap-1.5">
         Il peut t'écrire de
-        <select value={hours.de} disabled={!s.modifiable} onChange={(e) => change({ heures: { de: Number(e.target.value), a: hours.a } })} aria-label="À partir de quelle heure" className={select}>
-          {HOURS.map((h) => <option key={h} value={h}>{h} h</option>)}
+        <select value={hours.de} disabled={!s.modifiable} onChange={(e) => setHours(Number(e.target.value), hours.a)} aria-label="À partir de quelle heure" className={select}>
+          {STARTS.map((h) => <option key={h} value={h}>{hourName(h)}</option>)}
         </select>
         à
-        <select value={hours.a} disabled={!s.modifiable} onChange={(e) => change({ heures: { de: hours.de, a: Number(e.target.value) } })} aria-label="Jusqu'à quelle heure" className={select}>
-          {HOURS.map((h) => <option key={h} value={h}>{h} h</option>)}
+        <select value={hours.a} disabled={!s.modifiable} onChange={(e) => setHours(hours.de, Number(e.target.value))} aria-label="Jusqu'à quelle heure" className={select}>
+          {ENDS.map((h) => <option key={h} value={h}>{hourName(h)}</option>)}
         </select>
       </p>
+      {wrong && <p role="alert" className="text-xs text-warn">{wrong}</p>}
       <p className="flex flex-wrap items-center gap-1.5">
         Au plus
         <select value={max} disabled={!s.modifiable} onChange={(e) => change({ propositions_max: Number(e.target.value) })} aria-label="Propositions par jour, au plus" className={select}>

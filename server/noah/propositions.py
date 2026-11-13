@@ -23,6 +23,7 @@ router = APIRouter()
 
 EXPIRE = 48 * 3600
 MAX_DEFAULT, MAX_LIMIT = 3, 6  # par agent et par jour
+OWNER_MAX = 3  # par compte et par jour, tous ses agents ensemble : cinq agents ne font pas quinze cartes
 GENRES = ("idee", "releve", "traiter", "briefing")
 TEXT_MAX, DEMAND_MAX = 1500, 4000
 
@@ -37,6 +38,12 @@ def made_on(agent_id: str, day: str) -> int:
     """Combien cet agent en a fait ce jour-là, quelle que soit la réponse : c'est ce que compte le plafond."""
     with db.connect() as c:
         return c.execute("SELECT COUNT(*) FROM propositions WHERE agent_id = ? AND jour = ?", (agent_id, day)).fetchone()[0]
+
+
+def made_for_owner(owner: int | None, day: str) -> int:
+    """Combien tous les agents de ce compte en ont fait ce jour-là : le plafond du compte."""
+    with db.connect() as c:
+        return c.execute("SELECT COUNT(*) FROM propositions WHERE owner IS ? AND jour = ?", (owner, day)).fetchone()[0]
 
 
 def create(agent_id: str, genre: str, texte: str, demande: str, day: str, conv_id: str | None = None, message_id: int | None = None) -> str:

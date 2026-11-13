@@ -193,7 +193,24 @@ async def _routine_settings(agent_id: str, body: RoutineChoices) -> dict:
 async def _create_routine(agent_id: str, body: NewRoutine) -> dict:
     settings = await _routine_settings(agent_id, body)
     payload = {"nom": body.nom, "quand": body.quand, "en_pause": body.en_pause, "consigne": modes.with_image_note(body.consigne, body.image), **settings}
-    return modes.shown_routine(agent_id, await admin(agent_id, "routine_creer", payload))
+    made = modes.shown_routine(agent_id, await admin(agent_id, "routine_creer", payload))
+    if body.nom and not body.en_pause:
+        presets.consume_named(agent_id, body.nom)  # la même que celle du modèle, créée à la main : elle ne reste pas à activer
+    return made
+
+
+async def _activate_suggestion(agent_id: str, suggestion_id: int) -> dict:
+    """La routine du modèle, en pause jusque-là, devient une vraie routine active, une seule fois, par l'écran comme par l'agent.
+    Déjà créée sous ce nom : rien de plus, la suggestion est seulement retirée."""
+    row = presets.take(agent_id, suggestion_id)
+    try:
+        existing = next((r for r in (await admin(agent_id, "routines")).get("routines") or [] if presets.same_name(r.get("name") or "", row["nom"])), None)
+        if existing:
+            return modes.shown_routine(agent_id, existing)
+        return await _create_routine(agent_id, NewRoutine(nom=row["nom"], consigne=row["consigne"], quand=row["horaire"]))
+    except BaseException:
+        presets.give_back(row)
+        raise
 
 
 async def _edit_routine(agent_id: str, routine_id: str, body: RoutineEdit) -> dict:
@@ -226,13 +243,7 @@ async def routine_create(agent_id: str, body: NewRoutine, user: int = Depends(au
 @router.post("/api/agents/{agent_id}/routines/suggerees/{suggestion_id}/activer")
 async def routine_suggestion_activate(agent_id: str, suggestion_id: int, user: int = Depends(auth.current_user)):
     """Un geste : la routine du modèle, en pause jusque-là, devient une vraie routine active. Une seule fois."""
-    agent_id = _check(agent_id, user)
-    row = presets.take(agent_id, suggestion_id)
-    try:
-        return await _create_routine(agent_id, NewRoutine(nom=row["nom"], consigne=row["consigne"], quand=row["horaire"]))
-    except BaseException:
-        presets.give_back(row)
-        raise
+    return await _activate_suggestion(_check(agent_id, user), suggestion_id)
 
 
 @router.post("/api/agents/{agent_id}/routines/{routine_id}/{action}")
@@ -269,7 +280,13 @@ async def agent_routine_settings(routine_id: str, body: RoutineEdit, request: Re
 
 @router.post("/agent-api/routines/action")
 async def agent_routine_action(body: AgentRoutineAction, request: Request):
-    return await admin(relay._agent_from(request), "routine_action", body.model_dump())
+    agent_id = relay._agent_from(request)
+    suggestion = re.fullmatch(r"suggeree-(\d{1,9})", body.id)
+    if suggestion:  # une routine du modèle, en pause dans Noah : « reprendre » l'active, comme « Activer » à l'écran
+        if body.action != "reprendre":
+            raise HTTPException(400, "Une routine suggérée s'active avec « reprendre » ; tant qu'elle n'est pas activée, rien ne tourne.")
+        return await _activate_suggestion(agent_id, int(suggestion[1]))
+    return await admin(agent_id, "routine_action", body.model_dump())
 
 
 async def deliver_routines(save_message, main_conversation) -> None:

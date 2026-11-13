@@ -48,9 +48,9 @@ export function Inbox({ open, agents, onOpenChange, onOpenConversation, onOpenAg
     setItems(null);
     setError("");
     const load = () => get<(InboxItem | Proposition)[]>("/api/a-toi").then((rows) => {
-      const ideas = rows.filter(isProposition);
+      const ideas = rows.filter((r): r is Proposition => isProposition(r as { type?: string }));
       setPropositions(ideas.filter((p) => !answered.current.has(p.id)).sort((a, b) => a.cree - b.cree));
-      setItems(rows.filter((r): r is InboxItem => !isProposition(r) && !r.request_id));
+      setItems(rows.filter((r): r is InboxItem => !isProposition(r as { type?: string }) && !(r as InboxItem).request_id));
     }).catch((e) => setError((e as Error).message));
     void load();
     // Connexions et choix gardent leur relève existante ; les accords viennent exclusivement du bus et de /api/accords (secours 60 s).
@@ -78,7 +78,8 @@ export function Inbox({ open, agents, onOpenChange, onOpenConversation, onOpenAg
       setBusy("");
     }
   };
-  /** La carte part tout de suite ; un échec la remet à sa place avec un mot. */
+  /** La carte part tout de suite. Déjà répondue ailleurs ou expirée (404, 409) : elle ne revient pas. Le réseau ou le serveur
+   *  en panne (5xx) : elle revient, avec « Réessaie ». */
   const reply = async (item: Proposition, choix: "faire" | "non") => {
     setError("");
     answered.current.add(item.id);
@@ -90,7 +91,16 @@ export function Inbox({ open, agents, onOpenChange, onOpenConversation, onOpenAg
     try {
       await send(`/api/propositions/${encodeURIComponent(item.id)}/reponse`, { choix });
       if (choix === "faire") onOpenAgent?.(item.agent_id);
-    } catch {
+    } catch (e) {
+      const status = (e as { status?: number }).status;
+      if (status === 404 || status === 409) {
+        setError("Cette proposition n'attend plus de réponse : elle a déjà été traitée ou elle a expiré.");
+        return;
+      }
+      if (status && status < 500) {
+        setError((e as Error).message);
+        return;
+      }
       answered.current.delete(item.id);
       setPropositions((cur) => [...cur.filter((p) => p.id !== item.id), item].sort((a, b) => a.cree - b.cree));
       setError(choix === "faire" ? `${item.agent} n'a pas pu lancer cette proposition. Réessaie dans un instant.` : "Ta réponse n'est pas passée. Réessaie dans un instant.");

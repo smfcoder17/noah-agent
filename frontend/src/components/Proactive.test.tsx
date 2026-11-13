@@ -55,6 +55,27 @@ it("enregistre les heures et le plafond", async () => {
   expect(host.textContent).not.toContain("propositions par jour");
 });
 
+it("la fin va de 1 h à minuit, le début de 0 h à 23 h, comme le serveur", async () => {
+  const ends = [...host.querySelectorAll<HTMLOptionElement>('select[aria-label="Jusqu\'à quelle heure"] option')];
+  expect(ends.map((o) => o.value)).toEqual(Array.from({ length: 24 }, (_, h) => String(h + 1)));
+  expect(ends[ends.length - 1].textContent).toBe("minuit");
+  const starts = [...host.querySelectorAll<HTMLOptionElement>('select[aria-label="À partir de quelle heure"] option')];
+  expect(starts.map((o) => o.value)).toEqual(Array.from({ length: 24 }, (_, h) => String(h)));
+  await pick("Jusqu'à quelle heure", "24");
+  expect(send).toHaveBeenLastCalledWith("/api/agents/a/proactif", { heures: { de: 8, a: 24 } }, "PUT");
+});
+
+it("un début après la fin ne part pas, et la phrase le dit", async () => {
+  await pick("À partir de quelle heure", "22");
+  expect(send).not.toHaveBeenCalled();
+  expect(host.querySelector('[role="alert"]')?.textContent).toBe("L'heure de fin vient après l'heure de début.");
+  await pick("Jusqu'à quelle heure", "8");
+  expect(send).not.toHaveBeenCalled();
+  await pick("À partir de quelle heure", "9");
+  expect(send).toHaveBeenLastCalledWith("/api/agents/a/proactif", { heures: { de: 9, a: 21 } }, "PUT");
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+});
+
 it("« Rien » coupe et cache les heures", async () => {
   await act(async () => host.querySelector<HTMLButtonElement>('[role="radio"]')!.click());
   expect(send).toHaveBeenLastCalledWith("/api/agents/a/proactif", { mode: "coupe" }, "PUT");

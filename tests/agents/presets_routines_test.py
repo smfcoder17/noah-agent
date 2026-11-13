@@ -182,4 +182,35 @@ assert alice.delete(f"/api/agents/{gone}").status_code == 200
 assert presets.suggested(gone) == []
 print("7. un agent supprimé ne laisse aucune routine à activer")
 
+# --- 8. L'agent connaît son premier message et active une routine suggérée sans doublon, par lui ou par l'écran ---------------
+from noah import relay  # noqa: E402
+
+fresh = alice.post("/api/agents", json={"name": "Assistant", "preset": "assistant"}).json()["id"]
+conv = main._main_conversation(fresh, ALICE)
+told = machine.pop_context(conv)
+welcome = messages(fresh)[0]["text"]
+assert welcome in told and "suggeree-<id> reprendre" in told and "N'en crée pas une nouvelle" in told, told
+assert "ou demande-le-moi" in welcome, welcome
+bot = TestClient(main.app, raise_server_exceptions=False, headers={"Authorization": f"Bearer {relay.token_for(fresh)}"})
+s1, s2, s3 = bot.get("/agent-api/routines").json()["suggerees"]
+calls.clear()
+r = bot.post("/agent-api/routines/action", json={"id": f"suggeree-{s1['id']}", "action": "reprendre"})
+assert r.status_code == 200 and r.json()["name"] == s1["nom"] and r.json()["enabled"], r.text
+assert [x["id"] for x in presets.suggested(fresh)] == [s2["id"], s3["id"]], "activée par l'agent : elle n'est plus à activer"
+assert bot.post("/agent-api/routines/action", json={"id": f"suggeree-{s1['id']}", "action": "reprendre"}).status_code == 404
+assert alice.post(f"/api/agents/{fresh}/routines/suggerees/{s1['id']}/activer").status_code == 404, "ni par l'écran ensuite"
+assert bot.post("/agent-api/routines/action", json={"id": f"suggeree-{s2['id']}", "action": "pause"}).status_code == 400
+assert len([c for c in calls if c[1] == "routine_creer"]) == 1
+# Il la recrée à la main sous le même nom au lieu de l'activer : la suggestion est consommée, l'écran n'en fait pas une seconde.
+assert bot.post("/agent-api/routines", json={"nom": f"  {s2['nom'].upper()} ", "consigne": s2["consigne"], "quand": s2["horaire"]}).status_code == 200
+assert [x["id"] for x in presets.suggested(fresh)] == [s3["id"]]
+assert alice.post(f"/api/agents/{fresh}/routines/suggerees/{s2['id']}/activer").status_code == 404
+# Une routine de ce nom existe déjà (faite avant) : « Activer » la rend, sans en créer une autre.
+crons[fresh].append({"id": "deja", "name": s3["nom"], "prompt": s3["consigne"], "schedule_display": s3["horaire"], "enabled": True, "state": "scheduled"})
+r = alice.post(f"/api/agents/{fresh}/routines/suggerees/{s3['id']}/activer")
+assert r.status_code == 200 and r.json()["id"] == "deja", r.text
+assert presets.suggested(fresh) == [] and len([c for c in calls if c[1] == "routine_creer"]) == 2
+assert sorted(j["name"] for j in crons[fresh]) == sorted([s1["nom"], f"  {s2['nom'].upper()} ", s3["nom"]]), crons[fresh]
+print("8. l'agent a son premier message en tête ; il active une routine suggérée par « reprendre » ; aucun chemin ne fait de doublon")
+
 print("OK")

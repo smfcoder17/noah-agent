@@ -66,3 +66,20 @@ it("un échec remet la carte avec un mot simple", async () => {
   expect(host.querySelector('[role="alert"]')?.textContent).toBe("Léa n'a pas pu lancer cette proposition. Réessaie dans un instant.");
   expect(onOpenAgent).not.toHaveBeenCalled();
 });
+
+const failing = (status: number) => Object.assign(new Error(`Erreur ${status}`), { status });
+
+it.each([404, 409])("déjà répondue ailleurs ou expirée (%i) : la carte part pour de bon, avec un mot simple", async (status) => {
+  vi.mocked(send).mockRejectedValue(failing(status));
+  await act(async () => button("Fais-le").click());
+  expect(host.textContent).not.toContain("Je peux trier");
+  expect(host.querySelector('[role="alert"]')?.textContent).toBe("Cette proposition n'attend plus de réponse : elle a déjà été traitée ou elle a expiré.");
+  expect(host.textContent).not.toContain("Réessaie");
+});
+
+it("serveur en panne (503) : la carte revient avec « Réessaie »", async () => {
+  vi.mocked(send).mockRejectedValue(failing(503));
+  await act(async () => button("Non").click());
+  expect(host.textContent).toContain("Je peux trier");
+  expect(host.querySelector('[role="alert"]')?.textContent).toBe("Ta réponse n'est pas passée. Réessaie dans un instant.");
+});

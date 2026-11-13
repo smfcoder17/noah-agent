@@ -1363,13 +1363,36 @@ async def list_models(body: ModelQuery, user: int = Depends(auth.current_user)):
 
 # --- Consommation -------------------------------------------------------------------------
 
+# L'offre de fin de tâche que le prompt demande (« Va au bout ») : une seule suite, en choix « Oui, vas-y » / « Non ».
+_OFFER_OPTIONS = {"oui, vas-y", "non"}
+_CHOICE_BLOCK = re.compile(r"```noah\s*(\{[^`]*\"type\"\s*:\s*\"choice\"[^`]*\})\s*```", re.S)
+
+
+def follow_up_offer(conv_id: str) -> bool:
+    """Le choix qui finit cette conversation est l'offre d'une suite, pas une question qui bloque. L'état « choice » ne naît que d'un
+    tour fini normalement (_run) : la tâche est faite. Reste à savoir si le choix attend vraiment quelque chose. Le signe fiable est
+    le contrat du prompt : la suite proposée se touche par « Oui, vas-y » ou « Non », et rien d'autre ne lui ressemble. Une vraie
+    question (« On publie ? » en Oui / Non, deux comptes à départager, un choix au milieu du message) garde ses propres options."""
+    with db.connect() as c:
+        row = c.execute("SELECT text FROM messages WHERE conversation_id = ? AND role = 'agent' ORDER BY id DESC LIMIT 1", (conv_id,)).fetchone()
+    blocks = list(_CHOICE_BLOCK.finditer(row["text"] if row else ""))
+    if not blocks or row["text"][blocks[-1].end():].strip():  # du texte après le choix : il attend la réponse à ce texte
+        return False
+    try:
+        options = json.loads(blocks[-1].group(1)).get("options") or []
+    except (ValueError, AttributeError):
+        return False
+    return {" ".join(str(o).split()).casefold().rstrip(".!") for o in options} == _OFFER_OPTIONS and len(options) == 2
+
+
 @app.get("/api/a-toi")
 def inbox(user: int = Depends(auth.current_user)):
-    """Accords du compte qui a lancé le travail, connexions et choix. Une conversation privée reste à son auteur."""
+    """Accords du compte qui a lancé le travail, connexions et choix. Une conversation privée reste à son auteur. Une tâche finie
+    sur l'offre d'une suite n'attend rien : elle n'y est pas (follow_up_offer)."""
     out = accords.list_accords(user)
     for conv_id, state in list(task_state.items()):
         login = coffre.pending(conv_id)  # l'état peut être passé à « work » sur un événement de l'agent : la demande, elle, attend toujours
-        if state != "choice" and not login:
+        if (state != "choice" or follow_up_offer(conv_id)) and not login:
             continue
         with db.connect() as c:
             row = c.execute("SELECT v.id, v.title, v.main, v.agent_id, v.user_id, a.name, "
@@ -2064,7 +2087,7 @@ def _task_counts(agent_id: str, ids: list[str] | None = None) -> dict[str, int]:
     counts: dict[str, int] = {}
     for cid in ids:
         st = task_state.get(cid)
-        if st in ("work", "approve", "choice"):
+        if st in ("work", "approve") or (st == "choice" and not follow_up_offer(cid)):  # une offre de suite n'attend personne
             counts[st] = counts.get(st, 0) + 1
     return counts
 
