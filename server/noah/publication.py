@@ -44,7 +44,10 @@ IG_REFRESH_AFTER = 20 * 86400  # un jeton vit 60 jours et se renouvelle tant qu'
 IG_REFRESH_RETRY = 3600
 IG_MAX_IMAGES, IG_MAX_BYTES, IG_MAX_CAPTION = 20, 8_000_000, 2200
 X_MAX_IMAGES, X_MAX_BYTES = 4, 5_000_000
+X_MAX_VIDEO_BYTES = 100_000_000  # X en prend bien plus (8 Go) ; le lanceur ne lit pas plus de 100 Mo (FILE_MAX)
+X_CHUNK = 4_000_000
 X_READY_SECONDS = 60
+X_VIDEO_READY_SECONDS = 600
 X_READY_FACTOR = 1
 ALREADY_SECONDS = 86400
 RUNNING_SECONDS = 600
@@ -58,6 +61,18 @@ _refresh_failed: dict[tuple[str, str], float] = {}
 
 class Refused(Exception):
     """La plateforme ou Noah refuse : le message est pour l'agent, et rien n'est parti."""
+
+
+class Halted(Refused):
+    """La plateforme freine le compte (envoi jugé automatisé, limite du jour, quota) : réessayer tout de suite, ici ou par le
+    navigateur, aggrave le blocage. `until` : l'heure (time.time) avant laquelle Noah ne lui renvoie rien."""
+
+    def __init__(self, message: str, until: float):
+        super().__init__(message)
+        self.until = until
+
+
+_halted: dict[tuple[str, str], float] = {}  # (plateforme, compte) -> fin du frein
 
 
 class Uncertain(Exception):
@@ -115,9 +130,11 @@ TOOLS = {
         _ACCOUNT,
     ],
     X: [
-        _tool("publier_post", "Publie un post sur X, avec jusqu'à 4 images, et rend son adresse.",
+        _tool("publier_post", "Publie un post sur X, avec jusqu'à 4 images ou une vidéo, et rend son adresse.",
               {"texte": {"type": "string", "description": "Le texte complet du post"},
-               "images": {"type": "array", "items": {"type": "string"}, "description": "Chemins des images (JPEG, PNG, WebP) dans /opt/data/workspace"}, **_AGAIN}, ["texte"]),
+               "images": {"type": "array", "items": {"type": "string"}, "description": "Chemins des images (JPEG, PNG, WebP) dans /opt/data/workspace"},
+               "video": {"type": "string", "description": "Chemin d'une vidéo MP4 (H.264 + AAC, 100 Mo au plus) dans /opt/data/workspace, à la place des images"},
+               **_AGAIN}, ["texte"]),
         _ACCOUNT,
     ],
 }
@@ -251,19 +268,35 @@ async def _publish(agent_id: str, platform: str, creds: dict, args: dict) -> dic
     paths = args.get("images") or []
     if instagram and not paths:
         raise Refused("Instagram demande au moins une image. Rien n'est parti.")
-    files = await _files(agent_id, paths, *((IG_MAX_IMAGES, IG_MAX_BYTES) if instagram else (X_MAX_IMAGES, X_MAX_BYTES)))
+    video = None if instagram else args.get("video")
+    if video is not None and (not isinstance(video, str) or not video or paths):
+        raise Refused("Sur X, une vidéo (un chemin) ou des images, pas les deux. Rien n'est parti.")
+    if video:
+        files = await _files(agent_id, [video], 1, X_MAX_VIDEO_BYTES)
+        if not _x_video(files[0]):
+            raise Refused(f"{video} n'est pas une vidéo MP4. Convertis-la (H.264 + AAC), puis relance. Rien n'est parti.")
+    else:
+        files = await _files(agent_id, paths, *((IG_MAX_IMAGES, IG_MAX_BYTES) if instagram else (X_MAX_IMAGES, X_MAX_BYTES)))
+        if not instagram and any(_x_video(data) for data in files):
+            raise Refused("Une vidéo se publie avec le champ video, seule. Rien n'est parti.")
     if instagram:
         for path, data in zip(paths, files):
             if not data.startswith(b"\xff\xd8\xff"):
                 raise Refused(f"{path} n'est pas un JPEG, le seul format qu'accepte l'API d'Instagram. Convertis-le, puis relance. Rien n'est parti.")
-    attempt = _claim(agent_id, platform, _print_of(platform, str(creds.get("id") or creds.get("compte") or ""), text, files), args.get("republier") is True)
+    account = (platform, str(creds.get("id") or creds.get("compte") or ""))
+    if _halted.get(account, 0) > time.time():
+        raise Refused(f"{'X' if platform == X else 'Instagram'} freine ce compte encore {_wait(_halted[account])} : "
+                      f"Noah ne lui renvoie rien d'ici là. Rien n'est parti. {HALT_NOTE}")
+    attempt = _claim(agent_id, platform, _print_of(platform, account[1], text, files), args.get("republier") is True)
     try:
         link = await (_instagram_post if instagram else _x_post)(agent_id, creds, text, files)
     except Uncertain as e:
         _close(attempt, "incertain")
         return _text(f"{e} Le post est peut-être en ligne : regarde le compte avant tout. {RETRY_NOTE}", True)
-    except (Refused, httpx.HTTPError, TokenRefused):
+    except (Refused, httpx.HTTPError, TokenRefused) as e:
         _close(attempt, "refuse")
+        if isinstance(e, Halted):
+            _halted[account] = e.until
         raise
     except BaseException:  # interrompu en plein travail : on ne sait pas où il en était
         _close(attempt, "incertain")
@@ -422,6 +455,39 @@ def x_start(client_id: str, callback: str) -> tuple[str, str]:
     return f"{X_AUTHORIZE}?{query}", verifier
 
 
+# Codes d'erreur de X qui disent « ralentis », et non « corrige ta requête » : 226 (la requête a l'air automatisée), 185 et 344
+# (limite d'envoi du jour), 88 (quota de l'API). Le site x.com les renvoie aussi, d'où le même frein côté navigateur (prompt).
+X_HALT_CODES = {226: "X juge cet envoi automatisé (code 226)", 185: "Limite quotidienne de posts atteinte sur X (code 185)",
+                344: "Limite quotidienne atteinte sur X (code 344)", 88: "Quota de l'API X atteint (code 88)"}
+X_HALT_SECONDS = {226: 3 * 3600, 185: 24 * 3600, 344: 24 * 3600, 88: 15 * 60}
+HALT_NOTE = ("Ne réessaie pas, ni avec cet outil ni par le navigateur : une nouvelle tentative prolonge le blocage. "
+             "Dis-le à la personne en une phrase, avec l'heure à laquelle reprendre, et ne marque rien comme publié.")
+
+
+def _wait(until: float) -> str:
+    left = max(60, until - time.time())
+    return f"environ {round(left / 60)} min" if left < 5400 else f"environ {round(left / 3600)} h"
+
+
+def _x_halt(r: httpx.Response, data) -> Halted | None:
+    """Un refus qui demande d'attendre : 429, ou l'un des codes de X_HALT_CODES dans `errors`, ou leur texte."""
+    codes = [e.get("code") for e in (data.get("errors") or []) if isinstance(e, dict)] if isinstance(data, dict) else []
+    known = next((c for c in codes if c in X_HALT_CODES), None)
+    text = json.dumps(data, ensure_ascii=False).lower() if data else ""
+    if known is None and "automated" in text:
+        known = 226
+    if known is None and "daily limit" in text:
+        known = 344
+    if known is None and r.status_code != 429:
+        return None
+    now = time.time()
+    resets = [float(v) for h in ("x-user-limit-24hour-reset", "x-app-limit-24hour-reset", "x-rate-limit-reset")
+              if (v := r.headers.get(h, "")).isdigit() and float(v) > now and (h != "x-rate-limit-reset" or r.headers.get("x-rate-limit-remaining") == "0")]
+    until = max(resets) if resets else now + X_HALT_SECONDS.get(known if known is not None else 88, 15 * 60)
+    what = X_HALT_CODES.get(known) if known is not None else "Limite de X atteinte (429)"
+    return Halted(f"{what}. Rien n'est parti. Reprise possible dans {_wait(until)}. {HALT_NOTE}", until)
+
+
 def _x_answer(r: httpx.Response) -> dict:
     try:
         data = r.json()
@@ -429,9 +495,11 @@ def _x_answer(r: httpx.Response) -> dict:
         data = {}
     if r.status_code == 401:
         raise TokenRefused()
+    if r.status_code >= 400 and (halt := _x_halt(r, data)):
+        raise halt
     if r.status_code >= 400:
         detail = data.get("detail") or data.get("title") if isinstance(data, dict) else ""
-        hint = {402: "Le crédit du compte développeur X est épuisé.", 429: "Limite de X atteinte pour le moment."}.get(r.status_code, "")
+        hint = {402: "Le crédit du compte développeur X est épuisé."}.get(r.status_code, "")
         raise Refused(f"X refuse ({r.status_code}) : {' '.join(filter(None, (hint, str(detail or ''))))}. Rien n'est parti. Corrige ce qu'il dit, ou passe par le navigateur.")
     return data if isinstance(data, dict) else {}
 
@@ -494,18 +562,28 @@ def _x_type(data: bytes) -> str:
             return kind
     if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
         return "image/webp"
-    raise Refused("X prend des images JPEG, PNG ou WebP. Convertis ce fichier, puis relance. Rien n'est parti.")
+    if _x_video(data):
+        return "video/mp4"
+    raise Refused("X prend des images JPEG, PNG ou WebP, ou une vidéo MP4. Convertis ce fichier, puis relance. Rien n'est parti.")
 
 
-async def _x_media_ready(c: httpx.AsyncClient, media: str, answer: dict, headers: dict) -> None:
-    """X peut traiter une image après sa réception : un post qui la cite trop tôt est refusé."""
-    ended = time.monotonic() + X_READY_SECONDS
+def _x_video(data: bytes) -> bool:
+    """Un MP4 (ou MOV) : la boîte `ftyp` en tête. X le veut en H.264 et AAC ; il le dit au traitement sinon."""
+    return data[4:8] == b"ftyp"
+
+
+async def _x_media_ready(c: httpx.AsyncClient, media: str, answer: dict, headers: dict, video: bool = False) -> None:
+    """X peut traiter un média après sa réception : un post qui le cite trop tôt est refusé. Une vidéo prend plus longtemps."""
+    ended = time.monotonic() + (X_VIDEO_READY_SECONDS if video else X_READY_SECONDS)
+    what = "cette vidéo" if video else "cette image"
     info = (answer.get("data") or {}).get("processing_info") or {}
     while info and info.get("state") not in ("succeeded", None):
         if info.get("state") == "failed":
-            raise Refused("X n'a pas pu traiter cette image. Rien n'est parti. Change-la, ou passe par le navigateur.")
+            reason = str((info.get("error") or {}).get("message") or "")[:200]
+            raise Refused(f"X n'a pas pu traiter {what}{' (' + reason + ')' if reason else ''}. Rien n'est parti. "
+                          + ("Réencode-la en MP4 H.264 + AAC, puis relance." if video else "Change-la, ou passe par le navigateur."))
         if time.monotonic() > ended:
-            raise Refused("X n'a pas fini de traiter l'image à temps. Rien n'est parti : réessaie plus tard.")
+            raise Refused(f"X n'a pas fini de traiter {what} à temps. Rien n'est parti : réessaie plus tard.")
         await asyncio.sleep(min(float(info.get("check_after_secs") or 1), 5) * X_READY_FACTOR)
         r = await c.get(f"{X_API}/media/upload", params={"command": "STATUS", "media_id": media}, headers=headers)
         info = (_x_answer(r).get("data") or {}).get("processing_info") or {}
@@ -517,12 +595,17 @@ async def _x_post(agent_id: str, creds: dict, text: str, files: list[bytes]) -> 
     async with _client() as c:
         ids = []
         for data, kind in zip(files, kinds):
-            r = await c.post(f"{X_API}/media/upload/initialize", json={"media_type": kind, "total_bytes": len(data), "media_category": "tweet_image"}, headers=headers)
+            video = kind.startswith("video/")
+            r = await c.post(f"{X_API}/media/upload/initialize", headers=headers,
+                             json={"media_type": kind, "total_bytes": len(data), "media_category": "tweet_video" if video else "tweet_image"})
             media = str((_x_answer(r).get("data") or {}).get("id") or "")
             if not media:
-                raise Refused("X n'a pas accepté cette image. Rien n'est parti.")
-            _x_answer(await c.post(f"{X_API}/media/upload/{media}/append", data={"segment_index": "0"}, files={"media": ("image", data, kind)}, headers=headers))
-            await _x_media_ready(c, media, _x_answer(await c.post(f"{X_API}/media/upload/{media}/finalize", headers=headers)), headers)
+                raise Refused(f"X n'a pas accepté {'cette vidéo' if video else 'cette image'}. Rien n'est parti.")
+            # Par morceaux de 4 Mo au plus (X en conseille 5 au plus) : une image tient dans le premier.
+            for index, start in enumerate(range(0, len(data), X_CHUNK)):
+                _x_answer(await c.post(f"{X_API}/media/upload/{media}/append", data={"segment_index": str(index)},
+                                       files={"media": ("video" if video else "image", data[start:start + X_CHUNK], kind)}, headers=headers))
+            await _x_media_ready(c, media, _x_answer(await c.post(f"{X_API}/media/upload/{media}/finalize", headers=headers)), headers, video)
             ids.append(media)
         body: dict = {"text": text}
         if ids:

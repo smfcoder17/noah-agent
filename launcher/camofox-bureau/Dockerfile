@@ -1,7 +1,9 @@
 # Image du navigateur de l'agent : Camofox, figé par empreinte, et un petit bureau (Openbox, tint2, PCManFM, Mousepad).
 # Le bureau tourne sous le compte 1001 : voir bureau/index.js. Aucun terminal dans cette image.
 FROM ghcr.io/jo-inc/camofox-browser@sha256:cff2c1432b609bde9c9d0b91e5b924dae0799d3c7bc9d468c0bc949325beaf2a
-RUN apt-get update && apt-get install -y --no-install-recommends openbox tint2 pcmanfm adwaita-icon-theme mousepad && rm -rf /var/lib/apt/lists/*
+# libavcodec61 : Firefox sous Linux lit le H.264 par la FFmpeg du système. Sans elle, aucune vidéo X (ni MP4 H.264) ne se lisait
+# (canPlayType vide, erreur 4) et l'envoi d'une vidéo sur X échouait. Mesuré : avec elle, la vidéo d'essai joue (≈ +120 Mo).
+RUN apt-get update && apt-get install -y --no-install-recommends openbox tint2 pcmanfm adwaita-icon-theme mousepad libavcodec61 && rm -rf /var/lib/apt/lists/*
 # Le nettoyage de Camofox tue tout ce qui s'appelle /usr/bin/Xvfb (lib/process-ownership.js) : ce lien garde l'écran en vie.
 RUN ln -s /usr/bin/Xvfb /usr/local/bin/Xvfb
 COPY bureau/index.js /app/plugins/bureau/index.js
