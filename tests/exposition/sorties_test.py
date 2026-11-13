@@ -84,6 +84,8 @@ KNOWN = {
     # Noms sans trafic : adresses d'exemple, espaces de noms, liens de documentation
     "noah.exemple.com": "exemple", "noah.invalid": "exemple", "mcp.exemple.fr": "exemple",
     "speaches.ai": "lien montré",
+    # 0.2.0 : adresses écrites dans les tests de l'interface (blocs, masquage), jamais appelées
+    "boutique.example": "exemple", "shop.example.com": "exemple", "www.lemonde.fr": "exemple", "youtu.be": "exemple", "wa.me": "exemple",
     "noah.exemple.com.evil.net": "exemple", "docs.docker.com": "lien montré", "host.docker.internal": "machine elle-même",
 }
 SOURCES = [*(REPO / "server/noah").rglob("*.py"), *(REPO / "launcher").rglob("*.py"), *(REPO / "launcher").rglob("*.js"),
