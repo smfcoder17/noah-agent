@@ -101,5 +101,5 @@ for needed, why in [
     assert needed in soul, why
 assert "ne relance rien" not in soul, "la phrase qui empêchait toute suite proposée est retirée"
 assert main._soul("Essai", "") == soul, "le prompt reste identique d'un appel à l'autre (cache du fournisseur)"
-assert main.AGENT_SETUP_VERSION.startswith("43-"), "les agents existants doivent recevoir le nouveau prompt"
+assert main.AGENT_SETUP_VERSION.startswith("44-"), "les agents existants doivent recevoir le nouveau prompt"
 print("prompt : critère de fin, vérification, autre voie, suite à toucher, skill, petits outils ; plus de « ne relance rien »")

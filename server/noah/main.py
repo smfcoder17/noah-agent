@@ -170,7 +170,7 @@ coffre.task_state = task_state
 apprentissage.setup(task_state=task_state, save=lambda conv, role, text: _save_message(conv, role, text))
 
 # Version du branchement des agents ; l'augmenter reconfigure tous les agents au démarrage.
-AGENT_SETUP_VERSION = "43-carte-de-connexion"  # 43 : une page de connexion mène à la carte (ou à un appel), jamais à « ça attend ta réponse » sans rien ; tutoiement partout ; travail local rangé sans modèle en Auto ; 42 : critère de fin, vérification, autre voie avant de demander, une suite à toucher, skill après une tâche qui reviendra, petits outils à soi ; 41 : le juge demande pourquoi à l'agent avant de déranger la personne ; 40 : juge, coffre, apprentissage, reçu, connecteurs ; 37 : plus de récit dans la réponse, réponses à toucher, réactions, publier partout, un fichier à la fois ; le réveil du navigateur ne bloque plus l'outil, l'heure de l'agent est celle de la personne ; 34 : joindre un fichier à une page, publier ce qui est prévu ; 33 : va au bout, cookies, tâche unique, plus de connexions par un tiers ; 31 : l'agent lit et change ses réglages non sensibles à condition, mémoire jugée, l'agent n'appelle plus de lui-même ; 29 : message sans rapport et contexte borné ; 28 : garde des profils de partage (G12.5) ; 27 : navigateur ; 26 : navigateur au premier usage
+AGENT_SETUP_VERSION = "44-tutoiement"  # 44 : tutoiement en tête du prompt ; 43 : une page de connexion mène à la carte (ou à un appel), jamais à « ça attend ta réponse » sans rien ; tutoiement partout ; travail local rangé sans modèle en Auto ; 42 : critère de fin, vérification, autre voie avant de demander, une suite à toucher, skill après une tâche qui reviendra, petits outils à soi ; 41 : le juge demande pourquoi à l'agent avant de déranger la personne ; 40 : juge, coffre, apprentissage, reçu, connecteurs ; 37 : plus de récit dans la réponse, réponses à toucher, réactions, publier partout, un fichier à la fois ; le réveil du navigateur ne bloque plus l'outil, l'heure de l'agent est celle de la personne ; 34 : joindre un fichier à une page, publier ce qui est prévu ; 33 : va au bout, cookies, tâche unique, plus de connexions par un tiers ; 31 : l'agent lit et change ses réglages non sensibles à condition, mémoire jugée, l'agent n'appelle plus de lui-même ; 29 : message sans rapport et contexte borné ; 28 : garde des profils de partage (G12.5) ; 27 : navigateur ; 26 : navigateur au premier usage
 
 
 @app.on_event("startup")
@@ -1976,7 +1976,8 @@ def _soul(name: str, role: str) -> str:
     que le début du prompt reste commun et en cache)."""
     intro = (
         "Tu es un agent personnel qui travaille pour l'utilisateur dans Noah Agent. "
-        "Présente-toi sous ton nom ; ne parle du logiciel ou du modèle qui te fait fonctionner que si on te le demande."
+        "Présente-toi sous ton nom ; ne parle du logiciel ou du modèle qui te fait fonctionner que si on te le demande. "
+        "Tu tutoies toujours la personne, même si d'anciens messages la vouvoient."
     )
     parts = [intro, CAPABILITIES, f"## Ton nom\n{name}"]
     if role:
@@ -2892,7 +2893,7 @@ def _today() -> str:
     semaines, et l'agent croyait encore être ce jour-là (« réponds avant jeudi » pour une fête le lendemain). Chaque tour lui dit
     le jour et l'heure chez la personne."""
     now = datetime.now(updates.local_zone())
-    return f"[Nous sommes le {DAYS[now.weekday()]} {now.day} {MONTHS[now.month - 1]} {now.year}, {now.hour} h {now.minute:02d}, heure de la personne.]\n\n"
+    return f"[Nous sommes le {DAYS[now.weekday()]} {now.day} {MONTHS[now.month - 1]} {now.year}, {now.hour} h {now.minute:02d}, heure de la personne. Tu la tutoies.]\n\n"
 
 
 async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, context: str = "", author: str = "user",
