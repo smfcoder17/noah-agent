@@ -248,6 +248,18 @@ def init() -> None:
         db.execute("CREATE TABLE IF NOT EXISTS proactive_turns (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, "
                    "conversation_id TEXT NOT NULL, mode TEXT NOT NULL, titre TEXT NOT NULL, etat TEXT NOT NULL, at REAL NOT NULL)")
         db.execute("CREATE INDEX IF NOT EXISTS proactive_turns_agent ON proactive_turns(agent_id, at)")
+        # 0.2.0 : heures actives, plafond de propositions par jour, briefing du matin ; un tour coupé se reprend une fois (`reprise`).
+        _add_columns(db, "proactive", {"heures_de": "INTEGER NOT NULL DEFAULT 8", "heures_a": "INTEGER NOT NULL DEFAULT 21",
+                                       "propositions_max": "INTEGER NOT NULL DEFAULT 3", "briefing_day": "TEXT NOT NULL DEFAULT ''",
+                                       "briefing_at": "REAL NOT NULL DEFAULT 0"})
+        _add_columns(db, "proactive_turns", {"reprise": "INTEGER NOT NULL DEFAULT 0"})
+        # Ce qu'un agent propose de lui-même (propositions.py) : `demande` part telle quelle à l'agent si la personne dit « Fais-le ».
+        db.execute("CREATE TABLE IF NOT EXISTS propositions (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, "
+                   "owner INTEGER, genre TEXT NOT NULL, texte TEXT NOT NULL, demande TEXT NOT NULL, "
+                   "etat TEXT NOT NULL DEFAULT 'ouverte' CHECK (etat IN ('ouverte', 'faite', 'refusee', 'expiree')), "
+                   "jour TEXT NOT NULL, conversation_id TEXT, message_id INTEGER, created REAL NOT NULL, repondu REAL)")
+        db.execute("CREATE INDEX IF NOT EXISTS propositions_owner ON propositions(owner, etat)")
+        db.execute("CREATE INDEX IF NOT EXISTS propositions_agent ON propositions(agent_id, jour)")
         db.execute("CREATE INDEX IF NOT EXISTS publications_empreinte ON publications(plateforme, empreinte, at)")
         _adopt(db)
         db.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_one_owner ON users(role) WHERE role = 'owner'")

@@ -95,7 +95,9 @@ async def no_memory(*a, **k):
 real_source = watch.read_source
 watch.read_source, decision.ask, machine.admin = read_source, ask, no_memory
 proactif.desktop.notify_user = lambda *a, **k: notified.append(a)
-proactif._local = lambda now: ("2026-11-07", 3)  # 3 h du matin : pas d'idée du jour, sauf dans le test qui la demande
+# 0.2.0 : hors des heures actives (8 h à 21 h), plus rien ne se relève. Ces tests passent donc à 10 h, l'idée du jour et le point du
+# matin déjà servis pour a1 (voir avant 11) ; propositions_test.py prouve l'idée, le point du matin, les heures et le plafond.
+proactif._local = lambda now: ("2026-11-07", 10)
 
 
 def item(key: str, title: str, text: str = "") -> dict:
@@ -132,7 +134,7 @@ def threads(agent_id: str = "a1") -> list[dict]:
 
 def reset_seen(agent_id: str = "a1") -> None:
     with db.connect() as c:
-        c.execute("UPDATE proactive SET seen = '{}', proposal_day = '', proposals = '[]', last_pass = 0 WHERE agent_id = ?", (agent_id,))
+        c.execute("UPDATE proactive SET seen = '{}', proposals = '[]', last_pass = 0 WHERE agent_id = ?", (agent_id,))  # le jour servi le reste
 
 
 def connect_google(agent_id: str, perms=("gmail_lire",)) -> None:
@@ -216,16 +218,21 @@ print("7. sans objectif, rien n'est ajouté au message")
 
 # --- Réglage -----------------------------------------------------------------------------------
 
-assert proactif.mode("vide") == proactif.COUPE, "sans objectif ni connexion, il ne regarde rien"
-assert main.proactive_mode("vide") == proactif.COUPE
+# 0.2.0 (lot 1) : le défaut change. Avant, « coupé » sans objectif ni connexion en lecture ; désormais « Me signaler » dès qu'un agent
+# existe. Ce qui reste exigé : un « Coupé » choisi gagne toujours (ce qui suit le pose sur a2, vide et b1, qui ne passent plus ici).
+assert proactif.mode("vide") == proactif.SIGNALER, "sans objectif ni connexion, il regarde et propose"
+assert main.proactive_mode("vide") == proactif.SIGNALER
 A.post("/api/goals", json={"texte": "Poster tous les jours", "agent_id": "a1"})
-assert proactif.mode("a1") == proactif.SIGNALER, "un objectif suffit"
+assert proactif.mode("a1") == proactif.SIGNALER
 connect_google("a2")
-assert proactif.mode("a2") == proactif.SIGNALER, "une connexion en lecture suffit"
+assert proactif.mode("a2") == proactif.SIGNALER
 db.set_setting("google_a2", json.dumps({"compte": "a@b.c", "permissions": ["drive_ecrire"]}))
-assert proactif.mode("a2") == proactif.COUPE or proactif.goals_for(alice, "a2"), "écrire sur Drive ne dit pas ce qu'il y a à lire"
+assert proactif.mode("a2") == proactif.SIGNALER, "le défaut ne dépend plus des connexions"
+for agent_id, client in (("a2", A), ("vide", A), ("b1", B)):
+    assert client.put(f"/api/agents/{agent_id}/proactif", json={"mode": "coupe"}).json()["choisi"] is True
+    assert proactif.mode(agent_id) == proactif.COUPE, "« Coupé » choisi gagne"
 assert A.get("/api/agents/a1/proactif").json()["minutes"] == 30
-print("8. par défaut : « Me signaler » avec un objectif ou une connexion en lecture, sinon coupé ; 30 min")
+print("8. par défaut : « Me signaler » dès qu'un agent existe ; « Coupé » choisi gagne ; 30 min")
 
 assert A.put("/api/agents/a1/proactif", json={"minutes": 14}).status_code == 422
 assert A.put("/api/agents/a1/proactif", json={"minutes": 361}).status_code == 422
@@ -247,12 +254,17 @@ print("10. une personne invitée, même admin, ne règle ni ne déclenche rien ;
 
 # --- Passage -----------------------------------------------------------------------------------
 
-A.put("/api/agents/a1/proactif", json={"minutes": 30, "mode": "signaler"})
+A.put("/api/agents/a1/proactif", json={"minutes": 30, "mode": "signaler", "propositions_max": 6})
+with db.connect() as c:  # l'idée et le point du matin de ce jour sont passés : ces tests regardent le relevé et le tri
+    c.execute("UPDATE proactive SET proposal_day = '2026-11-07', briefing_day = '2026-11-07' WHERE agent_id = 'a1'")
 started.clear()
 source["gmail"] = [item("m1", "De Paul : bonjour")]
 out = passe()
-assert reads == ["gmail"] and not asked and out["etat"] == "rien_de_neuf", (reads, asked, out)
-print("11. premier passage : la boîte s'apprend en silence, sans modèle")
+# 0.2.0 : la boîte ne s'apprend plus en silence. Toujours sans modèle, elle donne un résumé chiffré, une seule proposition.
+assert reads == ["gmail"] and not asked and out["etat"] == "premier_releve", (reads, asked, out)
+assert "Courriels (1 pour l'instant)" in messages(main._main_conversation("a1"))[-1]["text"] and len(notified) == 1
+notified.clear()
+print("11. premier passage : la boîte s'apprend sans modèle, avec un résumé chiffré proposé")
 
 for _ in range(5):
     assert passe()["etat"] == "rien_de_neuf"
@@ -459,7 +471,7 @@ assert "Agenda" in proactif._row("a1")["last_error"], proactif._row("a1")
 watch.read_source = real_read
 source["agenda"] = [item("e1", "Dentiste")]
 asked.clear()
-assert passe()["etat"] == "rien_de_neuf" and not asked, "une source neuve s'apprend en silence"
+assert passe()["etat"] == "premier_releve" and not asked, "une source neuve s'apprend sans modèle (0.2.0 : avec un résumé chiffré)"
 with db.connect() as c:
     c.execute("INSERT INTO watches (id, agent_id, name, url, criteria) VALUES ('w1', 'a1', 'Prix du vélo', 'https://exemple.test/velo', 'moins de 300 $')")
 assert "Prix du vélo" in proactif._sources("a1").values()
@@ -476,9 +488,18 @@ proactif._local = lambda now: ("2026-11-07", 10)
 source.pop("https://exemple.test/velo", None)
 reset_seen()
 passe()  # apprend de nouveau
+
+
+def served(day: str) -> None:
+    """Le point du matin de ce jour est passé : ici, on regarde l'idée (le point du matin a son test, propositions_test.py)."""
+    with db.connect() as c:
+        c.execute("UPDATE proactive SET briefing_day = ? WHERE agent_id = 'a1'", (day,))
+
+
 reset_day = "UPDATE proactive SET proposal_day = '', proposals = '[]' WHERE agent_id = 'a1'"
 with db.connect() as c:
     c.execute(reset_day)
+    c.execute("DELETE FROM propositions WHERE agent_id = 'a1'")  # le plafond du jour repart de zéro pour ce test
 asked.clear(), notified.clear(), started.clear()
 verdict[0] = {"utile": True, "proposition": "Je prépare trois idées de post pour demain ?"}
 count = len(messages(main_conv))
@@ -488,19 +509,25 @@ assert "Poster tous les jours" in asked[0]["user"] and "trois idées" in message
 asked.clear()
 assert passe()["etat"] == "rien_de_neuf" and not asked, "une seule idée par jour"
 proactif._local = lambda now: ("2026-11-08", 10)
+served("2026-11-08")
 verdict[0] = {"utile": False, "proposition": ""}
 notified.clear()
 assert passe()["etat"] == "rien_de_neuf" and len(asked) == 1 and not notified, "rien d'utile : silence"
 proactif._local = lambda now: ("2026-11-09", 3)
 asked.clear()
-assert passe()["etat"] == "rien_de_neuf" and not asked, "pas d'idée la nuit"
+assert passe()["etat"] == "reporte" and not asked, "pas d'idée la nuit (0.2.0 : la nuit, le passage entier attend)"
 with db.connect() as c:
     c.execute("DELETE FROM goals WHERE user_id = ?", (alice,))
 proactif._local = lambda now: ("2026-11-10", 10)
+served("2026-11-10")
 asked.clear()
-assert passe()["etat"] == "rien_de_neuf" and not asked, "sans objectif, pas d'idée"
-proactif._local = lambda now: ("2026-11-07", 3)
-print("27. une idée par jour au plus, de jour, seulement avec un objectif, sans agir")
+# 0.2.0 (lot 1) : avant, « sans objectif, pas d'idée ». Désormais l'idée part du rôle de l'agent, sur le même petit modèle.
+assert passe()["etat"] == "rien_de_neuf" and len(asked) == 1 and "aucun d'écrit" in asked[0]["user"], "sans objectif, l'idée part de son rôle"
+proactif._local = lambda now: ("2026-11-07", 10)
+with db.connect() as c:  # retour au jour des autres tests, déjà servi
+    c.execute("UPDATE proactive SET proposal_day = '2026-11-07' WHERE agent_id = 'a1'")
+served("2026-11-07")
+print("27. une idée par jour au plus, de jour, avec ou sans objectif, sans agir")
 
 # Planificateur.
 A.put("/api/agents/a1/proactif", json={"mode": "signaler", "minutes": 30})
@@ -526,7 +553,8 @@ print("28. le planificateur ne passe qu'à l'heure, jamais un agent coupé, jama
 
 # Redémarrage pendant un tour.
 with db.connect() as c:
-    c.execute("INSERT INTO proactive_turns (id, agent_id, conversation_id, mode, titre, etat, at) VALUES ('perdu', 'a1', 'x', 'signaler', 'Facture', 'en_cours', ?)", (time.time(),))
+    # 0.2.0 : un tour coupé reprend d'abord une fois (propositions_test.py, 12) ; celui-ci a déjà repris, la personne le sait.
+    c.execute("INSERT INTO proactive_turns (id, agent_id, conversation_id, mode, titre, etat, at, reprise) VALUES ('perdu', 'a1', 'x', 'signaler', 'Facture', 'en_cours', ?, 1)", (time.time(),))
 count = len(messages(main_conv))
 proactif.recover()
 assert "rien ne prouve que ce soit fait" in messages(main_conv)[-1]["text"] and len(messages(main_conv)) == count + 1
