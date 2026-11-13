@@ -17,6 +17,7 @@ sys.path.insert(0, "/app")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from noah import access, auth, db, decision, hermes, machine, main, proactif, relay, watch  # noqa: E402
+main._today = lambda: ""  # la ligne du jour (testée dans erreurs_test) n'est pas le sujet : les messages se comparent tels quels
 
 db.init()
 watch.init()

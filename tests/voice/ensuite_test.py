@@ -15,6 +15,7 @@ sys.path.insert(0, "/app")
 import httpx  # noqa: E402
 
 from noah import auth, db, hermes, main, pendant  # noqa: E402
+main._today = lambda: ""  # la ligne du jour (testée dans erreurs_test) n'est pas le sujet : les messages se comparent tels quels
 
 db.init()
 alice = auth.create_user("alice", "motdepasse-a")
