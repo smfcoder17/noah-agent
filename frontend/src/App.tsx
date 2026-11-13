@@ -27,6 +27,7 @@ import { HandoffBanner } from "@/components/Handoff";
 import { agentColor } from "@/components/Noah";
 import { Boundary } from "@/components/Boundary";
 import { Inbox } from "@/components/Inbox";
+import { usePropositionCount } from "@/lib/propositions";
 import type { PanelTab } from "@/components/SidePanel";
 import { SideRail, RAIL_AGENTS } from "@/components/desktop/SideRail";
 import { Thread } from "@/components/Thread";
@@ -336,7 +337,8 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
   // La conversation de l'appel en cours reste ouverte, cachée, quand on navigue ailleurs dans l'application.
   const [inCall, setInCall] = useState<ChatProps | null>(null);
 
-  const waiting = agents.reduce((total, a) => total + (a.tasks?.approve ?? 0) + (a.tasks?.choice ?? 0), 0);
+  const propositions = usePropositionCount(agents.length > 0);
+  const waiting = propositions + agents.reduce((total, a) => total + (a.tasks?.approve ?? 0) + (a.tasks?.choice ?? 0), 0);
   const agent = agents.find((a) => a.id === agentId) ?? null;
   // Les onglets du panneau lisent la machine de l'agent (une seconde ou plus) : on les lit d'avance, une fois l'écran calme.
   const prefetchFor = agent && canAdmin(agent) ? agent.id : null;
@@ -617,7 +619,7 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
             refreshAgents();
           }}
         />}
-        <Inbox open={inbox} agents={agents} onOpenChange={setInbox} onOpenConversation={openFromInbox} />
+        <Inbox open={inbox} agents={agents} onOpenChange={setInbox} onOpenConversation={openFromInbox} onOpenAgent={(id) => { setInbox(false); selectAgent(id); }} />
         {goals && <Goals open={goals} agents={agents} agentId={agentId} onOpenChange={setGoals} />}
         {settings && <SettingsDialog
           open={!!settings}

@@ -215,6 +215,9 @@ export type AgentUsage = {
 /** L'agent a besoin d'une connexion : ce que la carte montre vient de la vraie page, jamais d'un texte de l'agent. */
 export type LoginAsked = { id: string; type: "connexion" | "code"; site: string; origine: string; chiffre: boolean; identifiant_requis: boolean };
 export type InboxItem = { id?: string; bureau?: boolean; created: number; agent_id: string; agent: string; conversation_id: string; titre: string; main: boolean; a_moi: boolean; etat: "approve" | "choice"; demande: string; pourquoi?: string; apercu: string[]; request_id?: string; generation?: number; run_id?: string; connexion?: LoginAsked | null };
+/** Une idée que l'agent a préparée de lui-même : « faire » la lance dans sa conversation principale (server/noah/propositions.py). */
+export type Proposition = { type: "proposition"; id: string; agent_id: string; agent: string; texte: string; cree: number };
+export const isProposition = (row: { type?: string }): row is Proposition => row.type === "proposition";
 export type Accord = InboxItem & { id: string; conv_id: string; request_id: string; generation: number; run_id: string; summary: string; bureau?: boolean; created: number; state: "attend" };
 export type Usage = {
   month_cost: number;
@@ -387,4 +390,9 @@ export type ProactiveState = {
   tours_max: number;
   en_cours: boolean;
   cout: number;
+  /** Heures où il peut t'écrire, de 0 à 23 (8 h à 21 h par défaut). */
+  heures: { de: number; a: number };
+  /** Au plus tant de propositions par jour, de 0 à 6 (3 par défaut). */
+  propositions_max: number;
 };
+export type ProactiveChange = { mode?: ProactiveMode; minutes?: number; heures?: { de: number; a: number }; propositions_max?: number };
