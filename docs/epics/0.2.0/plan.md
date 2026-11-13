@@ -90,3 +90,19 @@ Rien de neuf, aucun appel de modèle. Plafond de dépense lu avant chaque relev�
 - Aller au bout : 10 tâches du quotidien jouées par des agents de test, part finie sans relance.
 - Coût : appels de modèle par jour d'un agent au repos, avant et après.
 - Navigateur : le banc du lot 5.
+
+## Livré (13 novembre)
+
+Les lots 1 à 6, puis quatre lots tirés des vraies conversations de Franck (424 messages lus sur son serveur) :
+
+- **A. Présenter.** Les liens de posts X ne sont plus masqués (3 identifiants sur 11 passaient pour des cartes bancaires). Le prompt donne une table « ce que tu présentes → le bloc », avec un exemple par bloc et trois blocs neufs : posts, produits, liens. Tableaux, grilles et graphiques s'affichent dans le fil, avec « Agrandir ».
+- **B. Naviguer.** Barre de gauche refaite : les agents en haut, celui qui est choisi déplie Discussion, Activité, Tâches, Fichiers, Ordinateur et Historique. Plus de liste de discussions.
+- **C. Navigateur et X.** L'écran Ordinateur ne se cache plus tout seul (la connexion noVNC est suivie en direct). Refus de X pour activité automatisée (226) ou limite du jour (344) : l'agent s'arrête au premier, Noah ne renvoie rien avant l'heure de reprise. `publier_post` prend une vidéo MP4 ; le navigateur lit le H.264 (libavcodec).
+- **D. Routines.** Une routine en panne dit une phrase, une fois, sans consigne interne ni adresse de clé ; la reprise est dite une fois.
+- **Juge.** Le dossier temporaire d'Hermes vaut `/tmp` : plus de carte en Auto pour y écrire.
+
+Banc du navigateur (`tools/eval/navigateur.mjs`, 10 tâches, 3 passages, 4 cœurs, 4 Go) : Camoufox 30/30 en 66 s, pic 654 Mo ; Chromium par CDP 30/30 en 20 s, pic 434 Mo. Le blocage par les sites n'est pas mesuré. Aucune bascule dans cette version.
+
+Non vérifié : une vraie publication sur X ; le banc sur un VPS.
+
+À décider : bascule vers Chromium (essai anti-bot d'abord, 2 à 3 jours) ; API X payante comme voie normale (0,015 $ le post, 0,20 $ avec lien) ; bouton « Nouvelle discussion » du mobile ; plafond de propositions par compte ; `pip` et `npm` sans carte en Auto.
