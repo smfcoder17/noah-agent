@@ -30,10 +30,10 @@ export function PresetPicker({ presets, value, onPick }: { presets: Preset[]; va
   );
 }
 
-/** Ce que le modèle propose en plus, sans rien activer : la personne décide. */
+/** Ce que le modèle pose en plus, sans rien activer : la personne décide. */
 export function PresetNote({ preset }: { preset: Preset }) {
   const parts = [
-    preset.routines.length ? `${preset.routines.length === 1 ? "une routine à proposer" : `${preset.routines.length} routines à proposer`} (rien ne démarre sans toi)` : "",
+    preset.routines.length ? `${preset.routines.length === 1 ? "une routine posée en pause" : `${preset.routines.length} routines posées en pause`} (un geste les active, dans Détails > Routines)` : "",
     preset.connexions.length ? `connexions utiles : ${preset.connexions.join(", ")}` : "",
   ].filter(Boolean);
   return (

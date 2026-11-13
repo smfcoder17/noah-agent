@@ -2153,7 +2153,9 @@ async def create_agent(body: AgentBody, user: int = Depends(auth.current_user)):
         raise HTTPException(400, "Choisis d'abord un modèle")
     preset = presets.find(body.preset)  # inconnu : refusé avant de créer une machine
     agent_id = await _start_agent(body.name.strip(), body.role if body.role.strip() or not preset else preset["role"], user)
-    presets.apply(agent_id, preset)
+    presets.apply(agent_id, preset)  # ses routines, en pause tant que la personne ne les active pas
+    presets.welcome(agent_id, body.name.strip(), preset, lambda: _main_conversation(agent_id, user) or _new_conversation(user, agent_id, "Conversation", main=True),
+                    _save_message)
     return {"id": agent_id}
 
 

@@ -66,6 +66,9 @@ type Routine = {
   image?: string | null;
 };
 
+/** Une routine du modèle d'agent, en pause dans Noah : rien ne tourne tant que la personne ne l'active pas. */
+export type SuggestedRoutine = { id: number; nom: string; quand: string; horaire: string; consigne: string; en_pause: true };
+
 const PRESETS: [string, string][] = [
   ["every day at 8am", "Chaque matin à 8 h"],
   ["every weekday at 9am", "Les jours de semaine à 9 h"],
@@ -152,12 +155,27 @@ const choiceSummary = (r: Routine) => {
 };
 
 export function Routines({ agentId }: { agentId: string }) {
-  const { data, error, setError, load } = useAgentData<{ routines: Routine[] }>(`/api/agents/${agentId}/routines`);
+  const { data, error, setError, load } = useAgentData<{ routines: Routine[]; suggerees?: SuggestedRoutine[] }>(`/api/agents/${agentId}/routines`);
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [tuning, setTuning] = useState<{ id: string; value: RoutineChoice } | null>(null);
   const [opened, setOpened] = useState<string | null>(null);
   const list = data?.routines ?? [];
+  const suggested = data?.suggerees ?? [];
+
+  // Un geste : la routine du modèle devient une vraie routine, active tout de suite.
+  const activate = async (s: SuggestedRoutine) => {
+    setBusy(`suggeree-${s.id}`);
+    setError("");
+    try {
+      await send(`/api/agents/${agentId}/routines/suggerees/${s.id}/activer`, {});
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const saveTuning = async () => {
     if (!tuning) return;
@@ -242,9 +260,28 @@ export function Routines({ agentId }: { agentId: string }) {
   }
 
   return (
-    <Section title="Routines" count={list.length} defaultOpen>
+    <Section title="Routines" count={list.length + suggested.length} defaultOpen>
       {!data && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture…</p>}
-      {data && !list.length && !adding && <p className="text-sm text-muted-foreground">Aucune routine.</p>}
+      {data && !list.length && !suggested.length && !adding && <p className="text-sm text-muted-foreground">Aucune routine.</p>}
+      {suggested.length > 0 && (
+        <>
+          <p className="text-sm text-muted-foreground">Proposées par son modèle. Rien ne tourne tant que tu ne les actives pas.</p>
+          <ul aria-label="Routines en pause" className="flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-dashed border-border">
+            {suggested.map((s) => (
+              <li key={s.id} className="flex items-center gap-3 px-3 py-3">
+                <span className="size-2 shrink-0 rounded-full bg-muted-foreground/40" />
+                <span className="min-w-0 flex-1" title={s.consigne}>
+                  <span className="block truncate text-sm font-medium">{s.nom}</span>
+                  <span className="block truncate text-xs text-muted-foreground">{scheduleLabel(s.horaire)} · En pause</span>
+                </span>
+                <Button size="sm" variant="outline" disabled={!!busy} onClick={() => activate(s)}>
+                  {busy === `suggeree-${s.id}` ? <Loader2 className="animate-spin" /> : <Play />}Activer
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
       {list.length > 0 && (
         <ul className="flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border">
           {list.map((r) => {

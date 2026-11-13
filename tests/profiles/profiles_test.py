@@ -147,6 +147,7 @@ A, B = "agent-alice", "agent-bruno"
 CA, CB = "conv-alice", "conv-bruno"
 WID, CALL, HANDOFF, RID, RUN = "veille-alice", "appel-alice", "prise-en-main", "demande-alice", "tache-alice"
 AUDIO = "0123456789abcdef0123"
+SUGGESTION = 4242  # une routine d'un modèle d'agent, en pause chez alice (presets.py)
 SECRET_A, SECRET_B = "SECRET-ALICE", "SECRET-BRUNO"
 
 
@@ -256,6 +257,8 @@ def fixture() -> None:
         if not c.execute("SELECT 1 FROM messages WHERE conversation_id = ?", (CA,)).fetchone():
             c.execute("INSERT INTO messages (conversation_id, role, text) VALUES (?, 'user', ?)", (CA, f"message {SECRET_A}"))
         c.execute("INSERT OR IGNORE INTO watches (id, agent_id, name, url) VALUES (?, ?, 'Veille', 'https://example.org')", (WID, A))
+        c.execute("INSERT OR IGNORE INTO routines_suggerees (id, agent_id, nom, quand, horaire, consigne, cree) "
+                  "VALUES (?, ?, 'Matin', 'chaque jour à 8 h', '0 8 * * *', 'Résume.', ?)", (SUGGESTION, A, now))
         c.execute("INSERT OR IGNORE INTO mcp_tools (agent_id, nom, url, auth) VALUES (?, 'notion', 'https://93.184.216.34/mcp', 'aucune')", (A,))
         c.execute("INSERT OR IGNORE INTO connecteurs_globaux (user_id, nom, genre, url, source, created_at) VALUES (?, 'notion', 'oauth', 'https://93.184.216.34/mcp', ?, ?)", (ALICE, A, now))
         c.execute("INSERT OR REPLACE INTO voice_calls (id, agent_id, user_id, conversation_id, texte, etat, created_at) "
@@ -323,6 +326,7 @@ ROUTES = {
     ("GET", "/api/agents/{agent_id}/routines"): "admin",
     ("POST", "/api/agents/{agent_id}/routines"): "admin",
     ("POST", "/api/agents/{agent_id}/routines/{routine_id}/{action}"): "admin",
+    ("POST", "/api/agents/{agent_id}/routines/suggerees/{suggestion_id}/activer"): "admin",
     ("GET", "/api/agents/{agent_id}/connections"): "admin",
     ("GET", "/api/agents/{agent_id}/sites"): "admin",
     ("DELETE", "/api/agents/{agent_id}/sites/{host}"): "admin",
@@ -372,7 +376,7 @@ ROUTES = {
     ("PUT", "/api/agents/{agent_id}/shares"): "proprietaire",
     ("DELETE", "/api/agents/{agent_id}/shares/{user_id}"): "proprietaire",
 }
-FILL = {"agent_id": A, "conv_id": CA, "run_id": RUN, "routine_id": "routine-1", "name": "notion", "nom": "notion", "wid": WID, "audio_id": AUDIO,
+FILL = {"agent_id": A, "conv_id": CA, "run_id": RUN, "routine_id": "routine-1", "suggestion_id": str(SUGGESTION),"name": "notion", "nom": "notion", "wid": WID, "audio_id": AUDIO,
         "rid": RID, "user_id": str(ZED), "path:path": "index.html", "name:path": "notion", "host": "example.org"}
 BODIES = {
     "/api/conversations/{conv_id}/messages/{message_id}/reaction": lambda: {"emoji": "👍"},

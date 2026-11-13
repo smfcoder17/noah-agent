@@ -234,6 +234,10 @@ def init() -> None:
                    "agent_id TEXT REFERENCES agents(id) ON DELETE CASCADE, texte TEXT NOT NULL, "
                    "etat TEXT NOT NULL DEFAULT 'actif' CHECK (etat IN ('actif', 'fait')), cree REAL NOT NULL, fait_a REAL)")
         db.execute("CREATE INDEX IF NOT EXISTS goals_user ON goals(user_id, etat)")
+        # Routines d'un modèle d'agent, en pause dans Noah tant que la personne ne les active pas (presets.py) : hors du cron d'Hermes.
+        db.execute("CREATE TABLE IF NOT EXISTS routines_suggerees (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                   "agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, nom TEXT NOT NULL, quand TEXT NOT NULL, "
+                   "horaire TEXT NOT NULL, consigne TEXT NOT NULL, cree REAL NOT NULL)")
         # Ce que chaque agent regarde de lui-même : `mode` vide = le défaut, `seen` les empreintes déjà vues par source (proactif.py).
         db.execute("CREATE TABLE IF NOT EXISTS proactive (agent_id TEXT PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE, mode TEXT, "
                    "minutes INTEGER NOT NULL DEFAULT 30, seen TEXT NOT NULL DEFAULT '{}', last_pass REAL NOT NULL DEFAULT 0, "
