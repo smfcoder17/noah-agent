@@ -6,27 +6,31 @@
 <title>Politique de confidentialité : Noah Agent</title>
 <meta name="description" content="Politique de confidentialité de l'application Noah Agent : l'éditeur ne collecte, ne reçoit ni ne stocke aucune donnée. L'application parle seulement à ton propre serveur.">
 <link rel="canonical" href="https://noah-agent.smfcoder.com/confidentialite/">
-<meta name="theme-color" content="#2a47c9">
+<link rel="alternate" hreflang="fr" href="https://noah-agent.smfcoder.com/confidentialite/">
+<link rel="alternate" hreflang="en" href="https://noah-agent.smfcoder.com/privacy/">
+<link rel="alternate" hreflang="x-default" href="https://noah-agent.smfcoder.com/privacy/">
+<meta name="theme-color" content="#fbfaf8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b0e12" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/img/icon-192.png" type="image/png" sizes="192x192">
 <link rel="apple-touch-icon" href="/img/icon-192.png">
 <link rel="stylesheet" href="/style.css">
+<script src="/site.js" defer></script>
 </head>
 <body>
-<a class="skip" href="#contenu">Aller au contenu</a>
+<a class="skip" href="#main">Aller au contenu</a>
 
 <header class="top">
   <div class="wrap">
-    <a class="brand" href="/" aria-label="Noah Agent, accueil"><img src="/favicon.svg" alt="" width="34" height="34">Noah Agent</a>
-    <nav aria-label="Sections">
-      <a class="keep" href="/">Accueil</a>
-      <a href="/#installer">Installer</a>
-      <a href="/#telecharger">Télécharger</a>
-    </nav>
+    <a class="brand" href="/fr/" aria-label="Noah Agent, accueil"><img src="/favicon.svg" alt="" width="30" height="30">Noah Agent</a>
+    <div class="side">
+      <a class="lang" href="/privacy/" hreflang="en" lang="en" aria-label="English version">EN</a>
+      <a class="btn btn-ink btn-sm" href="/fr/#installer">Installer</a>
+    </div>
   </div>
 </header>
 
-<main id="contenu" class="doc">
+<main id="main" class="doc">
 <div class="narrow">
   <h1>Politique de confidentialité</h1>
   <p class="meta">Application Noah Agent (Android) et site noah-agent.smfcoder.com. Dernière mise à jour : 13 novembre 2026.</p>
@@ -91,7 +95,7 @@
   <p>L'application garde sur le téléphone l'adresse de ton serveur, le jeton de l'appareil et tes réglages d'affichage. Désinstaller l'application les efface. Pour couper l'accès d'un téléphone, retire-le dans Réglages &gt; Appareils de ton serveur. Tes conversations et ton compte sont sur ton serveur : tu les supprimes toi-même (Réglages &gt; Personnes, ou en supprimant le serveur). L'éditeur ne détient aucune donnée à supprimer.</p>
 
   <h2>Sécurité</h2>
-  <p>Les échanges entre l'application et ton serveur passent en HTTPS ; l'application refuse une adresse non chiffrée, sauf sur un réseau privé de développement. Les limites de sécurité de Noah sont décrites honnêtement dans <a href="https://github.com/smfcoder17/noah-agent/blob/main/SECURITY.md">SECURITY.md</a> : par exemple, les conversations ne sont pas chiffrées sur le disque du serveur.</p>
+  <p>Les échanges entre l'application et ton serveur passent en HTTPS ; l'application refuse une adresse non chiffrée, sauf sur un réseau privé de développement. Le modèle de sécurité de Noah et ses limites sont décrits dans <a href="https://github.com/smfcoder17/noah-agent/blob/main/SECURITY.md">SECURITY.md</a> : par exemple, les conversations ne sont pas chiffrées sur le disque du serveur.</p>
 
   <h2>Enfants</h2>
   <p>L'application s'adresse aux adultes (18 ans et plus) et ne vise pas les enfants.</p>
@@ -110,12 +114,7 @@
 
 <footer>
   <div class="wrap">
-    <span>Noah Agent, par SmfCoder</span>
-    <nav aria-label="Pied de page">
-      <a href="/">Accueil</a>
-      <a href="/mentions-legales/">Mentions légales</a>
-      <a href="https://github.com/smfcoder17/noah-agent">GitHub</a>
-    </nav>
+    <div class="fine" style="margin-top:0;padding-top:0;border-top:0"><span>© 2026 SmfCoder · Noah Agent</span><span><a href="/fr/">Accueil</a> · <a href="/mentions-legales/">Mentions légales</a> · <a href="https://github.com/smfcoder17/noah-agent">GitHub</a> · <a href="/privacy/" hreflang="en" lang="en">English</a></span></div>
   </div>
 </footer>
 </body>

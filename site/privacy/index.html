@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy policy: Noah Agent</title>
+<meta name="description" content="Privacy policy for the Noah Agent app and website. The publisher collects, receives and stores no data. The app only talks to your own server.">
+<link rel="canonical" href="https://noah-agent.smfcoder.com/privacy/">
+<link rel="alternate" hreflang="en" href="https://noah-agent.smfcoder.com/privacy/">
+<link rel="alternate" hreflang="fr" href="https://noah-agent.smfcoder.com/confidentialite/">
+<link rel="alternate" hreflang="x-default" href="https://noah-agent.smfcoder.com/privacy/">
+<meta name="theme-color" content="#fbfaf8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b0e12" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/img/icon-192.png" type="image/png" sizes="192x192">
+<link rel="apple-touch-icon" href="/img/icon-192.png">
+<link rel="stylesheet" href="/style.css">
+<script src="/site.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="Noah Agent, home"><img src="/favicon.svg" alt="" width="30" height="30">Noah Agent</a>
+    <div class="side">
+      <a class="lang" href="/confidentialite/" hreflang="fr" lang="fr" aria-label="Version française">FR</a>
+      <a class="btn btn-ink btn-sm" href="/#install">Install</a>
+    </div>
+  </div>
+</header>
+
+<main id="main" class="doc">
+<div class="narrow">
+  <h1>Privacy policy</h1>
+  <p class="meta">Noah Agent app (Android) and the noah-agent.smfcoder.com website. Last updated: November 13, 2026.</p>
+
+  <div class="summary">
+    <p><strong>In short.</strong> You host Noah Agent yourself, on your own server. The publisher of Noah collects, receives and stores none of your data: no account, no messages, no statistics. The app only talks to your server, over HTTPS. It has no ads, no analytics and no telemetry.</p>
+  </div>
+
+  <h2>Who publishes Noah Agent</h2>
+  <p>Noah Agent is published by SmfCoder. For any question about this policy, see <a href="#contact">Contact</a> at the bottom of this page.</p>
+
+  <h2>What the publisher collects</h2>
+  <p>Nothing. The publisher has no server that would receive your data, no user accounts, and no way to read what passes between your phone and your server. It therefore holds no data about you to share, correct or delete.</p>
+  <p>The only exception, and only if you decide so: a report you choose to send by email (see <a href="#report">Reporting an AI answer</a>).</p>
+  <p>If this ever changes, this policy and the app will be updated before the change, along with the date at the top of this page.</p>
+
+  <h2>What the app does</h2>
+  <p>The app links your phone to the Noah server that you installed and manage (a VPS, for example), then shows its interface: your AI agents, their conversations, files and notifications. Without a Noah server, it does nothing.</p>
+
+  <h2>Data that goes through the app</h2>
+  <p>All of it goes <strong>from your phone to your server</strong>, encrypted with HTTPS. The publisher has no access to it.</p>
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th scope="col">Data</th><th scope="col">When</th><th scope="col">Where it goes</th></tr></thead>
+      <tbody>
+        <tr><td>Your server's address and the device token</td><td>When linking (QR code or short code), then at each connection</td><td>Kept on the phone; the token is presented to your server</td></tr>
+        <tr><td>Your messages, attached files and photos</td><td>When you send them</td><td>Your server</td></tr>
+        <tr><td>Your voice (microphone)</td><td>Only when you dictate, use voice mode, the floating bubble or an agent call</td><td>Your server</td></tr>
+        <tr><td>Your location</td><td>Only when you tap “Attach my location”; never in the background</td><td>Your server, inside the message</td></tr>
+        <tr><td>Notifications</td><td>When your server sends one</td><td>Received from your server, directly or through your phone's notification service; their content is encrypted</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Your Noah account password is never typed into the app: you approve the phone from a device that is already signed in, with a three-digit number.</p>
+
+  <h2>What goes to your model provider</h2>
+  <p>Your server, not the app, decides what leaves it. To answer, it sends your messages, and what the agent reads to answer you, to the AI model provider that <strong>you</strong> chose (for example Ollama, OpenRouter, Anthropic, OpenAI, Gemini, Mistral, DeepSeek), with your own key. A location attached to a message goes with it. With a local model, nothing leaves.</p>
+  <p>These providers apply their own privacy rules: read those of the provider you choose. Websites your agents visit see your server's address. The full list of your server's outbound connections is shown in Settings &gt; Server &gt; Privacy, and described in <a href="https://github.com/smfcoder17/noah-agent/blob/main/SECURITY.md">SECURITY.md</a>.</p>
+
+  <h2>Other services the phone may reach</h2>
+  <ul>
+    <li><strong>Notifications.</strong> If your server goes through your phone's notification service (Google, or the UnifiedPush distributor you chose), that service carries the notification, but its content is encrypted and it cannot read it.</li>
+    <li><strong>Updates of the app downloaded from GitHub.</strong> When you tap “Install” on a new version, the phone downloads the file from github.com, which then sees the phone's IP address. The version distributed through Google Play is updated by Google Play.</li>
+  </ul>
+
+  <h2>Android permissions, and why</h2>
+  <ul>
+    <li><strong>Internet</strong>: to reach your server.</li>
+    <li><strong>Camera</strong>: to scan the linking QR code, only when you ask.</li>
+    <li><strong>Notifications</strong>: to alert you (task done, approval needed, an agent calling).</li>
+    <li><strong>Microphone</strong> and audio settings: dictation, voice mode, agent calls, the floating bubble, only when you use them.</li>
+    <li><strong>Location</strong> (approximate and precise): only when you tap “Attach my location”, never in the background.</li>
+    <li><strong>Display over other apps</strong>: the floating bubble, only if you turn it on.</li>
+    <li><strong>Foreground service, start at boot, wake lock, vibration, full-screen call screen, battery optimisation exemption</strong>: so an agent can call you with the screen off, without a third-party service, only if you turn it on in Settings &gt; Phone.</li>
+    <li><strong>Install apps</strong> (GitHub version only): to install a new version of Noah, after you approve it in Android's installer.</li>
+  </ul>
+
+  <h2 id="report">Reporting an AI answer</h2>
+  <p>Your agents' answers come from the AI model you chose. If an answer seems offensive, dangerous or wrong, you can report it to the publisher. The report is sent by email only if you choose to send it, and it contains only what you choose to include. The publisher uses it only to handle your report. Nothing is sent automatically.</p>
+
+  <h2>Retention and deletion</h2>
+  <p>The app keeps your server's address, the device token and your display settings on the phone. Uninstalling the app erases them. To cut a phone's access, remove it in Settings &gt; Devices on your server. Your conversations and account live on your server: you delete them yourself (Settings &gt; People, or by deleting the server). The publisher holds no data to delete.</p>
+
+  <h2>Security</h2>
+  <p>Traffic between the app and your server uses HTTPS; the app refuses an unencrypted address, except on a private development network. Noah's security model and its limits are described in <a href="https://github.com/smfcoder17/noah-agent/blob/main/SECURITY.md">SECURITY.md</a>; for example, conversations are not encrypted on the server's disk.</p>
+
+  <h2>Children</h2>
+  <p>The app is meant for adults (18 and over) and is not directed at children.</p>
+
+  <h2>This website</h2>
+  <p>This website uses no cookies, no analytics, and no fonts or scripts from other sites. It is hosted by GitHub Pages: like any host, GitHub may log visitors' IP addresses to run and protect its service, under <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">its own privacy statement</a>. The publisher has no access to those logs.</p>
+
+  <h2>Changes</h2>
+  <p>Any change to this policy will be published at this address, with its date. If the publisher ever starts receiving data, the policy and the app will be updated first.</p>
+
+  <h2 id="contact">Contact</h2>
+  <!-- Contact address: one place in this file. -->
+  <p>SmfCoder, publisher of Noah Agent: <a href="mailto:contact@smfcoder.com">contact@smfcoder.com</a>.</p>
+  <p>The French version of this policy is at <a href="/confidentialite/" hreflang="fr" lang="fr">/confidentialite/</a>. Both say the same thing.</p>
+</div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="fine" style="margin-top:0;padding-top:0;border-top:0"><span>© 2026 SmfCoder · Noah Agent</span><span><a href="/">Home</a> · <a href="/terms/">Legal notice</a> · <a href="https://github.com/smfcoder17/noah-agent">GitHub</a> · <a href="/confidentialite/" hreflang="fr" lang="fr">Français</a></span></div>
+  </div>
+</footer>
+</body>
+</html>

@@ -1,3 +1,5 @@
+<p align="center"><b>English</b> · <a href="README.fr.md">Français</a></p>
+
 <p align="center">
   <img src="frontend/public/assets/icon-192.png" alt="" width="88">
 </p>
@@ -5,201 +7,188 @@
 <h1 align="center">Noah Agent</h1>
 
 <p align="center">
-  <strong>Des agents IA qui font tes tâches de tous les jours, sur ton propre serveur.</strong><br>
-  Tu leur écris de l'ordinateur ou du téléphone ; ils naviguent, écrivent, surveillent et te préviennent.<br>
-  Tes conversations restent chez toi. Le modèle, c'est toi qui le choisis.
+  <strong>AI agents that work for you. On your own server.</strong><br>
+  Give each agent a job. It browses, writes, keeps watch and comes back when it's done.<br>
+  Talk to it from your computer or your phone, and pick the model it runs on.
 </p>
 
 <p align="center">
-  <a href="https://github.com/smfcoder17/noah-agent/releases/latest"><img src="https://img.shields.io/github/v/release/smfcoder17/noah-agent?display_name=release&label=version" alt="Dernière version"></a>
-  <img src="https://img.shields.io/badge/installation-1%20commande-2ea44f" alt="Installation : une commande">
-  <img src="https://img.shields.io/badge/apps-Windows%20%C2%B7%20Android%20%C2%B7%20navigateur-555" alt="Applications : Windows, Android, navigateur">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/licence-PolyForm%20Noncommercial-blue" alt="Licence : PolyForm Noncommercial"></a>
+  <a href="https://github.com/smfcoder17/noah-agent/releases/latest"><img src="https://img.shields.io/github/v/release/smfcoder17/noah-agent?display_name=release&label=version" alt="Latest version"></a>
+  <img src="https://img.shields.io/badge/install-1%20command-2ea44f" alt="Install: one command">
+  <img src="https://img.shields.io/badge/apps-Windows%20%C2%B7%20Android%20%C2%B7%20browser-555" alt="Apps: Windows, Android, browser">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue" alt="License: PolyForm Noncommercial"></a>
 </p>
 
 <p align="center">
-  <a href="#installer-en-une-phrase">Installer</a> ·
-  <a href="#ce-que-tes-agents-font">Fonctions</a> ·
-  <a href="#relier-ton-ordinateur-et-ton-téléphone">Appareils</a> ·
-  <a href="#sécurité">Sécurité</a> ·
-  <a href="docs/installation.md">Guide complet</a>
+  <a href="https://noah-agent.smfcoder.com">Website</a> ·
+  <a href="#install">Install</a> ·
+  <a href="#what-your-agents-do">Features</a> ·
+  <a href="#apps">Apps</a> ·
+  <a href="docs/installation.md">Full guide</a>
 </p>
 
 <p align="center">
-  <img src="docs/images/accueil.png" alt="Noah Agent : trois agents à gauche ; à droite, Noah a préparé les menus de la semaine et la liste de courses, et propose trois réponses à toucher." width="860">
+  <img src="docs/images/accueil.png" alt="Noah Agent: three agents on the left; on the right, Noah has planned the week's meals and a shopping list, and offers three replies to tap." width="860">
 </p>
 
-## Installer en une phrase
+## What it is
 
-Tu as un agent de code (Claude Code, Codex, Cursor…) ? Colle-lui ceci :
+Noah is software you install on your own server or computer. Each agent gets its own computer: a browser, a memory and files. Your conversations stay on your machine, and you choose the model.
 
-```text
-Installe Noah Agent sur mon VPS en suivant https://github.com/smfcoder17/noah-agent/blob/main/AGENTS.md
-```
+It is not a hosted service. There is no account with us, no subscription and no telemetry.
 
-Il te demande comment joindre ton serveur et si tu as un sous-domaine, installe la dernière version publiée, vérifie, puis te donne le lien pour créer ton compte. Tes mots de passe et tes clés, tu les saisis toi-même dans ton navigateur : l'agent n'en a pas besoin.
+## Install
 
-## Installer toi-même
+**You need** an Ubuntu or Debian server (a VPS, or your own Linux machine) with x86-64 or ARM64, 4 GB of RAM (8 GB if several agents browse at once), 10 GB free, and ports 80 and 443 open. Docker is installed for you if it's missing.
 
-**Il te faut** un VPS Ubuntu ou Debian (processeur x86_64 ou ARM64), 4 Go de mémoire (8 Go si plusieurs agents naviguent), 10 Go libres, et les ports 80 et 443 libres.
-
-**1. Ouvre un terminal sur ton serveur** (SSH, ou la console web de ton hébergeur, connecté en root) et colle cette commande. Elle installe Docker s'il manque et place Noah dans `/opt/noah`, sans rien compiler.
+**1. Run one command** on the server, as root:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/smfcoder17/noah-agent/main/get.sh | sh
 ```
 
-**2. Ouvre le lien affiché à la fin**, de la forme `https://<ton-adresse>/#installation=…`. Si le navigateur signale une erreur de sécurité, attends une minute et recharge : le certificat se prépare. Le lien ne sert qu'une fois.
+It installs Docker if needed and puts Noah in `/opt/noah`, without compiling anything.
 
-**3. Choisis « Nouvelle installation », crée ton compte, puis choisis ton modèle et colle sa clé.** Pas de clé ? [Ollama Cloud](https://ollama.com/settings/keys) est le plus simple. Puis crée ton premier agent à partir d'un modèle prêt à l'emploi.
+**2. Create your account in the browser.** Open the link printed at the end, of the form `https://<your-address>/#installation=…`. If the browser shows a security error, wait a minute and reload: the certificate is being issued. The link works once. Choose « Nouvelle installation » (new installation), create your account, then pick your model and paste its key. No key yet? [Ollama Cloud](https://ollama.com/settings/keys) is the simplest. Then create your first agent from a template.
 
-Compte une dizaine de minutes, téléchargement compris.
+**3. Link your phone.** Install the [Android app](https://github.com/smfcoder17/noah-agent/releases/latest/download/noah-agent-android.apk). On your computer, open **Settings > Devices > Link a device** (in the app's French interface: Réglages > Appareils > « Relier un appareil »). A QR code appears. In the Android app, tap « Scanner le QR code » (scan the QR code), then confirm the three-digit number.
 
-**Ta propre adresse**, comme `noah.exemple.com` ? Crée d'abord chez ton fournisseur de domaine un enregistrement A de ce nom vers l'IP du serveur, puis lance plutôt :
+Allow about ten minutes, download included.
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/smfcoder17/noah-agent/main/get.sh | NOAH_DOMAIN=noah.exemple.com sh
+**Prefer to let a coding agent do it?** Paste this into Claude Code, Codex or Cursor:
+
+```text
+Install Noah Agent on my VPS by following https://github.com/smfcoder17/noah-agent/blob/main/AGENTS.md
 ```
 
-Sans domaine, l'adresse est `<ip-en-tirets>.sslip.io` : elle marche, mais ton IP s'y lit.
+It asks how to reach your server and whether you have a subdomain, installs the latest release, checks it, and gives you the link to create your account. You type your passwords and keys yourself, in your browser.
 
-| Autre cas | Fais ceci |
+**Your own address**, like `noah.example.com`? First create an A record for that name pointing to the server's IP, then run:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/smfcoder17/noah-agent/main/get.sh | NOAH_DOMAIN=noah.example.com sh
+```
+
+Without a domain, the address is `<ip-with-dashes>.sslip.io`.
+
+| Other case | Do this |
 |---|---|
-| Hostinger, sans terminal | Docker Manager > Compose > « Compose from URL », [ce fichier](https://github.com/smfcoder17/noah-agent/releases/latest/download/docker-compose.yml), nom de projet `noah`, puis Deploy. Le lien de création du compte est dans ⋮ > View logs. [Pas à pas](docs/installation.md#hostinger-docker-manager) |
-| Un Traefik tient déjà les ports 80 et 443 | La même commande se range derrière lui ; relie-le ensuite avec `docker network connect noah-net <nom-du-traefik>`. [Détails](docs/installation.md#derrière-un-traefik) |
-| Essayer sur ton ordinateur, sans serveur | Installe Docker Desktop, puis (sous Windows, dans Git Bash) `git clone https://github.com/smfcoder17/noah-agent.git`, `cd noah-agent`, `sh install.sh`, et ouvre http://localhost:8080 |
+| Hostinger, no terminal | Docker Manager > Compose > « Compose from URL », [this file](https://github.com/smfcoder17/noah-agent/releases/latest/download/docker-compose.yml), project name `noah`, then Deploy. The account link is in ⋮ > View logs. [Step by step](docs/installation.md#hostinger-docker-manager) |
+| Traefik already holds ports 80 and 443 | The same command sets Noah up behind it; then run `docker network connect noah-net <traefik-container>`. [Details](docs/installation.md#derrière-un-traefik) |
+| Try it on your computer | Install Docker Desktop, then (on Windows, in Git Bash) `git clone https://github.com/smfcoder17/noah-agent.git`, `cd noah-agent`, `sh install.sh`, and open http://localhost:8080 |
 
 <details>
-<summary><b>Ça bloque ?</b></summary>
+<summary><b>Stuck?</b></summary>
 
-| Ce que tu vois | Ce qu'il faut faire |
+| You see | Do this |
 |---|---|
-| « Le port 80 est déjà pris par … » | Un autre service tient ce port. Arrête-le, ou installe Noah sur un autre serveur. Un Traefik est reconnu tout seul |
-| Le certificat HTTPS est refusé | Ton nom ne pointe pas encore vers le serveur (`getent hosts noah.exemple.com`), ou les ports 80 et 443 sont fermés dans le pare-feu de l'hébergeur |
-| Plus de lien à la fin | Le compte existe déjà : ouvre l'adresse et connecte-toi |
+| “Le port 80 est déjà pris par …” (port 80 is taken) | Another service holds the port. Stop it, or install Noah on another server. A Traefik is detected automatically |
+| The HTTPS certificate is refused | Your name doesn't point to the server yet (`getent hosts noah.example.com`), or ports 80 and 443 are closed in your host's firewall |
+| No link at the end | The account already exists: open the address and sign in |
 
-Retrouver le lien de création du compte :
+Find the account link again:
 
 ```sh
 docker logs noah-server 2>&1 | grep installation=
 ```
 
-Le reste : [En cas de souci](docs/installation.md#en-cas-de-souci).
+More: [troubleshooting](docs/installation.md#en-cas-de-souci).
 </details>
 
-Noah se met ensuite à jour seul, à l'heure calme, avec une sauvegarde avant et un retour arrière en cas de panne.
+Noah then updates itself at a quiet hour, with a backup first and an automatic rollback if anything breaks.
 
-## Ce que tes agents font
+## What your agents do
 
 <table>
 <tr>
 <td width="50%" valign="top">
-<img src="docs/images/presets.png" alt="Création d'un agent : neuf modèles prêts à l'emploi, comme Assistant personnel, Veille ou Finances du foyer."><br>
-<b>Prêts dès la création.</b> Neuf modèles d'agent : assistant personnel, veille, recherche, créateur de contenu, achats et démarches, finances du foyer, voyages et sorties, coach d'apprentissage, bricoleur d'apps. Tu pars de l'un d'eux et tu ajoutes ce que tu veux.
+<img src="docs/images/presets.png" alt="Creating an agent: nine ready-made templates such as Personal assistant, News watch and Home finances."><br>
+<b>Start from a template.</b> Personal assistant, news watch, research, content, shopping and paperwork, home finances, travel, learning, app building. Pick one and make it yours.
 </td>
 <td width="50%" valign="top">
-<img src="docs/images/agent-vide.png" alt="Un nouvel agent de veille : « Que doit faire Rita ? » et quatre demandes à toucher."><br>
-<b>Tu sais quoi leur demander.</b> Chaque nouvel agent propose des demandes à toucher, adaptées à son rôle. Tu peux aussi lui écrire pendant qu'il travaille : il répond « Noté » et en tient compte.
+<img src="docs/images/agent-vide.png" alt="A new news-watch agent: “What should Rita do?” and four requests to tap."><br>
+<b>Know what to ask.</b> Each new agent suggests requests that fit its role. You can also write while it works: it replies “Noted” and takes it into account.
 </td>
 </tr>
 <tr>
 <td valign="top">
-<img src="docs/images/modeles.png" alt="Réglages, Modèles et budget, onglet Fournisseurs : Ollama branché, et OpenRouter, Anthropic, OpenAI, Gemini, Mistral, DeepSeek, Mammouth, Ollama Cloud ou un autre fournisseur à brancher."><br>
-<b>Le modèle que tu veux.</b> Ollama (local ou Cloud), Mammouth, OpenRouter, Anthropic, OpenAI, Gemini, Mistral, DeepSeek, ou tout service compatible OpenAI. Un petit modèle rapide peut tenir la conversation, et un plafond arrête la dépense.
+<img src="docs/images/modeles.png" alt="Model settings, Providers tab: Ollama connected, and OpenRouter, Anthropic, OpenAI, Gemini, Mistral, DeepSeek, Mammouth, Ollama Cloud or another provider ready to connect."><br>
+<b>Bring any model.</b> Ollama (local or Cloud), OpenRouter, Anthropic, OpenAI, Gemini, Mistral, DeepSeek, Mammouth, or any OpenAI-compatible API. A small fast model can handle the chat, and a cap stops the spending.
 </td>
 <td valign="top">
-<img src="docs/images/telephone.png" alt="Sur un téléphone : l'agent de veille a trouvé trois sources et demande à quel rythme lancer la veille, avec des réponses à toucher." width="260"><br>
-<b>Partout.</b> Navigateur, application Windows, application Android, et iPhone par l'écran d'accueil. Ils te préviennent : fin de tâche, veille en panne, crédit OpenRouter qui baisse, et un appel sur Android si tu l'autorises.
+<img src="docs/images/telephone.png" alt="On a phone: the news-watch agent found three sources and asks how often to run the watch, with replies to tap." width="260"><br>
+<b>In your pocket.</b> Browser, Windows app, Android app, and iPhone through the Home Screen. Your agents tell you when a task is done, when a watch breaks or credit runs low, and can call you on Android if you allow it.
 </td>
 </tr>
 </table>
 
-- **Un ordinateur chacun.** Chaque agent a sa machine, sa mémoire, ses fichiers et son navigateur. Une connexion ou un CAPTCHA t'appartient ? Il t'appelle et tu prends la main sur son écran.
-- **Tes outils.** Google (courriel, agenda, Drive, contacts, avec ton propre projet Google Cloud), Instagram, X et tout outil MCP. Pour Instagram, X et MCP, tu choisis : lire, demander confirmation, ou agir.
-- **De lui-même.** Tâches à heure fixe, surveillance d'une source, objectifs qu'il garde en tête, et trois modes d'autonomie quand le juge est actif : Prudent, Auto (par défaut), Agir.
-- **En équipe.** « Demande à Rita de préparer le compte rendu, et rappelle-moi quand c'est fini. » Un profil par personne, et le partage d'un agent avec des droits.
-- **Il ne peut pas dire « c'est fait » sans que ça se voie.** Sous chaque réponse, un reçu compare ce qu'il affirme à ce que ses outils ont vraiment fait.
+- **A computer for each agent.** Its own machine, memory, files and browser. When a login or a CAPTCHA needs you, it calls you and you take over its screen.
+- **Your tools.** Google (mail, calendar, Drive, contacts, with your own Google Cloud project), Instagram, X and any MCP server. For Instagram, X and MCP, you choose: read, ask first, or act.
+- **Works while you don't.** Scheduled tasks, sources to watch, goals it keeps in mind, and three autonomy modes when the judge is on: Careful, Auto (default), Act.
+- **A team.** “Ask Rita to prepare the meeting notes, and remind me when it's done.” One profile per person, and agents you can share with the rights you choose.
+- **Proof, not promises.** Under each answer, a receipt compares what the agent claims with what its tools actually did.
 
-Noah est construit sur [Hermes Agent](https://github.com/NousResearch/hermes-agent) (MIT). Il y ajoute plusieurs agents isolés, un navigateur par agent, les applications, et les mises à jour avec retour arrière.
+The app's interface is in French for now.
 
-## Relier ton ordinateur et ton téléphone
+Noah is built on [Hermes Agent](https://github.com/NousResearch/hermes-agent) (MIT). It adds isolated multi-agent setups, a browser per agent, the apps, and updates with rollback.
 
-Les applications se relient à ton serveur Noah. Chaque appareil demande ton accord, avec un nombre à 3 chiffres à recopier : tu ne tapes jamais ton mot de passe dans l'application.
+## Apps
 
-| Appareil | Télécharge | Pour le relier |
+Each device asks for your approval with a three-digit number: you never type your password into the app.
+
+| Device | Download | To link it |
 |---|---|---|
-| **Windows** | [noah-agent-windows-setup.exe](https://github.com/smfcoder17/noah-agent/releases/latest/download/noah-agent-windows-setup.exe) (non signé : Windows peut avertir) | « Sur mon serveur », ton adresse, « Relier », puis « Autoriser cet appareil » dans le navigateur |
-| **Android** 8 ou plus | [noah-agent-android.apk](https://github.com/smfcoder17/noah-agent/releases/latest/download/noah-agent-android.apk) | Sur l'ordinateur, Réglages > Appareils > « Relier un appareil », puis « Scanner le QR code » dans l'app |
-| **iPhone, Mac, Linux** | Rien | Ouvre ton adresse ; sur iPhone, « Ajouter à l'écran d'accueil » |
+| **Windows** | [noah-agent-windows-setup.exe](https://github.com/smfcoder17/noah-agent/releases/latest/download/noah-agent-windows-setup.exe) | « Sur mon serveur » (on my server), your address, « Relier » (link), then approve the device in your browser |
+| **Android** 8+ | [noah-agent-android.apk](https://github.com/smfcoder17/noah-agent/releases/latest/download/noah-agent-android.apk) | On your computer, Settings > Devices > Link a device, then scan the QR code in the app |
+| **iPhone, Mac, Linux** | Nothing | Open your address; on iPhone, Add to Home Screen |
 
-## Sécurité
+## Security
 
-Un agent peut être trompé par une page ou un message piégé. Quatre gardes limitent ce qu'il peut faire ; aucune ne suffit seule.
+An agent can be fooled by a booby-trapped page or message. Four guards limit what it can do.
 
-| Garde | Ce qu'elle fait | Sa limite |
-|---|---|---|
-| **Machine isolée** | Un conteneur et un navigateur par agent, sans accès à Docker ni à ta clé de modèle | Un conteneur, pas une machine virtuelle |
-| **Accords** | Une carte montre l'action ; tu l'autorises ou la refuses | Un outil réglé sur « agir », ou le mode Agir, passe sans carte |
-| **Juge** | Un second modèle relit l'action avant qu'elle sorte, sans lire les pages qui ont pu tromper l'agent | Un filtre, pas un bac à sable |
-| **Coffre** | Tu saisis tes identifiants dans une carte ; le serveur les pose dans la page sans les donner à l'agent | Une fois connecté, l'agent agit avec la session ouverte |
+| Guard | What it does |
+|---|---|
+| **Isolated machine** | One container and one browser per agent, with no access to Docker or to your model key |
+| **Approvals** | A card shows the action; you allow or refuse it |
+| **Judge** | A second model reviews the action before it goes out, without reading the pages that may have fooled the agent |
+| **Vault** | You type credentials into a card; the server fills them into the page without giving them to the agent |
 
-Aucune télémétrie. Tes messages partent seulement chez le fournisseur de modèle que tu as choisi. Les conversations ne sont pas chiffrées sur le disque : qui a un accès root au serveur, ton hébergeur compris, peut les lire. Pas d'audit externe à ce jour. Détails et signalement d'une faille : [SECURITY.md](SECURITY.md).
-
-## État
-
-Noah est jeune. Il tourne en usage réel sur un VPS, et la plupart des parcours sont testés en local avec de vrais conteneurs et un vrai navigateur. Pas encore prouvés en conditions réelles : le parcours complet sur un VPS neuf, le QR code en 4G, l'appel vocal depuis le téléphone. Le détail : [docs/etat.md](docs/etat.md).
-
-<details>
-<summary><b>Noah face à Muse, Grok Bot et Dots</b></summary>
-
-Muse (Meta), Grok Bot (xAI) et Dots (OpenAI) sont des services : un compte, et ils tournent chez leur éditeur. Noah tourne chez toi, et cela se paie en entretien.
-
-| | Noah | Muse, Grok Bot, Dots |
-|---|---|---|
-| **Pour commencer** | Un VPS, une commande, un modèle | Un compte |
-| **Conversations et mémoire** | Sur ton serveur | Chez l'éditeur |
-| **Le modèle** | Celui que tu veux, local compris | Celui du service |
-| **Le coût** | Le VPS, plus ta consommation | L'abonnement ou l'usage |
-| **Si ça tombe en panne** | À toi de réparer | L'éditeur s'en occupe |
-| **Si tu pars** | Ta sauvegarde va sur un autre serveur | Selon ce que le service exporte |
-
-**Prends l'un d'eux** si tu veux que ça marche ce soir, sans serveur. **Prends Noah** si garder la main sur tes données et ton modèle vaut cet entretien. Relevé du 4 novembre 2026 : [docs/comportements.md](docs/comportements.md).
-</details>
+No telemetry. Your messages only go to the model provider you chose. Details, limits and how to report a vulnerability: [SECURITY.md](SECURITY.md).
 
 <details>
 <summary><b>Architecture</b></summary>
 
 ```mermaid
 flowchart LR
-    A["Navigateur, bureau, Android"] -->|HTTPS| C["noah-caddy<br>seul à publier 80 et 443"]
-    C --> S["noah-server<br>comptes, interface, relais de modèle"]
-    S --> L["noah-launcher<br>seul à parler à Docker"]
-    L -->|crée| G["noah-agent-*<br>Hermes, mémoire, fichiers"]
-    L -->|crée| B["noah-browser-*<br>navigateur, profil"]
+    A["Browser, desktop, Android"] -->|HTTPS| C["noah-caddy<br>only one publishing 80 and 443"]
+    C --> S["noah-server<br>accounts, interface, model relay"]
+    S --> L["noah-launcher<br>only one talking to Docker"]
+    L -->|creates| G["noah-agent-*<br>Hermes, memory, files"]
+    L -->|creates| B["noah-browser-*<br>browser, profile"]
     G --> B
-    G -->|jeton propre à l'agent| S
-    S -->|ta clé| M["Fournisseur de modèle"]
+    G -->|per-agent token| S
+    S -->|your key| M["Model provider"]
 ```
 
-Les agents et leurs navigateurs n'exposent aucun port. Le lanceur crée les conteneurs : il a l'équivalent d'un accès root, sans être exposé, et chaque appel exige sa clé ([le détail](docs/installation.md#le-socket-docker)). Les données vivent dans des volumes Docker et se [sauvegardent](docs/installation.md#sauvegarder) d'une commande.
+Agents and their browsers expose no port. The launcher creates the containers: it has the equivalent of root access, without being exposed, and every call requires its key ([details](docs/installation.md#le-socket-docker)). Data lives in Docker volumes and [backs up](docs/installation.md#sauvegarder) with one command.
 </details>
 
 <details>
-<summary><b>Développer</b></summary>
+<summary><b>Develop</b></summary>
 
 ```sh
-sh install.sh                                # tout le projet, compilé en local
-cd frontend && npm install && npm run dev    # l'interface à chaud, sur http://localhost:5173
-node scripts/verifier.mjs                    # ce que la CI vérifierait
+sh install.sh                                # the whole project, built locally
+cd frontend && npm install && npm run dev    # hot-reloading interface on http://localhost:5173
+node scripts/verifier.mjs                    # what CI would check
 ```
 
-`server/` (API et comptes), `launcher/` (Docker), `frontend/` (l'interface), `desktop/` et `mobile/` (les applications), `deploy/` (ce qui part sur un VPS). Pour proposer un changement : [CONTRIBUTING.md](CONTRIBUTING.md).
+`server/` (API and accounts), `launcher/` (Docker), `frontend/` (interface), `desktop/` and `mobile/` (apps), `deploy/` (what goes to a VPS). To propose a change: [CONTRIBUTING.md](CONTRIBUTING.md).
 </details>
 
-## Licence
+## License
 
-[PolyForm Noncommercial 1.0.0](LICENSE) : gratuit pour un usage personnel, une école, une association ou un organisme public. Un usage commercial demande un accord : ouvre un ticket. Les dépendances gardent leurs licences : [docs/licences.md](docs/licences.md).
+[PolyForm Noncommercial 1.0.0](LICENSE): free for personal use, schools, charities and public bodies. Commercial use requires an agreement: write to contact@smfcoder.com. Dependencies keep their own licenses: [docs/licences.md](docs/licences.md).
 
-## Liens
+## Links
 
-[Guide complet](docs/installation.md) · [Versions](https://github.com/smfcoder17/noah-agent/releases/latest) · [Feuille de route](docs/roadmap.md) · [État des preuves](docs/etat.md) · [Tickets](https://github.com/smfcoder17/noah-agent/issues) · [Contribuer](CONTRIBUTING.md) · [Sécurité](SECURITY.md)
+[Website](https://noah-agent.smfcoder.com) · [Full guide](docs/installation.md) · [Releases](https://github.com/smfcoder17/noah-agent/releases/latest) · [Roadmap](docs/roadmap.md) · [Issues](https://github.com/smfcoder17/noah-agent/issues) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)

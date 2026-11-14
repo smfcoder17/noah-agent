@@ -2,7 +2,7 @@
 
 | Tu veux | Télécharge | Ce que tu fais ensuite |
 |---|---|---|
-| **Le faire tourner sur ton VPS** | [docker-compose.yml](https://github.com/smfcoder17/noah-agent/releases/download/{{TAG}}/docker-compose.yml) | Déploie-le, puis ouvre le lien affiché dans les journaux. [Les étapes](https://github.com/smfcoder17/noah-agent#installer-sur-un-vps) |
+| **Le faire tourner sur ton VPS** | [docker-compose.yml](https://github.com/smfcoder17/noah-agent/releases/download/{{TAG}}/docker-compose.yml) | Déploie-le, puis ouvre le lien affiché dans les journaux. [Les étapes](https://github.com/smfcoder17/noah-agent#install) |
 | **L'application Windows** | [noah-agent-windows-setup.exe](https://github.com/smfcoder17/noah-agent/releases/download/{{TAG}}/noah-agent-windows-setup.exe) | Lance le fichier, puis « Sur mon serveur ». Elle n'est pas signée : Windows peut afficher un avertissement. |
 | **L'application Android** | [noah-agent-android.apk](https://github.com/smfcoder17/noah-agent/releases/download/{{TAG}}/noah-agent-android.apk) | Ouvre le fichier sur le téléphone, autorise l'installation, puis scanne le QR code de Réglages > Appareils. |
 
