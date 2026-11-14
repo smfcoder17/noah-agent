@@ -271,32 +271,54 @@ def rapport(info, lignes, moteurs, taches):
     return "\n".join(md) + "\n"
 
 
+def fusion(sortie):
+    """Rassemble les résultats écrits moteur par moteur (un conteneur chacun) en un seul tableau."""
+    info, lignes, moteurs = None, [], []
+    for f in sorted(sortie.glob("resultats-*.json")):
+        d = json.loads(f.read_text())
+        info = info or d["info"]
+        info["versions"] = ", ".join(sorted(set(filter(None, (info["versions"] + ", " + d["info"]["versions"]).split(", ")))))
+        lignes += d["lignes"]
+        moteurs += [m for m in d["moteurs"] if m not in moteurs]
+    if not lignes:
+        print("Aucun résultat à rassembler.")
+        return
+    taches = list(dict.fromkeys(l["tache"] for l in lignes))
+    md = rapport(info, lignes, moteurs, taches)
+    (sortie / "resultats.md").write_text(md)
+    print("\n" + md)
+
+
 async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--moteurs", default=",".join(MOTEURS))
     ap.add_argument("--passages", type=int, default=2)
     ap.add_argument("--taches", default=",".join(TACHES))
     ap.add_argument("--sortie", default="/out")
+    ap.add_argument("--fusion", action="store_true", help="rassembler les resultats-*.json en un tableau")
     a = ap.parse_args()
-    moteurs = [m for m in a.moteurs.split(",") if m in MOTEURS]
-    taches = [t for t in a.taches.split(",") if t in TACHES]
     sortie = Path(a.sortie)
     sortie.mkdir(parents=True, exist_ok=True)
+    if a.fusion:
+        return fusion(sortie)
+    moteurs = [m for m in a.moteurs.split(",") if m in MOTEURS]
+    taches = [t for t in a.taches.split(",") if t in TACHES]
 
     IP.update(adresse())
     info = {
         "machine": f"{platform.system()} {platform.machine()}",
         "adresse": ", ".join(f"{k} {v}" for k, v in IP.items() if v),
-        "versions": ", ".join(f"{p} {version(p)}" for p in ("playwright", "patchright", "camoufox")),
+        "versions": ", ".join(f"{p} {version(p)}" for p in ("playwright", "patchright", "camoufox") if version(p) != "absent"),
         "passages": a.passages,
     }
     print(f"Banc anti-robot : {info['machine']}, {info['adresse']}", flush=True)
     lignes = []
-    # Moteur par moteur, passage par passage : un seul navigateur ouvert à la fois, pour ne pas peser sur le VPS.
+    # Un seul navigateur ouvert à la fois, pour ne pas peser sur le VPS.
     for n in range(1, a.passages + 1):
         for m in moteurs:
             lignes += await passage(m, n, taches, sortie)
-    (sortie / "resultats.json").write_text(json.dumps({"info": info, "lignes": lignes}, ensure_ascii=False, indent=1))
+    (sortie / f"resultats-{'-'.join(moteurs)}.json").write_text(
+        json.dumps({"info": info, "moteurs": moteurs, "lignes": lignes}, ensure_ascii=False, indent=1))
     md = rapport(info, lignes, moteurs, taches)
     (sortie / "resultats.md").write_text(md)
     print("\n" + md)
