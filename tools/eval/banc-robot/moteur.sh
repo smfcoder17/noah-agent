@@ -4,8 +4,13 @@
 set -eu
 MOTEUR="$1"; shift
 # Garde-fou : /proc/meminfo est celui de la machine hôte. Sous le seuil (2 Go par défaut, NOAH_BANC_MEM_MIN en Mo), on ne lance rien pour ne gêner personne.
-dispo=$(awk '/MemAvailable/ {print int($2/1024)}' /proc/meminfo)
 MIN="${NOAH_BANC_MEM_MIN:-2048}"
+# On attend jusqu'à 10 minutes que la mémoire redescende avant de renoncer.
+for essai in 1 2 3 4 5 6 7 8 9 10 11; do
+  dispo=$(awk '/MemAvailable/ {print int($2/1024)}' /proc/meminfo)
+  [ "$dispo" -ge "$MIN" ] && break
+  [ "$essai" -lt 11 ] && { echo "[$MOTEUR] mémoire disponible ${dispo} Mo, j'attends une minute…"; sleep 60; }
+done
 if [ "$dispo" -lt "$MIN" ]; then echo "[$MOTEUR] mémoire disponible ${dispo} Mo, sous le seuil de ${MIN} Mo : moteur sauté."; exit 3; fi
 echo "[$MOTEUR] mémoire disponible ${dispo} Mo."
 export DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PIP_ROOT_USER_ACTION=ignore PIP_DISABLE_PIP_VERSION_CHECK=1
