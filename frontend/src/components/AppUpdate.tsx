@@ -1,4 +1,5 @@
 // Nouvelle version de l'app Android : le serveur annonce l'APK de sa Release, l'app la propose en une touche.
+// La version du Play Store ne s'installe rien elle-même (règles de Google) : elle renvoie vers sa fiche.
 import { Download, Loader2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { get, type Status } from "@/lib/api";
@@ -7,6 +8,8 @@ import { Button } from "./ui";
 
 type Offer = { version: string; url: string };
 const DISMISSED = "noah:app-update-ignoree";
+/** Fiche de l'app sur le Play Store : le lien ouvre l'app Play Store (MainActivity laisse sortir les autres sites). */
+export const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=agent.noah.mobile";
 
 export function AppUpdate() {
   const [current, setCurrent] = useState("");
@@ -14,10 +17,12 @@ export function AppUpdate() {
   const [state, setState] = useState<"" | "busy" | "sent">("");
   const [message, setMessage] = useState("");
   const [hidden, setHidden] = useState(false);
+  const [play, setPlay] = useState(false);
   const shell = appShell();
   useEffect(() => {
     if (shell?.kind !== "android") return;
     shell.version().then(setCurrent).catch(() => {});
+    shell.canal?.().then((c) => setPlay(c === "play")).catch(() => {});
     get<Status>("/api/status").then((s) => {
       const next = s.app_android ?? null;
       setOffer(next);
@@ -32,6 +37,7 @@ export function AppUpdate() {
   if (!offer || shell?.kind !== "android" || !current || hidden || !tooOld(current, offer.version)) return null;
 
   const install = async () => {
+    if (play) return void window.location.assign(PLAY_STORE_URL);
     const native = window.Capacitor?.Plugins?.NoahShell;
     // Une app d'avant cette fonction n'a pas installUpdate : le navigateur du téléphone télécharge l'APK.
     if (!native?.installUpdate) return void window.location.assign(offer.url);
@@ -62,7 +68,7 @@ export function AppUpdate() {
         {message && <span className="block text-xs text-muted-foreground">{message}</span>}
       </p>
       <Button size="sm" onClick={install} disabled={state !== ""}>
-        {state === "busy" ? <Loader2 className="animate-spin" /> : <Download />}Installer
+        {state === "busy" ? <Loader2 className="animate-spin" /> : <Download />}{play ? "Ouvrir le Play Store" : "Installer"}
       </Button>
       <Button size="icon-sm" variant="ghost" onClick={later} aria-label="Plus tard"><X /></Button>
     </div>

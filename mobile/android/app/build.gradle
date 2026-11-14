@@ -10,8 +10,8 @@ if (!noahNumbers.matches()) {
 def noahVersionCode = noahNumbers.group(1).toInteger() * 1000000 + noahNumbers.group(2).toInteger() * 1000 + noahNumbers.group(3).toInteger()
 
 // Signature d'une version : le keystore reste hors du dépôt, la CI le pose depuis les secrets GitHub (voir apps.yml et
-// scripts/preparer-signatures.sh). Sans ces variables, assembleDebug marche comme avant et assembleRelease donne un APK
-// non signé (app-release-unsigned.apk), qu'Android n'installe pas : une version publique n'a jamais la clé de débogage.
+// scripts/preparer-signatures.sh). Sans ces variables, assembleGithubDebug marche comme avant et assembleGithubRelease
+// donne un APK non signé, qu'Android n'installe pas : une version publique n'a jamais la clé de débogage.
 def noahKeystore = System.getenv("NOAH_APK_KEYSTORE_FILE") ?: ""
 def noahKeystorePassword = System.getenv("NOAH_APK_KEYSTORE_PASSWORD") ?: ""
 def noahKeyAlias = System.getenv("NOAH_APK_KEY_ALIAS") ?: ""
@@ -23,8 +23,8 @@ if (noahSigned && !file(noahKeystore).isFile()) {
     throw new GradleException("Keystore introuvable : ${noahKeystore}")
 }
 gradle.taskGraph.whenReady { graph ->
-    if (!noahSigned && graph.allTasks.any { it.name == "assembleRelease" }) {
-        logger.warn("Pas de NOAH_APK_KEYSTORE_FILE : APK de version NON SIGNÉ (app-release-unsigned.apk), Android ne l'installera pas. Pour essayer sur un appareil : assembleDebug.")
+    if (!noahSigned && graph.allTasks.any { it.name ==~ /(assemble|bundle)\w*Release/ }) {
+        logger.warn("Pas de NOAH_APK_KEYSTORE_FILE : version NON SIGNÉE (app-github-release-unsigned.apk), Android ne l'installera pas. Pour essayer sur un appareil : assembleGithubDebug.")
     }
 }
 
@@ -45,6 +45,19 @@ android {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    // Deux canaux, même paquet : « github » (l'APK des Releases, qui se met à jour depuis sa Release) et « play » (le
+    // Play Store, qui seul met l'app à jour : ni REQUEST_INSTALL_PACKAGES, ni téléchargement d'APK, voir src/play).
+    flavorDimensions = ["canal"]
+    productFlavors {
+        github {
+            dimension "canal"
+            buildConfigField "String", "CANAL", "\"github\""
+        }
+        play {
+            dimension "canal"
+            buildConfigField "String", "CANAL", "\"play\""
         }
     }
     signingConfigs {

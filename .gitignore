@@ -6,6 +6,8 @@ data/
 *.jks
 *.keystore
 *.keystore.b64
+# Fichiers de l'app pour le Play Store, téléchargés depuis la CI (signés, jamais dans le dépôt)
+docs/store/play/build/
 release.key
 
 # Python

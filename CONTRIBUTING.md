@@ -21,9 +21,9 @@ cd desktop && npm install && npm run dist
 ```
 
 ```sh
-# Android (Node 22, JDK 21, SDK Android) : l'APK de débogage arrive dans app/build/outputs/apk/debug/
+# Android (Node 22, JDK 21, SDK Android) : l'APK de débogage arrive dans app/build/outputs/apk/github/debug/
 cd mobile && npm ci && npx cap sync android
-cd android && ./gradlew assembleDebug
+cd android && ./gradlew assembleGithubDebug
 ```
 
 ## Avant de proposer un changement

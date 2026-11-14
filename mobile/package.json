@@ -6,7 +6,7 @@
   "description": "Noah Agent sur le téléphone : relie l'app à ton serveur Noah, puis ouvre son interface.",
   "scripts": {
     "sync": "cap sync android",
-    "apk": "cap sync android && cd android && gradlew.bat assembleDebug"
+    "apk": "cap sync android && cd android && gradlew.bat assembleGithubDebug"
   },
   "dependencies": {
     "@capacitor/android": "8.6.0",
