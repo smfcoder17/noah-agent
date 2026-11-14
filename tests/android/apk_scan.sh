@@ -2,7 +2,7 @@
 # G4.5, dépendances réellement embarquées : grep dans l'APK construit (classes de toutes les bibliothèques, transitives
 # comprises) et, si donné, dans l'arbre résolu par Gradle.
 #
-#   sh tests/android/apk_scan.sh app-debug.apk [sortie de ./gradlew :app:dependencies --configuration debugRuntimeClasspath]
+#   sh tests/android/apk_scan.sh app-github-debug.apk [sortie de ./gradlew :app:dependencies --configuration githubDebugRuntimeClasspath]
 set -eu
 APK=$1
 DEPS=${2:-}

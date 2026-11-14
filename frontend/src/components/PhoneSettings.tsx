@@ -4,6 +4,7 @@ import { useAui } from "@assistant-ui/react";
 import { Loader2, MapPin } from "lucide-react";
 import { useEffect, useState } from "react";
 import { type Agent, get } from "@/lib/api";
+import { CONFIDENTIALITE_URL } from "@/lib/editeur";
 import { Button, ErrorText } from "./ui";
 
 type State = "accorde" | "a_demander" | "refuse" | "bloque" | "sans_droit";
@@ -151,6 +152,9 @@ export function PhoneSettings() {
         Pour que les appels sonnent écran éteint.
       </Row>
       <ErrorText>{error}</ErrorText>
+      <p className="text-xs text-muted-foreground">
+        Ce que l'app fait de tes données : <a className="underline" href={CONFIDENTIALITE_URL}>politique de confidentialité</a>.
+      </p>
     </div>
   );
 }

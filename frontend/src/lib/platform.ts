@@ -1,7 +1,8 @@
 // Où tourne l'interface : navigateur, app de bureau (Electron) ou app mobile (Capacitor, interface du serveur ouverte
 // dans la fenêtre de l'app). Les apps se relient par un code ou une autorisation, jamais par le mot de passe.
 
-type Shell = { kind: "desktop" | "android"; forget(): Promise<unknown>; version(): Promise<string> };
+/** canal : d'où l'app Android tient ses mises à jour, « github » (sa Release) ou « play » (le Play Store). */
+type Shell = { kind: "desktop" | "android"; forget(): Promise<unknown>; version(): Promise<string>; canal?(): Promise<string> };
 
 declare global {
   interface Window {
@@ -26,7 +27,11 @@ export function appShell(): Shell | null {
   const d = window.noahDesktop;
   if (d?.forgetServer) return { kind: "desktop", forget: () => d.forgetServer!(), version: async () => (typeof d.version === "function" ? await d.version() : d.version) ?? "0.1.0" };
   const native = window.Capacitor?.Plugins?.NoahShell;
-  if (native) return { kind: "android", forget: () => native.forget(), version: async () => ((await native.info()) as { version: string }).version };
+  if (native) {
+    const info = async () => (await native.info()) as { version: string; canal?: string };
+    // Une app d'avant les deux canaux ne dit rien : c'était l'APK de GitHub.
+    return { kind: "android", forget: () => native.forget(), version: async () => (await info()).version, canal: async () => (await info()).canal ?? "github" };
+  }
   return null;
 }
 

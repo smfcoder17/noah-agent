@@ -2,15 +2,15 @@
 // Pas au-dessus de Paramètres : Android y masque toute superposition d'une app, exprès. La bulle réapparaît en sortant. L'Horloge sert ici d'autre app.
 //
 //   1. Lance le serveur d'essai (voir tests/real/android_essai_serveur.py), interface construite (frontend/dist), sur 127.0.0.1:18099.
-//   2. Construis l'APK : cd mobile/android && ./gradlew.bat assembleDebug
-//   3. NOAH_APK=<chemin de app-debug.apk> NOAH_CAPTURES=<dossier> node tests/real/bulle_android.mjs
+//   2. Construis l'APK : cd mobile/android && ./gradlew.bat assembleGithubDebug
+//   3. NOAH_APK=<chemin de app-github-debug.apk> NOAH_CAPTURES=<dossier> node tests/real/bulle_android.mjs
 //
 // Le son est le vrai micro de l'émulateur, reçu tel quel par le serveur ; seule la transcription est simulée.
 import { mkdirSync } from "node:fs";
 import { adb, APP, clickText, essai, page, screenshot, SERVER_FROM_PHONE, sleep, tapNative, until } from "./bulle_android_outils.mjs";
 
 const OUT = process.env.NOAH_CAPTURES || "bulle-captures";
-const APK = process.env.NOAH_APK || "mobile/android/app/build/outputs/apk/debug/app-debug.apk";
+const APK = process.env.NOAH_APK || "mobile/android/app/build/outputs/apk/github/debug/app-github-debug.apk";
 mkdirSync(OUT, { recursive: true });
 const shot = (name) => screenshot(`${OUT}/${name}.png`);
 const say = (...a) => console.log(...a);

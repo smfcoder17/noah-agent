@@ -29,6 +29,7 @@ import { giveFilesEvent } from "./Files";
 import { LoginCard, LoginDone, type LoginResult } from "./LoginCard";
 import { NoahTile, type NoahHandle } from "./Noah";
 import { Recu } from "./Recu";
+import { ReportAnswer } from "./ReportAnswer";
 import { StateShape } from "./Sidebar";
 import { cn, dayLabel, messageMoment, safeMedia } from "@/lib/utils";
 import { Button } from "./ui";
@@ -566,6 +567,12 @@ function QuoteChips() {
   );
 }
 
+/** Le texte d'une réponse tel qu'il est affiché : une donnée masquée reste masquée dans un signalement. */
+function answerText(id: string): string {
+  const el = document.querySelector<HTMLElement>(`[data-noah-msg="${id.replace(/["\\]/g, "\\$&")}"] [data-noah-answer]`);
+  return (el?.innerText || el?.textContent || "").trim();
+}
+
 const AssistantMessage = memo(function AssistantMessage() {
   const { agentColor, agentShape, agentDetail } = useContext(AgentContext);
   const busyActivity = useContext(WhileBusyContext).activity;
@@ -605,7 +612,7 @@ const AssistantMessage = memo(function AssistantMessage() {
           <span className="sticky top-2 block">{face(cn("transition-[width,height,margin] duration-200", live ? "-ml-1 size-10" : "size-8"))}</span>
         </span>
       )}
-      <div className="max-w-[92%] min-w-0">
+      <div data-noah-answer className="max-w-[92%] min-w-0">
         {empty && running ? (
           // Un travail repris (app rouverte) dit déjà ce qu'il fait au-dessus de la saisie : pas deux indicateurs.
           !busyActivity && (
@@ -641,6 +648,7 @@ const AssistantMessage = memo(function AssistantMessage() {
                 <MessagePrimitive.If copied={false}><Copy /></MessagePrimitive.If>
               </Button>
             </ActionBarPrimitive.Copy>
+            <ReportAnswer readText={() => answerText(id)} />
             {copyWarning && <span role="status" className="text-xs text-muted-foreground">Révèle les données avant de copier.</span>}
           </ActionBarPrimitive.Root>
         )}

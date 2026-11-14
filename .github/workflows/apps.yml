@@ -58,6 +58,7 @@ jobs:
             echo "::warning title=APK de débogage::Secrets NOAH_APK_KEYSTORE, NOAH_APK_KEYSTORE_PASSWORD ou NOAH_APK_KEY_ALIAS absents : APK de débogage, à ne pas distribuer (sh scripts/preparer-signatures.sh)."
             echo "signe=false" >> "$GITHUB_OUTPUT"
           fi
+      # Canal « github » : l'APK des Releases, qui se met à jour depuis sa Release (le canal « play » est le job play).
       - name: APK signé
         if: steps.cle.outputs.signe == 'true'
         working-directory: mobile/android
@@ -67,20 +68,20 @@ jobs:
           NOAH_APK_KEY_ALIAS: ${{ secrets.NOAH_APK_KEY_ALIAS }}
         run: |
           # Les fichiers de release GitHub répondent parfois 504 (8 novembre 2026) : la même construction, jusqu'à 4 fois.
-          for essai in 1 2 3 4; do ./gradlew assembleRelease --no-daemon && break; [ "$essai" = 4 ] && exit 1; echo "::warning::essai $essai échoué, nouvel essai dans 60 s"; sleep 60; done
-          ./gradlew :app:dependencies --configuration releaseRuntimeClasspath --no-daemon > "$RUNNER_TEMP/dependances.txt"
+          for essai in 1 2 3 4; do ./gradlew assembleGithubRelease --no-daemon && break; [ "$essai" = 4 ] && exit 1; echo "::warning::essai $essai échoué, nouvel essai dans 60 s"; sleep 60; done
+          ./gradlew :app:dependencies --configuration githubReleaseRuntimeClasspath --no-daemon > "$RUNNER_TEMP/dependances.txt"
           mkdir -p "$RUNNER_TEMP/apk"
-          cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/apk/noah-agent-android.apk"
+          cp app/build/outputs/apk/github/release/app-github-release.apk "$RUNNER_TEMP/apk/noah-agent-android.apk"
           sh ../../tests/android/apk_signature.sh "$RUNNER_TEMP/apk/noah-agent-android.apk"
       - name: APK de débogage
         if: steps.cle.outputs.signe != 'true'
         working-directory: mobile/android
         run: |
           # Les fichiers de release GitHub répondent parfois 504 (8 novembre 2026) : la même construction, jusqu'à 4 fois.
-          for essai in 1 2 3 4; do ./gradlew assembleDebug --no-daemon && break; [ "$essai" = 4 ] && exit 1; echo "::warning::essai $essai échoué, nouvel essai dans 60 s"; sleep 60; done
-          ./gradlew :app:dependencies --configuration debugRuntimeClasspath --no-daemon > "$RUNNER_TEMP/dependances.txt"
+          for essai in 1 2 3 4; do ./gradlew assembleGithubDebug --no-daemon && break; [ "$essai" = 4 ] && exit 1; echo "::warning::essai $essai échoué, nouvel essai dans 60 s"; sleep 60; done
+          ./gradlew :app:dependencies --configuration githubDebugRuntimeClasspath --no-daemon > "$RUNNER_TEMP/dependances.txt"
           mkdir -p "$RUNNER_TEMP/apk"
-          cp app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/apk/noah-agent-android-debug.apk"
+          cp app/build/outputs/apk/github/debug/app-github-debug.apk "$RUNNER_TEMP/apk/noah-agent-android-debug.apk"
       - name: Keystore retiré de la machine
         if: always()
         run: rm -f "$RUNNER_TEMP/noah.keystore"
@@ -92,6 +93,82 @@ jobs:
           path: ${{ runner.temp }}/apk/*.apk
           if-no-files-found: error
 
+  # Le fichier de l'app pour le Play Store (canal « play » : ni REQUEST_INSTALL_PACKAGES, ni mise à jour par GitHub).
+  # Seulement à la demande (gh workflow run apps.yml --ref <branche>), jamais depuis release.yml : un artefact du run,
+  # à téléverser à la main dans la Play Console. Rien n'est joint à un Release.
+  play:
+    if: github.event_name == 'workflow_dispatch' && github.workflow == 'Applications'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: microsoft
+          java-version: "21"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # Étiquette v1.2.3 : 1.2.3 ; sinon le numéro affiché (version-affichee.txt). Le Play Store refuse deux fois le même
+      # versionCode : un nouvel envoi demande un numéro plus haut.
+      - name: Numéro de version
+        run: |
+          case "$GITHUB_REF" in
+            refs/tags/v*) v="${GITHUB_REF_NAME#v}" ;;
+            *) v="$(tr -d ' \r\n' < version-affichee.txt)" ;;
+          esac
+          echo "NOAH_APK_VERSION=${NOAH_APK_VERSION:-$v}" >> "$GITHUB_ENV"
+      - name: Sources de l'app
+        working-directory: mobile
+        run: |
+          npm ci
+          npx cap sync android
+          chmod +x android/gradlew
+      - name: Keystore
+        env:
+          NOAH_APK_KEYSTORE: ${{ secrets.NOAH_APK_KEYSTORE }}
+          NOAH_APK_KEYSTORE_PASSWORD: ${{ secrets.NOAH_APK_KEYSTORE_PASSWORD }}
+          NOAH_APK_KEY_ALIAS: ${{ secrets.NOAH_APK_KEY_ALIAS }}
+        run: |
+          if [ -z "$NOAH_APK_KEYSTORE" ] || [ -z "$NOAH_APK_KEYSTORE_PASSWORD" ] || [ -z "$NOAH_APK_KEY_ALIAS" ]; then
+            echo "::error::Secrets NOAH_APK_KEYSTORE, NOAH_APK_KEYSTORE_PASSWORD ou NOAH_APK_KEY_ALIAS absents : le Play Store refuse un fichier non signé."
+            exit 1
+          fi
+          printf '%s' "$NOAH_APK_KEYSTORE" | base64 -d > "$RUNNER_TEMP/noah.keystore"
+      - name: AAB signé
+        working-directory: mobile/android
+        env:
+          NOAH_APK_KEYSTORE_FILE: ${{ runner.temp }}/noah.keystore
+          NOAH_APK_KEYSTORE_PASSWORD: ${{ secrets.NOAH_APK_KEYSTORE_PASSWORD }}
+          NOAH_APK_KEY_ALIAS: ${{ secrets.NOAH_APK_KEY_ALIAS }}
+        run: |
+          # Les fichiers de release GitHub répondent parfois 504 (8 novembre 2026) : la même construction, jusqu'à 4 fois.
+          for essai in 1 2 3 4; do ./gradlew bundlePlayRelease --no-daemon && break; [ "$essai" = 4 ] && exit 1; echo "::warning::essai $essai échoué, nouvel essai dans 60 s"; sleep 60; done
+          mkdir -p "$RUNNER_TEMP/aab"
+          cp app/build/outputs/bundle/playRelease/app-play-release.aab "$RUNNER_TEMP/aab/noah-agent-play-$NOAH_APK_VERSION.aab"
+      - name: Keystore retiré de la machine
+        if: always()
+        run: rm -f "$RUNNER_TEMP/noah.keystore"
+      - name: Canal Play sans installation d'APK
+        working-directory: mobile/android
+        run: |
+          m=app/build/intermediates/merged_manifests/playRelease/processPlayReleaseManifest/AndroidManifest.xml
+          [ -f "$m" ] || m=$(find app/build/intermediates -path '*playRelease*' -name AndroidManifest.xml | grep merged_manifest | head -1)
+          echo "Manifeste fusionné : $m"
+          if grep -n 'REQUEST_INSTALL_PACKAGES' "$m"; then echo "::error::REQUEST_INSTALL_PACKAGES dans la version Play"; exit 1; fi
+          grep -o 'android:targetSdkVersion="[0-9]*"' "$m"
+          echo "Aucune REQUEST_INSTALL_PACKAGES dans la version Play"
+      - name: Signature de l'AAB
+        run: |
+          out=$(jarsigner -verify -verbose -certs "$RUNNER_TEMP"/aab/*.aab)
+          echo "$out" | tail -15
+          echo "$out" | grep -q "jar verified." || { echo "::error::AAB non signé"; exit 1; }
+          if echo "$out" | grep -q "CN=Android Debug"; then echo "::error::AAB signé avec la clé de débogage"; exit 1; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: noah-play-aab
+          path: ${{ runner.temp }}/aab/*.aab
+          if-no-files-found: error
   bureau:
     runs-on: windows-latest
     timeout-minutes: 30

@@ -19,7 +19,7 @@ import org.junit.runner.RunWith;
  * Chaque forme et chaque détail se voient vraiment dans le dessin natif. Laisse les images dans le dossier de l'app (fichiers/visages) :
  * tests/android/visages_compare.mjs les compare au vrai composant de l'interface.
  *
- *   ./gradlew assembleDebug assembleDebugAndroidTest ; adb install -r -t les deux APK
+ *   ./gradlew assembleGithubDebug assembleGithubDebugAndroidTest ; adb install -r -t les deux APK
  *   adb shell am instrument -w -e class agent.noah.mobile.NoahFaceTest agent.noah.mobile.test/androidx.test.runner.AndroidJUnitRunner
  */
 @RunWith(AndroidJUnit4.class)

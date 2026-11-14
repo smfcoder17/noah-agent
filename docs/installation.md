@@ -178,7 +178,7 @@ Réglages > Appareils > « Relier un appareil » affiche un QR code et un code c
 
 Réglages > Notifications choisit ce que tu reçois et si un agent peut t'appeler ; Réglages > Téléphone (dans l'app Android) donne l'état de chaque droit et lance la bulle flottante, masquée par Android sur son écran Paramètres.
 
-Pour construire l'APK toi-même (Node 22, JDK 21, SDK Android) : `cd mobile && npm ci && npx cap sync android`, puis `./gradlew assembleDebug` dans `mobile/android`. Il arrive dans `app/build/outputs/apk/debug/`. C'est une version de débogage : Android demandera d'autoriser l'installation hors du Play Store.
+Pour construire l'APK toi-même (Node 22, JDK 21, SDK Android) : `cd mobile && npm ci && npx cap sync android`, puis `./gradlew assembleGithubDebug` dans `mobile/android`. Il arrive dans `app/build/outputs/apk/github/debug/`. (La variante `play`, pour le Play Store, ne se met pas à jour depuis GitHub : `./gradlew bundlePlayRelease`.) C'est une version de débogage : Android demandera d'autoriser l'installation hors du Play Store.
 
 Accepter un nouvel appareil demande ton mot de passe, et ton code si la double vérification est active. Seul un navigateur où tu as saisi ton mot de passe il y a moins de 15 minutes en est dispensé : un jeton d'appareil volé ne peut pas en relier un autre.
 

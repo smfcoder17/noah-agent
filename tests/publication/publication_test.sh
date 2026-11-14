@@ -50,7 +50,11 @@ files = next(s for s in steps if s.get("name") == "Applications jointes")["run"]
 for f in ("docker-compose.yml", "manifest.json", "manifest.json.sig", "noah-agent-android.apk", "noah-agent-windows-setup.exe"):
     assert f in files, f
 android = {s.get("name"): s for s in apps["jobs"]["android"]["steps"]}
-assert "assembleRelease" in android["APK signé"]["run"] and android["APK signé"]["if"]
+assert "assembleGithubRelease" in android["APK signé"]["run"] and android["APK signé"]["if"]
+play = apps["jobs"]["play"]
+assert "workflow_dispatch" in play["if"] and "Applications" in play["if"], "l'AAB du Play Store ne part jamais d'un Release"
+assert any("bundlePlayRelease" in s.get("run", "") for s in play["steps"]), "AAB du canal play"
+assert not any("gh release" in s.get("run", "") for s in play["steps"]), "AAB : artefact du run, jamais un Release"
 assert "apk_scan.sh" in android["Pas d'EncryptedSharedPreferences dans l'APK ni dans les dépendances résolues"]["run"]
 print("OK    enchaînement : contrôle, tests, images et applications, puis un seul Release écrit à la fin")
 EOF

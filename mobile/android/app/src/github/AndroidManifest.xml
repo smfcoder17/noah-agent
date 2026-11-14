@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Canal GitHub seulement : la version Play est mise à jour par le Play Store, jamais par l'app elle-même. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Installer une nouvelle version de l'app depuis sa Release : Android demande l'accord de la personne. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+</manifest>
