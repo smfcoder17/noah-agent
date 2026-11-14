@@ -56,6 +56,8 @@ print(f"1. {read} manifestes et verrous de paquets lus : aucun paquet de télém
 
 # Tout hôte écrit dans le code qui s'exécute. Ce qui n'est qu'un lien montré à l'utilisateur est marqué comme tel.
 KNOWN = {
+    # Liens que la personne ouvre elle-même : fiche Play Store (version Play) et politique de confidentialité
+    "play.google.com": "lien", "noah-agent.smfcoder.com": "lien",
     # Grille : fournisseur de modèle choisi (un seul à la fois, voir plus bas)
     "openrouter.ai": "fournisseur", "api.openai.com": "fournisseur", "api.anthropic.com": "fournisseur",
     "generativelanguage.googleapis.com": "fournisseur", "ollama.com": "fournisseur", "api.mammouth.ai": "fournisseur",
