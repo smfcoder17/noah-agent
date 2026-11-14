@@ -20,3 +20,4 @@ node_modules/
 frontend/dist/
 backups/
 .playwright-mcp/
+docs/store/play/build/
