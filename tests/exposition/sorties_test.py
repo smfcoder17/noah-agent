@@ -82,7 +82,7 @@ KNOWN = {
     "developers.facebook.com": "lien montré", "console.x.com": "lien montré",
     "console.cloud.google.com": "lien montré", "mail.google.com": "lien montré",
     # Noms sans trafic : adresses d'exemple, espaces de noms, liens de documentation
-    "noah.exemple.com": "exemple", "noah.invalid": "exemple", "mcp.exemple.fr": "exemple",
+    "noah.exemple.com": "exemple", "noah.example.com": "exemple", "mcp.example.com": "exemple", "my-provider.com": "exemple", "noah.invalid": "exemple", "mcp.exemple.fr": "exemple",
     "speaches.ai": "lien montré",
     # 0.2.0 : adresses écrites dans les tests de l'interface (blocs, masquage), jamais appelées
     "boutique.example": "exemple", "shop.example.com": "exemple", "www.lemonde.fr": "exemple", "youtu.be": "exemple", "wa.me": "exemple",

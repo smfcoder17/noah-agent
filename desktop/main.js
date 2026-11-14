@@ -11,6 +11,7 @@ const actions = require("./actions");
 const dossiers = require("./dossiers");
 const bandeau = require("./bandeau");
 const permissions = require("./permissions");
+const { t, langue } = require("./textes");
 
 let win = null;
 let page = null;
@@ -30,13 +31,13 @@ const startup = require("./demarrage").create(app, readConfig, writeConfig);
 function startupMenu() {
   if (!startup.available()) return [];
   return [{
-    label: "Lancer Noah au démarrage de l'ordinateur", type: "checkbox", checked: startup.get(),
+    label: t("menu.demarrage"), type: "checkbox", checked: startup.get(),
     click: (item) => { startup.set(item.checked); createMenu(); createTrayMenuState(); },
   }];
 }
 function autonomyMenu() {
-  return { label: "Autonomie de cet ordinateur", submenu: [
-    ...[["auto", "Auto — agir dans les dossiers confiés"], ["prudent", "Prudent — demander avant d'écrire ou ranger"]].map(([value, label]) => ({
+  return { label: t("menu.autonomie"), submenu: [
+    ...[["auto", t("menu.autonomie.auto")], ["prudent", t("menu.autonomie.prudent")]].map(([value, label]) => ({
       label, type: "radio", checked: autonomy.get() === value,
       click: () => { autonomy.set(value); createMenu(); createTrayMenuState(); },
     })),
@@ -51,21 +52,21 @@ async function noahHome() {
   const dev = path.resolve(__dirname, "..");
   if (isNoahHome(dev)) return dev;
   const r = await dialog.showOpenDialog({
-    title: "Où est installé Noah Agent ?",
-    message: "Choisis le dossier qui contient docker-compose.yml (celui créé par install.sh).",
+    title: t("accueil.dossier.titre"),
+    message: t("accueil.dossier.message"),
     properties: ["openDirectory"],
   });
   const dir = r.filePaths[0];
-  if (!isNoahHome(dir)) throw new Error("Ce dossier ne contient pas Noah Agent (docker-compose.yml introuvable).");
+  if (!isNoahHome(dir)) throw new Error(t("accueil.dossier.erreur"));
   writeConfig({ home: dir });
   return dir;
 }
 
-const LOADING = `<!doctype html><meta charset="utf-8"><title>Noah Agent</title>
+const loading = () => `<!doctype html><meta charset="utf-8"><title>Noah Agent</title>
 <style>body{margin:0;height:100vh;display:grid;place-items:center;font:15px system-ui,sans-serif;background:#faf8f5;color:#3a3530}
 @media (prefers-color-scheme:dark){body{background:#1c1a18;color:#e8e2da}}
 div{text-align:center;max-width:420px;padding:24px}p{opacity:.75;line-height:1.5}button{font:inherit;padding:8px 16px;border-radius:10px;border:1px solid #c9bfb3;background:transparent;color:inherit;cursor:pointer}</style>
-<div><h2>Noah Agent</h2><p id="s">Démarrage…</p><button id="r" hidden onclick="location.hash='retry'">Réessayer</button></div>`;
+<div><h2>Noah Agent</h2><p id="s">${t("demarrage.attente")}</p><button id="r" hidden onclick="location.hash='retry'">${t("commun.reessayer")}</button></div>`;
 
 function status(text, failed = false) {
   if (!win || win.isDestroyed()) return;
@@ -94,7 +95,7 @@ async function boot() {
     origin = "";
     return page.webContents.loadFile(path.join(__dirname, "setup.html"));
   }
-  await page.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(LOADING)}`);
+  await page.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(loading())}`);
   if (config.mode === "remote") {
     if (serverOrigin(config.server || "") !== config.server) {
       // Adresse en http vers un serveur public (relié par une ancienne version) : on ne renvoie surtout pas la session
@@ -102,7 +103,7 @@ async function boot() {
       await forgetServer({ revoke: false });
       page.webContents.once("did-finish-load", () =>
         page.webContents.executeJavaScript(`document.getElementById("error").textContent = ${JSON.stringify(
-          "Ton serveur était relié en http (non chiffré). Relie-le en https, puis déconnecte l'ancienne session dans Réglages → Appareils.",
+          t("connexion.http"),
         )}`).catch(() => {}),
       );
       return;
@@ -142,13 +143,13 @@ async function openRemote(server) {
   const generation = pairingGeneration;
   const token = storedToken(); // capturé avec son serveur, avant toute attente
   const stale = () => generation !== pairingGeneration || readConfig().server !== server;
-  status("Connexion à ton serveur…");
+  status(t("connexion.en_cours"));
   try {
     const r = await fetch(`${server}/api/status`, { signal: AbortSignal.timeout(15000) });
     if (!r.ok) throw new Error(String(r.status));
   } catch {
     if (stale()) return;
-    status(`Ton serveur (${server}) ne répond pas. Nouvel essai automatique toutes les 5 secondes…`, true);
+    status(t("connexion.injoignable", { serveur: server }), true);
     return reconnectLater();
   }
   if (stale()) return; // serveur changé pendant l'attente : ce démarrage ne pose plus rien
@@ -176,8 +177,8 @@ function serverOrigin(raw) {
     return null;
   }
 }
-const BAD_ADDRESS = { error: "Indique une adresse en https:// (exemple : https://noah.exemple.com). Le http n'est accepté que sur ton réseau local." };
-const deviceName = () => `Ordinateur ${os.hostname()}`;
+const badAddress = () => ({ error: t("connexion.adresse") });
+const deviceName = () => t("appareil.nom", { nom: os.hostname() });
 /** Même origine exacte que le serveur de Noah (un préfixe accepterait https://noah.exemple.com.evil.net). */
 function sameOrigin(url) {
   try {
@@ -217,13 +218,12 @@ async function useToken(server, token) {
   });
 }
 
-const NO_KEYRING = { error: "Le trousseau du système n'est pas disponible : impossible de ranger la session en sécurité. "
-  + "Sous Linux, installe et déverrouille GNOME Keyring (gnome-keyring) ou KWallet, puis relance l'app." };
+const noKeyring = () => ({ error: t("connexion.trousseau") });
 
 async function adopt(server, token) {
   if (!secureStorage()) {
     await revokeOrQueue(server, token); // trousseau perdu entre-temps : la session ne reste pas ouverte
-    return NO_KEYRING;
+    return noKeyring();
   }
   writeConfig({ mode: "remote", server, jeton: safeStorage.encryptString(token).toString("base64") });
   boot();
@@ -234,8 +234,8 @@ async function adopt(server, token) {
  * l'appareil, l'app sonde jusqu'à recevoir sa session. Le mot de passe n'est jamais tapé dans l'app. */
 async function authorize(rawServer) {
   const server = serverOrigin(rawServer);
-  if (!server) return BAD_ADDRESS;
-  if (!secureStorage()) return NO_KEYRING; // vérifié avant : le serveur ne crée pas une session qu'on ne pourrait ranger
+  if (!server) return badAddress();
+  if (!secureStorage()) return noKeyring(); // vérifié avant : le serveur ne crée pas une session qu'on ne pourrait ranger
   const generation = ++pairingGeneration; // un « Changer de serveur » pendant la requête suivante l'annule
   let start;
   try {
@@ -244,14 +244,14 @@ async function authorize(rawServer) {
       signal: AbortSignal.timeout(20000),
     });
     start = await r.json().catch(() => ({}));
-    if (!r.ok) return { error: start.detail || `Le serveur a refusé (${r.status}).` };
+    if (!r.ok) return { error: start.detail || t("connexion.refus", { statut: r.status }) };
   } catch {
-    return { error: `Impossible de joindre ${server}. Vérifie l'adresse.` };
+    return { error: t("connexion.joindre", { serveur: server }) };
   }
-  if (generation !== pairingGeneration) return { error: "Appairage annulé." };
+  if (generation !== pairingGeneration) return { error: t("appairage.annule") };
   // N'ouvrir que la page d'accord de ce serveur : jamais une adresse arbitraire choisie par le serveur (file:, ms-msdt:…).
   if (typeof start.adresse !== "string" || !start.adresse.startsWith(`${server}/#autoriser=`)) {
-    return { error: "Réponse inattendue du serveur." };
+    return { error: t("connexion.reponse") };
   }
   shell.openExternal(start.adresse);
   page?.webContents.send("noah:setup-ask-number");
@@ -262,8 +262,8 @@ async function authorize(rawServer) {
 /** Secours : le code court de Réglages → Appareils. */
 async function pair(rawServer, rawCode) {
   const server = serverOrigin(rawServer);
-  if (!server) return BAD_ADDRESS;
-  if (!secureStorage()) return NO_KEYRING;
+  if (!server) return badAddress();
+  if (!secureStorage()) return noKeyring();
   const generation = ++pairingGeneration;
   let r;
   try {
@@ -273,12 +273,12 @@ async function pair(rawServer, rawCode) {
       signal: AbortSignal.timeout(20000),
     });
   } catch {
-    return { error: `Impossible de joindre ${server}. Vérifie l'adresse.` };
+    return { error: t("connexion.joindre", { serveur: server }) };
   }
   const body = await r.json().catch(() => ({}));
-  if (generation !== pairingGeneration) return { error: "Appairage annulé." };
+  if (generation !== pairingGeneration) return { error: t("appairage.annule") };
   if (r.ok && body.attente) return waitForApproval(server, body.sondage, body.expire, body.verification, generation);
-  return { error: body.detail || `Le serveur a refusé (${r.status}).` };
+  return { error: body.detail || t("connexion.refus", { statut: r.status }) };
 }
 
 /**
@@ -316,21 +316,21 @@ async function pollUntil(server, sondage, until, generation) {
     } catch {
       continue;
     }
-    if (r.status === 410) return { error: "Demande refusée ou expirée. Recommence." };
-    if (r.status === 403) return { error: "Ce nombre ne correspond pas à celui du navigateur. Recommence." };
-    if (r.status === 426) return { error: "Cette version de l'app est trop ancienne pour ton serveur Noah : mets-la à jour." };
+    if (r.status === 410) return { error: t("appairage.refuse") };
+    if (r.status === 403) return { error: t("appairage.nombre") };
+    if (r.status === 426) return { error: t("appairage.ancienne") };
     if (!r.ok) continue;
     const body = await r.json().catch(() => ({}));
     if (body.token) {
       if (generation !== pairingGeneration) {
         // Serveur oublié ou autre appairage lancé entre-temps : cette session arrive trop tard, on la révoque.
         await revokeOrQueue(server, body.token);
-        return { error: "Appairage annulé." };
+        return { error: t("appairage.annule") };
       }
       return adopt(server, body.token);
     }
   }
-  return { error: "Pas d'accord dans les 20 minutes. Recommence." };
+  return { error: t("appairage.delai") };
 }
 
 /** Dernier sondage à la fermeture : une session créée sans qu'on ait lu la réponse est relue puis révoquée. */
@@ -416,9 +416,9 @@ async function flushOnce() {
 /** Oublie le serveur (ou Docker) choisi : l'écran du premier lancement revient. */
 async function changeServer() {
   const r = await dialog.showMessageBox(win, {
-    type: "question", title: "Changer de serveur", message: "Relier cette app à un autre Noah ?",
-    detail: "Cet ordinateur sera déconnecté du Noah actuel. Tes agents et leurs données ne bougent pas.",
-    buttons: ["Changer", "Annuler"], defaultId: 0, cancelId: 1, noLink: true,
+    type: "question", title: t("serveur.changer.titre"), message: t("serveur.changer.message"),
+    detail: t("serveur.changer.detail"),
+    buttons: [t("serveur.changer.bouton"), t("commun.annuler")], defaultId: 0, cancelId: 1, noLink: true,
   });
   if (r.response !== 0) return;
   await forgetServer();
@@ -505,8 +505,8 @@ function createWindow() {
     if (details?.reason === "clean-exit" || quitting || contents.isDestroyed()) return;
     const now = Date.now();
     crashes = crashes.filter((t) => now - t < 60000).concat(now);
-    contents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(LOADING)}`).then(() => {
-      if (crashes.length >= 3) return status("L'affichage de Noah s'est arrêté plusieurs fois de suite. Tes agents continuent sur le serveur.", true);
+    contents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(loading())}`).then(() => {
+      if (crashes.length >= 3) return status(t("affichage.plante"), true);
       return boot();
     }).catch(() => {});
   });
@@ -515,8 +515,8 @@ function createWindow() {
     asking = true;
     try {
       const r = await dialog.showMessageBox(win, {
-        type: "warning", title: "Noah Agent", message: "Noah ne répond plus.", detail: "Tu peux recharger la fenêtre, ou attendre encore un peu.",
-        buttons: ["Recharger", "Attendre"], defaultId: 0, cancelId: 1, noLink: true,
+        type: "warning", title: "Noah Agent", message: t("fige.message"), detail: t("fige.detail"),
+        buttons: [t("menu.recharger"), t("fige.attendre")], defaultId: 0, cancelId: 1, noLink: true,
       });
       if (r.response === 0 && !contents.isDestroyed()) {
         contents.forcefullyCrashRenderer(); // un rendu figé n'obéit pas à « recharger » : render-process-gone le relève
@@ -560,8 +560,8 @@ function createWindow() {
   // Page du serveur qui ne charge plus (serveur coupé, réseau perdu) : écran d'attente, puis reconnexion seule.
   page.webContents.on("did-fail-load", (_e, code, _desc, url, mainFrame) => {
     if (!mainFrame || code === -3 || readConfig().mode !== "remote" || !sameOrigin(url)) return; // -3 : navigation annulée
-    page.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(LOADING)}`).then(() => {
-      status("Connexion au serveur perdue. Reconnexion automatique…", true);
+    page.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(loading())}`).then(() => {
+      status(t("connexion.perdue"), true);
       reconnectLater();
     }).catch(() => {});
   });
@@ -579,7 +579,7 @@ function createWindow() {
       win.hide();
       if (!readConfig().bulle_vue && process.platform === "win32") {
         writeConfig({ bulle_vue: true }); // une seule fois : ça surprend la première fois, plus ensuite
-        tray?.displayBalloon({ iconType: "info", title: "Noah Agent reste ouvert", content: "Tes routines continuent. Pour quitter : clic droit sur cette icône, Quitter." });
+        tray?.displayBalloon({ iconType: "info", title: t("bulle.titre"), content: t("bulle.texte") });
       }
     }
   });
@@ -605,7 +605,7 @@ const folders = () => (foldersStore ??= dossiers.createStore(path.join(app.getPa
 let listening = null;
 
 async function askSystem(message, detail, yes) {
-  const r = await dialog.showMessageBox(win?.isVisible() ? win : undefined, { type: "warning", title: "Noah Agent", message, detail, buttons: [yes, "Annuler"], defaultId: 1, cancelId: 1, noLink: true });
+  const r = await dialog.showMessageBox(win?.isVisible() ? win : undefined, { type: "warning", title: "Noah Agent", message, detail, buttons: [yes, t("commun.annuler")], defaultId: 1, cancelId: 1, noLink: true });
   return r.response === 0;
 }
 
@@ -621,7 +621,7 @@ function foldersState() {
 
 /** Couper va tout de suite. Rouvrir passe par une fenêtre du système : une page ne rend pas l'accès toute seule. */
 async function setCut(cut) {
-  if (!cut && folders().isCut() && !(await askSystem("Rendre l'accès à l'agent ?", "Il pourra de nouveau lire et écrire dans les dossiers confiés, et demander à agir sur cet ordinateur.", "Rendre l'accès"))) {
+  if (!cut && folders().isCut() && !(await askSystem(t("acces.rendre.message"), t("acces.rendre.detail"), t("acces.rendre.bouton")))) {
     createTrayMenuState();
     return foldersState();
   }
@@ -635,20 +635,20 @@ async function setCut(cut) {
 function createTrayMenuState() {
   if (!tray) return;
   tray.setContextMenu(trayMenu());
-  tray.setToolTip(folders().isCut() ? "Noah Agent — accès de l'agent coupé" : "Noah Agent");
+  tray.setToolTip(folders().isCut() ? t("zone.coupe") : "Noah Agent");
 }
 
 function trayMenu() {
   return Menu.buildFromTemplate([
-    { label: "Ouvrir Noah Agent", click: show },
+    { label: t("menu.ouvrir"), click: show },
     autonomyMenu(),
-    { label: "Voir l'accord en attente", click: () => bandeau.focus() },
-    { label: "Changer de serveur…", click: changeServer },
+    { label: t("menu.accord"), click: () => bandeau.focus() },
+    { label: t("menu.changer"), click: changeServer },
     ...startupMenu(),
     { type: "separator" },
-    { id: "couper", label: "Couper l'accès de l'agent", type: "checkbox", checked: folders().isCut(), click: (item) => setCut(item.checked) },
+    { id: "couper", label: t("menu.couper_acces"), type: "checkbox", checked: folders().isCut(), click: (item) => setCut(item.checked) },
     { type: "separator" },
-    { label: "Quitter", click: quit },
+    { label: t("menu.quitter"), click: quit },
   ]);
 }
 
@@ -662,33 +662,33 @@ function createTray() {
 /** Menu de l'app, en français (Alt l'affiche sous Windows). Celui d'Electron est en anglais et ouvre les outils de développement. */
 function createMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate([
-    ...(process.platform === "darwin" ? [{ label: "Noah Agent", submenu: [{ role: "hide", label: "Masquer Noah Agent" }, { type: "separator" }, { label: "Quitter Noah Agent", accelerator: "Cmd+Q", click: quit }] }] : []),
-    { label: "Fichier", submenu: [
+    ...(process.platform === "darwin" ? [{ label: "Noah Agent", submenu: [{ role: "hide", label: t("menu.masquer") }, { type: "separator" }, { label: t("menu.quitter_noah"), accelerator: "Cmd+Q", click: quit }] }] : []),
+    { label: t("menu.fichier"), submenu: [
       autonomyMenu(),
-      { label: "Voir l'accord en attente", accelerator: "CommandOrControl+Shift+Space", click: () => bandeau.focus() },
-      { label: "Changer de serveur…", click: changeServer },
+      { label: t("menu.accord"), accelerator: "CommandOrControl+Shift+Space", click: () => bandeau.focus() },
+      { label: t("menu.changer"), click: changeServer },
       ...startupMenu(),
       { type: "separator" },
-      { role: "close", label: "Fermer la fenêtre" },
-      ...(process.platform === "darwin" ? [] : [{ label: "Quitter", click: quit }]),
+      { role: "close", label: t("menu.fermer") },
+      ...(process.platform === "darwin" ? [] : [{ label: t("menu.quitter"), click: quit }]),
     ] },
-    { label: "Édition", submenu: [
-      { role: "undo", label: "Annuler" },
-      { role: "redo", label: "Rétablir" },
+    { label: t("menu.edition"), submenu: [
+      { role: "undo", label: t("menu.annuler") },
+      { role: "redo", label: t("menu.retablir") },
       { type: "separator" },
-      { role: "cut", label: "Couper" },
-      { role: "copy", label: "Copier" },
-      { role: "paste", label: "Coller" },
-      { role: "selectAll", label: "Tout sélectionner" },
+      { role: "cut", label: t("menu.couper") },
+      { role: "copy", label: t("menu.copier") },
+      { role: "paste", label: t("menu.coller") },
+      { role: "selectAll", label: t("menu.tout") },
     ] },
-    { label: "Affichage", submenu: [
-      { role: "reload", label: "Recharger" },
+    { label: t("menu.affichage"), submenu: [
+      { role: "reload", label: t("menu.recharger") },
       { type: "separator" },
-      { role: "zoomIn", label: "Agrandir" },
-      { role: "zoomOut", label: "Réduire" },
-      { role: "resetZoom", label: "Taille normale" },
+      { role: "zoomIn", label: t("menu.agrandir") },
+      { role: "zoomOut", label: t("menu.reduire") },
+      { role: "resetZoom", label: t("menu.taille_normale") },
       { type: "separator" },
-      { role: "togglefullscreen", label: "Plein écran" },
+      { role: "togglefullscreen", label: t("menu.plein_ecran") },
     ] },
   ]));
 }
@@ -698,12 +698,12 @@ function contextMenu(_e, params) {
   const items = [];
   for (const word of params.dictionarySuggestions) items.push({ label: word, click: () => page.webContents.replaceMisspelling(word) });
   if (items.length) items.push({ type: "separator" });
-  if (params.linkURL && /^https?:/.test(params.linkURL)) items.push({ label: "Copier le lien", click: () => clipboard.writeText(params.linkURL) }, { type: "separator" });
+  if (params.linkURL && /^https?:/.test(params.linkURL)) items.push({ label: t("menu.copier_lien"), click: () => clipboard.writeText(params.linkURL) }, { type: "separator" });
   if (params.isEditable) {
-    items.push({ role: "cut", label: "Couper", enabled: params.editFlags.canCut }, { role: "copy", label: "Copier", enabled: params.editFlags.canCopy },
-      { role: "paste", label: "Coller", enabled: params.editFlags.canPaste }, { role: "selectAll", label: "Tout sélectionner" });
+    items.push({ role: "cut", label: t("menu.couper"), enabled: params.editFlags.canCut }, { role: "copy", label: t("menu.copier"), enabled: params.editFlags.canCopy },
+      { role: "paste", label: t("menu.coller"), enabled: params.editFlags.canPaste }, { role: "selectAll", label: t("menu.tout") });
   } else if (params.selectionText) {
-    items.push({ role: "copy", label: "Copier" });
+    items.push({ role: "copy", label: t("menu.copier") });
   }
   while (items.at(-1)?.type === "separator") items.pop();
   if (items.length) Menu.buildFromTemplate(items).popup({ window: win });
@@ -727,11 +727,13 @@ ipcMain.handle("noah:setup-local", async (e) => {
 // Seuls deux gestes sont permis à la page : choisir un dossier (sélecteur du système) et ouvrir un dossier.
 ipcMain.handle("noah:pick-folder", async (e) => {
   if (!origin || !sameOrigin(e.senderFrame.url)) return null;
-  const r = await dialog.showOpenDialog(win, { title: "Dossier à confier à Noah", properties: ["openDirectory"] });
+  const r = await dialog.showOpenDialog(win, { title: t("dossier.choisir"), properties: ["openDirectory"] });
   return r.canceled ? null : r.filePaths[0];
 });
 let home = "";
 ipcMain.handle("noah:version", () => app.getVersion());
+// Langue des pages locales (écran de connexion) : la même que les menus et les boîtes de l'app.
+ipcMain.handle("noah:langue", () => langue());
 
 // Page de Noah (app reliée à un serveur) : appareil déconnecté côté serveur, l'utilisateur le relie de nouveau.
 ipcMain.handle("noah:forget-server", async (e) => {
@@ -742,17 +744,17 @@ ipcMain.handle("noah:dossiers", (e) => (origin && sameOrigin(e.senderFrame.url) 
 ipcMain.handle("noah:dossier-ajouter", async (e) => {
   if (!origin || !sameOrigin(e.senderFrame.url)) return null;
   const asked = folders().binding();
-  const r = await dialog.showOpenDialog(win, { title: "Dossier à confier à ton agent", properties: ["openDirectory"] });
+  const r = await dialog.showOpenDialog(win, { title: t("dossier.ajouter"), properties: ["openDirectory"] });
   if (r.canceled) return foldersState();
   const chosen = r.filePaths[0];
   if (dossiers.refusedRoot(chosen)) {
-    await dialog.showMessageBox(win, { type: "warning", title: "Noah Agent", message: "Ce dossier ne se confie pas.", detail: "Ni un disque entier, ni un dossier de clés. Choisis un dossier précis.", noLink: true });
+    await dialog.showMessageBox(win, { type: "warning", title: "Noah Agent", message: t("dossier.refuse.message"), detail: t("dossier.refuse.detail"), noLink: true });
     return foldersState();
   }
   const ok = await askSystem(
-    `Confier « ${path.basename(chosen)} » à tes agents, en lecture seule ?`,
-    `${chosen}\n\n${chosen === os.homedir() ? "C'est tout ton dossier personnel : mieux vaut un dossier précis.\n\n" : ""}Tes agents pourront le lire quand l'application est ouverte. Ce qu'ils lisent passe par le modèle que tu as choisi. Les fichiers sensibles (.env, clés, mots de passe, profils de navigateur) restent refusés.`,
-    "Confier",
+    t("dossier.confier.message", { nom: path.basename(chosen) }),
+    `${chosen}\n\n${chosen === os.homedir() ? `${t("dossier.confier.personnel")}\n\n` : ""}${t("dossier.confier.detail")}`,
+    t("dossier.confier.bouton"),
   );
   if (ok && folders().binding() === asked && origin && sameOrigin(e.senderFrame.url)) folders().add(chosen);
   listening?.beat();
@@ -770,7 +772,7 @@ ipcMain.handle("noah:dossier-droit", async (e, id, ecriture) => {
   const folder = folders().find(String(id));
   if (!folder) return foldersState();
   const asked = folders().binding();
-  if (ecriture && !(await askSystem(`Permettre à tes agents d'écrire dans « ${folder.nom} » ?`, `${folder.chemin}\n\nIls y créent des documents sans te demander. Ils ne remplacent jamais un fichier sans ton accord.`, "Permettre"))) return foldersState();
+  if (ecriture && !(await askSystem(t("dossier.ecrire.message", { nom: folder.nom }), `${folder.chemin}\n\n${t("dossier.ecrire.detail")}`, t("dossier.ecrire.bouton")))) return foldersState();
   if (folders().binding() !== asked) return foldersState();
   folders().setWrite(folder.id, Boolean(ecriture));
   listening?.beat();
@@ -800,7 +802,7 @@ ipcMain.handle("noah:file-menu", async (e, url, name) => {
       else if (id === "ouvrir-avec") require("node:child_process").execFile("rundll32.exe", ["shell32.dll,OpenAs_RunDLL", file], { windowsHide: false });
       else shell.showItemInFolder(file);
     } catch (err) {
-      dialog.showMessageBox(win, { type: "error", message: "Ce fichier n'a pas pu être récupéré.", detail: String(err.message || err) });
+      dialog.showMessageBox(win, { type: "error", message: t("fichier.erreur"), detail: String(err.message || err) });
     }
   };
   Menu.buildFromTemplate(fichiers.entries(String(name)).map((it) => ({ label: it.label, click: () => act(it.id) }))).popup({ window: win });
@@ -870,10 +872,9 @@ if (!app.requestSingleInstanceLock()) {
       } else if (unsealedRevocations.length) {
         // Rien d'écrit en clair : on le dit plutôt que de perdre la révocation en silence.
         dialog.showMessageBoxSync({
-          type: "warning", title: "Session non révoquée", noLink: true, buttons: ["Compris"],
-          message: "Cet ordinateur n'a pas pu se déconnecter de ton serveur Noah.",
-          detail: "Sans trousseau système ni réseau, la session ne peut pas être gardée pour plus tard. "
-            + "Sur un autre appareil, ouvre Réglages → Appareils et déconnecte cet ordinateur.",
+          type: "warning", title: t("session.titre"), noLink: true, buttons: [t("session.compris")],
+          message: t("session.message"),
+          detail: t("session.detail"),
         });
         unsealedRevocations.length = 0;
       }

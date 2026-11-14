@@ -20,6 +20,10 @@ import { AgentFace } from "./Noah";
 import { ShareDialog } from "./Sharing";
 import { STATE_WORD, StateShape } from "./Sidebar";
 import { Button, Dialog, DialogContent, Tabs, TabsContent, TabsList, TabsTrigger } from "./ui";
+import { langue, locale, t, tr } from "@/i18n";
+
+/** Dates et nombres : le français garde la forme canadienne d'origine, les autres langues suivent leur usage. */
+const FORMAT = langue() === "fr" ? "fr-CA" : locale();
 
 export type PanelTab = "activity" | "files" | "connections" | "competences" | "computer" | "routines" | "memory";
 
@@ -31,7 +35,7 @@ function KeptTab({ value, shown, className, children }: { value: string; shown: 
   if (active && !visited) setVisited(true);
   return (
     <TabsContent value={value} forceMount className={cn(className, !active && "hidden")}>
-      <SeenActive.Provider value={active}>{(visited || active) && <Boundary label="Cet onglet">{children}</Boundary>}</SeenActive.Provider>
+      <SeenActive.Provider value={active}>{(visited || active) && <Boundary label={t("Cet onglet")}>{children}</Boundary>}</SeenActive.Provider>
     </TabsContent>
   );
 }
@@ -81,28 +85,28 @@ export function SidePanel({
       <div data-shell-tabs className="flex items-center justify-between gap-2">
         <TabsList className="max-w-full overflow-x-auto max-sm:grid max-sm:flex-1 max-sm:auto-cols-fr max-sm:grid-flow-col max-sm:overflow-visible max-sm:[&>button]:flex max-sm:[&>button]:flex-col max-sm:[&>button]:items-center max-sm:[&>button]:gap-0.5 max-sm:[&>button]:px-0.5 max-sm:[&>button]:text-[10.5px] [&_svg]:size-4 sm:[&_svg]:hidden">
           {([
-            ["activity", "Activité", History, true],
-            ["files", "Fichiers", FolderOpen, canTalk(agent)],
-            ["routines", "Routines", Clock, admin],
-            ["connections", "Connexions", Plug, admin],
-            ["competences", "Compétences", Sparkles, admin],
-            ["computer", "Ordinateur", Monitor, canTalk(agent)],
-            ["memory", "Mémoire", Brain, admin],
+            ["activity", t("Activité"), History, true],
+            ["files", t("Fichiers"), FolderOpen, canTalk(agent)],
+            ["routines", t("Routines"), Clock, admin],
+            ["connections", t("Connexions"), Plug, admin],
+            ["competences", t("Compétences"), Sparkles, admin],
+            ["computer", t("Ordinateur"), Monitor, canTalk(agent)],
+            ["memory", t("Mémoire"), Brain, admin],
           ] as const).filter((t) => t[3]).map(([value, label, Icon]) => (
             <TabsTrigger key={value} value={value} aria-label={label} className={value === "competences" || value === "memory" ? "max-sm:hidden!" : undefined}><Icon aria-hidden /><span className="max-sm:max-w-full max-sm:truncate">{label}</span></TabsTrigger>
           ))}
         </TabsList>
-        <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Fermer le panneau"><X /></Button>
+        <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label={t("Fermer le panneau")}><X /></Button>
       </div>
-      <Boundary key={agent.id} label="Le panneau de l'agent">
+      <Boundary key={agent.id} label={t("Le panneau de l'agent")}>
       <KeptTab value="activity" shown={tab === "activity"} className="min-h-0 flex-1 overflow-y-auto">
         <Approvals agentId={agent.id} />
         <ActivityLog agentId={agent.id} refreshKey={refreshKey} onOpen={(id, isMain) => { onOpenThread(isMain && id === main?.id ? null : id); onClose(); }} />
-        <details className="mt-2"><summary className="text-sm text-muted-foreground cursor-pointer">Fils et réglages</summary><Details agent={agent} onEdit={onEditAgent} refreshKey={refreshKey} onAgentChanged={onAgentChanged} onTab={onTab} onGoals={onGoals}>
+        <details className="mt-2"><summary className="text-sm text-muted-foreground cursor-pointer">{t("Fils et réglages")}</summary><Details agent={agent} onEdit={onEditAgent} refreshKey={refreshKey} onAgentChanged={onAgentChanged} onTab={onTab} onGoals={onGoals}>
           <Threads threads={threads} threadId={threadId} onOpen={onOpenThread} onArchive={onArchiveThread} />
           {agent.partage && main && <ConversationVisibility conversation={main} onChanged={onConversationChanged} />}
           <label className="flex items-center justify-between gap-3 py-1 text-sm sm:hidden">
-            Afficher les détails techniques
+            {t("Afficher les détails techniques")}
             <input type="checkbox" checked={technical} onChange={(e) => onTechnical(e.target.checked)} className="size-5 accent-[var(--accent)]" />
           </label>
         </Details></details>
@@ -139,10 +143,10 @@ function ComputerTab({ agent, admin, refreshKey, onClose }: { agent: Agent; admi
     <Tabs value={part} onValueChange={setPart} className="flex min-h-0 flex-1 flex-col gap-3">
       {admin && (
         <TabsList className="max-w-full self-start overflow-x-auto order-last">
-          <TabsTrigger value="screen">Écran</TabsTrigger>
-          <TabsTrigger value="files">Fichiers</TabsTrigger>
-          <TabsTrigger value="folders">Dossiers</TabsTrigger>
-          <TabsTrigger value="software">Logiciels</TabsTrigger>
+          <TabsTrigger value="screen">{t("Écran")}</TabsTrigger>
+          <TabsTrigger value="files">{t("Fichiers")}</TabsTrigger>
+          <TabsTrigger value="folders">{t("Dossiers")}</TabsTrigger>
+          <TabsTrigger value="software">{t("Logiciels")}</TabsTrigger>
         </TabsList>
       )}
       <KeptTab value="screen" shown={part === "screen"} className="flex min-h-0 flex-1 flex-col gap-3">{admin && <Computer key={agent.id} agentId={agent.id} />}</KeptTab>
@@ -157,24 +161,24 @@ function ComputerTab({ agent, admin, refreshKey, onClose }: { agent: Agent; admi
 
 type LogRow = { kind: "tache" | "accord" | "juge"; titre: string; resultat: string; etat: "fait" | "a_verifier" | "erreur" | "arrete" | "autorise" | "refuse"; at: number; conversation_id: string; main: boolean };
 const LOG_WORD: Record<LogRow["etat"], [string, string]> = {
-  fait: ["Fait", "text-ok"], a_verifier: ["À vérifier", "text-warn"], erreur: ["A échoué", "text-danger"], arrete: ["Arrêté", "text-muted-foreground"], autorise: ["Autorisé", "text-ok"], refuse: ["Refusé", "text-muted-foreground"],
+  fait: [t("Fait"), "text-ok"], a_verifier: [t("À vérifier"), "text-warn"], erreur: [t("A échoué"), "text-danger"], arrete: [t("Arrêté"), "text-muted-foreground"], autorise: [t("Autorisé"), "text-ok"], refuse: [t("Refusé"), "text-muted-foreground"],
 };
 
 /** Le temps se resserre en s'éloignant : aujourd'hui, hier, les jours de la semaine, puis des périodes de plus en plus larges. */
 function activityPeriod(at: Date, now = new Date()): string {
   const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   const days = Math.round((day(now) - day(at)) / 86400000);
-  if (days <= 0) return "Aujourd'hui";
-  if (days === 1) return "Hier";
+  if (days <= 0) return t("Aujourd'hui");
+  if (days === 1) return t("Hier");
   if (days < 7) {
-    const label = at.toLocaleDateString("fr-CA", { weekday: "long", day: "numeric", month: "long" });
+    const label = at.toLocaleDateString(FORMAT, { weekday: "long", day: "numeric", month: "long" });
     return label.charAt(0).toUpperCase() + label.slice(1);
   }
-  if (days < 14) return "La semaine dernière";
+  if (days < 14) return t("La semaine dernière");
   const months = (now.getFullYear() - at.getFullYear()) * 12 + now.getMonth() - at.getMonth();
-  if (months === 0) return "Plus tôt ce mois-ci";
-  if (months === 1) return "Le mois dernier";
-  const month = at.toLocaleDateString("fr-CA", { month: "long", year: "numeric" });
+  if (months === 0) return t("Plus tôt ce mois-ci");
+  if (months === 1) return t("Le mois dernier");
+  const month = at.toLocaleDateString(FORMAT, { month: "long", year: "numeric" });
   return month.charAt(0).toUpperCase() + month.slice(1);
 }
 
@@ -194,15 +198,15 @@ function ActivityPeriod({ label, rows, first, onOpen }: { label: string; rows: L
       {open && rows.slice(0, shown).map((r, i) => (
         <button key={i} type="button" onClick={() => onOpen(r.conversation_id, r.main)} className="flex cursor-pointer flex-col gap-0.5 rounded-lg px-2 py-1.5 text-left hover:bg-muted">
           <span className="flex items-baseline justify-between gap-2 text-sm">
-            <span className="min-w-0 truncate">{r.titre.replace(/^Ton juge a refusé : /, "Bloqué : ").replace(/^Ton juge demande ton accord : .*/, "Accord demandé")}</span>
-            <span className="shrink-0 text-xs text-muted-foreground">{new Date(r.at * 1000).toLocaleTimeString("fr-CA", { hour: "2-digit", minute: "2-digit" })}</span>
+            <span className="min-w-0 truncate">{r.titre.replace(/^Ton juge a refusé : /, t("Bloqué : ")).replace(/^Ton juge demande ton accord : .*/, t("Accord demandé"))}</span>
+            <span className="shrink-0 text-xs text-muted-foreground">{new Date(r.at * 1000).toLocaleTimeString(FORMAT, { hour: "2-digit", minute: "2-digit" })}</span>
           </span>
           <span className="truncate text-xs text-muted-foreground"><span className={cn("font-medium", LOG_WORD[r.etat][1])}>{LOG_WORD[r.etat][0]}</span>{r.resultat ? ` · ${r.resultat}` : ""}</span>
         </button>
       ))}
       {open && rows.length > shown && (
         <button type="button" onClick={() => setShown(shown + 10)} className="cursor-pointer self-start rounded-lg px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground">
-          … voir {Math.min(10, rows.length - shown)} de plus
+          {t("… voir {n} de plus", { n: Math.min(10, rows.length - shown) })}
         </button>
       )}
     </div>
@@ -237,9 +241,9 @@ function ActivityLog({ agentId, refreshKey, onOpen }: { agentId: string; refresh
     periods.set(label, [...(periods.get(label) ?? []), r]);
   }
   return (
-    <section aria-label="Activité" className="flex flex-col gap-1.5">
-      <h3 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Ce qu'il a fait</h3>
-      {!rows.length && <p className="text-sm text-muted-foreground">Rien pour l'instant. Ses tâches et les accords que tu donnes s'afficheront ici.</p>}
+    <section aria-label={t("Activité")} className="flex flex-col gap-1.5">
+      <h3 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{t("Ce qu'il a fait")}</h3>
+      {!rows.length && <p className="text-sm text-muted-foreground">{t("Rien pour l'instant. Ses tâches et les accords que tu donnes s'afficheront ici.")}</p>}
       {[...periods].map(([label, list], i) => <ActivityPeriod key={label} label={label} rows={list} first={i === 0} onOpen={onOpen} />)}
     </section>
   );
@@ -263,7 +267,7 @@ function ConversationVisibility({ conversation, onChanged }: { conversation: Con
   return (
     <label className="flex cursor-pointer items-start gap-2 rounded-xl bg-muted px-3 py-2.5 text-sm">
       <input type="checkbox" className="mt-1" checked={conversation.partagee} onChange={(e) => toggle(e.target.checked)} />
-      Rendre ma conversation lisible par ceux qui ont accès à cet agent
+      {t("Rendre ma conversation lisible par ceux qui ont accès à cet agent")}
     </label>
   );
 }
@@ -300,28 +304,28 @@ function Details({ agent, onEdit, refreshKey, onAgentChanged, onTab, onGoals, ch
         <AgentFace agent={agent} className="size-14" />
         <div className="min-w-0">
           <p className="truncate font-semibold">{agent.name}</p>
-          <p className="text-sm text-muted-foreground">{agent.step || (agent.online ? "En ligne" : "Hors ligne")}</p>
-          {agent.partage_par && <p className="text-xs text-muted-foreground">Partagé par {agent.partage_par} · droit : {agent.droit}</p>}
+          <p className="text-sm text-muted-foreground">{agent.step || (agent.online ? t("En ligne") : t("Hors ligne"))}</p>
+          {agent.partage_par && <p className="text-xs text-muted-foreground">{t("Partagé par {nom} · droit : {droit}", { nom: agent.partage_par, droit: agent.droit })}</p>}
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1">
-          {canAdmin(agent) && <Button variant="ghost" size="icon-sm" onClick={onEdit} aria-label="Personnaliser (nom, couleur, rôle)" title="Personnaliser (nom, couleur, rôle)"><Pencil /></Button>}
-          {agent.droit === "proprietaire" && <Button variant="outline" size="sm" onClick={() => setSharing(true)}><Users />Partager</Button>}
+          {canAdmin(agent) && <Button variant="ghost" size="icon-sm" onClick={onEdit} aria-label={t("Personnaliser (nom, couleur, rôle)")} title={t("Personnaliser (nom, couleur, rôle)")}><Pencil /></Button>}
+          {agent.droit === "proprietaire" && <Button variant="outline" size="sm" onClick={() => setSharing(true)}><Users />{t("Partager")}</Button>}
         </div>
       </div>
       <ShareDialog agent={agent} open={sharing} onOpenChange={setSharing} onChanged={onAgentChanged} />
       {/* Ce qu'il fait et ce qu'il a fait d'abord, comme le fil de Grok Bot ; la fiche (rôle, modèle, connexions…) ensuite. */}
       {children}
-      <AgentOverview agent={agent} refreshKey={refreshKey} spent={`${money(mine?.cost ?? 0)} $`} onTab={onTab} onEdit={onEdit} onGoals={onGoals}
+      <AgentOverview agent={agent} refreshKey={refreshKey} spent={t("{montant} $", { montant: money(mine?.cost ?? 0) })} onTab={onTab} onEdit={onEdit} onGoals={onGoals}
         onBrain={() => { setBrainOpen((n) => n + 1); setTimeout(() => brainBox.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); }}
         onSpending={() => { setSpendingOpen(true); setTimeout(() => spendingBox.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); }} />
       {/* La dépense et le modèle s'ouvrent depuis leur tuile : l'onglet reste léger. */}
       {spendingOpen && <div ref={spendingBox}>
-      <Section defaultOpen title="Dépense" count={`${money(mine?.cost ?? 0)} $ ce mois-ci`}>
+      <Section defaultOpen title={t("Dépense")} count={t("{montant} $ ce mois-ci", { montant: money(mine?.cost ?? 0) })}>
       <div className="grid grid-cols-2 gap-2">
-        <Stat label="Coût ce mois-ci" value={`${money(mine?.cost ?? 0)} $`} />
-        <Stat label="Appels au modèle" value={mine?.calls ?? 0} />
-        <Stat label="Jetons" value={(mine?.tokens ?? 0).toLocaleString("fr-CA")} />
-        <Stat label="Lus depuis le cache" value={`${cacheRate} %`} />
+        <Stat label={t("Coût ce mois-ci")} value={t("{montant} $", { montant: money(mine?.cost ?? 0) })} />
+        <Stat label={t("Appels au modèle")} value={mine?.calls ?? 0} />
+        <Stat label={t("Jetons")} value={(mine?.tokens ?? 0).toLocaleString(FORMAT)} />
+        <Stat label={t("Lus depuis le cache")} value={t("{n} %", { n: cacheRate })} />
       </div>
       {usage && <Spending usage={usage} agentId={agent.id} />}
       </Section>
@@ -340,24 +344,24 @@ function Spending({ usage, agentId }: { usage: Usage; agentId: string }) {
     const d = new Date();
     d.setDate(d.getDate() - 13 + i);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    return { key, label: d.toLocaleDateString("fr-CA", { weekday: "short", day: "numeric" }), cost: byDay.get(key)?.cost ?? 0, tokens: byDay.get(key)?.tokens ?? 0 };
+    return { key, label: d.toLocaleDateString(FORMAT, { weekday: "short", day: "numeric" }), cost: byDay.get(key)?.cost ?? 0, tokens: byDay.get(key)?.tokens ?? 0 };
   });
   const top = Math.max(...days.map((d) => d.cost), 0.0001);
   const tasks = (usage.tasks ?? []).filter((t) => t.agent_id === agentId).slice(0, 5);
   return (
     <section className="flex flex-col gap-2">
       <h3 className="flex items-baseline justify-between text-xs font-medium tracking-wide text-muted-foreground uppercase">
-        14 derniers jours
+        {t("14 derniers jours")}
         <span className="normal-case tracking-normal">
-          Aujourd'hui : <b className="font-mono text-foreground">{money(today?.depense ?? 0)} $</b>
-          {today?.plafond != null && ` / ${money(today.plafond)} $`}
+          {tr("Aujourd'hui : {montant}", { montant: <b className="font-mono text-foreground">{t("{montant} $", { montant: money(today?.depense ?? 0) })}</b> })}
+          {today?.plafond != null && ` / ${t("{montant} $", { montant: money(today.plafond) })}`}
         </span>
       </h3>
-      <div className="flex h-12 items-end gap-0.5" role="img" aria-label="Dépense des 14 derniers jours">
+      <div className="flex h-12 items-end gap-0.5" role="img" aria-label={t("Dépense des 14 derniers jours")}>
         {days.map((d) => (
           <div
             key={d.key}
-            title={`${d.label} : ${money(d.cost)} $ · ${d.tokens.toLocaleString("fr-CA")} jetons`}
+            title={t("{jour} : {montant} $ · {n} jetons", { jour: d.label, montant: money(d.cost), n: d.tokens.toLocaleString(FORMAT) })}
             className={cn("flex-1 rounded-sm", d.cost ? "bg-foreground/70" : "bg-muted")}
             style={{ height: `${Math.max(6, (d.cost / top) * 100)}%` }}
           />
@@ -365,11 +369,11 @@ function Spending({ usage, agentId }: { usage: Usage; agentId: string }) {
       </div>
       {tasks.length > 0 && (
         <ul className="flex flex-col gap-0.5 text-sm">
-          {tasks.map((t) => (
-            <li key={t.conversation_id ?? "fond"} className="flex items-baseline justify-between gap-2">
-              <span className="truncate">{t.main ? "Conversation principale" : t.title}</span>
-              <span className="shrink-0 font-mono text-xs text-muted-foreground" title={`${t.calls} appels au modèle`}>
-                {Math.round(t.tokens / 1000).toLocaleString("fr-CA")} k jetons · {money(t.cost)} $
+          {tasks.map((task) => (
+            <li key={task.conversation_id ?? "fond"} className="flex items-baseline justify-between gap-2">
+              <span className="truncate">{task.main ? t("Conversation principale") : task.title}</span>
+              <span className="shrink-0 font-mono text-xs text-muted-foreground" title={t("{n} appels au modèle", { n: task.calls })}>
+                {t("{n} k jetons · {montant} $", { n: Math.round(task.tokens / 1000).toLocaleString(FORMAT), montant: money(task.cost) })}
               </span>
             </li>
           ))}
@@ -415,51 +419,51 @@ function Threads({
   const running = threads.filter((t) => !t.archived && t.en_cours);
   const finished = threads.filter((t) => !t.archived && !t.en_cours);
   const archived = threads.filter((t) => t.archived);
-  const row = (t: Conversation) => (
-    <div key={t.id} className={cn("group flex items-center gap-1 rounded-lg hover:bg-muted", t.id === threadId && "bg-muted")}>
+  const row = (c: Conversation) => (
+    <div key={c.id} className={cn("group flex items-center gap-1 rounded-lg hover:bg-muted", c.id === threadId && "bg-muted")}>
       <button
         type="button"
-        onClick={() => onOpen(t.id === threadId ? null : t.id)}
-        aria-current={t.id === threadId ? "page" : undefined}
+        onClick={() => onOpen(c.id === threadId ? null : c.id)}
+        aria-current={c.id === threadId ? "page" : undefined}
         className="flex min-w-0 flex-1 cursor-pointer flex-col gap-0.5 px-2.5 py-1.5 text-left"
       >
-        <span className="truncate text-sm">{t.title}</span>
+        <span className="truncate text-sm">{c.title}</span>
         <span
           className={cn(
             "flex items-center gap-1.5 text-xs",
-            t.state === "approve" || t.state === "choice" ? "font-medium text-warn" : "text-muted-foreground",
+            c.state === "approve" || c.state === "choice" ? "font-medium text-warn" : "text-muted-foreground",
           )}
         >
-          <StateShape state={t.state} />
-          {STATE_WORD[t.state] || "à l'arrêt"}
-          {t.de ? <span className="text-muted-foreground"> · conversation de {t.de}</span>
-            : t.origin === "agent" && <span className="text-muted-foreground"> · ouvert par l'agent</span>}
+          <StateShape state={c.state} />
+          {STATE_WORD[c.state] || t("à l'arrêt")}
+          {c.de ? <span className="text-muted-foreground"> · {t("conversation de {nom}", { nom: c.de })}</span>
+            : c.origin === "agent" && <span className="text-muted-foreground"> · {t("ouvert par l'agent")}</span>}
         </span>
       </button>
-      {!t.de && <Button
+      {!c.de && <Button
         variant="ghost"
         size="icon-sm"
         className="opacity-0 pointer-coarse:opacity-100 group-hover:opacity-100 focus-visible:opacity-100"
-        onClick={() => onArchive(t.id, !t.archived)}
-        aria-label={t.archived ? `Désarchiver « ${t.title} »` : `Archiver « ${t.title} »`}
-        title={t.archived ? "Désarchiver" : "Archiver"}
+        onClick={() => onArchive(c.id, !c.archived)}
+        aria-label={c.archived ? t("Désarchiver « {titre} »", { titre: c.title }) : t("Archiver « {titre} »", { titre: c.title })}
+        title={c.archived ? t("Désarchiver") : t("Archiver")}
       >
-        {t.archived ? <ArchiveRestore /> : <Archive />}
+        {c.archived ? <ArchiveRestore /> : <Archive />}
       </Button>}
     </div>
   );
   return (
     <section className="flex flex-col gap-1">
       <h3 className="flex items-baseline justify-between text-xs font-medium tracking-wide text-muted-foreground uppercase">
-        Travaux en cours <span className="normal-case tracking-normal">{running.length || ""}</span>
+        {t("Travaux en cours")} <span className="normal-case tracking-normal">{running.length || ""}</span>
       </h3>
       {running.length ? (
         running.map(row)
       ) : (
-        <p className="text-sm text-muted-foreground">Rien en cours.</p>
+        <p className="text-sm text-muted-foreground">{t("Rien en cours.")}</p>
       )}
-      <FoldedThreads label="Terminés" threads={finished} threadId={threadId} row={row} />
-      <FoldedThreads label="Archivés" threads={archived} threadId={threadId} row={row} />
+      <FoldedThreads label={t("Terminés")} threads={finished} threadId={threadId} row={row} />
+      <FoldedThreads label={t("Archivés")} threads={archived} threadId={threadId} row={row} />
     </section>
   );
 }
@@ -488,39 +492,40 @@ function CookieImport({ agentId }: { agentId: string }) {
   };
   return (
     <>
-      <Button variant="ghost" onClick={() => { setOpen(true); setResult(null); }}><LogIn />Importer une session</Button>
+      <Button variant="ghost" onClick={() => { setOpen(true); setResult(null); }}><LogIn />{t("Importer une session")}</Button>
       <Dialog open={open} onOpenChange={setOpen}>
         {open && (
-          <DialogContent title="Importer une session" description="Pour les sites qui bloquent la connexion depuis un navigateur automatisé (X, Google, banques).">
+          <DialogContent title={t("Importer une session")} description={t("Pour les sites qui bloquent la connexion depuis un navigateur automatisé (X, Google, banques).")}>
             <ol className="flex list-decimal flex-col gap-1 pl-5 text-sm">
-              <li>Dans ton navigateur habituel, connecte-toi au site.</li>
-              <li>Avec l'extension Cookie-Editor, ouvre-la sur ce site puis Export → JSON.</li>
-              <li>Colle le résultat ici (ou choisis un fichier cookies.txt).</li>
+              <li>{t("Dans ton navigateur habituel, connecte-toi au site.")}</li>
+              <li>{t("Avec l'extension Cookie-Editor, ouvre-la sur ce site puis Export → JSON.")}</li>
+              <li>{t("Colle le résultat ici (ou choisis un fichier cookies.txt).")}</li>
             </ol>
             <textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
               rows={7}
+              // i18n-ignore : exemple de code, le même dans toutes les langues
               placeholder='[{"name": "auth_token", "domain": ".x.com", …}]'
               className="w-full rounded-lg border border-border bg-background p-3 font-mono text-xs"
-              aria-label="Cookies exportés"
+              aria-label={t("Cookies exportés")}
             />
             <input
               type="file"
               accept=".json,.txt"
-              aria-label="Fichier de cookies"
+              aria-label={t("Fichier de cookies")}
               className="text-sm"
               onChange={async (e) => {
                 const f = e.target.files?.[0];
                 if (f) setText(await f.text());
               }}
             />
-            <p className="text-xs text-muted-foreground">Ces cookies valent un mot de passe : ils restent sur ta machine, dans le navigateur de cet agent.</p>
+            <p className="text-xs text-muted-foreground">{t("Ces cookies valent un mot de passe : ils restent sur ta machine, dans le navigateur de cet agent.")}</p>
             {error && <p className="text-sm text-danger">{error}</p>}
-            {result && <p className="text-sm text-ok">{result.count} cookies importés : {result.sites.join(", ")}. Demande à l'agent d'ouvrir le site.</p>}
+            {result && <p className="text-sm text-ok">{t("{n} cookies importés : {sites}. Demande à l'agent d'ouvrir le site.", { n: result.count, sites: result.sites.join(", ") })}</p>}
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setOpen(false)}>Fermer</Button>
-              <Button onClick={submit} disabled={busy || text.trim().length < 2}>{busy ? <Loader2 className="animate-spin" /> : <LogIn />}Importer</Button>
+              <Button variant="outline" onClick={() => setOpen(false)}>{t("Fermer")}</Button>
+              <Button onClick={submit} disabled={busy || text.trim().length < 2}>{busy ? <Loader2 className="animate-spin" /> : <LogIn />}{t("Importer")}</Button>
             </div>
           </DialogContent>
         )}
@@ -633,7 +638,7 @@ function Computer({ agentId }: { agentId: string }) {
         ]);
         if (cancelled) return;
         setUrl(link); // une erreur passagère ne retire jamais l'URL ni l'iframe
-        if (s.etat === "injoignable") throw new Error("Écran injoignable");
+        if (s.etat === "injoignable") throw new Error(t("Écran injoignable"));
         setStatus(s);
         // En veille, noVNC peut garder une page d'erreur du conteneur arrêté : attendre le réveil avant de la sonder.
         if (s.etat === "pret" && pageFailed.current) {
@@ -655,7 +660,7 @@ function Computer({ agentId }: { agentId: string }) {
           }
           setReconnecting(true);
           // Un 200 peut encore servir une page d'erreur : borner les essais rapides tant que noVNC ne revient pas.
-          if (pageReloads.current >= 3) throw new Error("Écran injoignable");
+          if (pageReloads.current >= 3) throw new Error(t("Écran injoignable"));
         }
         // L'état de la connexion noVNC vient de watchScreenConnection, posé au chargement de l'iframe : un relevé ici
         // le figeait jusqu'au relevé suivant, et cachait un écran déjà reconnecté.
@@ -694,7 +699,7 @@ function Computer({ agentId }: { agentId: string }) {
   return (
     <>
       <div className={cn("relative min-h-64 flex-1 overflow-hidden rounded-xl border border-border bg-[#0b0f14]", control && ready && "ring-3 ring-warn")}>
-        {url && <iframe ref={frame} src={url} title="Écran de l'agent" className={cn("absolute inset-0 size-full border-0", overlay && "hidden")} onLoad={(e) => {
+        {url && <iframe ref={frame} src={url} title={t("Écran de l'agent")} className={cn("absolute inset-0 size-full border-0", overlay && "hidden")} onLoad={(e) => {
           clipboard.current?.();
           const loaded = e.currentTarget;
           pageFailed.current = !screenViewOnly(loaded, !wantedControl.current || !control);
@@ -709,18 +714,18 @@ function Computer({ agentId }: { agentId: string }) {
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center text-[#e6ebf0]">
             {fixing ? <Loader2 className="size-8 animate-spin opacity-70" /> : <MonitorPlay className="size-8 opacity-60" />}
             <strong>
-              {fixing === "wake" ? "Réveil du navigateur…"
-                : fixing === "restart" ? "Redémarrage du navigateur…"
-                : unreachable ? "Écran injoignable"
-                : status?.etat === "aucune_page" ? "Aucune page ouverte"
-                : status?.etat === "veille" ? "Le navigateur est en veille"
-                : "Connexion à l'écran…"}
+              {fixing === "wake" ? t("Réveil du navigateur…")
+                : fixing === "restart" ? t("Redémarrage du navigateur…")
+                : unreachable ? t("Écran injoignable")
+                : status?.etat === "aucune_page" ? t("Aucune page ouverte")
+                : status?.etat === "veille" ? t("Le navigateur est en veille")
+                : t("Connexion à l'écran…")}
             </strong>
             {!fixing && (
               <div className="flex flex-wrap justify-center gap-2">
-                {unreachable ? <Button onClick={() => setRetry((n) => n + 1)}><RefreshCw />Réessayer</Button>
-                  : status?.etat === "veille" ? <Button onClick={() => fix("wake")}><Sunrise />Le réveiller</Button>
-                  : status?.etat === "aucune_page" && <Button onClick={() => fix("wake")}><Sunrise />Ouvrir une page</Button>}
+                {unreachable ? <Button onClick={() => setRetry((n) => n + 1)}><RefreshCw />{t("Réessayer")}</Button>
+                  : status?.etat === "veille" ? <Button onClick={() => fix("wake")}><Sunrise />{t("Le réveiller")}</Button>
+                  : status?.etat === "aucune_page" && <Button onClick={() => fix("wake")}><Sunrise />{t("Ouvrir une page")}</Button>}
               </div>
             )}
             {fixError && <span className="max-w-xs text-sm text-[#fbbf8a]">{fixError}</span>}
@@ -729,18 +734,18 @@ function Computer({ agentId }: { agentId: string }) {
       </div>
       <div className="flex flex-wrap gap-2">
         <Button variant={control ? "warn" : "default"} onClick={() => changeControl(!control)} disabled={modeBusy || (!control && !ready)}>
-          <Hand />{control ? "Rendre la main à l'agent" : "Prendre le contrôle"}
+          <Hand />{control ? t("Rendre la main à l'agent") : t("Prendre le contrôle")}
         </Button>
-        <Button variant="outline" onClick={() => { setReconnecting(true); frame.current?.contentWindow?.location.reload(); setRetry((n) => n + 1); }}><RefreshCw />Rafraîchir l'écran</Button>
-        {(status?.awake || unreachable) && <Button variant="ghost" onClick={() => fix("restart")} disabled={!!fixing}><Power />Redémarrer le navigateur</Button>}
-        {url && ready && <Button variant="ghost" asChild><a href={url} target="_blank" rel="noopener"><ExternalLink />Plein écran</a></Button>}
+        <Button variant="outline" onClick={() => { setReconnecting(true); frame.current?.contentWindow?.location.reload(); setRetry((n) => n + 1); }}><RefreshCw />{t("Rafraîchir l'écran")}</Button>
+        {(status?.awake || unreachable) && <Button variant="ghost" onClick={() => fix("restart")} disabled={!!fixing}><Power />{t("Redémarrer le navigateur")}</Button>}
+        {url && ready && <Button variant="ghost" asChild><a href={url} target="_blank" rel="noopener"><ExternalLink />{t("Plein écran")}</a></Button>}
         <CookieImport agentId={agentId} />
       </div>
       {!overlay && fixError && <p className="text-sm text-danger">{fixError}</p>}
       <p className="text-xs text-muted-foreground">
         {control
-          ? "Tu as la main : clique et tape directement dans l'écran. Ctrl+V y colle ton presse-papiers, Ctrl+C copie la sélection chez toi. Quand tu as fini, rends la main."
-          : "Lecture seule : l'agent garde la main. Prends le contrôle pour te connecter à un site ou résoudre un CAPTCHA, puis dis-lui de continuer."}
+          ? t("Tu as la main : clique et tape directement dans l'écran. Ctrl+V y colle ton presse-papiers, Ctrl+C copie la sélection chez toi. Quand tu as fini, rends la main.")
+          : t("Lecture seule : l'agent garde la main. Prends le contrôle pour te connecter à un site ou résoudre un CAPTCHA, puis dis-lui de continuer.")}
       </p>
     </>
   );

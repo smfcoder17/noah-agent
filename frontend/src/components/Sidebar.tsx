@@ -7,14 +7,15 @@ import { cn, money } from "@/lib/utils";
 import { AgentFace } from "./Noah";
 import type { SettingsTab } from "./Settings";
 import { Button } from "./ui";
+import { t } from "@/i18n";
 
 // Formes d'état : rond = l'agent agit, losange = à toi, rond plein vert = terminé.
 export const STATE_WORD: Record<TaskState, string> = {
-  work: "travaille",
-  approve: "attend ton accord",
-  choice: "attend ton choix",
-  done: "terminée",
-  error: "a échoué",
+  work: t("travaille"),
+  approve: t("attend ton accord"),
+  choice: t("attend ton choix"),
+  done: t("terminée"),
+  error: t("a échoué"),
   idle: "",
 };
 
@@ -41,18 +42,18 @@ export function StateShape({ state, className }: { state: TaskState | "offline" 
 /** Résumé d'un agent : sa conversation, et ce que ses fils font ou attendent de l'utilisateur. */
 export function agentSummary(a: Agent): { state: TaskState | "offline" | "starting"; text: string; tone: string } {
   if (a.step) return { state: "starting", text: a.step, tone: "text-accent" };
-  if (!a.online) return { state: "offline", text: "Hors ligne", tone: "text-muted-foreground" };
-  const t = a.tasks ?? {};
-  const mine = (t.approve ?? 0) + (t.choice ?? 0);
+  if (!a.online) return { state: "offline", text: t("Hors ligne"), tone: "text-muted-foreground" };
+  const tasks = a.tasks ?? {};
+  const mine = (tasks.approve ?? 0) + (tasks.choice ?? 0);
   if (mine) {
     const parts = [];
-    if (t.approve) parts.push(`${t.approve} accord${t.approve > 1 ? "s" : ""}`);
-    if (t.choice) parts.push(`${t.choice} choix`);
-    return { state: t.approve ? "approve" : "choice", text: "À toi · " + parts.join(" · "), tone: "text-warn" };
+    if (tasks.approve) parts.push(tasks.approve > 1 ? t("{n} accords", { n: tasks.approve }) : t("{n} accord", { n: tasks.approve }));
+    if (tasks.choice) parts.push(tasks.choice > 1 ? t("{n} choix", { n: tasks.choice }) : t("1 choix"));
+    return { state: tasks.approve ? "approve" : "choice", text: t("À toi · {details}", { details: parts.join(" · ") }), tone: "text-warn" };
   }
-  if (t.work) return { state: "work", text: t.work > 1 ? `Travaille · ${t.work} fils` : "Travaille", tone: "text-accent" };
-  if (a.state === "error") return { state: "error", text: "S'est arrêté sur une erreur", tone: "text-danger" };
-  return { state: "idle", text: "Disponible", tone: "text-muted-foreground" };
+  if (tasks.work) return { state: "work", text: tasks.work > 1 ? t("Travaille · {n} fils", { n: tasks.work }) : t("Travaille"), tone: "text-accent" };
+  if (a.state === "error") return { state: "error", text: t("S'est arrêté sur une erreur"), tone: "text-danger" };
+  return { state: "idle", text: t("Disponible"), tone: "text-muted-foreground" };
 }
 
 type Menu = { agent: Agent; x: number; y: number };
@@ -102,31 +103,31 @@ export const Sidebar = memo(function Sidebar(props: {
           <img src="/assets/icon.svg" alt="" className="size-7" />
           <strong className="text-lg tracking-tight">Noah Agent</strong>
         </div>
-        <Button variant="ghost" size="icon-sm" className="md:hidden" onClick={props.onClose} aria-label="Fermer le menu"><X /></Button>
+        <Button variant="ghost" size="icon-sm" className="md:hidden" onClick={props.onClose} aria-label={t("Fermer le menu")}><X /></Button>
       </div>
 
       <button type="button" onClick={props.onInbox} className="hidden cursor-pointer items-center gap-3 rounded-xl px-2 py-2 text-left text-sm font-medium hover:bg-surface/70 md:flex">
         <span className="grid size-10 place-items-center"><InboxIcon className="size-4" /></span>
-        <span className="flex-1">À toi</span>
+        <span className="flex-1">{t("À toi")}</span>
         {props.waiting > 0 && <span className="grid h-5 min-w-5 place-items-center rounded-full bg-warn px-1.5 text-xs font-semibold text-surface">{props.waiting}</span>}
       </button>
       {/* À toi a sa porte sur un téléphone ; les objectifs s'ouvrent d'ici à toutes les tailles. */}
       <button type="button" onClick={props.onGoals} className="-mt-3 flex cursor-pointer items-center gap-3 rounded-xl px-2 py-2 text-left text-sm font-medium hover:bg-surface/70 max-md:mt-0">
         <span className="grid size-10 place-items-center"><Target className="size-4" /></span>
-        <span className="flex-1">Objectifs</span>
+        <span className="flex-1">{t("Objectifs")}</span>
       </button>
       {props.onOpen && ([
-        ["files", "Fichiers", FolderOpen],
-        ["routines", "Tâches programmées", Clock],
-        ["connections", "Connexions", Plug],
+        ["files", t("Fichiers"), FolderOpen],
+        ["routines", t("Tâches programmées"), Clock],
+        ["connections", t("Connexions"), Plug],
       ] as const).map(([tab, label, Icon]) => (
         <button key={tab} type="button" onClick={() => props.onOpen?.(tab)} className="-mt-3 flex cursor-pointer items-center gap-3 rounded-xl px-2 py-2 text-left text-sm font-medium hover:bg-surface/70">
           <span className="grid size-10 place-items-center"><Icon className="size-4" /></span>
           <span className="flex-1">{label}</span>
         </button>
       ))}
-      <nav aria-label="Agents" className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
-        <h2 className="mb-1 px-2 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">Tes agents</h2>
+      <nav aria-label={t("Agents")} className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
+        <h2 className="mb-1 px-2 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">{t("Tes agents")}</h2>
         {agents.map((a, i) => {
           const active = a.id === agentId;
           const s = agentSummary(a);
@@ -157,13 +158,13 @@ export const Sidebar = memo(function Sidebar(props: {
                 <span className="flex min-w-0 flex-1 flex-col">
                   <span className="flex items-center gap-1.5">
                     <span className="truncate text-sm font-semibold">{a.name}</span>
-                    {a.pinned && <Pin className="size-3 shrink-0 rotate-45 text-muted-foreground" aria-label="Épinglé" />}
+                    {a.pinned && <Pin className="size-3 shrink-0 rotate-45 text-muted-foreground" aria-label={t("Épinglé")} />}
                     {a.partage && (
                       <span
                         className="inline-flex shrink-0 items-center gap-1 rounded-full bg-muted px-1.5 py-px text-[10px] font-medium text-muted-foreground"
-                        title={a.partage_par ? `Partagé par ${a.partage_par}` : "Partagé avec d'autres profils"}
+                        title={a.partage_par ? t("Partagé par {nom}", { nom: a.partage_par }) : t("Partagé avec d'autres profils")}
                       >
-                        <Users className="size-2.5" />partagé
+                        <Users className="size-2.5" />{t("partagé")}
                       </span>
                     )}
                   </span>
@@ -172,7 +173,7 @@ export const Sidebar = memo(function Sidebar(props: {
               </button>
               {canAdmin(a) && <button
                 type="button"
-                aria-label={`Options de ${a.name}`}
+                aria-label={t("Options de {nom}", { nom: a.name })}
                 className="absolute top-1/2 right-1.5 hidden -translate-y-1/2 cursor-pointer rounded-md p-1 text-muted-foreground pointer-coarse:block group-hover:block hover:bg-muted hover:text-foreground focus-visible:block"
                 onClick={(e) => {
                   const r = e.currentTarget.getBoundingClientRect();
@@ -189,14 +190,14 @@ export const Sidebar = memo(function Sidebar(props: {
           onClick={props.onNewAgent}
           className="mt-1 flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-muted-foreground/50 px-2 py-2 text-left text-[13px] font-medium text-muted-foreground hover:text-foreground"
         >
-          <span className="grid size-10 place-items-center"><Plus className="size-4" /></span>Créer un agent
+          <span className="grid size-10 place-items-center"><Plus className="size-4" /></span>{t("Créer un agent")}
         </button>
       </nav>
 
       {menu && (
         <div
           role="menu"
-          aria-label={`Options de ${menu.agent.name}`}
+          aria-label={t("Options de {nom}", { nom: menu.agent.name })}
           className="fixed z-50 flex w-56 flex-col rounded-xl border border-border bg-surface p-1 text-sm shadow-xl"
           style={{ left: menu.x, top: menu.y }}
           onPointerDown={(e) => e.stopPropagation()}
@@ -211,7 +212,7 @@ export const Sidebar = memo(function Sidebar(props: {
             }}
           >
             {menu.agent.pinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
-            {menu.agent.pinned ? "Désépingler" : "Épingler en haut"}
+            {menu.agent.pinned ? t("Désépingler") : t("Épingler en haut")}
           </button>
           <button
             role="menuitem"
@@ -221,7 +222,7 @@ export const Sidebar = memo(function Sidebar(props: {
               setMenu(null);
             }}
           >
-            <Palette className="size-4" />Personnaliser
+            <Palette className="size-4" />{t("Personnaliser")}
           </button>
         </div>
       )}
@@ -230,21 +231,21 @@ export const Sidebar = memo(function Sidebar(props: {
         {/* La dépense ne vient ici que lorsqu'elle demande un regard : le reste du temps, elle est dans le panneau de l'agent et les réglages. */}
         {usage?.budget != null && pct != null && (pct >= 80 || usage.non_suivi) && <button type="button" onClick={() => props.onSettings(props.owner ? "brain" : "security")} className="flex cursor-pointer flex-col gap-2 rounded-xl border border-border bg-surface p-3 text-left hover:border-muted-foreground/50">
           <span className="flex items-baseline justify-between gap-2 text-xs">
-            <span className="text-muted-foreground">Ce mois-ci</span>
+            <span className="text-muted-foreground">{t("Ce mois-ci")}</span>
             <span className="font-mono font-medium tabular-nums">
-              {usage ? `${money(usage.month_cost)} $${usage.budget != null ? ` / ${money(usage.budget)} $` : ""}` : "—"}
+              {usage ? (usage.budget != null ? t("{depense} $ / {budget} $", { depense: money(usage.month_cost), budget: money(usage.budget) }) : t("{montant} $", { montant: money(usage.month_cost) })) : "—"}
             </span>
           </span>
           {pct != null && (
-            <span role="meter" aria-label="Dépense du mois" aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100} className="h-1.5 overflow-hidden rounded-full bg-muted">
+            <span role="meter" aria-label={t("Dépense du mois")} aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100} className="h-1.5 overflow-hidden rounded-full bg-muted">
               <span className={cn("block h-full rounded-full", pct >= 90 ? "bg-warn" : "bg-foreground/70")} style={{ width: `${pct}%` }} />
             </span>
           )}
-          {usage.non_suivi && <span className="text-xs text-warn">Une partie de la dépense n'est pas suivie.</span>}
+          {usage.non_suivi && <span className="text-xs text-warn">{t("Une partie de la dépense n'est pas suivie.")}</span>}
         </button>}
         <div className="flex gap-1">
-          <Button variant="ghost" size="sm" className="flex-1 justify-start text-muted-foreground max-md:invisible" onClick={() => props.onSettings("security")}><Settings />Réglages</Button>
-          <Button variant="ghost" size="icon-sm" className="text-muted-foreground" onClick={props.onLogout} aria-label="Se déconnecter" title="Se déconnecter"><LogOut /></Button>
+          <Button variant="ghost" size="sm" className="flex-1 justify-start text-muted-foreground max-md:invisible" onClick={() => props.onSettings("security")}><Settings />{t("Réglages")}</Button>
+          <Button variant="ghost" size="icon-sm" className="text-muted-foreground" onClick={props.onLogout} aria-label={t("Se déconnecter")} title={t("Se déconnecter")}><LogOut /></Button>
         </div>
       </div>
     </>

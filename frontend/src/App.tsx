@@ -47,6 +47,7 @@ import { AppUpdate } from "./components/AppUpdate";
 import { Dialog, DialogContent } from "./components/ui";
 import { listenFileMenus } from "@/lib/desktop";
 import { onForget, prefetchSeen } from "@/lib/seen";
+import { t, tr } from "@/i18n";
 
 // Chargés à la première ouverture : le premier écran n'attend que le chat.
 const AgentBrain = lazy(() => import("@/components/AgentBrain").then((m) => ({ default: m.AgentBrain })));
@@ -70,10 +71,10 @@ async function waitForApproval(sondage: string, expire: number): Promise<string>
       })).json()) as { token?: string; compte?: string }; // 202 : en attente
       if (r.token) return r.compte ?? ""; // la session arrive aussi en cookie
     } catch (e) {
-      if (e instanceof ApiError && e.status === 410) throw new Error("Demande refusée ou expirée. Scanne un nouveau code.");
+      if (e instanceof ApiError && e.status === 410) throw new Error(t("Demande refusée ou expirée. Scanne un nouveau code."));
     }
   }
-  throw new Error("Demande expirée. Scanne un nouveau code.");
+  throw new Error(t("Demande expirée. Scanne un nouveau code."));
 }
 
 /** Garde l'ancien objet si les données n'ont pas changé : rien ne se redessine pour rien toutes les 4 s. */
@@ -207,7 +208,7 @@ export default function App() {
     };
   }, []);
 
-  if (screen === "loading") return <p role="status" className="p-10 text-center text-muted-foreground">Chargement…</p>;
+  if (screen === "loading") return <p role="status" className="p-10 text-center text-muted-foreground">{t("Chargement…")}</p>;
   if (screen === "pairing")
     return (
       <div className="mx-auto flex max-w-sm flex-col items-center gap-4 p-10 text-center">
@@ -223,14 +224,14 @@ export default function App() {
                 boot();
               }}
             >
-              Continuer vers Noah
+              {t("Continuer vers Noah")}
             </button>
           </>
         ) : (
           <>
-            <p className="text-sm text-muted-foreground">Sur l'appareil où le code est affiché, accepte ce téléphone et saisis :</p>
+            <p className="text-sm text-muted-foreground">{t("Sur l'appareil où le code est affiché, accepte ce téléphone et saisis :")}</p>
             <p className="font-mono text-5xl font-semibold tracking-widest">{verification}</p>
-            <p className="text-xs text-muted-foreground">Ce nombre prouve que c'est bien toi qui as scanné le code. Ne le donne à personne. Si tu n'as pas affiché ce code toi-même, ferme cette page : rien ne se passera.</p>
+            <p className="text-xs text-muted-foreground">{t("Ce nombre prouve que c'est bien toi qui as scanné le code. Ne le donne à personne. Si tu n'as pas affiché ce code toi-même, ferme cette page : rien ne se passera.")}</p>
           </>
         )}
       </div>
@@ -238,9 +239,9 @@ export default function App() {
   if (screen === "linked")
     return (
       <div className="mx-auto flex max-w-sm flex-col items-center gap-4 p-10 text-center">
-        <h1 className="text-xl font-semibold">Ce navigateur est relié</h1>
-        <p className="text-sm">Il est maintenant connecté au compte <b>{linkedTo}</b>.</p>
-        <Button onClick={() => { setScreen("loading"); boot(); }}>Continuer</Button>
+        <h1 className="text-xl font-semibold">{t("Ce navigateur est relié")}</h1>
+        <p className="text-sm">{tr("Il est maintenant connecté au compte {compte}.", { compte: <b>{linkedTo}</b> })}</p>
+        <Button onClick={() => { setScreen("loading"); boot(); }}>{t("Continuer")}</Button>
         <button
           type="button"
           className="text-sm text-danger underline"
@@ -249,26 +250,24 @@ export default function App() {
             send("/api/logout", {}).catch(() => {}).finally(boot);
           }}
         >
-          Ce n'est pas mon compte : me déconnecter
+          {t("Ce n'est pas mon compte : me déconnecter")}
         </button>
       </div>
     );
   if (screen === "update")
     return (
       <div className="mx-auto flex max-w-sm flex-col gap-3 p-10 text-center">
-        <h1 className="text-xl font-semibold">Mets à jour l'app Noah</h1>
+        <h1 className="text-xl font-semibold">{t("Mets à jour l'app Noah")}</h1>
         <p className="text-sm text-muted-foreground">
-          Ton serveur Noah a été mis à jour et cette version de l'app est trop ancienne pour lui (il demande une
-          version plus récente). Installe la dernière version de l'app, puis rouvre-la : tes agents et tes
-          réglages n'ont pas bougé.
+          {t("Ton serveur Noah a été mis à jour et cette version de l'app est trop ancienne pour lui (il demande une version plus récente). Installe la dernière version de l'app, puis rouvre-la : tes agents et tes réglages n'ont pas bougé.")}
         </p>
       </div>
     );
   if (screen === "error")
     return (
       <div className="flex flex-col gap-2 p-10 text-center">
-        <p role="status" className="text-danger">Noah ne répond pas. Vérifie ta connexion.</p>
-        <p className="text-sm text-muted-foreground">Nouvel essai dans quelques secondes…</p>
+        <p role="status" className="text-danger">{t("Noah ne répond pas. Vérifie ta connexion.")}</p>
+        <p className="text-sm text-muted-foreground">{t("Nouvel essai dans quelques secondes…")}</p>
       </div>
     );
   if (screen === "login") return <AuthScreen onDone={boot} />;
@@ -501,17 +500,17 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
       <LayoutShell>
         <SideRail waiting={waiting} onInbox={() => setInbox(true)} agent={agent} agents={agents} tabs={tabs} active={panel === "routines" ? "tasks" : panel ?? "chat"} conversations={conversations ?? []} activeThread={threadId} onTab={goTab} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} onPickAgent={selectAgent} onMenu={() => setSidebarOpen(true)} onThread={(id) => { goTab("chat"); setThreadId(id); }} onSettings={() => setSettings("home")} onGoals={() => setGoals(true)} onNewAgent={() => setAgentDialog({ open: true, agent: null })} />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <MobileHeader agent={agent} status={agent?.step || liveStatus || (agent?.online ? "En ligne" : "Hors ligne")} onMenu={() => setSidebarOpen(true)} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} busy={newBusy} onNew={() => void newDiscussion()} />
-          {navigationError && <p role="alert" className="offline-banner">{navigationError}<button onClick={() => void newDiscussion()}>Réessayer</button></p>}
+          <MobileHeader agent={agent} status={agent?.step || liveStatus || (agent?.online ? t("En ligne") : t("Hors ligne"))} onMenu={() => setSidebarOpen(true)} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} busy={newBusy} onNew={() => void newDiscussion()} />
+          {navigationError && <p role="alert" className="offline-banner">{navigationError}<button onClick={() => void newDiscussion()}>{t("Réessayer")}</button></p>}
           <KeepAlive active={!panel} className="min-h-0 flex-1">
-          <ChatPane title={thread?.title || agent?.name || "Noah"} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} actions={<Button variant="ghost" size="icon-sm" aria-label="Détails techniques" onClick={() => setDetails(!details)}><Bug /></Button>}>
+          <ChatPane title={thread?.title || agent?.name || "Noah"} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} actions={<Button variant="ghost" size="icon-sm" aria-label={t("Détails techniques")} onClick={() => setDetails(!details)}><Bug /></Button>}>
           <AppUpdate /><div id={CALL_SLOT} />
           {agent && canAdmin(agent) && <HandoffBanner agentId={agent.id} onOpenScreen={() => setPanel("computer")} />}
           <div className="min-h-0 flex-1">
             {inCall && (inCall.chatKey !== liveKey || !conversations) && <div key={inCall.chatKey} hidden><AgentChat {...inCall} /></div>}
             {agent && conversations ? (
               <div key={liveKey} className="h-full">
-                <Boundary label="Cette conversation">
+                <Boundary label={t("Cette conversation")}>
                 <AgentChat
                   chatKey={liveKey}
                   onCallChange={setInCall}
@@ -530,12 +529,12 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
                 </Boundary>
               </div>
             ) : agent ? (
-              <p role="status" className="p-10 text-center text-sm text-muted-foreground">Chargement de la conversation…</p>
+              <p role="status" className="p-10 text-center text-sm text-muted-foreground">{t("Chargement de la conversation…")}</p>
             ) : (
               <div className="grid h-full place-items-center p-6 text-center text-muted-foreground">
                 <div className="flex flex-col items-center gap-3">
-                  <p>Aucun agent pour l'instant.</p>
-                  <Button onClick={() => setAgentDialog({ open: true, agent: null })}><Plus />Créer un agent</Button>
+                  <p>{t("Aucun agent pour l'instant.")}</p>
+                  <Button onClick={() => setAgentDialog({ open: true, agent: null })}><Plus />{t("Créer un agent")}</Button>
                 </div>
               </div>
             )}
@@ -544,7 +543,7 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
           </ChatPane></KeepAlive>
           {agent && <KeepAlive active={!!panel} className="shell-panel">
             <PageHeader className={latest("panel") ? undefined : "desktop-only-heading"} title={TAB_NAMES[panel === "routines" ? "tasks" : panel ?? "activity"]} onBack={() => setPanel(null)} />
-            <Suspense fallback={<p role="status">Chargement…</p>}><Boundary label="Le panneau de l'agent">
+            <Suspense fallback={<p role="status">{t("Chargement…")}</p>}><Boundary label={t("Le panneau de l'agent")}>
             <SidePanel
               agent={agent}
               onAgentChanged={refreshAgents}
@@ -573,12 +572,12 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
         </div>
         {sidebarOpen && <Drawer waiting={waiting} onInbox={() => { setSidebarOpen(false); setInbox(true); }} agents={agents} agentId={agentId} conversations={conversations ?? []} tabs={tabs} active={panel === "routines" ? "tasks" : panel ?? "chat"} activeThread={threadId} onAgent={selectAgent} onAgentPage={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} onThread={(id) => { goTab("chat"); setThreadId(id); }} onTab={goTab} onNewAgent={() => { setSidebarOpen(false); setAgentDialog({ open: true, agent: null }); }} onCustomize={() => { setSidebarOpen(false); navigation.dispatch({ type: "push", route: { kind: "customize" } }); }} onSettings={() => { setSidebarOpen(false); setSettings("home"); }} onGoals={() => { setSidebarOpen(false); setGoals(true); }} onClose={() => setSidebarOpen(false)} onLogout={logout} />}
         {latest("customize") && <CustomizeTabs tabs={tabs} save={saveTabs} error={tabsError} onClose={() => navigation.dispatch({ type: "close", kind: "customize" })} />}
-        {latest("agent") && agent && <AgentPage agent={agent} onClose={() => navigation.dispatch({ type: "close", kind: "agent" })} onPanel={(t) => { navigation.dispatch({ type: "close", kind: "agent" }); setPanel(t); }} onBrain={() => setModelDialog(true)} onEdit={() => setAgentDialog({ open: true, agent })} onNotifications={() => setSettings("notifications")} onAutonomy={() => setSettings("privacy")} />}
+        {latest("agent") && agent && <AgentPage agent={agent} onClose={() => navigation.dispatch({ type: "close", kind: "agent" })} onPanel={(tab) => { navigation.dispatch({ type: "close", kind: "agent" }); setPanel(tab); }} onBrain={() => setModelDialog(true)} onEdit={() => setAgentDialog({ open: true, agent })} onNotifications={() => setSettings("notifications")} onAutonomy={() => setSettings("privacy")} />}
         <Suspense fallback={null}>
         {agent && (
           <Dialog open={modelDialog} onOpenChange={setModelDialog}>
             {modelDialog && (
-              <DialogContent title={`Modèle de ${agent.name}`} description="Ton choix vaut pour cet agent seulement, tout de suite. Ses conversations restent." className="max-w-xl">
+              <DialogContent title={t("Modèle de {nom}", { nom: agent.name })} description={t("Ton choix vaut pour cet agent seulement, tout de suite. Ses conversations restent.")} className="max-w-xl">
                 <AgentBrain agentId={agent.id} own={agent.model} mode={agent.mode} reasoning={agent.raisonnement} onChanged={() => { refreshAgents(); }} openKey={1} bare />
               </DialogContent>
             )}
@@ -677,7 +676,7 @@ function AgentChat(props: ChatProps) {
   const addQuote = quotes.value.add;
   useEffect(() => {
     const text = main && pendingShare();
-    if (text) addQuote({ label: "Partagé", text });
+    if (text) addQuote({ label: t("Partagé"), text });
   }, [main, addQuote]);
   // Message demandé depuis Détails : la conversation principale l'envoie (après son historique si elle vient d'apparaître).
   useEffect(() => {
@@ -711,7 +710,7 @@ function AgentChat(props: ChatProps) {
       details: props.details,
       conversationId: props.conversationId,
       // Le rôle est une consigne écrite pour l'agent, pas pour la personne : l'écran vide montre des demandes à toucher.
-      hint: "Pose une question, confie une tâche ou envoie un fichier.",
+      hint: t("Pose une question, confie une tâche ou envoie un fichier."),
       readOnly,
       canWatch: canAdmin(props.agent),
     }),

@@ -2,6 +2,7 @@
 // Ils partent en tête du message sous forme de citations markdown (« > … »), que l'agent lit comme le contexte de la question.
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import { normalizeBlock } from "./blocks";
+import { t } from "@/i18n";
 
 export type Quote = { label: string; text: string };
 
@@ -9,6 +10,9 @@ type Quotes = { quotes: Quote[]; add: (q: Quote) => void; remove: (i: number) =>
 
 export const QuoteContext = createContext<Quotes>({ quotes: [], add: () => {}, remove: () => {} });
 export const useQuotes = () => useContext(QuoteContext);
+
+/** Le nom du widget, suivi de son titre s'il en a un : Tableau « Ventes ». */
+const named = (nom: string, titre?: string) => (titre ? t("{nom} « {titre} »", { nom, titre }) : nom);
 
 const asBlock = (q: Quote) => q.text.trim().split("\n").map((l) => `> ${l}`).join("\n");
 
@@ -53,18 +57,18 @@ export function widgetQuote(spec: Record<string, unknown>): Quote | null {
     const cols = spec.columns as string[];
     const rows = (spec.rows as unknown[][]).slice(0, 30);
     const md = [`| ${cols.join(" | ")} |`, `| ${cols.map(() => "---").join(" | ")} |`, ...rows.map((r) => `| ${r.map(String).join(" | ")} |`)];
-    return { label: `Tableau${title ? ` « ${title} »` : ""}`, text: `${title ? `Tableau « ${title} » :\n` : ""}${md.join("\n")}` };
+    return { label: named(t("Tableau"), title), text: `${title ? `${t("{nom} :", { nom: named(t("Tableau"), title) })}\n` : ""}${md.join("\n")}` };
   }
   if (spec.type === "chart" && Array.isArray(spec.labels) && Array.isArray(spec.series)) {
     const labels = spec.labels as string[];
     const series = spec.series as { name: string; values: number[] }[];
-    const lines = series.map((s) => `${s.name} : ${labels.map((l, i) => `${l} ${s.values[i]}`).join(", ")}`);
-    return { label: `Graphique${title ? ` « ${title} »` : ""}`, text: `Graphique${title ? ` « ${title} »` : ""} :\n${lines.join("\n")}` };
+    const lines = series.map((s) => t("{nom} : {texte}", { nom: s.name, texte: labels.map((l, i) => `${l} ${s.values[i]}`).join(", ") }));
+    return { label: named(t("Graphique"), title), text: `${t("{nom} :", { nom: named(t("Graphique"), title) })}\n${lines.join("\n")}` };
   }
   if (spec.type === "grid" && Array.isArray(spec.items)) {
     const items = (spec.items as { title?: string; subtitle?: string; url?: string }[]).slice(0, 20);
     const lines = items.map((it, i) => `${i + 1}. ${it.title ?? ""}${it.subtitle ? ` (${it.subtitle})` : ""}${it.url ? ` ${it.url}` : ""}`);
-    return { label: `Liste${title ? ` « ${title} »` : ""}`, text: `${title || "Liste"} :\n${lines.join("\n")}` };
+    return { label: named(t("Liste"), title), text: `${t("{nom} :", { nom: title || t("Liste") })}\n${lines.join("\n")}` };
   }
   const block = normalizeBlock(spec);
   if (block) {
@@ -73,14 +77,14 @@ export function widgetQuote(spec: Record<string, unknown>): Quote | null {
       : block.type === "products"
         ? block.items.map((p, i) => `${i + 1}. ${p.title}${p.price ? ` · ${p.price}` : ""}${p.merchant ? ` · ${p.merchant}` : ""}${p.url ? ` ${p.url}` : ""}`)
         : block.items.map((l, i) => `${i + 1}. ${l.title} ${l.url}`);
-    const name = { posts: "Posts", products: "Produits", links: "Liens" }[block.type];
-    return { label: `${name}${block.title ? ` « ${block.title} »` : ""}`, text: `${block.title || name} :\n${lines.slice(0, 20).join("\n")}` };
+    const name = { posts: t("Posts"), products: t("Produits"), links: t("Liens") }[block.type];
+    return { label: named(name, block.title), text: `${t("{nom} :", { nom: block.title || name })}\n${lines.slice(0, 20).join("\n")}` };
   }
   if (spec.type === "preview" && typeof spec.path === "string") {
-    return { label: title || spec.path.split("/").pop()!, text: `Fichier : ${spec.path}` };
+    return { label: title || spec.path.split("/").pop()!, text: t("{nom} : {texte}", { nom: t("Fichier"), texte: spec.path }) };
   }
   if (spec.type === "video" && typeof spec.url === "string") {
-    return { label: title || "Vidéo", text: `Vidéo : ${spec.url}` };
+    return { label: title || t("Vidéo"), text: t("{nom} : {texte}", { nom: t("Vidéo"), texte: spec.url }) };
   }
   return null;
 }
@@ -94,5 +98,5 @@ export function imageQuote(src: string, alt?: string): Quote {
   } catch {
     /* adresse relative inattendue : on garde telle quelle */
   }
-  return { label: `Image ${alt || path.split("/").pop()}`, text: `Image : ${path}` };
+  return { label: t("Image {nom}", { nom: alt || path.split("/").pop() || "" }), text: t("{nom} : {texte}", { nom: t("Image"), texte: path }) };
 }

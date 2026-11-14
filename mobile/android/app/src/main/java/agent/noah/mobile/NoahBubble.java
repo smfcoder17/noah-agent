@@ -138,13 +138,13 @@ public class NoahBubble extends Service {
             return START_NOT_STICKY;
         }
         NotificationManager manager = getSystemService(NotificationManager.class);
-        manager.createNotificationChannel(new NotificationChannel(CHANNEL, "Bulle de Noah", NotificationManager.IMPORTANCE_LOW));
+        manager.createNotificationChannel(new NotificationChannel(CHANNEL, getString(R.string.bubble_channel), NotificationManager.IMPORTANCE_LOW));
         PendingIntent open = PendingIntent.getActivity(this, NOTIFICATION, new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PendingIntent.FLAG_IMMUTABLE);
         PendingIntent halt = PendingIntent.getService(this, NOTIFICATION, new Intent(this, NoahBubble.class).setAction(STOP), PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         Notification note = new NotificationCompat.Builder(this, CHANNEL)
-            .setSmallIcon(R.drawable.ic_stat_noah).setContentTitle("La bulle de Noah est active")
-            .setContentText("Maintiens-la pour dicter. Le micro n'écoute que pendant ce geste.")
-            .setOngoing(true).setContentIntent(open).addAction(0, "Arrêter", halt).build();
+            .setSmallIcon(R.drawable.ic_stat_noah).setContentTitle(getString(R.string.bubble_active))
+            .setContentText(getString(R.string.bubble_hint))
+            .setOngoing(true).setContentIntent(open).addAction(0, getString(R.string.bubble_stop), halt).build();
         try {
             if (Build.VERSION.SDK_INT >= 34) startForeground(NOTIFICATION, note, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE | ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
             else if (Build.VERSION.SDK_INT >= 30) startForeground(NOTIFICATION, note, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE);
@@ -266,7 +266,7 @@ public class NoahBubble extends Service {
             this.size = size;
             slop = ViewConfiguration.get(context).getScaledTouchSlop();
             level = -1;
-            setContentDescription("Noah : toucher pour ouvrir, maintenir pour dicter");
+            setContentDescription(context.getString(R.string.bubble_description));
             refresh();
         }
 
@@ -360,11 +360,11 @@ public class NoahBubble extends Service {
 
     private void startDictation() {
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            showCard("Autorise le micro dans Réglages > Téléphone.", "/", false);
+            showCard(getString(R.string.bubble_allow_mic), "/", false);
             return;
         }
         if (CallSession.isActive()) {
-            showCard("Un appel est en cours : le micro est déjà pris.", agentAddress(), false);
+            showCard(getString(R.string.bubble_call_busy), agentAddress(), false);
             return;
         }
         generation++;
@@ -388,7 +388,7 @@ public class NoahBubble extends Service {
         } catch (Exception e) {
             Log.w(TAG, "micro indisponible : " + e.getClass().getSimpleName());
             stopRecorder(true);
-            showCard("Le micro n'est pas disponible. Une autre app s'en sert peut-être.", agentAddress(), false);
+            showCard(getString(R.string.bubble_mic_unavailable), agentAddress(), false);
             return;
         }
         recordingSince = System.currentTimeMillis();
@@ -396,7 +396,7 @@ public class NoahBubble extends Service {
         silenced = false;
         overCancel = false;
         showCancelZone();
-        showCard("Je t'écoute… Relâche pour envoyer.", null, false);
+        showCard(getString(R.string.bubble_listening), null, false);
         ui.post(listen);
         if (Build.VERSION.SDK_INT >= 29) ui.postDelayed(checkSilenced, 400);
     }
@@ -432,7 +432,7 @@ public class NoahBubble extends Service {
         if (over && face != null) face.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
         if (cancelZone != null) {
             ((GradientDrawable) cancelZone.getBackground()).setColor(over ? 0xFFD9403A : 0xE6303338);
-            cancelZone.setText(over ? "Relâche pour annuler" : "Glisse ici pour annuler");
+            cancelZone.setText(over ? R.string.bubble_release_cancel : R.string.bubble_slide_cancel);
         }
     }
 
@@ -446,18 +446,18 @@ public class NoahBubble extends Service {
         if (face != null) face.setLevel(-1);
         if (cancel) return;
         if (tooShort || !stopped) {
-            showCard("Maintiens un peu plus longtemps pour dicter.", null, false);
+            showCard(getString(R.string.bubble_hold_longer), null, false);
             return;
         }
         if (silenced) {
             if (sound != null) sound.delete();
-            showCard("Android a coupé le micro en arrière-plan. Ouvre Noah, relance la bulle, puis réessaie.", agentAddress(), false);
+            showCard(getString(R.string.bubble_mic_cut), agentAddress(), false);
             return;
         }
         Log.i(TAG, "dictée : " + (sound == null ? 0 : sound.length()) + " octets, pic " + peak);
         if (peak < heardFrom) {
             if (sound != null) sound.delete();
-            showCard("Je n'ai rien entendu. Rien n'est parti.", null, false);
+            showCard(getString(R.string.bubble_heard_nothing), null, false);
             return;
         }
         send(sound);
@@ -488,7 +488,7 @@ public class NoahBubble extends Service {
     private void send(File sound) {
         final long mine = generation;
         if (face != null) face.setLevel(-2);
-        showCard("J'écris ce que tu as dit…", null, false);
+        showCard(getString(R.string.bubble_transcribing), null, false);
         network.execute(() -> {
             String answerUrl = agentAddress();
             String shown;
@@ -496,11 +496,11 @@ public class NoahBubble extends Service {
             try {
                 Pairing pairing = new Pairing(this);
                 String server = pairing.server(), token = pairing.token();
-                if (server == null || token == null) throw new Refused("Cet appareil n'est plus relié à ton serveur.");
+                if (server == null || token == null) throw new Refused(R.string.bubble_unlinked);
                 String agent = prefs.getString("agent", "");
                 String text = transcribe(server, token, agent, sound);
-                if (text.trim().isEmpty()) throw new Refused("Je n'ai rien entendu. Rien n'est parti.");
-                showOnUi(mine, "« " + shorten(text, 90) + " »", null);
+                if (text.trim().isEmpty()) throw new Refused(R.string.bubble_heard_nothing);
+                showOnUi(mine, getString(R.string.bubble_quote, shorten(text, 90)), null);
                 JSONObject body = new JSONObject().put("agent_id", agent).put("text", text).put("client_id", "bulle-" + UUID.randomUUID());
                 posting = true;
                 JSONObject result = post(server + "/api/chat/pendant", token, body);
@@ -510,10 +510,10 @@ public class NoahBubble extends Service {
                 if (!"tache".equals(result.optString("type")) && !reply.isEmpty()) shown = shorten(reply, 160);
                 else shown = follow(mine, server, token, conversation, answerUrl);
             } catch (Refused e) {
-                shown = e.getMessage();
+                shown = e.sentence(this);
             } catch (Exception e) {
                 Log.w(TAG, "envoi impossible : " + e.getClass().getSimpleName());
-                shown = posting ? "Ton serveur ne répond plus. Regarde la conversation : ton message est peut-être parti." : "Ton serveur ne répond pas. Rien n'est parti.";
+                shown = getString(posting ? R.string.bubble_no_reply_posting : R.string.bubble_no_reply);
             } finally {
                 sound.delete();
             }
@@ -528,7 +528,7 @@ public class NoahBubble extends Service {
 
     /** Le temps d'une réponse courte, relevé toutes les 2 s, puis plus rien : au-delà, le serveur notifie la fin. */
     private String follow(long mine, String server, String token, String conversation, String url) throws Exception {
-        showOnUi(mine, "Message envoyé. Il y travaille…", url);
+        showOnUi(mine, getString(R.string.bubble_sent), url);
         long until = System.currentTimeMillis() + FOLLOW_MILLIS;
         String now = server + "/api/conversations/" + URLEncoder.encode(conversation, "UTF-8") + "/en-cours?suivi=false";
         while (System.currentTimeMillis() < until && mine == generation) {
@@ -539,7 +539,7 @@ public class NoahBubble extends Service {
             JSONObject last = messages.length() == 0 ? null : messages.getJSONObject(messages.length() - 1);
             if (last != null && !"user".equals(last.optString("role"))) return shorten(last.optString("text"), 160);
         }
-        return "Il y travaille encore. Tu recevras une notification à la fin.";
+        return getString(R.string.bubble_still_working);
     }
 
     /** Coupure passagère : renvoyé tel quel. Le serveur reconnaît `client_id`, un message renvoyé ne part qu'une fois. */
@@ -571,9 +571,22 @@ public class NoahBubble extends Service {
         }
     }
 
+    /** Une phrase pour la personne : un texte de l'app (sa ressource), ou celle que le serveur a écrite. */
     private static final class Refused extends Exception {
+        private final int text;
+
+        Refused(int text) {
+            super();
+            this.text = text;
+        }
+
         Refused(String sentence) {
             super(sentence);
+            this.text = 0;
+        }
+
+        String sentence(Context context) {
+            return text != 0 ? context.getString(text) : getMessage();
         }
     }
 
@@ -585,6 +598,8 @@ public class NoahBubble extends Service {
         HttpURLConnection http = (HttpURLConnection) new URL(url).openConnection();
         http.setRequestMethod(method);
         http.setRequestProperty("Authorization", "Bearer " + token);
+        // Langue du téléphone : la dictée est transcrite dans cette langue.
+        http.setRequestProperty("Accept-Language", java.util.Locale.getDefault().getLanguage());
         http.setConnectTimeout(10_000);
         http.setReadTimeout(timeout);
         try {
@@ -601,16 +616,20 @@ public class NoahBubble extends Service {
             } catch (java.io.IOException unreachable) {
                 throw new Temporary();
             }
-            if (code == 401) throw new Refused("Cet appareil n'est plus relié à ton serveur.");
-            if (code == 404) throw new Refused("Cet agent n'existe plus. Choisis-en un autre dans Réglages > Téléphone.");
+            if (code == 401) throw new Refused(R.string.bubble_unlinked);
+            if (code == 404) throw new Refused(R.string.bubble_agent_gone);
             if (code == 503) throw new Temporary();
-            if (code >= 300) throw new Refused(detail(http));
+            if (code >= 300) {
+                String sentence = detail(http);
+                throw sentence == null ? new Refused(R.string.bubble_refused) : new Refused(sentence);
+            }
             return read(http.getInputStream());
         } finally {
             http.disconnect();
         }
     }
 
+    /** La phrase du serveur, ou null s'il n'en a pas écrit de lisible. */
     private static String detail(HttpURLConnection http) {
         try {
             String sentence = new JSONObject(read(http.getErrorStream())).optString("detail");
@@ -618,7 +637,7 @@ public class NoahBubble extends Service {
         } catch (Exception ignored) {
             // pas de phrase lisible
         }
-        return "Ton serveur a refusé ce message.";
+        return null;
     }
 
     private static String read(InputStream stream) throws Exception {
@@ -631,9 +650,9 @@ public class NoahBubble extends Service {
     }
 
     /** Une carte, pas un écran : le début de la réponse, sans code ni mise en forme. Toucher ouvre la suite. */
-    static String shorten(String text, int limit) {
+    private String shorten(String text, int limit) {
         String plain = text.replaceAll("(?s)```.*?(```|$)", " ").replaceAll("MEDIA:\\S+", " ").replaceAll("[*_`#>|]+", " ").replaceAll("\\s+", " ").trim();
-        if (plain.isEmpty()) return "C'est fait. Le résultat est dans la conversation.";
+        if (plain.isEmpty()) return getString(R.string.bubble_done);
         return plain.length() <= limit ? plain : plain.substring(0, limit - 1).trim() + "…";
     }
 
@@ -642,7 +661,7 @@ public class NoahBubble extends Service {
     private void showCancelZone() {
         hideCancelZone();
         cancelZone = new TextView(this);
-        cancelZone.setText("Glisse ici pour annuler");
+        cancelZone.setText(R.string.bubble_slide_cancel);
         cancelZone.setTextColor(Color.WHITE);
         cancelZone.setGravity(Gravity.CENTER);
         cancelZone.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);

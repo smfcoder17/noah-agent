@@ -9,8 +9,9 @@ import { ModelSearch } from "./Modes";
 import { ProviderLogo } from "./ProviderLogo";
 import { Providers } from "./Providers";
 import { ErrorText } from "./ui";
+import { t } from "@/i18n";
 
-const AUTO_LEVELS: [TierId, string][] = [["fast", "Simple"], ["balanced", "Moyen"], ["smart", "Complexe"]];
+const AUTO_LEVELS: [TierId, string][] = [["fast", t("Simple")], ["balanced", t("Moyen")], ["smart", t("Complexe")]];
 
 export function AgentBrain({ agentId, own, mode, reasoning, onChanged }: { agentId: string; own: string | null | undefined; mode?: string | null; reasoning?: string | null; onChanged: () => void; openKey?: number; bare?: boolean }) {
   const [base, setBase] = useState<CurrentModel>(null);
@@ -77,9 +78,9 @@ export function AgentBrain({ agentId, own, mode, reasoning, onChanged }: { agent
   const [providersOpen, setProvidersOpen] = useState(false);
   const panel = (
     <div className="flex flex-col gap-3">
-      <div role="radiogroup" aria-label="Modèle de l'agent" className="flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border">
+      <div role="radiogroup" aria-label={t("Modèle de l'agent")} className="flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border">
         <div>
-          <Row id="auto" name="Auto" under="Simple, moyen ou complexe : Noah choisit" onPick={() => pick({ mode: "auto" })} disabled={!autoAvailable} />
+          <Row id="auto" name={t("Auto")} under={t("Simple, moyen ou complexe : Noah choisit")} onPick={() => pick({ mode: "auto" })} disabled={!autoAvailable} />
           {state && (
             <ul className="flex flex-col gap-1 px-3 pb-3">
               {AUTO_LEVELS.map(([tier, label]) => (
@@ -89,7 +90,7 @@ export function AgentBrain({ agentId, own, mode, reasoning, onChanged }: { agent
                     <ProviderLogo lab={tierModel(tier)?.fournisseur || base?.provider || ""} />
                     <span className="min-w-0 flex-1 truncate font-medium" title={tierModel(tier)?.nom}>{tierModel(tier) ? readableModel(tierModel(tier)!.modele) : "—"}</span>
                     <button type="button" className="cursor-pointer text-accent hover:underline" onClick={() => setChoosing(choosing === tier ? null : tier)}>
-                      {choosing === tier ? "Fermer" : "Changer"}
+                      {choosing === tier ? t("Fermer") : t("Changer")}
                     </button>
                   </div>
                   {choosing === tier && <ModelSearch level="cerveau" selected={tierModel(tier)?.modele} onPick={(m) => setTier(tier, m.id, m.fournisseur)} />}
@@ -98,22 +99,22 @@ export function AgentBrain({ agentId, own, mode, reasoning, onChanged }: { agent
             </ul>
           )}
         </div>
-        <Row id="tous" name="Comme mes autres agents" under={readableModel(base?.model || "")} onPick={() => pick({ model: null })} />
-        <Row id="precis" name="Un modèle précis" under={own && !mode ? readableModel(own) : undefined} onPick={() => setChoosing(choosing === "precis" ? null : "precis")} />
+        <Row id="tous" name={t("Comme mes autres agents")} under={readableModel(base?.model || "")} onPick={() => pick({ model: null })} />
+        <Row id="precis" name={t("Un modèle précis")} under={own && !mode ? readableModel(own) : undefined} onPick={() => setChoosing(choosing === "precis" ? null : "precis")} />
       </div>
       {choosing === "precis" && <ModelSearch level="cerveau" selected={!mode ? own || base?.model : null} onPick={(m) => pick({ model: m.id })} />}
       <label className="flex items-center gap-2 text-sm">
-        <span className="shrink-0">Réflexion</span>
+        <span className="shrink-0">{t("Réflexion")}</span>
         <select value={reasoning ?? ""} disabled={busy} onChange={(e) => change({ raisonnement: e.target.value || null })}
           className="h-9 min-w-0 flex-1 cursor-pointer rounded-lg border border-border bg-background px-2 text-sm text-foreground">
-          <option value="">Par défaut</option>
+          <option value="">{t("Par défaut")}</option>
           {REASONING.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
         </select>
       </label>
-      <button className="shell-row shell-group" onClick={() => setProvidersOpen(!providersOpen)} aria-expanded={providersOpen}>Fournisseurs<span className="ml-auto">›</span></button>
+      <button className="shell-row shell-group" onClick={() => setProvidersOpen(!providersOpen)} aria-expanded={providersOpen}>{t("Fournisseurs")}<span className="ml-auto">›</span></button>
       {providersOpen && <Providers />}
-      {busy && <p className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" />Un instant…</p>}
-      <ErrorText>{error}</ErrorText>{error && <button onClick={() => { setError(""); void get<ModesState>("/api/modes/cerveau").then(setState).catch((e) => setError(e.message)); }}>Réessayer</button>}
+      {busy && <p className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" />{t("Un instant…")}</p>}
+      <ErrorText>{error}</ErrorText>{error && <button onClick={() => { setError(""); void get<ModesState>("/api/modes/cerveau").then(setState).catch((e) => setError(e.message)); }}>{t("Réessayer")}</button>}
     </div>
   );
 

@@ -28,22 +28,23 @@
 <body>
 <main>
   <img src="icon.png" alt="" />
-  <h1>Bienvenue sur Noah Agent</h1>
+  <h1 data-i18n="setup.bienvenue">Bienvenue sur Noah Agent</h1>
   <div id="choices" style="display:flex;flex-direction:column;gap:10px">
-    <p>Où vit ton agent ?</p>
-    <button class="choice" id="remote"><b>Sur mon serveur</b><span>Un VPS où Noah tourne 24 h/24. Ton ordinateur, ton téléphone et le web parlent au même agent.</span></button>
-    <button class="choice" id="local"><b>Sur cet ordinateur</b><span>Noah tourne ici avec Docker Desktop. Il s'arrête quand l'ordinateur s'éteint.</span></button>
+    <p data-i18n="setup.question">Où vit ton agent ?</p>
+    <button class="choice" id="remote"><b data-i18n="setup.serveur.titre">Sur mon serveur</b><span data-i18n="setup.serveur.texte">Un VPS où Noah tourne 24 h/24. Ton ordinateur, ton téléphone et le web parlent au même agent.</span></button>
+    <button class="choice" id="local"><b data-i18n="setup.local.titre">Sur cet ordinateur</b><span data-i18n="setup.local.texte">Noah tourne ici avec Docker Desktop. Il s'arrête quand l'ordinateur s'éteint.</span></button>
   </div>
   <form id="form">
-    <p>Saisis l'adresse de ton Noah. Ton navigateur s'ouvre : connecte-toi si besoin, puis clique « Autoriser cet appareil ».</p>
-    <label>Adresse de ton serveur<input id="server" placeholder="https://noah.exemple.com" autocomplete="url" required /></label>
-    <label id="codeRow" style="display:none">Code (Réglages → Appareils → « Relier un appareil »)<input id="code" placeholder="BCDF-GHJK" autocomplete="one-time-code" /></label>
-    <p class="hint"><a href="#" id="toggle">J'ai un code à la place</a></p>
-    <label id="numberRow" style="display:none">Nombre affiché dans le navigateur, après « Autoriser »<input id="number" inputmode="numeric" maxlength="3" autocomplete="off" /></label>
+    <p data-i18n="setup.consigne">Saisis l'adresse de ton Noah. Ton navigateur s'ouvre : connecte-toi si besoin, puis clique « Autoriser cet appareil ».</p>
+    <label><span data-i18n="setup.adresse">Adresse de ton serveur</span><input id="server" placeholder="https://noah.exemple.com" data-i18n-placeholder="setup.adresse.exemple" autocomplete="url" required /></label>
+    <label id="codeRow" style="display:none"><span data-i18n="setup.code">Code (Réglages → Appareils → « Relier un appareil »)</span><input id="code" placeholder="BCDF-GHJK" autocomplete="one-time-code" /></label>
+    <p class="hint"><a href="#" id="toggle" data-i18n="setup.avec_code">J'ai un code à la place</a></p>
+    <label id="numberRow" style="display:none"><span data-i18n="setup.nombre">Nombre affiché dans le navigateur, après « Autoriser »</span><input id="number" inputmode="numeric" maxlength="3" autocomplete="off" /></label>
     <div id="error"></div>
-    <div class="row"><button type="button" class="ghost" id="back">Retour</button><button class="main" id="go">Relier</button></div>
+    <div class="row"><button type="button" class="ghost" id="back" data-i18n="setup.retour">Retour</button><button class="main" id="go" data-i18n="setup.relier">Relier</button></div>
   </form>
 </main>
+<script src="textes.js"></script>
 <script src="setup.js"></script>
 </body>
 </html>

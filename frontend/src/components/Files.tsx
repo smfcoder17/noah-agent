@@ -7,9 +7,10 @@ import { useAgentData } from "@/lib/useAgentData";
 import { cn, fileSize, messageMoment } from "@/lib/utils";
 import { Button, Dialog, DialogContent } from "./ui";
 import { canFrame, useDownload, useViewer } from "./Viewer";
+import { locale, t } from "@/i18n";
 
 const WORKSPACE = "/opt/data/workspace/";
-const ROOT_NAMES: Record<string, string> = { outputs: "Livrables", apps: "Applications", captures: "Captures", uploads: "Envoyés par toi" };
+const ROOT_NAMES: Record<string, string> = { outputs: t("Livrables"), apps: t("Applications"), captures: t("Captures"), uploads: t("Envoyés par toi") };
 const OPEN_FIRST = new Set(["outputs", "uploads"]);
 const IMAGE = /\.(png|jpe?g|gif|webp)$/i;
 
@@ -45,7 +46,7 @@ function buildTree(files: WorkspaceFile[]): Node {
 }
 
 const byOrder = <T extends { size: number; modified: number }>(sort: Sort, name: (t: T) => string) => (a: T, b: T) =>
-  sort === "nom" ? name(a).localeCompare(name(b), "fr") : sort === "taille" ? b.size - a.size : b.modified - a.modified;
+  sort === "nom" ? name(a).localeCompare(name(b), locale()) : sort === "taille" ? b.size - a.size : b.modified - a.modified;
 
 export const Files = memo(function Files({ agentId, refreshKey, canDelete, onGiven }: { agentId: string; refreshKey: number; canDelete: boolean; onGiven: () => void }) {
   const path = `/api/agents/${agentId}/files`;
@@ -71,8 +72,8 @@ export const Files = memo(function Files({ agentId, refreshKey, canDelete, onGiv
   const tree = useMemo(() => buildTree(shown), [shown]);
 
   if (error && !files) return <p className="text-sm text-danger">{error}</p>;
-  if (!files) return <p className="text-sm text-muted-foreground">Chargement…</p>;
-  if (!files.length) return <p className="text-sm text-muted-foreground">Aucun fichier pour l'instant.</p>;
+  if (!files) return <p className="text-sm text-muted-foreground">{t("Chargement…")}</p>;
+  if (!files.length) return <p className="text-sm text-muted-foreground">{t("Aucun fichier pour l'instant.")}</p>;
 
   const toggle = (paths: string[], on: boolean) =>
     setPicked((cur) => {
@@ -101,8 +102,8 @@ export const Files = memo(function Files({ agentId, refreshKey, canDelete, onGiv
   };
   const giveToChat = () => {
     const paths = chosenPaths();
-    const label = paths.length === 1 ? paths[0].replace(WORKSPACE, "") : `${paths.length} éléments de tes fichiers`;
-    window.dispatchEvent(new CustomEvent(giveFilesEvent, { detail: { agentId, label, text: `Fichiers de ton dossier de travail :\n${paths.join("\n")}` } }));
+    const label = paths.length === 1 ? paths[0].replace(WORKSPACE, "") : t("{n} éléments de tes fichiers", { n: paths.length });
+    window.dispatchEvent(new CustomEvent(giveFilesEvent, { detail: { agentId, label, text: `${t("Fichiers de ton dossier de travail :")}\n${paths.join("\n")}` } }));
     setPicked(new Set());
     onGiven();
   };
@@ -131,40 +132,40 @@ export const Files = memo(function Files({ agentId, refreshKey, canDelete, onGiv
       <div className="flex items-center gap-1.5">
         <label className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-border bg-surface px-2">
           <Search className="size-3.5 shrink-0 text-muted-foreground" />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Chercher" aria-label="Chercher un fichier" className="h-8 min-w-0 flex-1 bg-transparent text-sm outline-none" />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("Chercher")} aria-label={t("Chercher un fichier")} className="h-8 min-w-0 flex-1 bg-transparent text-sm outline-none" />
         </label>
-        <select value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label="Trier" className="h-8 rounded-lg border border-border bg-surface px-1.5 text-sm">
-          <option value="recent">Récents</option>
-          <option value="nom">Nom</option>
-          <option value="taille">Taille</option>
+        <select value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label={t("Trier")} className="h-8 rounded-lg border border-border bg-surface px-1.5 text-sm">
+          <option value="recent">{t("Récents")}</option>
+          <option value="nom">{t("Nom")}</option>
+          <option value="taille">{t("Taille")}</option>
         </select>
-        <Button variant="ghost" size="icon-sm" onClick={load} aria-label="Actualiser"><RefreshCw /></Button>
+        <Button variant="ghost" size="icon-sm" onClick={load} aria-label={t("Actualiser")}><RefreshCw /></Button>
       </div>
 
-      {!shown.length && <p className="px-2 text-sm text-muted-foreground">Aucun fichier ne correspond.</p>}
+      {!shown.length && <p className="px-2 text-sm text-muted-foreground">{t("Aucun fichier ne correspond.")}</p>}
       <div className="flex flex-1 flex-col gap-0.5">
         <FolderRows node={tree} depth={0} {...{ agentId, picked, opened, toggle, toggleOpen, orderFiles, orderFolders, searching, setPreview }} />
       </div>
 
       {picked.size > 0 && (
         <div className="sticky bottom-0 flex flex-wrap items-center gap-1.5 rounded-xl border border-border bg-surface p-2 shadow-md">
-          <span className="mr-auto text-sm font-medium">{picked.size} choisi{picked.size > 1 ? "s" : ""}</span>
-          <Button size="sm" onClick={giveToChat}><MessageSquarePlus />Donner au chat</Button>
-          {canDelete && <Button size="sm" variant="outline" onClick={() => setAsking(true)}><Trash2 />Supprimer</Button>}
-          <Button size="icon-sm" variant="ghost" onClick={() => setPicked(new Set())} aria-label="Tout désélectionner"><X /></Button>
+          <span className="mr-auto text-sm font-medium">{picked.size > 1 ? t("{n} choisis", { n: picked.size }) : t("{n} choisi", { n: picked.size })}</span>
+          <Button size="sm" onClick={giveToChat}><MessageSquarePlus />{t("Donner au chat")}</Button>
+          {canDelete && <Button size="sm" variant="outline" onClick={() => setAsking(true)}><Trash2 />{t("Supprimer")}</Button>}
+          <Button size="icon-sm" variant="ghost" onClick={() => setPicked(new Set())} aria-label={t("Tout désélectionner")}><X /></Button>
         </div>
       )}
 
       <Dialog open={asking} onOpenChange={(o) => !o && !busy && setAsking(false)}>
         {asking && (
-          <DialogContent title={`Supprimer ${picked.size} fichier${picked.size > 1 ? "s" : ""} ?`} description="Ils quittent la machine de l'agent pour de bon.">
+          <DialogContent title={picked.size > 1 ? t("Supprimer {n} fichiers ?", { n: picked.size }) : t("Supprimer {n} fichier ?", { n: picked.size })} description={t("Ils quittent la machine de l'agent pour de bon.")}>
             <ul className="flex max-h-48 flex-col gap-0.5 overflow-y-auto text-sm text-muted-foreground">
               {[...picked].slice(0, 50).map((p) => <li key={p} className="truncate">{p}</li>)}
-              {picked.size > 50 && <li>et {picked.size - 50} autres</li>}
+              {picked.size > 50 && <li>{t("et {n} autres", { n: picked.size - 50 })}</li>}
             </ul>
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setAsking(false)} disabled={busy}>Annuler</Button>
-              <Button variant="warn" onClick={remove} disabled={busy}><Trash2 />Supprimer</Button>
+              <Button variant="outline" onClick={() => setAsking(false)} disabled={busy}>{t("Annuler")}</Button>
+              <Button variant="warn" onClick={remove} disabled={busy}><Trash2 />{t("Supprimer")}</Button>
             </div>
           </DialogContent>
         )}
@@ -213,14 +214,14 @@ function FolderRow({ node, depth, ...props }: RowProps & { node: Node; depth: nu
   return (
     <>
       <div className="flex items-center gap-1.5 rounded-lg py-1 pr-1 hover:bg-muted" style={{ paddingLeft: depth * 14 + 4 }}>
-        <input ref={box} type="checkbox" checked={count === paths.length} onChange={(e) => toggle(paths, e.target.checked)} aria-label={`Choisir le dossier ${name}`} className="size-4 shrink-0 accent-[var(--accent)]" />
+        <input ref={box} type="checkbox" checked={count === paths.length} onChange={(e) => toggle(paths, e.target.checked)} aria-label={t("Choisir le dossier {nom}", { nom: name })} className="size-4 shrink-0 accent-[var(--accent)]" />
         <button type="button" onClick={() => toggleOpen(node.path)} aria-expanded={open} className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left text-sm">
           <ChevronDown className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", !open && "-rotate-90")} />
           <Folder className="size-4 shrink-0 text-muted-foreground" />
           <span className="min-w-0 flex-1 truncate font-medium" title={node.path}>{name}</span>
           <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{paths.length}</span>
         </button>
-        {app && <Button variant="outline" size="sm" onClick={() => setPreview({ title: node.name, url: rawFileUrl(agentId, `${node.path}/index.html`) })}><Eye />Ouvrir</Button>}
+        {app && <Button variant="outline" size="sm" onClick={() => setPreview({ title: node.name, url: rawFileUrl(agentId, `${node.path}/index.html`) })}><Eye />{t("Ouvrir")}</Button>}
       </div>
       {open && <FolderRows node={node} depth={depth + 1} {...props} />}
     </>
@@ -236,7 +237,7 @@ function FileRow({ file, depth, agentId, picked, toggle, setPreview }: RowProps 
   const image = IMAGE.test(file.path);
   return (
     <div data-noah-file={raw} data-noah-name={name} className="group flex items-center gap-1.5 rounded-lg py-1 pr-1 hover:bg-muted" style={{ paddingLeft: depth * 14 + 4 }}>
-      <input type="checkbox" checked={picked.has(file.path)} onChange={(e) => toggle([file.path], e.target.checked)} aria-label={`Choisir ${name}`} className="size-4 shrink-0 accent-[var(--accent)]" />
+      <input type="checkbox" checked={picked.has(file.path)} onChange={(e) => toggle([file.path], e.target.checked)} aria-label={t("Choisir {nom}", { nom: name })} className="size-4 shrink-0 accent-[var(--accent)]" />
       {image ? (
         <img src={mediaUrl(agentId, WORKSPACE + file.path)} alt="" loading="lazy" className="size-8 shrink-0 rounded-md border border-border object-cover" />
       ) : (
@@ -247,10 +248,10 @@ function FileRow({ file, depth, agentId, picked, toggle, setPreview }: RowProps 
         <span className="text-[11px] text-muted-foreground tabular-nums">{messageMoment(new Date(file.modified * 1000))} · {fileSize(file.size)}</span>
       </span>
       {(image || canFrame(file.path)) && (
-        <Button variant="ghost" size="icon-sm" onClick={() => setPreview({ title: name, url: raw })} aria-label={`Aperçu de ${name}`}><Eye /></Button>
+        <Button variant="ghost" size="icon-sm" onClick={() => setPreview({ title: name, url: raw })} aria-label={t("Aperçu de {nom}", { nom: name })}><Eye /></Button>
       )}
       <Button variant="ghost" size="icon-sm" asChild>
-        <a href={`${raw}?download=1`} onClick={(e) => { e.preventDefault(); download(`${raw}?download=1`, name); }} aria-label={`Télécharger ${name}`}><Download /></a>
+        <a href={`${raw}?download=1`} onClick={(e) => { e.preventDefault(); download(`${raw}?download=1`, name); }} aria-label={t("Télécharger {nom}", { nom: name })}><Download /></a>
       </Button>
     </div>
   );

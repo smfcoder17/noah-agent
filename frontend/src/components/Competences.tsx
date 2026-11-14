@@ -8,6 +8,14 @@ import { useAgentData } from "@/lib/useAgentData";
 import { cn } from "@/lib/utils";
 import { Button, ErrorText, Input, Textarea } from "./ui";
 import { DictateButton, useCanDictate, useFieldDictation } from "./Voice";
+import { t } from "@/i18n";
+
+/** D'où vient un skill : le serveur l'écrit en français (launcher/agent_admin.py). */
+const ORIGINES: Record<string, string> = {
+  "fourni avec Noah": t("fourni avec Noah"), // i18n-ignore : clé = texte du serveur
+  "enseigné par toi": t("enseigné par toi"), // i18n-ignore : clé = texte du serveur
+  "appris par ton agent": t("appris par ton agent"), // i18n-ignore : clé = texte du serveur
+};
 
 export type Competence = { nom: string; titre: string; texte: string };
 /** Un skill tel que l'agent le connaît : fourni avec Noah, enseigné par la personne, ou appris par l'agent. */
@@ -38,16 +46,16 @@ function Editor({ agentId, start, onDone, onCancel }: { agentId: string; start?:
   };
   return (
     <form onSubmit={save} className="flex flex-col gap-2 rounded-xl border border-border p-2.5">
-      <Input value={titre} onChange={(e) => setTitre(e.target.value)} maxLength={80} placeholder="Répondre à mes clients" aria-label="De quoi s'agit-il ?" autoFocus />
+      <Input value={titre} onChange={(e) => setTitre(e.target.value)} maxLength={80} placeholder={t("Répondre à mes clients")} aria-label={t("De quoi s'agit-il ?")} autoFocus />
       <div className="flex items-start gap-1.5">
         <Textarea value={texte} onChange={(e) => setTexte(e.target.value)} maxLength={20000} rows={5} className="min-w-0 flex-1"
-          placeholder="Voici comment je veux que tu fasses : vouvoie-les, réponds en trois phrases, signe Franck." aria-label="Comment veux-tu qu'il fasse ?" />
-        {canDictate && <DictateButton dictation={dictation} what="une compétence" field />}
+          placeholder={t("Voici comment je veux que tu fasses : vouvoie-les, réponds en trois phrases, signe Franck.")} aria-label={t("Comment veux-tu qu'il fasse ?")} />
+        {canDictate && <DictateButton dictation={dictation} what={t("une compétence")} field />}
       </div>
       <ErrorText>{error}</ErrorText>
       <div className="flex justify-end gap-2">
-        <Button type="button" size="sm" variant="ghost" onClick={onCancel}>Annuler</Button>
-        <Button type="submit" size="sm" disabled={!titre.trim() || !texte.trim() || busy}>{busy && <Loader2 className="animate-spin" />}Enregistrer</Button>
+        <Button type="button" size="sm" variant="ghost" onClick={onCancel}>{t("Annuler")}</Button>
+        <Button type="submit" size="sm" disabled={!titre.trim() || !texte.trim() || busy}>{busy && <Loader2 className="animate-spin" />}{t("Enregistrer")}</Button>
       </div>
     </form>
   );
@@ -67,7 +75,7 @@ export const Competences = memo(function Competences({ agentId }: { agentId: str
   const [draft, setDraft] = useState({ titre: "", texte: "" });
   const [skillBusy, setSkillBusy] = useState(false);
   const removeSkill = async (s: Skill) => {
-    if (!confirm(`Retirer « ${s.titre} » ? L'agent ne s'en servira plus.`)) return;
+    if (!confirm(t("Retirer « {titre} » ? L'agent ne s'en servira plus.", { titre: s.titre }))) return;
     setSkillsError("");
     try {
       await del(`/api/agents/${agentId}/skills/${s.nom}`);
@@ -77,7 +85,7 @@ export const Competences = memo(function Competences({ agentId }: { agentId: str
     }
   };
   const remove = async (c: Competence) => {
-    if (!confirm(`Retirer « ${c.titre} » ? L'agent ne s'en servira plus.`)) return;
+    if (!confirm(t("Retirer « {titre} » ? L'agent ne s'en servira plus.", { titre: c.titre }))) return;
     try {
       await del(`/api/agents/${agentId}/competences/${c.nom}`);
       load();
@@ -86,59 +94,58 @@ export const Competences = memo(function Competences({ agentId }: { agentId: str
     }
   };
   return (
-    <section aria-label="Compétences" className="flex flex-col gap-2">
-      <p className="text-sm text-muted-foreground">Ce que tu lui as enseigné : comment tu veux qu'il fasse telle chose. Il s'en sert tout seul quand le sujet arrive.</p>
-      {!list && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture…</p>}
+    <section aria-label={t("Compétences")} className="flex flex-col gap-2">
+      <p className="text-sm text-muted-foreground">{t("Ce que tu lui as enseigné : comment tu veux qu'il fasse telle chose. Il s'en sert tout seul quand le sujet arrive.")}</p>
+      {!list && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("Lecture…")}</p>}
       {list?.map((c) => editing === c.nom ? (
         <Editor key={c.nom} agentId={agentId} start={c} onCancel={() => setEditing("")} onDone={() => { setEditing(""); load(); }} />
       ) : (
         <article key={c.nom} className="flex flex-col gap-1 rounded-xl border border-border p-2.5">
           <div className="flex items-center gap-1">
             <h3 className="min-w-0 flex-1 truncate text-sm font-medium">{c.titre}</h3>
-            <Button size="icon-sm" variant="ghost" onClick={() => setEditing(c.nom)} aria-label={`Modifier « ${c.titre} »`}><Pencil /></Button>
-            <Button size="icon-sm" variant="ghost" onClick={() => remove(c)} aria-label={`Retirer « ${c.titre} »`}><Trash2 /></Button>
+            <Button size="icon-sm" variant="ghost" onClick={() => setEditing(c.nom)} aria-label={t("Modifier « {titre} »", { titre: c.titre })}><Pencil /></Button>
+            <Button size="icon-sm" variant="ghost" onClick={() => remove(c)} aria-label={t("Retirer « {titre} »", { titre: c.titre })}><Trash2 /></Button>
           </div>
           <p className="line-clamp-4 text-sm whitespace-pre-wrap text-muted-foreground">{c.texte}</p>
         </article>
       ))}
-      {list && !list.length && !adding && <p className="text-sm text-muted-foreground">Rien pour l'instant. Écris ou dicte ta première : tes réponses aux clients, ton format de compte rendu, ta façon de ranger.</p>}
+      {list && !list.length && !adding && <p className="text-sm text-muted-foreground">{t("Rien pour l'instant. Écris ou dicte ta première : tes réponses aux clients, ton format de compte rendu, ta façon de ranger.")}</p>}
       {adding ? (
         <Editor agentId={agentId} onCancel={() => setAdding(false)} onDone={() => { setAdding(false); load(); }} />
       ) : list && (
-        <Button variant="outline" size="sm" className="self-start" onClick={() => setAdding(true)}><Plus />Enseigner quelque chose</Button>
+        <Button variant="outline" size="sm" className="self-start" onClick={() => setAdding(true)}><Plus />{t("Enseigner quelque chose")}</Button>
       )}
       {error && <ErrorText>{error}</ErrorText>}
       <div className="mt-4 flex flex-col gap-2 border-t border-border pt-4">
         <div className="flex items-baseline justify-between gap-2">
-          <h3 className="text-sm font-semibold">Ce que ton agent sait faire</h3>
+          <h3 className="text-sm font-semibold">{t("Ce que ton agent sait faire")}</h3>
           <span className="text-xs text-muted-foreground">{skills ? `${skills.length}` : ""}</span>
         </div>
         <p className="text-xs text-muted-foreground">
-          Tout ce qui est dans son dossier de skills, y compris ce qu'il a appris seul : tu peux le relire, le corriger ou le retirer.
-          Ceux fournis avec Noah reviennent à chaque mise à jour, d'où le cadenas.
+          {t("Tout ce qui est dans son dossier de skills, y compris ce qu'il a appris seul : tu peux le relire, le corriger ou le retirer. Ceux fournis avec Noah reviennent à chaque mise à jour, d'où le cadenas.")}
         </p>
-        {!skills && !skillsError && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture…</p>}
+        {!skills && !skillsError && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("Lecture…")}</p>}
         {skills?.map((s) => (
           <article key={s.nom} className="flex flex-col gap-1 rounded-xl border border-border p-2.5">
             <div className="flex items-center gap-1">
               <h4 className="min-w-0 flex-1 truncate text-sm font-medium">{s.titre}</h4>
               <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium",
-                s.origine === "enseigné par toi" ? "bg-accent-soft text-accent" : s.fourni ? "bg-muted text-muted-foreground" : "bg-warn-soft text-warn")}>{s.origine}</span>
+                s.origine === "enseigné par toi" /* i18n-ignore : valeur du serveur */ ? "bg-accent-soft text-accent" : s.fourni ? "bg-muted text-muted-foreground" : "bg-warn-soft text-warn")}>{ORIGINES[s.origine] ?? s.origine}</span>
               {s.modifiable ? (
                 <>
-                  <Button size="icon-sm" variant="ghost" onClick={() => { setOpenSkill(openSkill === s.nom ? "" : s.nom); setDraft({ titre: s.titre, texte: s.texte }); }} aria-label={`Relire « ${s.titre} »`}><Pencil /></Button>
-                  <Button size="icon-sm" variant="ghost" onClick={() => void removeSkill(s)} aria-label={`Retirer « ${s.titre} »`}><Trash2 /></Button>
+                  <Button size="icon-sm" variant="ghost" onClick={() => { setOpenSkill(openSkill === s.nom ? "" : s.nom); setDraft({ titre: s.titre, texte: s.texte }); }} aria-label={t("Relire « {titre} »", { titre: s.titre })}><Pencil /></Button>
+                  <Button size="icon-sm" variant="ghost" onClick={() => void removeSkill(s)} aria-label={t("Retirer « {titre} »", { titre: s.titre })}><Trash2 /></Button>
                 </>
-              ) : <Lock className="size-3.5 shrink-0 text-muted-foreground" aria-label="Fourni avec Noah" />}
+              ) : <Lock className="size-3.5 shrink-0 text-muted-foreground" aria-label={t("Fourni avec Noah")} />}
             </div>
             {s.resume && <p className="line-clamp-2 text-xs text-muted-foreground">{s.resume}</p>}
             {openSkill === s.nom && (
               <form className="flex flex-col gap-2 border-t border-border pt-2" onSubmit={async (e) => { e.preventDefault(); setSkillBusy(true); setSkillsError(""); try { await send(`/api/agents/${agentId}/skills/${s.nom}`, draft, "PUT"); setOpenSkill(""); loadSkills(); } catch (err) { setSkillsError((err as Error).message); } finally { setSkillBusy(false); } }}>
-                <Input value={draft.titre} onChange={(e) => setDraft({ ...draft, titre: e.target.value })} maxLength={120} aria-label="Titre du skill" />
-                <Textarea value={draft.texte} onChange={(e) => setDraft({ ...draft, texte: e.target.value })} rows={10} maxLength={20000} className="font-mono text-xs" aria-label="Contenu du skill" />
+                <Input value={draft.titre} onChange={(e) => setDraft({ ...draft, titre: e.target.value })} maxLength={120} aria-label={t("Titre du skill")} />
+                <Textarea value={draft.texte} onChange={(e) => setDraft({ ...draft, texte: e.target.value })} rows={10} maxLength={20000} className="font-mono text-xs" aria-label={t("Contenu du skill")} />
                 <div className="flex justify-end gap-2">
-                  <Button type="button" size="sm" variant="ghost" onClick={() => setOpenSkill("")}>Fermer</Button>
-                  <Button type="submit" size="sm" disabled={skillBusy || !draft.titre.trim() || !draft.texte.trim()}>{skillBusy && <Loader2 className="animate-spin" />}Enregistrer</Button>
+                  <Button type="button" size="sm" variant="ghost" onClick={() => setOpenSkill("")}>{t("Fermer")}</Button>
+                  <Button type="submit" size="sm" disabled={skillBusy || !draft.titre.trim() || !draft.texte.trim()}>{skillBusy && <Loader2 className="animate-spin" />}{t("Enregistrer")}</Button>
                 </div>
               </form>
             )}

@@ -3,6 +3,7 @@
 // jusqu'à ce qu'on ouvre Réglages → Appareils.
 import { get, send } from "@/lib/api";
 
+// i18n-ignore : noms d'API du navigateur, pas du texte
 export const pushSupported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 
 // Change à chaque déconnexion, dans n'importe quel onglet (localStorage est partagé, comme le cache du service

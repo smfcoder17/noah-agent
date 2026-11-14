@@ -48,10 +48,10 @@ public class CallWatch extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         NotificationManager manager = getSystemService(NotificationManager.class);
-        manager.createNotificationChannel(new NotificationChannel(CHANNEL, "Noah prêt à t'appeler", NotificationManager.IMPORTANCE_MIN));
+        manager.createNotificationChannel(new NotificationChannel(CHANNEL, getString(R.string.call_watch_channel),NotificationManager.IMPORTANCE_MIN));
         PendingIntent open = PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class), PendingIntent.FLAG_IMMUTABLE);
         Notification n = new NotificationCompat.Builder(this, CHANNEL).setSmallIcon(R.drawable.ic_stat_noah)
-            .setContentTitle("Noah peut t'appeler").setContentIntent(open).setOngoing(true)
+            .setContentTitle(getString(R.string.call_watch_title)).setContentIntent(open).setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_MIN).build();
         if (Build.VERSION.SDK_INT >= 34) {
             startForeground(NOTIFICATION, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
@@ -102,7 +102,7 @@ public class CallWatch extends Service {
                 Intent open = new Intent(this, MainActivity.class).putExtra("url", url).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 PendingIntent tap = PendingIntent.getActivity(this, shown, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
                 // Le compte rendu n'est pas sur l'écran verrouillé : seulement le nom de l'agent.
-                NoahPush.ring(this, getSystemService(NotificationManager.class), shown, call.optString("agent", "Noah"), "t'appelle", url, NoahFace.colorOf(call.optString("couleur"), call.optString("agent_id")), call.optString("forme"), call.optString("detail"), tap);
+                NoahPush.ring(this, getSystemService(NotificationManager.class), shown, call.optString("agent", "Noah"), getString(R.string.call_calling_you), url, NoahFace.colorOf(call.optString("couleur"), call.optString("agent_id")), call.optString("forme"), call.optString("detail"), tap);
             }
             now.put(id, shown);
         }

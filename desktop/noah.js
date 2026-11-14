@@ -3,6 +3,7 @@ const { execFile } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { t } = require("./textes");
 
 /** Lit le .env du projet (clé=valeur, une par ligne). */
 function readEnv(home) {
@@ -24,7 +25,7 @@ function ensureShareRoots(home) {
   const env = readEnv(home);
   if (env.NOAH_SHARE_ROOTS !== undefined) return false;
   const root = os.homedir().replace(/\\/g, "/");
-  fs.appendFileSync(path.join(home, ".env"), `\n# Dossiers que tu peux partager avec tes agents (Détails > Dossiers), séparés par « ; ».\nNOAH_SHARE_ROOTS=${root}\n`);
+  fs.appendFileSync(path.join(home, ".env"), `\n# Dossiers que tu peux partager avec tes agents (Détails > Dossiers), séparés par « ; ».\nNOAH_SHARE_ROOTS=${root}\n`); // i18n-ignore : commentaire écrit dans .env
   return true;
 }
 
@@ -63,18 +64,18 @@ async function start(home, step, restart = false) {
   const env = readEnv(home);
   const url = `http://127.0.0.1:${env.NOAH_PORT || 8080}`;
   if (!restart && (await reachable(url))) return url;
-  step("Vérification de Docker…");
+  step(t("local.docker"));
   if (!(await dockerReady())) {
-    throw new Error("Docker n'est pas démarré. Ouvre Docker Desktop, puis réessaie.");
+    throw new Error(t("local.docker_arrete"));
   }
-  step("Démarrage de Noah…");
+  step(t("local.demarrage"));
   await run("docker", ["compose", "up", "-d"], home);
-  step("Noah se réveille…");
+  step(t("local.reveil"));
   for (let i = 0; i < 90; i++) {
     if (await reachable(url)) return url;
     await new Promise((r) => setTimeout(r, 1000));
   }
-  throw new Error("Noah ne répond pas. Regarde « docker compose logs server » dans le dossier de Noah.");
+  throw new Error(t("local.muet"));
 }
 
 module.exports = { start, ensureShareRoots, readEnv };

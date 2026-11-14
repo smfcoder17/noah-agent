@@ -614,7 +614,7 @@ Réponds uniquement par un objet JSON : {{"dire": "...", "action": true ou false
   presque terminée, et ne donne ni pourcentage ni délai. Seul l'agent peut le dire, avec ses outils.
 - action = false pour une conversation simple ou une question générale à laquelle tu peux répondre sûrement :
   « dire » est la réponse, une à trois phrases.
-Parle comme à l'oral, en français, sans liste ni mise en forme.{role}"""
+Parle comme à l'oral, dans la langue de l'utilisateur, sans liste ni mise en forme.{role}"""
 
 VOICE_KNOWN = """
 
@@ -624,7 +624,7 @@ Si la réponse s'y trouve, donne-la directement avec action = false, sans aller 
 Pour l'état d'un travail, dis l'heure de la note : il a pu changer depuis. Si la réponse n'y est pas, ne la devine pas : action = true."""
 
 VOICE_RESULT = """Tu es la voix de {name}. L'agent vient de terminer le travail demandé. Résume son résultat à voix haute
-en une ou deux phrases naturelles, en français, sans lire les chemins de fichiers, le code ni les listes en entier.
+en une ou deux phrases naturelles, dans la langue de l'utilisateur, sans lire les chemins de fichiers, le code ni les listes en entier.
 Si quelque chose attend l'utilisateur (un choix, une validation, un fichier à regarder), dis-le. Réponds en texte simple."""
 
 

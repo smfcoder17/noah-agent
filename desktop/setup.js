@@ -1,6 +1,15 @@
 // Premier lancement : Noah sur un serveur (adresse + code de Réglages → Appareils) ou sur cet ordinateur.
 const $ = (id) => document.getElementById(id);
 const form = $("form");
+// Textes : textes.js (chargé avant ce fichier), dans la langue des menus de l'app, transmise par le preload.
+let lang = NoahTextes.langue(); // navigator.language en attendant la réponse
+const t = (key, vars) => NoahTextes.t(key, vars, lang);
+NoahTextes.appliquer(document, lang);
+window.noahSetup.langue().then((l) => {
+  lang = NoahTextes.choisir(l || navigator.language);
+  NoahTextes.appliquer(document, lang);
+  $("toggle").textContent = withCode ? t("setup.avec_navigateur") : t("setup.avec_code");
+}).catch(() => {});
 
 $("local").onclick = () => window.noahSetup.useLocal();
 $("remote").onclick = () => {
@@ -19,7 +28,7 @@ $("toggle").onclick = (e) => {
   withCode = !withCode;
   $("codeRow").style.display = withCode ? "flex" : "none";
   $("code").required = withCode;
-  $("toggle").textContent = withCode ? "Autoriser depuis le navigateur à la place" : "J'ai un code à la place";
+  $("toggle").textContent = withCode ? t("setup.avec_navigateur") : t("setup.avec_code");
 };
 
 // Le lien du QR code (https://hote/?appairage=…) contient les deux : on le découpe.
@@ -42,7 +51,7 @@ $("server").addEventListener("input", () => {
 window.noahSetup.onAskNumber(() => {
   $("numberRow").style.display = "flex";
   $("number").focus();
-  $("go").textContent = "Autorise dans le navigateur, puis saisis le nombre ici";
+  $("go").textContent = t("setup.nombre.demande");
 });
 $("number").addEventListener("input", () => {
   $("number").value = $("number").value.replace(/\D/g, "");
@@ -51,21 +60,21 @@ $("number").addEventListener("input", () => {
 
 window.noahSetup.onWaiting((verification) => {
   $("go").textContent = verification
-    ? `Sur l'appareil déjà relié, accepte cet ordinateur et saisis le nombre ${verification}`
-    : "En attente de ton accord…";
+    ? t("setup.attente.verification", { nombre: verification })
+    : t("setup.attente");
 });
 
 form.onsubmit = async (e) => {
   e.preventDefault();
   $("error").textContent = "";
   $("go").disabled = true;
-  $("go").textContent = withCode ? "Connexion…" : "En attente de ton accord dans le navigateur…";
+  $("go").textContent = withCode ? t("setup.connexion") : t("setup.attente.navigateur");
   const r = withCode
     ? await window.noahSetup.connect($("server").value.trim(), $("code").value.trim())
     : await window.noahSetup.authorize($("server").value.trim());
   if (r && r.error) {
     $("error").textContent = r.error;
     $("go").disabled = false;
-    $("go").textContent = "Relier";
+    $("go").textContent = t("setup.relier");
   }
 };

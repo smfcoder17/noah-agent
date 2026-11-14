@@ -28,19 +28,19 @@
 <body>
 <main>
   <img src="icon.png" alt="" />
-  <h1>Relier Noah</h1>
-  <p>Sur ton ordinateur, ouvre Noah puis Réglages → Appareils → « Relier un appareil ». Un QR code s'affiche.</p>
-  <button class="main" id="scan">Scanner le QR code</button>
-  <button class="ghost" id="showManual">Saisir l'adresse et le code</button>
+  <h1 data-i18n="titre">Relier Noah</h1>
+  <p data-i18n="consigne">Sur ton ordinateur, ouvre Noah puis Réglages → Appareils → « Relier un appareil ». Un QR code s'affiche.</p>
+  <button class="main" id="scan" data-i18n="scanner">Scanner le QR code</button>
+  <button class="ghost" id="showManual" data-i18n="saisir">Saisir l'adresse et le code</button>
   <form id="manual">
-    <label>Adresse de ton serveur<input id="server" type="url" inputmode="url" placeholder="https://noah.exemple.com" autocomplete="url" /></label>
-    <label>Code<input id="code" placeholder="BCDF-GHJK" autocapitalize="characters" autocomplete="one-time-code" /></label>
-    <button class="main" id="go">Relier</button>
+    <label><span data-i18n="adresse">Adresse de ton serveur</span><input id="server" type="url" inputmode="url" placeholder="https://noah.exemple.com" data-i18n-placeholder="exempleAdresse" autocomplete="url" /></label>
+    <label><span data-i18n="code">Code</span><input id="code" placeholder="BCDF-GHJK" data-i18n-placeholder="exempleCode" autocapitalize="characters" autocomplete="one-time-code" /></label>
+    <button class="main" id="go" data-i18n="relier">Relier</button>
   </form>
   <div id="wait" role="status"></div>
   <div id="error" role="alert"></div>
-  <p class="small">Noah fonctionne sur ton propre serveur : tes conversations ne passent par aucun service de Noah.
-    <a href="https://noah-agent.smfcoder.com/confidentialite">Politique de confidentialité</a></p>
+  <p class="small"><span data-i18n="vieprivee">Noah fonctionne sur ton propre serveur : tes conversations ne passent par aucun service de Noah.</span>
+    <a href="https://noah-agent.smfcoder.com/confidentialite" data-i18n="politique">Politique de confidentialité</a></p>
 </main>
 <script src="app.js"></script>
 </body>

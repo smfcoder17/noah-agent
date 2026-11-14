@@ -4,31 +4,32 @@ import { type Ref, useEffect, useId, useImperativeHandle, useLayoutEffect, useRe
 import { NoahFace } from "@/lib/noahFace";
 import { type NoahReaction, type NoahState, bodyOf } from "@/lib/noahMotion";
 import { cn } from "@/lib/utils";
+import { t } from "@/i18n";
 
 export const NOAH_COLORS = [
-  { hex: "#ff7a59", name: "Corail" },
-  { hex: "#f5b82e", name: "Soleil" },
-  { hex: "#2fbf8f", name: "Menthe" },
-  { hex: "#4a9df8", name: "Ciel" },
-  { hex: "#8b6cf0", name: "Raisin" },
-  { hex: "#f06292", name: "Bonbon" },
-  { hex: "#64748b", name: "Ardoise" },
+  { hex: "#ff7a59", name: t("Corail") },
+  { hex: "#f5b82e", name: t("Soleil") },
+  { hex: "#2fbf8f", name: t("Menthe") },
+  { hex: "#4a9df8", name: t("Ciel") },
+  { hex: "#8b6cf0", name: t("Raisin") },
+  { hex: "#f06292", name: t("Bonbon") },
+  { hex: "#64748b", name: t("Ardoise") },
 ];
 
 /** Les noms sont ceux que le serveur accepte (server/noah/main.py, AgentLook) et que lit l'app Android. « » : l'origine. */
 export const NOAH_SHAPES = [
-  { id: "gomme", name: "Gomme" },
-  { id: "bulle", name: "Bulle" },
-  { id: "cube", name: "Cube" },
-  { id: "goutte", name: "Goutte" },
-  { id: "pastille", name: "Pastille" },
+  { id: "gomme", name: t("Gomme") },
+  { id: "bulle", name: t("Bulle") },
+  { id: "cube", name: t("Cube") },
+  { id: "goutte", name: t("Goutte") },
+  { id: "pastille", name: t("Pastille") },
 ] as const;
 export const NOAH_DETAILS = [
-  { id: "", name: "Aucun" },
-  { id: "lunettes", name: "Lunettes" },
-  { id: "antenne", name: "Antenne" },
-  { id: "sourcils", name: "Sourcils" },
-  { id: "joues", name: "Joues rosées" },
+  { id: "", name: t("Aucun") },
+  { id: "lunettes", name: t("Lunettes") },
+  { id: "antenne", name: t("Antenne") },
+  { id: "sourcils", name: t("Sourcils") },
+  { id: "joues", name: t("Joues rosées") },
 ] as const;
 export type NoahShape = (typeof NOAH_SHAPES)[number]["id"];
 export type NoahDetail = (typeof NOAH_DETAILS)[number]["id"];

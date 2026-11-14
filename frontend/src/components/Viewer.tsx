@@ -8,6 +8,7 @@ const ElementViewer = lazy(() => import("./elements/ElementViewer").then((m) => 
 import { MediaPlayers } from "./elements/MediaPlayers";
 import { RightPanel } from "./desktop/RightPanel";
 import { kindOfFile, type ElementSpec } from "@/lib/elements";
+import { t } from "@/i18n";
 
 export type Viewable =
   | { kind: "element"; element: ElementSpec; fullscreen?: boolean }
@@ -35,16 +36,16 @@ export function ViewerProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { const close = (e: KeyboardEvent) => { if (e.key === "Escape") setItem(null); }; window.addEventListener("keydown", close); return () => window.removeEventListener("keydown", close); }, []);
   useEffect(() => { const close = () => setItem(null); window.addEventListener("noah:viewer-close", close); return () => window.removeEventListener("noah:viewer-close", close); }, []);
   const view = useCallback((next: Viewable) => {
-    const shown: Viewable = next.kind === "image" ? { kind: "element", element: { type: "element", kind: "image", title: next.title || "Image", url: next.src, source: "noah" } } : next.kind === "file" ? { kind: "element", element: { type: "element", kind: kindOfFile(next.url), title: next.title, url: next.url, source: "noah" } } : next;
+    const shown: Viewable = next.kind === "image" ? { kind: "element", element: { type: "element", kind: "image", title: next.title || t("Image"), url: next.src, source: "noah" } } : next.kind === "file" ? { kind: "element", element: { type: "element", kind: kindOfFile(next.url), title: next.title, url: next.url, source: "noah" } } : next;
     if (shown.kind === "element" && shown.element.url && nativeElement(shown.element.kind, shown.element.url, shown.element.title, () => setItem(shown))) return;
     setItem(shown);
   }, []);
   const panel = wide && item?.kind === "element" && !item.fullscreen;
   return <ViewerContext.Provider value={view}><MediaPlayers>{children}
-    {panel && item?.kind === "element" && <RightPanel title={item.element.title} onClose={() => setItem(null)} onExpand={() => setItem({ ...item, fullscreen: true })}><Suspense fallback={<p role="status">Chargement…</p>}><ElementViewer key={item.element.title + item.element.url} spec={item.element} onClose={() => setItem(null)} /></Suspense></RightPanel>}
+    {panel && item?.kind === "element" && <RightPanel title={item.element.title} onClose={() => setItem(null)} onExpand={() => setItem({ ...item, fullscreen: true })}><Suspense fallback={<p role="status">{t("Chargement…")}</p>}><ElementViewer key={item.element.title + item.element.url} spec={item.element} onClose={() => setItem(null)} /></Suspense></RightPanel>}
     <Dialog open={!!item && !panel} onOpenChange={(o) => !o && setItem(null)}>
       {item?.kind === "element" && !panel && <DialogContent title={item.element.title} className="max-w-6xl"><ElementViewer key={item.element.title + item.element.url} spec={item.element} onClose={() => setItem(null)} /></DialogContent>}
-      {item?.kind === "gone" && <DialogContent title={item.title}><p>Fichier introuvable.</p><button onClick={() => setItem(null)}>Réessayer</button></DialogContent>}
+      {item?.kind === "gone" && <DialogContent title={item.title}><p>{t("Fichier introuvable.")}</p><button onClick={() => setItem(null)}>{t("Réessayer")}</button></DialogContent>}
     </Dialog>
   </MediaPlayers></ViewerContext.Provider>;
 }
@@ -86,7 +87,7 @@ async function copyImage(src: string) {
 /** Copie une image dans le presse-papiers. `compact` : l'icône seule sur un écran étroit, le résultat restant toujours écrit. */
 export function CopyImageButton({ src, compact }: { src: string; compact?: boolean }) {
   const [copied, setCopied] = useState<"ok" | "error" | null>(null);
-  const label = copied === "ok" ? "Copiée" : copied === "error" ? "Copie impossible ici" : compact ? "Copier" : "Copier l'image";
+  const label = copied === "ok" ? t("Copiée") : copied === "error" ? t("Copie impossible ici") : compact ? t("Copier") : t("Copier l'image");
   return (
     <Button
       variant="outline"

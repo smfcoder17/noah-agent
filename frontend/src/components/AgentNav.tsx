@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { TAB_ICONS } from "./mobile/BottomTabs";
 import { agentSummary, StateShape } from "./Sidebar";
 import { AgentFace } from "./Noah";
+import { t } from "@/i18n";
 
 /** Ce que l'agent attend de la personne : ses accords et ses choix. */
 export const pendingOf = (a: Agent) => (a.tasks?.approve ?? 0) + (a.tasks?.choice ?? 0);
@@ -54,12 +55,12 @@ export const AgentNav = memo(function AgentNav({ agents, agentId, tabs, active, 
     <button key={c.id} type="button" className="agent-nav-thread" title={c.title}
       aria-current={c.id === activeThread ? "page" : undefined}
       onClick={() => onThread(c.id)}>
-      <span className="truncate">{c.title}</span>{c.en_cours && <span className="rail-dot" aria-label="en cours" />}
+      <span className="truncate">{c.title}</span>{c.en_cours && <span className="rail-dot" aria-label={t("en cours")} />}
     </button>
   );
 
   return (
-    <ul className={cn("agent-nav", variant === "drawer" && "agent-nav-drawer")} aria-label="Agents">
+    <ul className={cn("agent-nav", variant === "drawer" && "agent-nav-drawer")} aria-label={t("Agents")}>
       {agents.map((a) => {
         const selected = a.id === agentId;
         const expanded = selected && !folded;
@@ -73,7 +74,7 @@ export const AgentNav = memo(function AgentNav({ agents, agentId, tabs, active, 
                 aria-current={selected ? "true" : undefined}
                 aria-expanded={selected ? expanded : false}
                 aria-controls={selected ? panelId : undefined}
-                aria-label={`${a.name}, ${s.text}${!selected && pending ? ` · ${pending} en attente` : ""}`}
+                aria-label={`${a.name}, ${s.text}${!selected && pending ? ` · ${t("{n} en attente", { n: pending })}` : ""}`}
                 title={a.name}
                 onClick={() => (selected ? setFolded(!folded) : onPick(a.id))}>
                 <AgentFace agent={a} className={cn("shrink-0", variant === "drawer" ? "size-10" : "size-8")} />
@@ -84,34 +85,34 @@ export const AgentNav = memo(function AgentNav({ agents, agentId, tabs, active, 
                 {!selected && pending > 0 && <span className="rail-count" aria-hidden>{pending}</span>}
                 {selected && <ChevronDown size={15} aria-hidden className={cn("agent-nav-chevron", !expanded && "-rotate-90")} />}
               </button>
-              {selected && <button type="button" className="agent-nav-settings" aria-label={`Page de ${a.name}`} title={`Page de ${a.name}`} onClick={onAgentPage}><SlidersHorizontal size={15} /></button>}
+              {selected && <button type="button" className="agent-nav-settings" aria-label={t("Page de {nom}", { nom: a.name })} title={t("Page de {nom}", { nom: a.name })} onClick={onAgentPage}><SlidersHorizontal size={15} /></button>}
             </div>
             {expanded && (
-              <div id={panelId} role="group" aria-label={`Options de ${a.name}`} className="agent-nav-options">
-                {options.map((t) => {
-                  const Icon = TAB_ICONS[t];
-                  const current = active === t && (t !== "chat" || !activeThread);
+              <div id={panelId} role="group" aria-label={t("Options de {nom}", { nom: a.name })} className="agent-nav-options">
+                {options.map((tab) => {
+                  const Icon = TAB_ICONS[tab];
+                  const current = active === tab && (tab !== "chat" || !activeThread);
                   return (
-                    <button key={t} type="button" className="agent-nav-option" aria-current={current ? "page" : undefined} onClick={() => onTab(t)}>
-                      <Icon size={16} aria-hidden /><span>{TAB_NAMES[t]}</span>
+                    <button key={tab} type="button" className="agent-nav-option" aria-current={current ? "page" : undefined} onClick={() => onTab(tab)}>
+                      <Icon size={16} aria-hidden /><span>{TAB_NAMES[tab]}</span>
                     </button>
                   );
                 })}
                 {(history.length > 0 || archived.length > 0) && <>
                   <button type="button" className="agent-nav-option" aria-expanded={historyOpen} aria-controls={`${panelId}-historique`} onClick={() => setHistoryAsked(!historyOpen)}>
-                    <History size={16} aria-hidden /><span>Historique</span>
+                    <History size={16} aria-hidden /><span>{t("Historique")}</span>
                     <span className="ml-auto flex items-center gap-1.5 text-xs tabular-nums">
-                      {busy > 0 && !historyOpen && <span className="rail-dot" aria-label={`${busy} en cours`} />}
+                      {busy > 0 && !historyOpen && <span className="rail-dot" aria-label={t("{n} en cours", { n: busy })} />}
                       {history.length + archived.length}
                       <ChevronDown size={13} aria-hidden className={cn("transition-transform", !historyOpen && "-rotate-90")} />
                     </span>
                   </button>
                   {historyOpen && (
-                    <div id={`${panelId}-historique`} role="group" aria-label={`Historique de ${a.name}`} className="agent-nav-history">
+                    <div id={`${panelId}-historique`} role="group" aria-label={t("Historique de {nom}", { nom: a.name })} className="agent-nav-history">
                       {history.map(thread)}
                       {archived.length > 0 && <>
                         <button type="button" className="agent-nav-thread agent-nav-archived" aria-expanded={archivedOpen || archived.some((c) => c.id === activeThread)} onClick={() => setArchivedOpen(!archivedOpen)}>
-                          Archivés ({archived.length})
+                          {t("Archivés ({n})", { n: archived.length })}
                         </button>
                         {(archivedOpen || archived.some((c) => c.id === activeThread)) && archived.map(thread)}
                       </>}

@@ -1,6 +1,7 @@
 // Assistant de premier lancement (G1.8), dans cet ordre : code d'installation, nouvelle installation ou restauration,
 // compte propriétaire, modèle, premier agent, puis un vrai échange avec le modèle. Il ne se termine qu'après la réponse.
 import { lazy, Suspense, useEffect, useState } from "react";
+import { t, tr, tServeur } from "@/i18n";
 import { type Agent, ApiError, get, request, send, type Status, streamChat } from "@/lib/api";
 import { forgetPresets, type Preset, usePresets } from "@/lib/presets";
 import { cn } from "@/lib/utils";
@@ -10,12 +11,12 @@ const ModelPicker = lazy(() => import("./ModelPicker").then((m) => ({ default: m
 
 type Step = "code" | "installation" | "account" | "model" | "agent" | "essai";
 const STEPS: { id: Step; label: string }[] = [
-  { id: "code", label: "Code" },
-  { id: "installation", label: "Installation" },
-  { id: "account", label: "Compte" },
-  { id: "model", label: "Modèle" },
-  { id: "agent", label: "Premier agent" },
-  { id: "essai", label: "Essai" },
+  { id: "code", label: t("Code") },
+  { id: "installation", label: t("Installation") },
+  { id: "account", label: t("Compte") },
+  { id: "model", label: t("Modèle") },
+  { id: "agent", label: t("Premier agent") },
+  { id: "essai", label: t("Essai") },
 ];
 
 // Code vérifié, gardé pour cet onglet : une page rechargée avant la création du compte ne le redemande pas.
@@ -45,9 +46,9 @@ export function Onboarding({ status, onDone }: { status: Status; onDone: () => v
     <div className="mx-auto flex min-h-full max-w-4xl flex-col gap-6 px-4 py-10">
       <div className="flex items-center gap-3">
         <img src="/assets/icon.svg" alt="" className="size-9" />
-        <h1 className="text-xl font-semibold">Bienvenue sur Noah Agent</h1>
+        <h1 className="text-xl font-semibold">{t("Bienvenue sur Noah Agent")}</h1>
       </div>
-      <ol className="flex flex-wrap gap-x-4 gap-y-1 text-xs" aria-label="Étapes">
+      <ol className="flex flex-wrap gap-x-4 gap-y-1 text-xs" aria-label={t("Étapes")}>
         {STEPS.map((s, i) => (
           <li key={s.id} aria-current={i === at ? "step" : undefined}
             className={cn(i < at ? "text-muted-foreground line-through" : i === at ? "font-semibold text-foreground" : "text-muted-foreground")}>
@@ -60,8 +61,8 @@ export function Onboarding({ status, onDone }: { status: Status; onDone: () => v
       {step === "account" && <AccountStep code={code} onNext={() => setStep("model")} onBadCode={() => { setCode(""); setStep("code"); }} />}
       {step === "model" && (
         <Card>
-          <h2 className="text-lg font-semibold">Le cerveau de tes agents</h2>
-          <Suspense fallback={<p className="text-sm text-muted-foreground">Chargement…</p>}>
+          <h2 className="text-lg font-semibold">{t("Le cerveau de tes agents")}</h2>
+          <Suspense fallback={<p className="text-sm text-muted-foreground">{t("Chargement…")}</p>}>
             <ModelPicker first onDone={() => setStep("agent")} />
           </Suspense>
         </Card>
@@ -107,20 +108,20 @@ function CodeStep({ code, setCode, onNext }: { code: string; setCode: (c: string
   return (
     <form onSubmit={(e) => { e.preventDefault(); check(code); }} className="max-w-md">
       <Card>
-        <h2 className="text-lg font-semibold">Code d'installation</h2>
+        <h2 className="text-lg font-semibold">{t("Code d'installation")}</h2>
         <p className="text-sm text-muted-foreground">
-          Il se lit sur le serveur :
+          {t("Il se lit sur le serveur :")}
         </p>
-        <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
-          <li><b className="text-foreground">Avec un terminal :</b> <code className="whitespace-nowrap rounded bg-muted px-1 py-0.5 text-xs">docker logs noah-server</code>, ligne « Code d'installation ».</li>
-          <li><b className="text-foreground">Sur Hostinger :</b> Docker Manager → Projects, menu ⋮ du projet → View logs.</li>
+        <ul className="flex flex-col gap-1 text-sm text-muted-foreground">{/* i18n-ignore : commande à taper telle quelle (ligne suivante) */}
+          <li>{tr("{terminal} {commande}, ligne « Code d'installation ».", { terminal: <b className="text-foreground">{t("Avec un terminal :")}</b>, commande: <code className="whitespace-nowrap rounded bg-muted px-1 py-0.5 text-xs">docker logs noah-server</code> })}</li>
+          <li>{tr("{hostinger} Docker Manager → Projects, menu ⋮ du projet → View logs.", { hostinger: <b className="text-foreground">{t("Sur Hostinger :")}</b> })}</li>
         </ul>
         <Label>
-          Code
+          {t("Code")}{/* i18n-ignore : modèle de code, pas un texte */}
           <Input id="installation" required autoComplete="one-time-code" placeholder="BCDFGHJKLMNP" value={code} onChange={(e) => setCode(e.target.value)} />
         </Label>
         <ErrorText>{error}</ErrorText>
-        <Button type="submit" size="lg" disabled={busy}>Continuer</Button>
+        <Button type="submit" size="lg" disabled={busy}>{t("Continuer")}</Button>
       </Card>
     </form>
   );
@@ -130,16 +131,16 @@ function InstallStep({ code, onNew }: { code: string; onNew: () => void }) {
   const [restore, setRestore] = useState(false);
   return (
     <Card>
-      <h2 className="text-lg font-semibold">Nouvelle installation ou restauration ?</h2>
+      <h2 className="text-lg font-semibold">{t("Nouvelle installation ou restauration ?")}</h2>
       <div className="grid gap-3 sm:grid-cols-2">
         <button type="button" onClick={onNew} className="flex cursor-pointer flex-col gap-1 rounded-xl border border-border bg-background p-4 text-left hover:border-accent">
-          <span className="font-semibold">Nouvelle installation</span>
-          <span className="text-sm text-muted-foreground">Ton compte, puis ton premier agent.</span>
+          <span className="font-semibold">{t("Nouvelle installation")}</span>
+          <span className="text-sm text-muted-foreground">{t("Ton compte, puis ton premier agent.")}</span>
         </button>
         <button type="button" onClick={() => setRestore(true)} aria-expanded={restore}
           className={cn("flex cursor-pointer flex-col gap-1 rounded-xl border border-border bg-background p-4 text-left hover:border-accent", restore && "border-accent ring-1 ring-accent")}>
-          <span className="font-semibold">Restaurer une sauvegarde</span>
-          <span className="text-sm text-muted-foreground">Ton compte, tes agents et leur mémoire.</span>
+          <span className="font-semibold">{t("Restaurer une sauvegarde")}</span>
+          <span className="text-sm text-muted-foreground">{t("Ton compte, tes agents et leur mémoire.")}</span>
         </button>
       </div>
       {restore && <Restore code={code} />}
@@ -166,9 +167,10 @@ function Restore({ code }: { code: string }) {
     xhr.upload.onprogress = (e) => e.lengthComputable && setSent(Math.round((e.loaded / e.total) * 100));
     xhr.onload = () => {
       if (xhr.status === 200) return follow();
-      let detail = `Erreur ${xhr.status}`;
+      let detail = t("Erreur {code}", { code: xhr.status });
       try {
-        detail = JSON.parse(xhr.responseText).detail || detail;
+        const lu = JSON.parse(xhr.responseText).detail;
+        if (typeof lu === "string" && lu) detail = tServeur(lu);
       } catch {
         /* corps non JSON */
       }
@@ -176,7 +178,7 @@ function Restore({ code }: { code: string }) {
       setSent(null);
     };
     xhr.onerror = () => {
-      setError("Envoi interrompu. Vérifie ta connexion, puis recommence.");
+      setError(t("Envoi interrompu. Vérifie ta connexion, puis recommence."));
       setSent(null);
     };
     xhr.send(file);
@@ -186,44 +188,43 @@ function Restore({ code }: { code: string }) {
       await new Promise((r) => setTimeout(r, 2000));
       const st: RestoreState | null = await get<RestoreState>("/api/setup/restore").catch(() => null);
       if (!st) {
-        setStage("Redémarrage du serveur…");
+        setStage(t("Redémarrage du serveur…"));
         continue;
       }
       if (st.erreur) {
-        setError(`Restauration impossible : ${st.erreur}`);
+        setError(t("Restauration impossible : {erreur}", { erreur: tServeur(st.erreur) }));
         setSent(null);
         return;
       }
-      setStage(st.etape ?? "");
+      setStage(st.etape ? tServeur(st.etape) : "");
       if (st.fini) {
         try {
           sessionStorage.removeItem(CODE_KEY);
         } catch {
           /* rien à effacer */
         }
-        if (st.avertissement) return setNotice(st.avertissement);
+        if (st.avertissement) return setNotice(tServeur(st.avertissement));
         return location.reload(); // compte de la sauvegarde : écran de connexion
       }
     }
   };
   return (
     <div className="flex flex-col gap-3 text-sm">
-      <p>
-        Choisis l'archive <code className="font-mono text-xs">noah-AAAAMMJJ-HHMM.tar</code> du dossier{" "}
-        <code className="font-mono text-xs">backups</code>.
+      <p>{/* i18n-ignore : nom de dossier sur le serveur */}
+        {tr("Choisis l'archive {archive} du dossier {dossier}.", { archive: <code className="font-mono text-xs">{t("noah-AAAAMMJJ-HHMM.tar")}</code>, dossier: <code className="font-mono text-xs">backups</code> })}
       </p>
       {sent === null ? (
-        <input type="file" accept=".tar,application/x-tar" aria-label="Archive de sauvegarde"
+        <input type="file" accept=".tar,application/x-tar" aria-label={t("Archive de sauvegarde")}
           onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])}
           className="text-sm file:mr-3 file:cursor-pointer file:rounded-lg file:border file:border-border file:bg-background file:px-3 file:py-1.5" />
       ) : (
-        !notice && <p>{sent < 100 ? `Envoi de l'archive : ${sent} %` : stage || "Vérification de l'archive…"}</p>
+        !notice && <p>{sent < 100 ? t("Envoi de l'archive : {n} %", { n: sent }) : stage || t("Vérification de l'archive…")}</p>
       )}
       <ErrorText>{error}</ErrorText>
       {notice && (
         <>
-          <p>Restauré. {notice}</p>
-          <Button onClick={() => location.reload()}>Se connecter</Button>
+          <p>{t("Restauré. {message}", { message: notice })}</p>
+          <Button onClick={() => location.reload()}>{t("Se connecter")}</Button>
         </>
       )}
     </div>
@@ -266,17 +267,17 @@ function AccountStep({ code, onNext, onBadCode }: { code: string; onNext: () => 
   return (
     <form onSubmit={submit} className="max-w-md">
       <Card>
-        <h2 className="text-lg font-semibold">Ton compte</h2>
+        <h2 className="text-lg font-semibold">{t("Ton compte")}</h2>
         <Label>
-          Nom d'utilisateur
+          {t("Nom d'utilisateur")}
           <Input id="username" autoComplete="username" required minLength={2} value={username} onChange={(e) => setUsername(e.target.value)} />
         </Label>
         <Label>
-          Mot de passe
+          {t("Mot de passe")}
           <Input id="password" type="password" autoComplete="new-password" required minLength={12} value={password} onChange={(e) => setPassword(e.target.value)} />
         </Label>
         <ErrorText>{error}</ErrorText>
-        <Button type="submit" size="lg" disabled={busy}>Créer le compte</Button>
+        <Button type="submit" size="lg" disabled={busy}>{t("Créer le compte")}</Button>
       </Card>
     </form>
   );
@@ -337,24 +338,24 @@ function AgentStep({ onNext }: { onNext: (agentId: string) => void }) {
   return (
     <form onSubmit={submit} className="max-w-xl">
       <Card>
-        <h2 className="text-lg font-semibold">Ton premier agent</h2>
+        <h2 className="text-lg font-semibold">{t("Ton premier agent")}</h2>
         {loaded && !agent && !made && presets && presets.presets.length > 0 && <PresetPicker presets={presets.presets} value={preset?.id ?? ""} onPick={pick} />}
         <Label>
-          Nom
+          {t("Nom")}
           <Input required maxLength={40} value={name} onChange={(e) => setName(e.target.value)} />
         </Label>
         <Label>
-          Son rôle, en quelques phrases
+          {t("Son rôle, en quelques phrases")}
           <Textarea rows={4} maxLength={4000} value={role} onChange={(e) => setRole(e.target.value)} />
         </Label>
         {preset && !agent && <PresetNote preset={preset} />}
         <Label>
-          Qu'est-ce que tu veux atteindre ? (facultatif)
-          <Input maxLength={300} placeholder="Ex. Publier deux posts par semaine, ne plus rater une facture" value={goal} onChange={(e) => setGoal(e.target.value)} />
+          {t("Qu'est-ce que tu veux atteindre ? (facultatif)")}
+          <Input maxLength={300} placeholder={t("Ex. Publier deux posts par semaine, ne plus rater une facture")} value={goal} onChange={(e) => setGoal(e.target.value)} />
         </Label>
-        <p className="-mt-2 text-xs text-muted-foreground">Ton agent le garde en tête et te propose de lui-même ce qui t'en rapproche. Tu peux laisser vide.</p>
+        <p className="-mt-2 text-xs text-muted-foreground">{t("Ton agent le garde en tête et te propose de lui-même ce qui t'en rapproche. Tu peux laisser vide.")}</p>
         <ErrorText>{error}</ErrorText>
-        <Button type="submit" size="lg" disabled={busy || !loaded || !name.trim()}>Continuer</Button>
+        <Button type="submit" size="lg" disabled={busy || !loaded || !name.trim()}>{t("Continuer")}</Button>
       </Card>
     </form>
   );
@@ -392,7 +393,7 @@ function TrialStep({ agentId, onModel, onDone }: { agentId: string | null; onMod
           await new Promise((r) => setTimeout(r, 2000));
         }
         if (stop.signal.aborted) return;
-        if (!a?.online) throw new Error("L'agent n'a pas démarré à temps. Vérifie que Docker tourne sur le serveur, puis répare l'agent.");
+        if (!a?.online) throw new Error(t("L'agent n'a pas démarré à temps. Vérifie que Docker tourne sur le serveur, puis répare l'agent."));
         setPhase("asking");
         let text = "";
         let status = "";
@@ -405,7 +406,7 @@ function TrialStep({ agentId, onModel, onDone }: { agentId: string | null; onMod
         }, ANSWER_WAIT);
         try {
           await streamChat(
-            { agent_id: a.id, text: "Bonjour ! Présente-toi en une phrase.", conversation_id: null, attachments: [], details: false },
+            { agent_id: a.id, text: t("Bonjour ! Présente-toi en une phrase."), conversation_id: null, attachments: [], details: false },
             (ev) => {
               if (ev.type === "start") runId = ev.run_id;
               if (ev.type === "message") setReply((text += ev.text));
@@ -424,15 +425,16 @@ function TrialStep({ agentId, onModel, onDone }: { agentId: string | null; onMod
           if (runId && status !== "completed" && stop.signal.reason !== "délai")
             send(`/api/agents/${a.id}/runs/${runId}/stop`, {}).catch(() => {});
         }
-        if (stop.signal.reason === "délai") throw new Error("Le modèle n'a pas répondu en trois minutes.");
+        if (stop.signal.reason === "délai") throw new Error(t("Le modèle n'a pas répondu en trois minutes.")); // i18n-ignore : raison d'abandon interne
         if (stop.signal.aborted) return;
         // Seule une exécution terminée compte : un texte suivi d'une erreur, ou un flux coupé, n'est pas une réponse.
-        if (status !== "completed" || !text.trim()) throw new Error(failure || "Le modèle n'a pas répondu jusqu'au bout.");
+        if (status !== "completed" || !text.trim()) throw new Error(failure || t("Le modèle n'a pas répondu jusqu'au bout."));
         await request("/api/setup/done", { method: "POST", body: "{}", signal: bounded(stop.signal) });
         setPhase("ok");
       } catch (e) {
         if (stop.signal.reason === "délai" || !stop.signal.aborted) {
-          setError(stop.signal.reason === "délai" ? "Le modèle n'a pas répondu en trois minutes." : (e as Error).message);
+          // i18n-ignore : « délai » est la raison d'abandon interne
+          setError(stop.signal.reason === "délai" ? t("Le modèle n'a pas répondu en trois minutes.") : (e as Error).message);
           setPhase("error");
         }
       }
@@ -451,19 +453,19 @@ function TrialStep({ agentId, onModel, onDone }: { agentId: string | null; onMod
   };
   return (
     <Card>
-      <h2 className="text-lg font-semibold">Premier essai</h2>
-      {phase === "waiting" && <p className="text-sm">{step || "Démarrage de la machine de l'agent…"} (jusqu'à trois minutes la première fois)</p>}
-      {phase === "asking" && <p className="text-sm">L'agent réfléchit…</p>}
+      <h2 className="text-lg font-semibold">{t("Premier essai")}</h2>
+      {phase === "waiting" && <p className="text-sm">{t("{etape} (jusqu'à trois minutes la première fois)", { etape: step ? tServeur(step) : t("Démarrage de la machine de l'agent…") })}</p>}
+      {phase === "asking" && <p className="text-sm">{t("L'agent réfléchit…")}</p>}
       {reply && <blockquote className="rounded-lg border-l-4 border-accent bg-background p-3 text-sm">{reply}</blockquote>}
       <ErrorText>{error}</ErrorText>
       {phase === "error" && (
         <div className="flex flex-wrap gap-2">
-          <Button onClick={() => setAttempt((n) => n + 1)}>Réessayer</Button>
-          {agent && <Button variant="outline" onClick={repair}>Réparer l'agent</Button>}
-          <Button variant="outline" onClick={onModel}>Changer de modèle ou de clé</Button>
+          <Button onClick={() => setAttempt((n) => n + 1)}>{t("Réessayer")}</Button>
+          {agent && <Button variant="outline" onClick={repair}>{t("Réparer l'agent")}</Button>}
+          <Button variant="outline" onClick={onModel}>{t("Changer de modèle ou de clé")}</Button>
         </div>
       )}
-      {phase === "ok" && <Button size="lg" onClick={onDone}>Commencer</Button>}
+      {phase === "ok" && <Button size="lg" onClick={onDone}>{t("Commencer")}</Button>}
     </Card>
   );
 }

@@ -25,5 +25,6 @@ if (location.protocol === "file:") {
     onAskNumber: (fn) => ipcRenderer.on("noah:setup-ask-number", () => fn()),
     sendNumber: (n) => ipcRenderer.invoke("noah:setup-number", String(n)),
     onWaiting: (fn) => ipcRenderer.on("noah:setup-waiting", (_e, verification) => fn(String(verification || ""))),
+    langue: () => ipcRenderer.invoke("noah:langue"),
   });
 }

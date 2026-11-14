@@ -1,5 +1,6 @@
 // Confidentialité (G7.4) : tout ce qui sort du serveur, et vers où. Le fournisseur de chaque agent d'abord.
 import { useEffect, useState } from "react";
+import { t } from "@/i18n";
 import { get } from "@/lib/api";
 import { ErrorText } from "./ui";
 
@@ -14,12 +15,11 @@ export function Flows() {
       .catch((e) => setError(e.message));
   }, []);
   if (error) return <ErrorText>{error}</ErrorText>;
-  if (!flows) return <p className="text-sm text-muted-foreground">Chargement…</p>;
+  if (!flows) return <p className="text-sm text-muted-foreground">{t("Chargement…")}</p>;
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm text-muted-foreground">
-        Tout ce que ce serveur envoie hors de chez toi, et vers où. Aucune télémétrie : rien ne part vers les développeurs
-        de Noah.
+        {t("Tout ce que ce serveur envoie hors de chez toi, et vers où. Aucune télémétrie : rien ne part vers les développeurs de Noah.")}
       </p>
       <ul className="flex flex-col divide-y divide-border rounded-xl border border-border">
         {flows.map((f, i) => (

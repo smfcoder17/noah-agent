@@ -30,7 +30,7 @@ public class ElementActivity extends Activity {
         super.onCreate(state);
         LinearLayout layout = new LinearLayout(this); layout.setOrientation(LinearLayout.VERTICAL); layout.setBackgroundColor(Color.BLACK);
         LinearLayout bar = new LinearLayout(this);
-        Button close = new Button(this); close.setText("✕"); close.setContentDescription("Fermer"); close.setOnClickListener(v -> finish()); bar.addView(close);
+        Button close = new Button(this); close.setText("✕"); close.setContentDescription(getString(R.string.element_close)); close.setOnClickListener(v -> finish()); bar.addView(close);
         name = getIntent().getStringExtra("name");
         title = new TextView(this); title.setTextColor(Color.WHITE); title.setText(name); bar.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
         layout.addView(bar);
@@ -44,11 +44,12 @@ public class ElementActivity extends Activity {
         }
         catch (Exception e) { finish(); return; }
         LinearLayout actions = new LinearLayout(this);
-        for (String action : new String[] { "Partager", "Ouvrir avec", "Enregistrer" }) {
+        for (int choice : new int[] { R.string.element_share, R.string.element_open_with, R.string.element_save }) {
+            String action = getString(choice); // le libellé affiché ; le geste se choisit par sa ressource
             Button button = new Button(this); button.setText(action);
             button.setOnClickListener(v -> {
                 String mime = getIntent().getStringExtra("mime");
-                if ("Enregistrer".equals(action)) {
+                if (choice == R.string.element_save) {
                     render.execute(() -> {
                         try {
                             if (android.os.Build.VERSION.SDK_INT < 29) throw new Exception();
@@ -58,31 +59,31 @@ public class ElementActivity extends Activity {
                             android.net.Uri target = getContentResolver().insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
                             if (target == null) throw new Exception();
                             try (java.io.InputStream in = new java.io.FileInputStream(file); java.io.OutputStream out = getContentResolver().openOutputStream(target)) { byte[] buffer = new byte[16384]; for (int n; (n = in.read(buffer)) > 0;) out.write(buffer, 0, n); }
-                            runOnUiThread(() -> android.widget.Toast.makeText(this, "Fichier enregistré", android.widget.Toast.LENGTH_SHORT).show());
-                        } catch (Exception e) { runOnUiThread(() -> android.widget.Toast.makeText(this, "Enregistrement impossible", android.widget.Toast.LENGTH_LONG).show()); }
+                            runOnUiThread(() -> android.widget.Toast.makeText(this, R.string.element_saved, android.widget.Toast.LENGTH_SHORT).show());
+                        } catch (Exception e) { runOnUiThread(() -> android.widget.Toast.makeText(this, R.string.element_save_failed,android.widget.Toast.LENGTH_LONG).show()); }
                     });
                     return;
                 }
                 android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", file);
-                android.content.Intent intent = "Partager".equals(action) ? new android.content.Intent(android.content.Intent.ACTION_SEND).setType(mime).putExtra(android.content.Intent.EXTRA_STREAM, uri) : new android.content.Intent(android.content.Intent.ACTION_VIEW).setDataAndType(uri, mime);
+                android.content.Intent intent = choice == R.string.element_share ? new android.content.Intent(android.content.Intent.ACTION_SEND).setType(mime).putExtra(android.content.Intent.EXTRA_STREAM, uri) : new android.content.Intent(android.content.Intent.ACTION_VIEW).setDataAndType(uri, mime);
                 intent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION); intent.setClipData(android.content.ClipData.newRawUri(name, uri));
-                try { startActivity(android.content.Intent.createChooser(intent, action)); } catch (android.content.ActivityNotFoundException e) { android.widget.Toast.makeText(this, "Aucune application ne peut ouvrir ce fichier", android.widget.Toast.LENGTH_LONG).show(); }
+                try { startActivity(android.content.Intent.createChooser(intent, action)); } catch (android.content.ActivityNotFoundException e) { android.widget.Toast.makeText(this, R.string.element_no_app,android.widget.Toast.LENGTH_LONG).show(); }
             });
             actions.addView(button, new LinearLayout.LayoutParams(0, -2, 1));
         }
         layout.addView(actions);
         if (getIntent().getBooleanExtra("pdf", false)) {
             try { descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY); pdf = new PdfRenderer(descriptor); }
-            catch (Exception e) { title.setText("PDF illisible. Utilise Ouvrir avec."); return; }
+            catch (Exception e) { title.setText(R.string.element_pdf_unreadable); return; }
             LinearLayout pages = new LinearLayout(this);
-            Button previous = new Button(this); previous.setText("←"); previous.setContentDescription("Page précédente"); previous.setOnClickListener(v -> { if (page > 0) { page--; showPage(); } });
-            Button next = new Button(this); next.setText("→"); next.setContentDescription("Page suivante"); next.setOnClickListener(v -> { if (page + 1 < pdf.getPageCount()) { page++; showPage(); } });
+            Button previous = new Button(this); previous.setText("←"); previous.setContentDescription(getString(R.string.element_previous_page)); previous.setOnClickListener(v -> { if (page > 0) { page--; showPage(); } });
+            Button next = new Button(this); next.setText("→"); next.setContentDescription(getString(R.string.element_next_page)); next.setOnClickListener(v -> { if (page + 1 < pdf.getPageCount()) { page++; showPage(); } });
             pages.addView(previous); pages.addView(next); layout.addView(pages); showPage();
         } else render.execute(() -> {
             BitmapFactory.Options bounds = new BitmapFactory.Options(); bounds.inJustDecodeBounds = true; BitmapFactory.decodeFile(file.getPath(), bounds);
             BitmapFactory.Options options = new BitmapFactory.Options(); options.inSampleSize = Math.max(1, Math.max(bounds.outWidth, bounds.outHeight) / 2048);
             Bitmap bitmap = BitmapFactory.decodeFile(file.getPath(), options);
-            runOnUiThread(() -> { if (!isFinishing()) { if (bitmap == null) title.setText("Image illisible. Utilise Ouvrir avec."); else image.show(bitmap); } });
+            runOnUiThread(() -> { if (!isFinishing()) { if (bitmap == null) title.setText(R.string.element_image_unreadable); else image.show(bitmap); } });
         });
     }
     private void showPage() {
@@ -95,7 +96,7 @@ public class ElementActivity extends Activity {
                 Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888); bitmap.eraseColor(Color.WHITE);
                 p.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);
                 runOnUiThread(() -> { if (!isFinishing() && page == wanted) image.show(bitmap); else bitmap.recycle(); });
-            } catch (Exception e) { runOnUiThread(() -> title.setText("Page illisible")); }
+            } catch (Exception e) { runOnUiThread(() -> title.setText(R.string.element_page_unreadable)); }
         });
     }
     @Override protected void onDestroy() {

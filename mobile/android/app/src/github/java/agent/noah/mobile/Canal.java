@@ -20,20 +20,20 @@ final class Canal {
         String url = call.getString("url", "");
         Uri parsed = Uri.parse(url);
         if (!"https".equals(parsed.getScheme()) || !"github.com".equals(parsed.getHost()) || !url.endsWith(".apk")) {
-            call.reject("Adresse de mise à jour refusée");
+            call.reject(context.getString(R.string.update_url_refused));
             return;
         }
         if (Build.VERSION.SDK_INT >= 26 && !context.getPackageManager().canRequestPackageInstalls()) {
             Intent allow = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + context.getPackageName()));
             allow.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             context.startActivity(allow);
-            call.reject("Autorise Noah à installer des apps, puis appuie à nouveau sur Installer.", "permission");
+            call.reject(context.getString(R.string.update_allow_install), "permission");
             return;
         }
         // Dans le dossier de l'app (rien à autoriser) ; un nom déjà pris reçoit un suffixe, jamais l'ancien fichier.
         android.app.DownloadManager manager = (android.app.DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
         android.app.DownloadManager.Request request = new android.app.DownloadManager.Request(parsed)
-            .setTitle("Mise à jour de Noah")
+            .setTitle(context.getString(R.string.update_title))
             .setMimeType("application/vnd.android.package-archive")
             .setDestinationInExternalFilesDir(context, "mises-a-jour", "noah-agent.apk")
             .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE);
@@ -48,7 +48,7 @@ final class Canal {
                     && row.getInt(row.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_STATUS)) == android.app.DownloadManager.STATUS_SUCCESSFUL;
                 if (row != null) row.close();
                 if (!ok) {
-                    android.widget.Toast.makeText(c, "La mise à jour n'a pas pu être téléchargée.", android.widget.Toast.LENGTH_LONG).show();
+                    android.widget.Toast.makeText(c, R.string.update_download_failed,android.widget.Toast.LENGTH_LONG).show();
                     return;
                 }
                 Uri file = manager.getUriForDownloadedFile(id); // content:// du gestionnaire, lisible par l'installateur

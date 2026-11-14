@@ -2,6 +2,7 @@
 // La version du Play Store ne s'installe rien elle-même (règles de Google) : elle renvoie vers sa fiche.
 import { Download, Loader2, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import { t, tr } from "@/i18n";
 import { get, type Status } from "@/lib/api";
 import { appShell, tooOld } from "@/lib/platform";
 import { Button } from "./ui";
@@ -46,10 +47,10 @@ export function AppUpdate() {
     try {
       await native.installUpdate({ url: offer.url });
       setState("sent");
-      setMessage("Téléchargement en cours : Android te demandera de confirmer l'installation.");
+      setMessage(t("Téléchargement en cours : Android te demandera de confirmer l'installation."));
     } catch (e) {
       setState("");
-      setMessage((e as Error).message || "La mise à jour n'a pas pu démarrer.");
+      setMessage((e as Error).message || t("La mise à jour n'a pas pu démarrer."));
     }
   };
   const later = () => {
@@ -64,13 +65,13 @@ export function AppUpdate() {
   return (
     <div role="status" className="flex flex-wrap items-center gap-2 border-b border-border bg-accent/40 px-3 py-2 text-sm">
       <p className="min-w-0 flex-1">
-        Nouvelle version de l'app : <b>{offer.version}</b> (tu as {current}). Tes agents et tes réglages restent.
+        {tr("Nouvelle version de l'app : {version} (tu as {actuelle}). Tes agents et tes réglages restent.", { version: <b>{offer.version}</b>, actuelle: current })}
         {message && <span className="block text-xs text-muted-foreground">{message}</span>}
       </p>
       <Button size="sm" onClick={install} disabled={state !== ""}>
-        {state === "busy" ? <Loader2 className="animate-spin" /> : <Download />}{play ? "Ouvrir le Play Store" : "Installer"}
+        {state === "busy" ? <Loader2 className="animate-spin" /> : <Download />}{play ? t("Ouvrir le Play Store") : t("Installer")}
       </Button>
-      <Button size="icon-sm" variant="ghost" onClick={later} aria-label="Plus tard"><X /></Button>
+      <Button size="icon-sm" variant="ghost" onClick={later} aria-label={t("Plus tard")}><X /></Button>
     </div>
   );
 }

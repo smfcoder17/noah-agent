@@ -90,7 +90,7 @@ public class NoahShellPlugin extends Plugin {
             case "notifications":
                 break;
             default:
-                call.reject("Droit inconnu");
+                call.reject(context.getString(R.string.shell_unknown_right));
                 return;
         }
         String permission = "micro".equals(right) ? Manifest.permission.RECORD_AUDIO : "position".equals(right) ? Manifest.permission.ACCESS_FINE_LOCATION : Manifest.permission.POST_NOTIFICATIONS;
@@ -116,7 +116,7 @@ public class NoahShellPlugin extends Plugin {
             getActivity().startActivity(screen);
             call.resolve();
         } catch (Exception e) {
-            call.reject("Cet écran n'existe pas sur ce téléphone.");
+            call.reject(getContext().getString(R.string.shell_no_screen));
         }
     }
 
@@ -131,13 +131,13 @@ public class NoahShellPlugin extends Plugin {
     @PluginMethod
     public void position(PluginCall call) {
         if (!rightsPrefs().getBoolean("positionActive", false) || getPermissionState("position") != PermissionState.GRANTED) {
-            call.reject("La position n'est pas activée dans Réglages > Téléphone.");
+            call.reject(getContext().getString(R.string.shell_location_option_off));
             return;
         }
         LocationManager locations = getContext().getSystemService(LocationManager.class);
         String provider = bestProvider(locations);
         if (provider == null) {
-            call.reject("La localisation est coupée sur ce téléphone.");
+            call.reject(getContext().getString(R.string.shell_location_disabled));
             return;
         }
         if (Build.VERSION.SDK_INT >= 30) {
@@ -148,17 +148,17 @@ public class NoahShellPlugin extends Plugin {
                 if (done[0]) return;
                 done[0] = true;
                 cancel.cancel();
-                answerPosition(call, lastKnown(locations));
+                answerPosition(getContext(), call, lastKnown(locations));
             };
             main.postDelayed(giveUp, 12_000);
             locations.getCurrentLocation(provider, cancel, getContext().getMainExecutor(), found -> {
                 if (done[0]) return;
                 done[0] = true;
                 main.removeCallbacks(giveUp);
-                answerPosition(call, found != null ? found : lastKnown(locations));
+                answerPosition(getContext(), call, found != null ? found : lastKnown(locations));
             });
         } else {
-            answerPosition(call, lastKnown(locations));
+            answerPosition(getContext(), call, lastKnown(locations));
         }
     }
 
@@ -182,9 +182,9 @@ public class NoahShellPlugin extends Plugin {
         return best;
     }
 
-    private static void answerPosition(PluginCall call, Location found) {
+    private static void answerPosition(Context context, PluginCall call, Location found) {
         if (found == null) {
-            call.reject("Le téléphone ne trouve pas sa position pour l'instant.");
+            call.reject(context.getString(R.string.shell_location_not_found));
             return;
         }
         JSObject out = new JSObject();
@@ -212,15 +212,15 @@ public class NoahShellPlugin extends Plugin {
         }
         String agent = call.getString("agent");
         if (agent == null) {
-            call.reject("Choisis un agent.");
+            call.reject(context.getString(R.string.shell_pick_agent));
             return;
         }
         if (!Settings.canDrawOverlays(context)) {
-            call.reject("Autorise d'abord la superposition.");
+            call.reject(context.getString(R.string.shell_allow_overlay));
             return;
         }
         if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            call.reject("Autorise d'abord le micro.");
+            call.reject(context.getString(R.string.shell_allow_mic));
             return;
         }
         NoahBubble.start(context, agent, call.getString("nom", ""), call.getString("couleur", ""), call.getString("forme", ""), call.getString("detail", ""));
@@ -242,14 +242,14 @@ public class NoahShellPlugin extends Plugin {
     public void download(PluginCall call) {
         String url = call.getString("url");
         if (url == null || !(getActivity() instanceof MainActivity)) {
-            call.reject("Téléchargement impossible");
+            call.reject(getContext().getString(R.string.shell_download_failed));
             return;
         }
         String mime = call.getString("mime", "");
         getActivity().runOnUiThread(() -> { // la WebView ne se lit que depuis ce fil
             String agent = bridge.getWebView().getSettings().getUserAgentString();
             if (((MainActivity) getActivity()).downloadFromPage(url, agent, mime)) call.resolve();
-            else call.reject("Téléchargement impossible");
+            else call.reject(getContext().getString(R.string.shell_download_failed));
         });
     }
 
@@ -270,11 +270,11 @@ public class NoahShellPlugin extends Plugin {
             try (java.io.OutputStream out = context.getContentResolver().openOutputStream(file)) {
                 out.write(data);
             }
-            android.widget.Toast.makeText(context, name + " est dans Téléchargements", android.widget.Toast.LENGTH_SHORT).show();
+            android.widget.Toast.makeText(context, context.getString(R.string.shell_in_downloads, name), android.widget.Toast.LENGTH_SHORT).show();
             call.resolve();
         } catch (Exception e) {
-            android.widget.Toast.makeText(context, "Ce fichier n'a pas pu être enregistré.", android.widget.Toast.LENGTH_LONG).show();
-            call.reject("Enregistrement impossible");
+            android.widget.Toast.makeText(context, R.string.shell_save_failed, android.widget.Toast.LENGTH_LONG).show();
+            call.reject(context.getString(R.string.element_save_failed));
         }
     }
 
@@ -294,7 +294,7 @@ public class NoahShellPlugin extends Plugin {
         new Thread(() -> {
             try {
                 NoahMedia.Local local = NoahMedia.fetch(getContext(), address, name);
-                if (getActivity() == null) { call.reject("Fenêtre fermée"); return; }
+                if (getActivity() == null) { call.reject(getContext().getString(R.string.shell_window_closed)); return; }
                 getActivity().runOnUiThread(() -> {
                     try {
                         Intent intent;
@@ -303,17 +303,17 @@ public class NoahShellPlugin extends Plugin {
                         } else if ("share".equals(mode)) {
                             Intent share = new Intent(Intent.ACTION_SEND).setType(local.mime).putExtra(Intent.EXTRA_STREAM, local.uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
                             share.setClipData(android.content.ClipData.newRawUri(name, local.uri));
-                            intent = Intent.createChooser(share, "Partager");
+                            intent = Intent.createChooser(share, getContext().getString(R.string.element_share));
                         } else {
                             Intent open = new Intent(Intent.ACTION_VIEW).setDataAndType(local.uri, local.mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
                             open.setClipData(android.content.ClipData.newRawUri(name, local.uri));
-                            intent = Intent.createChooser(open, "Ouvrir avec");
+                            intent = Intent.createChooser(open, getContext().getString(R.string.element_open_with));
                         }
                         getActivity().startActivity(intent);
                         call.resolve();
-                    } catch (Exception e) { call.reject("Aucune application ne peut ouvrir ce fichier."); }
+                    } catch (Exception e) { call.reject(getContext().getString(R.string.shell_no_app)); }
                 });
-            } catch (Exception e) { call.reject("Fichier introuvable, trop volumineux ou accès refusé. Réessaie."); }
+            } catch (Exception e) { call.reject(getContext().getString(R.string.shell_file_failed)); }
         }).start();
     }
 
@@ -333,13 +333,13 @@ public class NoahShellPlugin extends Plugin {
         String token = call.getString("token");
         boolean secure = server != null && (server.startsWith("https://") || BuildConfig.DEBUG);
         if (server == null || token == null || !secure) {
-            call.reject("Adresse ou session manquante (le serveur doit être en HTTPS)");
+            call.reject(getContext().getString(R.string.shell_missing_session));
             return;
         }
         try {
             new Pairing(getContext()).save(server, token);
         } catch (Exception e) {
-            call.reject("Impossible de ranger la session : " + e.getMessage());
+            call.reject(getContext().getString(R.string.shell_store_session_failed, e.getMessage()));
             return;
         }
         if (org.unifiedpush.android.connector.UnifiedPush.getDistributors(getContext()).isEmpty()) CallWatch.start(getContext());
@@ -355,7 +355,7 @@ public class NoahShellPlugin extends Plugin {
     @PluginMethod
     public void renewSession(PluginCall call) {
         if (!(getActivity() instanceof MainActivity)) {
-            call.reject("Fenêtre fermée");
+            call.reject(getContext().getString(R.string.shell_window_closed));
             return;
         }
         ((MainActivity) getActivity()).renewWindow(state -> {

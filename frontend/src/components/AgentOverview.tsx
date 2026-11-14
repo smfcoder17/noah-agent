@@ -5,19 +5,18 @@ import { type Agent, canAdmin, canTalk, get, type Goal } from "@/lib/api";
 import { modeName, readableModel, REASONING } from "@/lib/modes";
 import { Button } from "./ui";
 import type { PanelTab } from "./SidePanel";
+import { t } from "@/i18n";
 
 type Counts = { connexions?: string; competences?: number; routines?: number; memoire?: number; objectifs?: number };
 type Conns = { google?: { connecte?: boolean }; applications?: { installe: boolean; connecte: boolean }[]; outils?: { connecte: boolean }[]; globaux?: { connecte: boolean }[] };
 
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n > 1 ? many : one}`;
-
 function connectionsLine(c: Conns): string {
-  const total = (c.google?.connecte ? 1 : 0) + (c.applications ?? []).filter((a) => a.installe && a.connecte).length + (c.outils ?? []).filter((t) => t.connecte).length;
+  const total = (c.google?.connecte ? 1 : 0) + (c.applications ?? []).filter((a) => a.installe && a.connecte).length + (c.outils ?? []).filter((o) => o.connecte).length;
   const shared = (c.globaux ?? []).filter((g) => g.connecte).length;
   const waiting = (c.globaux ?? []).length - shared;
-  const parts = [total ? plural(total, "connectée", "connectées") : "Aucune"];
-  if (shared) parts.push(`dont ${shared} pour tous`);
-  if (waiting) parts.push(`${waiting} à relier`);
+  const parts = [total ? (total > 1 ? t("{n} connectées", { n: total }) : t("{n} connectée", { n: total })) : t("Aucune")];
+  if (shared) parts.push(t("dont {n} pour tous", { n: shared }));
+  if (waiting) parts.push(t("{n} à relier", { n: waiting }));
   return parts.join(", ");
 }
 
@@ -61,19 +60,19 @@ export function AgentOverview({ agent, refreshKey, spent, onTab, onEdit, onBrain
       current = false;
     };
   }, [agent.id, admin, owner, refreshKey]);
-  const show = (n: number | undefined, one: string, many?: string) => (n === undefined ? "…" : n ? plural(n, one, many) : "Aucune");
+  const show = (n: number | undefined, word: (n: number) => string) => (n === undefined ? "…" : n ? word(n) : t("Aucune"));
   const reasoning = REASONING.find((r) => r.id === agent.raisonnement)?.name;
-  const brain = [agent.mode ? modeName(agent.mode) : readableModel(agent.model) || "Le réglage général", reasoning].filter(Boolean).join(" · ");
+  const brain = [agent.mode ? modeName(agent.mode) : readableModel(agent.model) || t("Le réglage général"), reasoning].filter(Boolean).join(" · ");
   return (
-    <section aria-label="Ce qui constitue cet agent" className="grid grid-cols-2 gap-1.5">
-      <Tile label="Personnalité et rôle" value={agent.role.trim() ? agent.role.trim().split("\n")[0] : "À écrire"} onClick={admin ? onEdit : undefined} />
-      <Tile label="Modèle" value={brain} onClick={admin ? onBrain : undefined} />
-      {owner && <Tile label="Objectifs" value={counts.objectifs === undefined ? "…" : counts.objectifs ? plural(counts.objectifs, "en cours", "en cours") : "Aucun"} onClick={onGoals} />}
-      {admin && <Tile label="Connexions" value={counts.connexions ?? "…"} onClick={() => onTab("connections")} />}
-      {admin && <Tile label="Compétences" value={show(counts.competences, "enseignée", "enseignées")} onClick={() => onTab("competences")} />}
-      {admin && <Tile label="Routines" value={show(counts.routines, "routine")} onClick={() => onTab("routines")} />}
-      {admin && <Tile label="Mémoire" value={counts.memoire === undefined ? "…" : counts.memoire ? plural(counts.memoire, "note") : "Vide"} onClick={() => onTab("memory")} />}
-      <Tile label="Dépense du mois" value={spent} onClick={onSpending} />
+    <section aria-label={t("Ce qui constitue cet agent")} className="grid grid-cols-2 gap-1.5">
+      <Tile label={t("Personnalité et rôle")} value={agent.role.trim() ? agent.role.trim().split("\n")[0] : t("À écrire")} onClick={admin ? onEdit : undefined} />
+      <Tile label={t("Modèle")} value={brain} onClick={admin ? onBrain : undefined} />
+      {owner && <Tile label={t("Objectifs")} value={counts.objectifs === undefined ? "…" : counts.objectifs ? t("{n} en cours", { n: counts.objectifs }) : t("Aucun")} onClick={onGoals} />}
+      {admin && <Tile label={t("Connexions")} value={counts.connexions ?? "…"} onClick={() => onTab("connections")} />}
+      {admin && <Tile label={t("Compétences")} value={show(counts.competences, (n) => (n > 1 ? t("{n} enseignées", { n }) : t("{n} enseignée", { n })))} onClick={() => onTab("competences")} />}
+      {admin && <Tile label={t("Routines")} value={show(counts.routines, (n) => (n > 1 ? t("{n} routines", { n }) : t("{n} routine", { n })))} onClick={() => onTab("routines")} />}
+      {admin && <Tile label={t("Mémoire")} value={counts.memoire === undefined ? "…" : counts.memoire ? (counts.memoire > 1 ? t("{n} notes", { n: counts.memoire }) : t("{n} note", { n: counts.memoire })) : t("Vide")} onClick={() => onTab("memory")} />}
+      <Tile label={t("Dépense du mois")} value={spent} onClick={onSpending} />
     </section>
   );
 }
@@ -97,19 +96,19 @@ export function AgentMenu({ agent, onOpen, onEdit }: { agent: Agent; onOpen: (t:
   }, [open]);
   const admin = canAdmin(agent);
   const items: [string, () => void][] = [
-    ["Tout voir", () => onOpen("activity")],
+    [t("Tout voir"), () => onOpen("activity")],
     ...(admin ? ([
-      ["Personnalité et rôle", onEdit],
-      ["Connexions", () => onOpen("connections")],
-      ["Compétences", () => onOpen("competences")],
-      ["Routines", () => onOpen("routines")],
-      ["Mémoire", () => onOpen("memory")],
+      [t("Personnalité et rôle"), onEdit],
+      [t("Connexions"), () => onOpen("connections")],
+      [t("Compétences"), () => onOpen("competences")],
+      [t("Routines"), () => onOpen("routines")],
+      [t("Mémoire"), () => onOpen("memory")],
     ] as [string, () => void][]) : []),
-    ...(canTalk(agent) ? ([["Ordinateur", () => onOpen("computer")]] as [string, () => void][]) : []),
+    ...(canTalk(agent) ? ([[t("Ordinateur"), () => onOpen("computer")]] as [string, () => void][]) : []),
   ];
   return (
     <div ref={box} className="relative shrink-0">
-      <Button variant="ghost" size="icon-sm" onClick={() => setOpen(!open)} aria-haspopup="menu" aria-expanded={open} aria-label={`Menu de ${agent.name}`} title={`Menu de ${agent.name}`}>
+      <Button variant="ghost" size="icon-sm" onClick={() => setOpen(!open)} aria-haspopup="menu" aria-expanded={open} aria-label={t("Menu de {nom}", { nom: agent.name })} title={t("Menu de {nom}", { nom: agent.name })}>
         <MoreHorizontal />
       </Button>
       {open && (

@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown } from "lucide-react";
 import { splitQuotes } from "@/lib/quotes";
 import { cn, messageMoment } from "@/lib/utils";
+import { t } from "@/i18n";
 
 export const RAIL_PAGE = 10; // repères par fenêtre
 const FEWEST = 2; // en dessous, rien à naviguer
@@ -25,7 +26,7 @@ export function markOf(message: { id: string; role: string; content: readonly { 
     return line ? { id: message.id, label: line.slice(0, 70), when } : null;
   }
   const routine = text.match(/^\*\*Routine « (.+?) »\*\*/);
-  return routine ? { id: message.id, label: `Routine : ${routine[1]}`.slice(0, 70), when } : null;
+  return routine ? { id: message.id, label: t("Routine : {nom}", { nom: routine[1] }).slice(0, 70), when } : null;
 }
 
 // Un message qui ne change pas garde son objet : son repère n'est calculé qu'une fois.
@@ -106,7 +107,7 @@ export function ConversationRail() {
         className="absolute right-3 bottom-28 z-20 flex cursor-pointer items-center gap-1.5 rounded-full border border-border bg-surface px-3 py-1.5 text-xs font-medium shadow-md hover:bg-muted md:right-4"
       >
         <ArrowDown className="size-3.5" aria-hidden />
-        Revenir en bas
+        {t("Revenir en bas")}
       </button>
     ) : <nav ref={rail} hidden />;
   }
@@ -120,17 +121,17 @@ export function ConversationRail() {
           className="absolute right-3 bottom-28 z-20 flex cursor-pointer items-center gap-1.5 rounded-full border border-border bg-surface px-3 py-1.5 text-xs font-medium shadow-md hover:bg-muted md:right-4"
         >
           <ArrowDown className="size-3.5" aria-hidden />
-          Revenir en bas
+          {t("Revenir en bas")}
           <span className="text-muted-foreground tabular-nums">{away}</span>
         </button>
       )}
-      <nav ref={rail} aria-label="Repères de la conversation" className="pointer-events-none absolute top-1/2 right-1 z-10 hidden max-h-[60%] -translate-y-1/2 flex-col items-end md:flex">
+      <nav ref={rail} aria-label={t("Repères de la conversation")} className="pointer-events-none absolute top-1/2 right-1 z-10 hidden max-h-[60%] -translate-y-1/2 flex-col items-end md:flex">
         {shown.map((m) => (
           <button
             key={m.id}
             type="button"
             onClick={() => go(m.id)}
-            aria-label={`Aller à : ${m.label}`}
+            aria-label={t("Aller à : {repere}", { repere: m.label })}
             aria-current={m.id === current ? "location" : undefined}
             className="group pointer-events-auto relative flex h-[9px] w-7 cursor-pointer items-center justify-end pr-1"
           >

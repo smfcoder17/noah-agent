@@ -9,6 +9,7 @@ const { AsyncLocalStorage } = require("node:async_hooks");
 const { BrowserWindow, clipboard, Notification, session, shell } = require("electron");
 const dossiers = require("./dossiers");
 const bandeau = require("./bandeau");
+const { t } = require("./textes");
 
 // Ce que « ouvrir » peut ouvrir : des documents et des médias. Un programme, un script ou un document à macros passent par « commande », confirmée.
 const OPENABLE = /\.(pdf|txt|md|rtf|csv|tsv|log|json|xml|yaml|yml|toml|ini|sql|css|html?|png|jpe?g|gif|webp|bmp|svg|heic|ico|tiff?|psd|ai|mp3|wav|m4a|flac|ogg|mp4|mov|mkv|webm|avi|wmv|ts|docx?|xlsx?|pptx?|odt|ods|odp|pages|numbers|key|epub|eml|msg|ics|kml|dwg|zip|7z|gz)$/i;
@@ -19,11 +20,11 @@ const ANSWER_WITHIN = 280000; // la demande expire à 300 s côté serveur : la 
 const MAX_RUNNING = 8;
 const MAX_FILES_RUNNING = 2; // au plus deux gros fichiers en mémoire à la fois
 const UNC = /^[\\/]{2}/; // un chemin réseau contacte l'hôte dès qu'on le touche, avant tout accord
-const CUT = { coupe: true, erreur: "L'utilisateur a coupé l'accès depuis l'application de bureau." };
-const expired = { erreur: "Cette demande a expiré avant ton accord : rien n'a été fait." };
-const modified = { erreur: "L'action a été modifiée depuis son affichage : rien n'a été fait." };
-const interrupted = { erreur: "Cette demande a été annulée : rien n'a été fait." };
-const unavailable = { erreur: "La vérification de l'accord a échoué trois fois de suite : connexion au serveur indisponible, rien n'a été fait." };
+const CUT = { coupe: true, erreur: "L'utilisateur a coupé l'accès depuis l'application de bureau." }; // i18n-ignore : lu par le serveur
+const expired = { erreur: "Cette demande a expiré avant ton accord : rien n'a été fait." }; // i18n-ignore : lu par le serveur
+const modified = { erreur: "L'action a été modifiée depuis son affichage : rien n'a été fait." }; // i18n-ignore : lu par le serveur
+const interrupted = { erreur: "Cette demande a été annulée : rien n'a été fait." }; // i18n-ignore : lu par le serveur
+const unavailable = { erreur: "La vérification de l'accord a échoué trois fois de suite : connexion au serveur indisponible, rien n'a été fait." }; // i18n-ignore : lu par le serveur
 
 let dialogs = Promise.resolve(); // un seul bandeau d'accord à la fois, sans bloquer le reste
 const approvalContext = new AsyncLocalStorage();
@@ -64,7 +65,7 @@ function approvalFailure(consume = false, plan) {
   const { token, hash, until } = state.approval;
   if (fingerprint(state, plan) !== hash) return modified;
   if (Date.now() >= until) return expired;
-  if ((!state.consumed && grants.get(token) !== hash) || (consume && state.consumed)) return { erreur: "Cet accord a déjà été utilisé : rien n'a été fait." };
+  if ((!state.consumed && grants.get(token) !== hash) || (consume && state.consumed)) return { erreur: "Cet accord a déjà été utilisé : rien n'a été fait." }; // i18n-ignore : lu par le serveur
   if (consume) { grants.delete(token); state.consumed = true; }
   return null;
 }
@@ -95,7 +96,7 @@ function ask(message, detail, buttons, refuseIndex) {
     const fail = (reason) => { if (state) state.failure = reason; return refuseIndex; };
     try {
       if (state && !state.isCurrent()) return fail(interrupted);
-      if (state && !(await state.stillWanted())) return fail({ erreur: "Cette demande a expiré sans avoir été affichée : rien n'a été fait." });
+      if (state && !(await state.stillWanted())) return fail({ erreur: "Cette demande a expiré sans avoir été affichée : rien n'a été fait." }); // i18n-ignore : lu par le serveur
       accord = sync ? await sync.open(shownText.message, shownText.detail) : null;
       // Les 280 secondes commencent à la présentation, après la file et la publication.
       until = Date.now() + ANSWER_WITHIN;
@@ -134,7 +135,7 @@ function ask(message, detail, buttons, refuseIndex) {
       if (accord && !closeAttempted) {
         try { await sync.close(accord.id, false); } catch { /* Le serveur l'expirera si la connexion reste coupée. */ }
       }
-      return fail(reason || (cancel.signal.aborted ? cancel.signal.reason : { erreur: e.message || "L'accord n'a pas pu être synchronisé : rien n'a été fait." }));
+      return fail(reason || (cancel.signal.aborted ? cancel.signal.reason : { erreur: e.message || "L'accord n'a pas pu être synchronisé : rien n'a été fait." })); // i18n-ignore : lu par le serveur
     } finally {
       clearInterval(watching);
     }
@@ -144,7 +145,7 @@ function ask(message, detail, buttons, refuseIndex) {
 }
 
 async function confirm(message, detail) {
-  return (await ask(message, detail, ["Autoriser", "Refuser"], 1)) === 0;
+  return (await ask(message, detail, [t("accord.autoriser"), t("accord.refuser")], 1)) === 0;
 }
 
 function run(cmd, args, cwd, env) {
@@ -194,7 +195,7 @@ async function performAction(req, ctx) {
   const who = clean(req.agent) || "Noah";
   const store = ctx.store;
   const stillWanted = ctx.stillWanted || (async () => true);
-  const refused = { refuse: true, message: "L'utilisateur a refusé cette action." };
+  const refused = { refuse: true, message: "L'utilisateur a refusé cette action." }; // i18n-ignore : lu par le serveur
   if (store?.isCut() && req.action !== "notifier") return CUT;
   /** Après une attente (fenêtre, téléchargement) : l'accès a pu être coupé, la demande a pu expirer. */
   const stop = async () => {
@@ -211,8 +212,8 @@ async function performAction(req, ctx) {
     case "presse_papiers": {
       // Un texte glissé là peut être une commande, collée plus tard sans la relire.
       const text = req.texte || "";
-      if (tooLong(text)) return { erreur: "Texte trop long pour être montré en entier avant l'accord : enregistre-le dans un fichier." };
-      if (!(await confirm(`${who} veut remplacer le contenu de ton presse-papiers.`, text))) return refused;
+      if (tooLong(text)) return { erreur: "Texte trop long pour être montré en entier avant l'accord : enregistre-le dans un fichier." }; // i18n-ignore : lu par le serveur
+      if (!(await confirm(t("accord.presse_papiers", { agent: who }), text))) return refused;
       const blocked = await stop();
       if (blocked) return blocked;
       const approval = approvalFailure(true);
@@ -224,8 +225,8 @@ async function performAction(req, ctx) {
       const target = String(req.cible || "");
       if (/^https?:\/\//i.test(target)) {
         const url = safeUrl(target);
-        if (!url) return { erreur: "Cette adresse contient des caractères qui pourraient tromper : elle n'est pas ouverte." };
-        if (!(await confirm(`${who} veut ouvrir une page dans ton navigateur.`, url))) return refused;
+        if (!url) return { erreur: "Cette adresse contient des caractères qui pourraient tromper : elle n'est pas ouverte." }; // i18n-ignore : lu par le serveur
+        if (!(await confirm(t("accord.page", { agent: who }), url))) return refused;
         const blocked = await stop();
         if (blocked) return blocked;
         const approval = approvalFailure(true);
@@ -233,30 +234,30 @@ async function performAction(req, ctx) {
         await shell.openExternal(url);
         return { ok: true };
       }
-      if (UNC.test(target)) return { erreur: "Les chemins réseau ne s'ouvrent pas ainsi." };
-      if (!path.isAbsolute(target)) return { erreur: "Donne le chemin complet du fichier." };
-      if (/(^|[\\/])\.\.([\\/]|$)/.test(target)) return { erreur: "Ce chemin remonte dans les dossiers : donne le chemin complet." };
+      if (UNC.test(target)) return { erreur: "Les chemins réseau ne s'ouvrent pas ainsi." }; // i18n-ignore : lu par le serveur
+      if (!path.isAbsolute(target)) return { erreur: "Donne le chemin complet du fichier." }; // i18n-ignore : lu par le serveur
+      if (/(^|[\\/])\.\.([\\/]|$)/.test(target)) return { erreur: "Ce chemin remonte dans les dossiers : donne le chemin complet." }; // i18n-ignore : lu par le serveur
       let finale;
       try {
         finale = fs.realpathSync.native(target);
       } catch {
-        return { erreur: "Introuvable sur l'ordinateur." };
+        return { erreur: "Introuvable sur l'ordinateur." }; // i18n-ignore : lu par le serveur
       }
-      if (UNC.test(finale)) return { erreur: "Les chemins réseau ne s'ouvrent pas ainsi." };
-      if (dossiers.DECEIVING.test(finale)) return { erreur: "Ce chemin contient des caractères invisibles : il n'est pas ouvert." };
+      if (UNC.test(finale)) return { erreur: "Les chemins réseau ne s'ouvrent pas ainsi." }; // i18n-ignore : lu par le serveur
+      if (dossiers.DECEIVING.test(finale)) return { erreur: "Ce chemin contient des caractères invisibles : il n'est pas ouvert." }; // i18n-ignore : lu par le serveur
       const isDir = fs.statSync(finale).isDirectory();
-      if (!isDir && !OPENABLE.test(finale)) return { erreur: "Noah n'ouvre pas ce type de fichier directement : utilise « commande », qui demande un accord." };
-      if (!(await confirm(`${who} veut ouvrir ${isDir ? "un dossier" : "un fichier"}.`, finale))) return refused;
+      if (!isDir && !OPENABLE.test(finale)) return { erreur: "Noah n'ouvre pas ce type de fichier directement : utilise « commande », qui demande un accord." }; // i18n-ignore : lu par le serveur
+      if (!(await confirm(t(isDir ? "accord.ouvrir_dossier" : "accord.ouvrir_fichier", { agent: who }), finale))) return refused;
       const blocked = await stop();
       if (blocked) return blocked;
       const approval = approvalFailure(true);
       if (approval) return approval;
       const err = await shell.openPath(finale);
-      return err ? { erreur: "Le système n'a pas pu l'ouvrir." } : { ok: true };
+      return err ? { erreur: "Le système n'a pas pu l'ouvrir." } : { ok: true }; // i18n-ignore : lu par le serveur
     }
     case "lancer": {
       const name = String(req.cible || "").trim();
-      if (!APP_NAME.test(name)) return { erreur: "Donne seulement le nom de l'application, sans chemin ni symbole." };
+      if (!APP_NAME.test(name)) return { erreur: "Donne seulement le nom de l'application, sans chemin ni symbole." }; // i18n-ignore : lu par le serveur
       let program, args, env;
       if (process.platform === "win32") {
         // Par son exécutable (« notepad », « code ») ou, à défaut, par son nom dans le menu Démarrer (« Calculatrice »).
@@ -270,7 +271,7 @@ async function performAction(req, ctx) {
         env = { ...process.env, NOAH_APP: name };
       } else { program = process.platform === "darwin" ? "open" : name; args = process.platform === "darwin" ? ["-a", name] : []; }
       actionContext.getStore().plan = { program, args, path: undefined, env };
-      if (!(await confirm(`${who} veut ouvrir l'application « ${name} ».`, `Programme : ${program}\nArguments : ${JSON.stringify(args)}\nApplication : ${name}`))) return refused;
+      if (!(await confirm(t("accord.application", { agent: who, nom: name }), t("accord.application.detail", { programme: program, arguments: JSON.stringify(args), nom: name })))) return refused;
       const blocked = await stop();
       if (blocked) return blocked;
       const r = await run(program, args, undefined, env);
@@ -299,12 +300,12 @@ const NO_EFFECT = /^\s*(cd|chdir|set-location|sl|pwd|get-location|gl)(\s+("[^"\r
 async function command(req, who, store, stop, refused) {
   const text = String(req.cible || "");
   if (NO_EFFECT.test(text)) {
-    return { ok: true, code: 0, sortie: "", erreurs: "", note: "Rien à faire : chaque commande part du dossier de travail ou de --dossier. Pour ranger un dossier confié : ordinateur deplacer, creer-dossier ou corbeille." };
+    return { ok: true, code: 0, sortie: "", erreurs: "", note: "Rien à faire : chaque commande part du dossier de travail ou de --dossier. Pour ranger un dossier confié : ordinateur deplacer, creer-dossier ou corbeille." }; // i18n-ignore : lu par le serveur
   }
-  if (tooLong(text) || dossiers.DECEIVING.test(text.replace(/[\r\n\t]/g, " "))) return { erreur: "Commande trop longue ou illisible pour être montrée avant l'accord : fais-en une plus simple." };
+  if (tooLong(text) || dossiers.DECEIVING.test(text.replace(/[\r\n\t]/g, " "))) return { erreur: "Commande trop longue ou illisible pour être montrée avant l'accord : fais-en une plus simple." }; // i18n-ignore : lu par le serveur
   const folder = folderOf(req, store);
-  if (req.dossierId && !folder) return { erreur: "Ce dossier n'est plus confié à l'agent." };
-  if (!folder && UNC.test(String(req.dossier || ""))) return { erreur: "Une commande ne part pas d'un chemin réseau." };
+  if (req.dossierId && !folder) return { erreur: "Ce dossier n'est plus confié à l'agent." }; // i18n-ignore : lu par le serveur
+  if (!folder && UNC.test(String(req.dossier || ""))) return { erreur: "Une commande ne part pas d'un chemin réseau." }; // i18n-ignore : lu par le serveur
   const cwd = folder ? folder.chemin : req.dossier && fs.existsSync(req.dossier) ? req.dossier : os.homedir();
   let usable = false;
   try {
@@ -312,17 +313,17 @@ async function command(req, who, store, stop, refused) {
   } catch {
     /* parti */
   }
-  if (!usable) return { erreur: "Ce dossier n'existe plus sur l'ordinateur." };
-  if (dossiers.DECEIVING.test(cwd)) return { erreur: "Ce dossier a un nom illisible : rien n'est lancé." };
+  if (!usable) return { erreur: "Ce dossier n'existe plus sur l'ordinateur." }; // i18n-ignore : lu par le serveur
+  if (dossiers.DECEIVING.test(cwd)) return { erreur: "Ce dossier a un nom illisible : rien n'est lancé." }; // i18n-ignore : lu par le serveur
   const print = store ? await dossiers.fingerprint(text, store, folder?.id) : null;
   const program = print ? print.exe : process.platform === "win32" ? "powershell.exe" : "/bin/sh";
   const args = print ? print.args : process.platform === "win32" ? ["-NoProfile", "-NonInteractive", "-Command", text] : ["-c", text];
   actionContext.getStore().plan = { program, args, path: cwd, env: undefined };
   // Le dossier et le programme d'abord : le texte de la commande ne peut pas les imiter.
-  const detail = `Dans : ${cwd}\nProgramme : ${program}\nArguments : ${JSON.stringify(args)}\nCe dossier n'enferme pas la commande : elle a les mêmes droits que toi sur tout l'ordinateur.\n\nCommande :\n${text}`;
+  const detail = t("accord.commande.detail", { dossier: cwd, programme: program, arguments: JSON.stringify(args), commande: text });
   if (!print || !dossiers.alwaysAllowed(print, store)) {
-    const buttons = print ? ["Autoriser", "Toujours autoriser cette commande", "Refuser"] : ["Autoriser", "Refuser"];
-    const answer = await ask(`${who} veut exécuter une commande.`, detail, buttons, buttons.length - 1);
+    const buttons = print ? [t("accord.autoriser"), t("accord.toujours"), t("accord.refuser")] : [t("accord.autoriser"), t("accord.refuser")];
+    const answer = await ask(t("accord.commande", { agent: who }), detail, buttons, buttons.length - 1);
     if (answer === buttons.length - 1) return refused;
     const blocked = await stop();
     if (blocked) return blocked;
@@ -332,7 +333,7 @@ async function command(req, who, store, stop, refused) {
     }
   }
   if (store?.isCut()) return CUT;
-  if (req.dossierId && !folderOf(req, store)) return { erreur: "Ce dossier n'est plus confié à l'agent." };
+  if (req.dossierId && !folderOf(req, store)) return { erreur: "Ce dossier n'est plus confié à l'agent." }; // i18n-ignore : lu par le serveur
   // Sans interpréteur quand c'est possible : ce qui a été montré est exactement ce qui part.
   if (print) {
     const now = await dossiers.fingerprint(text, store, folder?.id);
@@ -343,32 +344,33 @@ async function command(req, who, store, stop, refused) {
 }
 
 async function files(req, ctx, store) {
-  if (!store) return { erreur: "Cette application ne gère pas de dossiers." };
+  if (!store) return { erreur: "Cette application ne gère pas de dossiers." }; // i18n-ignore : lu par le serveur
   const folder = folderOf(req, store);
-  if (!folder) return { refuse: true, message: `Ce dossier n'est pas confié à l'agent : ${clean(req.dossierId) || "aucun"}.` };
+  if (!folder) return { refuse: true, message: `Ce dossier n'est pas confié à l'agent : ${clean(req.dossierId) || "aucun"}.` }; // i18n-ignore : lu par le serveur
   try {
     if (req.action === "lister") return { ok: true, dossier: folder.nom, ecriture: folder.ecriture, ...dossiers.list(folder.chemin, req.chemin) };
     if (req.action === "lire") {
       const { data, nom, sha256 } = await dossiers.read(folder.chemin, req.chemin);
       // La lecture a pris du temps : l'accès a pu être coupé, ou le dossier retiré. Rien ne part alors.
       if (store.isCut()) return CUT;
-      if (folderOf(req, store)?.id !== folder.id) return { refuse: true, message: "Ce dossier n'est plus confié à l'agent." };
+      if (folderOf(req, store)?.id !== folder.id) return { refuse: true, message: "Ce dossier n'est plus confié à l'agent." }; // i18n-ignore : lu par le serveur
       await ctx.upload(req.id, data, nom);
       return { ok: true, nom, taille: data.length, sha256 };
     }
     // Ce qui suit écrit : on repart de l'état présent du dossier, et chaque attente (fenêtre, corbeille, livraison) se revérifie.
-    if (!folder.ecriture) throw new dossiers.Refus(`Le dossier « ${folder.nom} » est en lecture seule.`);
+    if (!folder.ecriture) throw new dossiers.Refus(`Le dossier « ${folder.nom} » est en lecture seule.`); // i18n-ignore : lu par le serveur
     const recheck = () => {
       if (store.isCut()) return CUT;
       const approval = approvalFailure();
       if (approval) return approval;
       const now = folderOf(req, store);
-      return now?.id === folder.id && now.ecriture ? null : { refuse: true, message: "Ce dossier n'est plus confié à l'agent en écriture." };
+      return now?.id === folder.id && now.ecriture ? null : { refuse: true, message: "Ce dossier n'est plus confié à l'agent en écriture." }; // i18n-ignore : lu par le serveur
     };
     actionContext.getStore().plan = { program: null, args: [], path: folder.chemin };
     if (getAutonomy() !== "auto") {
-      const detail = `Dossier : ${folder.chemin}\nChemin : ${req.chemin || ""}${req.vers ? `\nVers : ${req.vers}` : ""}`;
-      if (!(await confirm(`${clean(req.agent) || "Noah"} veut ${req.action === "ecrire" ? "écrire un fichier" : req.action === "deplacer" ? "déplacer un élément" : req.action === "corbeille" ? "mettre un élément à la corbeille" : "créer un dossier"}.`, detail))) return { refuse: true, message: "L'utilisateur a refusé cette action." };
+      const detail = t(req.vers ? "accord.fichiers.detail_vers" : "accord.fichiers.detail", { dossier: folder.chemin, chemin: req.chemin || "", vers: req.vers });
+      const what = { ecrire: "accord.ecrire", deplacer: "accord.deplacer", corbeille: "accord.corbeille" }[req.action] || "accord.creer_dossier";
+      if (!(await confirm(t(what, { agent: clean(req.agent) || "Noah" }), detail))) return { refuse: true, message: "L'utilisateur a refusé cette action." }; // i18n-ignore : lu par le serveur
       const blocked = recheck();
       if (blocked) return blocked;
       if (ctx.stillWanted && !(await ctx.stillWanted())) return expired;
@@ -465,8 +467,8 @@ function listen(getOrigin, store) {
           method: "POST", headers: { ...link.headers, "Content-Type": "application/json" },
           body: JSON.stringify({ message, detail }), signal: AbortSignal.timeout(10000),
         });
-        if (r.status === 404 || r.status === 410) throw new Error("Cette demande a expiré sans avoir été affichée : rien n'a été fait.");
-        if (!r.ok) throw new Error("L'accord n'a pas pu être synchronisé.");
+        if (r.status === 404 || r.status === 410) throw new Error("Cette demande a expiré sans avoir été affichée : rien n'a été fait."); // i18n-ignore : lu par le serveur
+        if (!r.ok) throw new Error("L'accord n'a pas pu être synchronisé."); // i18n-ignore : lu par le serveur
         return r.json();
       },
       close: async (id, approve) => {
@@ -474,7 +476,7 @@ function listen(getOrigin, store) {
           method: "POST", headers: { ...link.headers, "Content-Type": "application/json" },
           body: JSON.stringify({ id, approve }), signal: AbortSignal.timeout(10000),
         });
-        if (!r.ok) throw new Error("L'accord n'a pas été pris en compte.");
+        if (!r.ok) throw new Error("L'accord n'a pas été pris en compte."); // i18n-ignore : lu par le serveur
       },
     };
     const ctx = {
@@ -482,12 +484,12 @@ function listen(getOrigin, store) {
       stillWanted: async () => {
         if (stopped) return false;
         const current = await auth();
-        if (!current) throw new Error("Session du bureau indisponible : rien n'a été fait.");
+        if (!current) throw new Error("Session du bureau indisponible : rien n'a été fait."); // i18n-ignore : lu par le serveur
         if (current.origin !== link.origin || current.token !== link.token) return false;
         if (legacy) return true;
         const r = await fetch(`${link.origin}/api/desktop/encore/${req.id}`, { headers: link.headers, signal: AbortSignal.timeout(10000) });
         if (r.status === 404 || r.status === 410) return false;
-        if (!r.ok) throw new Error("Vérification de la demande indisponible : rien n'a été fait.");
+        if (!r.ok) throw new Error("Vérification de la demande indisponible : rien n'a été fait."); // i18n-ignore : lu par le serveur
         return true;
       },
       upload: async (id, data) => {
@@ -497,18 +499,18 @@ function listen(getOrigin, store) {
           body: data,
           signal: AbortSignal.timeout(TRANSFER_TIMEOUT),
         }).catch(() => {
-          throw Object.assign(new Error("Le réseau a coupé pendant l'envoi du fichier."), { plusTard: true });
+          throw Object.assign(new Error("Le réseau a coupé pendant l'envoi du fichier."), { plusTard: true }); // i18n-ignore : lu par le serveur
         });
-        if (!r.ok) throw Object.assign(new Error("Le serveur n'a pas pris ce fichier."), { plusTard: true });
+        if (!r.ok) throw Object.assign(new Error("Le serveur n'a pas pris ce fichier."), { plusTard: true }); // i18n-ignore : lu par le serveur
       },
       download: async (id) => {
         let r;
         try {
           r = await fetch(`${link.origin}/api/desktop/piece/${id}`, { headers: link.headers, signal: AbortSignal.timeout(TRANSFER_TIMEOUT) });
-          if (!r.ok) throw Object.assign(new Error("Le fichier n'est plus sur le serveur."), { plusTard: r.status >= 500 });
+          if (!r.ok) throw Object.assign(new Error("Le fichier n'est plus sur le serveur."), { plusTard: r.status >= 500 }); // i18n-ignore : lu par le serveur
           return Buffer.from(await r.arrayBuffer());
         } catch (e) {
-          throw e.message === "Le fichier n'est plus sur le serveur." ? e : Object.assign(new Error("Le réseau a coupé pendant la livraison."), { plusTard: true });
+          throw e.message === "Le fichier n'est plus sur le serveur." ? e : Object.assign(new Error("Le réseau a coupé pendant la livraison."), { plusTard: true }); // i18n-ignore : lu par le serveur
         }
       },
     };

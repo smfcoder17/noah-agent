@@ -7,6 +7,7 @@ import type { LinkItem, Normalized, PostItem, PostTone, ProductItem } from "@/li
 import { cn, safeMedia } from "@/lib/utils";
 import { SensitiveText } from "./SensitiveText";
 import { useViewer } from "./Viewer";
+import { t } from "@/i18n";
 
 const TONES: Record<PostTone, string> = {
   ok: "bg-ok/12 text-ok",
@@ -30,7 +31,7 @@ function Post({ post }: { post: PostItem }) {
   const view = useViewer();
   const picture = src(post.image);
   return (
-    <article className="flex flex-col gap-2 rounded-2xl border border-border bg-surface p-3" aria-label={`Post ${post.platform}${post.state ? ` · ${post.state.label}` : ""}`}>
+    <article className="flex flex-col gap-2 rounded-2xl border border-border bg-surface p-3" aria-label={post.state ? t("Post {plateforme} · {etat}", { plateforme: post.platform, etat: post.state.label }) : t("Post {plateforme}", { plateforme: post.platform })}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
         <b className="text-[13px] text-foreground">{post.platform}</b>
         {post.account && <span><SensitiveText text={post.account} /></span>}
@@ -45,7 +46,7 @@ function Post({ post }: { post: PostItem }) {
         </button>
       )}
       {post.note && <p className="text-xs text-muted-foreground"><SensitiveText text={post.note} /></p>}
-      {post.url && <a href={post.url} target="_blank" rel="noopener noreferrer" className="noah-block-link inline-flex items-center gap-1 self-start text-xs font-medium"><ExternalLink className="size-3.5" />Voir le post</a>}
+      {post.url && <a href={post.url} target="_blank" rel="noopener noreferrer" className="noah-block-link inline-flex items-center gap-1 self-start text-xs font-medium"><ExternalLink className="size-3.5" />{t("Voir le post")}</a>}
     </article>
   );
 }

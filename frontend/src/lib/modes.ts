@@ -1,20 +1,22 @@
 // Les modes, en un seul endroit : réglages du cerveau, de la création, de la voix, d'un agent et d'une routine.
+import { t } from "@/i18n";
+
 export type TierId = "fast" | "balanced" | "smart";
 export type ModeId = TierId | "gratuit" | "custom";
 export type Level = "cerveau" | "image" | "video" | "music" | "speech" | "transcription";
 
 export const TIERS: { id: TierId; name: string; desc: string; speed: string; descMedia: string }[] = [
-  { id: "fast", name: "Rapide", desc: "Trier, résumer, répondre vite.", speed: "Réponses en quelques secondes", descMedia: "Le résultat le plus vite." },
-  { id: "balanced", name: "Équilibré", desc: "Le bon choix pour presque tout.", speed: "Navigue, écrit, analyse des fichiers", descMedia: "Une bonne qualité pour un prix raisonnable." },
-  { id: "smart", name: "Le plus fort", desc: "Longues recherches, code, décisions délicates.", speed: "Mène des tâches de plusieurs heures", descMedia: "La meilleure qualité, quel qu'en soit le prix." },
+  { id: "fast", name: t("Rapide"), desc: t("Trier, résumer, répondre vite."), speed: t("Réponses en quelques secondes"), descMedia: t("Le résultat le plus vite.") },
+  { id: "balanced", name: t("Équilibré"), desc: t("Le bon choix pour presque tout."), speed: t("Navigue, écrit, analyse des fichiers"), descMedia: t("Une bonne qualité pour un prix raisonnable.") },
+  { id: "smart", name: t("Le plus fort"), desc: t("Longues recherches, code, décisions délicates."), speed: t("Mène des tâches de plusieurs heures"), descMedia: t("La meilleure qualité, quel qu'en soit le prix.") },
 ];
 
-export const MODE_NAMES: Record<ModeId, string> = { fast: "Rapide", balanced: "Équilibré", smart: "Le plus fort", gratuit: "Gratuit", custom: "Ma liste" };
+export const MODE_NAMES: Record<ModeId, string> = { fast: t("Rapide"), balanced: t("Équilibré"), smart: t("Le plus fort"), gratuit: t("Gratuit"), custom: t("Ma liste") };
 
 export const REASONING: { id: string; name: string }[] = [
-  { id: "low", name: "Léger, plus rapide et moins cher" },
-  { id: "medium", name: "Normal" },
-  { id: "high", name: "Poussé, plus lent et plus cher" },
+  { id: "low", name: t("Léger, plus rapide et moins cher") },
+  { id: "medium", name: t("Normal") },
+  { id: "high", name: t("Poussé, plus lent et plus cher") },
 ];
 
 export type ModeLink = {
@@ -55,9 +57,11 @@ export type ListedModel = {
   prix?: string | null;
 };
 
-const JOURS: Record<string, string> = { "0": "dimanche", "1": "lundi", "2": "mardi", "3": "mercredi", "4": "jeudi", "5": "vendredi", "6": "samedi", "7": "dimanche" };
-const heure = (h: string, m: string) => `${Number(h)} h${Number(m) ? ` ${m.padStart(2, "0")}` : ""}`;
-const toutes = (n: number, unite: "minute" | "heure") => (n === 1 ? `Toutes les ${unite}s` : `Toutes les ${n} ${unite}s`);
+const JOURS: Record<string, string> = { "0": t("dimanche"), "1": t("lundi"), "2": t("mardi"), "3": t("mercredi"), "4": t("jeudi"), "5": t("vendredi"), "6": t("samedi"), "7": t("dimanche") };
+const heure = (h: string, m: string) => (Number(m) ? t("{h} h {m}", { h: Number(h), m: m.padStart(2, "0") }) : t("{h} h", { h: Number(h) }));
+const toutes = (n: number, unite: "minute" | "heure") => unite === "minute"
+  ? (n === 1 ? t("Toutes les minutes") : t("Toutes les {n} minutes", { n }))
+  : (n === 1 ? t("Toutes les heures") : t("Toutes les {n} heures", { n }));
 const AMPM = (h: string, ap?: string) => (ap?.toLowerCase() === "pm" && Number(h) < 12 ? String(Number(h) + 12) : ap?.toLowerCase() === "am" && h === "12" ? "0" : h);
 
 /** Un horaire en français : le brut seulement si la forme n'est pas courante. */
@@ -73,10 +77,10 @@ export function scheduleLabel(raw: string): string {
   if (human) {
     const h = heure(AMPM(human[2], human[4]), human[3] ?? "0");
     const quand = human[1].toLowerCase();
-    if (quand === "day") return `Chaque jour à ${h}`;
-    if (quand === "weekday") return `Les jours de semaine à ${h}`;
-    const jour = { monday: "lundi", tuesday: "mardi", wednesday: "mercredi", thursday: "jeudi", friday: "vendredi", saturday: "samedi", sunday: "dimanche" }[quand];
-    return `Chaque ${jour} à ${h}`;
+    if (quand === "day") return t("Chaque jour à {heure}", { heure: h });
+    if (quand === "weekday") return t("Les jours de semaine à {heure}", { heure: h });
+    const jour = { monday: JOURS["1"], tuesday: JOURS["2"], wednesday: JOURS["3"], thursday: JOURS["4"], friday: JOURS["5"], saturday: JOURS["6"], sunday: JOURS["0"] }[quand] ?? quand;
+    return t("Chaque {jour} à {heure}", { jour, heure: h });
   }
   const parts = s.split(/\s+/);
   if (parts.length !== 5) return raw;
@@ -86,20 +90,21 @@ export function scheduleLabel(raw: string): string {
   if (stepMin && hour === "*" && dom === "*" && mon === "*" && dow === "*") return toutes(Number(stepMin[1]), "minute");
   const stepHour = /^\*\/(\d+)$/.exec(hour);
   if (whole.test(min) && stepHour && dom === "*" && mon === "*" && dow === "*") return toutes(Number(stepHour[1]), "heure");
-  if (whole.test(min) && hour === "*" && dom === "*" && mon === "*" && dow === "*") return Number(min) ? `Chaque heure, à la minute ${Number(min)}` : "Toutes les heures";
+  if (whole.test(min) && hour === "*" && dom === "*" && mon === "*" && dow === "*") return Number(min) ? t("Chaque heure, à la minute {n}", { n: Number(min) }) : t("Toutes les heures");
   if (!whole.test(min) || !whole.test(hour) || mon !== "*") return raw;
   const h = heure(hour, min);
-  if (dom === "*" && dow === "*") return `Chaque jour à ${h}`;
-  if (dom === "*" && (dow === "1-5" || dow === "mon-fri")) return `Les jours de semaine à ${h}`;
-  if (dom === "*" && (dow === "0,6" || dow === "6,0" || dow === "6-7")) return `Le week-end à ${h}`;
-  if (dom === "*" && JOURS[dow]) return `Chaque ${JOURS[dow]} à ${h}`;
-  if (dow === "*" && whole.test(dom)) return `Le ${dom === "1" ? "1er" : Number(dom)} de chaque mois à ${h}`;
+  if (dom === "*" && dow === "*") return t("Chaque jour à {heure}", { heure: h });
+  if (dom === "*" && (dow === "1-5" || dow === "mon-fri")) return t("Les jours de semaine à {heure}", { heure: h });
+  if (dom === "*" && (dow === "0,6" || dow === "6,0" || dow === "6-7")) return t("Le week-end à {heure}", { heure: h });
+  if (dom === "*" && JOURS[dow]) return t("Chaque {jour} à {heure}", { jour: JOURS[dow], heure: h });
+  if (dow === "*" && whole.test(dom)) return dom === "1" ? t("Le 1er de chaque mois à {heure}", { heure: h }) : t("Le {jour} de chaque mois à {heure}", { jour: Number(dom), heure: h });
   return raw;
 }
 
+// Noms de marques : les mêmes dans toutes les langues.
 const BRANDS: Record<string, string> = {
-  deepseek: "DeepSeek", gpt: "GPT", openai: "OpenAI", claude: "Claude", gemini: "Gemini", gemma: "Gemma", llama: "Llama", qwen: "Qwen", glm: "GLM",
-  kimi: "Kimi", mistral: "Mistral", grok: "Grok", oss: "OSS", minimax: "MiniMax", sonnet: "Sonnet", opus: "Opus", haiku: "Haiku", nemotron: "Nemotron",
+  deepseek: "DeepSeek", gpt: "GPT", openai: "OpenAI", claude: "Claude", gemini: "Gemini", gemma: "Gemma", llama: "Llama", qwen: "Qwen", glm: "GLM", // i18n-ignore : marque
+  kimi: "Kimi", mistral: "Mistral", grok: "Grok", oss: "OSS", minimax: "MiniMax", sonnet: "Sonnet", opus: "Opus", haiku: "Haiku", nemotron: "Nemotron", // i18n-ignore : marque
 };
 
 /** Un identifiant de modèle (« fournisseur/nom-version-date ») dit comme un nom ; un nom déjà lisible reste tel quel. */
@@ -114,10 +119,10 @@ export function readableModel(id: string | null | undefined): string {
     if (/^\d$/.test(w) && prev && /\d$/.test(prev)) out[out.length - 1] = prev + "." + w; // « 5-1 » se lit « 5.1 »
     else out.push(BRANDS[w.toLowerCase()] ?? (/^v?\d/i.test(w) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1)));
   }
-  return out.join(" ") + (free ? " (gratuit)" : "");
+  return free ? t("{nom} (gratuit)", { nom: out.join(" ") }) : out.join(" ");
 }
 
 /** Le nom d'un mode d'agent, « auto » compris (le niveau suit chaque demande : server/noah/complexite.py). */
 export function modeName(mode: string): string {
-  return mode === "auto" ? "Auto" : MODE_NAMES[mode as ModeId] ?? mode;
+  return mode === "auto" ? t("Auto") : MODE_NAMES[mode as ModeId] ?? mode;
 }

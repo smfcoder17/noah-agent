@@ -8,6 +8,7 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const { t } = require("./textes");
 
 const MAX_FILE = 50 * 1024 * 1024;
 const MAX_LIST = 1000;
@@ -39,12 +40,12 @@ function isSensitive(parts) {
 /** Le chemin relatif demandé, découpé. Refuse tout ce qui n'est pas une simple descente dans le dossier. */
 function pieces(relative) {
   const text = String(relative ?? "").replace(/\\/g, "/");
-  if (/^\//.test(text) || /^[A-Za-z]:/.test(text) || text.includes("\0") || text.length > 1000) throw new Refus("Ce chemin n'est pas relatif au dossier.");
+  if (/^\//.test(text) || /^[A-Za-z]:/.test(text) || text.includes("\0") || text.length > 1000) throw new Refus("Ce chemin n'est pas relatif au dossier."); // i18n-ignore : lu par le serveur
   const parts = text.split("/").filter((p) => p && p !== ".");
   for (const part of parts) {
-    if (part === "..") throw new Refus("Ce chemin remonte hors du dossier.");
-    if (DECEIVING.test(part)) throw new Refus("Ce nom contient des caractères invisibles ou de contrôle.");
-    if (part.length > 200 || part.includes(":") || /[<>"|?*]/.test(part) || /[. ]$/.test(part) || RESERVED.test(part)) throw new Refus(`Ce nom n'est pas permis : ${part.slice(0, 80)}`);
+    if (part === "..") throw new Refus("Ce chemin remonte hors du dossier."); // i18n-ignore : lu par le serveur
+    if (DECEIVING.test(part)) throw new Refus("Ce nom contient des caractères invisibles ou de contrôle."); // i18n-ignore : lu par le serveur
+    if (part.length > 200 || part.includes(":") || /[<>"|?*]/.test(part) || /[. ]$/.test(part) || RESERVED.test(part)) throw new Refus(`Ce nom n'est pas permis : ${part.slice(0, 80)}`); // i18n-ignore : lu par le serveur
   }
   return parts;
 }
@@ -63,10 +64,10 @@ function resolve(folderPath, relative) {
   try {
     root = real(folderPath);
   } catch {
-    throw new Refus("Ce dossier n'existe plus sur l'ordinateur.");
+    throw new Refus("Ce dossier n'existe plus sur l'ordinateur."); // i18n-ignore : lu par le serveur
   }
-  if (root.split(path.sep).some((p) => SENSITIVE_DIR.test(p))) throw new Refus("Ce dossier contient des clés : refusé d'office, quel que soit le droit.");
-  if (!fs.statSync(root).isDirectory()) throw new Refus("Ce dossier n'existe plus sur l'ordinateur.");
+  if (root.split(path.sep).some((p) => SENSITIVE_DIR.test(p))) throw new Refus("Ce dossier contient des clés : refusé d'office, quel que soit le droit."); // i18n-ignore : lu par le serveur
+  if (!fs.statSync(root).isDirectory()) throw new Refus("Ce dossier n'existe plus sur l'ordinateur."); // i18n-ignore : lu par le serveur
   let probe = path.join(root, ...parts);
   const missing = [];
   let existing;
@@ -83,22 +84,22 @@ function resolve(folderPath, relative) {
       } catch {
         /* rien à ce nom */
       }
-      if (dangling) throw new Refus("Ce chemin passe par un lien qui ne mène nulle part.");
+      if (dangling) throw new Refus("Ce chemin passe par un lien qui ne mène nulle part."); // i18n-ignore : lu par le serveur
       missing.unshift(path.basename(probe));
       probe = path.dirname(probe);
     }
   }
-  if (!inside(root, existing)) throw new Refus("Ce chemin mène hors du dossier.");
+  if (!inside(root, existing)) throw new Refus("Ce chemin mène hors du dossier."); // i18n-ignore : lu par le serveur
   const target = path.join(existing, ...missing);
   // Sur le chemin réel aussi : un nom court Windows ou un lien ne cache pas un fichier sensible.
-  if (isSensitive(parts) || isSensitive(path.relative(root, target).split(path.sep))) throw new Refus("Fichier sensible : refusé d'office, quel que soit le droit.");
+  if (isSensitive(parts) || isSensitive(path.relative(root, target).split(path.sep))) throw new Refus("Fichier sensible : refusé d'office, quel que soit le droit."); // i18n-ignore : lu par le serveur
   return { root, target, exists: missing.length === 0 };
 }
 
 function list(folderPath, relative = "") {
   const { root, target, exists } = resolve(folderPath, relative);
-  if (!exists) throw new Refus("Introuvable dans ce dossier.");
-  if (!fs.statSync(target).isDirectory()) throw new Refus("Ce n'est pas un dossier.");
+  if (!exists) throw new Refus("Introuvable dans ce dossier."); // i18n-ignore : lu par le serveur
+  if (!fs.statSync(target).isDirectory()) throw new Refus("Ce n'est pas un dossier."); // i18n-ignore : lu par le serveur
   const elements = [];
   let cachés = 0;
   for (const entry of fs.readdirSync(target, { withFileTypes: true })) {
@@ -123,12 +124,12 @@ function list(folderPath, relative = "") {
 
 async function read(folderPath, relative) {
   const { target, exists } = resolve(folderPath, relative);
-  if (!exists) throw new Refus("Introuvable dans ce dossier.");
+  if (!exists) throw new Refus("Introuvable dans ce dossier."); // i18n-ignore : lu par le serveur
   const file = await fs.promises.open(target, "r");
   try {
     const stat = await file.stat();
-    if (!stat.isFile()) throw new Refus("Ce n'est pas un fichier.");
-    if (stat.size > MAX_FILE) throw new Refus("Ce fichier dépasse 50 Mo : il ne passe pas en une fois.");
+    if (!stat.isFile()) throw new Refus("Ce n'est pas un fichier."); // i18n-ignore : lu par le serveur
+    if (stat.size > MAX_FILE) throw new Refus("Ce fichier dépasse 50 Mo : il ne passe pas en une fois."); // i18n-ignore : lu par le serveur
     const data = await file.readFile();
     return { data, nom: path.basename(target), sha256: await hashOf(data) };
   } finally {
@@ -156,10 +157,10 @@ async function hashFile(file) {
 
 /** Une erreur du système : jamais son texte, qui contient le chemin complet. Rend le message, et si un nouvel essai a un sens. */
 function explain(error) {
-  const later = { EPERM: "Écriture refusée sur l'ordinateur : le fichier ou le dossier est protégé.", EACCES: "Accès refusé sur l'ordinateur : le fichier ou le dossier est protégé.", EBUSY: "Ce fichier est ouvert par un autre programme.", ENOSPC: "Le disque de l'ordinateur est plein.", EROFS: "Ce disque est en lecture seule.", EMFILE: "L'ordinateur est occupé.", EIO: "Le disque de l'ordinateur ne répond pas." };
-  const final = { ENOTDIR: "Un élément de ce chemin est un fichier, pas un dossier.", EEXIST: "Un élément de ce chemin est un fichier, pas un dossier.", EISDIR: "Ce nom est celui d'un dossier.", ENAMETOOLONG: "Ce chemin est trop long pour l'ordinateur.", ENOENT: "Introuvable dans ce dossier.", EINVAL: "Ce nom n'est pas permis sur cet ordinateur." };
+  const later = { EPERM: "Écriture refusée sur l'ordinateur : le fichier ou le dossier est protégé.", EACCES: "Accès refusé sur l'ordinateur : le fichier ou le dossier est protégé.", EBUSY: "Ce fichier est ouvert par un autre programme.", ENOSPC: "Le disque de l'ordinateur est plein.", EROFS: "Ce disque est en lecture seule.", EMFILE: "L'ordinateur est occupé.", EIO: "Le disque de l'ordinateur ne répond pas." }; // i18n-ignore : lu par le serveur
+  const final = { ENOTDIR: "Un élément de ce chemin est un fichier, pas un dossier.", EEXIST: "Un élément de ce chemin est un fichier, pas un dossier.", EISDIR: "Ce nom est celui d'un dossier.", ENAMETOOLONG: "Ce chemin est trop long pour l'ordinateur.", ENOENT: "Introuvable dans ce dossier.", EINVAL: "Ce nom n'est pas permis sur cet ordinateur." }; // i18n-ignore : lu par le serveur
   if (later[error.code]) return { message: later[error.code], later: true };
-  return { message: final[error.code] ?? "Le système de l'ordinateur a refusé cette opération.", later: false };
+  return { message: final[error.code] ?? "Le système de l'ordinateur a refusé cette opération.", later: false }; // i18n-ignore : lu par le serveur
 }
 
 /** Marque le fichier comme venu d'ailleurs, comme un navigateur le fait : Windows et Office s'en méfient à l'ouverture. */
@@ -200,17 +201,17 @@ function publish(temporary, target) {
       return candidate;
     }
   }
-  throw new Refus("Trop de fichiers portent déjà ce nom.");
+  throw new Refus("Trop de fichiers portent déjà ce nom."); // i18n-ignore : lu par le serveur
 }
 
 /** Écrit `data` dans le dossier. L'autonomie est vérifiée par actions.js pour tous les types de fichier. */
 async function write(folder, relative, data, { remplacer = false, attendu = "", id = "", journal = null, ask = async () => false, recheck = () => null, trash = null } = {}) {
-  if (!folder.ecriture) throw new Refus(`Le dossier « ${folder.nom} » est en lecture seule.`);
-  if (data.length > MAX_FILE) throw new Refus("Ce fichier dépasse 50 Mo.");
+  if (!folder.ecriture) throw new Refus(`Le dossier « ${folder.nom} » est en lecture seule.`); // i18n-ignore : lu par le serveur
+  if (data.length > MAX_FILE) throw new Refus("Ce fichier dépasse 50 Mo."); // i18n-ignore : lu par le serveur
   const hash = await hashOf(data);
-  if (attendu && attendu !== hash) throw new Refus("Le fichier reçu ne correspond pas à celui envoyé.");
+  if (attendu && attendu !== hash) throw new Refus("Le fichier reçu ne correspond pas à celui envoyé."); // i18n-ignore : lu par le serveur
   const { target, exists } = resolve(folder.chemin, relative);
-  if (exists && fs.statSync(target).isDirectory()) throw new Refus("Ce nom est celui d'un dossier.");
+  if (exists && fs.statSync(target).isDirectory()) throw new Refus("Ce nom est celui d'un dossier."); // i18n-ignore : lu par le serveur
 
   // Livraison déjà faite (l'accusé de réception s'est perdu) : on rend le même fichier, sans seconde copie.
   const known = id && journal ? journal.find(id) : null;
@@ -223,7 +224,7 @@ async function write(folder, relative, data, { remplacer = false, attendu = "", 
   }
   const shown = pieces(relative).join("/");
   // Avec une corbeille, remplacer se défait : l'ancienne version y part, et rien n'est demandé. Sans corbeille, l'ancien contenu serait perdu.
-  const replacing = remplacer && exists && (trash ? true : await ask(`Un agent veut remplacer un fichier de « ${folder.nom} ».`, `${shown}\n\nL'ancien contenu sera perdu. Sans ton accord, une copie est créée à côté.`));
+  const replacing = remplacer && exists && (trash ? true : await ask(t("accord.remplacer", { nom: folder.nom }), t("accord.remplacer.detail", { chemin: shown })));
   // Une fenêtre a pu rester ouverte longtemps : l'accès a peut-être été coupé, ou le dossier retiré, entre-temps.
   const blocked = recheck();
   if (blocked) return blocked;
@@ -267,11 +268,11 @@ async function write(folder, relative, data, { remplacer = false, attendu = "", 
 // Tout reste dans le dossier confié en écriture, et tout se défait : rien n'est écrasé, ce qu'on retire part à la corbeille du système.
 
 function writable(folder) {
-  if (!folder.ecriture) throw new Refus(`Le dossier « ${folder.nom} » est en lecture seule.`);
+  if (!folder.ecriture) throw new Refus(`Le dossier « ${folder.nom} » est en lecture seule.`); // i18n-ignore : lu par le serveur
 }
 
 function notRoot(root, target) {
-  if (path.relative(root, target) === "") throw new Refus("C'est le dossier confié lui-même : choisis un élément dedans.");
+  if (path.relative(root, target) === "") throw new Refus("C'est le dossier confié lui-même : choisis un élément dedans."); // i18n-ignore : lu par le serveur
 }
 
 const identity = (target) => {
@@ -284,23 +285,23 @@ const identity = (target) => {
 async function move(folder, from, to, { recheck = () => null } = {}) {
   writable(folder);
   const source = resolve(folder.chemin, from);
-  if (!source.exists) throw new Refus("Introuvable dans ce dossier.");
+  if (!source.exists) throw new Refus("Introuvable dans ce dossier."); // i18n-ignore : lu par le serveur
   notRoot(source.root, source.target);
   const dest = resolve(folder.chemin, to);
   notRoot(dest.root, dest.target);
-  if (dest.exists) throw new Refus("Un élément porte déjà ce nom à l'arrivée : choisis un autre nom, rien n'est écrasé.");
-  if (inside(source.target, dest.target)) throw new Refus("Un dossier ne se range pas dans lui-même.");
+  if (dest.exists) throw new Refus("Un élément porte déjà ce nom à l'arrivée : choisis un autre nom, rien n'est écrasé."); // i18n-ignore : lu par le serveur
+  if (inside(source.target, dest.target)) throw new Refus("Un dossier ne se range pas dans lui-même."); // i18n-ignore : lu par le serveur
   const before = identity(source.target);
   const blocked = recheck();
   if (blocked) return blocked;
   writable(folder);
   // Pendant l'attente, un autre ordre a pu déplacer ou remplacer la source : on repart de zéro et on vérifie que c'est la même.
   const now = resolve(folder.chemin, from);
-  if (!now.exists || identity(now.target) !== before || now.target !== source.target) throw new Refus("Cet élément a changé pendant l'attente : rien n'est déplacé.");
+  if (!now.exists || identity(now.target) !== before || now.target !== source.target) throw new Refus("Cet élément a changé pendant l'attente : rien n'est déplacé."); // i18n-ignore : lu par le serveur
   fs.mkdirSync(path.dirname(dest.target), { recursive: true });
   const again = resolve(folder.chemin, to); // le parent vient peut-être d'être créé
-  if (again.exists) throw new Refus("Un élément porte déjà ce nom à l'arrivée : choisis un autre nom, rien n'est écrasé.");
-  if (inside(now.target, again.target)) throw new Refus("Un dossier ne se range pas dans lui-même.");
+  if (again.exists) throw new Refus("Un élément porte déjà ce nom à l'arrivée : choisis un autre nom, rien n'est écrasé."); // i18n-ignore : lu par le serveur
+  if (inside(now.target, again.target)) throw new Refus("Un dossier ne se range pas dans lui-même."); // i18n-ignore : lu par le serveur
   fs.renameSync(now.target, again.target);
   return { ok: true, de: pieces(from).join("/"), vers: path.relative(real(folder.chemin), again.target).split(path.sep).join("/") };
 }
@@ -309,7 +310,7 @@ function makeDir(folder, relative) {
   writable(folder);
   const { root, target, exists } = resolve(folder.chemin, relative);
   notRoot(root, target);
-  if (exists && !fs.statSync(target).isDirectory()) throw new Refus("Un fichier porte déjà ce nom.");
+  if (exists && !fs.statSync(target).isDirectory()) throw new Refus("Un fichier porte déjà ce nom."); // i18n-ignore : lu par le serveur
   fs.mkdirSync(target, { recursive: true });
   return { ok: true, chemin: pieces(relative).join("/"), deja: exists };
 }
@@ -317,9 +318,9 @@ function makeDir(folder, relative) {
 /** Met un élément à la corbeille du système, d'où la personne le récupère. Sans corbeille, rien n'est supprimé. */
 async function toTrash(folder, relative, trash) {
   writable(folder);
-  if (!trash) throw new Refus("Pas de corbeille sur cet ordinateur : rien n'est supprimé.");
+  if (!trash) throw new Refus("Pas de corbeille sur cet ordinateur : rien n'est supprimé."); // i18n-ignore : lu par le serveur
   const { root, target, exists } = resolve(folder.chemin, relative);
-  if (!exists) throw new Refus("Introuvable dans ce dossier.");
+  if (!exists) throw new Refus("Introuvable dans ce dossier."); // i18n-ignore : lu par le serveur
   notRoot(root, target);
   await trash(target);
   return { ok: true, chemin: pieces(relative).join("/"), corbeille: true };

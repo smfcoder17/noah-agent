@@ -1,4 +1,5 @@
 // Les blocs ```noah écrits par l'agent, vérifiés avant l'affichage : un bloc mal formé retombe en texte, jamais en écran cassé.
+import { t } from "@/i18n";
 
 export type PostTone = "ok" | "info" | "muted" | "warn";
 export type PostItem = { platform: string; account?: string; text?: string; image?: string; more: number; url?: string; state?: { label: string; tone: PostTone }; date?: string; note?: string };
@@ -18,21 +19,22 @@ export const webUrl = (v: unknown): string | undefined => { const s = text(v); r
 const image = (v: unknown): string | undefined => { const s = text(v); return s && (/^https?:\/\//i.test(s) || s.startsWith("/opt/data/")) ? s : undefined; };
 const itemsOf = (spec: Raw, single: (spec: Raw) => boolean): Raw[] => Array.isArray(spec.items) ? spec.items.filter(isObject) : single(spec) ? [spec] : [];
 
+// i18n-ignore : noms des réseaux, écrits pareil dans toutes les langues
 const PLATFORMS: Record<string, string> = { x: "X", twitter: "X", instagram: "Instagram", facebook: "Facebook", linkedin: "LinkedIn", tiktok: "TikTok", youtube: "YouTube", threads: "Threads", bluesky: "Bluesky", mastodon: "Mastodon", pinterest: "Pinterest" };
 const fold = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().trim();
 export function platformName(v: unknown, url?: string): string {
   const given = text(v);
   if (given) return PLATFORMS[fold(given)] ?? given;
-  try { const host = new URL(url ?? "").hostname.replace(/^www\./, ""); const parts = host.split("."); return PLATFORMS[parts[parts.length - 2] ?? ""] ?? host; } catch { return "Post"; }
+  try { const host = new URL(url ?? "").hostname.replace(/^www\./, ""); const parts = host.split("."); return PLATFORMS[parts[parts.length - 2] ?? ""] ?? host; } catch { return t("Post"); }
 }
 export function postState(v: unknown): PostItem["state"] {
   const given = text(v);
   if (!given) return undefined;
   const s = fold(given);
-  if (/^(publie|en ligne|published|posted|live)/.test(s)) return { label: "Publié", tone: "ok" };
-  if (/^(prevu|programme|planifie|scheduled)/.test(s)) return { label: "Prévu", tone: "info" };
-  if (/^(brouillon|draft|a publier|a valider)/.test(s)) return { label: "Brouillon", tone: "muted" };
-  if (/^(echec|echoue|erreur|rate|refuse|failed|error)/.test(s)) return { label: "Échec", tone: "warn" };
+  if (/^(publie|en ligne|published|posted|live)/.test(s)) return { label: t("Publié"), tone: "ok" };
+  if (/^(prevu|programme|planifie|scheduled)/.test(s)) return { label: t("Prévu"), tone: "info" };
+  if (/^(brouillon|draft|a publier|a valider)/.test(s)) return { label: t("Brouillon"), tone: "muted" };
+  if (/^(echec|echoue|erreur|rate|refuse|failed|error)/.test(s)) return { label: t("Échec"), tone: "warn" };
   return { label: given, tone: "muted" };
 }
 

@@ -7,18 +7,21 @@ import { type Level, type ListedModel, type ModeId, type ModeLink, type ModesSta
 import { cn, contextSize, money } from "@/lib/utils";
 import { ProviderLogo } from "./ProviderLogo";
 import { Button, ErrorText, Input } from "./ui";
+import { locale, t } from "@/i18n";
 
 type Priced = { free?: boolean; price_in?: number | null; price_out?: number | null; prix?: string | null };
 
 // Coût d'une tâche type : ~20 000 jetons lus, ~2 000 écrits.
 export const taskCost = (m: Priced) =>
   m.free ? 0 : m.price_in == null ? null : (m.price_in * 20000 + (m.price_out ?? m.price_in) * 2000) / 1e6;
-export const costLabel = (m: Priced) => {
-  if (m.prix) return m.prix;
+/** `short` : sans « par tâche », pour la colonne étroite d'une liste. */
+export const costLabel = (m: Priced, short = false) => {
+  if (m.prix) return short ? m.prix.replace(/ par tâche$/, "") : m.prix; // i18n-ignore : libellé de prix venu du serveur
   const c = taskCost(m);
-  if (c === 0) return "Gratuit";
-  if (c == null) return "Prix inconnu";
-  return c < 0.01 ? "moins d'1 centime par tâche" : `≈ ${money(c)} $ par tâche`;
+  if (c === 0) return t("Gratuit");
+  if (c == null) return t("Prix inconnu");
+  if (c < 0.01) return short ? t("< 1 centime") : t("moins d'1 centime par tâche");
+  return short ? t("≈ {prix} $", { prix: money(c) }) : t("≈ {prix} $ par tâche", { prix: money(c) });
 };
 // « Anthropic: Claude Sonnet » perd son labo ; « glm-5.3:cloud » (étiquette Ollama, sans espace) garde son nom.
 export const shortName = (name: string) => readableModel(name.replace(/^[^:]+:\s+/, ""));
@@ -30,7 +33,7 @@ export function ModelRow({ m, selected, onPick }: { m: Pick<Model, "id" | "name"
       role="radio"
       aria-checked={selected}
       onClick={onPick}
-      title={m.context ? `Peut lire ${contextSize(m.context)} à la fois` : undefined}
+      title={m.context ? t("Peut lire {taille} à la fois", { taille: contextSize(m.context) }) : undefined}
       className={cn(
         "flex w-full cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-muted",
         selected && "bg-accent-soft ring-2 ring-accent hover:bg-accent-soft",
@@ -41,9 +44,9 @@ export function ModelRow({ m, selected, onPick }: { m: Pick<Model, "id" | "name"
         <span className="truncate font-medium">{shortName(m.name)}</span>
         {m.id.includes("/") && <span className="truncate text-xs text-muted-foreground" title={m.id}>{readableModel(m.id.split("/")[0]).replace(/^./, (c) => c.toUpperCase())}</span>}
       </span>
-      {selected && <span className="shrink-0 rounded-full bg-accent px-2 py-0.5 text-[11px] font-semibold text-surface">Utilisé</span>}
-      {m.vision && <Eye className="size-3.5 shrink-0 text-muted-foreground" aria-label="Voit les images" />}
-      <span className="w-24 shrink-0 text-right text-xs tabular-nums sm:w-36">{costLabel(m).replace(/ par tâche$/, "").replace(/^moins d.1 centime$/, "< 1 centime")}</span>
+      {selected && <span className="shrink-0 rounded-full bg-accent px-2 py-0.5 text-[11px] font-semibold text-surface">{t("Utilisé")}</span>}
+      {m.vision && <Eye className="size-3.5 shrink-0 text-muted-foreground" aria-label={t("Voit les images")} />}
+      <span className="w-24 shrink-0 text-right text-xs tabular-nums sm:w-36">{costLabel(m, true)}</span>
     </button>
   );
 }
@@ -86,7 +89,7 @@ export function ModelSearch({ level, selected, onPick }: { level: Level; selecte
                                n: (known?.n ?? 0) + 1 });
     }
     for (const b of brands) if (!rows.has(b.id)) rows.set(b.id, { label: b.label, n: 0 });
-    return [...rows.entries()].map(([id, row]) => ({ id, ...row })).sort((a, b) => a.label.localeCompare(b.label, "fr") || a.id.localeCompare(b.id));
+    return [...rows.entries()].map(([id, row]) => ({ id, ...row })).sort((a, b) => a.label.localeCompare(b.label, locale()) || a.id.localeCompare(b.id));
   }, [models, brands]);
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -97,15 +100,15 @@ export function ModelSearch({ level, selected, onPick }: { level: Level; selecte
     return groupByBrand(ranked, brands);
   }, [models, query, brand, selected, brands]);
   if (error) return <ErrorText>{error}</ErrorText>;
-  if (!models) return <p className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" />Lecture des modèles…</p>;
+  if (!models) return <p className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" />{t("Lecture des modèles…")}</p>;
   return (
     <div className="flex flex-col gap-2">
       <div className="relative">
         <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input type="search" className="h-9 pl-9" placeholder="Rechercher un modèle" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Rechercher un modèle" />
+        <Input type="search" className="h-9 pl-9" placeholder={t("Rechercher un modèle")} value={query} onChange={(e) => setQuery(e.target.value)} aria-label={t("Rechercher un modèle")} />
       </div>
       {brands.length > 1 && (
-        <div className="flex flex-wrap gap-1" role="group" aria-label="Fournisseurs">
+        <div className="flex flex-wrap gap-1" role="group" aria-label={t("Fournisseurs")}>
           <button
             type="button"
             aria-pressed={!brand}
@@ -115,7 +118,7 @@ export function ModelSearch({ level, selected, onPick }: { level: Level; selecte
               !brand ? "border-accent bg-accent-soft text-accent" : "border-muted-foreground/50 text-muted-foreground",
             )}
           >
-            Tous<span className="ml-1 font-normal text-muted-foreground tabular-nums">{models.length}</span>
+            {t("Tous")}<span className="ml-1 font-normal text-muted-foreground tabular-nums">{models.length}</span>
           </button>
           {counts.map((b) => (
             <button
@@ -135,8 +138,8 @@ export function ModelSearch({ level, selected, onPick }: { level: Level; selecte
           ))}
         </div>
       )}
-      <p className="flex justify-end px-2.5 text-[11px] text-muted-foreground">Prix d'une tâche type</p>
-      <div role="radiogroup" aria-label="Modèles" className="flex max-h-64 flex-col overflow-y-auto max-md:max-h-[55dvh]">
+      <p className="flex justify-end px-2.5 text-[11px] text-muted-foreground">{t("Prix d'une tâche type")}</p>
+      <div role="radiogroup" aria-label={t("Modèles")} className="flex max-h-64 flex-col overflow-y-auto max-md:max-h-[55dvh]">
         {groups.map((g) => (
           <section key={g.key} aria-label={g.label}>
             {brands.length > 1 && (
@@ -148,14 +151,14 @@ export function ModelSearch({ level, selected, onPick }: { level: Level; selecte
             {g.models.map((m) => <ModelRow key={`${m.fournisseur}:${m.id}`} m={m} selected={selected === m.id} onPick={() => onPick(m)} />)}
           </section>
         ))}
-        {!groups.some((g) => g.models.length) && <p className="p-3 text-sm text-muted-foreground">Aucun modèle ne correspond.</p>}
+        {!groups.some((g) => g.models.length) && <p className="p-3 text-sm text-muted-foreground">{t("Aucun modèle ne correspond.")}</p>}
       </div>
     </div>
   );
 }
 
 function Picked({ link }: { link: ModeLink | null | undefined }) {
-  if (!link) return <span className="text-xs text-muted-foreground">Aucun modèle pour ce mode avec tes clés.</span>;
+  if (!link) return <span className="text-xs text-muted-foreground">{t("Aucun modèle pour ce mode avec tes clés.")}</span>;
   return (
     <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
       <ProviderLogo modelId={link.modele} className="size-5 shrink-0" />
@@ -206,16 +209,16 @@ export function ChainEditor({ level, initial, onSave, busy }: { level: Level; in
               <GripVertical className="size-4 shrink-0 cursor-grab text-muted-foreground" aria-hidden />
               <span className="w-4 shrink-0 text-xs text-muted-foreground tabular-nums">{i + 1}</span>
               <span className="min-w-0 flex-1"><Picked link={link} /></span>
-              <Button type="button" variant="ghost" size="sm" className="size-8 shrink-0 p-0" disabled={i === 0} aria-label={`Monter ${shortName(link.nom)}`} onClick={() => move(i, i - 1)}><ArrowUp /></Button>
-              <Button type="button" variant="ghost" size="sm" className="size-8 shrink-0 p-0" disabled={i === chain.length - 1} aria-label={`Descendre ${shortName(link.nom)}`} onClick={() => move(i, i + 1)}><ArrowDown /></Button>
-              <Button type="button" variant="ghost" size="sm" className="size-8 shrink-0 p-0" aria-label={`Retirer ${shortName(link.nom)}`} onClick={() => setChain(chain.filter((_, k) => k !== i))}><X /></Button>
+              <Button type="button" variant="ghost" size="sm" className="size-8 shrink-0 p-0" disabled={i === 0} aria-label={t("Monter {nom}", { nom: shortName(link.nom) })} onClick={() => move(i, i - 1)}><ArrowUp /></Button>
+              <Button type="button" variant="ghost" size="sm" className="size-8 shrink-0 p-0" disabled={i === chain.length - 1} aria-label={t("Descendre {nom}", { nom: shortName(link.nom) })} onClick={() => move(i, i + 1)}><ArrowDown /></Button>
+              <Button type="button" variant="ghost" size="sm" className="size-8 shrink-0 p-0" aria-label={t("Retirer {nom}", { nom: shortName(link.nom) })} onClick={() => setChain(chain.filter((_, k) => k !== i))}><X /></Button>
             </li>
           ))}
         </ol>
       )}
-      {adding ? <ModelSearch level={level} onPick={add} /> : <Button type="button" variant="outline" size="sm" className="self-start" onClick={() => setAdding(true)}><Plus />Ajouter un modèle</Button>}
+      {adding ? <ModelSearch level={level} onPick={add} /> : <Button type="button" variant="outline" size="sm" className="self-start" onClick={() => setAdding(true)}><Plus />{t("Ajouter un modèle")}</Button>}
       <div className="flex justify-end">
-        <Button type="button" size="sm" disabled={busy || !chain.length} onClick={() => onSave(chain)}>{busy && <Loader2 className="animate-spin" />}Utiliser cette liste</Button>
+        <Button type="button" size="sm" disabled={busy || !chain.length} onClick={() => onSave(chain)}>{busy && <Loader2 className="animate-spin" />}{t("Utiliser cette liste")}</Button>
       </div>
     </div>
   );
@@ -255,7 +258,7 @@ export function ModeRows({ level, onChanged }: { level: Level; onChanged?: (inSe
     }
   }, [level, onChanged]);
 
-  if (!state) return error ? <ErrorText>{error}</ErrorText> : <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture des modes…</p>;
+  if (!state) return error ? <ErrorText>{error}</ErrorText> : <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("Lecture des modes…")}</p>;
   const brain = level === "cerveau";
   const row = (id: ModeId, name: string, desc: string, under: React.ReactNode, usable: boolean, changeLabel: string, panel: React.ReactNode) => {
     const on = state.actif === id;
@@ -278,7 +281,7 @@ export function ModeRows({ level, onChanged }: { level: Level; onChanged?: (inSe
             </span>
           </button>
           <Button type="button" variant="outline" size="sm" className="shrink-0" aria-expanded={open === id} onClick={() => setOpen(open === id ? null : id)}>
-            {open === id ? "Fermer" : changeLabel}
+            {open === id ? t("Fermer") : changeLabel}
           </Button>
         </div>
         {open === id && panel}
@@ -287,27 +290,29 @@ export function ModeRows({ level, onChanged }: { level: Level; onChanged?: (inSe
   };
 
   return (
-    <div className="flex flex-col gap-2" role="radiogroup" aria-label="Mode">
-      {TIERS.map((t) => {
-        const mode = state.modes.find((m) => m.id === t.id);
-        return row(t.id, t.name, brain ? t.desc : t.descMedia, <Picked link={mode?.modele} />, !!mode?.modele, "Changer", (
+    <div className="flex flex-col gap-2" role="radiogroup" aria-label={t("Mode")}>
+      {TIERS.map((tier) => {
+        const mode = state.modes.find((m) => m.id === tier.id);
+        return row(tier.id, tier.name, brain ? tier.desc : tier.descMedia, <Picked link={mode?.modele} />, !!mode?.modele, t("Changer"), (
           <div className="flex flex-col gap-2 border-t border-border pt-2">
-            <ModelSearch level={level} selected={mode?.modele?.modele} onPick={(m) => change({ mode: t.id, modele: m.id, fournisseur: m.fournisseur })} />
-            {mode?.personnalise && <Button type="button" variant="ghost" size="sm" className="self-start" disabled={busy} onClick={() => change({ mode: t.id, modele: null })}>Revenir au choix de Noah</Button>}
+            <ModelSearch level={level} selected={mode?.modele?.modele} onPick={(m) => change({ mode: tier.id, modele: m.id, fournisseur: m.fournisseur })} />
+            {mode?.personnalise && <Button type="button" variant="ghost" size="sm" className="self-start" disabled={busy} onClick={() => change({ mode: tier.id, modele: null })}>{t("Revenir au choix de Noah")}</Button>}
           </div>
         ));
       })}
-      {row("gratuit", "Gratuit", "Les modèles gratuits, à tour de rôle.",
-        state.gratuit.length ? <span className="truncate text-xs text-muted-foreground">{state.gratuit.slice(0, 3).map((l) => shortName(l.nom)).join(", ")}{state.gratuit.length > 3 ? `, et ${state.gratuit.length - 3} autres` : ""}</span> : <Picked link={null} />,
-        state.gratuit.length > 0, "Voir", (
+      {row("gratuit", t("Gratuit"), t("Les modèles gratuits, à tour de rôle."),
+        state.gratuit.length ? <span className="truncate text-xs text-muted-foreground">{state.gratuit.length > 3
+          ? t("{noms}, et {n} autres", { noms: state.gratuit.slice(0, 3).map((l) => shortName(l.nom)).join(", "), n: state.gratuit.length - 3 })
+          : state.gratuit.map((l) => shortName(l.nom)).join(", ")}</span> : <Picked link={null} />,
+        state.gratuit.length > 0, t("Voir"), (
           <div className="flex flex-col gap-1 border-t border-border pt-2">
             <ol className="flex flex-col gap-1">{state.gratuit.map((l, i) => <li key={`${l.fournisseur}:${l.modele}`} className="flex items-center gap-2"><span className="w-4 shrink-0 text-xs text-muted-foreground tabular-nums">{i + 1}</span><span className="min-w-0 flex-1"><Picked link={l} /></span></li>)}</ol>
-            <p className="text-xs text-muted-foreground">Certains gardent tes messages : rien de confidentiel.</p>
+            <p className="text-xs text-muted-foreground">{t("Certains gardent tes messages : rien de confidentiel.")}</p>
           </div>
         ))}
-      {row("custom", "Ma liste", "Ta liste, dans ton ordre.",
-        state.custom.length ? <span className="truncate text-xs text-muted-foreground">{state.custom.map((l) => shortName(l.nom)).join(" → ")}</span> : <span className="text-xs text-muted-foreground">Aucun modèle pour l'instant.</span>,
-        state.custom.length > 0, "Composer", (
+      {row("custom", t("Ma liste"), t("Ta liste, dans ton ordre."),
+        state.custom.length ? <span className="truncate text-xs text-muted-foreground">{state.custom.map((l) => shortName(l.nom)).join(" → ")}</span> : <span className="text-xs text-muted-foreground">{t("Aucun modèle pour l'instant.")}</span>,
+        state.custom.length > 0, t("Composer"), (
           <div className="border-t border-border pt-2">
             <ChainEditor level={level} initial={state.custom} busy={busy} onSave={(chain) => change({ chaine: chain.map((l) => ({ modele: l.modele, fournisseur: l.fournisseur })), actif: "custom" })} />
           </div>

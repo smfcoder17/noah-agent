@@ -23,14 +23,14 @@ const LABS: Record<string, string> = {
   "stability-ai": "stability-color", luma: "luma-color",
 };
 
-// Noms affichés des labos (filtres).
+// Noms affichés des labos (filtres). Noms de marques : les mêmes dans toutes les langues.
 export const LAB_NAMES: Record<string, string> = {
-  anthropic: "Anthropic", openai: "OpenAI", google: "Google", "x-ai": "xAI", deepseek: "DeepSeek", moonshotai: "Moonshot",
-  "z-ai": "Z.ai", qwen: "Qwen", alibaba: "Alibaba", meta: "Meta", "meta-llama": "Meta", mistralai: "Mistral",
-  minimax: "MiniMax", nvidia: "NVIDIA", "black-forest-labs": "Black Forest Labs", bytedance: "ByteDance",
-  "bytedance-seed": "ByteDance", recraft: "Recraft", krea: "Krea", tencent: "Tencent", microsoft: "Microsoft",
-  elevenlabs: "ElevenLabs", "fish-audio": "Fish Audio", assemblyai: "AssemblyAI", kwaivgi: "Kling", runway: "Runway",
-  heygen: "HeyGen", deepgram: "Deepgram", sourceful: "Sourceful",
+  anthropic: "Anthropic", openai: "OpenAI", google: "Google", "x-ai": "xAI", deepseek: "DeepSeek", moonshotai: "Moonshot", // i18n-ignore : marque
+  "z-ai": "Z.ai", qwen: "Qwen", alibaba: "Alibaba", meta: "Meta", "meta-llama": "Meta", mistralai: "Mistral", // i18n-ignore : marque
+  minimax: "MiniMax", nvidia: "NVIDIA", "black-forest-labs": "Black Forest Labs", bytedance: "ByteDance", // i18n-ignore : marque
+  "bytedance-seed": "ByteDance", recraft: "Recraft", krea: "Krea", tencent: "Tencent", microsoft: "Microsoft", // i18n-ignore : marque
+  elevenlabs: "ElevenLabs", "fish-audio": "Fish Audio", assemblyai: "AssemblyAI", kwaivgi: "Kling", runway: "Runway", // i18n-ignore : marque
+  heygen: "HeyGen", deepgram: "Deepgram", sourceful: "Sourceful", // i18n-ignore : marque
 };
 
 export const labOf = (modelId: string) => modelId.split("/")[0].toLowerCase();

@@ -63,7 +63,8 @@ public class MainActivity extends BridgeActivity {
     private PictureInPictureParams floating(boolean on) {
         PictureInPictureParams.Builder params = new PictureInPictureParams.Builder().setAspectRatio(new Rational(3, 4));
         PendingIntent hang = CallSession.hangUp(this);
-        params.setActions(Collections.singletonList(new RemoteAction(Icon.createWithResource("android", android.R.drawable.ic_menu_close_clear_cancel), "Raccrocher", "Raccrocher", hang)));
+        String hangLabel = getString(R.string.main_hang_up);
+        params.setActions(Collections.singletonList(new RemoteAction(Icon.createWithResource("android", android.R.drawable.ic_menu_close_clear_cancel), hangLabel, hangLabel, hang)));
         if (Build.VERSION.SDK_INT >= 31) params.setAutoEnterEnabled(on);
         return params.build();
     }
@@ -287,7 +288,7 @@ public class MainActivity extends BridgeActivity {
     /** Confie le fichier au gestionnaire de téléchargements d'Android, dans Téléchargements, avec la session de la fenêtre. */
     private void download(String url, String agent, String disposition, String mime, String home) {
         if (!home.equals(origin(url))) { // la session ne part que vers le serveur
-            android.widget.Toast.makeText(this, "Ce fichier n'a pas pu être téléchargé.", android.widget.Toast.LENGTH_LONG).show();
+            android.widget.Toast.makeText(this, R.string.main_download_failed,android.widget.Toast.LENGTH_LONG).show();
             return;
         }
         try {
@@ -302,9 +303,9 @@ public class MainActivity extends BridgeActivity {
             else request.setDestinationInExternalFilesDir(this, android.os.Environment.DIRECTORY_DOWNLOADS, name);
             if (windowSession != null) request.addRequestHeader("Cookie", "noah_session=" + windowSession);
             getSystemService(android.app.DownloadManager.class).enqueue(request);
-            android.widget.Toast.makeText(this, "Téléchargement de " + name, android.widget.Toast.LENGTH_SHORT).show();
+            android.widget.Toast.makeText(this, getString(R.string.main_downloading, name), android.widget.Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
-            android.widget.Toast.makeText(this, "Ce fichier n'a pas pu être téléchargé.", android.widget.Toast.LENGTH_LONG).show();
+            android.widget.Toast.makeText(this, R.string.main_download_failed,android.widget.Toast.LENGTH_LONG).show();
         }
     }
 
@@ -394,7 +395,7 @@ public class MainActivity extends BridgeActivity {
     private void showWait(boolean tooOld) {
         if (bridge == null || server == null) return;
         waiting = true;
-        String message = tooOld ? "Ton serveur doit être mis à jour pour cette version de l'app." : "Ton serveur ne répond pas.";
+        String message = getString(tooOld ? R.string.main_server_too_old : R.string.main_server_down);
         bridge.getWebView().loadDataWithBaseURL(null, waitPage(message), "text/html", "utf-8", null);
         later.removeCallbacks(reload);
         if (!started) return;
@@ -415,10 +416,10 @@ public class MainActivity extends BridgeActivity {
      */
     private void changeServer() {
         new android.app.AlertDialog.Builder(this)
-            .setTitle("Changer de serveur ?")
-            .setMessage("Ce téléphone ne sera plus relié à " + host() + ". Tu pourras le relier de nouveau avec un QR code.")
-            .setNegativeButton("Annuler", null)
-            .setPositiveButton("Changer de serveur", (dialog, which) -> {
+            .setTitle(R.string.main_change_server_question)
+            .setMessage(getString(R.string.main_change_server_message, host()))
+            .setNegativeButton(R.string.main_cancel, null)
+            .setPositiveButton(R.string.main_change_server, (dialog, which) -> {
                 Pairing pairing = new Pairing(this);
                 pairing.forget();
                 NoahPush.stop(this);
@@ -435,7 +436,7 @@ public class MainActivity extends BridgeActivity {
 
     private String host() {
         String host = server == null ? null : android.net.Uri.parse(server).getHost();
-        return host == null ? "ce serveur" : host;
+        return host == null ? getString(R.string.main_this_server) : host;
     }
 
     private boolean night() {
@@ -453,9 +454,14 @@ public class MainActivity extends BridgeActivity {
             + "<body style='margin:0;min-height:100vh;display:grid;place-items:center;font:16px system-ui,sans-serif;background:" + bg + ";color:" + fg + "'>"
             + "<div style='text-align:center;padding:24px;width:100%;max-width:360px'><h2>Noah Agent</h2><p>" + message + "</p>"
             + "<p style='font-size:14px;word-break:break-all;color:" + muted + "'>" + android.text.TextUtils.htmlEncode(host())
-            + "<br>Nouvel essai automatique…</p>"
-            + "<a href='noah-app://reessayer' style='" + button + "margin-top:24px;font-weight:600;color:#fff;background:" + accent + "'>Réessayer</a>"
-            + "<a href='noah-app://oublier' style='" + button + "color:" + fg + ";border:1px solid " + line + "'>Changer de serveur</a></div>";
+            + "<br>" + html(R.string.main_auto_retry) + "</p>"
+            + "<a href='noah-app://reessayer' style='" + button + "margin-top:24px;font-weight:600;color:#fff;background:" + accent + "'>" + html(R.string.main_retry) + "</a>"
+            + "<a href='noah-app://oublier' style='" + button + "color:" + fg + ";border:1px solid " + line + "'>" + html(R.string.main_change_server) + "</a></div>";
+    }
+
+    /** Un texte de l'app, échappé pour la page d'attente. */
+    private String html(int text) {
+        return android.text.TextUtils.htmlEncode(getString(text));
     }
 
     @Override

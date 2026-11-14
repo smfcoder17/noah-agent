@@ -2,6 +2,7 @@
 // coupe les appareils de chacun. Écrit pour marcher à largeur de téléphone. Le serveur reste seul juge.
 import { Globe, KeyRound, Laptop, Loader2, MonitorSmartphone, Smartphone, Trash2, UserPlus } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { locale, t } from "@/i18n";
 import { get, send } from "@/lib/api";
 import { money } from "@/lib/utils";
 import { useProof } from "./Proof";
@@ -20,7 +21,7 @@ type Profile = {
 type Device = { id: string; nom: string; type: string; depuis: string | null; vu: string | null; ip: string; actuel: boolean };
 
 const ICONS: Record<string, typeof Globe> = { web: Globe, desktop: Laptop, android: Smartphone, ios: Smartphone };
-const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" }) : "");
+const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString(locale(),{ day: "numeric", month: "long", year: "numeric" }) : "");
 
 export function Profiles() {
   const [list, setList] = useState<Profile[] | null>(null);
@@ -29,7 +30,7 @@ export function Profiles() {
   useEffect(() => {
     load();
   }, [load]);
-  if (!list) return error ? <ErrorText>{error}</ErrorText> : <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture des profils…</p>;
+  if (!list) return error ? <ErrorText>{error}</ErrorText> : <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("Lecture des profils…")}</p>;
   return (
     <div className="flex flex-col gap-3">
       <ErrorText>{error}</ErrorText>
@@ -63,17 +64,17 @@ function ProfileDevices({ profile, onChanged }: { profile: Profile; onChanged: (
   };
   return (
     <div className="flex flex-col gap-1.5">
-      {list && !list.length && <p className="text-xs text-muted-foreground">Aucun appareil connecté.</p>}
+      {list && !list.length && <p className="text-xs text-muted-foreground">{t("Aucun appareil connecté.")}</p>}
       {list?.map((d) => {
         const Icon = ICONS[d.type] ?? Globe;
         return (
           <div key={d.id} className="flex items-center gap-2.5 rounded-lg border border-border px-3 py-2" data-appareil={d.nom}>
             <Icon className="size-4 shrink-0 text-muted-foreground" />
             <div className="min-w-0 flex-1">
-              <p className="break-words text-sm">{d.nom || "Appareil"}{d.actuel && <span className="ml-2 text-xs text-ok">cet appareil</span>}</p>
-              <p className="break-words text-xs text-muted-foreground">{[d.ip, d.depuis && `relié le ${day(d.depuis)}`, d.vu && `vu le ${day(d.vu)}`].filter(Boolean).join(" · ")}</p>
+              <p className="break-words text-sm">{d.nom || t("Appareil")}{d.actuel && <span className="ml-2 text-xs text-ok">{t("cet appareil")}</span>}</p>
+              <p className="break-words text-xs text-muted-foreground">{[d.ip, d.depuis && t("relié le {date}", { date: day(d.depuis) }), d.vu && t("vu le {date}", { date: day(d.vu) })].filter(Boolean).join(" · ")}</p>
             </div>
-            {!d.actuel && <Button size="sm" variant="ghost" aria-label={`Déconnecter ${d.nom || "cet appareil"}`} onClick={() => revoke(d)}><Trash2 /></Button>}
+            {!d.actuel && <Button size="sm" variant="ghost" aria-label={t("Déconnecter {nom}", { nom: d.nom || t("cet appareil") })} onClick={() => revoke(d)}><Trash2 /></Button>}
           </div>
         );
       })}
@@ -102,15 +103,15 @@ function ResetPassword({ profile, onDone, onCancel }: { profile: Profile; onDone
   };
   return (
     <form onSubmit={submit} className="flex flex-col gap-2 rounded-xl bg-warn-soft p-3 text-sm">
-      <p>{profile.username} a oublié son mot de passe ? Choisis-en un temporaire et transmets-le lui toi-même. Toutes ses sessions se ferment, et il devra le remplacer à sa prochaine connexion.</p>
+      <p>{t("{nom} a oublié son mot de passe ? Choisis-en un temporaire et transmets-le lui toi-même. Toutes ses sessions se ferment, et il devra le remplacer à sa prochaine connexion.", { nom: profile.username })}</p>
       <Label>
-        Mot de passe temporaire
+        {t("Mot de passe temporaire")}
         <Input id={`reset-${profile.id}`} required type="password" minLength={12} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
       </Label>
       <ErrorText>{error}</ErrorText>
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" type="submit" variant="danger" disabled={busy}>Réinitialiser son mot de passe</Button>
-        <Button size="sm" type="button" variant="ghost" onClick={onCancel}>Annuler</Button>
+        <Button size="sm" type="submit" variant="danger" disabled={busy}>{t("Réinitialiser son mot de passe")}</Button>
+        <Button size="sm" type="button" variant="ghost" onClick={onCancel}>{t("Annuler")}</Button>
       </div>
       {proofDialog}
     </form>
@@ -167,22 +168,22 @@ function ProfileRow({ profile: p, onChanged, onError }: { profile: Profile; onCh
     <li className="flex flex-col gap-2 rounded-2xl border border-border p-4" data-profil={p.username}>
       <div className="flex flex-wrap items-center gap-3">
         <div className="min-w-48 flex-1">
-          <p className="break-words text-sm font-semibold">{p.username}{p.role === "owner" && <span className="ml-2 text-xs font-medium text-muted-foreground">propriétaire</span>}</p>
+          <p className="break-words text-sm font-semibold">{p.username}{p.role === "owner" && <span className="ml-2 text-xs font-medium text-muted-foreground">{t("propriétaire")}</span>}</p>
           <p className="break-words text-xs text-muted-foreground">
-            {p.agents.length ? `${p.agents.length} agent${p.agents.length > 1 ? "s" : ""} : ${names}` : "Aucun agent"} · {p.appareils} appareil{p.appareils > 1 ? "s" : ""} · {money(p.depense)} $ ce mois-ci
+            {p.agents.length ? (p.agents.length > 1 ? t("{n} agents : {noms}", { n: p.agents.length, noms: names }) : t("{n} agent : {noms}", { n: p.agents.length, noms: names })) : t("Aucun agent")} · {p.appareils > 1 ? t("{n} appareils", { n: p.appareils }) : t("{n} appareil", { n: p.appareils })} · {t("{montant} $ ce mois-ci", { montant: money(p.depense) })}
           </p>
         </div>
         <Label className="flex-row items-center gap-2 text-xs font-normal text-muted-foreground">
-          Plafond du mois ($)
-          <Input type="number" min={0} step={1} placeholder="Aucun" className="h-8 w-24" value={budget} onChange={(e) => setBudget(e.target.value)} onBlur={saveBudget} />
+          {t("Plafond du mois ($)")}
+          <Input type="number" min={0} step={1} placeholder={t("Aucun")} className="h-8 w-24" value={budget} onChange={(e) => setBudget(e.target.value)} onBlur={saveBudget} />
         </Label>
       </div>
       <div className="flex flex-wrap gap-1">
-        <Button size="sm" variant={open === "appareils" ? "outline" : "ghost"} aria-expanded={open === "appareils"} onClick={() => toggle("appareils")}><MonitorSmartphone />Appareils</Button>
+        <Button size="sm" variant={open === "appareils" ? "outline" : "ghost"} aria-expanded={open === "appareils"} onClick={() => toggle("appareils")}><MonitorSmartphone />{t("Appareils")}</Button>
         {p.role !== "owner" && (
           <>
-            <Button size="sm" variant={open === "mot-de-passe" ? "outline" : "ghost"} aria-expanded={open === "mot-de-passe"} onClick={() => toggle("mot-de-passe")}><KeyRound />Mot de passe</Button>
-            <Button size="sm" variant={open === "supprimer" ? "outline" : "ghost"} className="text-danger" aria-expanded={open === "supprimer"} aria-label={`Supprimer le profil ${p.username}`} onClick={() => toggle("supprimer")}><Trash2 />Supprimer</Button>
+            <Button size="sm" variant={open === "mot-de-passe" ? "outline" : "ghost"} aria-expanded={open === "mot-de-passe"} onClick={() => toggle("mot-de-passe")}><KeyRound />{t("Mot de passe")}</Button>
+            <Button size="sm" variant={open === "supprimer" ? "outline" : "ghost"} className="text-danger" aria-expanded={open === "supprimer"} aria-label={t("Supprimer le profil {nom}", { nom: p.username })} onClick={() => toggle("supprimer")}><Trash2 />{t("Supprimer")}</Button>
           </>
         )}
       </div>
@@ -191,44 +192,44 @@ function ProfileRow({ profile: p, onChanged, onError }: { profile: Profile; onCh
       {open === "mot-de-passe" && (
         <ResetPassword profile={p} onCancel={() => setOpen("")} onDone={() => {
           setOpen("");
-          setNotice(`Mot de passe réinitialisé. ${p.username} est déconnecté de tous ses appareils et devra choisir le sien à sa prochaine connexion.`);
+          setNotice(t("Mot de passe réinitialisé. {nom} est déconnecté de tous ses appareils et devra choisir le sien à sa prochaine connexion.", { nom: p.username }));
           onChanged();
         }} />
       )}
       {p.double && p.role !== "owner" && (cutting ? (
         <form onSubmit={cutDouble} className="flex flex-col gap-2 rounded-xl bg-warn-soft p-3 text-sm">
-          <p>{p.username} a perdu son téléphone et ses codes de secours ? Confirme avec ton mot de passe, et ton code si tu as une double vérification. Laisse-le vide sinon.</p>
+          <p>{t("{nom} a perdu son téléphone et ses codes de secours ? Confirme avec ton mot de passe, et ton code si tu as une double vérification. Laisse-le vide sinon.", { nom: p.username })}</p>
           <div className="grid gap-2 sm:grid-cols-2">
-            <Label>Ton mot de passe<Input required type="password" autoComplete="current-password" value={myPassword} onChange={(e) => setMyPassword(e.target.value)} /></Label>
-            <Label>Ton code<Input autoComplete="one-time-code" maxLength={32} className="font-mono" value={myCode} onChange={(e) => setMyCode(e.target.value)} /></Label>
+            <Label>{t("Ton mot de passe")}<Input required type="password" autoComplete="current-password" value={myPassword} onChange={(e) => setMyPassword(e.target.value)} /></Label>
+            <Label>{t("Ton code")}<Input autoComplete="one-time-code" maxLength={32} className="font-mono" value={myCode} onChange={(e) => setMyCode(e.target.value)} /></Label>
           </div>
           <ErrorText>{cutError}</ErrorText>
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" type="submit" variant="danger">Couper sa double vérification</Button>
-            <Button size="sm" type="button" variant="ghost" onClick={() => setCutting(false)}>Annuler</Button>
+            <Button size="sm" type="submit" variant="danger">{t("Couper sa double vérification")}</Button>
+            <Button size="sm" type="button" variant="ghost" onClick={() => setCutting(false)}>{t("Annuler")}</Button>
           </div>
         </form>
       ) : (
         <button type="button" className="self-start text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground" onClick={() => setCutting(true)}>
-          Double vérification activée. Couper ?
+          {t("Double vérification activée. Couper ?")}
         </button>
       ))}
       {open === "supprimer" && (
         <div className="flex flex-col gap-2 rounded-xl bg-warn-soft p-3 text-sm">
           <p>
-            Supprimer {p.username} coupe tout de suite ses sessions et ses appareils, et efface ses conversations sur les agents qu'on lui avait partagés.
-            {p.agents.length > 0 && ` Ses agents (${names}) : à toi de choisir.`}
+            {t("Supprimer {nom} coupe tout de suite ses sessions et ses appareils, et efface ses conversations sur les agents qu'on lui avait partagés.", { nom: p.username })}
+            {p.agents.length > 0 && t(" Ses agents ({noms}) : à toi de choisir.", { noms: names })}
           </p>
           <div className="flex flex-wrap gap-2">
             {p.agents.length > 0 ? (
               <>
-                <Button size="sm" variant="outline" disabled={busy} onClick={() => remove("transferer")}>Me transférer ses agents</Button>
-                <Button size="sm" variant="danger" disabled={busy} onClick={() => remove("supprimer")}>Effacer aussi ses agents et leurs fichiers</Button>
+                <Button size="sm" variant="outline" disabled={busy} onClick={() => remove("transferer")}>{t("Me transférer ses agents")}</Button>
+                <Button size="sm" variant="danger" disabled={busy} onClick={() => remove("supprimer")}>{t("Effacer aussi ses agents et leurs fichiers")}</Button>
               </>
             ) : (
-              <Button size="sm" variant="danger" disabled={busy} onClick={() => remove()}>Supprimer ce profil</Button>
+              <Button size="sm" variant="danger" disabled={busy} onClick={() => remove()}>{t("Supprimer ce profil")}</Button>
             )}
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setOpen("")}>Annuler</Button>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setOpen("")}>{t("Annuler")}</Button>
           </div>
         </div>
       )}
@@ -262,15 +263,15 @@ function NewProfile({ onCreated }: { onCreated: () => void }) {
   };
   return (
     <form onSubmit={create} className="flex flex-col gap-3 rounded-2xl border border-dashed border-border p-4">
-      <p className="text-sm font-semibold">Nouveau profil</p>
+      <p className="text-sm font-semibold">{t("Nouveau profil")}</p>
       <div className="grid gap-3 sm:grid-cols-3">
-        <Label>Nom d'utilisateur<Input required minLength={2} maxLength={64} autoComplete="off" value={username} onChange={(e) => setUsername(e.target.value)} /></Label>
-        <Label>Mot de passe initial<Input required type="password" minLength={12} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} /></Label>
-        <Label>Plafond du mois ($)<Input type="number" min={0} step={1} placeholder="Aucun" value={budget} onChange={(e) => setBudget(e.target.value)} /></Label>
+        <Label>{t("Nom d'utilisateur")}<Input required minLength={2} maxLength={64} autoComplete="off" value={username} onChange={(e) => setUsername(e.target.value)} /></Label>
+        <Label>{t("Mot de passe initial")}<Input required type="password" minLength={12} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} /></Label>
+        <Label>{t("Plafond du mois ($)")}<Input type="number" min={0} step={1} placeholder={t("Aucun")} value={budget} onChange={(e) => setBudget(e.target.value)} /></Label>
       </div>
-      <p className="text-xs text-muted-foreground">Transmets-lui ce mot de passe toi-même.</p>
+      <p className="text-xs text-muted-foreground">{t("Transmets-lui ce mot de passe toi-même.")}</p>
       <ErrorText>{error}</ErrorText>
-      <Button type="submit" className="self-start" disabled={busy}><UserPlus />Créer le profil</Button>
+      <Button type="submit" className="self-start" disabled={busy}><UserPlus />{t("Créer le profil")}</Button>
       {proofDialog}
     </form>
   );
@@ -297,14 +298,14 @@ export function MyPassword() {
   };
   return (
     <form onSubmit={change} className="flex flex-col gap-3 rounded-2xl border border-border p-4">
-      <p className="text-sm font-semibold">Changer mon mot de passe</p>
+      <p className="text-sm font-semibold">{t("Changer mon mot de passe")}</p>
       <div className="grid gap-3 sm:grid-cols-2">
-        <Label>Mot de passe actuel<Input required type="password" autoComplete="current-password" value={actuel} onChange={(e) => setActuel(e.target.value)} /></Label>
-        <Label>Nouveau mot de passe<Input required type="password" minLength={12} autoComplete="new-password" value={nouveau} onChange={(e) => setNouveau(e.target.value)} /></Label>
+        <Label>{t("Mot de passe actuel")}<Input required type="password" autoComplete="current-password" value={actuel} onChange={(e) => setActuel(e.target.value)} /></Label>
+        <Label>{t("Nouveau mot de passe")}<Input required type="password" minLength={12} autoComplete="new-password" value={nouveau} onChange={(e) => setNouveau(e.target.value)} /></Label>
       </div>
       <ErrorText>{state.error}</ErrorText>
-      {state.ok && <p className="text-sm text-ok">Mot de passe changé. Tes autres appareils sont déconnectés.</p>}
-      <Button type="submit" variant="outline" className="self-start">Changer</Button>
+      {state.ok && <p className="text-sm text-ok">{t("Mot de passe changé. Tes autres appareils sont déconnectés.")}</p>}
+      <Button type="submit" variant="outline" className="self-start">{t("Changer")}</Button>
       {proofDialog}
     </form>
   );

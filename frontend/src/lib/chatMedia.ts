@@ -50,7 +50,7 @@ function youtube(id: string | null | undefined, kind: "watch" | "shorts", start:
   return {
     platform: "youtube",
     name: "YouTube",
-    label: "Vidéo YouTube",
+    label: "Vidéo YouTube", // i18n-ignore : module pur lancé dans Node, traduit à l'affichage (VideoEmbed)
     key: `youtube:${id}`,
     openUrl: kind === "shorts" ? `https://www.youtube.com/shorts/${id}` : `https://www.youtube.com/watch?v=${id}${at ? `&t=${at}s` : ""}`,
     embedUrl: `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0&playsinline=1${at ? `&start=${at}` : ""}`,
@@ -79,8 +79,8 @@ function fromVimeo(u: URL, path: string[]): VideoRef | null {
   const secret = hash && VIMEO_HASH.test(hash) ? hash : "";
   return {
     platform: "vimeo",
-    name: "Vimeo",
-    label: "Vidéo Vimeo",
+    name: "Vimeo", // i18n-ignore : nom de la plateforme
+    label: "Vidéo Vimeo", // i18n-ignore : traduit à l'affichage (VideoEmbed)
     key: `vimeo:${id}`,
     openUrl: `https://vimeo.com/${id}${secret ? `/${secret}` : ""}`,
     embedUrl: `https://player.vimeo.com/video/${id}?autoplay=1&dnt=1${secret ? `&h=${secret}` : ""}`,
@@ -103,7 +103,7 @@ function fromX(path: string[]): VideoRef | null {
   return {
     platform: "x",
     name: "X",
-    label: "Publication X",
+    label: "Publication X", // i18n-ignore : traduit à l'affichage (VideoEmbed)
     key: `x:${id}`,
     openUrl: `https://x.com/${user && user !== "i" ? user : "i"}/status/${id}`,
     embedUrl: `https://platform.twitter.com/embed/Tweet.html?id=${id}&dnt=true`,
@@ -122,7 +122,7 @@ function fromTiktok(path: string[]): VideoRef | null {
   return {
     platform: "tiktok",
     name: "TikTok",
-    label: "Vidéo TikTok",
+    label: "Vidéo TikTok", // i18n-ignore : traduit à l'affichage (VideoEmbed)
     key: `tiktok:${id}`,
     openUrl: `https://www.tiktok.com/${user}/video/${id}`,
     embedUrl: `https://www.tiktok.com/embed/v2/${id}`,
@@ -132,6 +132,7 @@ function fromTiktok(path: string[]): VideoRef | null {
 
 function tiktokShort(base: string, code: string | undefined): VideoRef | null {
   if (!code || !TIKTOK_SHORT.test(code)) return null;
+  // i18n-ignore : traduit à l'affichage (VideoEmbed)
   return { platform: "tiktok", name: "TikTok", label: "Vidéo TikTok", key: `tiktok:${code}`, openUrl: `https://${base}/${code}/`, embedUrl: null, portrait: true };
 }
 
@@ -144,7 +145,7 @@ function fromInstagram(path: string[]): VideoRef | null {
   return {
     platform: "instagram",
     name: "Instagram",
-    label: kind === "p" ? "Publication Instagram" : "Vidéo Instagram",
+    label: kind === "p" ? "Publication Instagram" : "Vidéo Instagram", // i18n-ignore : traduit à l'affichage (VideoEmbed)
     key: `instagram:${code}`,
     openUrl: `https://www.instagram.com/${kind}/${code}/`,
     embedUrl: `https://www.instagram.com/${kind}/${code}/embed/`,

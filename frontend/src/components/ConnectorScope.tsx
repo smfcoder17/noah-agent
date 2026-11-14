@@ -7,6 +7,15 @@ import { appLabel } from "@/lib/appLabel";
 import { cn } from "@/lib/utils";
 import { type Droit, LoginAuto, LoginBack, RightSelect } from "./AgentPowers";
 import { Button, ErrorText } from "./ui";
+import { t, tServeur } from "@/i18n";
+
+/** Comment le partage se fait, écrit par le serveur en français (connecteurs.py, VOIES). */
+const VOIES: Record<string, string> = {
+  "Tes agents cochés s'en servent aussitôt.": t("Tes agents cochés s'en servent aussitôt."), // i18n-ignore : clé = texte du serveur
+  "Tes agents cochés reçoivent le même accès Google. Noah le renouvelle depuis un seul d'entre eux.": t("Tes agents cochés reçoivent le même accès Google. Noah le renouvelle depuis un seul d'entre eux."), // i18n-ignore : clé = texte du serveur
+  "Pour ne pas casser ta connexion, chaque agent a la sienne : un clic par agent, ta session chez ce service est déjà ouverte.": t("Pour ne pas casser ta connexion, chaque agent a la sienne : un clic par agent, ta session chez ce service est déjà ouverte."), // i18n-ignore : clé = texte du serveur
+  "Pour ne pas casser ta connexion, chaque agent a la sienne : un clic par agent.": t("Pour ne pas casser ta connexion, chaque agent a la sienne : un clic par agent."), // i18n-ignore : clé = texte du serveur
+};
 
 type ScopeAgent = { id: string; nom: string; coche: boolean; etat: "ok" | "a_connecter" | "en_attente" | "exclu" | "partage" | "arrete"; origine: boolean; invites: string[]; droit: Droit | null };
 type ScopeState = { nom: string; pour_tous: boolean; genre: string; voie: string; agents: ScopeAgent[]; soucis?: Record<string, string> };
@@ -37,9 +46,9 @@ export function PendingGlobal({ agentId, nom, waiting, onWait, onChange, onError
       <div className="flex items-center gap-2.5">
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{label}</p>
-          <p className="text-xs text-muted-foreground">Pour tous tes agents.</p>
+          <p className="text-xs text-muted-foreground">{t("Pour tous tes agents.")}</p>
         </div>
-        {!waiting && <Button size="sm" onClick={connect} disabled={busy}>{busy && <Loader2 className="animate-spin" />}Connecter</Button>}
+        {!waiting && <Button size="sm" onClick={connect} disabled={busy}>{busy && <Loader2 className="animate-spin" />}{t("Connecter")}</Button>}
       </div>
       {waiting === "auto" && <LoginAuto onReopen={connect} busy={busy} />}
     </div>
@@ -95,13 +104,13 @@ export function ConnectorScope({ agentId, nom, global, onChange }: { agentId: st
     const v = await send<ScopeState>(path, { pour_tous: true, agents: ticked }, "PUT");
     setView(v);
     setTicked(v.agents.filter((a) => a.coche).map((a) => a.id));
-    const trouble = Object.entries(v.soucis ?? {}).map(([id, why]) => `${v.agents.find((a) => a.id === id)?.nom ?? "Un agent"} : ${why}`);
+    const trouble = Object.entries(v.soucis ?? {}).map(([id, why]) => t("{agent} : {souci}", { agent: v.agents.find((a) => a.id === id)?.nom ?? t("Un agent"), souci: tServeur(why) }));
     setError(trouble.join(" "));
     onChange();
   });
   const onlyHere = () => {
     if (!global) return setOpen(false);
-    if (!confirm(`Garder ${label} pour cet agent seulement ? Les autres n'y auront plus accès.`)) return;
+    if (!confirm(t("Garder {service} pour cet agent seulement ? Les autres n'y auront plus accès.", { service: label }))) return;
     run(async () => {
       await send(path, { pour_tous: false }, "PUT");
       setOpen(false);
@@ -129,17 +138,17 @@ export function ConnectorScope({ agentId, nom, global, onChange }: { agentId: st
   const choice = "h-8 flex-1 cursor-pointer rounded-md px-2 text-xs font-medium transition-colors";
   return (
     <div className="flex flex-col gap-2">
-      <div role="radiogroup" aria-label={`Qui a ${label}`} className="flex rounded-lg bg-muted p-0.5">
+      <div role="radiogroup" aria-label={t("Qui a {service}", { service: label })} className="flex rounded-lg bg-muted p-0.5">
         <button type="button" role="radio" aria-checked={!global && !open} onClick={onlyHere} disabled={busy}
-          className={cn(choice, !global && !open ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>Pour cet agent</button>
+          className={cn(choice, !global && !open ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>{t("Pour cet agent")}</button>
         <button type="button" role="radio" aria-checked={global || open} onClick={() => (open && !changed ? setOpen(false) : void reveal())} disabled={busy}
-          className={cn(choice, global || open ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>Pour tous mes agents</button>
+          className={cn(choice, global || open ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>{t("Pour tous mes agents")}</button>
       </div>
-      {open && !view && !error && <p className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" />Lecture…</p>}
+      {open && !view && !error && <p className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" />{t("Lecture…")}</p>}
       {open && view && ticked && (
         <div className="flex flex-col gap-1.5">
-          <p className="text-xs text-muted-foreground">{view.voie}</p>
-          <ul className="flex flex-col gap-1" aria-label={`Agents qui ont ${label}`}>
+          <p className="text-xs text-muted-foreground">{VOIES[view.voie] ?? view.voie}</p>
+          <ul className="flex flex-col gap-1" aria-label={t("Agents qui ont {service}", { service: label })}>
             {view.agents.map((a) => {
               const on = ticked.includes(a.id);
               return (
@@ -147,29 +156,29 @@ export function ConnectorScope({ agentId, nom, global, onChange }: { agentId: st
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <label className="flex min-w-0 flex-1 basis-32 cursor-pointer items-center gap-2 text-sm">
                       <input type="checkbox" checked={on} className="size-4 shrink-0 accent-[var(--accent)]"
-                        onChange={(e) => setTicked((t) => (e.target.checked ? [...(t ?? []), a.id] : (t ?? []).filter((id) => id !== a.id)))} />
+                        onChange={(e) => setTicked((cur) => (e.target.checked ? [...(cur ?? []), a.id] : (cur ?? []).filter((id) => id !== a.id)))} />
                       <span className="truncate">{a.nom}</span>
                     </label>
-                    {view.pour_tous && a.coche && a.etat === "ok" && <span className="flex items-center gap-1 text-xs font-medium text-ok"><Check className="size-3.5" />Connecté</span>}
-                    {view.pour_tous && a.coche && a.etat === "arrete" && <span className="text-xs text-muted-foreground">Agent arrêté</span>}
-                    {view.pour_tous && a.coche && a.etat === "en_attente" && <span className="text-xs text-muted-foreground">Arrive à son démarrage</span>}
+                    {view.pour_tous && a.coche && a.etat === "ok" && <span className="flex items-center gap-1 text-xs font-medium text-ok"><Check className="size-3.5" />{t("Connecté")}</span>}
+                    {view.pour_tous && a.coche && a.etat === "arrete" && <span className="text-xs text-muted-foreground">{t("Agent arrêté")}</span>}
+                    {view.pour_tous && a.coche && a.etat === "en_attente" && <span className="text-xs text-muted-foreground">{t("Arrive à son démarrage")}</span>}
                     {view.pour_tous && a.coche && a.etat === "a_connecter" && !waiting[a.id] && (
-                      <Button size="sm" variant="outline" className="h-7" onClick={() => connect(a)} disabled={busy}>Connecter</Button>
+                      <Button size="sm" variant="outline" className="h-7" onClick={() => connect(a)} disabled={busy}>{t("Connecter")}</Button>
                     )}
                     {a.droit && a.coche && <RightSelect agentId={a.id} name={nom} droit={a.droit} onChange={() => void read().catch(() => {})} onError={setError} />}
                   </div>
-                  {a.invites.length > 0 && !on && <p className="text-xs font-medium text-warn">Partagé avec {a.invites.join(", ")}, qui aurait aussi accès à ce compte : coche seulement si tu le veux.</p>}
-                  {a.invites.length > 0 && on && <p className="text-xs text-muted-foreground">{a.invites.join(", ")} a aussi accès à ce compte par cet agent.</p>}
+                  {a.invites.length > 0 && !on && <p className="text-xs font-medium text-warn">{t("Partagé avec {personnes}, qui aurait aussi accès à ce compte : coche seulement si tu le veux.", { personnes: a.invites.join(", ") })}</p>}
+                  {a.invites.length > 0 && on && <p className="text-xs text-muted-foreground">{t("{personnes} a aussi accès à ce compte par cet agent.", { personnes: a.invites.join(", ") })}</p>}
                   {waiting[a.id] === "auto" && <LoginAuto onReopen={() => connect(a)} busy={busy} />}
                   {waiting[a.id] === "coller" && <LoginBack label={label} value={back} onValue={setBack} onReopen={() => connect(a)} onFinish={() => finish(a)} busy={busy} />}
                 </li>
               );
             })}
           </ul>
-          {!view.pour_tous && <p className="text-xs text-muted-foreground">Tes prochains agents l'auront aussi.</p>}
+          {!view.pour_tous && <p className="text-xs text-muted-foreground">{t("Tes prochains agents l'auront aussi.")}</p>}
           {changed && (
             <Button size="sm" className="self-end" onClick={apply} disabled={busy || !ticked.length}>
-              {busy && <Loader2 className="animate-spin" />}{view.pour_tous ? "Enregistrer" : "Mettre pour ces agents"}
+              {busy && <Loader2 className="animate-spin" />}{view.pour_tous ? t("Enregistrer") : t("Mettre pour ces agents")}
             </Button>
           )}
         </div>

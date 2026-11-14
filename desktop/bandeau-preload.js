@@ -25,6 +25,13 @@ window.addEventListener("DOMContentLoaded", () => {
       buttons.append(button);
     });
   };
+  // Textes fixes de la page (data-i18n), dans la langue de l'app : la page n'a pas de script, ils viennent du processus principal.
+  ipcRenderer.invoke("noah:bandeau-textes").then((page) => {
+    if (!page?.textes) return;
+    document.documentElement.lang = page.langue;
+    for (const el of document.querySelectorAll("[data-i18n]")) el.textContent = page.textes[el.getAttribute("data-i18n")] ?? el.textContent;
+    for (const el of document.querySelectorAll("[data-i18n-aria-label]")) el.setAttribute("aria-label", page.textes[el.getAttribute("data-i18n-aria-label")] ?? el.getAttribute("aria-label"));
+  }).catch(() => {});
   let updated = false;
   ipcRenderer.on("noah:bandeau", (_event, state) => { updated = true; render(state); });
   ipcRenderer.invoke("noah:bandeau-etat").then((state) => { if (!updated) render(state); }).catch(() => {});

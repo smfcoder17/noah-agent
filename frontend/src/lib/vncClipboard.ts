@@ -1,4 +1,5 @@
 import { get, send } from "@/lib/api";
+import { t } from "@/i18n";
 
 // Presse-papiers entre l'ordinateur de l'utilisateur et l'écran de l'agent (noVNC, même origine que Noah Agent).
 //
@@ -24,7 +25,7 @@ export function wireClipboard(frame: HTMLIFrameElement, agentId: string, onError
     } else if (isShortcut(e, "c") || isShortcut(e, "x")) {
       get<{ texte: string }>(`/api/agents/${agentId}/clipboard/copy`)
         .then((r) => (r.texte ? win.navigator.clipboard.writeText(r.texte) : undefined))
-        .catch(() => onError("Copie impossible : sélectionne le texte puis réessaie."));
+        .catch(() => onError(t("Copie impossible : sélectionne le texte puis réessaie.")));
     }
   };
   // V relâché : noVNC n'a pas vu son appui, il ne doit pas voir son relâchement non plus.

@@ -170,7 +170,7 @@ coffre.task_state = task_state
 apprentissage.setup(task_state=task_state, save=lambda conv, role, text: _save_message(conv, role, text))
 
 # Version du branchement des agents ; l'augmenter reconfigure tous les agents au démarrage.
-AGENT_SETUP_VERSION = "46-rythme-x"  # 46 : sur X, rythme humain et arrêt au premier refus anti-automatisation (226, 344) ; brouillon d'Hermes local pour le juge ; 45 : table « ce que tu présentes → le bloc », un exemple par bloc, blocs posts, products et links ; sources et posts publiés en blocs ; 44 : tutoiement en tête du prompt ; 43 : une page de connexion mène à la carte (ou à un appel), jamais à « ça attend ta réponse » sans rien ; tutoiement partout ; travail local rangé sans modèle en Auto ; 42 : critère de fin, vérification, autre voie avant de demander, une suite à toucher, skill après une tâche qui reviendra, petits outils à soi ; 41 : le juge demande pourquoi à l'agent avant de déranger la personne ; 40 : juge, coffre, apprentissage, reçu, connecteurs ; 37 : plus de récit dans la réponse, réponses à toucher, réactions, publier partout, un fichier à la fois ; le réveil du navigateur ne bloque plus l'outil, l'heure de l'agent est celle de la personne ; 34 : joindre un fichier à une page, publier ce qui est prévu ; 33 : va au bout, cookies, tâche unique, plus de connexions par un tiers ; 31 : l'agent lit et change ses réglages non sensibles à condition, mémoire jugée, l'agent n'appelle plus de lui-même ; 29 : message sans rapport et contexte borné ; 28 : garde des profils de partage (G12.5) ; 27 : navigateur ; 26 : navigateur au premier usage
+AGENT_SETUP_VERSION = "47-langue"  # 47 : réponse dans la langue de la personne, plus en français d'office ; 46 : sur X, rythme humain et arrêt au premier refus anti-automatisation (226, 344) ; brouillon d'Hermes local pour le juge ; 45 : table « ce que tu présentes → le bloc », un exemple par bloc, blocs posts, products et links ; sources et posts publiés en blocs ; 44 : tutoiement en tête du prompt ; 43 : une page de connexion mène à la carte (ou à un appel), jamais à « ça attend ta réponse » sans rien ; tutoiement partout ; travail local rangé sans modèle en Auto ; 42 : critère de fin, vérification, autre voie avant de demander, une suite à toucher, skill après une tâche qui reviendra, petits outils à soi ; 41 : le juge demande pourquoi à l'agent avant de déranger la personne ; 40 : juge, coffre, apprentissage, reçu, connecteurs ; 37 : plus de récit dans la réponse, réponses à toucher, réactions, publier partout, un fichier à la fois ; le réveil du navigateur ne bloque plus l'outil, l'heure de l'agent est celle de la personne ; 34 : joindre un fichier à une page, publier ce qui est prévu ; 33 : va au bout, cookies, tâche unique, plus de connexions par un tiers ; 31 : l'agent lit et change ses réglages non sensibles à condition, mémoire jugée, l'agent n'appelle plus de lui-même ; 29 : message sans rapport et contexte borné ; 28 : garde des profils de partage (G12.5) ; 27 : navigateur ; 26 : navigateur au premier usage
 
 
 @app.on_event("startup")
@@ -1713,7 +1713,7 @@ async def set_model(body: ModelChoice, tasks: BackgroundTasks, user: int = Depen
     async with _first_agent_lock:  # deux onglets qui choisissent le premier modèle en même temps : un seul Noah
         agents = _agents()
         if not agents:
-            await _start_agent("Noah", "Tu es l'assistant personnel de l'utilisateur. Réponds en français, de façon brève et concrète.", user)
+            await _start_agent("Noah", "Tu es l'assistant personnel de l'utilisateur. Réponds dans sa langue, de façon brève et concrète.", user)
     if agents:  # le relais applique déjà le nouveau modèle : on met les fichiers à jour sans couper l'agent, et sans faire attendre
         tasks.add_task(_write_configs, [a["id"] for a in agents])
     decision.schedule_refresh()  # ce que cette clé offre, ses prix, sa vitesse : l'écran ne l'attend pas
@@ -1979,7 +1979,7 @@ outputs/ et apps/ ne gardent que ce que l'utilisateur voudra retrouver : le rés
 - Quand c'est naturel, réagis au message de la personne : commence ta réponse par une réaction entre doubles crochets, comme [[👍]], [[👂]] (compris), [[❤️]], [[🔥]] ou [[🎉]]. Elle s'affiche sur son message, jamais dans ton texte. Pas à chaque message.
 - Tu apprends sans qu'on te le demande : Noah fait relire ce qu'elle corrige ou préfère, et tu relis tes tâches. Ne demande pas « veux-tu que je m'en souvienne ? », et ne l'annonce pas : applique, sans phrase de plus. Si elle demande ce que tu sais d'elle ou comment tu fais telle tâche, dis-le simplement.
 - Une réaction de sa part (👍, ❤️) dit ce qu'elle a aimé, jamais qu'elle accepte : une action ne part que sur sa demande ou son accord explicite. Après un 👎, ne te justifie pas.
-- Réponds en français, de façon brève et concrète. Pas de pavés de texte : une liste courte ou un widget vaut mieux qu'un paragraphe.
+- Réponds dans la langue de la personne (celle de son dernier message), de façon brève et concrète. Pas de pavés de texte : une liste courte ou un widget vaut mieux qu'un paragraphe.
 
 ## Comment tu parles
 - Tutoie toujours la personne, partout (réponse, question, compte rendu, notification) : « tu », jamais « vous ».
@@ -2213,14 +2213,15 @@ class AgentBody(BaseModel):
 
 
 @app.post("/api/agents")
-async def create_agent(body: AgentBody, user: int = Depends(auth.current_user)):
+async def create_agent(body: AgentBody, request: Request, user: int = Depends(auth.current_user)):
     if not current_model():
         raise HTTPException(400, "Choisis d'abord un modèle")
-    preset = presets.find(body.preset)  # inconnu : refusé avant de créer une machine
+    langue = presets.lang(request)  # rôle, routines et premier message dans la langue de l'interface
+    preset = presets.find(body.preset, langue)  # inconnu : refusé avant de créer une machine
     agent_id = await _start_agent(body.name.strip(), body.role if body.role.strip() or not preset else preset["role"], user)
     presets.apply(agent_id, preset)  # ses routines, en pause tant que la personne ne les active pas
     presets.welcome(agent_id, body.name.strip(), preset, lambda: _main_conversation(agent_id, user) or _new_conversation(user, agent_id, "Conversation", main=True),
-                    _save_message)
+                    _save_message, langue)
     return {"id": agent_id}
 
 
@@ -3936,7 +3937,9 @@ async def voice_transcribe(request: Request, format: str = "webm", agent_id: str
     if not data or len(data) > 20 * 1024 * 1024:
         raise HTTPException(400, "Enregistrement vide ou trop long")
     try:
-        return {"text": await media.transcribe(agent_id, data, format)}
+        # Langue de l'interface (en-tête Accept-Language) : la transcription l'attend, sinon elle devine.
+        langue = (request.headers.get("accept-language") or "").strip().lower()[:2]
+        return {"text": await media.transcribe(agent_id, data, format, langue if langue in ("fr", "en") else None)}
     except media.MediaError as e:
         # 503 : le navigateur garde le son et réessaie. 400 : réessayer ne changera rien, il dit pourquoi.
         raise HTTPException(503 if e.temporary else 400, str(e))
