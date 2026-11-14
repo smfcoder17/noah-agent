@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Politique de confidentialité : Noah Agent</title>
+<meta name="description" content="Politique de confidentialité de l'application Noah Agent : l'éditeur ne collecte, ne reçoit ni ne stocke aucune donnée. L'application parle seulement à ton propre serveur.">
+<link rel="canonical" href="https://noah-agent.smfcoder.com/confidentialite/">
+<meta name="theme-color" content="#2a47c9">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/img/icon-192.png" type="image/png" sizes="192x192">
+<link rel="apple-touch-icon" href="/img/icon-192.png">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<a class="skip" href="#contenu">Aller au contenu</a>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="Noah Agent, accueil"><img src="/favicon.svg" alt="" width="34" height="34">Noah Agent</a>
+    <nav aria-label="Sections">
+      <a class="keep" href="/">Accueil</a>
+      <a href="/#installer">Installer</a>
+      <a href="/#telecharger">Télécharger</a>
+    </nav>
+  </div>
+</header>
+
+<main id="contenu" class="doc">
+<div class="narrow">
+  <h1>Politique de confidentialité</h1>
+  <p class="meta">Application Noah Agent (Android) et site noah-agent.smfcoder.com. Dernière mise à jour : 13 novembre 2026.</p>
+
+  <div class="summary">
+    <p><strong>En bref.</strong> Noah Agent est hébergé par toi, sur ton propre serveur. L'éditeur de Noah ne collecte, ne reçoit et ne stocke aucune de tes données : ni compte, ni message, ni statistique. L'application parle seulement à ton serveur, en HTTPS. Elle ne contient ni publicité, ni mesure d'audience, ni télémétrie.</p>
+  </div>
+
+  <h2>Qui édite Noah Agent</h2>
+  <p>Noah Agent est édité par SmfCoder. Pour toute question sur cette politique, voir <a href="#contact">Contact</a>, en bas de cette page.</p>
+
+  <h2>Ce que l'éditeur collecte</h2>
+  <p>Rien. L'éditeur n'a pas de serveur qui recevrait tes données, pas de compte utilisateur chez lui, et aucun moyen de lire ce qui passe entre ton téléphone et ton serveur. Il n'a donc aucune donnée à te communiquer, à corriger ou à supprimer.</p>
+  <p>Seule exception, et seulement si tu le décides : un signalement que tu choisis de lui envoyer par e-mail (voir <a href="#signaler">Signaler une réponse d'IA</a>).</p>
+  <p>Si cela change un jour, cette politique et l'application seront mises à jour avant tout changement, et la date en haut de cette page aussi.</p>
+
+  <h2>Ce que fait l'application</h2>
+  <p>L'application relie ton téléphone au serveur Noah que tu as installé et que tu administres (un VPS, par exemple), puis affiche son interface : tes agents IA, leurs conversations, leurs fichiers et leurs notifications. Sans serveur Noah, elle ne sert à rien.</p>
+
+  <h2>Les données qui passent par l'application</h2>
+  <p>Toutes vont <strong>de ton téléphone vers ton serveur</strong>, chiffrées en HTTPS. L'éditeur n'y a aucun accès.</p>
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th scope="col">Donnée</th><th scope="col">Quand</th><th scope="col">Où elle va</th></tr></thead>
+      <tbody>
+        <tr><td>Adresse de ton serveur et jeton de l'appareil</td><td>À la liaison (QR code ou code court), puis à chaque connexion</td><td>Gardés sur le téléphone ; le jeton est présenté à ton serveur</td></tr>
+        <tr><td>Tes messages, fichiers et photos joints</td><td>Quand tu les envoies</td><td>Ton serveur</td></tr>
+        <tr><td>Ta voix (micro)</td><td>Seulement quand tu dictes, utilises le mode vocal, la bulle flottante ou un appel d'agent</td><td>Ton serveur</td></tr>
+        <tr><td>Ta position</td><td>Seulement quand tu touches « Joindre ma position » ; jamais en arrière-plan</td><td>Ton serveur, dans le message</td></tr>
+        <tr><td>Notifications</td><td>Quand ton serveur en envoie</td><td>Reçues de ton serveur, directement ou par le service de notification de ton téléphone ; leur contenu est chiffré</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Le mot de passe de ton compte Noah n'est jamais saisi dans l'application : tu autorises le téléphone depuis un appareil déjà connecté, avec un nombre à 3 chiffres.</p>
+
+  <h2>Ce qui part chez ton fournisseur de modèle</h2>
+  <p>C'est ton serveur, et non l'application, qui décide de ce qui en sort. Pour répondre, il envoie tes messages, et ce que l'agent lit pour te répondre, au fournisseur de modèle d'IA que <strong>tu</strong> as choisi (par exemple Ollama, OpenRouter, Anthropic, OpenAI, Gemini, Mistral, DeepSeek), avec ta propre clé. Une position jointe à un message part avec lui. Avec un modèle local, rien ne part.</p>
+  <p>Ces fournisseurs appliquent leurs propres règles de confidentialité : lis celles du fournisseur que tu choisis. Les sites que visitent tes agents voient l'adresse de ton serveur. La liste complète des flux sortants de ton serveur s'affiche dans Réglages &gt; Serveur &gt; Confidentialité, et elle est décrite dans <a href="https://github.com/smfcoder17/noah-agent/blob/main/SECURITY.md">SECURITY.md</a>.</p>
+
+  <h2>Les autres services que le téléphone peut joindre</h2>
+  <ul>
+    <li><strong>Notifications.</strong> Si ton serveur passe par le service de notification de ton téléphone (Google, ou le distributeur UnifiedPush que tu as choisi), ce service transporte la notification, mais son contenu est chiffré et il ne peut pas le lire.</li>
+    <li><strong>Mises à jour de l'application téléchargée depuis GitHub.</strong> Quand tu touches « Installer » sur une nouvelle version, le téléphone télécharge le fichier depuis github.com, qui voit alors l'adresse IP du téléphone. La version distribuée par Google Play se met à jour par Google Play.</li>
+  </ul>
+
+  <h2>Permissions Android, et pourquoi</h2>
+  <ul>
+    <li><strong>Internet</strong> : joindre ton serveur.</li>
+    <li><strong>Appareil photo</strong> : scanner le QR code de liaison, seulement à ta demande.</li>
+    <li><strong>Notifications</strong> : t'avertir (tâche finie, accord à donner, appel d'un agent).</li>
+    <li><strong>Micro</strong> et réglages audio : dictée, mode vocal, appel d'un agent, bulle flottante, seulement quand tu les utilises.</li>
+    <li><strong>Position</strong> (approximative et précise) : seulement au toucher de « Joindre ma position », jamais en arrière-plan.</li>
+    <li><strong>Affichage par-dessus les autres applis</strong> : la bulle flottante, seulement si tu l'actives.</li>
+    <li><strong>Service au premier plan, démarrage du téléphone, maintien en éveil, vibration, écran d'appel en plein écran, exemption d'optimisation de la batterie</strong> : pour qu'un agent puisse t'appeler, écran éteint, sans service tiers, seulement si tu l'actives dans Réglages &gt; Téléphone.</li>
+    <li><strong>Installation d'applications</strong> (version GitHub seulement) : installer une nouvelle version de Noah, après ton accord dans l'installateur d'Android.</li>
+  </ul>
+
+  <h2 id="signaler">Signaler une réponse d'IA</h2>
+  <p>Les réponses de tes agents viennent du modèle d'IA que tu as choisi. Si une réponse te paraît offensante, dangereuse ou fausse, tu peux la signaler à l'éditeur. Le signalement ne lui est envoyé, par e-mail, que si tu choisis de l'envoyer, et il contient seulement ce que tu choisis d'y mettre. L'éditeur s'en sert uniquement pour traiter ton signalement. Rien n'est envoyé automatiquement.</p>
+
+  <h2>Conservation et suppression</h2>
+  <p>L'application garde sur le téléphone l'adresse de ton serveur, le jeton de l'appareil et tes réglages d'affichage. Désinstaller l'application les efface. Pour couper l'accès d'un téléphone, retire-le dans Réglages &gt; Appareils de ton serveur. Tes conversations et ton compte sont sur ton serveur : tu les supprimes toi-même (Réglages &gt; Personnes, ou en supprimant le serveur). L'éditeur ne détient aucune donnée à supprimer.</p>
+
+  <h2>Sécurité</h2>
+  <p>Les échanges entre l'application et ton serveur passent en HTTPS ; l'application refuse une adresse non chiffrée, sauf sur un réseau privé de développement. Les limites de sécurité de Noah sont décrites honnêtement dans <a href="https://github.com/smfcoder17/noah-agent/blob/main/SECURITY.md">SECURITY.md</a> : par exemple, les conversations ne sont pas chiffrées sur le disque du serveur.</p>
+
+  <h2>Enfants</h2>
+  <p>L'application s'adresse aux adultes (18 ans et plus) et ne vise pas les enfants.</p>
+
+  <h2>Ce site</h2>
+  <p>Ce site n'utilise ni cookie, ni mesure d'audience, ni police ou script venus d'un autre site. Il est hébergé par GitHub Pages : comme tout hébergeur, GitHub peut enregistrer l'adresse IP des visiteurs pour faire fonctionner et protéger son service, selon <a href="https://docs.github.com/fr/site-policy/privacy-policies/github-general-privacy-statement">sa propre déclaration de confidentialité</a>. L'éditeur n'a pas accès à ces journaux.</p>
+
+  <h2>Changements</h2>
+  <p>Toute modification de cette politique sera publiée à cette même adresse, avec sa date. Si l'éditeur se met un jour à recevoir des données, la politique et l'application seront mises à jour avant.</p>
+
+  <h2 id="contact">Contact</h2>
+  <!-- Adresse de contact : un seul endroit dans ce fichier. -->
+  <p>SmfCoder, éditeur de Noah Agent : <a href="mailto:contact@smfcoder.com">contact@smfcoder.com</a>.</p>
+</div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Noah Agent, par SmfCoder</span>
+    <nav aria-label="Pied de page">
+      <a href="/">Accueil</a>
+      <a href="/mentions-legales/">Mentions légales</a>
+      <a href="https://github.com/smfcoder17/noah-agent">GitHub</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>
