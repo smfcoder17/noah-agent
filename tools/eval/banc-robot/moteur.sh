@@ -3,6 +3,10 @@
 #     sh /banc/moteur.sh chromium|patchright|camoufox [options de banc.py]
 set -eu
 MOTEUR="$1"; shift
+# Garde-fou : /proc/meminfo est celui de la machine hôte. Sous 2 Go disponibles, on ne lance rien pour ne gêner personne.
+dispo=$(awk '/MemAvailable/ {print int($2/1024)}' /proc/meminfo)
+if [ "$dispo" -lt 2048 ]; then echo "[$MOTEUR] mémoire disponible ${dispo} Mo, moins de 2 Go : moteur sauté."; exit 3; fi
+echo "[$MOTEUR] mémoire disponible ${dispo} Mo."
 export DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PIP_ROOT_USER_ACTION=ignore PIP_DISABLE_PIP_VERSION_CHECK=1
 echo "[$MOTEUR] installation…"
 apt-get update -qq >/dev/null
@@ -27,4 +31,4 @@ Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp >/dev/null 2>&1 &
 export DISPLAY=:99
 sleep 1
 echo "[$MOTEUR] banc…"
-exec python /banc/banc.py --moteurs "$MOTEUR" "$@"
+python /banc/banc.py --moteurs "$MOTEUR" "$@"
