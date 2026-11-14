@@ -223,3 +223,6 @@ footer { border-top:1px solid var(--line); padding:56px 0 48px; color:var(--soft
 .table th, .table td { text-align:left; vertical-align:top; padding:12px 14px; border-bottom:1px solid var(--line); color:var(--soft); }
 .table th { font-weight:650; color:var(--ink); background:var(--bg-2); }
 .table tr:last-child td { border-bottom:0; }
+
+.window.film video { display:block; width:100%; height:auto; aspect-ratio:16/9; background:var(--bg); }
+@media (prefers-reduced-motion:reduce) { .window.film video { animation:none; } }
