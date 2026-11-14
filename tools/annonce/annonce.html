@@ -1,0 +1,279 @@
+<!doctype html>
+<!-- Annonce de Noah Agent (17 s, 1920×1080). Chaque image se calcule par render(t) : filmée image par image par filmer.py. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  :root { --bg:#fbfaf8; --ink:#10151c; --soft:#5b6470; --faint:#8a929c; --line:#e6e2dc; --card:#fff;
+          --accent:#2a47c9; --accent-soft:#e7ebfb; --peach:#ff7a59; --peach-soft:#ffeee8; --green:#1f9d55; }
+  * { box-sizing:border-box; margin:0; }
+  html, body { width:1920px; height:1080px; overflow:hidden; background:var(--bg); }
+  body { font-family:Inter, "Segoe UI", system-ui, sans-serif; color:var(--ink); -webkit-font-smoothing:antialiased; }
+  .layer { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; opacity:0; }
+  .glow { position:absolute; width:1400px; height:900px; left:260px; top:90px; border-radius:50%;
+          background:radial-gradient(closest-side, rgba(255,122,89,.16), rgba(42,71,201,.06) 60%, transparent); filter:blur(30px); }
+  .center { display:flex; flex-direction:column; align-items:center; gap:28px; }
+  .mascot { width:170px; height:170px; border-radius:42px; box-shadow:0 30px 70px -25px rgba(184,88,64,.55); }
+  .intro { font-size:56px; font-weight:500; letter-spacing:-.02em; color:var(--soft); }
+  .word { font-size:150px; font-weight:800; letter-spacing:-.055em; line-height:1; display:flex; }
+  .word span { display:inline-block; }
+  .tag { font-size:46px; font-weight:500; color:var(--soft); letter-spacing:-.02em; }
+
+  /* Fenêtre de discussion */
+  .win { position:absolute; left:310px; top:150px; width:1300px; height:780px; background:var(--card); border-radius:30px;
+         box-shadow:0 2px 4px rgba(16,21,28,.05), 0 50px 120px -40px rgba(16,21,28,.35); border:1px solid var(--line); overflow:hidden; display:flex; }
+  .side { width:300px; background:#f6f4f1; border-right:1px solid var(--line); padding:30px 22px; display:flex; flex-direction:column; gap:10px; }
+  .side .me { display:flex; align-items:center; gap:12px; font-weight:700; font-size:22px; margin-bottom:18px; }
+  .side .me img { width:42px; height:42px; border-radius:12px; }
+  .agent { display:flex; align-items:center; gap:12px; padding:12px 14px; border-radius:14px; font-size:20px; color:var(--soft); }
+  .agent.on { background:#fff; color:var(--ink); font-weight:600; box-shadow:0 1px 3px rgba(0,0,0,.06); }
+  .dot { width:30px; height:30px; border-radius:9px; display:grid; place-items:center; font-size:16px; }
+  .main { flex:1; display:flex; flex-direction:column; }
+  .head { height:84px; border-bottom:1px solid var(--line); display:flex; align-items:center; padding:0 36px; font-weight:700; font-size:24px; gap:12px; }
+  .head small { font-weight:500; color:var(--green); font-size:17px; display:flex; align-items:center; gap:7px; }
+  .head small::before { content:""; width:9px; height:9px; border-radius:50%; background:var(--green); }
+  .thread { flex:1; padding:34px 40px; display:flex; flex-direction:column; gap:22px; }
+  .bubble { max-width:640px; padding:18px 24px; border-radius:24px; font-size:24px; line-height:1.4; }
+  .bubble.user { align-self:flex-end; background:var(--ink); color:#fff; border-bottom-right-radius:8px; }
+  .bubble.bot { background:#f3f1ed; border-bottom-left-radius:8px; }
+  .typing { display:flex; gap:7px; padding:22px 26px; background:#f3f1ed; border-radius:24px; width:max-content; }
+  .typing i { width:11px; height:11px; border-radius:50%; background:var(--faint); display:block; }
+  .routine { width:560px; border:1px solid var(--line); border-radius:22px; padding:22px 24px; display:flex; align-items:center; gap:18px; background:#fff;
+             box-shadow:0 10px 30px -18px rgba(16,21,28,.3); }
+  .routine .ic { width:56px; height:56px; border-radius:16px; background:var(--accent-soft); display:grid; place-items:center; font-size:28px; }
+  .routine b { display:block; font-size:22px; } .routine span { color:var(--soft); font-size:18px; }
+  .approve { margin-left:auto; background:var(--accent); color:#fff; font-weight:700; font-size:19px; padding:14px 22px; border-radius:999px; white-space:nowrap; }
+  .composer { margin:0 36px 30px; height:78px; border:1.5px solid var(--line); border-radius:22px; display:flex; align-items:center; padding:0 14px 0 26px; font-size:24px; gap:14px; }
+  .composer .txt { flex:1; white-space:nowrap; overflow:hidden; }
+  .caret { display:inline-block; width:2px; height:28px; background:var(--accent); vertical-align:middle; margin-left:2px; }
+  .send { width:54px; height:54px; border-radius:16px; background:var(--ink); display:grid; place-items:center; }
+  .send svg { width:24px; height:24px; }
+
+  /* Ordinateur de l'agent */
+  .pc { position:absolute; left:210px; top:160px; width:1500px; height:760px; display:flex; gap:40px; }
+  .browser { width:980px; height:760px; background:#fff; border-radius:26px; border:1px solid var(--line); overflow:hidden;
+             box-shadow:0 50px 120px -40px rgba(16,21,28,.35); display:flex; flex-direction:column; }
+  .tabs { height:62px; background:#f1eee9; display:flex; align-items:flex-end; gap:6px; padding:0 18px; }
+  .tab { height:46px; padding:0 18px; border-radius:14px 14px 0 0; background:#e7e3dd; font-size:17px; color:var(--soft); display:flex; align-items:center; gap:9px; width:220px; }
+  .tab.on { background:#fff; color:var(--ink); }
+  .tab i { width:16px; height:16px; border-radius:5px; display:block; }
+  .url { height:60px; display:flex; align-items:center; gap:14px; padding:0 22px; border-bottom:1px solid var(--line); }
+  .url div { flex:1; height:40px; border-radius:12px; background:#f3f1ed; font-size:18px; color:var(--soft); display:flex; align-items:center; padding:0 18px; }
+  .page { flex:1; padding:40px 48px; display:flex; flex-direction:column; gap:22px; }
+  .page .hl { height:30px; border-radius:8px; background:#e9e5df; }
+  .page .ln { height:16px; border-radius:6px; background:#f0ede8; }
+  .page .mark { position:absolute; height:24px; border-radius:6px; background:rgba(255,122,89,.28); }
+  .steps { flex:1; display:flex; flex-direction:column; justify-content:center; gap:22px; }
+  .pill { align-self:flex-start; display:flex; align-items:center; gap:12px; font-size:20px; font-weight:700; padding:10px 18px 10px 10px; border-radius:999px; background:#fff; border:1px solid var(--line); margin-bottom:12px; }
+  .pill img { width:36px; height:36px; border-radius:10px; }
+  .step { display:flex; align-items:center; gap:18px; font-size:30px; font-weight:600; letter-spacing:-.02em; }
+  .chk { width:44px; height:44px; border-radius:50%; border:2.5px solid var(--line); display:grid; place-items:center; flex:none; }
+  .chk.done { background:var(--green); border-color:var(--green); }
+  .chk svg { width:24px; height:24px; }
+
+  /* Téléphone */
+  .phone { position:absolute; left:710px; top:70px; width:500px; height:1000px; border-radius:72px; background:#10151c; padding:16px;
+           box-shadow:0 60px 140px -40px rgba(16,21,28,.55); }
+  .screen { width:100%; height:100%; border-radius:58px; overflow:hidden; position:relative;
+            background:linear-gradient(160deg, #ffd9cc 0%, #f6e9ff 45%, #dfe6ff 100%); }
+  .clock { position:absolute; top:120px; width:100%; text-align:center; font-size:110px; font-weight:300; letter-spacing:-.04em; color:#1d2230; }
+  .date { position:absolute; top:100px; width:100%; text-align:center; font-size:24px; font-weight:600; color:#3a4152; }
+  .notif { position:absolute; left:22px; right:22px; top:330px; background:rgba(255,255,255,.86); border-radius:30px; padding:22px; display:flex; gap:16px;
+           box-shadow:0 20px 40px -20px rgba(16,21,28,.35); }
+  .notif img { width:56px; height:56px; border-radius:15px; flex:none; }
+  .notif b { font-size:21px; } .notif small { color:var(--faint); font-size:17px; float:right; }
+  .notif p { font-size:21px; line-height:1.35; margin-top:4px; color:#2a3040; }
+  .digest { position:absolute; left:22px; right:22px; top:520px; display:flex; flex-direction:column; gap:14px; }
+  .item { background:rgba(255,255,255,.92); border-radius:24px; padding:18px 20px; font-size:20px; font-weight:600; line-height:1.3; display:flex; gap:14px; align-items:center; }
+  .item i { width:46px; height:46px; border-radius:12px; flex:none; display:block; }
+
+  /* Texte final */
+  .kin { flex-direction:column; gap:6px; }
+  .kin div { font-size:132px; font-weight:800; letter-spacing:-.055em; line-height:1.05; }
+  .kin em { font-style:normal; color:var(--peach); }
+  .end .url2 { font-size:38px; font-weight:600; color:var(--accent); letter-spacing:-.01em; }
+  .end .small { font-size:28px; color:var(--soft); }
+
+  .cursor { position:absolute; width:46px; height:46px; z-index:50; pointer-events:none; filter:drop-shadow(0 6px 10px rgba(0,0,0,.25)); }
+</style>
+</head>
+<body>
+<div class="glow" id="glow"></div>
+
+<!-- 1. Introducing -->
+<div class="layer" id="s1"><div class="center"><img class="mascot" id="m1" src="noah.svg" alt=""><div class="intro" id="intro">Introducing</div></div></div>
+
+<!-- 2. Noah Agent -->
+<div class="layer" id="s2"><div class="center"><div class="word" id="word"></div><div class="tag" id="tag">AI agents that work for you.</div></div></div>
+
+<!-- 3. Discussion -->
+<div class="layer" id="s3">
+  <div class="win" id="win">
+    <div class="side">
+      <div class="me"><img src="noah.svg" alt="">Noah</div>
+      <div class="agent on"><span class="dot" style="background:var(--peach-soft)">☀️</span>Morning brief</div>
+      <div class="agent"><span class="dot" style="background:var(--accent-soft)">🔎</span>Research</div>
+      <div class="agent"><span class="dot" style="background:#e5f5ec">🛒</span>Shopping</div>
+      <div class="agent"><span class="dot" style="background:#fff4d6">✈️</span>Travel</div>
+    </div>
+    <div class="main">
+      <div class="head">Morning brief <small>Online</small></div>
+      <div class="thread">
+        <div class="bubble user" id="u1">Every morning at 7, send me the top AI news.</div>
+        <div class="typing" id="dots"><i></i><i></i><i></i></div>
+        <div class="bubble bot" id="b1">On it. I'll read the news every day at 7:00 and send you a short digest.</div>
+        <div class="routine" id="rt"><div class="ic">🗞️</div><div><b>Morning AI digest</b><span>Every day · 7:00</span></div><div class="approve" id="ap">Approve</div></div>
+      </div>
+      <div class="composer"><div class="txt" id="typed"></div><div class="send" id="send"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- 4. Ordinateur de l'agent -->
+<div class="layer" id="s4">
+  <div class="pc">
+    <div class="browser" id="br">
+      <div class="tabs"><div class="tab on" id="t1"><i style="background:#ff7a59"></i>Tech news</div><div class="tab" id="t2"><i style="background:#2a47c9"></i>Research blog</div><div class="tab" id="t3"><i style="background:#1f9d55"></i>Release notes</div></div>
+      <div class="url"><div id="addr"></div></div>
+      <div class="page" id="page" style="position:relative">
+        <div class="hl" style="width:72%"></div><div class="hl" style="width:48%"></div>
+        <div class="ln" style="width:96%"></div><div class="ln" id="mk1" style="width:91%"></div><div class="ln" style="width:94%"></div><div class="ln" style="width:70%"></div>
+        <div class="ln" style="width:93%;margin-top:18px"></div><div class="ln" id="mk2" style="width:89%"></div><div class="ln" style="width:95%"></div><div class="ln" style="width:62%"></div>
+        <div class="ln" style="width:92%;margin-top:18px"></div><div class="ln" style="width:85%"></div><div class="ln" style="width:58%"></div>
+        
+      </div>
+    </div>
+    <div class="steps">
+      <div class="pill" id="pill"><img src="noah.svg" alt="">Noah's computer</div>
+      <div class="step" id="st1"><div class="chk" id="c1"></div>Reading 14 sources</div>
+      <div class="step" id="st2"><div class="chk" id="c2"></div>Picking what matters</div>
+      <div class="step" id="st3"><div class="chk" id="c3"></div>Writing your digest</div>
+    </div>
+  </div>
+</div>
+
+<!-- 5. Téléphone -->
+<div class="layer" id="s5">
+  <div class="phone" id="ph"><div class="screen">
+    <div class="date">Tuesday, November 18</div><div class="clock">7:00</div>
+    <div class="notif" id="nt"><img src="noah.svg" alt=""><div><b>Noah</b> <small>now</small><p>Your morning digest is ready: 5 stories worth your time.</p></div></div>
+    <div class="digest">
+      <div class="item" id="d1"><i style="background:#ffd9cc"></i>Open models: this week's top releases</div>
+      <div class="item" id="d2"><i style="background:#dfe6ff"></i>Agents at work: three new tools to try</div>
+      <div class="item" id="d3"><i style="background:#d9f2e3"></i>Smaller models, sharper reasoning</div>
+    </div>
+  </div></div>
+</div>
+
+<!-- 6. Texte -->
+<div class="layer kin" id="s6"><div id="k1">Your agents.</div><div id="k2">Your server.</div><div id="k3"><em>Your model.</em></div></div>
+
+<!-- 7. Fin -->
+<div class="layer end" id="s7"><div class="center"><img class="mascot" id="m7" src="noah.svg" alt=""><div class="word" style="font-size:120px">Noah Agent</div><div class="url2">noah-agent.smfcoder.com</div></div></div>
+
+<svg class="cursor" id="cur" viewBox="0 0 24 24"><path d="M4 2l16 9.5-7 1.5-3.6 6.6z" fill="#10151c" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>
+
+<script>
+const $ = id => document.getElementById(id);
+const cl = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const p = (t, a, b) => cl((t - a) / (b - a));                    // avancement de 0 à 1 entre a et b
+const out3 = x => 1 - Math.pow(1 - x, 3);
+const io3 = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+const back = x => { const c = 1.7; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); };
+const lerp = (a, b, x) => a + (b - a) * x;
+function show(el, o, tf = "") { el.style.opacity = o; el.style.transform = tf; }
+// Une scène entre a et b : fondu d'entrée et de sortie
+const scene = (t, a, b, fi = .35, fo = .35) => Math.min(p(t, a, a + fi), 1 - p(t, b - fo, b));
+
+const WORD = "Noah Agent";
+$("word").innerHTML = [...WORD].map(c => `<span>${c === " " ? "&nbsp;" : c}</span>`).join("");
+const MSG = "Every morning at 7, send me the top AI news.";
+const ADDR = "https://news.example/ai/today";
+
+function cursor(t, keys) {           // keys : [[t, x, y, clic?], ...]
+  const c = $("cur");
+  if (t < keys[0][0] - .3 || t > keys[keys.length - 1][0] + .4) { c.style.opacity = 0; return; }
+  let x = keys[0][1], y = keys[0][2], s = 1;
+  for (let i = 0; i < keys.length - 1; i++) {
+    const [ta, xa, ya] = keys[i], [tb, xb, yb] = keys[i + 1];
+    if (t >= ta) { const k = io3(p(t, ta, tb)); x = lerp(xa, xb, k); y = lerp(ya, yb, k); }
+  }
+  for (const k of keys) if (k[3] && t > k[0] && t < k[0] + .22) s = .82;
+  c.style.opacity = Math.min(p(t, keys[0][0] - .3, keys[0][0]), 1 - p(t, keys[keys.length - 1][0] + .1, keys[keys.length - 1][0] + .4));
+  c.style.left = x + "px"; c.style.top = y + "px"; c.style.transform = `scale(${s})`;
+}
+
+window.render = function (t) {
+  // Lueur de fond qui respire doucement
+  $("glow").style.transform = `translate(${Math.sin(t * .5) * 40}px, ${Math.cos(t * .4) * 30}px) scale(${1 + Math.sin(t * .7) * .04})`;
+
+  // 1. Introducing (0 – 2.1)
+  $("s1").style.opacity = scene(t, 0, 2.1, .01, .35);
+  show($("m1"), p(t, .15, .5), `scale(${back(p(t, .15, .75))})`);
+  show($("intro"), p(t, .7, 1.1), `translateY(${(1 - out3(p(t, .7, 1.2))) * 24}px)`);
+
+  // 2. Noah Agent (2.1 – 3.9)
+  $("s2").style.opacity = scene(t, 2.1, 3.9, .2, .35);
+  [...$("word").children].forEach((s, i) => { const k = p(t, 2.15 + i * .045, 2.55 + i * .045); show(s, k, `translateY(${(1 - out3(k)) * 70}px)`); });
+  show($("tag"), p(t, 2.75, 3.15), `translateY(${(1 - out3(p(t, 2.75, 3.25))) * 20}px)`);
+
+  // 3. Discussion (3.9 – 8.2)
+  $("s3").style.opacity = scene(t, 3.9, 8.2, .3, .4);
+  $("win").style.transform = `translateY(${(1 - out3(p(t, 3.9, 4.6))) * 80}px) scale(${lerp(.96, 1, out3(p(t, 3.9, 4.6)))})`;
+  const n = Math.round(MSG.length * p(t, 4.4, 5.7));
+  const sent = t >= 5.95;
+  $("typed").innerHTML = sent ? '<span style="color:#8a929c">Message Noah…</span>' : MSG.slice(0, n) + (t > 4.3 ? '<span class="caret"></span>' : "");
+  $("send").style.transform = `scale(${t > 5.9 && t < 6.05 ? .88 : 1})`;
+  show($("u1"), p(t, 5.95, 6.15), `translateY(${(1 - out3(p(t, 5.95, 6.3))) * 20}px)`);
+  const dotsOn = t >= 6.25 && t < 6.75;
+  $("dots").style.display = dotsOn ? "flex" : "none";
+  [...$("dots").children].forEach((d, i) => d.style.transform = `translateY(${Math.sin(t * 14 - i) * 4}px)`);
+  $("b1").style.display = t >= 6.75 ? "block" : "none";
+  show($("b1"), p(t, 6.75, 6.95), `translateY(${(1 - out3(p(t, 6.75, 7.05))) * 16}px)`);
+  $("rt").style.display = t >= 6.75 ? "flex" : "none";
+  show($("rt"), p(t, 7.0, 7.25), `translateY(${(1 - out3(p(t, 7.0, 7.35))) * 18}px)`);
+  const ok = t >= 7.72;
+  $("ap").textContent = ok ? "✓ Approved" : "Approve";
+  $("ap").style.background = ok ? "#1f9d55" : "";
+  $("ap").style.transform = `scale(${t > 7.65 && t < 7.8 ? .9 : 1})`;
+  cursor(t, [[5.0, 1480, 990], [5.9, 1515, 875, 1], [7.0, 1500, 760], [7.65, 1495, 652, 1], [8.0, 1495, 652]]);
+
+  // 4. Ordinateur de l'agent (8.2 – 11.4)
+  $("s4").style.opacity = scene(t, 8.2, 11.4, .35, .35);
+  $("br").style.transform = `translateX(${(1 - out3(p(t, 8.2, 8.9))) * -60}px)`;
+  $("addr").textContent = ADDR.slice(0, Math.round(ADDR.length * p(t, 8.5, 9.1)));
+  const tab = t < 9.6 ? 1 : t < 10.2 ? 2 : 3;
+  ["t1", "t2", "t3"].forEach((id, i) => { $(id).classList.toggle("on", i + 1 === tab); show($(id), p(t, 8.4 + i * .5, 8.6 + i * .5)); });
+  const hi = (k) => `linear-gradient(90deg, rgba(255,122,89,.55) ${k * 100}%, #f0ede8 ${k * 100}%)`;
+  $("mk1").style.background = hi(out3(p(t, 9.2, 9.6))); $("mk1").style.height = "22px";
+  $("mk2").style.background = hi(out3(p(t, 9.8, 10.2))); $("mk2").style.height = "22px";
+  $("page").style.opacity = tab === 1 ? 1 : lerp(.55, 1, p(t, tab === 2 ? 9.6 : 10.2, (tab === 2 ? 9.6 : 10.2) + .25));
+  show($("pill"), p(t, 8.5, 8.8), `translateY(${(1 - out3(p(t, 8.5, 8.9))) * 14}px)`);
+  [[1, 8.75, 9.6], [2, 9.15, 10.2], [3, 9.55, 10.8]].forEach(([i, a, d]) => {
+    show($("st" + i), p(t, a, a + .3), `translateX(${(1 - out3(p(t, a, a + .4))) * 30}px)`);
+    const c = $("c" + i), done = t >= d;
+    c.classList.toggle("done", done);
+    c.innerHTML = done ? '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>' : "";
+    c.style.transform = done ? `scale(${back(p(t, d, d + .3))})` : `rotate(${t * 360}deg)`;
+    c.style.borderTopColor = done ? "" : "#ff7a59";
+  });
+
+  // 5. Téléphone (11.4 – 14.0)
+  $("s5").style.opacity = scene(t, 11.4, 14.0, .3, .35);
+  $("ph").style.transform = `translateY(${(1 - out3(p(t, 11.4, 12.1))) * 260}px)`;
+  show($("nt"), p(t, 12.0, 12.2), `translateY(${(1 - back(p(t, 12.0, 12.45))) * -90}px)`);
+  [1, 2, 3].forEach(i => show($("d" + i), p(t, 12.6 + i * .18, 12.85 + i * .18), `translateY(${(1 - out3(p(t, 12.6 + i * .18, 13.0 + i * .18))) * 24}px)`));
+
+  // 6. Your agents. Your server. Your model. (14.0 – 15.7)
+  $("s6").style.opacity = scene(t, 14.0, 15.7, .05, .3);
+  [["k1", 14.05], ["k2", 14.45], ["k3", 14.85]].forEach(([id, a]) => show($(id), p(t, a, a + .12), `translateY(${(1 - out3(p(t, a, a + .3))) * 40}px) scale(${lerp(1.08, 1, out3(p(t, a, a + .3)))})`));
+
+  // 7. Fin (15.7 – 17.5)
+  $("s7").style.opacity = p(t, 15.7, 16.0);
+  show($("m7"), p(t, 15.75, 16.05), `scale(${back(p(t, 15.75, 16.3))})`);
+};
+window.DUREE = 17.5;
+render(0);
+</script>
+</body>
+</html>
