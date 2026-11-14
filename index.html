@@ -1,207 +1,245 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Noah Agent : des agents IA sur ton propre serveur</title>
-<meta name="description" content="Des agents IA qui font tes tâches de tous les jours, sur ton propre serveur. Tes conversations restent chez toi, et le modèle, c'est toi qui le choisis.">
+<title>Noah Agent: AI agents that work for you, on your own server</title>
+<meta name="description" content="Personal AI agents that browse, write and keep watch for you. Self-hosted on your server, with the model you choose. Free for personal use.">
 <link rel="canonical" href="https://noah-agent.smfcoder.com/">
-<meta name="theme-color" content="#2a47c9">
+<link rel="alternate" hreflang="en" href="https://noah-agent.smfcoder.com/">
+<link rel="alternate" hreflang="fr" href="https://noah-agent.smfcoder.com/fr/">
+<link rel="alternate" hreflang="x-default" href="https://noah-agent.smfcoder.com/">
+<meta name="theme-color" content="#fbfaf8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b0e12" media="(prefers-color-scheme: dark)">
 <meta property="og:type" content="website">
-<meta property="og:locale" content="fr_FR">
-<meta property="og:title" content="Noah Agent : des agents IA sur ton propre serveur">
-<meta property="og:description" content="Tes agents naviguent, écrivent, surveillent et te préviennent. Ton serveur, tes données, ton modèle.">
+<meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="fr_FR">
+<meta property="og:title" content="Noah Agent: AI agents that work for you, on your own server">
+<meta property="og:description" content="Personal AI agents that browse, write and keep watch for you. Your server, your data, your model.">
 <meta property="og:url" content="https://noah-agent.smfcoder.com/">
 <meta property="og:image" content="https://noah-agent.smfcoder.com/img/accueil.webp">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/img/icon-192.png" type="image/png" sizes="192x192">
 <link rel="apple-touch-icon" href="/img/icon-192.png">
 <link rel="stylesheet" href="/style.css">
+<script src="/site.js" defer></script>
 </head>
 <body>
-<a class="skip" href="#contenu">Aller au contenu</a>
+<a class="skip" href="#main">Skip to content</a>
 
 <header class="top">
   <div class="wrap">
-    <a class="brand" href="/" aria-label="Noah Agent, accueil"><img src="/favicon.svg" alt="" width="34" height="34">Noah Agent</a>
+    <a class="brand" href="/" aria-label="Noah Agent, home"><img src="/favicon.svg" alt="" width="30" height="30">Noah Agent</a>
     <nav aria-label="Sections">
-      <a href="#agents">Fonctions</a>
-      <a href="#donnees">Tes données</a>
-      <a href="#installer">Installer</a>
-      <a class="keep" href="#telecharger">Télécharger</a>
-      <a href="#contact">Contact</a>
+      <a href="#features">Features</a>
+      <a href="#install">Install</a>
+      <a href="#apps">Apps</a>
+      <a href="https://github.com/smfcoder17/noah-agent">GitHub</a>
     </nav>
+    <div class="side">
+      <a class="lang" href="/fr/" hreflang="fr" lang="fr" aria-label="Version française">FR</a>
+      <a class="btn btn-ink btn-sm" href="#install">Install</a>
+    </div>
   </div>
 </header>
 
-<main id="contenu">
+<main id="main">
 
 <div class="hero">
   <div class="wrap">
-    <span class="pill">Gratuit pour un usage personnel</span>
-    <h1>Des agents IA qui font tes tâches de tous les jours, sur ton propre serveur.</h1>
-    <p class="lead">Tu leur écris de l'ordinateur ou du téléphone ; ils naviguent, écrivent, surveillent et te préviennent. Tes conversations restent chez toi. Le modèle, c'est toi qui le choisis.</p>
+    <span class="eyebrow"><b>Free</b> for personal use</span>
+    <h1>AI agents that work for you.<br><span>On your own server.</span></h1>
+    <p class="lead">Give each agent a job. It browses, writes, keeps watch and comes back when it's done. Talk to it from your computer or your phone, and pick the model it runs on.</p>
     <div class="actions">
-      <a class="btn btn-main" href="#installer">Installer Noah</a>
-      <a class="btn btn-ghost" href="https://github.com/smfcoder17/noah-agent">Voir le code sur GitHub</a>
+      <a class="btn btn-ink" href="#install">Install Noah</a>
+      <a class="btn btn-line" href="https://github.com/smfcoder17/noah-agent"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>View on GitHub</a>
     </div>
-    <figure class="shot">
-      <img src="/img/accueil.webp" width="1440" height="860" alt="Noah Agent dans le navigateur : la liste des agents à gauche ; à droite, Noah a préparé les menus de la semaine et la liste de courses, et propose trois réponses à toucher." fetchpriority="high">
-    </figure>
+    <p class="meta">Windows · Android · any browser</p>
+    <div class="stage">
+      <div class="window">
+        <div class="bar" aria-hidden="true"><i></i><i></i><i></i></div>
+        <img src="/img/accueil.webp" width="1440" height="860" fetchpriority="high" alt="Noah Agent in a browser: the agent list on the left; on the right, Noah has planned the week's meals and a shopping list, and offers three replies to tap.">
+      </div>
+      <div class="phone"><img src="/img/telephone.webp" width="400" height="860" loading="lazy" alt="Noah Agent on a phone: a news-watch agent found three sources and asks how often to run the watch."></div>
+    </div>
   </div>
+  <div class="stage-fade" aria-hidden="true"></div>
 </div>
 
-<section id="agents" aria-labelledby="t-agents">
+<section aria-labelledby="t-what">
   <div class="wrap">
-    <h2 id="t-agents">Ce que font tes agents</h2>
-    <p class="intro">Chaque agent a son rôle, sa mémoire, ses fichiers et son navigateur. Tu lui confies une tâche, il s'en occupe, et il t'appelle quand une étape t'appartient.</p>
-    <div class="grid g2">
-      <article class="card">
-        <div class="pic"><img src="/img/presets.webp" width="512" height="836" loading="lazy" alt="Création d'un agent : neuf modèles prêts à l'emploi, comme Assistant personnel, Veille ou Finances du foyer."></div>
-        <h3>Prêts dès la création</h3>
-        <p>Neuf modèles d'agent : assistant personnel, veille, recherche, créateur de contenu, achats et démarches, finances du foyer, voyages et sorties, coach d'apprentissage, bricoleur d'apps. Tu pars de l'un d'eux et tu ajoutes ce que tu veux.</p>
-      </article>
-      <article class="card">
-        <div class="pic"><img src="/img/telephone.webp" width="400" height="860" loading="lazy" alt="Sur un téléphone : l'agent de veille a trouvé trois sources et demande à quel rythme lancer la veille, avec des réponses à toucher."></div>
-        <h3>Partout avec toi</h3>
-        <p>Navigateur, application Windows, application Android, et iPhone par l'écran d'accueil. Ils te préviennent : fin de tâche, veille en panne, crédit qui baisse, et un appel sur Android si tu l'autorises.</p>
-      </article>
-      <article class="card">
-        <div class="pic"><img src="/img/agent-vide.webp" width="600" height="340" loading="lazy" alt="Un nouvel agent de veille : « Que doit faire Rita ? » et quatre demandes à toucher."></div>
-        <h3>Tu sais quoi leur demander</h3>
-        <p>Chaque nouvel agent propose des demandes à toucher, adaptées à son rôle. Tu peux aussi lui écrire pendant qu'il travaille : il répond « Noté » et en tient compte.</p>
-      </article>
-      <article class="card">
-        <div class="pic"><img src="/img/modeles.webp" width="928" height="704" loading="lazy" alt="Réglages, Modèles et budget, onglet Fournisseurs : Ollama branché, et OpenRouter, Anthropic, OpenAI, Gemini, Mistral, DeepSeek, Mammouth, Ollama Cloud ou un autre fournisseur à brancher."></div>
-        <h3>Le modèle que tu veux</h3>
-        <p>Ollama (local ou Cloud), Mammouth, OpenRouter, Anthropic, OpenAI, Gemini, Mistral, DeepSeek, ou tout service compatible OpenAI. Un plafond arrête la dépense.</p>
-      </article>
-    </div>
-    <ul class="list" style="margin-top:32px">
-      <li><strong>Un ordinateur chacun.</strong> Une connexion ou un CAPTCHA t'appartient ? L'agent t'appelle et tu prends la main sur son écran.</li>
-      <li><strong>Tes outils.</strong> Google (courriel, agenda, Drive, contacts), Instagram, X et tout outil MCP. Pour Instagram, X et les outils MCP, tu choisis : lire, demander confirmation, ou agir.</li>
-      <li><strong>De lui-même.</strong> Tâches à heure fixe, surveillance d'une source, objectifs qu'il garde en tête.</li>
-      <li><strong>En équipe.</strong> « Demande à Rita de préparer le compte rendu, et rappelle-moi quand c'est fini. » Un profil par personne, et le partage d'un agent avec des droits.</li>
-      <li><strong>Pas de « c'est fait » sans preuve.</strong> Sous chaque réponse, un reçu compare ce que l'agent affirme à ce que ses outils ont vraiment fait.</li>
-    </ul>
-  </div>
-</section>
-
-<section id="donnees" class="alt" aria-labelledby="t-donnees">
-  <div class="wrap">
-    <h2 id="t-donnees">Ton serveur, tes données, ton modèle</h2>
-    <div class="grid g3">
-      <div class="card">
-        <div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg></div>
-        <h3>Ton serveur</h3>
-        <p>Noah s'installe sur ton VPS ou ton ordinateur. Pas de compte chez nous, pas de service central : tes applications parlent seulement à ton serveur, en HTTPS.</p>
+    <span class="kicker">What Noah is</span>
+    <h2 class="h2" id="t-what">Personal agents. Self-hosted.</h2>
+    <p class="sub">Noah is software you install on your own server or computer. Your agents live there, and so does everything they know.</p>
+    <div class="is">
+      <div class="yes">
+        <h3>What you get</h3>
+        <ul>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><div><strong>Your agents, on your machine</strong><span>Conversations, memory and files stay on the server you run.</span></div></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><div><strong>A computer for each agent</strong><span>Its own browser, memory and files. When a login needs you, take over its screen.</span></div></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><div><strong>The model you choose</strong><span>Local or in the cloud, with your own key and a spending cap.</span></div></li>
+        </ul>
       </div>
-      <div class="card">
-        <div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div>
-        <h3>Tes données</h3>
-        <p>Conversations, mémoire et fichiers restent sur ton serveur. Aucune télémétrie : rien ne part vers les développeurs de Noah. Réglages &gt; Serveur &gt; Confidentialité liste chaque flux sortant.</p>
+      <div class="no">
+        <h3>What it isn't</h3>
+        <ul>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg><div><strong>Not a hosted service</strong><span>We don't run your agents. You do.</span></div></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg><div><strong>No account with us</strong><span>No sign-up, no subscription, no telemetry.</span></div></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg><div><strong>Not tied to one model</strong><span>Switch providers whenever you like.</span></div></li>
+        </ul>
       </div>
-      <div class="card">
-        <div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a4 4 0 0 0-4 4v1a4 4 0 0 0-2 7.5V17a4 4 0 0 0 6 3.4A4 4 0 0 0 18 17v-1.5A4 4 0 0 0 16 8V7a4 4 0 0 0-4-4z"/><path d="M12 3v18"/></svg></div>
-        <h3>Ton modèle</h3>
-        <p>Tu choisis le fournisseur et tu y mets ta propre clé, sur ton serveur. Tes messages partent seulement chez lui, ou nulle part avec un modèle local.</p>
-      </div>
-    </div>
-    <div class="split" style="margin-top:36px">
-      <div>
-        <h3>Ce qui sort de ton serveur, écrit noir sur blanc</h3>
-        <p>L'écran Confidentialité est construit depuis la configuration en service : le fournisseur et le modèle de chaque agent, les sites visités, les mises à jour, les notifications.</p>
-        <p class="note"><strong>Les limites, honnêtement.</strong> Les conversations ne sont pas chiffrées sur le disque : qui a un accès root au serveur, ton hébergeur compris, peut les lire. Un agent peut être trompé par une page piégée ; ton accord, demandé sur une carte avant une action, limite ce qu'il fait. Pas d'audit externe à ce jour. <a href="https://github.com/smfcoder17/noah-agent/blob/main/SECURITY.md">Le détail dans SECURITY.md</a>.</p>
-      </div>
-      <figure class="shot" style="margin:0">
-        <img src="/img/confidentialite.webp" width="1600" height="1075" loading="lazy" alt="Réglages, onglet Confidentialité : la liste de ce que le serveur envoie et vers où, par exemple le cerveau de chaque agent vers openrouter.ai, les mises à jour vers github.com, et aucune télémétrie.">
-      </figure>
     </div>
   </div>
 </section>
 
-<section id="installer" aria-labelledby="t-installer">
+<section id="features" aria-labelledby="t-features" style="padding-top:0">
   <div class="wrap">
-    <h2 id="t-installer">Installer</h2>
-    <p class="intro">Il te faut un VPS Ubuntu ou Debian (x86_64 ou ARM64), 4 Go de mémoire (8 Go si plusieurs agents naviguent), 10 Go libres, et les ports 80 et 443 libres. Compte une dizaine de minutes.</p>
-    <div class="grid g2">
-      <div class="card">
-        <h3>Avec un agent de code</h3>
-        <p>Tu as Claude Code, Codex ou Cursor ? Colle-lui cette phrase :</p>
-        <div class="code"><pre><code>Installe Noah Agent sur mon VPS en suivant https://github.com/smfcoder17/noah-agent/blob/main/AGENTS.md</code></pre><button class="copy" type="button">Copier</button></div>
-        <p class="small">Il te demande comment joindre ton serveur et si tu as un sous-domaine, installe, vérifie, puis te donne le lien pour créer ton compte. Tes mots de passe et tes clés, tu les saisis toi-même dans ton navigateur.</p>
-      </div>
-      <div class="card">
-        <h3>Toi-même, en une commande</h3>
+    <span class="kicker">What your agents do</span>
+    <h2 class="h2" id="t-features">Hand it off. Get it back done.</h2>
+    <p class="sub">Each agent takes a task from start to finish, and checks with you when a step is yours.</p>
+    <div class="bento">
+      <article class="tile">
+        <div class="txt">
+          <h3>Start from a template</h3>
+          <p>Personal assistant, news watch, research, content, shopping, home finances, travel, learning, app building. Pick one and make it yours.</p>
+        </div>
+        <div class="art tint-p"><div class="crop"><img src="/img/presets.webp" width="512" height="836" loading="lazy" alt="Creating an agent: nine ready-made templates such as Personal assistant, News watch and Research."></div></div>
+      </article>
+      <article class="tile">
+        <div class="txt">
+          <h3>In your pocket</h3>
+          <p>Chat from the Android app or your phone's browser. Your agents tell you when a task is done, and can call you when they need you.</p>
+        </div>
+        <div class="art tint-b"><div class="crop"><img src="/img/telephone.webp" width="400" height="860" loading="lazy" style="width:290px" alt="An agent on a phone asking how often to run its news watch, with replies to tap."></div></div>
+      </article>
+      <article class="tile w4">
+        <div class="txt">
+          <h3>Bring any model</h3>
+          <p>Plug in your own key, set a spending cap, and give each agent the model that fits the job.</p>
+          <div class="models" aria-label="Supported providers"><span>Ollama</span><span>OpenRouter</span><span>Anthropic</span><span>OpenAI</span><span>Gemini</span><span>Mistral</span><span>DeepSeek</span><span>Any OpenAI-compatible API</span></div>
+        </div>
+        <div class="art"><div class="crop" style="max-height:300px"><img src="/img/modeles.webp" width="928" height="704" loading="lazy" alt="Model settings: Ollama connected, and OpenRouter, Anthropic, OpenAI, Gemini, Mistral, DeepSeek and more ready to connect."></div></div>
+      </article>
+      <article class="tile w2 pad">
+        <div class="txt">
+          <div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+          <h3>Works while you don't</h3>
+          <p>Scheduled tasks, sources to watch, goals it keeps in mind. It picks things up on its own and reports back.</p>
+        </div>
+        <ul class="sched" aria-label="Example routines">
+          <li><span>Every day, 7:00</span>Morning news digest</li>
+          <li><span>Mondays</span>Budget check-in</li>
+          <li><span>Watching</span>Flight prices to Lisbon</li>
+        </ul>
+      </article>
+      <article class="tile w2 pad">
+        <div class="txt">
+          <div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6z"/><path d="m9 12 2 2 4-4"/></svg></div>
+          <h3>Asks before it acts</h3>
+          <p>Sending, posting or anything sensitive shows up as a card first. You approve or decline.</p>
+        </div>
+      </article>
+      <article class="tile w2 pad">
+        <div class="txt">
+          <div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg></div>
+          <h3>Proof, not promises</h3>
+          <p>Every answer comes with a receipt: what the agent says it did, next to what its tools actually did.</p>
+        </div>
+      </article>
+      <article class="tile w2 pad">
+        <div class="txt">
+          <div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7V3M15 7V3M6 7h12v4a6 6 0 0 1-12 0z"/><path d="M12 17v4"/></svg></div>
+          <h3>Your tools</h3>
+          <p>Gmail, Calendar, Drive and Contacts, Instagram, X, and any MCP server. You decide what each agent may read or do.</p>
+        </div>
+      </article>
+      <article class="tile pad">
+        <div class="txt">
+          <div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c.6-3.3 3-5 6-5s5.4 1.7 6 5"/><circle cx="17" cy="9" r="2.4"/><path d="M16 14.2c2.6-.3 4.5 1.3 5 4.3"/></svg></div>
+          <h3>A team, not a chatbot</h3>
+          <p>Agents hand work to each other. Add people with their own profile, and share an agent with the rights you choose.</p>
+        </div>
+      </article>
+      <article class="tile pad">
+        <div class="txt">
+          <div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg></div>
+          <h3>Updates itself</h3>
+          <p>New versions install at a quiet hour, with a backup first and an automatic rollback if anything breaks.</p>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section id="install" class="night" aria-labelledby="t-install">
+  <div class="wrap">
+    <span class="kicker">Get started</span>
+    <h2 class="h2" id="t-install">Up and running in ten minutes.</h2>
+    <p class="sub">Let your coding agent set it up, or run one command on your server.</p>
+    <div class="paths">
+      <div class="path">
+        <span class="tag">Easiest</span>
+        <h3>Ask your coding agent</h3>
+        <p>Paste this into Claude Code, Codex or Cursor. It installs Noah on your server, checks it, and gives you the link to create your account.</p>
+        <div class="term"><pre><code>Install Noah Agent on my VPS by following https://github.com/smfcoder17/noah-agent/blob/main/AGENTS.md</code></pre><button class="copy" type="button">Copy</button></div>
         <ol class="steps">
-          <li>Ouvre un terminal sur ton serveur, en root, et colle :
-            <div class="code" style="margin-top:10px"><pre><code>curl -fsSL https://raw.githubusercontent.com/smfcoder17/noah-agent/main/get.sh | sh</code></pre><button class="copy" type="button">Copier</button></div>
-          </li>
-          <li>Ouvre le lien affiché à la fin. Il ne sert qu'une fois.</li>
-          <li>Crée ton compte, choisis ton modèle et colle sa clé, puis crée ton premier agent.</li>
+          <li><span class="n">01</span><span><b>Answer two questions:</b> how to reach your server, and which address to use.</span></li>
+          <li><span class="n">02</span><span><b>Open the link it gives you.</b> Your passwords and keys are typed by you, in your browser.</span></li>
+        </ol>
+      </div>
+      <div class="path">
+        <span class="tag" style="background:#8ea5ff">One command</span>
+        <h3>Do it yourself</h3>
+        <p>On an Ubuntu or Debian server, as root:</p>
+        <div class="term"><pre><span class="p" aria-hidden="true">$ </span><code>curl -fsSL https://raw.githubusercontent.com/smfcoder17/noah-agent/main/get.sh | sh</code></pre><button class="copy" type="button">Copy</button></div>
+        <ol class="steps">
+          <li><span class="n">01</span><span><b>Open the link printed at the end.</b> It works once.</span></li>
+          <li><span class="n">02</span><span><b>Create your account,</b> pick your model and paste its key.</span></li>
+          <li><span class="n">03</span><span><b>Create your first agent</b> from a template.</span></li>
         </ol>
       </div>
     </div>
-    <p style="margin-top:24px">Ton propre sous-domaine, Hostinger sans terminal, un Traefik déjà en place, ou un essai sur ton ordinateur : <a href="https://github.com/smfcoder17/noah-agent/blob/main/docs/installation.md">le guide complet d'installation</a>. Noah se met ensuite à jour seul, à l'heure calme, avec une sauvegarde avant et un retour arrière en cas de panne.</p>
+    <div class="req" aria-label="Requirements"><span>Ubuntu or Debian, x86-64 or ARM64</span><span>4 GB RAM</span><span>10 GB free disk</span><span>Ports 80 and 443</span></div>
+    <p class="more">Your own domain, Hostinger without a terminal, an existing Traefik, or a test run on your laptop: <a href="https://github.com/smfcoder17/noah-agent/blob/main/docs/installation.md">read the full installation guide</a>.</p>
   </div>
 </section>
 
-<section id="telecharger" class="alt" aria-labelledby="t-telecharger">
-  <div class="wrap">
-    <h2 id="t-telecharger">Télécharger les applications</h2>
-    <p class="intro">Les applications se relient à ton serveur Noah ; sans serveur, elles ne servent à rien. Chaque appareil demande ton accord avec un nombre à 3 chiffres : tu ne tapes jamais ton mot de passe dans l'application.</p>
-    <div class="grid g3">
-      <div class="card dl">
+<section id="apps" aria-labelledby="t-apps">
+  <div class="wrap center">
+    <span class="kicker">Apps</span>
+    <h2 class="h2" id="t-apps">On every screen you use.</h2>
+    <p class="sub">Link a device to your server with a QR code and a three-digit number. Your password never goes into the app.</p>
+    <div class="apps" style="text-align:left">
+      <div class="app">
+        <svg class="logo" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5.1 10.4 4v7.3H3zM11.4 3.9 21 2.5v8.8h-9.6zM3 12.3h7.4v7.3L3 18.5zM11.4 12.3H21v8.8l-9.6-1.4z"/></svg>
         <h3>Windows</h3>
-        <p>L'installateur, non signé : Windows peut afficher un avertissement au premier lancement.</p>
-        <div class="card-foot"><a class="btn btn-main" href="https://github.com/smfcoder17/noah-agent/releases/latest/download/noah-agent-windows-setup.exe">Télécharger pour Windows</a></div>
+        <p>The desktop app. Choose “On my server”, enter your address, and approve it from your browser.</p>
+        <a class="btn btn-ink btn-sm" href="https://github.com/smfcoder17/noah-agent/releases/latest/download/noah-agent-windows-setup.exe">Download for Windows</a>
       </div>
-      <div class="card dl">
-        <h3>Android <span class="small">8 ou plus</span></h3>
-        <p>Le fichier APK, depuis la page des versions. <span class="soon">Google Play : bientôt</span></p>
-        <div class="card-foot"><a class="btn btn-main" href="https://github.com/smfcoder17/noah-agent/releases/latest/download/noah-agent-android.apk">Télécharger l'APK</a></div>
+      <div class="app">
+        <svg class="logo" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.6 9.5 19.3 6.6a.4.4 0 0 0-.7-.4l-1.8 3A10.6 10.6 0 0 0 12 8.2c-1.7 0-3.3.4-4.8 1.1l-1.8-3a.4.4 0 1 0-.7.4l1.7 2.9A9.9 9.9 0 0 0 1.5 17.5h21a9.9 9.9 0 0 0-4.9-8zM7 14.7a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm10 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/></svg>
+        <h3>Android</h3>
+        <p>For Android 8 and later. On your computer, open Settings &gt; Devices and scan the QR code.</p>
+        <a class="btn btn-ink btn-sm" href="https://github.com/smfcoder17/noah-agent/releases/latest/download/noah-agent-android.apk">Download the APK</a>
       </div>
-      <div class="card dl">
+      <div class="app">
+        <svg class="logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9.2"/><path d="M2.8 12h18.4M12 2.8c2.6 2.6 3.8 5.7 3.8 9.2s-1.2 6.6-3.8 9.2c-2.6-2.6-3.8-5.7-3.8-9.2S9.4 5.4 12 2.8z"/></svg>
         <h3>iPhone, Mac, Linux</h3>
-        <p>Rien à installer : ouvre l'adresse de ton serveur dans le navigateur. Sur iPhone, « Ajouter à l'écran d'accueil ».</p>
+        <p>Nothing to install. Open your server's address in the browser. On iPhone, add it to your Home Screen.</p>
+        <a class="btn btn-line btn-sm" href="https://github.com/smfcoder17/noah-agent/releases/latest">All releases</a>
       </div>
     </div>
-    <p style="margin-top:24px">Toutes les versions et leurs notes : <a href="https://github.com/smfcoder17/noah-agent/releases/latest">la page des versions sur GitHub</a>.</p>
   </div>
 </section>
 
-<section aria-labelledby="t-etat">
-  <div class="wrap grid g2">
-    <div>
-      <h2 id="t-etat">Un projet jeune</h2>
-      <p>Noah tourne en usage réel sur un VPS, et la plupart des parcours sont testés avec de vrais conteneurs et un vrai navigateur. Pas encore prouvés en conditions réelles : le parcours complet sur un VPS neuf, le QR code en 4G, l'appel vocal depuis le téléphone. <a href="https://github.com/smfcoder17/noah-agent/blob/main/docs/etat.md">L'état des preuves</a>.</p>
-      <p>Noah est construit sur <a href="https://github.com/NousResearch/hermes-agent">Hermes Agent</a> (MIT). Il y ajoute plusieurs agents isolés, un navigateur par agent, les applications, et les mises à jour avec retour arrière.</p>
-    </div>
-    <div>
-      <h2>Licence</h2>
-      <p><a href="https://github.com/smfcoder17/noah-agent/blob/main/LICENSE">PolyForm Noncommercial 1.0.0</a> : gratuit pour un usage personnel, une école, une association ou un organisme public. Un usage commercial demande un accord : écris-nous. Le code est public sur GitHub.</p>
-    </div>
-  </div>
-</section>
-
-<section id="contact" class="alt" aria-labelledby="t-contact">
+<section class="closing" aria-labelledby="t-end">
   <div class="wrap">
-    <h2 id="t-contact">Contact</h2>
-    <div class="grid g3">
-      <div class="card">
-        <h3>Écrire à l'éditeur</h3>
-        <!-- Adresse de contact : un seul endroit dans ce fichier. -->
-        <p><a href="mailto:contact@smfcoder.com">contact@smfcoder.com</a></p>
-        <p class="small">Questions, usage commercial, confidentialité.</p>
-      </div>
-      <div class="card">
-        <h3>Un bug, une idée</h3>
-        <p><a href="https://github.com/smfcoder17/noah-agent/issues">Ouvre un ticket sur GitHub</a>.</p>
-      </div>
-      <div class="card">
-        <h3>Une faille de sécurité</h3>
-        <p>Ne la décris pas dans un ticket public : <a href="https://github.com/smfcoder17/noah-agent/blob/main/SECURITY.md">suis SECURITY.md</a>.</p>
-      </div>
+    <div class="crew" aria-hidden="true"><img src="/favicon.svg" alt=""><img src="/favicon.svg" alt=""><img src="/favicon.svg" alt=""><img src="/favicon.svg" alt=""><img src="/favicon.svg" alt=""></div>
+    <h2 class="h2" id="t-end">Your agents. Your server. Your model.</h2>
+    <div class="actions">
+      <a class="btn btn-ink" href="#install">Install Noah</a>
+      <a class="btn btn-line" href="#apps">Get the apps</a>
     </div>
   </div>
 </section>
@@ -210,26 +248,27 @@
 
 <footer>
   <div class="wrap">
-    <span>Noah Agent, par SmfCoder</span>
-    <nav aria-label="Pied de page">
-      <a href="/confidentialite/">Confidentialité</a>
-      <a href="/mentions-legales/">Mentions légales</a>
-      <a href="https://github.com/smfcoder17/noah-agent">GitHub</a>
-      <a href="https://github.com/smfcoder17/noah-agent/releases/latest">Versions</a>
-    </nav>
+    <div class="foot">
+      <div>
+        <a class="brand" href="/"><img src="/favicon.svg" alt="" width="30" height="30">Noah Agent</a>
+        <p>Personal AI agents that run on your own server. Free for personal use under the <a href="https://github.com/smfcoder17/noah-agent/blob/main/LICENSE">PolyForm Noncommercial license</a>.</p>
+      </div>
+      <div>
+        <h4>Product</h4>
+        <ul><li><a href="#features">Features</a></li><li><a href="#install">Install</a></li><li><a href="#apps">Apps</a></li><li><a href="https://github.com/smfcoder17/noah-agent/releases/latest">Releases</a></li></ul>
+      </div>
+      <div>
+        <h4>Project</h4>
+        <ul><li><a href="https://github.com/smfcoder17/noah-agent">GitHub</a></li><li><a href="https://github.com/smfcoder17/noah-agent/blob/main/docs/installation.md">Installation guide</a></li><li><a href="https://github.com/smfcoder17/noah-agent/blob/main/SECURITY.md">Security</a></li><li><a href="https://github.com/smfcoder17/noah-agent/issues">Report an issue</a></li></ul>
+      </div>
+      <div>
+        <h4>Contact</h4>
+        <!-- Contact address: one place in this file. -->
+        <ul><li><a href="mailto:contact@smfcoder.com">contact@smfcoder.com</a></li><li><a href="/privacy/">Privacy</a></li><li><a href="/terms/">Legal notice</a></li><li><a href="/fr/" hreflang="fr" lang="fr">Français</a></li></ul>
+      </div>
+    </div>
+    <div class="fine"><span>© 2026 SmfCoder. Commercial use requires an agreement: write to us.</span><span>Built on <a href="https://github.com/NousResearch/hermes-agent">Hermes Agent</a> (MIT).</span></div>
   </div>
 </footer>
-
-<script>
-document.querySelectorAll(".copy").forEach(function (b) {
-  b.addEventListener("click", function () {
-    var t = b.parentElement.querySelector("code").textContent;
-    navigator.clipboard.writeText(t).then(function () {
-      b.textContent = "Copié";
-      setTimeout(function () { b.textContent = "Copier"; }, 1600);
-    });
-  });
-});
-</script>
 </body>
 </html>
