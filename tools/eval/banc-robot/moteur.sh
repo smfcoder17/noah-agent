@@ -3,9 +3,10 @@
 #     sh /banc/moteur.sh chromium|patchright|camoufox [options de banc.py]
 set -eu
 MOTEUR="$1"; shift
-# Garde-fou : /proc/meminfo est celui de la machine hôte. Sous 2 Go disponibles, on ne lance rien pour ne gêner personne.
+# Garde-fou : /proc/meminfo est celui de la machine hôte. Sous le seuil (2 Go par défaut, NOAH_BANC_MEM_MIN en Mo), on ne lance rien pour ne gêner personne.
 dispo=$(awk '/MemAvailable/ {print int($2/1024)}' /proc/meminfo)
-if [ "$dispo" -lt 2048 ]; then echo "[$MOTEUR] mémoire disponible ${dispo} Mo, moins de 2 Go : moteur sauté."; exit 3; fi
+MIN="${NOAH_BANC_MEM_MIN:-2048}"
+if [ "$dispo" -lt "$MIN" ]; then echo "[$MOTEUR] mémoire disponible ${dispo} Mo, sous le seuil de ${MIN} Mo : moteur sauté."; exit 3; fi
 echo "[$MOTEUR] mémoire disponible ${dispo} Mo."
 export DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PIP_ROOT_USER_ACTION=ignore PIP_DISABLE_PIP_VERSION_CHECK=1
 echo "[$MOTEUR] installation…"
