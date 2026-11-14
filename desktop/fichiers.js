@@ -3,6 +3,7 @@
 // d'ici : seulement « Afficher dans le dossier ». Node pur pour l'essentiel, testable sans Electron.
 const fs = require("node:fs");
 const path = require("node:path");
+const { t } = require("./textes");
 
 // Ce qui s'ouvre d'un clic : documents et médias, comme « ouvrir » dans actions.js.
 const OPENABLE = /\.(pdf|txt|md|rtf|csv|tsv|log|json|xml|yaml|yml|html?|png|jpe?g|gif|webp|bmp|svg|heic|tiff?|mp3|wav|m4a|flac|ogg|mp4|mov|mkv|webm|avi|docx?|xlsx?|pptx?|odt|ods|odp|epub|ics|zip)$/i;
@@ -26,7 +27,7 @@ function freePath(dir, name) {
       if (e.code !== "EEXIST") throw e;
     }
   }
-  throw new Error("Trop de fichiers portent ce nom.");
+  throw new Error(t("fichier.trop_de_noms"));
 }
 
 function markFromInternet(file, platform = process.platform) {
@@ -41,9 +42,9 @@ function markFromInternet(file, platform = process.platform) {
 /** Télécharge `url` (même origine que Noah, vérifiée par l'appelant) dans `dir`. `fetcher` : la session de la fenêtre. */
 async function download(fetcher, url, name, dir) {
   const r = await fetcher(url);
-  if (!r.ok) throw new Error(`Le serveur a répondu ${r.status}.`);
+  if (!r.ok) throw new Error(t("fichier.statut", { statut: r.status }));
   const data = Buffer.from(await r.arrayBuffer());
-  if (data.length > MAX_FILE) throw new Error("Fichier trop gros.");
+  if (data.length > MAX_FILE) throw new Error(t("fichier.trop_gros"));
   fs.mkdirSync(dir, { recursive: true });
   const target = freePath(dir, safeName(name));
   fs.writeFileSync(target, data);
@@ -55,9 +56,9 @@ async function download(fetcher, url, name, dir) {
 function entries(name, platform = process.platform) {
   const openable = OPENABLE.test(safeName(name));
   return [
-    openable && { id: "ouvrir", label: "Ouvrir" },
-    openable && platform === "win32" && { id: "ouvrir-avec", label: "Ouvrir avec…" },
-    { id: "dossier", label: platform === "darwin" ? "Afficher dans le Finder" : "Afficher dans le dossier" },
+    openable && { id: "ouvrir", label: t("fichier.ouvrir") },
+    openable && platform === "win32" && { id: "ouvrir-avec", label: t("fichier.ouvrir_avec") },
+    { id: "dossier", label: platform === "darwin" ? t("fichier.finder") : t("fichier.dossier") },
   ].filter(Boolean);
 }
 

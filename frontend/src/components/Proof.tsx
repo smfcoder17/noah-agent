@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, get, send } from "@/lib/api";
 import { Button, Dialog, DialogContent, ErrorText, Input, Label } from "./ui";
+import { t } from "@/i18n";
 
 type Fields = { motdepasse?: string; code?: string; courriel?: string };
 type Ask = { message: string; error: string; mail: boolean };
@@ -29,18 +30,18 @@ function ProofForm({ ask, onAnswer }: { ask: Ask; onAnswer: (a: Answer) => void 
     <form onSubmit={submit} className="flex flex-col gap-3">
       {ask.mail ? (
         <Label>
-          Code reçu par courriel
+          {t("Code reçu par courriel")}
           <Input id="proof-mail" required autoFocus inputMode="numeric" autoComplete="one-time-code" maxLength={16} className="font-mono tracking-widest" value={mail} onChange={(e) => setMail(e.target.value)} />
         </Label>
       ) : (
         <>
           <Label>
-            Ton mot de passe
+            {t("Ton mot de passe")}
             <Input id="proof-password" required autoFocus type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
           </Label>
           {needsCode && (
             <Label>
-              Code de l'application, ou code de secours
+              {t("Code de l'application, ou code de secours")}
               <Input id="proof-code" required autoComplete="one-time-code" maxLength={32} className="font-mono" value={code} onChange={(e) => setCode(e.target.value)} />
             </Label>
           )}
@@ -48,9 +49,9 @@ function ProofForm({ ask, onAnswer }: { ask: Ask; onAnswer: (a: Answer) => void 
       )}
       <ErrorText>{ask.error}</ErrorText>
       <div className="flex flex-wrap gap-2">
-        <Button type="submit">Confirmer</Button>
-        <Button type="button" variant="ghost" onClick={() => onAnswer("annule")}>Annuler</Button>
-        {ask.mail && <Button type="button" variant="ghost" onClick={() => onAnswer("nouveau-code")}>Recevoir un nouveau code</Button>}
+        <Button type="submit">{t("Confirmer")}</Button>
+        <Button type="button" variant="ghost" onClick={() => onAnswer("annule")}>{t("Annuler")}</Button>
+        {ask.mail && <Button type="button" variant="ghost" onClick={() => onAnswer("nouveau-code")}>{t("Recevoir un nouveau code")}</Button>}
       </div>
     </form>
   );
@@ -102,7 +103,7 @@ export function useProof() {
     () =>
       ask && (
         <Dialog open onOpenChange={(open) => !open && answer.current?.("annule")}>
-          <DialogContent title={ask.mail ? "Regarde ta boîte de courriel" : "Confirme que c'est toi"} description={ask.message || undefined}>
+          <DialogContent title={ask.mail ? t("Regarde ta boîte de courriel") : t("Confirme que c'est toi")} description={ask.message || undefined}>
             <ProofForm ask={ask} onAnswer={(a) => answer.current?.(a)} />
           </DialogContent>
         </Dialog>

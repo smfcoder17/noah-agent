@@ -1,5 +1,6 @@
 // Où tourne l'interface : navigateur, app de bureau (Electron) ou app mobile (Capacitor, interface du serveur ouverte
 // dans la fenêtre de l'app). Les apps se relient par un code ou une autorisation, jamais par le mot de passe.
+import { t } from "@/i18n";
 
 /** canal : d'où l'app Android tient ses mises à jour, « github » (sa Release) ou « play » (le Play Store). */
 type Shell = { kind: "desktop" | "android"; forget(): Promise<unknown>; version(): Promise<string>; canal?(): Promise<string> };
@@ -62,5 +63,5 @@ export async function elementAction(action: "openWith" | "share", url: string, n
   const method = window.Capacitor?.Plugins?.NoahShell?.[action];
   if (method) { await method({ url: new URL(url, location.origin).href, name }); return; }
   if (action === "openWith" && window.noahDesktop?.fileMenu) { await window.noahDesktop.fileMenu(new URL(url, location.origin).href, name); return; }
-  throw new Error("Ce geste demande l'application Noah.");
+  throw new Error(t("Ce geste demande l'application Noah."));
 }

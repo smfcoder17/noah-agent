@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { t, tr } from "@/i18n";
 import { send } from "@/lib/api";
 import { appShell } from "@/lib/platform";
 import { useProof } from "./Proof";
@@ -32,7 +33,7 @@ function ForgotPassword({ onBack, onChanged }: { onBack: () => void; onChanged: 
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (password !== again) return setError("Les deux mots de passe ne sont pas identiques.");
+    if (password !== again) return setError(t("Les deux mots de passe ne sont pas identiques."));
     setBusy(true);
     setError("");
     try {
@@ -46,59 +47,59 @@ function ForgotPassword({ onBack, onChanged }: { onBack: () => void; onChanged: 
 
   return (
     <form onSubmit={submit} className={`${box} max-w-md`}>
-      <h1 className="text-xl font-semibold">Mot de passe oublié</h1>
+      <h1 className="text-xl font-semibold">{t("Mot de passe oublié")}</h1>
       <p className="text-sm text-muted-foreground">
-        Pour le propriétaire. Un profil demande au propriétaire.
+        {t("Pour le propriétaire. Un profil demande au propriétaire.")}
       </p>
 
       <div className="flex flex-col gap-2 text-sm">
-        <p className="font-medium">1. Crée le code</p>
-        <Button type="button" variant="outline" onClick={ask}>{asked ? "Créer un code (déjà demandé)" : "Créer un code"}</Button>
-        {asked && <p role="status" className="text-muted-foreground">C'est fait. Prends le dernier code affiché.</p>}
+        <p className="font-medium">{t("1. Crée le code")}</p>
+        <Button type="button" variant="outline" onClick={ask}>{asked ? t("Créer un code (déjà demandé)") : t("Créer un code")}</Button>
+        {asked && <p role="status" className="text-muted-foreground">{t("C'est fait. Prends le dernier code affiché.")}</p>}
       </div>
 
       <div className="flex flex-col gap-2 text-sm">
-        <p className="font-medium">2. Lis-le sur le serveur</p>
+        <p className="font-medium">{t("2. Lis-le sur le serveur")}</p>
         <p className="text-muted-foreground">
-          <b className="text-foreground">Sur Hostinger :</b> Docker Manager → Projects, menu ⋮ → View logs, ligne « Code de récupération ».
+          {tr("{hostinger} Docker Manager → Projects, menu ⋮ → View logs, ligne « Code de récupération ».", { hostinger: <b className="text-foreground">{t("Sur Hostinger :")}</b> })}
         </p>
         <p className="text-muted-foreground">
-          <b className="text-foreground">Avec un terminal :</b>
-        </p>
+          <b className="text-foreground">{t("Avec un terminal :")}</b>
+        </p>{/* i18n-ignore : commande à taper telle quelle */}
         <code className="overflow-x-auto rounded-lg bg-muted px-2 py-1.5 text-xs whitespace-nowrap">docker exec noah-server python -m noah.recuperation</code>
       </div>
 
       <div className="flex flex-col gap-3 text-sm">
-        <p className="font-medium">3. Choisis un nouveau mot de passe</p>
+        <p className="font-medium">{t("3. Choisis un nouveau mot de passe")}</p>
         <Label>
-          Code de récupération
+          {t("Code de récupération")}{/* i18n-ignore : modèle de code, pas un texte */}
           <Input id="recovery-code" autoComplete="one-time-code" placeholder="BCDF-GHJK-LMNP" required value={code} onChange={(e) => setCode(e.target.value)} />
         </Label>
         <Label>
-          Nouveau mot de passe
+          {t("Nouveau mot de passe")}
           <Input id="new-password" type="password" autoComplete="new-password" required minLength={12} value={password} onChange={(e) => setPassword(e.target.value)} />
         </Label>
         <Label>
-          Encore une fois
+          {t("Encore une fois")}
           <Input id="new-password-again" type="password" autoComplete="new-password" required minLength={12} value={again} onChange={(e) => setAgain(e.target.value)} />
         </Label>
-        <p className="text-muted-foreground">Toutes les sessions seront fermées, sur tous les appareils et profils.</p>
+        <p className="text-muted-foreground">{t("Toutes les sessions seront fermées, sur tous les appareils et profils.")}</p>
         <label className="flex items-start gap-2 text-muted-foreground">
           <input id="cut-double" type="checkbox" className="mt-1" checked={cutDouble} onChange={(e) => setCutDouble(e.target.checked)} />
           <span>
-            J'ai perdu mon téléphone et mes codes de secours : couper la double vérification.
+            {t("J'ai perdu mon téléphone et mes codes de secours : couper la double vérification.")}
           </span>
         </label>
         <label className="flex items-start gap-2 text-muted-foreground">
           <input id="cut-mail" type="checkbox" className="mt-1" checked={cutMail} onChange={(e) => setCutMail(e.target.checked)} />
-          <span>Les courriels n'arrivent plus : ne plus demander de code par courriel.</span>
+          <span>{t("Les courriels n'arrivent plus : ne plus demander de code par courriel.")}</span>
         </label>
       </div>
 
       <ErrorText>{error}</ErrorText>
       <div className="flex justify-between gap-2">
-        <Button type="button" variant="ghost" onClick={onBack}>Retour</Button>
-        <Button type="submit" disabled={busy}>Changer le mot de passe</Button>
+        <Button type="button" variant="ghost" onClick={onBack}>{t("Retour")}</Button>
+        <Button type="submit" disabled={busy}>{t("Changer le mot de passe")}</Button>
       </div>
     </form>
   );
@@ -114,7 +115,7 @@ export function TemporaryPassword({ onDone, onLogout }: { onDone: () => void; on
   const { withProof, proofDialog } = useProof();
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (nouveau !== again) return setError("Les deux mots de passe ne sont pas identiques.");
+    if (nouveau !== again) return setError(t("Les deux mots de passe ne sont pas identiques."));
     setBusy(true);
     setError("");
     try {
@@ -129,25 +130,25 @@ export function TemporaryPassword({ onDone, onLogout }: { onDone: () => void; on
       <form onSubmit={submit} className={box}>
         <img src="/assets/icon.svg" alt="" className="size-11" />
         <div className="flex flex-col gap-1">
-          <h1 className="text-xl font-semibold">Choisis ton mot de passe</h1>
-          <p className="text-sm text-muted-foreground">Le tien est temporaire : remplace-le.</p>
+          <h1 className="text-xl font-semibold">{t("Choisis ton mot de passe")}</h1>
+          <p className="text-sm text-muted-foreground">{t("Le tien est temporaire : remplace-le.")}</p>
         </div>
         <Label>
-          Mot de passe temporaire
+          {t("Mot de passe temporaire")}
           <Input id="temporary-password" type="password" autoComplete="current-password" required value={actuel} onChange={(e) => setActuel(e.target.value)} />
         </Label>
         <Label>
-          Nouveau mot de passe
+          {t("Nouveau mot de passe")}
           <Input id="new-password" type="password" autoComplete="new-password" required minLength={12} value={nouveau} onChange={(e) => setNouveau(e.target.value)} />
         </Label>
         <Label>
-          Encore une fois
+          {t("Encore une fois")}
           <Input id="new-password-again" type="password" autoComplete="new-password" required minLength={12} value={again} onChange={(e) => setAgain(e.target.value)} />
         </Label>
         <ErrorText>{error}</ErrorText>
-        <Button type="submit" size="lg" disabled={busy}>Enregistrer et continuer</Button>
+        <Button type="submit" size="lg" disabled={busy}>{t("Enregistrer et continuer")}</Button>
         <button type="button" className="self-center text-sm text-muted-foreground underline underline-offset-2 hover:text-foreground" onClick={onLogout}>
-          Se déconnecter
+          {t("Se déconnecter")}
         </button>
         {proofDialog}
       </form>
@@ -192,8 +193,8 @@ export function AuthScreen({ onDone }: { onDone: () => void }) {
       <div className="grid min-h-full place-items-center px-4 py-10">
         <div className="flex w-full max-w-sm flex-col gap-4 rounded-2xl border border-border bg-surface p-7 shadow-sm">
           <img src="/assets/icon.svg" alt="" className="size-11" />
-          <h1 className="text-xl font-semibold">Cet appareil n'est plus relié</h1>
-          <Button size="lg" onClick={() => shell.forget()}>Relier de nouveau</Button>
+          <h1 className="text-xl font-semibold">{t("Cet appareil n'est plus relié")}</h1>
+          <Button size="lg" onClick={() => shell.forget()}>{t("Relier de nouveau")}</Button>
         </div>
       </div>
     );
@@ -220,20 +221,20 @@ export function AuthScreen({ onDone }: { onDone: () => void }) {
         <form onSubmit={submit} className={box}>
           <img src="/assets/icon.svg" alt="" className="size-11" />
           <div className="flex flex-col gap-1">
-            <h1 className="text-xl font-semibold">Double vérification</h1>
-            <p className="text-sm text-muted-foreground">Le code à 6 chiffres de ton application.</p>
+            <h1 className="text-xl font-semibold">{t("Double vérification")}</h1>
+            <p className="text-sm text-muted-foreground">{t("Le code à 6 chiffres de ton application.")}</p>
           </div>
           <Label>
-            Code
+            {t("Code")}
             <Input id="login-code" required autoFocus autoComplete="one-time-code" maxLength={32} className="font-mono tracking-widest" value={code} onChange={(e) => setCode(e.target.value)} />
           </Label>
-          <p className="text-xs text-muted-foreground">Téléphone perdu ? Saisis un code de secours.</p>
+          <p className="text-xs text-muted-foreground">{t("Téléphone perdu ? Saisis un code de secours.")}</p>
           <ErrorText>{error}</ErrorText>
-          <Button type="submit" size="lg" disabled={busy}>Valider</Button>
+          <Button type="submit" size="lg" disabled={busy}>{t("Valider")}</Button>
           <button type="button" className="self-center text-sm text-muted-foreground underline underline-offset-2 hover:text-foreground" onClick={() => { setNeedCode(false); setCode(""); setPassword(""); setError(""); }}>
-            Retour
+            {t("Retour")}
           </button>
-          <p className="text-xs text-muted-foreground">Plus aucun code ? Le propriétaire peut la couper.</p>
+          <p className="text-xs text-muted-foreground">{t("Plus aucun code ? Le propriétaire peut la couper.")}</p>
         </form>
       </div>
     );
@@ -243,15 +244,15 @@ export function AuthScreen({ onDone }: { onDone: () => void }) {
       <form onSubmit={submit} className={box}>
         <img src="/assets/icon.svg" alt="" className="size-11" />
         <div className="flex flex-col gap-1">
-          <h1 className="text-xl font-semibold">Connexion à Noah Agent</h1>
+          <h1 className="text-xl font-semibold">{t("Connexion à Noah Agent")}</h1>
         </div>
-        {changed && <p role="status" className="text-sm text-muted-foreground">Mot de passe changé. Connecte-toi avec le nouveau.</p>}
+        {changed && <p role="status" className="text-sm text-muted-foreground">{t("Mot de passe changé. Connecte-toi avec le nouveau.")}</p>}
         <Label>
-          Nom d'utilisateur
+          {t("Nom d'utilisateur")}
           <Input id="username" autoComplete="username" required minLength={2} value={username} onChange={(e) => setUsername(e.target.value)} />
         </Label>
         <Label>
-          Mot de passe
+          {t("Mot de passe")}
           <Input
             id="password"
             type="password"
@@ -262,9 +263,9 @@ export function AuthScreen({ onDone }: { onDone: () => void }) {
           />
         </Label>
         <ErrorText>{error}</ErrorText>
-        <Button type="submit" size="lg" disabled={busy}>Se connecter</Button>
+        <Button type="submit" size="lg" disabled={busy}>{t("Se connecter")}</Button>
         <button type="button" className="self-center text-sm text-muted-foreground underline underline-offset-2 hover:text-foreground" onClick={() => { setError(""); setForgot(true); }}>
-          Mot de passe oublié ?
+          {t("Mot de passe oublié ?")}
         </button>
       </form>
     </div>

@@ -149,5 +149,6 @@ for needed, why in [
     assert needed in soul, why
 assert "liste compacte" not in soul and "Quand une structure aide plus qu'un paragraphe" not in soul, "l'ancienne consigne vague est retirée"
 assert len(widgets) < 3800, f"la section reste courte (3 000 caractères avant la table et les trois blocs) : {len(widgets)} caractères"
-assert main.AGENT_SETUP_VERSION.startswith("46-"), "les agents existants doivent recevoir la table des widgets (45) et le rythme sur X (46)"
+assert main.AGENT_SETUP_VERSION.startswith("47-"), "les agents existants doivent recevoir la table des widgets (45), le rythme sur X (46) et la langue de la personne (47)"
+assert "Réponds en français" not in soul and "Réponds dans la langue de la personne" in soul, "l'agent répond dans la langue de la personne"
 print(f"prompt : table « ce que tu présentes → le bloc », exemple par bloc, posts, products, links ({len(widgets)} caractères)")

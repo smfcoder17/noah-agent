@@ -75,7 +75,7 @@ public class CallActivity extends Activity {
         title = title == null ? "Noah" : title;
 
         TextView kind = new TextView(this);
-        kind.setText("Appel vocal de ton agent");
+        kind.setText(getString(R.string.call_incoming_kind));
         kind.setTextColor(Color.parseColor("#A9AEB8"));
         kind.setTextSize(15);
         kind.setGravity(Gravity.CENTER);
@@ -102,10 +102,10 @@ public class CallActivity extends Activity {
         actions.setOrientation(LinearLayout.HORIZONTAL);
         actions.setGravity(Gravity.CENTER);
         actions.setClipChildren(false); // le bouton vert grandit en appelant le geste
-        actions.addView(action("Refuser", "✕", DECLINE, v -> decline()));
+        actions.addView(action(getString(R.string.call_decline), "✕", DECLINE, v -> decline()));
         View gap = new View(this);
         actions.addView(gap, new LinearLayout.LayoutParams(dp(72), 1));
-        actions.addView(action("Répondre", "✆", ANSWER, v -> answer()));
+        actions.addView(action(getString(R.string.call_answer), "✆", ANSWER, v -> answer()));
         page.addView(actions);
 
         setContentView(page);

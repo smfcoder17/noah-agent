@@ -6,6 +6,7 @@ import { mediaUrl, previewUrl, rawFileUrl, request, send } from "@/lib/api";
 import { ELEMENTS, elementName, elementUrl, sourceName, type ElementSpec } from "@/lib/elements";
 import { useViewer } from "../Viewer";
 import { useMedia } from "./MediaPlayers";
+import { locale, t } from "@/i18n";
 
 export function ElementCard({ spec }: { spec: ElementSpec }) {
   const view = useViewer();
@@ -28,6 +29,6 @@ export function ElementCard({ spec }: { spec: ElementSpec }) {
   };
   return <div role="button" tabIndex={0} onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); void open(); } }} data-noah-file={url?.startsWith("/api/") ? url : undefined} data-noah-name={spec.title} aria-disabled={opening} className="element-card" aria-label={sensitiveParts(elementName(spec)).map((p) => p.masked).join("")} onClick={() => { if (!opening) void open(); }} onDoubleClick={() => view({ kind: "element", element: item, fullscreen: true })}>
     {spec.kind === "image" && item.url && !gone && (!url?.startsWith("https://") || proxied) ? <img src={item.url} alt={spec.description || spec.title} loading="lazy" onError={() => setGone(true)} /> : <span className="element-kind">{ELEMENTS[spec.kind]}</span>}
-    <span className="element-meta"><b><SensitiveText text={spec.title} /></b><small>{sourceName(spec)} · {spec.size != null ? `${(spec.size / 1024).toLocaleString("fr", { maximumFractionDigits: 1 })} Ko` : "Taille non renseignée"}{spec.version && ` · v${spec.version}`}</small>{gone && <small>Fichier introuvable</small>}</span><span aria-hidden>›</span>
+    <span className="element-meta"><b><SensitiveText text={spec.title} /></b><small>{sourceName(spec)} · {spec.size != null ? t("{n} Ko", { n: (spec.size / 1024).toLocaleString(locale(), { maximumFractionDigits: 1 }) }) : t("Taille non renseignée")}{spec.version && ` · v${spec.version}`}</small>{gone && <small>{t("Fichier introuvable")}</small>}</span><span aria-hidden>›</span>
   </div>;
 }

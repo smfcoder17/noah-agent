@@ -7,13 +7,14 @@ import { cn, money } from "@/lib/utils";
 import { costLabel, ModelRow, ModeRows, shortName } from "./Modes";
 import { ProviderLogo } from "./ProviderLogo";
 import { Button, ErrorText, Input, Label } from "./ui";
+import { t, tr } from "@/i18n";
 
 const HINTS: Record<string, string> = {
-  openrouter: "Des centaines de modèles, une seule clé",
-  anthropic: "Claude, directement",
-  openai: "GPT, directement",
-  gemini: "Gemini, directement",
-  ollama: "Modèles locaux et cloud",
+  openrouter: t("Des centaines de modèles, une seule clé"),
+  anthropic: t("Claude, directement"),
+  openai: t("GPT, directement"),
+  gemini: t("Gemini, directement"),
+  ollama: t("Modèles locaux et cloud"),
 };
 
 /** Le modèle proposé pour un niveau. « Le plus fort » : le modèle phare du premier grand labo (ordre du catalogue).
@@ -98,7 +99,7 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
   }, [catalog, query]);
 
   const save = async () => {
-    if (!provider || !picked) return setError("Choisis un modèle dans la liste.");
+    if (!provider || !picked) return setError(t("Choisis un modèle dans la liste."));
     setSaving(true);
     setError("");
     try {
@@ -117,11 +118,11 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
   const onModeChanged = useCallback((model: string) => setPicked({ id: model, name: model }), []);
   // Le modèle actuel n'est pas un niveau proposé : on ouvre directement la liste précise.
   useEffect(() => {
-    if (!rows && catalog && picked && !TIERS.some((t) => tierModel(catalog, t.id)?.id === picked.id)) setMode("precise");
+    if (!rows && catalog && picked && !TIERS.some((tier) => tierModel(catalog, tier.id)?.id === picked.id)) setMode("precise");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [catalog]);
-  const tiers = TIERS.map((t) => ({ ...t, model: catalog ? tierModel(catalog, t.id) : undefined })).filter((t) => t.model);
-  const pickedTier = tiers.find((t) => t.model!.id === picked?.id)?.id;
+  const tiers = TIERS.map((tier) => ({ ...tier, model: catalog ? tierModel(catalog, tier.id) : undefined })).filter((tier) => tier.model);
+  const pickedTier = tiers.find((tier) => tier.model!.id === picked?.id)?.id;
   const precise = mode === "precise" || !tiers.length;
   const list = useMemo(() => {
     if (!catalog) return [];
@@ -136,12 +137,12 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
       {/* 1. Fournisseur : replié une fois la clé enregistrée */}
       {keySaved && !changingProvider ? (
         <div className="flex items-center gap-3 rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm">
-          <span className="flex-1"><strong>{provider?.label}</strong> <span className="text-muted-foreground">· clé enregistrée et chiffrée</span></span>
-          <Button variant="outline" size="sm" onClick={() => setChangingProvider(true)}>Changer</Button>
+          <span className="flex-1"><strong>{provider?.label}</strong> <span className="text-muted-foreground">{t("· clé enregistrée et chiffrée")}</span></span>
+          <Button variant="outline" size="sm" onClick={() => setChangingProvider(true)}>{t("Changer")}</Button>
         </div>
       ) : (
         <div className="flex flex-col gap-3">
-          <div role="radiogroup" aria-label="Fournisseur" className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2">
+          <div role="radiogroup" aria-label={t("Fournisseur")} className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2">
             {providers.map((p) => (
               <button
                 key={p.id}
@@ -161,57 +162,57 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
           </div>
           {provider && provider.id !== "openrouter" && (
             <p className="text-xs text-muted-foreground">
-              Voix et images : clé OpenRouter dans Réglages &gt; Voix.
+              {t("Voix et images : clé OpenRouter dans Réglages > Voix.")}
             </p>
           )}
           {provider?.own_url && (
             <div className="flex flex-col gap-2">
               <Label>
-                Adresse {provider.id === "ollama" ? "(vide : Ollama sur cette machine)" : "de l'API, finie par /v1"}
+                {provider.id === "ollama" ? t("Adresse (vide : Ollama sur cette machine)") : t("Adresse de l'API, finie par /v1")}
                 <Input
                   type="url"
                   autoComplete="off"
                   value={baseUrl}
                   onChange={(e) => setBaseUrl(e.target.value)}
-                  placeholder={provider.id === "ollama" ? "http://mon-serveur:11434/v1" : "http://mon-serveur:8000/v1"}
+                  placeholder={provider.id === "ollama" ? t("http://mon-serveur:11434/v1") : t("http://mon-serveur:8000/v1")}
                 />
               </Label>
               <Label>
-                Clé API (facultative)
+                {t("Clé API (facultative)")}
                 <Input type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
               </Label>
-              <Button variant="outline" onClick={() => provider && load(provider, apiKey, baseUrl)}>Afficher les modèles</Button>
+              <Button variant="outline" onClick={() => provider && load(provider, apiKey, baseUrl)}>{t("Afficher les modèles")}</Button>
             </div>
           )}
           {provider?.needs_key && (
             <div className="flex items-end gap-2">
               <Label className="flex-1">
-                Clé API
+                {t("Clé API")}
                 <Input
                   type="password"
                   autoComplete="off"
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
-                  placeholder={keySaved ? "Clé enregistrée (laisser vide pour la garder)" : "Colle ta clé ici"}
+                  placeholder={keySaved ? t("Clé enregistrée (laisser vide pour la garder)") : t("Colle ta clé ici")}
                 />
               </Label>
-              <Button variant="outline" onClick={() => provider && load(provider, apiKey)}>Afficher les modèles</Button>
+              <Button variant="outline" onClick={() => provider && load(provider, apiKey)}>{t("Afficher les modèles")}</Button>
             </div>
           )}
         </div>
       )}
 
       {/* 2. Comment choisir : un niveau, ou un modèle précis */}
-      {loading && <p className="text-sm text-muted-foreground">Chargement des modèles…</p>}
+      {loading && <p className="text-sm text-muted-foreground">{t("Chargement des modèles…")}</p>}
       {!loading && catalog && !catalog.models.length && (
         <p className="text-sm text-muted-foreground">
-          {catalog.needs_key ? "Colle ta clé API puis « Afficher les modèles »." : "Aucun modèle disponible."}
+          {catalog.needs_key ? t("Colle ta clé API puis « Afficher les modèles ».") : t("Aucun modèle disponible.")}
         </p>
       )}
       {!loading && catalog && catalog.models.length > 0 && (
         <>
           {tiers.length > 0 && (
-            <div role="radiogroup" aria-label="Comment choisir" className="flex gap-1 rounded-xl bg-muted p-1">
+            <div role="radiogroup" aria-label={t("Comment choisir")} className="flex gap-1 rounded-xl bg-muted p-1">
               {(["tier", "precise"] as const).map((m) => (
                 <button
                   key={m}
@@ -224,7 +225,7 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
                     mode === m && "bg-accent-soft text-accent ring-2 ring-accent",
                   )}
                 >
-                  {m === "tier" ? "Un mode" : "Un modèle précis"}
+                  {m === "tier" ? t("Un mode") : t("Un modèle précis")}
                 </button>
               ))}
             </div>
@@ -233,26 +234,26 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
           {rows && !precise ? (
             <ModeRows level="cerveau" onChanged={onModeChanged} />
           ) : !precise ? (
-            <div role="radiogroup" aria-label="Niveau" className="grid gap-2.5 sm:grid-cols-3">
-              {tiers.map((t) => {
-                const on = pickedTier === t.id;
+            <div role="radiogroup" aria-label={t("Niveau")} className="grid gap-2.5 sm:grid-cols-3">
+              {tiers.map((tier) => {
+                const on = pickedTier === tier.id;
                 return (
                   <button
-                    key={t.id}
+                    key={tier.id}
                     type="button"
                     role="radio"
                     aria-checked={on}
-                    onClick={() => setPicked({ id: t.model!.id, name: t.model!.name })}
+                    onClick={() => setPicked({ id: tier.model!.id, name: tier.model!.name })}
                     className={cn(
                       "flex cursor-pointer flex-col items-start gap-2 rounded-2xl border bg-background p-4 text-left",
                       on ? "border-2 border-accent bg-accent-soft/50 p-[15px]" : "border-muted-foreground/40 hover:border-muted-foreground",
                     )}
                   >
-                    <span className="text-[15px] font-semibold">{t.name}</span>
-                    <span className="min-h-9 text-[13px] leading-snug text-muted-foreground">{t.desc}</span>
-                    <span className="text-xs">{t.speed}</span>
-                    <span className="text-xs font-medium tabular-nums">{costLabel(t.model!)}</span>
-                    <span className="flex w-full items-center gap-1.5 truncate text-xs text-muted-foreground"><ProviderLogo modelId={t.model!.id} className="size-5" />{shortName(t.model!.name)}</span>
+                    <span className="text-[15px] font-semibold">{tier.name}</span>
+                    <span className="min-h-9 text-[13px] leading-snug text-muted-foreground">{tier.desc}</span>
+                    <span className="text-xs">{tier.speed}</span>
+                    <span className="text-xs font-medium tabular-nums">{costLabel(tier.model!)}</span>
+                    <span className="flex w-full items-center gap-1.5 truncate text-xs text-muted-foreground"><ProviderLogo modelId={tier.model!.id} className="size-5" />{shortName(tier.model!.name)}</span>
                   </button>
                 );
               })}
@@ -264,17 +265,17 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
                 <Input
                   type="search"
                   className="pl-9"
-                  placeholder={`Rechercher parmi ${catalog.models.length} modèles (claude, gemini, deepseek…)`}
+                  placeholder={t("Rechercher parmi {n} modèles (claude, gemini, deepseek…)", { n: catalog.models.length })}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  aria-label="Rechercher un modèle"
+                  aria-label={t("Rechercher un modèle")}
                 />
               </div>
               <div className="flex flex-wrap gap-1.5">
                 {(
                   [
-                    ["Voit les images", onlyVision, setOnlyVision],
-                    ["Gratuits", onlyFree, setOnlyFree],
+                    [t("Voit les images"), onlyVision, setOnlyVision],
+                    [t("Gratuits"), onlyFree, setOnlyFree],
                   ] as const
                 ).map(([label, on, set]) => (
                   <button
@@ -290,13 +291,13 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
                     {label}
                   </button>
                 ))}
-                <span className="ml-auto self-center text-xs text-muted-foreground">{results ? `${results.length} résultats` : "Cherche pour tout voir"}</span>
+                <span className="ml-auto self-center text-xs text-muted-foreground">{results ? (results.length > 1 ? t("{n} résultats", { n: results.length }) : t("{n} résultat", { n: results.length })) : t("Cherche pour tout voir")}</span>
               </div>
-              <div role="radiogroup" aria-label="Modèles" className="flex max-h-80 flex-col overflow-y-auto">
+              <div role="radiogroup" aria-label={t("Modèles")} className="flex max-h-80 flex-col overflow-y-auto">
                 {list.map((m) => (
                   <ModelRow key={m.id} m={m} selected={picked?.id === m.id} onPick={() => setPicked({ id: m.id, name: m.name })} />
                 ))}
-                {!list.length && <p className="p-3 text-sm text-muted-foreground">Aucun modèle ne correspond.</p>}
+                {!list.length && <p className="p-3 text-sm text-muted-foreground">{t("Aucun modèle ne correspond.")}</p>}
               </div>
             </div>
           )}
@@ -305,42 +306,42 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
 
       {/* 3. Budget : une règle ferme */}
       <fieldset className="flex flex-col gap-2 rounded-2xl border border-border p-4">
-        <legend className="px-1.5 text-sm font-semibold">Budget</legend>
+        <legend className="px-1.5 text-sm font-semibold">{t("Budget")}</legend>
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <label className="flex items-center gap-2">
-            Plafond
-            <Input type="number" min={0} step={1} placeholder="Illimité" className="w-28" value={budget} onChange={(e) => setBudget(e.target.value)} />
-            $ par mois
+            {t("Plafond")}
+            <Input type="number" min={0} step={1} placeholder={t("Illimité")} className="w-28" value={budget} onChange={(e) => setBudget(e.target.value)} />
+            {t("$ par mois")}
           </label>
-          {usage && <span className="text-muted-foreground">Dépensé ce mois-ci : <span className="font-mono text-foreground">{money(usage.month_cost)} $</span></span>}
+          {usage && <span className="text-muted-foreground">{tr("Dépensé ce mois-ci : {montant}", { montant: <span className="font-mono text-foreground">{t("{prix} $", { prix: money(usage.month_cost) })}</span> })}</span>}
         </div>
-        {usage?.non_suivi && <p className="text-xs text-warn">Certains appels n'ont pas de prix connu ce mois-ci : ce plafond ne les compte pas. Surveille aussi ta dépense chez le fournisseur.</p>}
+        {usage?.non_suivi && <p className="text-xs text-warn">{t("Certains appels n'ont pas de prix connu ce mois-ci : ce plafond ne les compte pas. Surveille aussi ta dépense chez le fournisseur.")}</p>}
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <label className="flex items-center gap-2">
-            Par agent
-            <Input type="number" min={0} step={0.5} placeholder="Illimité" className="w-28" value={daily} onChange={(e) => setDaily(e.target.value)} />
-            $ par jour
+            {t("Par agent")}
+            <Input type="number" min={0} step={0.5} placeholder={t("Illimité")} className="w-28" value={daily} onChange={(e) => setDaily(e.target.value)} />
+            {t("$ par jour")}
           </label>
         </div>
         <p className="text-xs text-muted-foreground">
-          Au plafond, les agents s'arrêtent et te demandent.
+          {t("Au plafond, les agents s'arrêtent et te demandent.")}
         </p>
       </fieldset>
 
       <ErrorText>{error}</ErrorText>
       <div className="flex flex-wrap items-center justify-end gap-2">
-        <span className="mr-auto text-xs text-muted-foreground">Pour tous les agents.</span>
-        {onCancel && <Button variant="outline" onClick={onCancel}>Annuler</Button>}
+        <span className="mr-auto text-xs text-muted-foreground">{t("Pour tous les agents.")}</span>
+        {onCancel && <Button variant="outline" onClick={onCancel}>{t("Annuler")}</Button>}
         <Button onClick={save} disabled={saving || !picked}>
           {saving
             ? first
-              ? "Création de ton premier agent…"
-              : "Application aux agents…"
+              ? t("Création de ton premier agent…")
+              : t("Application aux agents…")
             : !picked
-              ? "Choisis un modèle"
+              ? t("Choisis un modèle")
               : rows && !precise
-                ? "Enregistrer le budget"
-                : `Utiliser ${pickedTier ? TIERS.find((t) => t.id === pickedTier)!.name : shortName(picked.name)}`}
+                ? t("Enregistrer le budget")
+                : t("Utiliser {nom}", { nom: pickedTier ? TIERS.find((tier) => tier.id === pickedTier)!.name : shortName(picked.name) })}
         </Button>
       </div>
     </div>

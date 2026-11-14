@@ -33,6 +33,6 @@
   [data-noah-composer] { border:0; border-radius:var(--radius-24); padding:6px 6px 6px 10px; }
   [data-noah-composer] > div.flex-wrap { flex-wrap:nowrap; }
   [data-noah-composer] [data-composer-input] { order:0; flex-basis:0; padding:6px 0; font-size:15px; }
-  [data-noah-composer] button[title="Changer de modèle"] { display:none; }
-  [data-noah-composer] button[aria-label="Envoyer"] { border-radius:50%; background:var(--ink); color:var(--bg); width:36px; height:36px; }
+  [data-noah-composer] button[data-model-chip] { display:none; }
+  [data-noah-composer] button[data-envoyer] { border-radius:50%; background:var(--ink); color:var(--bg); width:36px; height:36px; }
 }

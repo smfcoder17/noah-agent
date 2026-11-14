@@ -40,6 +40,7 @@ import { readableModel } from "@/lib/modes";
 import { demandesFor, usePresets } from "@/lib/presets";
 import { refreshAccords } from "@/lib/events";
 import { NoahWidget } from "./Widgets";
+import { langue, locale, t } from "@/i18n";
 
 // Sur téléphone, le focus ouvrirait le clavier à chaque conversation, et par-dessus un appel.
 const FINE_POINTER = window.matchMedia("(pointer: fine)").matches;
@@ -114,7 +115,7 @@ function MarkdownText() {
                 className="absolute top-2 right-2 h-7 bg-surface/90 text-xs opacity-0 pointer-coarse:opacity-100 shadow-sm group-hover/img:opacity-100 focus-visible:opacity-100"
                 onClick={() => addQuote(imageQuote(String(props.src), props.alt))}
               >
-                <Reply />Répondre à ceci
+                <Reply />{t("Répondre à ceci")}
               </Button>
             )}
           </span>
@@ -149,9 +150,9 @@ function ModelChip() {
   }, [agentModel]);
   if (!canWatch || readOnly) return null;
   return (
-    <button type="button" onClick={() => window.dispatchEvent(new Event("noah:choisir-modele"))} title="Changer de modèle"
+    <button type="button" data-model-chip onClick={() => window.dispatchEvent(new Event("noah:choisir-modele"))} title={t("Changer de modèle")}
       className="flex h-9 max-w-40 shrink-0 cursor-pointer items-center gap-1 truncate max-sm:max-w-28 rounded-lg px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground">
-      <span className="truncate">{agentModel || general || "Modèle"}</span><ChevronDown className="size-3.5 shrink-0" />
+      <span className="truncate">{agentModel || general || t("Modèle")}</span><ChevronDown className="size-3.5 shrink-0" />
     </button>
   );
 }
@@ -161,9 +162,9 @@ function ToolsChip() {
   const { canWatch, readOnly } = useContext(AgentContext);
   if (!canWatch || readOnly) return null;
   return (
-    <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("noah:ouvrir-panneau", { detail: "connections" }))} title="Connecter un outil"
+    <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("noah:ouvrir-panneau", { detail: "connections" }))} title={t("Connecter un outil")}
       className="flex h-9 shrink-0 cursor-pointer items-center gap-1 rounded-lg px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground">
-      <Plug className="size-3.5 shrink-0 max-sm:size-5" /><span className="max-sm:sr-only">Outils</span>
+      <Plug className="size-3.5 shrink-0 max-sm:size-5" /><span className="max-sm:sr-only">{t("Outils")}</span>
     </button>
   );
 }
@@ -203,33 +204,33 @@ function Approval({ args, result, addResult }: ToolCallMessagePartProps) {
     return (
       <p className="my-1 flex items-center gap-1.5 text-[13px] text-muted-foreground">
         {result === "approved" ? <Check className="size-3.5 text-ok" /> : <X className="size-3.5" />}
-        <span className="min-w-0 truncate">{result === "approved" ? "Autorisé" : "Refusé"} · {String(args.action || args.demande || "cette action").replace(/^Ton agent veut /, "")}</span>
+        <span className="min-w-0 truncate">{result === "approved" ? t("Autorisé") : t("Refusé")} · {String(args.action || args.demande || t("cette action")).replace(/^Ton agent veut /, "") /* i18n-ignore : motif qui lit le texte du serveur */}</span>
       </p>
     );
   }
-  if (args.bureau) return <p className="my-2 rounded-xl border border-warn p-3 text-sm">{String(args.demande)} · À accepter sur ton ordinateur</p>;
+  if (args.bureau) return <p className="my-2 rounded-xl border border-warn p-3 text-sm">{t("{demande} · À accepter sur ton ordinateur", { demande: String(args.demande) })}</p>;
   return (
     <div className="my-2 flex flex-col gap-3 rounded-xl border border-warn bg-warn-soft p-3.5">
-      <span className="text-xs font-semibold uppercase tracking-wide text-warn">À valider</span>
-      <p className="text-sm font-medium">{String(args.demande || "Ton agent te demande de valider une action.")}</p>
+      <span className="text-xs font-semibold uppercase tracking-wide text-warn">{t("À valider")}</span>
+      <p className="text-sm font-medium">{String(args.demande || t("Ton agent te demande de valider une action."))}</p>
       {typeof args.pourquoi === "string" && args.pourquoi && <p className="-mt-2 text-[13px] text-muted-foreground">{args.pourquoi}</p>}
       {preview.length > 0 && (
         <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
-          {preview.map((line) => <li key={line} className="whitespace-pre-wrap break-words">« {line} »</li>)}
+          {preview.map((line) => <li key={line} className="whitespace-pre-wrap break-words">{t("« {texte} »", { texte: line })}</li>)}
         </ul>
       )}
       {!details && (
         <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="cursor-pointer self-start text-xs font-medium underline underline-offset-2">
-          {open ? "Masquer les détails" : "Voir les détails"}
+          {open ? t("Masquer les détails") : t("Voir les détails")}
         </button>
       )}
       {(details || open) && <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-background p-2 font-mono text-[11.5px] text-muted-foreground">{String(args.summary).replace(/^Ton juge demande ton accord : [^\n]*\n/, "") /* la raison est déjà dite au-dessus, en clair */}</pre>}
       <div className="flex gap-2">
-        <Button variant="warn" size="sm" onClick={() => answer(true)}>Autoriser</Button>
-        <Button variant="outline" size="sm" onClick={() => answer(false)}>Refuser</Button>
+        <Button variant="warn" size="sm" onClick={() => answer(true)}>{t("Autoriser")}</Button>
+        <Button variant="outline" size="sm" onClick={() => answer(false)}>{t("Refuser")}</Button>
       </div>
-      {args.retenu === true && <p className="-mt-1 text-xs text-muted-foreground">Si tu autorises, les actions de ce genre passeront ensuite sans te demander.</p>}
-      {error && <p className="text-sm text-danger">La réponse n'a pas été prise en compte : {error}</p>}
+      {args.retenu === true && <p className="-mt-1 text-xs text-muted-foreground">{t("Si tu autorises, les actions de ce genre passeront ensuite sans te demander.")}</p>}
+      {error && <p className="text-sm text-danger">{t("La réponse n'a pas été prise en compte : {erreur}", { erreur: error })}</p>}
     </div>
   );
 }
@@ -253,17 +254,18 @@ function LoginPart({ args, result, addResult }: ToolCallMessagePartProps) {
 /** Dans la conversation principale : un fil en cours ou fini. Une ligne discrète, qui l'ouvre ; rien pour l'agent. */
 function TraceLine({ args }: ToolCallMessagePartProps) {
   const { agentId } = useContext(AgentContext);
-  const t = args as unknown as TraceDetail;
-  const issue = t.etat === "en_cours" ? "En cours" : `${t.etat === "fini" ? "Fini" : "Pas terminé"}${t.issue ? ` : ${t.issue}` : ""}`;
+  const trace = args as unknown as TraceDetail;
+  const end = trace.etat === "fini" ? t("Fini") : t("Pas terminé");
+  const issue = trace.etat === "en_cours" ? t("En cours") : trace.issue ? t("{nom} : {texte}", { nom: end, texte: trace.issue }) : end;
   return (
     <a
-      href={`#agent=${agentId}&conversation=${t.fil}`}
-      title="Ouvrir ce fil"
+      href={`#agent=${agentId}&conversation=${trace.fil}`}
+      title={t("Ouvrir ce fil")}
       className="-mx-2 flex w-fit max-w-full items-center gap-2.5 rounded-lg px-2 py-1 text-[13px] text-muted-foreground hover:bg-muted hover:text-foreground"
     >
-      <StateShape state={t.etat === "fini" ? "done" : t.etat === "echec" ? "error" : "work"} />
+      <StateShape state={trace.etat === "fini" ? "done" : trace.etat === "echec" ? "error" : "work"} />
       <span className="min-w-0">
-        <span className="block truncate">{t.entete} : {t.consigne}</span>
+        <span className="block truncate">{t("{nom} : {texte}", { nom: trace.entete, texte: trace.consigne })}</span>
         <span className="block truncate text-xs">{issue}</span>
       </span>
       <ChevronRight className="size-3.5 shrink-0" />
@@ -285,7 +287,7 @@ function ErrorPart({ args }: ToolCallMessagePartProps) {
       </div>
       {detail && (
         <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="ml-6 cursor-pointer self-start text-xs font-medium underline underline-offset-2">
-          {open ? "Masquer les détails" : "Voir les détails"}
+          {open ? t("Masquer les détails") : t("Voir les détails")}
         </button>
       )}
       {open && (
@@ -300,14 +302,14 @@ function ErrorPart({ args }: ToolCallMessagePartProps) {
                 setTimeout(() => setCopied(false), 1500);
               }, () => {})}
             >
-              {copied ? "Copié" : "Copier"}
+              {copied ? t("Copié") : t("Copier")}
             </Button>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => aui.thread().composer().setText(`Aide-moi à diagnostiquer cette erreur de Noah Agent :\n\n${detail}`)}
+              onClick={() => aui.thread().composer().setText(`${t("Aide-moi à diagnostiquer cette erreur de Noah Agent :")}\n\n${detail}`)}
             >
-              Demander à l'agent
+              {t("Demander à l'agent")}
             </Button>
           </div>
         </div>
@@ -335,17 +337,17 @@ function SendAside({ args }: { args: { id: string } }) {
           type="button"
           className="underline underline-offset-2 hover:text-foreground"
           onClick={() => {
-            setSaid("Envoi…");
+            setSaid(t("Envoi…"));
             busy.now(args.id).then(
               (type) =>
                 setSaid(
-                  type === "precision" ? "Transmis à l'agent." : type === "tache" ? "Il a fini : c'est mis à la suite." : type === "incertain" ? "Transmission non confirmée : regarde sa réponse." : "Déjà transmis.",
+                  type === "precision" ? t("Transmis à l'agent.") : type === "tache" ? t("Il a fini : c'est mis à la suite.") : type === "incertain" ? t("Transmission non confirmée : regarde sa réponse.") : t("Déjà transmis."),
                 ),
-              () => setSaid("Pas transmis : le serveur ne répond pas."),
+              () => setSaid(t("Pas transmis : le serveur ne répond pas.")),
             );
           }}
         >
-          Le transmettre aussi à l'agent
+          {t("Le transmettre aussi à l'agent")}
         </button>
       )}
     </div>
@@ -363,7 +365,7 @@ function Steps({ args }: ToolCallMessagePartProps) {
       {running && !open && <p className="truncate">{steps[steps.length - 1]}</p>}
       <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className="flex w-fit cursor-pointer items-center gap-1 rounded-md hover:text-foreground">
         <ChevronUp className={cn("size-3.5 transition-transform", !open && "rotate-180")} />
-        {steps.length} étape{steps.length > 1 ? "s" : ""}
+        {steps.length > 1 ? t("{n} étapes", { n: steps.length }) : t("{n} étape", { n: steps.length })}
       </button>
       {open && <ol className="flex list-decimal flex-col gap-1 pl-5">{steps.map((s, i) => <li key={i}>{s}</li>)}</ol>}
     </div>
@@ -380,7 +382,7 @@ function AttachmentChip() {
       <FileText className="size-3.5 text-muted-foreground" />
       <span className="max-w-48 truncate"><AttachmentPrimitive.Name /></span>
       <AttachmentPrimitive.Remove asChild>
-        <button className="rounded-full p-0.5 text-muted-foreground hover:bg-muted" aria-label="Retirer"><X className="size-3.5" /></button>
+        <button className="rounded-full p-0.5 text-muted-foreground hover:bg-muted" aria-label={t("Retirer")}><X className="size-3.5" /></button>
       </AttachmentPrimitive.Remove>
     </AttachmentPrimitive.Root>
   );
@@ -437,20 +439,20 @@ function MessageReactions() {
   };
   return (
     <span className="relative flex items-center gap-1">
-      {theirs && <span role="img" aria-label={`Réaction de l'agent : ${theirs}`} className="rounded-full border border-border bg-surface px-1.5 text-sm leading-6">{theirs}</span>}
-      {custom?.reactions?.retenu && <span title="L'agent l'a retenu pour la suite" className="text-[11px] text-muted-foreground">retenu</span>}
+      {theirs && <span role="img" aria-label={t("Réaction de l'agent : {emoji}", { emoji: theirs })} className="rounded-full border border-border bg-surface px-1.5 text-sm leading-6">{theirs}</span>}
+      {custom?.reactions?.retenu && <span title={t("L'agent l'a retenu pour la suite")} className="text-[11px] text-muted-foreground">{t("retenu")}</span>}
       {mine && (
-        <button type="button" onClick={() => set(null)} disabled={readOnly} aria-label={`Retirer ta réaction ${mine}`} className="cursor-pointer rounded-full border border-accent/40 bg-accent-soft px-1.5 text-sm leading-6">{mine}</button>
+        <button type="button" onClick={() => set(null)} disabled={readOnly} aria-label={t("Retirer ta réaction {emoji}", { emoji: mine })} className="cursor-pointer rounded-full border border-accent/40 bg-accent-soft px-1.5 text-sm leading-6">{mine}</button>
       )}
       {stored && !readOnly && (
-        <Button variant="ghost" size="icon-sm" onClick={() => setOpen(!open)} aria-expanded={open} aria-label="Réagir" className={cn("opacity-0 pointer-coarse:opacity-70 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-60", open && "opacity-100")}>
+        <Button variant="ghost" size="icon-sm" onClick={() => setOpen(!open)} aria-expanded={open} aria-label={t("Réagir")} className={cn("opacity-0 pointer-coarse:opacity-70 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-60", open && "opacity-100")}>
           <SmilePlus />
         </Button>
       )}
       {open && (
-        <span role="group" aria-label="Choisir une réaction" className="absolute bottom-full left-0 z-20 mb-1 flex gap-0.5 rounded-full border border-border bg-surface p-1 shadow-md">
+        <span role="group" aria-label={t("Choisir une réaction")} className="absolute bottom-full left-0 z-20 mb-1 flex gap-0.5 rounded-full border border-border bg-surface p-1 shadow-md">
           {QUICK_EMOJI.map((e) => (
-            <button key={e} type="button" onClick={() => set(e)} aria-label={`Réagir ${e}`} className="grid size-8 cursor-pointer place-items-center rounded-full text-lg hover:bg-muted">{e}</button>
+            <button key={e} type="button" onClick={() => set(e)} aria-label={t("Réagir {emoji}", { emoji: e })} className="grid size-8 cursor-pointer place-items-center rounded-full text-lg hover:bg-muted">{e}</button>
           ))}
         </span>
       )}
@@ -461,7 +463,7 @@ function MessageReactions() {
 function MessageTime() {
   const when = useAuiState((s) => s.message.createdAt);
   if (!when) return null;
-  return <time dateTime={when.toISOString()} title={when.toLocaleString("fr-CA", { dateStyle: "long", timeStyle: "short" })} className="text-[11px] text-muted-foreground tabular-nums">{messageMoment(when)}</time>;
+  return <time dateTime={when.toISOString()} title={when.toLocaleString(langue() === "fr" ? "fr-CA" : locale(), { dateStyle: "long", timeStyle: "short" })} className="text-[11px] text-muted-foreground tabular-nums">{messageMoment(when)}</time>;
 }
 
 /** En haut du fil : les messages plus anciens ne se chargent qu'à la demande, sans faire sauter la lecture. */
@@ -480,7 +482,7 @@ function OlderMessages() {
   return (
     <div ref={self} className="flex justify-center pb-3">
       <Button variant="outline" size="sm" onClick={load} disabled={loading}>
-        {loading ? <Loader2 className="animate-spin" /> : <ChevronUp />}Charger les messages précédents
+        {loading ? <Loader2 className="animate-spin" /> : <ChevronUp />}{t("Charger les messages précédents")}
       </Button>
     </div>
   );
@@ -543,7 +545,7 @@ function SelectionReply() {
         document.querySelector<HTMLTextAreaElement>("[data-composer-input]")?.focus();
       }}
     >
-      <Reply />Répondre à ceci
+      <Reply />{t("Répondre à ceci")}
     </Button>
   );
 }
@@ -558,7 +560,7 @@ function QuoteChips() {
         <div key={i} className="flex items-center gap-2 rounded-lg border-l-2 border-accent bg-muted/60 py-1 pr-1 pl-2.5 text-[13px]">
           <Reply className="size-3.5 shrink-0 text-accent" />
           <span className="min-w-0 flex-1 truncate text-muted-foreground">{q.label}</span>
-          <button type="button" className="cursor-pointer rounded-full p-0.5 text-muted-foreground hover:bg-muted" onClick={() => remove(i)} aria-label="Retirer la citation">
+          <button type="button" className="cursor-pointer rounded-full p-0.5 text-muted-foreground hover:bg-muted" onClick={() => remove(i)} aria-label={t("Retirer la citation")}>
             <X className="size-3.5" />
           </button>
         </div>
@@ -617,7 +619,7 @@ const AssistantMessage = memo(function AssistantMessage() {
           // Un travail repris (app rouverte) dit déjà ce qu'il fait au-dessus de la saisie : pas deux indicateurs.
           !busyActivity && (
             <div className="flex items-center gap-2 text-[13px] text-muted-foreground max-md:hidden">
-              <Loader2 className="size-3.5 animate-spin text-accent" /> Réflexion…
+              <Loader2 className="size-3.5 animate-spin text-accent" /> {t("Réflexion…")}
             </div>
           )
         ) : (
@@ -643,13 +645,13 @@ const AssistantMessage = memo(function AssistantMessage() {
             )}
           >
             <ActionBarPrimitive.Copy asChild>
-              <Button variant="ghost" size="icon-sm" aria-label="Copier la réponse" onClickCapture={(e) => { if (e.currentTarget.closest("[data-noah-msg]")?.querySelector(".sensitive-token:not(.shown)")) { e.preventDefault(); e.stopPropagation(); setCopyWarning(true); } else setCopyWarning(false); }}>
+              <Button variant="ghost" size="icon-sm" aria-label={t("Copier la réponse")} onClickCapture={(e) => { if (e.currentTarget.closest("[data-noah-msg]")?.querySelector(".sensitive-token:not(.shown)")) { e.preventDefault(); e.stopPropagation(); setCopyWarning(true); } else setCopyWarning(false); }}>
                 <MessagePrimitive.If copied><Check /></MessagePrimitive.If>
                 <MessagePrimitive.If copied={false}><Copy /></MessagePrimitive.If>
               </Button>
             </ActionBarPrimitive.Copy>
             <ReportAnswer readText={() => answerText(id)} />
-            {copyWarning && <span role="status" className="text-xs text-muted-foreground">Révèle les données avant de copier.</span>}
+            {copyWarning && <span role="status" className="text-xs text-muted-foreground">{t("Révèle les données avant de copier.")}</span>}
           </ActionBarPrimitive.Root>
         )}
       </div>
@@ -686,7 +688,7 @@ function Composer({ onVoiceMode, inCall }: { onVoiceMode: () => void; inCall: bo
       {/* Le texte a toute la largeur et les boutons passent dessous, comme dans les apps de chat : les puces ne l'écrasent jamais. */}
       <div className="flex flex-wrap items-end gap-1.5">
         <ComposerPrimitive.AddAttachment asChild multiple>
-          <Button variant="ghost" size="icon" aria-label="Joindre des fichiers" className="mr-auto text-muted-foreground">
+          <Button variant="ghost" size="icon" aria-label={t("Joindre des fichiers")} className="mr-auto text-muted-foreground">
             <Paperclip />
           </Button>
         </ComposerPrimitive.AddAttachment>
@@ -695,10 +697,10 @@ function Composer({ onVoiceMode, inCall }: { onVoiceMode: () => void; inCall: bo
         <ToolsChip />
         <ComposerPrimitive.Input
           data-composer-input
-          aria-label="Message à ton agent"
+          aria-label={t("Message à ton agent")}
           rows={1}
           autoFocus={FINE_POINTER}
-          placeholder={dictating ? "Parle, le texte arrive ici…" : running ? "Précise, pose une question, ou ajoute une demande…" : "Écris à ton agent…"}
+          placeholder={dictating ? t("Parle, le texte arrive ici…") : running ? t("Précise, pose une question, ou ajoute une demande…") : t("Écris à ton agent…")}
           className="max-h-48 min-h-9 flex-1 resize-none bg-transparent py-2 text-[15px] outline-none placeholder:text-muted-foreground order-first basis-full px-2 max-sm:text-base"
           onKeyDown={(e) => {
             // Entrée pendant la dictée : on termine la transcription, puis le message part.
@@ -719,8 +721,8 @@ function Composer({ onVoiceMode, inCall }: { onVoiceMode: () => void; inCall: bo
             <Button
               type="button"
               size="icon"
-              aria-label="Envoyer"
-              title="Termine la transcription puis envoie"
+              data-envoyer aria-label={t("Envoyer")}
+              title={t("Termine la transcription puis envoie")}
               className="rounded-xl"
               disabled={dictation.state === "finishing"}
               onClick={() => void dictation.finish(true)}
@@ -729,16 +731,16 @@ function Composer({ onVoiceMode, inCall }: { onVoiceMode: () => void; inCall: bo
             </Button>
           ) : (
             <ComposerPrimitive.Send asChild>
-              <Button size="icon" aria-label="Envoyer" className="rounded-xl"><ArrowUp /></Button>
+              <Button size="icon" data-envoyer aria-label={t("Envoyer")} className="rounded-xl"><ArrowUp /></Button>
             </ComposerPrimitive.Send>
           )}
         </ThreadPrimitive.If>
         <ThreadPrimitive.If running>
-          <Button type="button" size="icon" aria-label="Envoyer" title="Il répond tout de suite ; le travail continue" className="rounded-xl" onClick={sendWhileBusy}>
+          <Button type="button" size="icon" data-envoyer aria-label={t("Envoyer")} title={t("Il répond tout de suite ; le travail continue")} className="rounded-xl" onClick={sendWhileBusy}>
             <ArrowUp />
           </Button>
           <ComposerPrimitive.Cancel asChild>
-            <Button size="icon" variant="outline" aria-label="Arrêter" className="rounded-xl"><Square className="fill-current" /></Button>
+            <Button size="icon" variant="outline" aria-label={t("Arrêter")} className="rounded-xl"><Square className="fill-current" /></Button>
           </ComposerPrimitive.Cancel>
         </ThreadPrimitive.If>
       </div>
@@ -758,26 +760,26 @@ function WhileBusyPanel() {
       {busy.activity && <div className="flex items-center gap-2.5 px-1 text-[13px]"><NoahTile color={agentColor} shape={agentShape} detail={agentDetail} state="working" className="size-10" /><span className="truncate">{busy.activity}…</span></div>}
       {busy.sending.map((item) => (
         <div key={item.id} className="flex items-center gap-2 rounded-lg border border-border bg-surface px-2 py-1.5">
-          <span className="shrink-0">{item.late ? "Réception à vérifier" : "Envoi"}</span>
+          <span className="shrink-0">{item.late ? t("Réception à vérifier") : t("Envoi")}</span>
           <span className="min-w-0 flex-1 truncate">{item.text}</span>
           {item.late && (
             <button type="button" className="shrink-0 underline underline-offset-2 hover:text-foreground" onClick={() => busy.giveUp(item.id)}>
-              Abandonner
+              {t("Abandonner")}
             </button>
           )}
         </div>
       ))}
       {busy.waiting.map((item) => (
         <div key={item.id} className="flex items-center gap-2 rounded-lg border border-border bg-surface px-2 py-1">
-          <span className="shrink-0">À la suite</span>
+          <span className="shrink-0">{t("À la suite")}</span>
           <span className="min-w-0 flex-1 truncate text-foreground">{item.text}</span>
           {busy.active && (
             <button type="button" className="shrink-0 underline underline-offset-2 hover:text-foreground" onClick={() => void busy.now(item.id).catch(() => {})}>
-              Maintenant
+              {t("Maintenant")}
             </button>
           )}
           <button type="button" className="shrink-0 underline underline-offset-2 hover:text-foreground" onClick={() => busy.cancel(item.id)}>
-            Retirer
+            {t("Retirer")}
           </button>
         </div>
       ))}
@@ -858,7 +860,7 @@ export const Thread = memo(function Thread({ report, onReportRead, onCall }: { r
             <ThreadPrimitive.Empty>
               <div className="m-auto flex max-w-md flex-col items-center gap-2 text-center">
                 <EmptyNoah />
-                <p className="text-xl font-semibold">Que doit faire {agentName} ?</p>
+                <p className="text-xl font-semibold">{t("Que doit faire {nom} ?", { nom: agentName })}</p>
                 <p className="text-sm text-muted-foreground">{hint}</p>
                 {!readOnly && <EmptySuggestions agentId={agentId} />}
               </div>
@@ -867,7 +869,7 @@ export const Thread = memo(function Thread({ report, onReportRead, onCall }: { r
           </div>
           <ThreadPrimitive.ViewportFooter className="sticky bottom-0 mx-auto flex w-full max-w-3xl flex-col items-center gap-2 bg-gradient-to-t from-background via-background to-transparent pt-4 pb-[max(16px,env(safe-area-inset-bottom))]">
             {readOnly ? (
-              <p className="w-full rounded-2xl border border-border bg-surface p-3 text-center text-sm text-muted-foreground">Tu peux lire ici, pas écrire.</p>
+              <p className="w-full rounded-2xl border border-border bg-surface p-3 text-center text-sm text-muted-foreground">{t("Tu peux lire ici, pas écrire.")}</p>
             ) : (
               <>
                 {voice && <VoiceMode onClose={() => setVoice(false)} report={report} onReportRead={onReportRead} link={link} />}

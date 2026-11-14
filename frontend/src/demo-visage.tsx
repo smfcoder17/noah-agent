@@ -1,3 +1,4 @@
+// i18n-ignore-fichier : page de démonstration pour le développement, jamais servie aux personnes.
 // Page de démonstration du visage, hors production : `npm run dev` puis /demo-visage.html. Le build ne l'embarque pas (une seule
 // entrée, index.html). Paramètres : ?face=gomme&detail=antenne&state=idle&size=240&seed=x&count=30&color=%23ff7a59&tile=0 pour un seul cas.
 import { AssistantRuntimeProvider, type ThreadMessageLike, useExternalStoreRuntime, useLocalRuntime } from "@assistant-ui/react";

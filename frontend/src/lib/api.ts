@@ -1,4 +1,5 @@
 import { forgetSeen } from "./seen";
+import { langue, t, tServeur } from "@/i18n";
 // Client de l'API Noah Agent (même origine, session par cookie).
 
 export class ApiError extends Error {
@@ -66,6 +67,8 @@ export async function request(path: string, init: RequestInit = {}): Promise<Res
     headers: {
       "Content-Type": "application/json",
       "X-Noah-Timezone": ZONE,
+      // Langue de l'interface : le serveur s'en sert pour ce qu'il écrit lui-même (transcription de la voix).
+      "Accept-Language": langue(),
       ...(clientVersion ? { "X-Noah-Version": clientVersion } : {}),
       ...(init.headers || {}),
     },
@@ -76,7 +79,7 @@ export async function request(path: string, init: RequestInit = {}): Promise<Res
     const state = await renewWindow();
     if (state === "ok") res = await call();
     // Serveur injoignable pendant l'échange : l'appareil n'est peut-être pas refusé, surtout ne pas le déconnecter.
-    else if (state && state !== "refuse") throw new ApiError("Le serveur ne répond pas.", 503);
+    else if (state && state !== "refuse") throw new ApiError(t("Le serveur ne répond pas."), 503);
   }
   if (res.status === 426) window.dispatchEvent(new Event("noah:outdated"));
   // 200 seulement : un sondage en attente (202) n'a créé aucune session.
@@ -86,7 +89,7 @@ export async function request(path: string, init: RequestInit = {}): Promise<Res
   // Mot de passe temporaire : rien d'autre ne répond tant qu'il n'est pas remplacé.
   if (res.status === 403 && res.headers.get("x-noah-mot-de-passe")) window.dispatchEvent(new Event("noah:mot-de-passe"));
   if (!res.ok) {
-    let message = `Erreur ${res.status}`;
+    let message = t("Erreur {code}", { code: res.status });
     let courriel = false;
     try {
       const body = await res.json();
@@ -94,8 +97,8 @@ export async function request(path: string, init: RequestInit = {}): Promise<Res
       courriel = body.courriel_requis === true;
       if (Array.isArray(detail)) {
         const field = detail[0]?.loc?.[detail[0].loc.length - 1];
-        message = typeof field === "string" ? `Vérifie le champ « ${field} ».` : "Vérifie les champs du formulaire.";
-      } else message = detail || message;
+        message = typeof field === "string" ? t("Vérifie le champ « {champ} ».", { champ: field }) : t("Vérifie les champs du formulaire.");
+      } else message = typeof detail === "string" ? tServeur(detail) : message;
     } catch {
       /* corps non JSON */
     }
@@ -332,7 +335,7 @@ const HEADERS_MS = 30_000;
 /** Connexion perdue pendant une réponse : l'agent continue côté serveur, l'app reprendra la conversation. */
 export class StreamLost extends Error {
   constructor() {
-    super("Connexion au serveur perdue.");
+    super(t("Connexion au serveur perdue."));
   }
 }
 

@@ -4,6 +4,7 @@ import { Check, ChevronDown, Gauge, Search, Sparkles, Star } from "lucide-react"
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { ProviderLogo, labName, labOf } from "./ProviderLogo";
+import { t } from "@/i18n";
 
 export type MediaModel = {
   id: string;
@@ -23,7 +24,7 @@ const shortName = (name: string) => name.replace(/^[^:]+:\s+/, "");
 function Dots({ value, icon: Icon, label }: { value?: number | null; icon: typeof Star; label: string }) {
   if (!value) return <span className="w-16 text-xs text-muted-foreground">—</span>;
   return (
-    <span className="flex w-16 items-center gap-0.5" title={`${label} : ${value}/5`} aria-label={`${label} ${value} sur 5`}>
+    <span className="flex w-16 items-center gap-0.5" title={t("{critere} : {note}/5", { critere: label, note: value })} aria-label={t("{critere} {note} sur 5", { critere: label, note: value })}>
       {[1, 2, 3, 4, 5].map((i) => (
         <Icon key={i} className={cn("size-3", i <= value ? "fill-current text-foreground" : "text-muted-foreground/40")} />
       ))}
@@ -80,7 +81,7 @@ export function ModelSelect({
       <button
         type="button"
         aria-expanded={open}
-        aria-label={`${label} : ${value === "auto" ? "Automatique" : current?.name ?? value}`}
+        aria-label={t("{type} : {modele}", { type: label, modele: value === "auto" ? t("Automatique") : current?.name ?? value })}
         onClick={() => setOpen(!open)}
         className="flex h-11 w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-lg border border-border bg-background px-3 text-left text-sm hover:border-muted-foreground/60"
       >
@@ -88,8 +89,8 @@ export function ModelSelect({
           <>
             <span className="grid size-6 shrink-0 place-items-center rounded-md bg-accent-soft text-accent"><Sparkles className="size-3.5" /></span>
             <span className="min-w-0 flex-1 truncate">
-              <strong className="font-medium">Automatique</strong>
-              <span className="text-muted-foreground"> · {routed ? "choisit selon chaque demande" : autoModel ? shortName(autoModel.name) : "le meilleur disponible"}</span>
+              <strong className="font-medium">{t("Automatique")}</strong>
+              <span className="text-muted-foreground"> · {routed ? t("choisit selon chaque demande") : autoModel ? shortName(autoModel.name) : t("le meilleur disponible")}</span>
             </span>
           </>
         ) : (
@@ -111,18 +112,18 @@ export function ModelSelect({
                 type="search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Rechercher un modèle ou une force (texte, photo, logo…)"
-                aria-label="Rechercher un modèle"
+                placeholder={t("Rechercher un modèle ou une force (texte, photo, logo…)")}
+                aria-label={t("Rechercher un modèle")}
                 className="h-9 w-full rounded-lg border border-border bg-background pr-2 pl-8 text-sm"
               />
             </div>
-            <div role="radiogroup" aria-label="Trier" className="flex gap-0.5 rounded-lg bg-muted p-0.5 text-xs">
+            <div role="radiogroup" aria-label={t("Trier")} className="flex gap-0.5 rounded-lg bg-muted p-0.5 text-xs">
               {(
                 [
-                  ["recommended", "Recommandés"],
-                  ["quality", "Qualité"],
-                  ["price", "Prix"],
-                  ["speed", "Vitesse"],
+                  ["recommended", t("Recommandés")],
+                  ["quality", t("Qualité")],
+                  ["price", t("Prix")],
+                  ["speed", t("Vitesse")],
                 ] as const
               ).map(([id, text]) => (
                 <button
@@ -140,14 +141,14 @@ export function ModelSelect({
           </div>
 
           {labs.length > 1 && (
-            <div className="flex flex-wrap gap-1" role="group" aria-label="Fournisseurs">
+            <div className="flex flex-wrap gap-1" role="group" aria-label={t("Fournisseurs")}>
               <button
                 type="button"
                 aria-pressed={!lab}
                 onClick={() => setLab(null)}
                 className={cn("h-7 cursor-pointer rounded-full border px-2.5 text-xs font-medium", !lab ? "border-accent bg-accent-soft text-accent" : "border-border text-muted-foreground")}
               >
-                Tous
+                {t("Tous")}
               </button>
               {labs.map((l) => (
                 <button
@@ -173,11 +174,11 @@ export function ModelSelect({
               <Row selected={value === "auto"} onPick={() => { onChange("auto"); setOpen(false); }}>
                 <span className="grid size-6 shrink-0 place-items-center rounded-md bg-accent-soft text-accent"><Sparkles className="size-3.5" /></span>
                 <span className="flex min-w-0 flex-1 flex-col">
-                  <span className="text-sm font-medium">Automatique</span>
+                  <span className="text-sm font-medium">{t("Automatique")}</span>
                   <span className="truncate text-xs text-muted-foreground">
                     {routed
-                      ? "Choisit selon chaque demande."
-                      : `Le meilleur disponible${autoModel ? ` : ${shortName(autoModel.name)}` : ""}`}
+                      ? t("Choisit selon chaque demande.")
+                      : autoModel ? t("Le meilleur disponible : {nom}", { nom: shortName(autoModel.name) }) : t("Le meilleur disponible")}
                   </span>
                 </span>
               </Row>
@@ -193,13 +194,13 @@ export function ModelSelect({
                   </span>
                 </span>
                 <span className="hidden flex-col items-end gap-0.5 sm:flex">
-                  <Dots value={m.quality} icon={Star} label="Qualité" />
-                  <Dots value={m.speed} icon={Gauge} label="Vitesse" />
+                  <Dots value={m.quality} icon={Star} label={t("Qualité")} />
+                  <Dots value={m.speed} icon={Gauge} label={t("Vitesse")} />
                 </span>
-                <span className="w-32 shrink-0 text-right text-xs tabular-nums">{m.cost?.label ?? <span className="text-muted-foreground">Prix non publié</span>}</span>
+                <span className="w-32 shrink-0 text-right text-xs tabular-nums">{m.cost?.label ?? <span className="text-muted-foreground">{t("Prix non publié")}</span>}</span>
               </Row>
             ))}
-            {!list.length && <p className="p-3 text-sm text-muted-foreground">Aucun modèle ne correspond.</p>}
+            {!list.length && <p className="p-3 text-sm text-muted-foreground">{t("Aucun modèle ne correspond.")}</p>}
           </div>
         </div>
       )}

@@ -1,18 +1,19 @@
 // Ce que fait l'agent dans le chat, lu dans son message : le visage du message en cours en découle (components/Thread.tsx).
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { NoahState } from "./noahMotion";
+import { t } from "@/i18n";
 
 export type Mood = "rest" | "think" | "work" | "wait" | "done" | "error";
 
 export const MOOD_FACE: Record<Mood, NoahState> = { rest: "idle", think: "thinking", work: "working", wait: "waiting", done: "pleased", error: "upset" };
 
-const MOOD_WORD: Record<Mood, string> = { rest: "", think: "Réfléchit…", work: "Travaille…", wait: "Attend ta réponse", done: "C'est fait", error: "Ça n'a pas abouti" };
+const MOOD_WORD: Record<Mood, string> = { rest: "", think: t("Réfléchit…"), work: t("Travaille…"), wait: t("Attend ta réponse"), done: t("C'est fait"), error: t("Ça n'a pas abouti") };
 
 type PartLike = { type: string; toolName?: string; result?: unknown; text?: string; args?: unknown };
 type MessageLike = { content: readonly PartLike[]; status?: { type: string } };
 
 const CHOICE = /```noah\s*\{[^`]*"type"\s*:\s*"choice"/; // comme CHOICE_RE côté serveur
-const ASKS = new Map([["approval", "Attend ton accord"], ["connexion", "Attend que tu te connectes"]]);
+const ASKS = new Map([["approval", t("Attend ton accord")], ["connexion", t("Attend que tu te connectes")]]);
 
 const tools = (m: MessageLike) => m.content.filter((p) => p.type === "tool-call");
 const unanswered = (m: MessageLike) => tools(m).find((p) => ASKS.has(p.toolName ?? "") && p.result === undefined);
@@ -35,7 +36,7 @@ export function moodLabel(m: MessageLike, mood: Mood): string {
   }
   const ask = unanswered(m);
   if (ask) return ASKS.get(ask.toolName ?? "") ?? MOOD_WORD.wait;
-  return mood === "wait" && asksChoice(m) ? "Attend ton choix" : MOOD_WORD[mood];
+  return mood === "wait" && asksChoice(m) ? t("Attend ton choix") : MOOD_WORD[mood];
 }
 
 const LIVE: readonly Mood[] = ["think", "work", "wait"];

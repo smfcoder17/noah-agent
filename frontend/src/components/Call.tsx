@@ -7,10 +7,11 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui";
 import { type Agent, ApiError, get, send, type VoiceCall } from "@/lib/api";
 import { AgentFace, agentColor, type NoahHandle } from "./Noah";
+import { t } from "@/i18n";
 
 export type CallReport = { id: string; agentId: string; text: string };
 
-const OVER: Record<string, string> = { manque: "Appel manqué", refuse: "Appel refusé", repondu: "Appel déjà pris" };
+const OVER: Record<string, string> = { manque: t("Appel manqué"), refuse: t("Appel refusé"), repondu: t("Appel déjà pris") };
 
 /** Sonnerie courte synthétisée. Sans geste de l'utilisateur, le navigateur peut la garder muette : l'écran reste. */
 function useRing(on: boolean) {
@@ -38,10 +39,10 @@ function useRing(on: boolean) {
       void ctx.resume().catch(() => {});
       navigator.vibrate?.([400, 200, 400]);
       if (ctx.state !== "running") return;
-      const t = ctx.currentTime;
+      const now = ctx.currentTime;
       for (const start of [0, 0.5]) {
-        tone(660, t + start, 0.4);
-        tone(880, t + start, 0.4);
+        tone(660, now + start, 0.4);
+        tone(880, now + start, 0.4);
       }
     };
     ring();
@@ -184,9 +185,9 @@ export function CallScreen({ agents, onOpen }: { agents: Agent[]; onOpen: (repor
       className="fixed inset-0 z-[60] flex flex-col items-center justify-between gap-6 overflow-y-auto bg-background px-6 pt-[max(48px,env(safe-area-inset-top))] pb-[max(32px,env(safe-area-inset-bottom))] text-center"
     >
       <div className="flex min-h-0 w-full max-w-md flex-1 flex-col items-center gap-4">
-        <p className="text-sm text-muted-foreground">{ringing ? "Appel vocal" : "Appel"}</p>
+        <p className="text-sm text-muted-foreground">{ringing ? t("Appel vocal") : t("Appel")}</p>
         <h1 id={`${baseId}-titre`} className="text-center text-2xl font-semibold">
-          {ringing ? `${call.agent} t'appelle` : `${OVER[call.etat] ?? "Appel terminé"} : ${call.agent}`}
+          {ringing ? t("{nom} t'appelle", { nom: call.agent }) : t("{etat} : {nom}", { etat: OVER[call.etat] ?? t("Appel terminé"), nom: call.agent })}
         </h1>
         <div className={`relative my-auto flex shrink-0 items-center justify-center ${ringing ? "noah-call-waves" : ""}`}>
           {ringing && [0, 1, 2].map((i) => <span key={i} aria-hidden="true" className="noah-call-wave" style={{ animationDelay: `${i * 0.8}s`, background: agentColor(face) }} />)}
@@ -199,20 +200,20 @@ export function CallScreen({ agents, onOpen }: { agents: Agent[]; onOpen: (repor
         <div className="flex w-full max-w-md items-start justify-center gap-16">
           <button type="button" disabled={busy} onClick={() => decide("decline")} className="flex flex-col items-center gap-2 text-sm disabled:opacity-50">
             <span className="flex size-[72px] items-center justify-center rounded-full bg-danger text-white"><PhoneOff className="size-7" /></span>
-            Refuser
+            {t("Refuser")}
           </button>
           <button ref={first} type="button" disabled={busy} onClick={() => decide("answer")} className="flex flex-col items-center gap-2 text-sm disabled:opacity-50">
             <span className="noah-call-answer flex size-[72px] items-center justify-center rounded-full bg-[#22a565] text-white"><Phone className="size-7" /></span>
-            Répondre
+            {t("Répondre")}
           </button>
         </div>
       ) : (
         <div className="flex w-full max-w-md gap-3">
           <Button ref={first} size="lg" className="flex-1" onClick={() => listen(call)}>
-            <Phone />Écouter le compte rendu
+            <Phone />{t("Écouter le compte rendu")}
           </Button>
           <Button size="lg" variant="outline" className="flex-1" onClick={close}>
-            <X />Fermer
+            <X />{t("Fermer")}
           </Button>
         </div>
       )}

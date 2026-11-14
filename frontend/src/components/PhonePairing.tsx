@@ -3,6 +3,7 @@
 import qrcode from "qrcode-generator";
 import { Globe, Laptop, Loader2, Smartphone, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { locale, t, tr } from "@/i18n";
 import { ApiError, del, get, send } from "@/lib/api";
 import { appShell } from "@/lib/platform";
 import { GrantProof } from "./GrantProof";
@@ -16,10 +17,10 @@ type Device = { id: string; nom: string; type: string; depuis: string | null; vu
 type Pending = { id: string; appareil: string; type: string; ip: string; age: number; expire: number; autre_reseau: boolean };
 
 const ICONS: Record<string, typeof Globe> = { web: Globe, desktop: Laptop, android: Smartphone, ios: Smartphone };
-const KINDS: Record<string, string> = { web: "navigateur", desktop: "app de bureau", android: "Android", ios: "iPhone" };
+const KINDS: Record<string, string> = { web: t("navigateur"), desktop: t("app de bureau"), android: "Android", ios: "iPhone" };
 
 function since(iso: string | null) {
-  return iso ? `relié le ${new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}` : "";
+  return iso ? t("relié le {date}", { date: new Date(iso).toLocaleDateString(locale(), { day: "numeric", month: "long", year: "numeric" }) }) : "";
 }
 
 /** Appareils qui ont saisi le code court : rien n'est accordé tant que l'utilisateur n'a pas vu qui demande. */
@@ -38,6 +39,7 @@ function PendingRequests({ refresh, onDone, onUsed }: { refresh: number; onDone:
     }).catch(() => {});
   }, [refresh, onUsed]);
   const proven = !proof.preuve_requise || (password !== "" && (!proof.code_requis || secondCode !== ""));
+  // i18n-ignore : décision envoyée au serveur
   const decide = async (p: Pending, decision: "autoriser" | "refuser") => {
     try {
       setError("");
@@ -55,8 +57,8 @@ function PendingRequests({ refresh, onDone, onUsed }: { refresh: number; onDone:
   if (!list.length) return null;
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-warn bg-warn-soft p-3">
-      <p className="text-sm font-semibold">Un appareil a utilisé ton code</p>
-      <p className="text-xs text-muted-foreground">Il n'a encore accès à rien. Recopie le nombre qu'il affiche. Sinon, refuse.</p>
+      <p className="text-sm font-semibold">{t("Un appareil a utilisé ton code")}</p>
+      <p className="text-xs text-muted-foreground">{t("Il n'a encore accès à rien. Recopie le nombre qu'il affiche. Sinon, refuse.")}</p>
       {proof.preuve_requise && <GrantProof password={password} code={secondCode} needCode={proof.code_requis} onPassword={setPassword} onCode={setSecondCode} />}
       {list.map((p) => {
         const Icon = ICONS[p.type] ?? Globe;
@@ -64,21 +66,21 @@ function PendingRequests({ refresh, onDone, onUsed }: { refresh: number; onDone:
           <div key={p.id} className="flex flex-wrap items-center gap-2.5">
             <Icon className="size-4 shrink-0" />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm">{p.appareil || "Appareil"}</p>
-              <p className="text-xs text-muted-foreground">{[KINDS[p.type] ?? p.type, p.ip, `demande faite ${minutes(p.age)}`].filter(Boolean).join(" · ")}</p>
-              {p.autre_reseau && <p className="text-xs text-warn">Ne vient pas du même réseau que cet écran.</p>}
+              <p className="truncate text-sm">{p.appareil || t("Appareil")}</p>
+              <p className="text-xs text-muted-foreground">{[KINDS[p.type] ?? p.type, p.ip, t("demande faite {quand}", { quand: minutes(p.age) })].filter(Boolean).join(" · ")}</p>
+              {p.autre_reseau && <p className="text-xs text-warn">{t("Ne vient pas du même réseau que cet écran.")}</p>}
             </div>
             <input
-              inputMode="numeric" autoComplete="off" maxLength={3} placeholder="000" aria-label="Nombre affiché sur l'appareil"
+              inputMode="numeric" autoComplete="off" maxLength={3} placeholder="000" aria-label={t("Nombre affiché sur l'appareil")}
               value={codes[p.id] ?? ""} onChange={(e) => setCodes((c) => ({ ...c, [p.id]: e.target.value.replace(/\D/g, "") }))}
               className="w-14 rounded-lg border border-border bg-background px-2 py-1 text-center font-mono"
             />
-            <Button size="sm" onClick={() => decide(p, "autoriser")} disabled={(codes[p.id] ?? "").length !== 3 || !proven}>Autoriser</Button>
-            <Button size="sm" variant="ghost" onClick={() => decide(p, "refuser")}>Refuser</Button>
+            <Button size="sm" onClick={() => decide(p, "autoriser")} disabled={(codes[p.id] ?? "").length !== 3 || !proven}>{t("Autoriser")}</Button>
+            <Button size="sm" variant="ghost" onClick={() => decide(p, "refuser")}>{t("Refuser")}</Button>
           </div>
         );
       })}
-      <p className="text-xs text-muted-foreground">Ce nom vient de l'appareil : il ne prouve rien.</p>
+      <p className="text-xs text-muted-foreground">{t("Ce nom vient de l'appareil : il ne prouve rien.")}</p>
       <ErrorText>{error}</ErrorText>
     </div>
   );
@@ -87,10 +89,10 @@ function PendingRequests({ refresh, onDone, onUsed }: { refresh: number; onDone:
 function ago(iso: string | null) {
   if (!iso) return "";
   const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (m < 6) return "actif maintenant";
-  if (m < 60) return `vu il y a ${m} min`;
-  if (m < 1440) return `vu il y a ${Math.round(m / 60)} h`;
-  return `vu il y a ${Math.round(m / 1440)} j`;
+  if (m < 6) return t("actif maintenant");
+  if (m < 60) return t("vu il y a {n} min", { n: m });
+  if (m < 1440) return t("vu il y a {n} h", { n: Math.round(m / 60) });
+  return t("vu il y a {n} j", { n: Math.round(m / 1440) });
 }
 
 function DeviceList({ refresh }: { refresh: number }) {
@@ -102,7 +104,7 @@ function DeviceList({ refresh }: { refresh: number }) {
     load();
   }, [load, refresh]);
   const revoke = async (d: Device) => {
-    if (!confirm(`Déconnecter « ${d.nom || "cet appareil"} » ? Il devra être relié de nouveau.`)) return;
+    if (!confirm(t("Déconnecter « {nom} » ? Il devra être relié de nouveau.", { nom: d.nom || t("cet appareil") }))) return;
     try {
       setError("");
       if (await withProof(`/api/devices/${d.id}`, {}, "DELETE")) load();
@@ -111,7 +113,7 @@ function DeviceList({ refresh }: { refresh: number }) {
     }
   };
   const revokeOthers = async () => {
-    if (!confirm("Déconnecter tous les autres appareils ? Chacun devra être relié de nouveau.")) return;
+    if (!confirm(t("Déconnecter tous les autres appareils ? Chacun devra être relié de nouveau."))) return;
     try {
       setError("");
       if (await withProof("/api/devices/others/revoke")) load();
@@ -122,26 +124,26 @@ function DeviceList({ refresh }: { refresh: number }) {
   if (!list) return null;
   return (
     <div className="flex flex-col gap-1.5">
-      <p className="text-xs font-semibold text-muted-foreground">Appareils connectés</p>
+      <p className="text-xs font-semibold text-muted-foreground">{t("Appareils connectés")}</p>
       {list.map((d) => {
         const Icon = ICONS[d.type] ?? Globe;
         return (
           <div key={d.id} className="flex items-center gap-2.5 rounded-lg border border-border px-3 py-2" data-appareil={d.nom}>
             <Icon className="size-4 shrink-0 text-muted-foreground" />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm">{d.nom || "Appareil"}{d.actuel && <span className="ml-2 text-xs text-ok">cet appareil</span>}</p>
-              {(d.en_ligne || d.type === "desktop") && !d.actuel && <p className={d.en_ligne ? "text-xs text-ok" : "text-xs text-muted-foreground"}>{d.en_ligne ? "En ligne" : "Éteint, ou application fermée"}</p>}
-              {!!d.attente && <p className="text-xs">{d.attente === 1 ? "Un fichier attend cet ordinateur" : `${d.attente} fichiers attendent cet ordinateur`}</p>}
-              <p className="text-xs text-muted-foreground">{[KINDS[d.type] ?? d.type, since(d.depuis), ago(d.vu), d.ip, d.version && `version ${d.version}`].filter(Boolean).join(" · ")}</p>
+              <p className="truncate text-sm">{d.nom || t("Appareil")}{d.actuel && <span className="ml-2 text-xs text-ok">{t("cet appareil")}</span>}</p>
+              {(d.en_ligne || d.type === "desktop") && !d.actuel && <p className={d.en_ligne ? "text-xs text-ok" : "text-xs text-muted-foreground"}>{d.en_ligne ? t("En ligne") : t("Éteint, ou application fermée")}</p>}
+              {!!d.attente && <p className="text-xs">{d.attente === 1 ? t("Un fichier attend cet ordinateur") : t("{n} fichiers attendent cet ordinateur", { n: d.attente })}</p>}
+              <p className="text-xs text-muted-foreground">{[KINDS[d.type] ?? d.type, since(d.depuis), ago(d.vu), d.ip, d.version && t("version {version}", { version: d.version })].filter(Boolean).join(" · ")}</p>
             </div>
             {!d.actuel && (
-              <Button size="sm" variant="ghost" onClick={() => revoke(d)} aria-label={`Déconnecter ${d.nom || "cet appareil"}`}><Trash2 /></Button>
+              <Button size="sm" variant="ghost" onClick={() => revoke(d)} aria-label={t("Déconnecter {nom}", { nom: d.nom || t("cet appareil") })}><Trash2 /></Button>
             )}
           </div>
         );
       })}
       {list.length > 1 && (
-        <Button size="sm" variant="ghost" className="self-start text-danger" onClick={revokeOthers}>Déconnecter tous les autres appareils</Button>
+        <Button size="sm" variant="ghost" className="self-start text-danger" onClick={revokeOthers}>{t("Déconnecter tous les autres appareils")}</Button>
       )}
       <ErrorText>{error}</ErrorText>
       {proofDialog}
@@ -165,7 +167,7 @@ export function PhonePairing({ start = false }: { start?: boolean } = {}) {
   const [refresh, setRefresh] = useState(0);
   const shell = appShell();
   const forget = () => {
-    if (confirm("Oublier ce serveur ? Cette app sera déconnectée et sa session révoquée ; il faudra la relier de nouveau.")) shell?.forget();
+    if (confirm(t("Oublier ce serveur ? Cette app sera déconnectée et sa session révoquée ; il faudra la relier de nouveau."))) shell?.forget();
   };
   const [pairing, setPairing] = useState<Pairing | null>(null);
   const [used, setUsed] = useState(false); // quelqu'un a déjà utilisé ce code : il ne marche plus, on ne le laisse pas à l'écran
@@ -206,10 +208,10 @@ export function PhonePairing({ start = false }: { start?: boolean } = {}) {
   useEffect(() => {
     if (!pairing) return;
     // Le nouvel appareil apparaît dans la liste dès qu'il a servi le code.
-    const t = setInterval(() => setLeft((s) => Math.max(0, s - 1)), 1000);
+    const tick = setInterval(() => setLeft((s) => Math.max(0, s - 1)), 1000);
     const r = setInterval(() => setRefresh((n) => n + 1), 3000);
     return () => {
-      clearInterval(t);
+      clearInterval(tick);
       clearInterval(r);
     };
   }, [pairing]);
@@ -218,37 +220,37 @@ export function PhonePairing({ start = false }: { start?: boolean } = {}) {
     <div className="flex flex-col gap-4">
       <p className="text-sm text-muted-foreground">
         {pairs
-          ? "Scanne le QR code, ou saisis le code dans l'app."
-          : "Relie un autre appareil depuis un navigateur."}
+          ? t("Scanne le QR code, ou saisis le code dans l'app.")
+          : t("Relie un autre appareil depuis un navigateur.")}
       </p>
       {!pairs ? null : pairing && left > 0 && !used ? (
         <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-start">
           {secure && <QR text={pairing.adresse} />}
           <div className="flex min-w-0 flex-col gap-2 text-sm">
             <p>
-              Valable encore <b>{Math.floor(left / 60)} min {String(left % 60).padStart(2, "0")} s</b>, pour un seul téléphone.
+              {tr("Valable encore {duree}, pour un seul téléphone.", { duree: <b>{t("{m} min {s} s", { m: Math.floor(left / 60), s: String(left % 60).padStart(2, "0") })}</b> })}
             </p>
             {secure ? (
               <>
-                <p className="text-xs text-muted-foreground">Ou saisis dans l'app :</p>
+                <p className="text-xs text-muted-foreground">{t("Ou saisis dans l'app :")}</p>
                 <p className="break-all font-mono text-xs">{pairing.serveur}</p>
               </>
             ) : (
-              <p className="text-xs text-muted-foreground">Code à saisir dans l'app :</p>
+              <p className="text-xs text-muted-foreground">{t("Code à saisir dans l'app :")}</p>
             )}
             <p className="font-mono text-2xl font-semibold tracking-widest">{pairing.code}</p>
             {!secure && (
               <p className="rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn">
-                Le QR code demande une adresse en https. Ouvre Noah depuis celle de ton serveur.
+                {t("Le QR code demande une adresse en https. Ouvre Noah depuis celle de ton serveur.")}
               </p>
             )}
-            <Button variant="outline" size="sm" className="self-start" onClick={create} disabled={busy}>Nouveau code</Button>
+            <Button variant="outline" size="sm" className="self-start" onClick={create} disabled={busy}>{t("Nouveau code")}</Button>
           </div>
         </div>
       ) : (
         <Button className="self-start" onClick={create} disabled={busy}>
           {busy ? <Loader2 className="animate-spin" /> : <Smartphone />}
-          {used ? "Ce code a servi : en afficher un autre" : pairing ? "Le code a expiré : en afficher un autre" : "Relier un appareil"}
+          {used ? t("Ce code a servi : en afficher un autre") : pairing ? t("Le code a expiré : en afficher un autre") : t("Relier un appareil")}
         </Button>
       )}
       <ErrorText>{error}</ErrorText>
@@ -256,7 +258,7 @@ export function PhonePairing({ start = false }: { start?: boolean } = {}) {
       <DeviceList refresh={refresh} />
       {shell && (
         <Button size="sm" variant="ghost" className="self-start text-danger" onClick={forget}>
-          Oublier ce serveur sur cet appareil
+          {t("Oublier ce serveur sur cet appareil")}
         </Button>
       )}
     </div>

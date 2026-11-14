@@ -6,6 +6,7 @@ import { NOAH_COLORS, NoahTile, agentColor } from "./Noah";
 import { PresetNote, PresetPicker } from "./PresetPicker";
 import { Button, Dialog, DialogContent, ErrorText, Input, Label, Textarea } from "./ui";
 import { DictateButton, NO_AGENT, useCanDictate, useFieldDictation } from "./Voice";
+import { t } from "@/i18n";
 
 const ROLE_MAX = 4000;
 
@@ -26,8 +27,8 @@ export function AgentDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       {open && (
         <DialogContent
-          title={agent ? `Personnaliser ${agent.name}` : "Nouvel agent"}
-          description="Chaque agent a sa propre machine, son navigateur, sa mémoire et ses fichiers."
+          title={agent ? t("Personnaliser {nom}", { nom: agent.name }) : t("Nouvel agent")}
+          description={t("Chaque agent a sa propre machine, son navigateur, sa mémoire et ses fichiers.")}
         >
           <AgentForm key={agent?.id ?? "new"} agent={agent} onSaved={onSaved} onDeleted={onDeleted} onCancel={() => onOpenChange(false)} />
         </DialogContent>
@@ -98,7 +99,7 @@ function AgentForm({ agent, onSaved, onDeleted, onCancel }: { agent: Agent | nul
     try {
       await del(`/api/agents/${agent.id}`);
     } catch (err) {
-      setError(`La suppression n'a pas abouti : ${(err as Error).message}`);
+      setError(t("La suppression n'a pas abouti : {erreur}", { erreur: (err as Error).message }));
       setBusy(false);
       setConfirm(false);
       return;
@@ -112,7 +113,7 @@ function AgentForm({ agent, onSaved, onDeleted, onCancel }: { agent: Agent | nul
       <div className="flex items-center gap-4">
         <NoahTile color={color} className="size-20" />
         <fieldset className="flex flex-col gap-2">
-          <legend className="mb-2 text-sm font-medium">Couleur</legend>
+          <legend className="mb-2 text-sm font-medium">{t("Couleur")}</legend>
           <div className="flex flex-wrap gap-2">
             {NOAH_COLORS.map((c) => (
               <button
@@ -127,20 +128,20 @@ function AgentForm({ agent, onSaved, onDeleted, onCancel }: { agent: Agent | nul
               />
             ))}
           </div>
-          <span className="text-xs text-muted-foreground">Forme du visage et détails : dans le panneau de l'agent, section Apparence.</span>
+          <span className="text-xs text-muted-foreground">{t("Forme du visage et détails : dans le panneau de l'agent, section Apparence.")}</span>
         </fieldset>
       </div>
       <Label>
-        Nom
-        <Input required maxLength={40} placeholder="Ex. Léa, Assistant courriels, Veille" value={name} onChange={(e) => setName(e.target.value)} />
+        {t("Nom")}
+        <Input required maxLength={40} placeholder={t("Ex. Léa, Assistant courriels, Veille")} value={name} onChange={(e) => setName(e.target.value)} />
       </Label>
       <div className="relative">
         <Label>
-          Rôle et consignes
+          {t("Rôle et consignes")}
           <Textarea
             rows={5}
             maxLength={ROLE_MAX}
-            placeholder={dictation.state === "idle" ? "Ex. Tu tries mes courriels chaque matin et tu me signales seulement ce qui demande une réponse." : "Parle, le texte arrive ici…"}
+            placeholder={dictation.state === "idle" ? t("Ex. Tu tries mes courriels chaque matin et tu me signales seulement ce qui demande une réponse.") : t("Parle, le texte arrive ici…")}
             value={role}
             onChange={(e) => setRole(e.target.value)}
             className={canDictate ? "pr-12" : undefined}
@@ -148,7 +149,7 @@ function AgentForm({ agent, onSaved, onDeleted, onCancel }: { agent: Agent | nul
         </Label>
         {canDictate && (
           <span className="absolute right-1 bottom-1">
-            <DictateButton dictation={dictation} what="le rôle" field />
+            <DictateButton dictation={dictation} what={t("le rôle")} field />
           </span>
         )}
       </div>
@@ -157,12 +158,12 @@ function AgentForm({ agent, onSaved, onDeleted, onCancel }: { agent: Agent | nul
       <div className="flex flex-wrap justify-end gap-2">
         {agent?.droit === "proprietaire" && (
           <Button type="button" variant="danger" className="mr-auto" onClick={remove} disabled={busy}>
-            {confirm ? "Confirmer la suppression" : "Supprimer"}
+            {confirm ? t("Confirmer la suppression") : t("Supprimer")}
           </Button>
         )}
-        <Button type="button" variant="outline" onClick={onCancel}>Annuler</Button>
+        <Button type="button" variant="outline" onClick={onCancel}>{t("Annuler")}</Button>
         {/* Une dictée en cours écrit encore dans le rôle : l'enregistrer maintenant en perdrait la fin. */}
-        <Button type="submit" disabled={busy || dictation.state !== "idle"}>{agent ? "Enregistrer" : "Créer l'agent"}</Button>
+        <Button type="submit" disabled={busy || dictation.state !== "idle"}>{agent ? t("Enregistrer") : t("Créer l'agent")}</Button>
       </div>
     </form>
   );

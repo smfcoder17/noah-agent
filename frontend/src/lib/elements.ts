@@ -1,18 +1,20 @@
+import { t } from "@/i18n";
+
 export const ELEMENTS = {
-  image: "Image", pdf: "PDF", video: "Vidéo", audio: "Audio", page: "Page", grid: "Grille",
-  table: "Tableau", csv: "CSV", document: "Document", presentation: "Présentation", code: "Code", diff: "Différences",
-  archive: "Archive", map: "Carte", contact: "Contact", chart: "Graphique", form: "Formulaire", choice: "Choix",
-  pr: "Demande de fusion", email: "Courriel", thread: "Fil de courriels", appointment: "Rendez-vous", routine: "Routine",
-  watch: "Veille", task: "Tâche", skill: "Compétence", approval: "Accord", batch: "Lot de fichiers", unknown: "Fichier",
-} as const;
+  image: t("Image"), pdf: "PDF", video: t("Vidéo"), audio: t("Audio"), page: t("Page"), grid: t("Grille"),
+  table: t("Tableau"), csv: "CSV", document: t("Document"), presentation: t("Présentation"), code: t("Code"), diff: t("Différences"),
+  archive: t("Archive"), map: t("Carte"), contact: t("Contact"), chart: t("Graphique"), form: t("Formulaire"), choice: t("Choix"),
+  pr: t("Demande de fusion"), email: t("Courriel"), thread: t("Fil de courriels"), appointment: t("Rendez-vous"), routine: t("Routine"),
+  watch: t("Veille"), task: t("Tâche"), skill: t("Compétence"), approval: t("Accord"), batch: t("Lot de fichiers"), unknown: t("Fichier"),
+};
 export type ElementKind = keyof typeof ELEMENTS;
 export type ElementSpec = {
   agentId?: string;
   type: "element"; kind: ElementKind; title: string; description?: string; url?: string; path?: string;
   source: "noah" | "moi" | "site"; size?: number; version?: string; data?: Record<string, unknown>;
 };
-export const elementName = (e: ElementSpec) => `${ELEMENTS[e.kind]} : ${e.title}`;
-export const sourceName = (e: ElementSpec) => ({ noah: "Créé par Noah", moi: "Envoyé par moi", site: "Trouvé sur un site" })[e.source];
+export const elementName = (e: ElementSpec) => t("{nom} : {texte}", { nom: ELEMENTS[e.kind], texte: e.title });
+export const sourceName = (e: ElementSpec) => ({ noah: t("Créé par Noah"), moi: t("Envoyé par moi"), site: t("Trouvé sur un site") })[e.source];
 export function elementUrl(value?: string): string | undefined {
   if (!value || /[\u0000-\u001f\\]/.test(value)) return;
   if (/^\/api\//.test(value)) return value;

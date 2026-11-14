@@ -14,6 +14,7 @@ import { ConnectorScope, PendingGlobal } from "./ConnectorScope";
 import { SavedLogins } from "./LoginCard";
 import { ModelSearch } from "./Modes";
 import { Button, ErrorText, Input, Textarea } from "./ui";
+import { langue, locale, t, tr, tServeur } from "@/i18n";
 
 /** Section repliable, avec un compteur à droite du titre. Seule dans son onglet (`alone`), elle n'a pas besoin de titre. */
 export function Section({ title, count, defaultOpen = false, alone = false, children }: { title: string; count?: number | string; defaultOpen?: boolean; alone?: boolean; children: React.ReactNode }) {
@@ -40,11 +41,12 @@ const when = (iso: string | null) => {
   if (!iso) return null;
   const d = new Date(iso);
   const days = Math.round((new Date(d).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 86400000);
-  const time = d.toLocaleTimeString("fr-CA", { hour: "2-digit", minute: "2-digit" });
-  if (days === 0) return `aujourd'hui à ${time}`;
-  if (days === 1) return `demain à ${time}`;
-  if (days === -1) return `hier à ${time}`;
-  return `${d.toLocaleDateString("fr-CA", { weekday: "short", day: "numeric", month: "short" })} à ${time}`;
+  const lieu = langue() === "fr" ? "fr-CA" : locale(); // en français, l'heure reste écrite « 08 h 00 »
+  const time = d.toLocaleTimeString(lieu, { hour: "2-digit", minute: "2-digit" });
+  if (days === 0) return t("aujourd'hui à {heure}", { heure: time });
+  if (days === 1) return t("demain à {heure}", { heure: time });
+  if (days === -1) return t("hier à {heure}", { heure: time });
+  return t("{jour} à {heure}", { jour: d.toLocaleDateString(lieu, { weekday: "short", day: "numeric", month: "short" }), heure: time });
 };
 
 // --- Routines ----------------------------------------------------------------------------
@@ -70,23 +72,23 @@ type Routine = {
 export type SuggestedRoutine = { id: number; nom: string; quand: string; horaire: string; consigne: string; en_pause: true };
 
 const PRESETS: [string, string][] = [
-  ["every day at 8am", "Chaque matin à 8 h"],
-  ["every weekday at 9am", "Les jours de semaine à 9 h"],
-  ["every monday 9am", "Chaque lundi à 9 h"],
-  ["every day at 6pm", "Chaque soir à 18 h"],
-  ["every 1h", "Toutes les heures"],
+  ["every day at 8am", t("Chaque matin à 8 h")],
+  ["every weekday at 9am", t("Les jours de semaine à 9 h")],
+  ["every monday 9am", t("Chaque lundi à 9 h")],
+  ["every day at 6pm", t("Chaque soir à 18 h")],
+  ["every 1h", t("Toutes les heures")],
 ];
 
 type RoutineChoice = { modele: string | null; fournisseur?: string | null; outils: string[] | null; image: string | null };
 
 const ROUTINE_TOOLS: [string, string][] = [
-  ["internet", "Recherche sur internet"],
-  ["navigateur", "Navigateur"],
-  ["fichiers", "Fichiers"],
-  ["commandes", "Commandes et outils de Noah"],
-  ["memoire", "Mémoire"],
-  ["images_vues", "Lire des images"],
-  ["competences", "Compétences"],
+  ["internet", t("Recherche sur internet")],
+  ["navigateur", t("Navigateur")],
+  ["fichiers", t("Fichiers")],
+  ["commandes", t("Commandes et outils de Noah")],
+  ["memoire", t("Mémoire")],
+  ["images_vues", t("Lire des images")],
+  ["competences", t("Compétences")],
 ];
 const ROUTINE_MODES: ModeId[] = ["fast", "balanced", "smart", "gratuit", "custom"];
 
@@ -107,9 +109,9 @@ function RoutineSettings({ value, onChange }: { value: RoutineChoice; onChange: 
   return (
     <div className="flex flex-col gap-2 rounded-lg bg-muted/50 p-2.5 text-xs">
       <label className="flex flex-wrap items-center gap-2 text-muted-foreground">
-        Modèle
+        {t("Modèle")}
         <select
-          aria-label="Modèle de la routine"
+          aria-label={t("Modèle de la routine")}
           value={value.modele && !isMode ? "precis" : value.modele ?? ""}
           onChange={(e) => {
             if (e.target.value === "precis") return setPrecise(true);
@@ -118,28 +120,28 @@ function RoutineSettings({ value, onChange }: { value: RoutineChoice; onChange: 
           }}
           className={select}
         >
-          <option value="">Comme l'agent</option>
+          <option value="">{t("Comme l'agent")}</option>
           {ROUTINE_MODES.map((m) => <option key={m} value={m}>{MODE_NAMES[m]}</option>)}
-          <option value="precis">{value.modele && !isMode ? value.modele : "Un modèle précis…"}</option>
+          <option value="precis">{value.modele && !isMode ? value.modele : t("Un modèle précis…")}</option>
         </select>
       </label>
       {precise && <ModelSearch level="cerveau" selected={value.modele} onPick={(m) => { onChange({ ...value, modele: m.id, fournisseur: m.fournisseur }); setPrecise(false); }} />}
       {images.length > 0 && (
         <label className="flex flex-wrap items-center gap-2 text-muted-foreground">
-          Images
-          <select aria-label="Modèle d'image de la routine" value={value.image ?? ""} onChange={(e) => onChange({ ...value, image: e.target.value || null })} className={select}>
-            <option value="">Comme l'agent</option>
+          {t("Images")}
+          <select aria-label={t("Modèle d'image de la routine")} value={value.image ?? ""} onChange={(e) => onChange({ ...value, image: e.target.value || null })} className={select}>
+            <option value="">{t("Comme l'agent")}</option>
             {images.map((m) => <option key={m.id} value={m.id}>{m.name}{m.prix ? ` · ${m.prix}` : ""}</option>)}
           </select>
         </label>
       )}
       <fieldset className="flex flex-col gap-1">
-        <legend className="text-muted-foreground">Outils permis</legend>
-        <label className="flex items-center gap-2"><input type="checkbox" checked={tools === null} onChange={() => onChange({ ...value, outils: tools === null ? ROUTINE_TOOLS.map(([t]) => t) : null })} />Tous ceux de l'agent</label>
+        <legend className="text-muted-foreground">{t("Outils permis")}</legend>
+        <label className="flex items-center gap-2"><input type="checkbox" checked={tools === null} onChange={() => onChange({ ...value, outils: tools === null ? ROUTINE_TOOLS.map(([t]) => t) : null })} />{t("Tous ceux de l'agent")}</label>
         {tools !== null && ROUTINE_TOOLS.map(([id, label]) => (
           <label key={id} className="flex items-center gap-2 pl-5"><input type="checkbox" checked={tools.includes(id)} onChange={() => toggle(id)} />{label}</label>
         ))}
-        {tools !== null && !tools.includes("commandes") && <p className="text-warn">Sans « Commandes et outils de Noah », la routine ne peut ni créer d'image ni te notifier elle-même.</p>}
+        {tools !== null && !tools.includes("commandes") && <p className="text-warn">{t("Sans « Commandes et outils de Noah », la routine ne peut ni créer d'image ni te notifier elle-même.")}</p>}
       </fieldset>
     </div>
   );
@@ -147,9 +149,9 @@ function RoutineSettings({ value, onChange }: { value: RoutineChoice; onChange: 
 
 const choiceSummary = (r: Routine) => {
   const parts = [
-    r.modele ? `Modèle : ${MODE_NAMES[r.modele as ModeId] ?? r.modele}` : "",
-    r.image ? `Images : ${r.image}` : "",
-    r.outils ? `${r.outils.length} outil${r.outils.length > 1 ? "s" : ""} permis` : "",
+    r.modele ? t("Modèle : {nom}", { nom: MODE_NAMES[r.modele as ModeId] ?? r.modele }) : "",
+    r.image ? t("Images : {nom}", { nom: r.image }) : "",
+    r.outils ? (r.outils.length > 1 ? t("{n} outils permis", { n: r.outils.length }) : t("{n} outil permis", { n: r.outils.length })) : "",
   ].filter(Boolean);
   return parts.join(" · ");
 };
@@ -194,7 +196,7 @@ export function Routines({ agentId }: { agentId: string }) {
   };
 
   const act = async (r: Routine, action: string) => {
-    if (action === "supprimer" && !confirm(`Supprimer la routine « ${r.name || r.prompt.slice(0, 40)} » ?`)) return false;
+    if (action === "supprimer" && !confirm(t("Supprimer la routine « {nom} » ?", { nom: r.name || r.prompt.slice(0, 40) }))) return false;
     setBusy(r.id + action);
     try {
       await send(`/api/agents/${agentId}/routines/${r.id}/${action}`, {});
@@ -213,45 +215,45 @@ export function Routines({ agentId }: { agentId: string }) {
     const r = open;
     const paused = !r.enabled || r.state === "paused";
     return (
-      <ObjectPage title={r.name || "Routine"} onClose={() => { setOpened(null); setTuning(null); }}>
+      <ObjectPage title={r.name || t("Routine")} onClose={() => { setOpened(null); setTuning(null); }}>
         <button type="button" onClick={() => { setOpened(null); setTuning(null); }} className="flex cursor-pointer items-center gap-1 self-start text-sm text-muted-foreground hover:text-foreground">
-          <ChevronLeft className="size-4" />Routines
+          <ChevronLeft className="size-4" />{t("Routines")}
         </button>
         <div className="flex items-start gap-2">
           <span className={cn("mt-2 size-2.5 shrink-0 rounded-full", paused ? "bg-muted-foreground/40" : r.last_status === "error" ? "bg-danger" : "bg-ok")} />
           <div className="min-w-0 flex-1">
             <h3 className="text-base font-semibold">{r.name || r.prompt.slice(0, 60)}</h3>
             <p className="text-sm text-muted-foreground">
-              {scheduleLabel(r.schedule_display)}{paused ? " · en pause" : r.next_run_at ? ` · prochaine ${when(r.next_run_at)}` : ""}
+              {scheduleLabel(r.schedule_display)}{paused ? ` · ${t("en pause")}` : r.next_run_at ? ` · ${t("prochaine {quand}", { quand: when(r.next_run_at) ?? "" })}` : ""}
             </p>
           </div>
         </div>
         <div className="grid grid-cols-3 gap-2">
           <Button variant="outline" onClick={() => act(r, paused ? "reprendre" : "pause")} disabled={!!busy}>
-            {paused ? <Play /> : <Pause />}{paused ? "Reprendre" : "Pause"}
+            {paused ? <Play /> : <Pause />}{paused ? t("Reprendre") : t("Pause")}
           </Button>
           <Button variant="outline" onClick={() => act(r, "lancer")} disabled={!!busy}>
-            {busy === r.id + "lancer" ? <Loader2 className="animate-spin" /> : <Zap />}Lancer
+            {busy === r.id + "lancer" ? <Loader2 className="animate-spin" /> : <Zap />}{t("Lancer")}
           </Button>
           <Button variant="outline" className="text-danger" onClick={async () => { if (await act(r, "supprimer")) setOpened(null); }} disabled={!!busy}>
-            <Trash2 />Supprimer
+            <Trash2 />{t("Supprimer")}
           </Button>
         </div>
-        {r.last_error && <p className="text-sm text-danger">Dernier passage en erreur : {r.last_error.slice(0, 300)}</p>}
+        {r.last_error && <p className="text-sm text-danger">{t("Dernier passage en erreur : {erreur}", { erreur: r.last_error.slice(0, 300) })}</p>}
         <div className="rounded-xl bg-muted/50 p-3 text-sm whitespace-pre-wrap">{r.prompt}</div>
         {choiceSummary(r) && <p className="text-sm text-muted-foreground">{choiceSummary(r)}</p>}
         {tuning?.id === r.id ? (
           <div className="flex flex-col gap-2 rounded-xl border border-border p-3">
             <RoutineSettings value={tuning.value} onChange={(value) => setTuning({ id: r.id, value })} />
             <div className="flex justify-end gap-2">
-              <Button size="sm" variant="ghost" onClick={() => setTuning(null)}>Annuler</Button>
-              <Button size="sm" disabled={!!busy} onClick={saveTuning}>{busy === r.id + "regler" && <Loader2 className="animate-spin" />}Enregistrer</Button>
+              <Button size="sm" variant="ghost" onClick={() => setTuning(null)}>{t("Annuler")}</Button>
+              <Button size="sm" disabled={!!busy} onClick={saveTuning}>{busy === r.id + "regler" && <Loader2 className="animate-spin" />}{t("Enregistrer")}</Button>
             </div>
           </div>
         ) : (
           <Button variant="ghost" className="self-start" disabled={!!busy}
             onClick={() => setTuning({ id: r.id, value: { modele: r.modele ?? null, fournisseur: r.fournisseur ?? null, outils: r.outils ?? null, image: r.image ?? null } })}>
-            <SlidersHorizontal />Modèle et outils
+            <SlidersHorizontal />{t("Modèle et outils")}
           </Button>
         )}
         <ErrorText>{error}</ErrorText>
@@ -260,22 +262,22 @@ export function Routines({ agentId }: { agentId: string }) {
   }
 
   return (
-    <Section title="Routines" count={list.length + suggested.length} defaultOpen>
-      {!data && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture…</p>}
-      {data && !list.length && !suggested.length && !adding && <p className="text-sm text-muted-foreground">Aucune routine.</p>}
+    <Section title={t("Routines")} count={list.length + suggested.length} defaultOpen>
+      {!data && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("Lecture…")}</p>}
+      {data && !list.length && !suggested.length && !adding && <p className="text-sm text-muted-foreground">{t("Aucune routine.")}</p>}
       {suggested.length > 0 && (
         <>
-          <p className="text-sm text-muted-foreground">Proposées par son modèle. Rien ne tourne tant que tu ne les actives pas.</p>
-          <ul aria-label="Routines en pause" className="flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-dashed border-border">
+          <p className="text-sm text-muted-foreground">{t("Proposées par son modèle. Rien ne tourne tant que tu ne les actives pas.")}</p>
+          <ul aria-label={t("Routines en pause")} className="flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-dashed border-border">
             {suggested.map((s) => (
               <li key={s.id} className="flex items-center gap-3 px-3 py-3">
                 <span className="size-2 shrink-0 rounded-full bg-muted-foreground/40" />
                 <span className="min-w-0 flex-1" title={s.consigne}>
                   <span className="block truncate text-sm font-medium">{s.nom}</span>
-                  <span className="block truncate text-xs text-muted-foreground">{scheduleLabel(s.horaire)} · En pause</span>
+                  <span className="block truncate text-xs text-muted-foreground">{scheduleLabel(s.horaire)} · {t("En pause")}</span>
                 </span>
                 <Button size="sm" variant="outline" disabled={!!busy} onClick={() => activate(s)}>
-                  {busy === `suggeree-${s.id}` ? <Loader2 className="animate-spin" /> : <Play />}Activer
+                  {busy === `suggeree-${s.id}` ? <Loader2 className="animate-spin" /> : <Play />}{t("Activer")}
                 </Button>
               </li>
             ))}
@@ -293,7 +295,7 @@ export function Routines({ agentId }: { agentId: string }) {
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-medium">{r.name || r.prompt}</span>
                     <span className="block truncate text-xs text-muted-foreground">
-                      {scheduleLabel(r.schedule_display)}{paused ? " · en pause" : r.next_run_at ? ` · ${when(r.next_run_at)}` : ""}
+                      {scheduleLabel(r.schedule_display)}{paused ? ` · ${t("en pause")}` : r.next_run_at ? ` · ${when(r.next_run_at)}` : ""}
                     </span>
                   </span>
                   <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
@@ -306,7 +308,7 @@ export function Routines({ agentId }: { agentId: string }) {
       {adding ? (
         <NewRoutine agentId={agentId} onDone={() => { setAdding(false); load(); }} />
       ) : (
-        <Button variant="outline" size="sm" className="self-start" onClick={() => setAdding(true)}><Plus />Nouvelle routine</Button>
+        <Button variant="outline" size="sm" className="self-start" onClick={() => setAdding(true)}><Plus />{t("Nouvelle routine")}</Button>
       )}
       <ErrorText>{error}</ErrorText>
     </Section>
@@ -341,37 +343,37 @@ function NewRoutine({ agentId, onDone }: { agentId: string; onDone: () => void }
   };
   return (
     <form onSubmit={save} className="flex flex-col gap-2 rounded-xl border border-border p-3">
-      <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nom (ex. Brief du matin)" aria-label="Nom de la routine" maxLength={80} />
+      <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("Nom (ex. Brief du matin)")} aria-label={t("Nom de la routine")} maxLength={80} />
       <Textarea
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
         rows={3}
         required
-        aria-label="Consigne"
-        placeholder="Ce que l'agent doit faire à chaque passage. Ex. Résume mes mails non lus importants et mon agenda du jour."
+        aria-label={t("Consigne")}
+        placeholder={t("Ce que l'agent doit faire à chaque passage. Ex. Résume mes mails non lus importants et mon agenda du jour.")}
       />
       <div className="flex flex-wrap gap-2">
         <select
-          aria-label="Quand"
+          aria-label={t("Quand")}
           value={preset}
           onChange={(e) => setPreset(e.target.value)}
           className="h-9 min-w-0 flex-1 cursor-pointer rounded-lg border border-border bg-background px-2 text-sm"
         >
           {PRESETS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          <option value="custom">Autre…</option>
+          <option value="custom">{t("Autre…")}</option>
         </select>
-        {preset === "custom" && (
-          <Input value={custom} onChange={(e) => setCustom(e.target.value)} required className="h-9 flex-1" placeholder="every 30m, 0 7 * * 1-5…" aria-label="Horaire personnalisé" />
+        {preset === "custom" && ( // i18n-ignore : la syntaxe d'horaire que lit le serveur
+          <Input value={custom} onChange={(e) => setCustom(e.target.value)} required className="h-9 flex-1" placeholder="every 30m, 0 7 * * 1-5…" aria-label={t("Horaire personnalisé")} />
         )}
       </div>
       <button type="button" className="cursor-pointer self-start text-xs text-muted-foreground underline" aria-expanded={tune} onClick={() => setTune(!tune)}>
-        Modèle et outils de cette routine
+        {t("Modèle et outils de cette routine")}
       </button>
       {tune && <RoutineSettings value={choice} onChange={setChoice} />}
       <ErrorText>{error}</ErrorText>
       <div className="flex justify-end gap-2">
-        <Button type="button" variant="ghost" size="sm" onClick={onDone}>Annuler</Button>
-        <Button type="submit" size="sm" disabled={saving || !prompt.trim()}>{saving && <Loader2 className="animate-spin" />}Créer</Button>
+        <Button type="button" variant="ghost" size="sm" onClick={onDone}>{t("Annuler")}</Button>
+        <Button type="submit" size="sm" disabled={saving || !prompt.trim()}>{saving && <Loader2 className="animate-spin" />}{t("Créer")}</Button>
       </div>
     </form>
   );
@@ -420,26 +422,27 @@ export function Memory({ agentId }: { agentId: string }) {
   };
 
   return (
-    <Section title="Mémoire" count={total} alone>
-      {!data && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture…</p>}
+    <Section title={t("Mémoire")} count={total} alone>
+      {!data && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("Lecture…")}</p>}
       {data && (
         <>
-          <MemoryList title="Ce qu'il sait de toi" entries={data.user} limit={data.limites.user} onSave={(e) => save("user", e)}
-            empty="Rien encore. L'agent y note qui tu es, tes goûts et tes habitudes au fil des conversations." />
-          <MemoryList title="Ses notes de travail" entries={data.memory} limit={data.limites.memory} onSave={(e) => save("memory", e)}
-            empty="Rien encore. L'agent y garde ce qui lui servira plus tard : outils, décisions, contexte." />
+          <MemoryList title={t("Ce qu'il sait de toi")} entries={data.user} limit={data.limites.user} onSave={(e) => save("user", e)}
+            empty={t("Rien encore. L'agent y note qui tu es, tes goûts et tes habitudes au fil des conversations.")} />
+          <MemoryList title={t("Ses notes de travail")} entries={data.memory} limit={data.limites.memory} onSave={(e) => save("memory", e)}
+            empty={t("Rien encore. L'agent y garde ce qui lui servira plus tard : outils, décisions, contexte.")} />
           <p className="text-xs text-muted-foreground">
-            Tout ceci est relu à chaque message, et se paie à chaque fois. Une modification compte dès la prochaine conversation.
+            {t("Tout ceci est relu à chaque message, et se paie à chaque fois. Une modification compte dès la prochaine conversation.")}
           </p>
           {review ? (
             <div className="flex flex-col gap-1.5 rounded-xl border border-border p-2.5">
               {review.propositions.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Rien à retirer : tout semble utile à chaque message.</p>
+                <p className="text-sm text-muted-foreground">{t("Rien à retirer : tout semble utile à chaque message.")}</p>
               ) : (
                 <>
                   <p className="text-sm font-medium">
-                    Le modèle de décision propose de retirer {review.propositions.length} note{review.propositions.length > 1 ? "s" : ""} ({review.avant} → {review.apres} caractères).
-                    Rien ne part sans ton accord.
+                    {review.propositions.length > 1
+                      ? t("Le modèle de décision propose de retirer {n} notes ({avant} → {apres} caractères). Rien ne part sans ton accord.", { n: review.propositions.length, avant: review.avant, apres: review.apres })
+                      : t("Le modèle de décision propose de retirer {n} note ({avant} → {apres} caractères). Rien ne part sans ton accord.", { n: review.propositions.length, avant: review.avant, apres: review.apres })}
                   </p>
                   {review.propositions.map((p) => (
                     <div key={p.cible + p.entree} className="flex items-start gap-1 rounded-lg px-2 py-1 text-sm hover:bg-muted">
@@ -447,17 +450,17 @@ export function Memory({ agentId }: { agentId: string }) {
                         <p className="line-clamp-2">{p.entree}</p>
                         <p className="text-xs text-muted-foreground">{p.raison}</p>
                       </div>
-                      <Button size="sm" variant="ghost" onClick={() => forget([p])}><Trash2 />Oublier</Button>
+                      <Button size="sm" variant="ghost" onClick={() => forget([p])}><Trash2 />{t("Oublier")}</Button>
                     </div>
                   ))}
-                  <Button size="sm" variant="outline" className="self-start" onClick={() => forget(review.propositions)}><Trash2 />Tout oublier</Button>
+                  <Button size="sm" variant="outline" className="self-start" onClick={() => forget(review.propositions)}><Trash2 />{t("Tout oublier")}</Button>
                 </>
               )}
-              <Button size="sm" variant="ghost" className="self-start text-muted-foreground" onClick={() => setReview(null)}>Fermer</Button>
+              <Button size="sm" variant="ghost" className="self-start text-muted-foreground" onClick={() => setReview(null)}>{t("Fermer")}</Button>
             </div>
           ) : (
             <Button size="sm" variant="outline" className="self-start" disabled={reviewing || !total} onClick={runReview}>
-              {reviewing && <Loader2 className="animate-spin" />}Relire et proposer un nettoyage
+              {reviewing && <Loader2 className="animate-spin" />}{t("Relire et proposer un nettoyage")}
             </Button>
           )}
         </>
@@ -486,10 +489,10 @@ function MemoryList({ title, entries, limit, empty, onSave }: { title: string; e
   };
   const editor = (
     <div className="flex flex-col gap-1.5">
-      <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={3} autoFocus aria-label="Souvenir" />
+      <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={3} autoFocus aria-label={t("Souvenir")} />
       <div className="flex justify-end gap-1">
-        <Button size="sm" variant="ghost" onClick={() => setEditing(null)}>Annuler</Button>
-        <Button size="sm" onClick={commit}><Check />Enregistrer</Button>
+        <Button size="sm" variant="ghost" onClick={() => setEditing(null)}>{t("Annuler")}</Button>
+        <Button size="sm" onClick={commit}><Check />{t("Enregistrer")}</Button>
       </div>
     </div>
   );
@@ -497,8 +500,8 @@ function MemoryList({ title, entries, limit, empty, onSave }: { title: string; e
     <div className="flex flex-col gap-1">
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-sm font-medium">{title}</span>
-        <span className={cn("text-[11px] tabular-nums", used > limit * 0.9 ? "text-warn" : "text-muted-foreground")} title="Place utilisée">
-          {Math.round((100 * used) / limit)} %
+        <span className={cn("text-[11px] tabular-nums", used > limit * 0.9 ? "text-warn" : "text-muted-foreground")} title={t("Place utilisée")}>
+          {t("{n} %", { n: Math.round((100 * used) / limit) })}
         </span>
       </div>
       {!entries.length && editing === null && <p className="text-xs text-muted-foreground">{empty}</p>}
@@ -508,13 +511,13 @@ function MemoryList({ title, entries, limit, empty, onSave }: { title: string; e
         ) : (
           <div key={i} className="group flex items-start gap-1 rounded-lg px-2 py-1 text-sm hover:bg-muted">
             <p className="min-w-0 flex-1 whitespace-pre-wrap">{e}</p>
-            <Button size="icon-sm" variant="ghost" className="opacity-0 pointer-coarse:opacity-100 group-hover:opacity-100 focus-visible:opacity-100" onClick={() => start(i)} aria-label="Modifier ce souvenir"><Pencil /></Button>
-            <Button size="icon-sm" variant="ghost" className="opacity-0 pointer-coarse:opacity-100 group-hover:opacity-100 focus-visible:opacity-100" onClick={() => onSave(entries.filter((_, j) => j !== i))} aria-label="Oublier ce souvenir"><Trash2 /></Button>
+            <Button size="icon-sm" variant="ghost" className="opacity-0 pointer-coarse:opacity-100 group-hover:opacity-100 focus-visible:opacity-100" onClick={() => start(i)} aria-label={t("Modifier ce souvenir")}><Pencil /></Button>
+            <Button size="icon-sm" variant="ghost" className="opacity-0 pointer-coarse:opacity-100 group-hover:opacity-100 focus-visible:opacity-100" onClick={() => onSave(entries.filter((_, j) => j !== i))} aria-label={t("Oublier ce souvenir")}><Trash2 /></Button>
           </div>
         ),
       )}
       {editing === entries.length ? editor : (
-        <Button size="sm" variant="ghost" className="self-start text-muted-foreground" onClick={() => start(entries.length)}><Plus />Ajouter</Button>
+        <Button size="sm" variant="ghost" className="self-start text-muted-foreground" onClick={() => start(entries.length)}><Plus />{t("Ajouter")}</Button>
       )}
     </div>
   );
@@ -534,9 +537,9 @@ type ConnectionsState = { google: GoogleState; applications: App[]; outils?: Cus
 
 
 const DROITS: [Droit, string][] = [
-  ["confirmer", "Demander confirmation"],
-  ["lire", "Lire seulement"],
-  ["agir", "Agir sans demander"],
+  ["confirmer", t("Demander confirmation")],
+  ["lire", t("Lire seulement")],
+  ["agir", t("Agir sans demander")],
 ];
 
 /** Le droit vaut pour tout le serveur : MCP ne donne pas de quoi régler chaque action autrement que par sa déclaration de lecture. */
@@ -555,7 +558,7 @@ export function RightSelect({ agentId, name, droit, onChange, onError }: { agent
     }
   };
   return (
-    <select aria-label={`Droit de l'agent sur ${appLabel(name)}`} value={droit} disabled={busy} onChange={(e) => change(e.target.value)}
+    <select aria-label={t("Droit de l'agent sur {nom}", { nom: appLabel(name) })} value={droit} disabled={busy} onChange={(e) => change(e.target.value)}
       className="h-8 cursor-pointer rounded-lg border border-border bg-background px-2 text-xs">
       {DROITS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
     </select>
@@ -645,14 +648,14 @@ export function Connections({ agentId, shared = false, owner = false }: { agentI
   const pending = owner ? globals.filter((g) => !g.connecte && g.nom !== "google" && !here.has(g.nom)) : [];
   const scope = (nom: string) => owner && <ConnectorScope key={`portee-${agentId}-${nom}`} agentId={agentId} nom={nom} global={globals.some((g) => g.nom === nom)} onChange={load} />;
   return (
-    <Section title="Connexions" count={(google?.connecte ? 1 : 0) + connected.filter((a) => a.connecte).length + tools.filter((t) => t.connecte).length} alone>
-      {!data && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture…</p>}
+    <Section title={t("Connexions")} count={(google?.connecte ? 1 : 0) + connected.filter((a) => a.connecte).length + tools.filter((t) => t.connecte).length} alone>
+      {!data && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("Lecture…")}</p>}
       {/* En haut : parcourir le catalogue et voir d'un coup ce qui est branché. Le reste (Google, outils par adresse,
           sites du navigateur) vient dessous. */}
       {data && (
         <div className="flex flex-wrap items-center gap-1.5">
           <Button variant={browsing ? "default" : "outline"} size="sm" onClick={() => setBrowsing((b) => !b)} aria-expanded={browsing}>
-            <Plus />Autres applications
+            <Plus />{t("Autres applications")}
           </Button>
           {connected.filter((a) => a.connecte).map((a) => (
             <span key={a.nom} className="flex items-center gap-1.5 rounded-full border border-border bg-surface py-0.5 pr-2.5 pl-1 text-xs">
@@ -660,17 +663,18 @@ export function Connections({ agentId, shared = false, owner = false }: { agentI
               <span className="font-medium">{appLabel(a.nom)}</span>
             </span>
           ))}
-          {!connected.filter((a) => a.connecte).length && !browsing && <span className="text-xs text-muted-foreground">Rien de branché pour l'instant.</span>}
+          {!connected.filter((a) => a.connecte).length && !browsing && <span className="text-xs text-muted-foreground">{t("Rien de branché pour l'instant.")}</span>}
         </div>
       )}
       {data && browsing && (
         <div className="flex flex-col gap-1.5 rounded-xl border border-border p-2">
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} className="h-9" placeholder="Notion, Todoist, Linear, Figma, brollss…" aria-label="Chercher une application" autoFocus />
+          {/* i18n-ignore : des noms d'applications, pareils dans toutes les langues */}
+          <Input value={query} onChange={(e) => setQuery(e.target.value)} className="h-9" placeholder="Notion, Todoist, Linear, Figma, brollss…" aria-label={t("Chercher une application")} autoFocus />
           <div className="flex max-h-80 flex-col gap-0.5 overflow-y-auto">
             {others.map((a) => <AppRow key={a.nom} agentId={agentId} app={a} waiting={waiting[a.nom]} onWait={(m) => wait(a.nom, m)} onChange={load} onError={setError} />)}
-            {!others.length && <p className="p-2 text-xs text-muted-foreground">Aucune application ne correspond.</p>}
+            {!others.length && <p className="p-2 text-xs text-muted-foreground">{t("Aucune application ne correspond.")}</p>}
           </div>
-          <Button size="sm" variant="ghost" className="self-end" onClick={() => setBrowsing(false)}>Fermer</Button>
+          <Button size="sm" variant="ghost" className="self-end" onClick={() => setBrowsing(false)}>{t("Fermer")}</Button>
         </div>
       )}
       {google?.disponible && data && <GoogleCard agentId={agentId} onError={setError} />}
@@ -681,12 +685,12 @@ export function Connections({ agentId, shared = false, owner = false }: { agentI
       {data && <PublishCards agentId={agentId} shared={shared} tools={tools} onWait={wait} onChange={load} />}
       {data && <BrowserSites agentId={agentId} />}
       <SavedLogins agentId={agentId} />
-      {arriving && <p className="text-xs text-muted-foreground">« {arriving} » arrive chez l'agent en moins d'une minute.</p>}
+      {arriving && <p className="text-xs text-muted-foreground">{t("« {nom} » arrive chez l'agent en moins d'une minute.", { nom: arriving })}</p>}
       {data && (adding ? (
         <AddTool agentId={agentId} shared={shared} onClose={() => setAdding(false)}
           onAdded={(name, mode) => { setAdding(false); if (mode) wait(name, mode); else setArriving(name); load(); }} />
       ) : (
-        <Button variant="ghost" size="sm" className="self-start text-muted-foreground" onClick={() => setAdding(true)}>Ajouter un outil par son adresse (avancé)</Button>
+        <Button variant="ghost" size="sm" className="self-start text-muted-foreground" onClick={() => setAdding(true)}>{t("Ajouter un outil par son adresse (avancé)")}</Button>
       ))}
       <ErrorText>{error}</ErrorText>
     </Section>
@@ -729,36 +733,36 @@ function PublishCards({ agentId, shared, tools, onWait, onChange }: { agentId: s
     }
   };
   const AGENT_DOES: Record<string, string> = {
-    instagram: "Connecte mon Instagram pour publier par l'API : suis la recette `python3 /opt/data/noah.py recette instagram`. Fais tout toi-même et appelle-moi seulement quand je dois me connecter.",
-    x: "Connecte mon compte X pour publier par l'API : suis la recette `python3 /opt/data/noah.py recette x`. Fais tout toi-même et appelle-moi seulement quand je dois me connecter.",
+    instagram: t("Connecte mon Instagram pour publier par l'API : suis la recette `python3 /opt/data/noah.py recette instagram`. Fais tout toi-même et appelle-moi seulement quand je dois me connecter."),
+    x: t("Connecte mon compte X pour publier par l'API : suis la recette `python3 /opt/data/noah.py recette x`. Fais tout toi-même et appelle-moi seulement quand je dois me connecter."),
   };
   const possible = (nom: string) => (nom === "x" ? !!state.retour : state.adresse_publique);
   return (
     <div className="flex flex-col gap-1.5">
-      <p className="mt-1 text-sm font-medium">Réseaux sociaux</p>
-      {shared && <p className="text-xs font-medium text-warn">Agent partagé : ses utilisateurs pourront publier sur ce compte.</p>}
+      <p className="mt-1 text-sm font-medium">{t("Réseaux sociaux")}</p>
+      {shared && <p className="text-xs font-medium text-warn">{t("Agent partagé : ses utilisateurs pourront publier sur ce compte.")}</p>}
       {left.map(([nom, label, host]) => (
         <div key={nom} className="flex flex-col gap-2 rounded-lg border border-border p-2.5">
           <div className="flex items-center gap-2.5">
             <AppLogo host={host} name={nom} />
             <p className="min-w-0 flex-1 truncate text-sm font-medium">{label}</p>
             {possible(nom) ? (
-              <Button size="sm" variant="outline" onClick={() => toggle(nom)}>{open === nom ? "Fermer" : "Connecter"}</Button>
+              <Button size="sm" variant="outline" onClick={() => toggle(nom)}>{open === nom ? t("Fermer") : t("Connecter")}</Button>
             ) : (
-              <span className="text-xs text-muted-foreground">Par le navigateur</span>
+              <span className="text-xs text-muted-foreground">{t("Par le navigateur")}</span>
             )}
           </div>
           {open === nom && open !== "" && !value && !typing && (
             <div className="flex flex-col gap-2">
-              <Button onClick={() => { askAgent(AGENT_DOES[nom]); setOpen(""); }}>L'agent s'en charge</Button>
-              <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => setTyping(true)}>{nom === "x" ? "J'ai déjà un Client ID" : "J'ai déjà un jeton"}</Button>
+              <Button onClick={() => { askAgent(AGENT_DOES[nom]); setOpen(""); }}>{t("L'agent s'en charge")}</Button>
+              <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => setTyping(true)}>{nom === "x" ? t("J'ai déjà un Client ID") : t("J'ai déjà un jeton")}</Button>
             </div>
           )}
           {open === nom && (typing || value) && (
             <div className="flex items-center gap-2">
               <Input value={value} onChange={(e) => setValue(e.target.value)} type={nom === "x" ? "text" : "password"} autoComplete="off" className="h-9 min-w-0 flex-1" autoFocus
-                placeholder={nom === "x" ? "Client ID" : "Jeton d'accès"} aria-label={nom === "x" ? "Client ID de X" : "Jeton d'accès Instagram"} />
-              <Button size="sm" onClick={submit} disabled={!value.trim() || busy}>{busy && <Loader2 className="animate-spin" />}{nom === "x" ? "Continuer" : "Vérifier"}</Button>
+                placeholder={nom === "x" ? t("Client ID") : t("Jeton d'accès")} aria-label={nom === "x" ? t("Client ID de X") : t("Jeton d'accès Instagram")} />
+              <Button size="sm" onClick={submit} disabled={!value.trim() || busy}>{busy && <Loader2 className="animate-spin" />}{nom === "x" ? t("Continuer") : t("Vérifier")}</Button>
             </div>
           )}
           {open === nom && <ErrorText>{error}</ErrorText>}
@@ -782,7 +786,7 @@ function BrowserSites({ agentId }: { agentId: string }) {
   };
   return (
     <div className="flex flex-col gap-1.5">
-      <p className="mt-1 text-sm font-medium">Dans son navigateur</p>
+      <p className="mt-1 text-sm font-medium">{t("Dans son navigateur")}</p>
       <ul className="flex flex-col divide-y divide-border overflow-hidden rounded-lg border border-border">
         {sites.map((site) => (
           <li key={site.hote} className="flex items-center gap-2.5 p-2.5">
@@ -791,7 +795,7 @@ function BrowserSites({ agentId }: { agentId: string }) {
               <span className="block truncate text-sm font-medium">{site.nom}</span>
               <span className="block truncate text-xs text-muted-foreground">{site.compte || site.hote}</span>
             </span>
-            {!site.retenu && <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={() => forget(site.hote)} aria-label={`Retirer ${site.nom}`}>Retirer</Button>}
+            {!site.retenu && <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={() => forget(site.hote)} aria-label={t("Retirer {nom}", { nom: site.nom })}>{t("Retirer")}</Button>}
           </li>
         ))}
       </ul>
@@ -831,7 +835,7 @@ function AppRow({ agentId, app, waiting, onWait, onChange, onError, extra }: { a
     });
   const remove = () =>
     run(async () => {
-      if (!confirm(`Retirer ${appLabel(app.nom)} ? L'agent n'y aura plus accès.`)) return;
+      if (!confirm(t("Retirer {nom} ? L'agent n'y aura plus accès.", { nom: appLabel(app.nom) }))) return;
       await send(`${base}/remove`, {});
       onChange();
     });
@@ -846,20 +850,20 @@ function AppRow({ agentId, app, waiting, onWait, onChange, onError, extra }: { a
         {app.connecte ? (
           <>
             {app.etat && app.etat !== "ok"
-              ? <span className="text-xs font-medium text-danger">En panne</span>
-              : <span className="flex items-center gap-1 text-xs font-medium text-ok"><Check className="size-3.5" />Connecté</span>}
-            <Button size="icon-sm" variant="ghost" onClick={remove} disabled={busy} aria-label={`Retirer ${appLabel(app.nom)}`}><Trash2 /></Button>
+              ? <span className="text-xs font-medium text-danger">{t("En panne")}</span>
+              : <span className="flex items-center gap-1 text-xs font-medium text-ok"><Check className="size-3.5" />{t("Connecté")}</span>}
+            <Button size="icon-sm" variant="ghost" onClick={remove} disabled={busy} aria-label={t("Retirer {nom}", { nom: appLabel(app.nom) })}><Trash2 /></Button>
           </>
         ) : !waiting ? (
           <Button size="sm" variant={app.installe ? "default" : "outline"} onClick={connect} disabled={busy}>
-            {busy && <Loader2 className="animate-spin" />}{app.installe ? "Terminer la connexion" : "Connecter"}
+            {busy && <Loader2 className="animate-spin" />}{app.installe ? t("Terminer la connexion") : t("Connecter")}
           </Button>
         ) : null}
       </div>
-      {app.installe && app.connecte && app.erreur && <p className="text-xs text-danger">{app.erreur}</p>}
+      {app.installe && app.connecte && app.erreur && <p className="text-xs text-danger">{tServeur(app.erreur)}</p>}
       {app.installe && app.connecte && (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>Ce qu'il peut faire</span>
+          <span>{t("Ce qu'il peut faire")}</span>
           <RightSelect agentId={agentId} name={app.nom} droit={app.droit ?? "confirmer"} onChange={onChange} onError={onError} />
         </div>
       )}
@@ -875,8 +879,8 @@ export function LoginAuto({ onReopen, busy }: { onReopen: () => void; busy: bool
   return (
     <div className="flex items-center gap-2">
       <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
-      <p className="min-w-0 flex-1 text-xs text-muted-foreground">Accepte dans l'onglet ouvert. Noah termine seul.</p>
-      <Button size="sm" variant="ghost" onClick={onReopen} disabled={busy}>Rouvrir</Button>
+      <p className="min-w-0 flex-1 text-xs text-muted-foreground">{t("Accepte dans l'onglet ouvert. Noah termine seul.")}</p>
+      <Button size="sm" variant="ghost" onClick={onReopen} disabled={busy}>{t("Rouvrir")}</Button>
     </div>
   );
 }
@@ -886,18 +890,19 @@ export function LoginBack({ label, value, onValue, onReopen, onFinish, busy }: {
   return (
     <div className="flex flex-col gap-2">
       <p className="text-xs text-muted-foreground">
-        Accepte dans l'onglet ouvert. Tu arrives ensuite sur une page qui ne s'affiche pas (adresse « 127.0.0.1 ») : c'est normal, copie son adresse complète ici.
+        {t("Accepte dans l'onglet ouvert. Tu arrives ensuite sur une page qui ne s'affiche pas (adresse « 127.0.0.1 ») : c'est normal, copie son adresse complète ici.")}
       </p>
-      <Input value={value} onChange={(e) => onValue(e.target.value)} className="h-9" placeholder="http://127.0.0.1:…/callback?code=…" aria-label={`Adresse de retour de ${label}`} />
+      {/* i18n-ignore : forme d'une adresse technique */}
+      <Input value={value} onChange={(e) => onValue(e.target.value)} className="h-9" placeholder="http://127.0.0.1:…/callback?code=…" aria-label={t("Adresse de retour de {nom}", { nom: label })} />
       <div className="flex justify-end gap-2">
-        <Button size="sm" variant="ghost" onClick={onReopen} disabled={busy}>Rouvrir</Button>
-        <Button size="sm" onClick={onFinish} disabled={!value.trim() || busy}>{busy && <Loader2 className="animate-spin" />}Terminer</Button>
+        <Button size="sm" variant="ghost" onClick={onReopen} disabled={busy}>{t("Rouvrir")}</Button>
+        <Button size="sm" onClick={onFinish} disabled={!value.trim() || busy}>{busy && <Loader2 className="animate-spin" />}{t("Terminer")}</Button>
       </div>
     </div>
   );
 }
 
-const ETATS: Partial<Record<Etat, string>> = { injoignable: "En panne", refuse: "Adresse refusée", jeton_refuse: "Jeton refusé", a_connecter: "À connecter" };
+const ETATS: Partial<Record<Etat, string>> = { injoignable: t("En panne"), refuse: t("Adresse refusée"), jeton_refuse: t("Jeton refusé"), a_connecter: t("À connecter") };
 
 /** Un outil ajouté par adresse : son état, son droit, et ce qu'il offre. */
 function ToolRow({ agentId, tool, waiting, onWait, onChange, onError, extra }: { agentId: string; tool: CustomTool; waiting?: "auto" | "coller"; onWait: (mode?: "auto" | "coller") => void; onChange: () => void; onError: (e: string) => void; extra?: React.ReactNode }) {
@@ -931,7 +936,7 @@ function ToolRow({ agentId, tool, waiting, onWait, onChange, onError, extra }: {
     });
   const remove = () =>
     run(async () => {
-      if (!confirm(`Retirer ${label} ? L'agent n'y aura plus accès.`)) return;
+      if (!confirm(t("Retirer {nom} ? L'agent n'y aura plus accès.", { nom: label }))) return;
       await send(`${base}/remove`, {});
       onChange();
     });
@@ -946,18 +951,18 @@ function ToolRow({ agentId, tool, waiting, onWait, onChange, onError, extra }: {
         </div>
         {problem
           ? <span className={cn("text-xs font-medium", tool.etat === "a_connecter" ? "text-warn" : "text-danger")}>{problem}</span>
-          : <span className="flex items-center gap-1 text-xs font-medium text-ok"><Check className="size-3.5" />Connecté</span>}
-        <Button size="icon-sm" variant="ghost" onClick={remove} disabled={busy} aria-label={`Retirer ${label}`}><Trash2 /></Button>
+          : <span className="flex items-center gap-1 text-xs font-medium text-ok"><Check className="size-3.5" />{t("Connecté")}</span>}
+        <Button size="icon-sm" variant="ghost" onClick={remove} disabled={busy} aria-label={t("Retirer {nom}", { nom: label })}><Trash2 /></Button>
       </div>
-      {tool.erreur && <p className="text-xs text-danger">{tool.erreur} L'agent le sait et continue sans cet outil.</p>}
+      {tool.erreur && <p className="text-xs text-danger">{t("{erreur} L'agent le sait et continue sans cet outil.", { erreur: tServeur(tool.erreur) })}</p>}
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        <span>Ce qu'il peut faire</span>
+        <span>{t("Ce qu'il peut faire")}</span>
         <RightSelect agentId={agentId} name={tool.nom} droit={tool.droit} onChange={onChange} onError={onError} />
-        {tool.outils.length > 0 && <span title={tool.outils.map((o) => o.nom).join(", ")}>{tool.outils.length} outil{tool.outils.length > 1 ? "s" : ""}</span>}
+        {tool.outils.length > 0 && <span title={tool.outils.map((o) => o.nom).join(", ")}>{tool.outils.length > 1 ? t("{n} outils", { n: tool.outils.length }) : t("{n} outil", { n: tool.outils.length })}</span>}
       </div>
       {extra}
       {tool.auth === "oauth" && !tool.connecte && !waiting && (
-        <Button size="sm" className="self-start" onClick={connect} disabled={busy}>{busy && <Loader2 className="animate-spin" />}Terminer la connexion</Button>
+        <Button size="sm" className="self-start" onClick={connect} disabled={busy}>{busy && <Loader2 className="animate-spin" />}{t("Terminer la connexion")}</Button>
       )}
       {waiting === "auto" && <LoginAuto onReopen={connect} busy={busy} />}
       {waiting === "coller" && <LoginBack label={label} value={back} onValue={setBack} onReopen={connect} onFinish={finish} busy={busy} />}
@@ -997,36 +1002,38 @@ function AddTool({ agentId, shared, onClose, onAdded }: { agentId: string; share
     });
   return (
     <form onSubmit={(e) => { e.preventDefault(); void (found ? save() : test()); }} className="flex flex-col gap-2 rounded-xl border border-border p-3">
-      <Input value={form.url} onChange={(e) => change({ url: e.target.value })} className="h-9" required placeholder="https://mcp.exemple.fr/mcp" aria-label="Adresse du serveur MCP" autoFocus />
-      <Input value={form.nom} onChange={(e) => change({ nom: e.target.value })} className="h-9" placeholder="Nom (déduit de l'adresse si vide)" aria-label="Nom de l'outil" maxLength={31} />
+      <Input value={form.url} onChange={(e) => change({ url: e.target.value })} className="h-9" required placeholder={t("https://mcp.exemple.fr/mcp")} aria-label={t("Adresse du serveur MCP")} autoFocus />
+      <Input value={form.nom} onChange={(e) => change({ nom: e.target.value })} className="h-9" placeholder={t("Nom (déduit de l'adresse si vide)")} aria-label={t("Nom de l'outil")} maxLength={31} />
       <div className="flex flex-wrap gap-2">
-        <select aria-label="Authentification" value={form.auth} onChange={(e) => change({ auth: e.target.value, jeton: "" })} className="h-9 min-w-0 flex-1 cursor-pointer rounded-lg border border-border bg-background px-2 text-sm">
-          <option value="aucune">Sans authentification</option>
-          <option value="jeton">Avec un jeton</option>
-          <option value="oauth">Avec OAuth</option>
+        <select aria-label={t("Authentification")} value={form.auth} onChange={(e) => change({ auth: e.target.value, jeton: "" })} className="h-9 min-w-0 flex-1 cursor-pointer rounded-lg border border-border bg-background px-2 text-sm">
+          <option value="aucune">{t("Sans authentification")}</option>
+          <option value="jeton">{t("Avec un jeton")}</option>
+          <option value="oauth">{t("Avec OAuth")}</option>
         </select>
-        <select aria-label="Droit de l'agent" value={form.droit} onChange={(e) => setForm({ ...form, droit: e.target.value })} className="h-9 min-w-0 flex-1 cursor-pointer rounded-lg border border-border bg-background px-2 text-sm">
+        <select aria-label={t("Droit de l'agent")} value={form.droit} onChange={(e) => setForm({ ...form, droit: e.target.value })} className="h-9 min-w-0 flex-1 cursor-pointer rounded-lg border border-border bg-background px-2 text-sm">
           {DROITS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
       </div>
       {form.auth === "jeton" && (
-        <Input type="password" autoComplete="off" value={form.jeton} onChange={(e) => change({ jeton: e.target.value })} className="h-9" required placeholder="Jeton" aria-label="Jeton" />
+        <Input type="password" autoComplete="off" value={form.jeton} onChange={(e) => change({ jeton: e.target.value })} className="h-9" required placeholder={t("Jeton")} aria-label={t("Jeton")} />
       )}
-      {form.auth === "jeton" && <p className="text-xs text-muted-foreground">Le jeton reste chiffré sur ton serveur : ni l'agent ni cet écran ne le reverront.</p>}
-      <p className="text-xs text-muted-foreground">Le droit vaut pour tout ce serveur. « Lire seulement » s'en remet à ce que le serveur déclare en lecture. Avec « Confirmer », ce qu'il déclare en lecture passe sans accord. Dans une routine, personne ne peut confirmer : le reste y est refusé.</p>
-      <p className="text-xs text-muted-foreground">Une commande locale n'est pas acceptée ici : elle reviendrait à exécuter du code téléchargé sur la machine de l'agent.</p>
+      {form.auth === "jeton" && <p className="text-xs text-muted-foreground">{t("Le jeton reste chiffré sur ton serveur : ni l'agent ni cet écran ne le reverront.")}</p>}
+      <p className="text-xs text-muted-foreground">{t("Le droit vaut pour tout ce serveur. « Lire seulement » s'en remet à ce que le serveur déclare en lecture. Avec « Confirmer », ce qu'il déclare en lecture passe sans accord. Dans une routine, personne ne peut confirmer : le reste y est refusé.")}</p>
+      <p className="text-xs text-muted-foreground">{t("Une commande locale n'est pas acceptée ici : elle reviendrait à exécuter du code téléchargé sur la machine de l'agent.")}</p>
       <p className={cn("text-xs", shared ? "font-medium text-warn" : "text-muted-foreground")}>
-        {shared ? "Cet agent est partagé : cet outil servira aussi à ceux à qui tu donnes le droit admin." : "Si tu partages cet agent, cet outil servira aussi à ceux à qui tu donnes le droit admin."}
+        {shared ? t("Cet agent est partagé : cet outil servira aussi à ceux à qui tu donnes le droit admin.") : t("Si tu partages cet agent, cet outil servira aussi à ceux à qui tu donnes le droit admin.")}
       </p>
       {found && (
         <div className="rounded-lg bg-muted p-2 text-xs">
           {found.oauth ? (
-            <p>Le serveur répond et demande OAuth. Ses outils seront listés une fois la connexion acceptée.</p>
+            <p>{t("Le serveur répond et demande OAuth. Ses outils seront listés une fois la connexion acceptée.")}</p>
           ) : (
             <>
-              <p className="font-medium">Connexion réussie : {found.outils.length} outil{found.outils.length > 1 ? "s" : ""} trouvé{found.outils.length > 1 ? "s" : ""}, enregistré sous « {found.nom} ».</p>
+              <p className="font-medium">{found.outils.length > 1
+                ? t("Connexion réussie : {n} outils trouvés, enregistré sous « {nom} ».", { n: found.outils.length, nom: found.nom })
+                : t("Connexion réussie : {n} outil trouvé, enregistré sous « {nom} ».", { n: found.outils.length, nom: found.nom })}</p>
               <ul className="mt-1 flex max-h-40 flex-col gap-0.5 overflow-y-auto">
-                {found.outils.map((o) => <li key={o.nom} className="truncate" title={o.description}><span className="font-mono">{o.nom}</span>{o.lecture_seule ? " · lecture" : ""}</li>)}
+                {found.outils.map((o) => <li key={o.nom} className="truncate" title={o.description}><span className="font-mono">{o.nom}</span>{o.lecture_seule ? ` · ${t("lecture")}` : ""}</li>)}
               </ul>
             </>
           )}
@@ -1035,10 +1042,10 @@ function AddTool({ agentId, shared, onClose, onAdded }: { agentId: string; share
       <PrivateNetworks />
       <ErrorText>{error}</ErrorText>
       <div className="flex justify-end gap-2">
-        <Button type="button" variant="ghost" size="sm" onClick={onClose}>Annuler</Button>
+        <Button type="button" variant="ghost" size="sm" onClick={onClose}>{t("Annuler")}</Button>
         {found
-          ? <Button type="submit" size="sm" disabled={busy}>{busy && <Loader2 className="animate-spin" />}{found.oauth ? "Enregistrer et connecter" : "Enregistrer"}</Button>
-          : <Button type="submit" size="sm" disabled={busy || !form.url.trim()}>{busy && <Loader2 className="animate-spin" />}Tester la connexion</Button>}
+          ? <Button type="submit" size="sm" disabled={busy}>{busy && <Loader2 className="animate-spin" />}{found.oauth ? t("Enregistrer et connecter") : t("Enregistrer")}</Button>
+          : <Button type="submit" size="sm" disabled={busy || !form.url.trim()}>{busy && <Loader2 className="animate-spin" />}{t("Tester la connexion")}</Button>}
       </div>
     </form>
   );
@@ -1065,12 +1072,12 @@ function PrivateNetworks() {
   };
   return (
     <details className="text-xs text-muted-foreground">
-      <summary className="cursor-pointer">Serveur sur ton réseau privé</summary>
+      <summary className="cursor-pointer">{t("Serveur sur ton réseau privé")}</summary>
       <div className="mt-1.5 flex flex-col gap-1.5">
-        <p>Adresses privées et http restent refusés, sauf sur un réseau que tu acceptes ici (exemple : 192.168.1.0/24). Le réseau interne de Noah reste toujours refusé.</p>
+        <p>{t("Adresses privées et http restent refusés, sauf sur un réseau que tu acceptes ici (exemple : 192.168.1.0/24). Le réseau interne de Noah reste toujours refusé.")}</p>
         <div className="flex gap-2">
-          <Input value={text} onChange={(e) => { setText(e.target.value); setSaved(false); }} className="h-8" placeholder="192.168.1.0/24" aria-label="Réseaux privés acceptés" />
-          <Button type="button" size="sm" variant="outline" onClick={save}>{saved ? <Check /> : null}Accepter</Button>
+          <Input value={text} onChange={(e) => { setText(e.target.value); setSaved(false); }} className="h-8" placeholder="192.168.1.0/24" aria-label={t("Réseaux privés acceptés")} />
+          <Button type="button" size="sm" variant="outline" onClick={save}>{saved ? <Check /> : null}{t("Accepter")}</Button>
         </div>
         <ErrorText>{error}</ErrorText>
       </div>
@@ -1109,9 +1116,9 @@ function GoogleLogo() {
 }
 
 const GOOGLE_DROITS: [Droit, string][] = [
-  ["confirmer", "Lire sans demander, confirmer pour écrire"],
-  ["agir", "Lire et écrire sans demander"],
-  ["lire", "Lire seulement"],
+  ["confirmer", t("Lire sans demander, confirmer pour écrire")],
+  ["agir", t("Lire et écrire sans demander")],
+  ["lire", t("Lire seulement")],
 ];
 
 // « Écrire » comprend « lire » : cocher l'un coche l'autre, décocher la lecture retire l'écriture.
@@ -1169,14 +1176,14 @@ function GoogleCard({ agentId, onError }: { agentId: string; onError: (e: string
   const setRight = (droit: string) => run(async () => setState(await send<GoogleAccount>(`${base}/droit`, { droit }, "PUT")));
   const disconnectOther = (compte: string) =>
     run(async () => {
-      if (confirm(`Déconnecter ${compte} de cet agent ?`)) {
+      if (confirm(t("Déconnecter {compte} de cet agent ?", { compte }))) {
         setState(await send<GoogleAccount>(`${base}/disconnect?compte=${encodeURIComponent(compte)}`, {}));
       }
     });
   const cancel = () => run(async () => setState(await send<GoogleAccount>(`${base}/cancel`, {})));
   const disconnect = () =>
     run(async () => {
-      if (confirm("Déconnecter Google de cet agent ? Il n'aura plus accès à tes courriels, ton agenda ni tes fichiers.")) {
+      if (confirm(t("Déconnecter Google de cet agent ? Il n'aura plus accès à tes courriels, ton agenda ni tes fichiers."))) {
         setState(await send<GoogleAccount>(`${base}/disconnect`, {}));
       }
     });
@@ -1199,31 +1206,31 @@ function GoogleCard({ agentId, onError }: { agentId: string; onError: (e: string
         <GoogleLogo />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium">Google</p>
-          <p className="truncate text-xs text-muted-foreground">{state.connecte ? state.compte || "Compte connecté" : "Gmail, Agenda, Drive, Docs, Sheets, Contacts"}</p>
+          <p className="truncate text-xs text-muted-foreground">{state.connecte ? state.compte || t("Compte connecté") : t("Gmail, Agenda, Drive, Docs, Sheets, Contacts")}</p>
         </div>
         {state.connecte && !waiting ? (
-          <span className="flex items-center gap-1 text-xs font-medium text-ok"><Check className="size-3.5" />Connecté</span>
+          <span className="flex items-center gap-1 text-xs font-medium text-ok"><Check className="size-3.5" />{t("Connecté")}</span>
         ) : !picking && !waiting ? (
-          <Button size="sm" onClick={() => { setChosen(state.voulu.length ? state.voulu : DEFAULT_ACCESS); setPicking(true); }}>Connecter</Button>
+          <Button size="sm" onClick={() => { setChosen(state.voulu.length ? state.voulu : DEFAULT_ACCESS); setPicking(true); }}>{t("Connecter")}</Button>
         ) : null}
       </div>
 
       {state.connecte && !picking && !waiting && (
-        <p className="text-xs text-muted-foreground">L'agent peut : {names(state.permissions).join(", ") || "rien pour l'instant"}.</p>
+        <p className="text-xs text-muted-foreground">{t("L'agent peut : {liste}.", { liste: names(state.permissions).join(", ") || t("rien pour l'instant") })}</p>
       )}
       {state.connecte && !picking && !waiting && (state.autres ?? []).map((o) => (
         <div key={o.compte} className="flex items-center gap-2 border-t border-border pt-2">
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm">{o.compte}</p>
-            <p className="truncate text-xs text-muted-foreground">{names(o.permissions).join(", ") || "aucun accès"}</p>
+            <p className="truncate text-xs text-muted-foreground">{names(o.permissions).join(", ") || t("aucun accès")}</p>
           </div>
-          <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={() => disconnectOther(o.compte)} disabled={busy}>Déconnecter</Button>
+          <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={() => disconnectOther(o.compte)} disabled={busy}>{t("Déconnecter")}</Button>
         </div>
       ))}
       {state.connecte && !picking && !waiting && (
         <label className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          Droit de l'agent
-          <select aria-label="Droit de l'agent sur Google" value={state.droit ?? "confirmer"} disabled={busy} onChange={(e) => setRight(e.target.value)}
+          {t("Droit de l'agent")}
+          <select aria-label={t("Droit de l'agent sur Google")} value={state.droit ?? "confirmer"} disabled={busy} onChange={(e) => setRight(e.target.value)}
             className="h-8 cursor-pointer rounded-lg border border-border bg-background px-2 text-xs text-foreground">
             {GOOGLE_DROITS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
@@ -1233,8 +1240,8 @@ function GoogleCard({ agentId, onError }: { agentId: string; onError: (e: string
       {picking && (
         <div className="flex flex-col gap-2.5">
           <p className="text-xs text-muted-foreground">
-            {adding ? "Un autre compte Google : choisis-le dans l'écran de l'agent, ou connecte-t'y s'il te le demande. " : ""}
-            Ce que l'agent pourra faire. Ce choix vaut accord : Noah le donne à Google pour toi.
+            {adding ? `${t("Un autre compte Google : choisis-le dans l'écran de l'agent, ou connecte-t'y s'il te le demande.")} ` : ""}
+            {t("Ce que l'agent pourra faire. Ce choix vaut accord : Noah le donne à Google pour toi.")}
           </p>
           {services.map((s) => (
             <div key={s} className="flex flex-col gap-1">
@@ -1249,18 +1256,17 @@ function GoogleCard({ agentId, onError }: { agentId: string; onError: (e: string
           ))}
           {!state.identifiants && (
             <p className="text-xs text-muted-foreground">
-              Première fois : l'agent crée ton accès Google dans son navigateur et accepte pour toi les conditions de Google Cloud.
-              Il t'appelle seulement pour te connecter à ton compte.{" "}
+              {t("Première fois : l'agent crée ton accès Google dans son navigateur et accepte pour toi les conditions de Google Cloud. Il t'appelle seulement pour te connecter à ton compte.")}{" "}
               <label className="cursor-pointer text-accent underline">
-                J'ai déjà un fichier d'identifiants
+                {t("J'ai déjà un fichier d'identifiants")}
                 <input type="file" accept="application/json,.json" className="sr-only" onChange={(e) => uploadClient(e.target.files?.[0])} />
               </label>
             </p>
           )}
           <div className="flex justify-end gap-2">
-            <Button size="sm" variant="ghost" onClick={() => { setPicking(false); setAdding(false); }}>Annuler</Button>
+            <Button size="sm" variant="ghost" onClick={() => { setPicking(false); setAdding(false); }}>{t("Annuler")}</Button>
             <Button size="sm" onClick={connect} disabled={!chosen.length || busy}>
-              {busy && <Loader2 className="animate-spin" />}{adding ? "Ajouter ce compte" : state.connecte ? "Mettre à jour les accès" : "Connecter Google"}
+              {busy && <Loader2 className="animate-spin" />}{adding ? t("Ajouter ce compte") : state.connecte ? t("Mettre à jour les accès") : t("Connecter Google")}
             </Button>
           </div>
         </div>
@@ -1271,19 +1277,19 @@ function GoogleCard({ agentId, onError }: { agentId: string; onError: (e: string
           <Loader2 className="size-3.5 shrink-0 animate-spin" />
           <span className="flex-1">
             {state.etape === "configuration"
-              ? "L'agent crée ton accès Google (il t'appellera seulement pour te connecter)."
-              : state.message || "Noah donne ton accord à Google…"}
+              ? t("L'agent crée ton accès Google (il t'appellera seulement pour te connecter).")
+              : tServeur(state.message) || t("Noah donne ton accord à Google…")}
           </span>
-          <Button size="sm" variant="ghost" onClick={cancel} disabled={busy}>Annuler</Button>
+          <Button size="sm" variant="ghost" onClick={cancel} disabled={busy}>{t("Annuler")}</Button>
         </div>
       )}
-      {state.etape === "erreur" && <p className="text-xs text-danger">{state.message}</p>}
+      {state.etape === "erreur" && <p className="text-xs text-danger">{tServeur(state.message)}</p>}
 
       {state.connecte && !picking && !waiting && (
         <div className="flex gap-1">
-          <Button size="sm" variant="ghost" onClick={() => { setChosen(state.permissions); setAdding(false); setPicking(true); }}><Pencil />Modifier les accès</Button>
-          <Button size="sm" variant="ghost" onClick={() => { setChosen(state.permissions); setAdding(true); setPicking(true); }}><Plus />Ajouter un compte</Button>
-          <Button size="sm" variant="ghost" className="ml-auto text-muted-foreground" onClick={disconnect} disabled={busy}>Déconnecter</Button>
+          <Button size="sm" variant="ghost" onClick={() => { setChosen(state.permissions); setAdding(false); setPicking(true); }}><Pencil />{t("Modifier les accès")}</Button>
+          <Button size="sm" variant="ghost" onClick={() => { setChosen(state.permissions); setAdding(true); setPicking(true); }}><Plus />{t("Ajouter un compte")}</Button>
+          <Button size="sm" variant="ghost" className="ml-auto text-muted-foreground" onClick={disconnect} disabled={busy}>{t("Déconnecter")}</Button>
         </div>
       )}
     </div>
@@ -1294,7 +1300,11 @@ function GoogleCard({ agentId, onError }: { agentId: string; onError: (e: string
 
 type ComputerState = { disque: { total: number; libre: number; utilise: number }; espace_de_travail: number | null; paquets: string[] };
 
-const bigSize = (n: number) => (n >= 1e9 ? `${(n / 1e9).toFixed(n >= 1e11 ? 0 : 1).replace(".", ",")} Go` : fileSize(n));
+const bigSize = (n: number) => {
+  if (n < 1e9) return fileSize(n);
+  const decimales = n >= 1e11 ? 0 : 1;
+  return t("{n} Go", { n: (n / 1e9).toLocaleString(locale(), { minimumFractionDigits: decimales, maximumFractionDigits: decimales }) });
+};
 
 export function Software({ agentId }: { agentId: string }) {
   const { data, error, setError, load } = useAgentData<ComputerState>(`/api/agents/${agentId}/computer`);
@@ -1315,17 +1325,17 @@ export function Software({ agentId }: { agentId: string }) {
     }
   };
   return (
-    <Section title="Logiciels et disque" alone>
-      {!data && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture…</p>}
+    <Section title={t("Logiciels et disque")} alone>
+      {!data && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("Lecture…")}</p>}
       {data && (
         <>
           <div className="flex items-center gap-2 text-sm">
             <HardDrive className="size-4 text-muted-foreground" />
-            <span><b>{bigSize(data.disque.libre)}</b> libres</span>
-            {data.espace_de_travail != null && <span className="text-muted-foreground">· ses fichiers : {bigSize(data.espace_de_travail)}</span>}
+            <span>{tr("{taille} libres", { taille: <b>{bigSize(data.disque.libre)}</b> })}</span>
+            {data.espace_de_travail != null && <span className="text-muted-foreground">· {t("ses fichiers : {taille}", { taille: bigSize(data.espace_de_travail) })}</span>}
           </div>
           <p className="text-xs text-muted-foreground">
-            Déjà là : Python 3, Node.js, git, curl, ffmpeg. L'agent installe seul ce qui lui manque ; tu peux aussi le faire ici.
+            {t("Déjà là : Python 3, Node.js, git, curl, ffmpeg. L'agent installe seul ce qui lui manque ; tu peux aussi le faire ici.")}
           </p>
           {data.paquets.length > 0 && (
             <div className="flex flex-wrap gap-1">
@@ -1333,8 +1343,9 @@ export function Software({ agentId }: { agentId: string }) {
             </div>
           )}
           <form onSubmit={install} className="flex gap-2">
-            <Input value={names} onChange={(e) => setNames(e.target.value)} className="h-9" placeholder="imagemagick, poppler-utils…" aria-label="Paquets à installer" />
-            <Button type="submit" size="sm" className="h-9" disabled={busy || !names.trim()}>{busy && <Loader2 className="animate-spin" />}Installer</Button>
+            {/* i18n-ignore : des noms de paquets, pareils dans toutes les langues */}
+            <Input value={names} onChange={(e) => setNames(e.target.value)} className="h-9" placeholder="imagemagick, poppler-utils…" aria-label={t("Paquets à installer")} />
+            <Button type="submit" size="sm" className="h-9" disabled={busy || !names.trim()}>{busy && <Loader2 className="animate-spin" />}{t("Installer")}</Button>
           </form>
         </>
       )}
@@ -1368,49 +1379,48 @@ function ComputerFolderList() {
   return (
     <>
       <p className="text-xs text-muted-foreground">
-        Tes dossiers restent sur cet ordinateur. Tes agents les lisent et y écrivent à la demande, selon le droit que tu donnes, tant que l'application est ouverte.
-        Ce qu'ils lisent passe par le modèle que tu as choisi.
+        {t("Tes dossiers restent sur cet ordinateur. Tes agents les lisent et y écrivent à la demande, selon le droit que tu donnes, tant que l'application est ouverte. Ce qu'ils lisent passe par le modèle que tu as choisi.")}
       </p>
       {state.coupe && (
         <p role="status" className="rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn">
-          Accès coupé : aucun agent n'atteint cet ordinateur. Ce qui lui est destiné attend sur le serveur.
+          {t("Accès coupé : aucun agent n'atteint cet ordinateur. Ce qui lui est destiné attend sur le serveur.")}
         </p>
       )}
-      {state.dossiers.length === 0 && <p className="text-xs">Aucun dossier confié pour l'instant.</p>}
+      {state.dossiers.length === 0 && <p className="text-xs">{t("Aucun dossier confié pour l'instant.")}</p>}
       {state.dossiers.map((f) => (
         <div key={f.id} className="flex flex-col gap-1.5 rounded-lg border border-border p-2.5" data-dossier={f.nom}>
           <div className="flex items-center gap-2">
             <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium">{f.nom}</p>
-              <p className="text-xs text-muted-foreground">{f.ecriture ? "Lecture et écriture" : "Lecture seule"}</p>
+              <p className="text-xs text-muted-foreground">{f.ecriture ? t("Lecture et écriture") : t("Lecture seule")}</p>
             </div>
-            <Button variant="ghost" size="icon" aria-label={`Ouvrir ${f.nom}`} title="Ouvrir" onClick={() => app?.dossierOuvrir?.(f.id)}>
+            <Button variant="ghost" size="icon" aria-label={t("Ouvrir {nom}", { nom: f.nom })} title={t("Ouvrir")} onClick={() => app?.dossierOuvrir?.(f.id)}>
               <ExternalLink />
             </Button>
-            <Button variant="ghost" size="icon" aria-label={`Ne plus confier ${f.nom}`} title="Ne plus confier"
-              onClick={() => { if (confirm(`Ne plus confier « ${f.nom} » à tes agents ? Le dossier reste sur ton ordinateur.`)) void act(app?.dossierRetirer?.(f.id)); }}>
+            <Button variant="ghost" size="icon" aria-label={t("Ne plus confier {nom}", { nom: f.nom })} title={t("Ne plus confier")}
+              onClick={() => { if (confirm(t("Ne plus confier « {nom} » à tes agents ? Le dossier reste sur ton ordinateur.", { nom: f.nom }))) void act(app?.dossierRetirer?.(f.id)); }}>
               <Trash2 />
             </Button>
           </div>
           <label className="flex cursor-pointer items-center gap-2 pl-6 text-xs">
-            <input type="checkbox" className="size-4" checked={f.ecriture} aria-label={`Tes agents peuvent écrire dans ${f.nom}`} onChange={(e) => act(app?.dossierDroit?.(f.id, e.target.checked))} />
-            Tes agents peuvent y écrire
+            <input type="checkbox" className="size-4" checked={f.ecriture} aria-label={t("Tes agents peuvent écrire dans {nom}", { nom: f.nom })} onChange={(e) => act(app?.dossierDroit?.(f.id, e.target.checked))} />
+            {t("Tes agents peuvent y écrire")}
           </label>
         </div>
       ))}
       <div className="flex flex-wrap gap-2">
-        <Button variant="outline" size="sm" onClick={() => act(app?.dossierAjouter?.())}><FolderOpen />Choisir un dossier</Button>
-        <Button variant="outline" size="sm" onClick={() => act(app?.couper?.(!state.coupe))}>{state.coupe ? "Rendre l'accès" : "Couper l'accès"}</Button>
+        <Button variant="outline" size="sm" onClick={() => act(app?.dossierAjouter?.())}><FolderOpen />{t("Choisir un dossier")}</Button>
+        <Button variant="outline" size="sm" onClick={() => act(app?.couper?.(!state.coupe))}>{state.coupe ? t("Rendre l'accès") : t("Couper l'accès")}</Button>
       </div>
       {state.toujours.length > 0 && (
         <div className="flex flex-col gap-1">
-          <p className="text-xs font-semibold text-muted-foreground">Commandes permises sans demander</p>
-          {state.toujours.map((t) => (
-            <div key={`${t.dossier}:${t.commande}`} className="flex items-center gap-2 text-xs">
-              <code className="min-w-0 flex-1 truncate">{t.commande}</code>
-              <span className="shrink-0 text-muted-foreground">{t.nom}</span>
-              <Button variant="ghost" size="sm" aria-label={`Oublier ${t.commande}`} onClick={() => act(app?.commandeOublier?.(t.commande, t.dossier))}>Oublier</Button>
+          <p className="text-xs font-semibold text-muted-foreground">{t("Commandes permises sans demander")}</p>
+          {state.toujours.map((c) => (
+            <div key={`${c.dossier}:${c.commande}`} className="flex items-center gap-2 text-xs">
+              <code className="min-w-0 flex-1 truncate">{c.commande}</code>
+              <span className="shrink-0 text-muted-foreground">{c.nom}</span>
+              <Button variant="ghost" size="sm" aria-label={t("Oublier {commande}", { commande: c.commande })} onClick={() => act(app?.commandeOublier?.(c.commande, c.dossier))}>{t("Oublier")}</Button>
             </div>
           ))}
         </div>
@@ -1420,7 +1430,10 @@ function ComputerFolderList() {
   );
 }
 
-const waitingFiles = (n: number) => (n === 1 ? "Un fichier attend" : `${n} fichiers attendent`);
+const waitingFiles = (n: number, cut: boolean) =>
+  n === 1
+    ? (cut ? t("Un fichier attend que tu rendes l'accès depuis l'application de bureau.") : t("Un fichier attend sa reconnexion."))
+    : (cut ? t("{n} fichiers attendent que tu rendes l'accès depuis l'application de bureau.", { n }) : t("{n} fichiers attendent sa reconnexion.", { n }));
 
 /** Ailleurs que dans l'application de bureau : ce qui est confié, sans pouvoir le changer. */
 function RemoteFolderList() {
@@ -1430,20 +1443,20 @@ function RemoteFolderList() {
   }, []);
   if (!list) return null;
   if (!list.length) {
-    return <p className="text-xs text-muted-foreground">Installe l'application de bureau sur ton ordinateur et relie-la à ce compte : tu pourras y confier des dossiers à tes agents.</p>;
+    return <p className="text-xs text-muted-foreground">{t("Installe l'application de bureau sur ton ordinateur et relie-la à ce compte : tu pourras y confier des dossiers à tes agents.")}</p>;
   }
   return (
     <>
       {list.map((d) => (
         <div key={d.id} className="flex flex-col gap-1 rounded-lg border border-border p-2.5">
-          <p className="truncate text-sm font-medium">{d.nom || "Ordinateur"}</p>
-          <p className="text-xs text-muted-foreground">{d.coupe ? "Accès coupé" : d.en_ligne ? "En ligne" : "Éteint, ou application fermée"}</p>
-          {d.dossiers.map((f) => <p key={f.id} className="truncate text-xs text-muted-foreground">{f.nom} · {f.absent ? "introuvable sur l'ordinateur" : f.ecriture ? "lecture et écriture" : "lecture seule"}</p>)}
-          {!d.dossiers.length && <p className="text-xs text-muted-foreground">{d.en_ligne ? "Aucun dossier confié." : "Ses dossiers s'afficheront quand il sera en ligne."}</p>}
-          {d.attente > 0 && <p className="text-xs">{waitingFiles(d.attente)} {d.coupe ? "que tu rendes l'accès depuis l'application de bureau." : "sa reconnexion."}</p>}
+          <p className="truncate text-sm font-medium">{d.nom || t("Ordinateur")}</p>
+          <p className="text-xs text-muted-foreground">{d.coupe ? t("Accès coupé") : d.en_ligne ? t("En ligne") : t("Éteint, ou application fermée")}</p>
+          {d.dossiers.map((f) => <p key={f.id} className="truncate text-xs text-muted-foreground">{f.nom} · {f.absent ? t("introuvable sur l'ordinateur") : f.ecriture ? t("lecture et écriture") : t("lecture seule")}</p>)}
+          {!d.dossiers.length && <p className="text-xs text-muted-foreground">{d.en_ligne ? t("Aucun dossier confié.") : t("Ses dossiers s'afficheront quand il sera en ligne.")}</p>}
+          {d.attente > 0 && <p className="text-xs">{waitingFiles(d.attente, d.coupe)}</p>}
         </div>
       ))}
-      <p className="text-xs text-muted-foreground">Tu choisis ces dossiers et leurs droits depuis l'application de bureau.</p>
+      <p className="text-xs text-muted-foreground">{t("Tu choisis ces dossiers et leurs droits depuis l'application de bureau.")}</p>
     </>
   );
 }
@@ -1481,14 +1494,13 @@ export function Folders({ agentId }: { agentId: string }) {
   };
 
   return (
-    <Section title="Dossiers" count={list.length} alone>
-      {!data && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture…</p>}
+    <Section title={t("Dossiers")} count={list.length} alone>
+      {!data && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("Lecture…")}</p>}
       {data && data.racines.length === 0 && (app?.dossiers ? <ComputerFolderList /> : <RemoteFolderList />)}
       {data && data.racines.length > 0 && (
         <>
           <p className="text-xs text-muted-foreground">
-            Donne-lui des dossiers de ton ordinateur. En lecture seule, il les lit sans rien y changer ; ton dossier de travail
-            reçoit ce qu'il crée pour toi, même pendant les routines.
+            {t("Donne-lui des dossiers de ton ordinateur. En lecture seule, il les lit sans rien y changer ; ton dossier de travail reçoit ce qu'il crée pour toi, même pendant les routines.")}
           </p>
           {list.map((f, i) => (
             <div key={f.nom} className="flex flex-col gap-1.5 rounded-lg border border-border p-2.5">
@@ -1499,11 +1511,11 @@ export function Folders({ agentId }: { agentId: string }) {
                   <p className="truncate text-xs text-muted-foreground" title={f.chemin}>{f.chemin}</p>
                 </div>
                 {app && (
-                  <Button variant="ghost" size="icon-sm" aria-label={`Ouvrir ${f.chemin}`} title="Ouvrir" onClick={() => app.openPath(f.chemin)}>
+                  <Button variant="ghost" size="icon-sm" aria-label={t("Ouvrir {nom}", { nom: f.chemin })} title={t("Ouvrir")} onClick={() => app.openPath(f.chemin)}>
                     <ExternalLink />
                   </Button>
                 )}
-                <Button variant="ghost" size="icon-sm" disabled={busy} aria-label={`Retirer ${f.chemin}`} title="Ne plus partager"
+                <Button variant="ghost" size="icon-sm" disabled={busy} aria-label={t("Retirer {nom}", { nom: f.chemin })} title={t("Ne plus partager")}
                   onClick={() => save(list.filter((_, j) => j !== i))}>
                   <Trash2 />
                 </Button>
@@ -1515,28 +1527,28 @@ export function Folders({ agentId }: { agentId: string }) {
                       // Le premier dossier où il peut écrire devient son dossier de travail.
                       update(i, { ecriture: e.target.checked, travail: e.target.checked && (f.travail || !list.some((x) => x.travail)) })
                     } />
-                  Peut y écrire
+                  {t("Peut y écrire")}
                 </label>
                 <label className={cn("flex items-center gap-1.5", f.ecriture ? "cursor-pointer" : "opacity-50")}>
                   <input type="radio" name={`travail-${agentId}`} checked={f.travail} disabled={busy || !f.ecriture}
                     onChange={() => update(i, { travail: true })} />
-                  Dossier de travail
+                  {t("Dossier de travail")}
                 </label>
               </div>
             </div>
           ))}
           {app ? (
             <Button variant="outline" size="sm" className="self-start" disabled={busy} onClick={pick}>
-              {busy ? <Loader2 className="animate-spin" /> : <Plus />}Choisir un dossier…
+              {busy ? <Loader2 className="animate-spin" /> : <Plus />}{t("Choisir un dossier…")}
             </Button>
           ) : (
             <form onSubmit={(e) => { e.preventDefault(); void add(path); }} className="flex gap-2">
-              <Input value={path} onChange={(e) => setPath(e.target.value)} className="h-9" placeholder={`${data.racines[0]}/Documents`} aria-label="Chemin du dossier" />
-              <Button type="submit" size="sm" className="h-9" disabled={busy || !path.trim()}>{busy && <Loader2 className="animate-spin" />}Ajouter</Button>
+              <Input value={path} onChange={(e) => setPath(e.target.value)} className="h-9" placeholder={`${data.racines[0]}/Documents`} aria-label={t("Chemin du dossier")} />
+              <Button type="submit" size="sm" className="h-9" disabled={busy || !path.trim()}>{busy && <Loader2 className="animate-spin" />}{t("Ajouter")}</Button>
             </form>
           )}
-          {busy && <p className="text-xs text-muted-foreground">Noah redémarre sa machine avec ces dossiers…</p>}
-          <p className="text-xs text-muted-foreground">Dossiers possibles : sous {data.racines.join(", ")}.</p>
+          {busy && <p className="text-xs text-muted-foreground">{t("Noah redémarre sa machine avec ces dossiers…")}</p>}
+          <p className="text-xs text-muted-foreground">{t("Dossiers possibles : sous {racines}.", { racines: data.racines.join(", ") })}</p>
         </>
       )}
       <ErrorText>{error}</ErrorText>
@@ -1565,30 +1577,36 @@ type Watch = {
 };
 
 const EVERY: [number, string][] = [
-  [15, "toutes les 15 min"],
-  [60, "toutes les heures"],
-  [360, "toutes les 6 h"],
-  [1440, "une fois par jour"],
+  [15, t("toutes les 15 min")],
+  [60, t("toutes les heures")],
+  [360, t("toutes les 6 h")],
+  [1440, t("une fois par jour")],
 ];
-const everyLabel = (m: number) => EVERY.find(([v]) => v === m)?.[1] ?? `toutes les ${m} min`;
+const everyLabel = (m: number) => EVERY.find(([v]) => v === m)?.[1] ?? t("toutes les {n} min", { n: m });
 const ago = (t: number | null) => (t ? when(new Date(t * 1000).toISOString()) : null);
-const plural = (n: number, word: string) => `${n} ${word}${n > 1 ? "s" : ""}`;
+const money = (v: number) => t("{n} $", { n: v.toLocaleString(locale(), { maximumFractionDigits: 20 }) });
 const dollars = (v: number) =>
-  v === 0 ? "0 $" : v < 0.0001 ? "moins de 0,0001 $" : `${Number(v.toFixed(v < 0.01 ? 4 : 3))} $`.replace(".", ",");
+  v === 0 ? money(0) : v < 0.0001 ? t("moins de 0,0001 $") : money(Number(v.toFixed(v < 0.01 ? 4 : 3)));
 /** Le compte qui prouve que l'agent ne tourne pas pour rien : « 12 passages, 1 réveil, 0,002 $ ». */
 const tally = (w: Watch) =>
-  [plural(w.passages, "passage"), w.consigne ? plural(w.reveils, "réveil") : plural(w.alertes, "alerte"), dollars(w.cout)].join(", ");
+  [
+    w.passages > 1 ? t("{n} passages", { n: w.passages }) : t("{n} passage", { n: w.passages }),
+    w.consigne
+      ? (w.reveils > 1 ? t("{n} réveils", { n: w.reveils }) : t("{n} réveil", { n: w.reveils }))
+      : (w.alertes > 1 ? t("{n} alertes", { n: w.alertes }) : t("{n} alerte", { n: w.alertes })),
+    dollars(w.cout),
+  ].join(", ");
 
 const SOURCES: [string, string, string][] = [
-  ["page", "Page ou flux", "https://… (page ou flux RSS)"],
-  ["gmail", "Gmail", "Recherche Gmail (ex. from:paul@exemple.fr), vide : les nouveaux courriels"],
-  ["agenda", "Agenda", "Heures à venir (vide : 24)"],
+  ["page", t("Page ou flux"), t("https://… (page ou flux RSS)")],
+  ["gmail", "Gmail", t("Recherche Gmail (ex. from:paul@exemple.fr), vide : les nouveaux courriels")],
+  ["agenda", t("Agenda"), t("Heures à venir (vide : 24)")],
 ];
 const sourceAddress = (kind: string, text: string) => (kind === "page" ? text.trim() : text.trim() ? `${kind}:${text.trim()}` : kind);
 const sourceLabel = (w: Watch) =>
-  w.source === "gmail" ? `Gmail${w.url.includes(":") ? ` : ${w.url.split(":").slice(1).join(":")}` : ""}`
-  : w.source === "agenda" ? "Agenda"
-  : w.source === "outil" ? `Outil ${w.url.slice(6)}`
+  w.source === "gmail" ? (w.url.includes(":") ? t("Gmail : {recherche}", { recherche: w.url.split(":").slice(1).join(":") }) : "Gmail")
+  : w.source === "agenda" ? t("Agenda")
+  : w.source === "outil" ? t("Outil {nom}", { nom: w.url.slice(6) })
   : w.url;
 
 /**
@@ -1605,7 +1623,7 @@ export function Watches({ agentId }: { agentId: string }) {
   const list = data?.veilles ?? [];
 
   const act = async (w: Watch, action: string) => {
-    if (action === "supprimer" && !confirm(`Supprimer la veille « ${w.nom} » ?`)) return false;
+    if (action === "supprimer" && !confirm(t("Supprimer la veille « {nom} » ?", { nom: w.nom }))) return false;
     setBusy(w.id + action);
     try {
       await send(`/api/agents/${agentId}/watches/${w.id}/${action}`, {});
@@ -1642,30 +1660,30 @@ export function Watches({ agentId }: { agentId: string }) {
     return (
       <ObjectPage title={w.nom} onClose={() => setOpened(null)}>
         <button type="button" onClick={() => setOpened(null)} className="flex cursor-pointer items-center gap-1 self-start text-sm text-muted-foreground hover:text-foreground">
-          <ChevronLeft className="size-4" />Veilles
+          <ChevronLeft className="size-4" />{t("Veilles")}
         </button>
         <div className="flex items-start gap-2">
           <span className={cn("mt-2 size-2.5 shrink-0 rounded-full", !w.active ? "bg-muted-foreground/40" : w.erreur ? "bg-danger" : "bg-ok")} />
           <div className="min-w-0 flex-1">
             <h3 className="text-base font-semibold">{w.nom}</h3>
             <p className="truncate text-sm text-muted-foreground" title={w.url}>{sourceLabel(w)}</p>
-            <p className="text-sm text-muted-foreground">{everyLabel(w.minutes)}{!w.active ? " · en pause" : w.dernier_passage ? ` · vue ${ago(w.dernier_passage)}` : ""}</p>
+            <p className="text-sm text-muted-foreground">{everyLabel(w.minutes)}{!w.active ? ` · ${t("en pause")}` : w.dernier_passage ? ` · ${t("vue {quand}", { quand: ago(w.dernier_passage) ?? "" })}` : ""}</p>
           </div>
         </div>
         <div className="grid grid-cols-3 gap-2">
           <Button variant="outline" onClick={() => act(w, w.active ? "pause" : "reprendre")} disabled={!!busy}>
-            {w.active ? <Pause /> : <Play />}{w.active ? "Pause" : "Reprendre"}
+            {w.active ? <Pause /> : <Play />}{w.active ? t("Pause") : t("Reprendre")}
           </Button>
           <Button variant="outline" onClick={() => act(w, "verifier")} disabled={!!busy}>
-            {busy === w.id + "verifier" ? <Loader2 className="animate-spin" /> : <Zap />}Vérifier
+            {busy === w.id + "verifier" ? <Loader2 className="animate-spin" /> : <Zap />}{t("Vérifier")}
           </Button>
           <Button variant="outline" className="text-danger" onClick={async () => { if (await act(w, "supprimer")) setOpened(null); }} disabled={!!busy}>
-            <Trash2 />Supprimer
+            <Trash2 />{t("Supprimer")}
           </Button>
         </div>
-        {w.erreur && <p className="text-sm text-danger">{w.erreur}</p>}
-        {w.critere && <div className="rounded-xl bg-muted/50 p-3 text-sm"><b>{w.consigne ? "Si" : "Ce qui compte"}</b> : {w.critere}</div>}
-        {w.consigne && <div className="rounded-xl bg-muted/50 p-3 text-sm"><b>Alors</b> : {w.consigne}</div>}
+        {w.erreur && <p className="text-sm text-danger">{tServeur(w.erreur)}</p>}
+        {w.critere && <div className="rounded-xl bg-muted/50 p-3 text-sm">{tr("{titre} : {texte}", { titre: <b>{w.consigne ? t("Si") : t("Ce qui compte")}</b>, texte: w.critere })}</div>}
+        {w.consigne && <div className="rounded-xl bg-muted/50 p-3 text-sm">{tr("{titre} : {texte}", { titre: <b>{t("Alors")}</b>, texte: w.consigne })}</div>}
         <p className="text-sm text-muted-foreground tabular-nums">{tally(w)}</p>
         <ErrorText>{error}</ErrorText>
       </ObjectPage>
@@ -1673,8 +1691,8 @@ export function Watches({ agentId }: { agentId: string }) {
   }
 
   return (
-    <Section title="Surveiller un changement" count={list.length} defaultOpen>
-      {data && !list.length && !adding && <p className="text-sm text-muted-foreground">Aucune veille.</p>}
+    <Section title={t("Surveiller un changement")} count={list.length} defaultOpen>
+      {data && !list.length && !adding && <p className="text-sm text-muted-foreground">{t("Aucune veille.")}</p>}
       {list.length > 0 && (
         <ul className="flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border">
           {list.map((w) => (
@@ -1683,7 +1701,7 @@ export function Watches({ agentId }: { agentId: string }) {
                 <span className={cn("size-2 shrink-0 rounded-full", !w.active ? "bg-muted-foreground/40" : w.erreur ? "bg-danger" : "bg-ok")} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium">{w.nom}</span>
-                  <span className="block truncate text-xs text-muted-foreground">{everyLabel(w.minutes)}{!w.active ? " · en pause" : ""}</span>
+                  <span className="block truncate text-xs text-muted-foreground">{everyLabel(w.minutes)}{!w.active ? ` · ${t("en pause")}` : ""}</span>
                 </span>
                 <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
               </button>
@@ -1693,23 +1711,23 @@ export function Watches({ agentId }: { agentId: string }) {
       )}
       {adding ? (
         <form onSubmit={create} className="flex flex-col gap-2 rounded-xl border border-border p-2.5">
-          <Input value={form.nom} onChange={(e) => setForm({ ...form, nom: e.target.value })} className="h-9" placeholder="Nom (ex. Prix du vélo)" aria-label="Nom de la veille" required />
-          <select value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value, url: "" })} className="h-9 rounded-md border border-border bg-surface px-2 text-sm" aria-label="Source">
+          <Input value={form.nom} onChange={(e) => setForm({ ...form, nom: e.target.value })} className="h-9" placeholder={t("Nom (ex. Prix du vélo)")} aria-label={t("Nom de la veille")} required />
+          <select value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value, url: "" })} className="h-9 rounded-md border border-border bg-surface px-2 text-sm" aria-label={t("Source")}>
             {SOURCES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
-          <Input value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} className="h-9" placeholder={SOURCES.find(([v]) => v === form.source)?.[2]} aria-label="Ce qu'il faut relever" required={form.source === "page"} />
-          <Textarea value={form.critere} onChange={(e) => setForm({ ...form, critere: e.target.value })} rows={2} placeholder="Condition ou ce qui compte (ex. un courriel de Paul à propos d'une facture)" aria-label="Condition" />
-          <Textarea value={form.consigne} onChange={(e) => setForm({ ...form, consigne: e.target.value })} rows={2} placeholder="Facultatif : ce que l'agent fera alors. Vide : il te prévient, sans se réveiller." aria-label="Ce que l'agent fera alors" />
-          <select value={form.minutes} onChange={(e) => setForm({ ...form, minutes: Number(e.target.value) })} className="h-9 rounded-md border border-border bg-surface px-2 text-sm" aria-label="Fréquence">
+          <Input value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} className="h-9" placeholder={SOURCES.find(([v]) => v === form.source)?.[2]} aria-label={t("Ce qu'il faut relever")} required={form.source === "page"} />
+          <Textarea value={form.critere} onChange={(e) => setForm({ ...form, critere: e.target.value })} rows={2} placeholder={t("Condition ou ce qui compte (ex. un courriel de Paul à propos d'une facture)")} aria-label={t("Condition")} />
+          <Textarea value={form.consigne} onChange={(e) => setForm({ ...form, consigne: e.target.value })} rows={2} placeholder={t("Facultatif : ce que l'agent fera alors. Vide : il te prévient, sans se réveiller.")} aria-label={t("Ce que l'agent fera alors")} />
+          <select value={form.minutes} onChange={(e) => setForm({ ...form, minutes: Number(e.target.value) })} className="h-9 rounded-md border border-border bg-surface px-2 text-sm" aria-label={t("Fréquence")}>
             {EVERY.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
           <div className="flex gap-2">
-            <Button type="submit" size="sm" disabled={busy === "new"}>{busy === "new" && <Loader2 className="animate-spin" />}Créer et relever</Button>
-            <Button type="button" size="sm" variant="ghost" onClick={() => setAdding(false)}>Annuler</Button>
+            <Button type="submit" size="sm" disabled={busy === "new"}>{busy === "new" && <Loader2 className="animate-spin" />}{t("Créer et relever")}</Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setAdding(false)}>{t("Annuler")}</Button>
           </div>
         </form>
       ) : (
-        <Button variant="outline" size="sm" className="self-start" onClick={() => setAdding(true)}><Plus />Nouvelle veille</Button>
+        <Button variant="outline" size="sm" className="self-start" onClick={() => setAdding(true)}><Plus />{t("Nouvelle veille")}</Button>
       )}
       <ErrorText>{error}</ErrorText>
     </Section>

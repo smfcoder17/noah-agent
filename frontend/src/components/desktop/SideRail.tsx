@@ -3,6 +3,7 @@ import { Inbox, Plus, Search, Settings, Target } from "lucide-react";
 import type { Agent, Conversation } from "@/lib/api";
 import type { NavTab } from "@/lib/navPrefs";
 import { AgentNav } from "../AgentNav";
+import { t } from "@/i18n";
 
 /**
  * Barre de gauche, sur le modèle de Grok Bot : ce qui attend la personne, puis ses agents alignés. L'agent ouvert
@@ -29,18 +30,18 @@ export const SideRail = memo(function SideRail({ waiting = 0, onInbox, agent, ag
   onNewAgent?: () => void;
 }) {
   const list = agents.length ? agents : agent ? [agent] : [];
-  return <aside className="side-rail" aria-label="Navigation ordinateur">
-    <button className="rail-row" onClick={onInbox}><Inbox size={18} /><span>À toi</span>{waiting > 0 ? <span className="rail-count ml-auto" aria-label={`${waiting} en attente`}>{waiting}</span> : <span className="sr-only">0 en attente</span>}</button>
-    <h2 className="section-label rail-agents-label">Agents</h2>
-    <nav aria-label="Navigation" className="rail-agents-scroll">
+  return <aside className="side-rail" aria-label={t("Navigation ordinateur")}>
+    <button className="rail-row" onClick={onInbox}><Inbox size={18} /><span>{t("À toi")}</span>{waiting > 0 ? <span className="rail-count ml-auto" aria-label={t("{n} en attente", { n: waiting })}>{waiting}</span> : <span className="sr-only">{t("{n} en attente", { n: 0 })}</span>}</button>
+    <h2 className="section-label rail-agents-label">{t("Agents")}</h2>
+    <nav aria-label={t("Navigation")} className="rail-agents-scroll">
       <AgentNav agents={list} agentId={agent?.id ?? null} tabs={tabs} active={active} conversations={conversations} activeThread={activeThread}
         onPick={(id) => (onPickAgent ? onPickAgent(id) : onAgent())} onTab={onTab} onThread={onThread} onAgentPage={onAgent} />
     </nav>
     <div className="rail-bottom">
-      {onNewAgent && <button className="rail-row" onClick={onNewAgent}><Plus size={18} /><span>Nouvel agent</span></button>}
-      <button className="rail-row" onClick={onGoals}><Target size={18} /><span>Objectifs</span></button>
-      <button className="rail-row" onClick={onMenu}><Search size={18} /><span>Rechercher</span></button>
-      <button className="rail-row" onClick={onSettings}><Settings size={18} /><span>Réglages</span></button>
+      {onNewAgent && <button className="rail-row" onClick={onNewAgent}><Plus size={18} /><span>{t("Nouvel agent")}</span></button>}
+      <button className="rail-row" onClick={onGoals}><Target size={18} /><span>{t("Objectifs")}</span></button>
+      <button className="rail-row" onClick={onMenu}><Search size={18} /><span>{t("Rechercher")}</span></button>
+      <button className="rail-row" onClick={onSettings}><Settings size={18} /><span>{t("Réglages")}</span></button>
     </div>
   </aside>;
 });

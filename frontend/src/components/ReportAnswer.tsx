@@ -6,6 +6,7 @@ import { useState } from "react";
 import { EDITEUR_EMAIL } from "@/lib/editeur";
 import { COMMENTAIRE_MAX, MOTIFS, reportMailto } from "@/lib/signalement";
 import { Button, Dialog, DialogContent, Label, Textarea } from "./ui";
+import { t } from "@/i18n";
 
 /** Le bouton, et sa fenêtre. `readText` lit la réponse au moment d'ouvrir : le texte affiché, données masquées comprises. */
 export function ReportAnswer({ readText }: { readText: () => string }) {
@@ -23,21 +24,21 @@ export function ReportAnswer({ readText }: { readText: () => string }) {
   };
   return (
     <>
-      <Button variant="ghost" size="icon-sm" aria-label="Signaler la réponse" title="Signaler cette réponse" onClick={show}>
+      <Button variant="ghost" size="icon-sm" aria-label={t("Signaler la réponse")} title={t("Signaler cette réponse")} onClick={show}>
         <Flag />
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         {open && (
-          <DialogContent title="Signaler cette réponse" description="Offensante, dangereuse ou fausse ? Dis-le à l'éditeur de Noah.">
+          <DialogContent title={t("Signaler cette réponse")} description={t("Offensante, dangereuse ou fausse ? Dis-le à l'éditeur de Noah.")}>
             {sent ? (
               <div className="flex flex-col gap-4" role="status">
-                <p className="text-sm">Merci. Ton app de messagerie a reçu le signalement : relis-le, puis envoie-le.</p>
-                <Button className="self-end" onClick={() => setOpen(false)}>Fermer</Button>
+                <p className="text-sm">{t("Merci. Ton app de messagerie a reçu le signalement : relis-le, puis envoie-le.")}</p>
+                <Button className="self-end" onClick={() => setOpen(false)}>{t("Fermer")}</Button>
               </div>
             ) : (
               <form className="flex flex-col gap-4" onSubmit={(e) => e.preventDefault()}>
                 <fieldset className="flex flex-col gap-2">
-                  <legend className="mb-1 text-sm font-medium">Motif</legend>
+                  <legend className="mb-1 text-sm font-medium">{t("Motif")}</legend>
                   {MOTIFS.map((m) => (
                     <label key={m} className="flex items-center gap-2 text-sm">
                       <input type="radio" name="motif" value={m} checked={motif === m} onChange={() => setMotif(m)} />
@@ -46,21 +47,20 @@ export function ReportAnswer({ readText }: { readText: () => string }) {
                   ))}
                 </fieldset>
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="signalement-commentaire">Commentaire (facultatif)</Label>
+                  <Label htmlFor="signalement-commentaire">{t("Commentaire (facultatif)")}</Label>
                   <Textarea id="signalement-commentaire" value={commentaire} maxLength={COMMENTAIRE_MAX} rows={3} onChange={(e) => setCommentaire(e.target.value)} />
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Ton serveur et ton modèle sont les tiens : Noah n'a pas de serveur pour recevoir ce signalement. Il part par
-                  e-mail à l'éditeur ({EDITEUR_EMAIL}), avec le texte de cette réponse. Tu le relis avant de l'envoyer.
+                  {t("Ton serveur et ton modèle sont les tiens : Noah n'a pas de serveur pour recevoir ce signalement. Il part par e-mail à l'éditeur ({email}), avec le texte de cette réponse. Tu le relis avant de l'envoyer.", { email: EDITEUR_EMAIL })}
                 </p>
                 <div className="flex justify-end gap-2">
-                  <Button type="button" variant="ghost" onClick={() => setOpen(false)}>Annuler</Button>
+                  <Button type="button" variant="ghost" onClick={() => setOpen(false)}>{t("Annuler")}</Button>
                   {motif ? (
                     <Button asChild>
-                      <a href={reportMailto(motif, commentaire, text)} onClick={() => setSent(true)}>Envoyer par e-mail</a>
+                      <a href={reportMailto(motif, commentaire, text)} onClick={() => setSent(true)}>{t("Envoyer par e-mail")}</a>
                     </Button>
                   ) : (
-                    <Button type="button" disabled>Envoyer par e-mail</Button>
+                    <Button type="button" disabled>{t("Envoyer par e-mail")}</Button>
                   )}
                 </div>
               </form>

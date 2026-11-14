@@ -3,6 +3,7 @@ import type React from "react";
 // L'utilisateur, déjà connecté ici, voit quel appareil demande l'accès et décide. Le mot de passe ne passe jamais par l'app.
 import { Laptop, Loader2, Smartphone } from "lucide-react";
 import { useEffect, useState, useRef } from "react";
+import { t, tr } from "@/i18n";
 import { ApiError, get, send } from "@/lib/api";
 import { Button, ErrorText } from "./ui";
 import { GrantProof } from "./GrantProof";
@@ -57,6 +58,7 @@ export function DeviceApproval() {
     setError("");
     setState("no");
   };
+  // i18n-ignore : décision envoyée au serveur
   const decide = async (decision: "autoriser" | "refuser") => {
     setState("busy");
     try {
@@ -104,40 +106,42 @@ export function DeviceApproval() {
       <div ref={box} tabIndex={-1} onKeyDown={keys} role="dialog" aria-modal="true" aria-labelledby="approval-title" className="outline-none flex w-full max-w-sm flex-col gap-4 rounded-2xl border border-border bg-surface p-6 shadow-lg">
         {state === "ok" ? (
           <>
-            <h2 id="approval-title" className="text-lg font-semibold">Appareil autorisé</h2>
+            <h2 id="approval-title" className="text-lg font-semibold">{t("Appareil autorisé")}</h2>
             {req?.verification ? (
               <p className="text-sm">
-                Saisis maintenant ce nombre dans l'app : <b className="font-mono text-2xl tracking-widest">{req.verification}</b>
-                <span className="mt-1 block text-xs text-muted-foreground">Ne le donne à personne, même si on te le demande au nom de Noah.</span>
+                {tr("Saisis maintenant ce nombre dans l'app : {nombre}", { nombre: <b className="font-mono text-2xl tracking-widest">{req.verification}</b> })}
+                <span className="mt-1 block text-xs text-muted-foreground">{t("Ne le donne à personne, même si on te le demande au nom de Noah.")}</span>
               </p>
             ) : (
-              <p className="text-sm text-muted-foreground">Tu peux revenir dans l'app : elle s'ouvre toute seule. Cet onglet peut être fermé.</p>
+              <p className="text-sm text-muted-foreground">{t("Tu peux revenir dans l'app : elle s'ouvre toute seule. Cet onglet peut être fermé.")}</p>
             )}
-            <Button className="self-end" onClick={close}>Fermer</Button>
+            <Button className="self-end" onClick={close}>{t("Fermer")}</Button>
           </>
         ) : req ? (
           <>
             <div className="flex items-center gap-3">
               <span className="grid size-10 place-items-center rounded-xl bg-muted"><Icon className="size-5" /></span>
-              <h2 id="approval-title" className="text-lg font-semibold">Autoriser cet appareil ?</h2>
+              <h2 id="approval-title" className="text-lg font-semibold">{t("Autoriser cet appareil ?")}</h2>
             </div>
             <p className="text-sm">
-              <b>{req.appareil}</b> demande à se connecter à ton compte Noah{req.ip ? <> depuis l'adresse <span className="font-mono">{req.ip}</span></> : null}.
+              {req.ip
+                ? tr("{appareil} demande à se connecter à ton compte Noah depuis l'adresse {ip}.", { appareil: <b>{req.appareil}</b>, ip: <span className="font-mono">{req.ip}</span> })
+                : tr("{appareil} demande à se connecter à ton compte Noah.", { appareil: <b>{req.appareil}</b> })}
             </p>
-            <p className="text-xs text-muted-foreground">Demande faite {minutes(req.age)}, valable encore {minutes(req.expire, true)}. Ce nom, c'est l'appareil qui le donne : il ne prouve rien.</p>
+            <p className="text-xs text-muted-foreground">{t("Demande faite {age}, valable encore {reste}. Ce nom, c'est l'appareil qui le donne : il ne prouve rien.", { age: minutes(req.age), reste: minutes(req.expire, true) })}</p>
             {req.autre_reseau && (
               <p className="rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn">
-                Cette demande ne vient pas du même réseau que toi. Si tu n'as pas l'appareil en main, refuse.
+                {t("Cette demande ne vient pas du même réseau que toi. Si tu n'as pas l'appareil en main, refuse.")}
               </p>
             )}
             {req.verification ? (
               <p className="text-sm">
-                Après avoir autorisé, saisis ce nombre dans l'app : <b className="font-mono text-2xl tracking-widest">{req.verification}</b>
-                <span className="mt-1 block text-xs text-muted-foreground">Ne le donne à personne, même si on te le demande au nom de Noah.</span>
+                {tr("Après avoir autorisé, saisis ce nombre dans l'app : {nombre}", { nombre: <b className="font-mono text-2xl tracking-widest">{req.verification}</b> })}
+                <span className="mt-1 block text-xs text-muted-foreground">{t("Ne le donne à personne, même si on te le demande au nom de Noah.")}</span>
               </p>
             ) : (
             <label className="flex flex-col gap-1 text-sm">
-              Nombre affiché sur l'appareil
+              {t("Nombre affiché sur l'appareil")}
               <input
                 inputMode="numeric" autoComplete="off" maxLength={3} value={code}
                 onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
@@ -145,21 +149,21 @@ export function DeviceApproval() {
               />
             </label>
             )}
-            <p className="text-xs text-muted-foreground">Autorise seulement si tu viens de lancer cette demande toi-même et que tu as l'appareil sous les yeux. Tu pourras le déconnecter dans Réglages → Appareils.</p>
+            <p className="text-xs text-muted-foreground">{t("Autorise seulement si tu viens de lancer cette demande toi-même et que tu as l'appareil sous les yeux. Tu pourras le déconnecter dans Réglages → Appareils.")}</p>
             {req.preuve_requise && <GrantProof password={password} code={secondCode} needCode={req.code_requis} onPassword={setPassword} onCode={setSecondCode} />}
             <ErrorText>{error}</ErrorText>
             <div className="flex justify-end gap-2">
-              <Button variant="ghost" onClick={() => decide("refuser")} disabled={state === "busy"}>Refuser</Button>
+              <Button variant="ghost" onClick={() => decide("refuser")} disabled={state === "busy"}>{t("Refuser")}</Button>
               <Button onClick={() => decide("autoriser")} disabled={state === "busy" || (!req.verification && code.length !== 3) || !proven}>
-                {state === "busy" && <Loader2 className="animate-spin" />}Autoriser cet appareil
+                {state === "busy" && <Loader2 className="animate-spin" />}{t("Autoriser cet appareil")}
               </Button>
             </div>
           </>
         ) : (
           <>
-            <h2 id="approval-title" className="text-lg font-semibold">Demande impossible</h2>
+            <h2 id="approval-title" className="text-lg font-semibold">{t("Demande impossible")}</h2>
             <ErrorText>{error}</ErrorText>
-            <Button className="self-end" onClick={close}>Fermer</Button>
+            <Button className="self-end" onClick={close}>{t("Fermer")}</Button>
           </>
         )}
       </div>

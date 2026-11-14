@@ -10,6 +10,7 @@ import { appShell, nativeCall } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import { CallStage } from "./CallStage";
 import { Button } from "./ui";
+import { t } from "@/i18n";
 
 const TICK = 50; // relevé du niveau, en ms
 const VOICE = 0.035; // niveau (RMS) au-dessus duquel on considère que quelqu'un parle
@@ -149,7 +150,7 @@ async function transcribe(blob: Blob, agentId: string): Promise<string> {
   return (await r.json()).text as string;
 }
 
-const MIC_REFUSED = "Micro refusé ou indisponible.";
+const MIC_REFUSED = t("Micro refusé ou indisponible.");
 
 /** Transcrit les morceaux en parallèle mais rend les textes dans l'ordre où ils ont été dits. */
 function useTranscripts(agentId: string, onText: (text: string) => void) {
@@ -188,7 +189,7 @@ function useTranscripts(agentId: string, onText: (text: string) => void) {
               const refused = status > 0 && status < 500; // réessayer ne changera rien
               const absent = !status || status === 502 || status === 503 || status === 504;
               if (!live.current || refused || attempt >= (absent ? TRIES_ABSENT : TRIES_ERROR)) throw e;
-              if (absent && attempt >= 3) setError("Réseau coupé : ce que tu as dit partira dès son retour.");
+              if (absent && attempt >= 3) setError(t("Réseau coupé : ce que tu as dit partira dès son retour."));
               await new Promise((r) => setTimeout(r, Math.min(700 * attempt, 10_000)));
             }
           }
@@ -198,7 +199,7 @@ function useTranscripts(agentId: string, onText: (text: string) => void) {
       };
       const p = run()
         .catch((e) => {
-          setError(e instanceof ApiError && e.status < 500 ? e.message : "Un passage n'a pas pu être transcrit. Le reste est bien là.");
+          setError(e instanceof ApiError && e.status < 500 ? e.message : t("Un passage n'a pas pu être transcrit. Le reste est bien là."));
           return "";
         })
         .then((text) => {
@@ -231,7 +232,7 @@ function failureOf(m: { content: readonly { type: string; toolName?: string; arg
 }
 
 /** Une coupure, et non un échec : voir useAgentChat, qui recharge la conversation au retour du serveur. */
-const isCutOff = (m: Parameters<typeof failureOf>[0]) => failureOf(m).startsWith("Connexion au serveur perdue");
+const isCutOff = (m: Parameters<typeof failureOf>[0]) => failureOf(m).startsWith(t("Connexion au serveur perdue. La réponse s'affichera dès son retour."));
 
 /** Ce qu'on lit à voix haute : le texte de la réponse, sans widgets, code ni mise en forme. */
 function spoken(text: string) {
@@ -241,7 +242,7 @@ function spoken(text: string) {
     .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
     .replace(/[*_#>`|]/g, "")
-    .replace(/\/opt\/data\/\S+/g, "le fichier")
+    .replace(/\/opt\/data\/\S+/g, t("le fichier"))
     .replace(/\s*\((?:demande\s+)?(?=[0-9a-f]*\d)[0-9a-f]{8,}\)/gi, "") // un identifiant interne ne se dit pas à voix haute
     .replace(/\s+/g, " ")
     .trim()
@@ -298,24 +299,24 @@ export function useFieldDictation(agentId: string, onText: (text: string) => voi
   const mic = useMic();
   const [state, setState] = useState<"idle" | "recording" | "finishing">("idle");
   const recording = useRef(false);
-  const t = useTranscripts(agentId, onText);
+  const tx = useTranscripts(agentId, onText);
 
   mic.onTick.current = ({ speech, silence }) => {
     if (recording.current && speech >= 250 && silence >= PAUSE) {
-      void mic.cut().then(({ blob }) => blob && t.submit(blob));
+      void mic.cut().then(({ blob }) => blob && tx.submit(blob));
     }
   };
 
   const start = async () => {
-    t.setError("");
+    tx.setError("");
     const refusal = await voiceRefusal("dictation");
-    if (refusal) return t.setError(refusal);
+    if (refusal) return tx.setError(refusal);
     try {
       await mic.open();
       recording.current = true;
       setState("recording");
     } catch {
-      t.setError(MIC_REFUSED);
+      tx.setError(MIC_REFUSED);
     }
   };
 
@@ -325,13 +326,13 @@ export function useFieldDictation(agentId: string, onText: (text: string) => voi
     setState("finishing");
     const { blob, speech } = await mic.cut(false);
     mic.close();
-    if (blob && speech >= 150) t.submit(blob); // un dernier morceau sans voix donnerait un texte inventé
-    await t.settle();
+    if (blob && speech >= 150) tx.submit(blob); // un dernier morceau sans voix donnerait un texte inventé
+    await tx.settle();
     setState("idle");
     return true;
   };
 
-  return { state, level: mic.level, pending: t.pending, error: t.error, start, finish };
+  return { state, level: mic.level, pending: tx.pending, error: tx.error, start, finish };
 }
 
 export type Dictation = ReturnType<typeof useDictation>;
@@ -353,7 +354,7 @@ export function useCanDictate() {
 }
 
 /** Bouton du compositeur : appuyer pour dicter, appuyer à nouveau pour arrêter (le texte reste à relire). */
-export function DictateButton({ dictation, what = "un message", field = false }: { dictation: Dictation; what?: string; field?: boolean }) {
+export function DictateButton({ dictation, what = t("un message"), field = false }: { dictation: Dictation; what?: string; field?: boolean }) {
   const { state, level, pending, error, start, finish } = dictation;
   return (
     <span className="relative">
@@ -364,14 +365,14 @@ export function DictateButton({ dictation, what = "un message", field = false }:
         onClick={() => (state === "idle" ? start() : finish(false))}
         disabled={state === "finishing"}
         aria-pressed={state === "recording"}
-        aria-label={state === "recording" ? "Arrêter la dictée" : `Dicter ${what}`}
-        title={state === "recording" ? (field ? "Arrêter la dictée" : "Arrêter la dictée (Envoyer envoie directement)") : "Dicter"}
+        aria-label={state === "recording" ? t("Arrêter la dictée") : t("Dicter {quoi}", { quoi: what })}
+        title={state === "recording" ? (field ? t("Arrêter la dictée") : t("Arrêter la dictée (Envoyer envoie directement)")) : t("Dicter")}
         className={cn(state === "idle" && "text-muted-foreground")}
       >
         {state === "finishing" ? <Loader2 className="animate-spin" /> : state === "recording" ? <Level level={level} /> : <Mic />}
       </Button>
       {state === "recording" && pending > 0 && (
-        <Loader2 aria-label="Transcription en cours" className="absolute -right-0.5 -top-0.5 size-3 animate-spin text-accent" />
+        <Loader2 aria-label={t("Transcription en cours")} className="absolute -right-0.5 -top-0.5 size-3 animate-spin text-accent" />
       )}
       {error && (
         <span role="alert" className={cn("absolute bottom-full mb-2 w-64 rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn shadow", field ? "right-0" : "left-0")}>
@@ -384,7 +385,7 @@ export function DictateButton({ dictation, what = "un message", field = false }:
 
 export function VoiceModeButton({ onClick }: { onClick: () => void }) {
   return (
-    <Button type="button" variant="ghost" size="icon" onClick={onClick} aria-label="Mode vocal" title="Parler avec l'agent" className="text-muted-foreground">
+    <Button type="button" variant="ghost" size="icon" onClick={onClick} aria-label={t("Mode vocal")} title={t("Parler avec l'agent")} className="text-muted-foreground">
       <AudioLines />
     </Button>
   );
@@ -584,7 +585,7 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
   const runningNow = useRef(running);
   runningNow.current = running;
 
-  const t = useTranscripts(agentId, (text) => {
+  const tx = useTranscripts(agentId, (text) => {
     heard.current.push(text);
     setLive(heard.current.join(" "));
   });
@@ -643,7 +644,7 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
       if (!sorted) continue;
       if (sorted.type !== "tache") {
         queue.current = queue.current.filter((q) => q !== item);
-        setNote(`C'est transmis : « ${item.text.slice(0, 60)} »`);
+        setNote(t("C'est transmis : « {texte} »", { texte: item.text.slice(0, 60) }));
       }
       return;
     }
@@ -661,7 +662,7 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
       }
       const item: Waiting = { text, action: true, id: audioId() };
       queue.current.push(item);
-      setNote(`Je lui transmets ensuite : « ${text.slice(0, 60)} »`);
+      setNote(t("Je lui transmets ensuite : « {texte} »", { texte: text.slice(0, 60) }));
       item.action = await answer(text, ready);
       if (item.action && runningNow.current && queue.current.includes(item)) item.sorting = sortOut(item);
       return;
@@ -680,9 +681,9 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
     setSending(true);
     if (force) {
       const { blob, speech } = await mic.cut();
-      if (blob && speech >= 150) t.submit(blob);
+      if (blob && speech >= 150) tx.submit(blob);
     }
-    await t.settle();
+    await tx.settle();
     const text = heard.current.join(" ").trim();
     heard.current = [];
     setLive("");
@@ -701,7 +702,7 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
     const echo = playing.current;
     void mic.cut(false).then(({ blob, speech }) => {
       mic.close();
-      if (blob && speech >= 150 && !echo) t.submit(blob);
+      if (blob && speech >= 150 && !echo) tx.submit(blob);
       if (alive.current) micReady.current = openMic();
     });
   };
@@ -732,17 +733,17 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
       cutting.current++;
       void mic.cut().then(({ blob }) => {
         cutting.current--;
-        if (blob) t.submit(blob);
+        if (blob) tx.submit(blob);
       });
       return;
     }
     const said = heard.current.join(" ");
     // Tout est transcrit et la personne se tait : on prépare la réponse, sans la faire entendre.
-    if (said && !held.current && !committing.current && speech < RESUMED && silence >= TURN_PAUSE && !cutting.current && !t.inFlight()) {
+    if (said && !held.current && !committing.current && speech < RESUMED && silence >= TURN_PAUSE && !cutting.current && !tx.inFlight()) {
       held.current = hold(said.trim(), priorTurns());
     }
     // Fin du tour : silence assez long pour ce qui a été dit, et plus rien en train d'être dit.
-    if (!committing.current && speech < 150 && (said || t.pending) && silence >= endOfTurnDelay(said)) void commit();
+    if (!committing.current && speech < 150 && (said || tx.pending) && silence >= endOfTurnDelay(said)) void commit();
   };
 
   const openMic = async () => {
@@ -799,7 +800,7 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
       if (!alive.current) return;
       const before = voiceHeard.current;
       await speak(text);
-      if (alive.current && voiceHeard.current === before) setNote("La voix n'a pas pu lire le compte rendu : il est écrit dans la conversation.");
+      if (alive.current && voiceHeard.current === before) setNote(t("La voix n'a pas pu lire le compte rendu : il est écrit dans la conversation."));
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reportId]);
@@ -819,7 +820,7 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
   useEffect(() => {
     if (!asked || askedSaid.current === asked.id) return;
     askedSaid.current = asked.id;
-    void speak(`J'ai besoin de ton accord avant d'agir. ${spoken(asked.what).slice(0, 160)}. Réponds à l'écran : Autoriser ou Refuser.`).catch(() => {});
+    void speak(t("J'ai besoin de ton accord avant d'agir. {demande}. Réponds à l'écran : Autoriser ou Refuser.", { demande: spoken(asked.what).slice(0, 160) })).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [askedId]);
 
@@ -860,7 +861,7 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
   const conclude = (last: (typeof messages)[number] | undefined) => {
     // Un échec se dit : sinon l'appel resterait sur « Je t'écoute », comme si le travail se faisait.
     const failure = failureOf(last);
-    if (failure) finished(`${agentName} n'a pas pu répondre. ${failure}`, true);
+    if (failure) finished(t("{nom} n'a pas pu répondre. {erreur}", { nom: agentName, erreur: failure }), true);
     else finished(last?.role === "assistant" ? textOf(last) : "");
   };
   const resend = () => {
@@ -882,7 +883,7 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
     // Connexion perdue : le tour reste ouvert, ce qui est dit d'ici là attend, et le résultat sera lu à son arrivée.
     if (isCutOff(last)) {
       cutOff.current = Date.now();
-      setNote(`Connexion perdue : ${agentName} continue de son côté, je te lis la suite dès son retour.`);
+      setNote(t("Connexion perdue : {nom} continue de son côté, je te lis la suite dès son retour.", { nom: agentName }));
       // Première phrase d'une conversation : aucun historique à relire, elle repart dès que le serveur répond.
       if (messages.length <= 2 && lastSaid.current) {
         const retry = setInterval(() => {
@@ -968,16 +969,16 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
 
   const phase = error ? "error" : speaking ? "speaking" : sending ? "sending" : running || busy.current ? "waiting" : "listening";
   const words: Record<typeof phase, string> = {
-    listening: "Je t'écoute…",
-    sending: "J'envoie…",
-    speaking: `${agentName} parle…`,
-    waiting: asked ? `${agentName} attend ton accord, à l'écran` : `${agentName} s'en occupe… tu peux continuer à parler`,
-    error: error || "Le mode vocal s'est arrêté.",
+    listening: t("Je t'écoute…"),
+    sending: t("J'envoie…"),
+    speaking: t("{nom} parle…", { nom: agentName }),
+    waiting: asked ? t("{nom} attend ton accord, à l'écran", { nom: agentName }) : t("{nom} s'en occupe… tu peux continuer à parler", { nom: agentName }),
+    error: error || t("Le mode vocal s'est arrêté."),
   };
   const hint = live
-    ? `« ${live.slice(-90)} »`
-    : note || t.error ||
-      (phase === "speaking" ? "Parle pour l'interrompre." : phase === "error" ? (error === MIC_REFUSED ? "Vérifie l'accès au micro." : "") : "Parle naturellement, j'envoie quand tu as fini.");
+    ? t("« {texte} »", { texte: live.slice(-90) })
+    : note || tx.error ||
+      (phase === "speaking" ? t("Parle pour l'interrompre.") : phase === "error" ? (error === MIC_REFUSED ? t("Vérifie l'accès au micro.") : "") : t("Parle naturellement, j'envoie quand tu as fini."));
 
   return (
     <CallStage
@@ -993,11 +994,11 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
       link={link}
       extra={
         <>
-          {(phase === "sending" || t.pending > 0) && <Loader2 className="size-5 animate-spin text-accent" />}
-          {(phase === "listening" || phase === "waiting") && (live || t.pending > 0) && (
-            <Button variant="outline" onClick={() => commit(true)}>Envoyer</Button>
+          {(phase === "sending" || tx.pending > 0) && <Loader2 className="size-5 animate-spin text-accent" />}
+          {(phase === "listening" || phase === "waiting") && (live || tx.pending > 0) && (
+            <Button variant="outline" onClick={() => commit(true)}>{t("Envoyer")}</Button>
           )}
-          {phase === "error" && <Button variant="outline" onClick={openMic}>Réessayer</Button>}
+          {phase === "error" && <Button variant="outline" onClick={openMic}>{t("Réessayer")}</Button>}
         </>
       }
       onMute={() => {

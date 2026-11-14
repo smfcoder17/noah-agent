@@ -25,6 +25,7 @@ import type { Level } from "@/lib/modes";
 import { type MediaModel, ModelSelect } from "./ModelSelect";
 import { Dialog, DialogContent, Tabs, TabsContent, TabsList, TabsTrigger } from "./ui";
 import { Button, Input, Label } from "./ui";
+import { t, tr } from "@/i18n";
 
 export type SettingsTab = "appearance" | "providers" | "home" | "mail" | "brain" | "create" | "voice" | "phone" | "notifications" | "telephone" | "security" | "updates" | "privacy" | "profiles" | "diagnostic";
 
@@ -41,24 +42,24 @@ type MediaState = {
 // Six rubriques, rangées par ce que la personne vient faire. Les anciens noms restent à l'intérieur : un message d'erreur qui dit « Réglages > Modèles et budget > Cerveau » reste vrai.
 function rubrics(owner: boolean): { id: string; label: string; tabs: [SettingsTab, string][] }[] {
   return [
-    { id: "appearance", label: "Apparence", tabs: [["appearance", "Apparence"]] },
-    { id: "account", label: "Compte", tabs: [["security", "Sécurité"]] },
-    { id: "devices", label: "Appareils", tabs: [["phone", "Appareils reliés"], ...(phoneSettingsAvailable() ? [["telephone", "Ce téléphone"] as [SettingsTab, string]] : [])] },
-    { id: "notifications", label: "Notifications", tabs: [["notifications", "Notifications"]] },
+    { id: "appearance", label: t("Apparence"), tabs: [["appearance", t("Apparence")]] },
+    { id: "account", label: t("Compte"), tabs: [["security", t("Sécurité")]] },
+    { id: "devices", label: t("Appareils"), tabs: [["phone", t("Appareils reliés")], ...(phoneSettingsAvailable() ? [["telephone", t("Ce téléphone")] as [SettingsTab, string]] : [])] },
+    { id: "notifications", label: t("Notifications"), tabs: [["notifications", t("Notifications")]] },
     ...(owner ? [
-      { id: "models", label: "Modèles et budget", tabs: [["brain", "Cerveau"], ["providers", "Fournisseurs"], ["create", "Création"], ["voice", "Voix"]] as [SettingsTab, string][] },
-      { id: "people", label: "Personnes", tabs: [["profiles", "Personnes"]] as [SettingsTab, string][] },
-      { id: "server", label: "Serveur", tabs: [["updates", "Mises à jour"], ["mail", "Courriel"], ["privacy", "Confidentialité"], ["diagnostic", "Diagnostic"]] as [SettingsTab, string][] },
+      { id: "models", label: t("Modèles et budget"), tabs: [["brain", t("Cerveau")], ["providers", t("Fournisseurs")], ["create", t("Création")], ["voice", t("Voix")]] as [SettingsTab, string][] },
+      { id: "people", label: t("Personnes"), tabs: [["profiles", t("Personnes")]] as [SettingsTab, string][] },
+      { id: "server", label: t("Serveur"), tabs: [["updates", t("Mises à jour")], ["mail", t("Courriel")], ["privacy", t("Confidentialité")], ["diagnostic", t("Diagnostic")]] as [SettingsTab, string][] },
     ] : []),
   ];
 }
 
 const HINTS: Record<string, string> = {
-  image: "Illustrations, photos, logos.",
-  video: "Clips de quelques secondes.",
-  music: "Jingles, ambiances, chansons.",
-  speech: "Lit les réponses à voix haute.",
-  transcription: "Ta voix en texte.",
+  image: t("Illustrations, photos, logos."),
+  video: t("Clips de quelques secondes."),
+  music: t("Jingles, ambiances, chansons."),
+  speech: t("Lit les réponses à voix haute."),
+  transcription: t("Ta voix en texte."),
 };
 
 export function SettingsFrame({ open, onOpenChange, title, onBack, children }: { open: boolean; onOpenChange: (open: boolean) => void; title: string; onBack?: () => void; children: React.ReactNode }) {
@@ -82,12 +83,12 @@ export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainS
     if (tab !== "phone") setPairNow(false); // le code ne s'affiche d'office que quand on vient pour ça
   }, [tab]);
   return (
-    <SettingsFrame open={open} onOpenChange={onOpenChange} title={home ? "Réglages" : rubric.label} onBack={home ? undefined : () => onTab("home")}>
+    <SettingsFrame open={open} onOpenChange={onOpenChange} title={home ? t("Réglages") : rubric.label} onBack={home ? undefined : () => onTab("home")}>
           <SettingsTwoColumns navigation={all.map((r) => <button key={r.id} aria-current={rubric.id === r.id ? "page" : undefined} onClick={() => onTab(r.tabs[0][0])}>{r.label}</button>)}>
           {home ? (
-            <nav aria-label="Rubriques" className="flex flex-col">
+            <nav aria-label={t("Rubriques")} className="flex flex-col">
               <button type="button" onClick={() => { setPairNow(true); onTab("phone"); }} className="mb-2 flex cursor-pointer items-center justify-between rounded-xl bg-accent-soft px-3 py-3.5 text-left text-sm font-medium text-accent">
-                Relier un téléphone ou un ordinateur<ChevronRight className="size-4" />
+                {t("Relier un téléphone ou un ordinateur")}<ChevronRight className="size-4" />
               </button>
               {all.map((r) => (
                 <button key={r.id} type="button" onClick={() => onTab(r.tabs[0][0])} className="flex cursor-pointer items-center justify-between border-b border-border py-3.5 text-left text-sm font-medium last:border-b-0">
@@ -98,12 +99,12 @@ export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainS
           ) : (<>
           <div className="hidden">
             <Tabs value={rubric.id} onValueChange={(id) => onTab(all.find((r) => r.id === id)!.tabs[0][0])} className="self-start">
-              <TabsList aria-label="Rubriques" className="flex-wrap">
+              <TabsList aria-label={t("Rubriques")} className="flex-wrap">
                 {all.map((r) => <TabsTrigger key={r.id} value={r.id}>{r.label}</TabsTrigger>)}
               </TabsList>
             </Tabs>
             {/* Le geste qu'on vient faire le plus souvent ici : un clic, et le code s'affiche. */}
-            {tab !== "phone" && <button type="button" onClick={() => { setPairNow(true); onTab("phone"); }} className="cursor-pointer rounded-lg bg-accent-soft px-3 py-1.5 text-sm font-medium text-accent">Relier un appareil</button>}
+            {tab !== "phone" && <button type="button" onClick={() => { setPairNow(true); onTab("phone"); }} className="cursor-pointer rounded-lg bg-accent-soft px-3 py-1.5 text-sm font-medium text-accent">{t("Relier un appareil")}</button>}
           </div>
           <Tabs value={tab} onValueChange={(v) => onTab(v as SettingsTab)} className="flex min-h-0 flex-col gap-4">
             {rubric.tabs.length > 1 && (
@@ -111,7 +112,7 @@ export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainS
                 {rubric.tabs.map(([t, label]) => <TabsTrigger key={t} value={t}>{label}</TabsTrigger>)}
               </TabsList>
             )}
-            <Boundary key={tab} label="Cette rubrique">
+            <Boundary key={tab} label={t("Cette rubrique")}>
             <TabsContent value="appearance"><Appearance /></TabsContent>
             <TabsContent value="providers"><Providers /></TabsContent>
             <TabsContent value="brain">
@@ -186,8 +187,8 @@ function FaceMotion() {
         }}
       />
       <span>
-        <span className="block font-semibold">Visages immobiles</span>
-        <span className="block text-xs text-muted-foreground">Sur cet appareil.</span>
+        <span className="block font-semibold">{t("Visages immobiles")}</span>
+        <span className="block text-xs text-muted-foreground">{t("Sur cet appareil.")}</span>
       </span>
     </label>
   );
@@ -208,7 +209,7 @@ function MediaPanel({ kinds, withVoice, withPreferences }: { kinds: string[]; wi
     setTimeout(() => setSaved(null), 1500);
   };
 
-  if (!state) return <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture des modèles disponibles…</p>;
+  if (!state) return <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("Lecture des modèles disponibles…")}</p>;
   if (!state.available)
     return (
       <div className="flex flex-col gap-3">
@@ -228,7 +229,7 @@ function MediaPanel({ kinds, withVoice, withPreferences }: { kinds: string[]; wi
             <div className="min-w-0">
               <p className="flex items-center gap-2 text-sm font-semibold">
                 {k.label}
-                {saved === kind && <span className="inline-flex items-center gap-1 text-xs font-medium text-ok"><Check className="size-3.5" />Enregistré</span>}
+                {saved === kind && <span className="inline-flex items-center gap-1 text-xs font-medium text-ok"><Check className="size-3.5" />{t("Enregistré")}</span>}
               </p>
               <p className="text-xs text-muted-foreground">{HINTS[kind]}</p>
             </div>
@@ -236,12 +237,12 @@ function MediaPanel({ kinds, withVoice, withPreferences }: { kinds: string[]; wi
               <div className="flex min-w-0 flex-col gap-2">
                 <ModelSelect label={k.label} models={k.models} value={k.setting} auto={k.auto} routed={k.routed} onChange={(id) => choose(kind, id)} />
                 <details>
-                  <summary className="cursor-pointer text-xs text-muted-foreground">Modes</summary>
+                  <summary className="cursor-pointer text-xs text-muted-foreground">{t("Modes")}</summary>
                   <div className="mt-2"><ModeRows level={kind as Level} onChanged={() => load()} /></div>
                 </details>
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">Aucun modèle de ce type avec ta clé.</p>
+              <p className="text-sm text-muted-foreground">{t("Aucun modèle de ce type avec ta clé.")}</p>
             )}
           </div>
         );
@@ -271,7 +272,7 @@ function Diagnostic() {
     get<DiagnosticState>("/api/diagnostic").then(setState).catch((e) => setError(e.message));
   }, []);
   if (error) return <p className="rounded-xl bg-warn-soft p-4 text-sm text-warn">{error}</p>;
-  if (!state) return <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture…</p>;
+  if (!state) return <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("Lecture…")}</p>;
   const copy = () =>
     navigator.clipboard.writeText(JSON.stringify(state, null, 2)).then(() => {
       setCopied(true);
@@ -280,11 +281,16 @@ function Diagnostic() {
   return (
     <div className="flex flex-col gap-3 text-sm">
       <p className="text-muted-foreground">
-        Version {state.version} · {state.fournisseur ?? "aucun fournisseur"} · {state.modele ?? "aucun modèle"} ·{" "}
-        {state.agents.filter((a) => a.en_ligne).length} agent(s) en ligne sur {state.agents.length}
+        {t("Version {version} · {fournisseur} · {modele} · {n} agent(s) en ligne sur {total}", {
+          version: state.version,
+          fournisseur: state.fournisseur ?? t("aucun fournisseur"),
+          modele: state.modele ?? t("aucun modèle"),
+          n: state.agents.filter((a) => a.en_ligne).length,
+          total: state.agents.length,
+        })}
       </p>
-      <Button variant="outline" size="sm" className="self-start" onClick={copy}>{copied ? "Copié" : "Tout copier"}</Button>
-      {state.erreurs.length === 0 && <p>Aucune erreur depuis le dernier démarrage.</p>}
+      <Button variant="outline" size="sm" className="self-start" onClick={copy}>{copied ? t("Copié") : t("Tout copier")}</Button>
+      {state.erreurs.length === 0 && <p>{t("Aucune erreur depuis le dernier démarrage.")}</p>}
       {state.erreurs.map((e, i) => (
         <details key={i} className="rounded-xl border border-border p-3">
           <summary className="cursor-pointer font-medium">{e.quand} · {e.ou}{e.agent ? ` · ${e.agent}` : ""}</summary>
@@ -304,7 +310,7 @@ function MediaKeyRow({ hasKey, onSaved }: { hasKey: boolean; onSaved: () => void
     try {
       await send("/api/media/key", { api_key: key });
       setKey("");
-      setMessage({ ok: true, text: "Clé vérifiée et enregistrée." });
+      setMessage({ ok: true, text: t("Clé vérifiée et enregistrée.") });
       onSaved();
     } catch (e) {
       setMessage({ ok: false, text: (e as Error).message });
@@ -314,16 +320,16 @@ function MediaKeyRow({ hasKey, onSaved }: { hasKey: boolean; onSaved: () => void
     <div className="flex flex-col gap-2 rounded-2xl border border-border p-4">
       <div className="flex items-end gap-2">
         <Label className="flex-1">
-          Clé OpenRouter pour la voix et la création
+          {t("Clé OpenRouter pour la voix et la création")}
           <Input
             type="password"
             autoComplete="off"
             value={key}
             onChange={(e) => setKey(e.target.value)}
-            placeholder={hasKey ? "Clé enregistrée (colle une autre clé pour la remplacer)" : "Colle ta clé ici"}
+            placeholder={hasKey ? t("Clé enregistrée (colle une autre clé pour la remplacer)") : t("Colle ta clé ici")}
           />
         </Label>
-        <Button variant="outline" disabled={!key.trim()} onClick={save}>Vérifier et enregistrer</Button>
+        <Button variant="outline" disabled={!key.trim()} onClick={save}>{t("Vérifier et enregistrer")}</Button>
       </div>
       {message && <p className={message.ok ? "text-sm text-ok" : "text-sm text-warn"}>{message.text}</p>}
     </div>
@@ -335,14 +341,14 @@ function Preferences({ initial, onSave }: { initial: string; onSave: (v: string)
   const [value, setValue] = useState(initial);
   return (
     <div className="flex flex-col gap-2 rounded-2xl border border-border p-4">
-      <label htmlFor="media-prefs" className="text-sm font-semibold">Tes préférences de création</label>
+      <label htmlFor="media-prefs" className="text-sm font-semibold">{t("Tes préférences de création")}</label>
       <textarea
         id="media-prefs"
         rows={3}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onBlur={() => value !== initial && onSave(value)}
-        placeholder="Ex. Logos toujours en SVG. Couleurs de marque : corail et bleu nuit. Miniatures YouTube très contrastées. Budget serré : modèles économiques sauf si je dis « qualité max »."
+        placeholder={t("Ex. Logos toujours en SVG. Couleurs de marque : corail et bleu nuit. Miniatures YouTube très contrastées. Budget serré : modèles économiques sauf si je dis « qualité max ».")}
         className="w-full rounded-lg border border-border bg-background p-3 text-sm"
       />
     </div>
@@ -376,49 +382,50 @@ function VoiceServerPanel() {
       // Une clé vide n'est pas envoyée : on garde celle qui existe, sauf si l'adresse change (le serveur la retire alors).
       setForm(await send<VoiceServer>("/api/voice/server", { ...form, ...(key ? { api_key: key } : {}) }));
       setKey("");
-      setMessage({ ok: true, text: "Enregistré." });
+      setMessage({ ok: true, text: t("Enregistré.") });
     } catch (e) {
-      setMessage({ ok: false, text: e instanceof Error ? e.message : "Enregistrement impossible." });
+      setMessage({ ok: false, text: e instanceof Error ? e.message : t("Enregistrement impossible.") });
     }
   };
   return (
     <div className="flex flex-col gap-3 rounded-2xl border border-border p-4">
       <div>
-        <p className="text-sm font-semibold">Ton propre serveur de voix</p>
+        <p className="text-sm font-semibold">{t("Ton propre serveur de voix")}</p>
         <p className="text-xs text-muted-foreground">
-          Facultatif, compatible OpenAI (ex. <a className="underline" href="https://speaches.ai/" target="_blank" rel="noreferrer">Speaches</a>).
+          {/* i18n-ignore : Speaches, nom du logiciel */}
+          {tr("Facultatif, compatible OpenAI (ex. {lien}).", { lien: <a className="underline" href="https://speaches.ai/" target="_blank" rel="noreferrer">Speaches</a> })}
         </p>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
-        {field("base_url", "Adresse", "http://mon-serveur:8000/v1")}
+        {field("base_url", t("Adresse"), t("http://mon-serveur:8000/v1"))}
         <label className="grid gap-1 text-xs font-medium">
-          Clé (facultative)
+          {t("Clé (facultative)")}
           <input
             type="password"
             autoComplete="off"
             value={key}
             onChange={(e) => setKey(e.target.value)}
-            placeholder={form.has_key ? "Clé enregistrée, laisser vide pour la garder" : "Aucune"}
+            placeholder={form.has_key ? t("Clé enregistrée, laisser vide pour la garder") : t("Aucune")}
             className="h-10 min-w-0 rounded-lg border border-border bg-background px-3 text-sm font-normal"
           />
         </label>
-        {field("speech_model", "Modèle de synthèse", "Nom du modèle chez ce serveur")}
-        {field("transcription_model", "Modèle de transcription", "Nom du modèle chez ce serveur")}
-        {field("voice", "Voix", "Nom de la voix chez ce serveur")}
+        {field("speech_model", t("Modèle de synthèse"), t("Nom du modèle chez ce serveur"))}
+        {field("transcription_model", t("Modèle de transcription"), t("Nom du modèle chez ce serveur"))}
+        {field("voice", t("Voix"), t("Nom de la voix chez ce serveur"))}
       </div>
       <div className="flex items-center gap-3">
-        <Button variant="outline" onClick={save}>Enregistrer</Button>
+        <Button variant="outline" onClick={save}>{t("Enregistrer")}</Button>
         {form.has_key && (
           <Button
             variant="ghost"
             onClick={() =>
               send<VoiceServer>("/api/voice/server", { ...form, api_key: "" })
                 .then(setForm)
-                .then(() => setMessage({ ok: true, text: "Clé retirée." }))
-                .catch(() => setMessage({ ok: false, text: "La clé n'a pas pu être retirée." }))
+                .then(() => setMessage({ ok: true, text: t("Clé retirée.") }))
+                .catch(() => setMessage({ ok: false, text: t("La clé n'a pas pu être retirée.") }))
             }
           >
-            Retirer la clé
+            {t("Retirer la clé")}
           </Button>
         )}
         {message && <span role="status" className={message.ok ? "text-xs text-ok" : "text-xs text-warn"}>{message.text}</span>}
@@ -434,7 +441,7 @@ function VoiceRow({ voice, onChoose }: { voice: NonNullable<MediaState["voice"]>
   const listen = async () => {
     setPlaying(true);
     try {
-      const r = await request("/api/voice/speak", { method: "POST", body: JSON.stringify({ text: "Bonjour, je suis Noah. Voici ma voix." }) });
+      const r = await request("/api/voice/speak", { method: "POST", body: JSON.stringify({ text: t("Bonjour, je suis Noah. Voici ma voix.") }) });
       audio.current?.pause();
       audio.current = new Audio(URL.createObjectURL(await r.blob()));
       audio.current.onended = () => setPlaying(false);
@@ -446,22 +453,22 @@ function VoiceRow({ voice, onChoose }: { voice: NonNullable<MediaState["voice"]>
   return (
     <div className="grid gap-2 rounded-2xl border border-border p-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] sm:items-center">
       <div>
-        <p className="text-sm font-semibold">Voix</p>
+        <p className="text-sm font-semibold">{t("Voix")}</p>
       </div>
       <div className="flex gap-2">
         <select
-          aria-label="Voix"
+          aria-label={t("Voix")}
           value={voice.setting}
           onChange={(e) => onChoose(e.target.value)}
           className="h-10 min-w-0 flex-1 cursor-pointer rounded-lg border border-border bg-background px-3 text-sm"
         >
-          <option value="auto">Automatique{voice.auto ? ` · ${label(voice.auto)}` : ""}</option>
+          <option value="auto">{t("Automatique")}{voice.auto ? ` · ${label(voice.auto)}` : ""}</option>
           {voice.voices.map((v) => (
             <option key={v} value={v}>{label(v)}</option>
           ))}
         </select>
-        <Button variant="outline" onClick={listen} disabled={playing} aria-label="Écouter la voix">
-          {playing ? <Loader2 className="animate-spin" /> : <Play />}Écouter
+        <Button variant="outline" onClick={listen} disabled={playing} aria-label={t("Écouter la voix")}>
+          {playing ? <Loader2 className="animate-spin" /> : <Play />}{t("Écouter")}
         </Button>
       </div>
     </div>

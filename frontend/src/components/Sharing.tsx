@@ -1,6 +1,7 @@
 // Partager un agent avec un autre profil : le droit, l'avertissement sur sa mémoire, ses comptes et ses dossiers, la révocation.
 import { TriangleAlert, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { t, tServeur } from "@/i18n";
 import { type Agent, del, get, send } from "@/lib/api";
 import { Button, Dialog, DialogContent, ErrorText, Input, Label } from "./ui";
 
@@ -8,16 +9,16 @@ type Share = { user_id: number; username: string; droit: Droit };
 type Droit = "lecture" | "usage" | "admin";
 
 const RIGHTS: { id: Droit; label: string; hint: string }[] = [
-  { id: "lecture", label: "Lecture", hint: "Voir l'agent et les conversations rendues visibles, sans rien écrire." },
-  { id: "usage", label: "Usage", hint: "Lui parler dans ses propres conversations, avec sa propre mémoire, sans tes comptes ni terminal. Le dossier de travail reste commun." },
-  { id: "admin", label: "Admin", hint: "En plus, ses réglages et son écran, sauf le supprimer ou le repartager. Ta mémoire, ton navigateur et tes comptes connectés deviennent communs." },
+  { id: "lecture", label: t("Lecture"), hint: t("Voir l'agent et les conversations rendues visibles, sans rien écrire.") },
+  { id: "usage", label: t("Usage"), hint: t("Lui parler dans ses propres conversations, avec sa propre mémoire, sans tes comptes ni terminal. Le dossier de travail reste commun.") },
+  { id: "admin", label: t("Admin"), hint: t("En plus, ses réglages et son écran, sauf le supprimer ou le repartager. Ta mémoire, ton navigateur et tes comptes connectés deviennent communs.") },
 ];
 
 export function ShareDialog({ agent, open, onOpenChange, onChanged }: { agent: Agent; open: boolean; onOpenChange: (o: boolean) => void; onChanged: () => void }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {open && (
-        <DialogContent title={`Partager ${agent.name}`} description="Chacun garde sa conversation avec l'agent, et l'agent sait à qui il parle.">
+        <DialogContent title={t("Partager {nom}", { nom: agent.name })} description={t("Chacun garde sa conversation avec l'agent, et l'agent sait à qui il parle.")}>
           <ShareForm agent={agent} onChanged={onChanged} />
         </DialogContent>
       )}
@@ -69,7 +70,7 @@ function ShareForm({ agent, onChanged }: { agent: Agent; onChanged: () => void }
     <div className="flex flex-col gap-4">
       <p role="alert" className="flex gap-2 rounded-xl bg-warn-soft p-3 text-sm text-warn">
         <TriangleAlert className="mt-0.5 size-4 shrink-0" />
-        <span>Attention : {warning || "avec le droit « usage », cette personne a sa mémoire et son navigateur à elle ; avec le droit « admin », elle partage ta mémoire, ton navigateur, tes comptes connectés et tes dossiers."}</span>
+        <span>{t("Attention : {avertissement}", { avertissement: warning ? tServeur(warning) : t("avec le droit « usage », cette personne a sa mémoire et son navigateur à elle ; avec le droit « admin », elle partage ta mémoire, ton navigateur, tes comptes connectés et tes dossiers.") })}</span>
       </p>
       {shares && shares.length > 0 && (
         <ul className="flex flex-col gap-1.5">
@@ -77,15 +78,15 @@ function ShareForm({ agent, onChanged }: { agent: Agent; onChanged: () => void }
             <li key={s.user_id} className="flex items-center gap-2 rounded-xl border border-border px-3 py-2 text-sm">
               <span className="min-w-0 flex-1 truncate font-medium">{s.username}</span>
               <span className="text-xs text-muted-foreground">{RIGHTS.find((r) => r.id === s.droit)?.label}</span>
-              <Button variant="ghost" size="sm" onClick={() => revoke(s)} aria-label={`Révoquer le partage avec ${s.username}`}><X />Révoquer</Button>
+              <Button variant="ghost" size="sm" onClick={() => revoke(s)} aria-label={t("Révoquer le partage avec {nom}", { nom: s.username })}><X />{t("Révoquer")}</Button>
             </li>
           ))}
         </ul>
       )}
       <form onSubmit={share} className="flex flex-col gap-3">
-        <Label>Nom d'utilisateur du profil<Input required minLength={2} maxLength={64} autoComplete="off" value={username} onChange={(e) => setUsername(e.target.value)} /></Label>
+        <Label>{t("Nom d'utilisateur du profil")}<Input required minLength={2} maxLength={64} autoComplete="off" value={username} onChange={(e) => setUsername(e.target.value)} /></Label>
         <fieldset className="flex flex-col gap-1.5">
-          <legend className="mb-1 text-sm font-medium">Droit</legend>
+          <legend className="mb-1 text-sm font-medium">{t("Droit")}</legend>
           {RIGHTS.map((r) => (
             <label key={r.id} className="flex cursor-pointer items-start gap-2 text-sm">
               <input type="radio" name="droit" className="mt-1" checked={droit === r.id} onChange={() => setDroit(r.id)} />
@@ -95,10 +96,10 @@ function ShareForm({ agent, onChanged }: { agent: Agent; onChanged: () => void }
         </fieldset>
         <label className="flex cursor-pointer items-start gap-2 text-sm">
           <input type="checkbox" className="mt-1" checked={understood} onChange={(e) => setUnderstood(e.target.checked)} />
-          J'ai compris : le dossier de travail est commun et, avec le droit Admin, ma mémoire, mon navigateur et mes comptes connectés aussi.
+          {t("J'ai compris : le dossier de travail est commun et, avec le droit Admin, ma mémoire, mon navigateur et mes comptes connectés aussi.")}
         </label>
         <ErrorText>{error}</ErrorText>
-        <Button type="submit" className="self-start" disabled={!understood}>Partager</Button>
+        <Button type="submit" className="self-start" disabled={!understood}>{t("Partager")}</Button>
       </form>
     </div>
   );

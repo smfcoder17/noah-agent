@@ -11,6 +11,7 @@ import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "r
 import { onForget, SeenActive, seenGeneration } from "./seen";
 import { ApiError, type ChatEvent, get, type LoginAsked, send, type Reactions, type Recu, type StoredMessage, request, StreamLost, streamChat, uploadFile } from "./api";
 import { accordLabel, refreshAccords, useAccords } from "./events";
+import { t, tServeur } from "@/i18n";
 
 type TextPart = { type: "text"; text: string };
 type ToolPart = { type: "tool-call"; toolCallId: string; toolName: string; args: Record<string, unknown>; result?: unknown };
@@ -80,7 +81,7 @@ function fromStoredContent(m: StoredMessage, i: number): ChatMessage {
     return { id: `h${i}`, role: "user", content: [{ type: "text", text: match ? m.text.slice(0, match.index) : m.text }], attachments: files };
   }
   if (m.role === "error") {
-    return { id: `h${i}`, role: "assistant", content: [{ type: "tool-call", toolCallId: `e${i}`, toolName: "error", args: { message: m.text, detail: m.detail ?? "" }, result: true }] };
+    return { id: `h${i}`, role: "assistant", content: [{ type: "tool-call", toolCallId: `e${i}`, toolName: "error", args: { message: tServeur(m.text), detail: m.detail ?? "" }, result: true }] };
   }
   if (m.role === "trace") {
     return { id: `h${i}`, role: "assistant", trace: m.detail ?? "", content: [{ type: "tool-call", toolCallId: `t${i}`, toolName: "trace", args: traceArgs(m), result: true }] };
@@ -183,7 +184,7 @@ function apply(msg: ChatMessage, ev: ChatEvent | ChoiceEvent, runId: string | nu
       }
       if (steps.length) next = [...next, stepsPart(steps)];
       if (ev.status !== "completed" && ev.error) {
-        next = [...next, { type: "tool-call", toolCallId: uid("e"), toolName: "error", args: { message: ev.error, detail: ev.details ?? "" }, result: true }];
+        next = [...next, { type: "tool-call", toolCallId: uid("e"), toolName: "error", args: { message: tServeur(ev.error), detail: ev.details ?? "" }, result: true }];
       }
       return { ...msg, content: next, running: false };
     }
@@ -210,7 +211,7 @@ function readMessages(url: string): Promise<StoredMessage[]> {
   const asked = get<StoredMessage[]>(url)
     .then((rows) => {
       // Lue pour le compte d'avant : elle ne remplit ni l'écran ni la mémoire du compte suivant.
-      if (generation !== seenGeneration()) throw new Error("compte changé");
+      if (generation !== seenGeneration()) throw new Error("compte changé"); // i18n-ignore : interne, jamais affiché
       return rows;
     })
     .finally(() => {
@@ -526,7 +527,7 @@ export function useAgentChat(opts: {
   const whileBusy = useMemo<WhileBusyApi>(
     () => ({
       active: isRunning || serverNow.occupe,
-      activity: !isRunning && serverNow.occupe && !serverNow.accord ? serverNow.activite || "Travaille sur ta demande" : null,
+      activity: !isRunning && serverNow.occupe && !serverNow.accord ? serverNow.activite || t("Travaille sur ta demande") : null,
       waiting: serverNow.file,
       sending,
       send: (text, files = []) =>
@@ -537,7 +538,7 @@ export function useAgentChat(opts: {
             paths = await Promise.all(files.map((f) => uploadFile(agentId, f)));
           } catch (e) {
             addBeforeRunning([
-              { id: uid("r"), role: "assistant", content: [{ type: "tool-call", toolCallId: uid("e"), toolName: "error", args: { message: `Les fichiers joints ne sont pas partis : ${(e as Error).message}`, detail: "" }, result: true }] },
+              { id: uid("r"), role: "assistant", content: [{ type: "tool-call", toolCallId: uid("e"), toolName: "error", args: { message: t("Les fichiers joints ne sont pas partis : {erreur}", { erreur: (e as Error).message }), detail: "" }, result: true }] },
             ]);
             return;
           }
@@ -629,7 +630,7 @@ export function useAgentChat(opts: {
           // Réseau coupé (serveur redémarré, téléphone hors ligne) : l'agent continue côté serveur, on le dit, puis
           // on recharge la conversation dès que le serveur répond de nouveau.
           const lost = err instanceof TypeError || err instanceof StreamLost;
-          const error = lost ? "Connexion au serveur perdue. La réponse s'affichera dès son retour." : (err as Error).message;
+          const error = lost ? t("Connexion au serveur perdue. La réponse s'affichera dès son retour.") : (err as Error).message;
           update((m) => apply(m, { type: "done", status: "failed", error }, null));
           const conv = ownConversation.current;
           if (lost && conv) void resync(conv, abort.signal);

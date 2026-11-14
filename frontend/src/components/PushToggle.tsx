@@ -2,6 +2,7 @@
 // Les messages sont chiffrés par le serveur pour cet appareil ; le service de push du navigateur ne peut pas les lire.
 import { Bell, BellOff } from "lucide-react";
 import { useEffect, useState } from "react";
+import { t, tr } from "@/i18n";
 import { del, get, send } from "@/lib/api";
 import { appShell } from "@/lib/platform";
 import { pushSupported as supported, reconcilePush } from "@/lib/push";
@@ -24,50 +25,51 @@ function AndroidPushStatus() {
   useEffect(() => {
     refresh();
     // Relu régulièrement : inscription réussie par une relance automatique, permission changée dans Android…
-    const t = setInterval(refresh, 10000);
-    return () => clearInterval(t);
+    const timer = setInterval(refresh, 10000);
+    return () => clearInterval(timer);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   if (!native?.pushStatus || !state) return null;
   const retry = async () => {
     await native.pushSetup?.({ demander: true });
     // L'inscription peut aboutir après les relances natives (30 s, 2 min, 10 min) : relu toutes les 5 s, 15 min.
     let n = 0;
-    const t = setInterval(async () => {
+    const timer = setInterval(async () => {
       const s = (await native.pushStatus?.().catch(() => null)) as AndroidPush | null;
       if (s) setState(s);
-      if (s?.inscrit || ++n >= 180) clearInterval(t);
+      if (s?.inscrit || ++n >= 180) clearInterval(timer);
     }, 5000);
   };
   const test = async () => {
     setResult("");
     const r = await send<{ livres: number }>("/api/push/test", {}).catch(() => ({ livres: 0 }));
-    setResult(r.livres ? "Message de test envoyé : il doit arriver dans quelques secondes." : "Le message de test n'est pas parti. Touche « Activer » de nouveau.");
+    setResult(r.livres ? t("Message de test envoyé : il doit arriver dans quelques secondes.") : t("Le message de test n'est pas parti. Touche « Activer » de nouveau."));
   };
   return (
     <div className="flex flex-col gap-1.5">
-      <p className="text-xs font-semibold text-muted-foreground">Notifications sur ce téléphone</p>
+      <p className="text-xs font-semibold text-muted-foreground">{t("Notifications sur ce téléphone")}</p>
       {!state.permission ? (
         <>
-          <p className="text-xs text-muted-foreground">Coupées sur ce téléphone.</p>
+          <p className="text-xs text-muted-foreground">{t("Coupées sur ce téléphone.")}</p>
           {native.demanderDroit && (
-            <Button size="sm" variant="outline" className="self-start" onClick={() => native.demanderDroit({ droit: "notifications" }).catch(() => {}).finally(refresh)}><Bell />Autoriser les notifications</Button>
+            <Button size="sm" variant="outline" className="self-start" onClick={() => native.demanderDroit({ droit: "notifications" }).catch(() => {}).finally(refresh)}><Bell />{t("Autoriser les notifications")}</Button>
           )}
         </>
       ) : state.inscrit ? (
         <>
-          <p className="text-xs text-muted-foreground">Actives.</p>
-          <Button size="sm" variant="ghost" className="self-start" onClick={test}><Bell />Envoyer un test</Button>
+          <p className="text-xs text-muted-foreground">{t("Actives.")}</p>
+          <Button size="sm" variant="ghost" className="self-start" onClick={test}><Bell />{t("Envoyer un test")}</Button>
           {result && <p className="text-xs text-muted-foreground">{result}</p>}
         </>
       ) : state.distributeurs === 0 ? (
         <>
           <p className="text-xs text-muted-foreground">
-            Installe l'app gratuite <b>ntfy</b>, ouvre-la, accepte ses notifications, puis reviens ici.
+            {/* i18n-ignore : ntfy, nom d'une app */}
+            {tr("Installe l'app gratuite {ntfy}, ouvre-la, accepte ses notifications, puis reviens ici.", { ntfy: <b>ntfy</b> })}
           </p>
-          <Button size="sm" variant="outline" className="self-start" onClick={retry}><Bell />C'est installé, activer</Button>
+          <Button size="sm" variant="outline" className="self-start" onClick={retry}><Bell />{t("C'est installé, activer")}</Button>
         </>
       ) : (
-        <Button size="sm" variant="outline" className="self-start" onClick={retry}><Bell />Activer les notifications</Button>
+        <Button size="sm" variant="outline" className="self-start" onClick={retry}><Bell />{t("Activer les notifications")}</Button>
       )}
     </div>
   );
@@ -83,8 +85,8 @@ export function PushToggle() {
 export function DesktopPushStatus() {
   return (
     <div className="flex flex-col gap-1.5">
-      <p className="text-xs font-semibold text-muted-foreground">Notifications sur cet ordinateur</p>
-      <p className="text-xs text-muted-foreground">Elles passent par l'app de bureau : rien à activer ici.</p>
+      <p className="text-xs font-semibold text-muted-foreground">{t("Notifications sur cet ordinateur")}</p>
+      <p className="text-xs text-muted-foreground">{t("Elles passent par l'app de bureau : rien à activer ici.")}</p>
     </div>
   );
 }
@@ -104,7 +106,7 @@ function WebPushToggle() {
     setError("");
     try {
       if ((await Notification.requestPermission()) !== "granted") {
-        throw new Error("Notifications refusées. Autorise-les pour ce site dans les réglages du navigateur.");
+        throw new Error(t("Notifications refusées. Autorise-les pour ce site dans les réglages du navigateur."));
       }
       const reg = await navigator.serviceWorker.ready;
       const { cle } = await get<{ cle: string }>("/api/push/key");
@@ -119,7 +121,7 @@ function WebPushToggle() {
       const json = sub.toJSON();
       await send("/api/push/subscription", { endpoint: json.endpoint, p256dh: json.keys?.p256dh, auth: json.keys?.auth });
       const r = await send<{ livres: number; echecs: number }>("/api/push/test", {});
-      if (!r.livres) throw new Error("Le service de notifications du navigateur n'a pas accepté le message de test. Réessaie dans un moment.");
+      if (!r.livres) throw new Error(t("Le service de notifications du navigateur n'a pas accepté le message de test. Réessaie dans un moment."));
       setOn(true);
     } catch (e) {
       setError((e as Error).message);
@@ -142,11 +144,11 @@ function WebPushToggle() {
 
   return (
     <div className="flex flex-col gap-1.5">
-      <p className="text-xs font-semibold text-muted-foreground">Notifications sur cet appareil</p>
+      <p className="text-xs font-semibold text-muted-foreground">{t("Notifications sur cet appareil")}</p>
       {on ? (
-        <Button size="sm" variant="ghost" className="self-start" onClick={disable} disabled={busy}><BellOff />Couper les notifications</Button>
+        <Button size="sm" variant="ghost" className="self-start" onClick={disable} disabled={busy}><BellOff />{t("Couper les notifications")}</Button>
       ) : (
-        <Button size="sm" variant="outline" className="self-start" onClick={enable} disabled={busy || on === null}><Bell />Recevoir les notifications</Button>
+        <Button size="sm" variant="outline" className="self-start" onClick={enable} disabled={busy || on === null}><Bell />{t("Recevoir les notifications")}</Button>
       )}
       <ErrorText>{error}</ErrorText>
     </div>

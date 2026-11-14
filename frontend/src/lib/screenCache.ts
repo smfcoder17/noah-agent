@@ -1,5 +1,6 @@
 import { currentAuthEpoch, request } from "./api";
 import { SEEN, seenGeneration } from "./seen";
+import { t } from "@/i18n";
 
 const pending = new Map<string, Promise<string>>();
 let session = `${seenGeneration()}|${currentAuthEpoch()}`;
@@ -32,7 +33,7 @@ export function screenUrl(agentId: string): Promise<string> {
   const generation = seenGeneration();
   const result = request(`/api/agents/${agentId}/screen-url?view_only=1`, { signal: AbortSignal.timeout(8000) })
     .then((r) => r.json() as Promise<{ url: string }>).then(({ url }) => {
-    if (generation !== seenGeneration() || path !== key(agentId) || pending.get(path) !== result) throw new Error("La connexion ou le lien a changé.");
+    if (generation !== seenGeneration() || path !== key(agentId) || pending.get(path) !== result) throw new Error(t("La connexion ou le lien a changé."));
     SEEN.set(path, url);
     return url;
   }).finally(() => { if (pending.get(path) === result) pending.delete(path); });
@@ -57,7 +58,7 @@ export function screenViewOnly(frame: HTMLIFrameElement | null, viewOnly: boolea
   const input = frame?.contentDocument?.getElementById("noVNC_setting_view_only") as HTMLInputElement | null;
   if (!input) return false;
   input.checked = viewOnly;
-  const event = input.ownerDocument.createEvent("Event");
+  const event = input.ownerDocument.createEvent("Event"); // i18n-ignore : type d'événement DOM
   event.initEvent("change", true, false);
   input.dispatchEvent(event);
   return true;

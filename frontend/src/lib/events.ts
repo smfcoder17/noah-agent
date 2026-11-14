@@ -2,6 +2,7 @@
 import { useCallback, useContext, useEffect, useRef, useSyncExternalStore } from "react";
 import { SeenActive } from "./seen";
 import { currentAuthEpoch, get, request, type Accord, type Agent, type Conversation } from "./api";
+import { t } from "@/i18n";
 
 let items: Accord[] = [];
 let recent: AccordClosed[] = [];
@@ -61,10 +62,10 @@ const notify = () => {
   listeners.forEach((fn) => fn());
 };
 export const accordLabel = (a: AccordClosed) => {
-  const label = ({ donne: "Accord donné", refuse: "Accord refusé" } as Record<string, string>)[a.etat];
+  const label = ({ donne: t("Accord donné"), refuse: t("Accord refusé") } as Record<string, string>)[a.etat];
   if (!label) return null;
-  const where = ({ ordinateur: "sur l'ordinateur", téléphone: "sur le téléphone", web: "sur le web" } as Record<string, string>)[a.par ?? ""];
-  return `${label}${where ? ` ${where}` : ""}`;
+  const where = ({ ordinateur: t("{accord} sur l'ordinateur", { accord: label }), téléphone: t("{accord} sur le téléphone", { accord: label }), web: t("{accord} sur le web", { accord: label }) } as Record<string, string>)[a.par ?? ""];
+  return where ?? label;
 };
 
 export async function refreshAccords() {
@@ -93,7 +94,7 @@ async function consume(signal: AbortSignal) {
         resyncPending = false;
       }
       if (signal.aborted) return;
-      const response = await request("/api/events", { headers: revision ? { "Last-Event-ID": revision } : {}, signal });
+      const response = await request("/api/events", { headers: revision ? { "Last-Event-ID": revision } : {}, signal }); // i18n-ignore : en-tête HTTP
       const reader = response.body!.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
@@ -103,7 +104,7 @@ async function consume(signal: AbortSignal) {
           let silent: ReturnType<typeof setTimeout> | undefined;
           const { value, done } = await Promise.race([
             reader.read(),
-            new Promise<never>((_, reject) => { silent = setTimeout(() => reject(new Error("Flux muet")), 35000); }),
+            new Promise<never>((_, reject) => { silent = setTimeout(() => reject(new Error("Flux muet")) /* i18n-ignore : interne, jamais affiché */, 35000); }),
           ]).finally(() => clearTimeout(silent));
           if (done || signal.aborted) break;
           buffer += decoder.decode(value, { stream: true });

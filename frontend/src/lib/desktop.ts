@@ -1,4 +1,5 @@
 // Pont avec l'application de bureau (Electron) : présent seulement quand l'interface tourne dans sa fenêtre.
+import { t } from "@/i18n";
 export type ComputerFolder = { id: string; nom: string; ecriture: boolean };
 export type AlwaysCommand = { commande: string; dossier: string; nom: string };
 export type ComputerFolders = { dossiers: ComputerFolder[]; coupe: boolean; toujours: AlwaysCommand[] };
@@ -44,7 +45,7 @@ export function listenFileMenus(): () => void {
     const url = new URL(href, location.origin);
     if (url.origin !== location.origin) return;
     e.preventDefault();
-    const name = target.dataset.noahName || decodeURIComponent(url.pathname.split("/").pop() || "fichier");
+    const name = target.dataset.noahName || decodeURIComponent(url.pathname.split("/").pop() || t("fichier"));
     app.fileMenu(url.href, name).catch(() => {});
   };
   document.addEventListener("contextmenu", onMenu);

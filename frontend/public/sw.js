@@ -68,7 +68,7 @@ self.addEventListener("push", (e) => {
       // Message pour une autre session que celle ouverte ici (un autre compte s'est connecté, on s'est déconnecté, ou
       // la session a été révoquée) : on prévient sans rien montrer de son contenu (une notification reste obligatoire).
       if (!valid) {
-        data = { titre: "Noah", texte: current ? "Nouvelle notification pour un autre compte." : "Nouvelle notification. Connecte-toi pour la voir.", url: "/" };
+        data = { titre: "Noah", texte: current ? texte("autre") : texte("connexion"), url: "/" };
       }
       const tag = valid ? `noah-${Date.now()}-${Math.random()}` : data.titre || "noah";
       // Un rappel d'agent : la notification reste et vibre, comme un appel. Toucher ouvre l'écran d'appel.
@@ -90,6 +90,17 @@ self.addEventListener("push", (e) => {
     }),
   );
 });
+
+// Textes de repli : le service worker n'a pas accès à t() ni au choix fait dans Réglages > Apparence. Il suit la langue
+// du navigateur, l'anglais par défaut.
+const TEXTES = {
+  fr: { autre: "Nouvelle notification pour un autre compte.", connexion: "Nouvelle notification. Connecte-toi pour la voir." },
+  en: { autre: "New notification for another account.", connexion: "New notification. Sign in to see it." },
+};
+const texte = (cle) => {
+  const code = String(self.navigator.language || "").toLowerCase().slice(0, 2);
+  return (TEXTES[code] || TEXTES.en)[cle];
+};
 
 const marker = () =>
   caches.open("noah-session").then((c) => c.match("/__session")).then((r) => (r ? r.text() : "")).catch(() => "");

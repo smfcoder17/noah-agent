@@ -540,7 +540,7 @@ try {
     "./autonomie": require("../../desktop/autonomie.js"),
     // 0.1.8 lot F : main.js s'appuie sur ces modules ; les vrais, chargés tels quels.
     "./config": require("../../desktop/config.js"), "./demarrage": require("../../desktop/demarrage.js"),
-    "./permissions": require("../../desktop/permissions.js"),
+    "./permissions": require("../../desktop/permissions.js"), "./textes": require("../../desktop/textes.js"),
   };
   runInNewContext(`${readFileSync(require.resolve("../../desktop/main.js"), "utf8")}\ncreateWindow();`, {
     require: (id) => mainModules[id] ?? require(id), __dirname: join(require.resolve("../../desktop/main.js"), ".."),

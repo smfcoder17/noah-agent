@@ -11,6 +11,6 @@ final class Canal {
     private Canal() {}
 
     static void installUpdate(Context context, PluginCall call) {
-        call.reject("Les mises à jour de cette version arrivent par le Play Store.", "play");
+        call.reject(context.getString(R.string.update_play), "play");
     }
 }

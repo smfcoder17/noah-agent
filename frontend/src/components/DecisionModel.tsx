@@ -5,6 +5,7 @@ import { Loader2, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { get, send } from "@/lib/api";
 import { Button, ErrorText, Input, Label } from "./ui";
+import { locale, t } from "@/i18n";
 
 type Option = { modele: string; nom: string; prix_entree: number | null };
 type Candidate = Option & { ms: number | null; ok: boolean; erreur: string };
@@ -29,8 +30,10 @@ type DecisionState = {
   cles: { openrouter: boolean; typesafe: boolean; openai: boolean };
 };
 
+// Le séparateur décimal de la langue de l'interface (« , » en français).
+const decimal = () => (1.5).toLocaleString(locale()).charAt(1);
 const price = (v: number | null | undefined) =>
-  v === null || v === undefined ? null : `${v === 0 ? "0" : v < 0.1 ? v.toFixed(3).replace(/0$/, "") : v.toFixed(2)} $/M`.replace(".", ",");
+  v === null || v === undefined ? null : t("{prix} $/M", { prix: (v === 0 ? "0" : v < 0.1 ? v.toFixed(3).replace(/0$/, "") : v.toFixed(2)).replace(".", decimal()) });
 
 const WHERE: Record<string, string> = { openrouter: "OpenRouter", typesafe: "TypeSafe", openai: "OpenAI" };
 
@@ -39,12 +42,12 @@ function why(s: DecisionState) {
   const facts = [price(s.prix_entree), s.ms !== null && s.ms !== undefined ? `${s.ms} ms` : null].filter(Boolean);
   if (s.choisi_par === "toi") return [s.raison, ...facts].join(", ");
   if (s.secours || !facts.length) return s.raison;
-  return [`choisi parce que ${s.raison}`, ...facts].join(", ");
+  return [t("choisi parce que {raison}", { raison: s.raison ?? "" }), ...facts].join(", ");
 }
 
-function typedWhy(t: NonNullable<DecisionState["type"]>) {
-  const facts = [`par ${WHERE[t.service] ?? t.service}`];
-  return [t.choisi_par === "toi" ? "choisi par toi" : "choisi parce qu'il est le moins cher à répondre juste", ...facts].join(", ");
+function typedWhy(typed: NonNullable<DecisionState["type"]>) {
+  const facts = [t("par {service}", { service: WHERE[typed.service] ?? typed.service })];
+  return [typed.choisi_par === "toi" ? t("choisi par toi") : t("choisi parce qu'il est le moins cher à répondre juste"), ...facts].join(", ");
 }
 
 export function DecisionModel() {
@@ -60,8 +63,8 @@ export function DecisionModel() {
   // Le premier choix se fait en arrière-plan juste après la pose de la clé.
   useEffect(() => {
     if (!state || (state.mesure && !state.en_cours)) return;
-    const t = setTimeout(load, 3000);
-    return () => clearTimeout(t);
+    const timer = setTimeout(load, 3000);
+    return () => clearTimeout(timer);
   }, [state, load]);
 
   const act = async (path: string, body: object, keepOpen = false) => {
@@ -88,22 +91,22 @@ export function DecisionModel() {
   const small = state.petits.some((o) => o.modele === state.modele) || state.choisi_par !== "toi" || !state.modele ? state.petits : [{ modele: state.modele, nom: state.nom ?? state.modele, prix_entree: state.prix_entree }, ...state.petits];
   const noKey = !state.cles.openrouter && !state.cles.typesafe && !state.cles.openai;
   return (
-    <section aria-label="Modèle de décision" className="flex flex-col gap-2 rounded-2xl border border-border p-4 text-sm">
+    <section aria-label={t("Modèle de décision")} className="flex flex-col gap-2 rounded-2xl border border-border p-4 text-sm">
       {!state.mesure ? (
-        <p className="flex items-center gap-2 text-muted-foreground"><Loader2 className="size-4 animate-spin" />Noah regarde ce que ta clé offre, ses prix et sa vitesse…</p>
+        <p className="flex items-center gap-2 text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("Noah regarde ce que ta clé offre, ses prix et sa vitesse…")}</p>
       ) : state.type ? (
         <p>
-          <span className="font-semibold">Modèle de décision : </span>
+          <span className="font-semibold">{t("Modèle de décision : ")}</span>
           <span className="font-mono">{state.type.nom}</span>
           <span className="text-muted-foreground">, {typedWhy(state.type)}.</span>{" "}
-          <button type="button" className="cursor-pointer underline" onClick={() => setChanging(!changing)}>Changer</button>
+          <button type="button" className="cursor-pointer underline" onClick={() => setChanging(!changing)}>{t("Changer")}</button>
         </p>
       ) : (
         <p>
-          <span className="font-semibold">Modèle de décision : </span>
+          <span className="font-semibold">{t("Modèle de décision : ")}</span>
           <span className="font-mono">{state.nom}</span>
           {why(state) && <span className="text-muted-foreground">, {why(state)}.</span>}{" "}
-          <button type="button" className="cursor-pointer underline" onClick={() => setChanging(!changing)}>Changer</button>
+          <button type="button" className="cursor-pointer underline" onClick={() => setChanging(!changing)}>{t("Changer")}</button>
         </p>
       )}
       {!state.type && state.secours && <p className="rounded-xl bg-warn-soft p-3 text-warn">{state.raison}</p>}
@@ -111,46 +114,46 @@ export function DecisionModel() {
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <select
-              aria-label="Modèle de décision"
+              aria-label={t("Modèle de décision")}
               disabled={busy}
               value={chosen}
               onChange={(e) => act("/api/decision", { modele: e.target.value })}
               className="h-9 min-w-0 flex-1 cursor-pointer rounded-lg border border-border bg-background px-2 text-sm"
             >
-              <option value="auto">Automatique : Noah choisit chaque semaine</option>
+              <option value="auto">{t("Automatique : Noah choisit chaque semaine")}</option>
               {state.decisions.length > 0 && (
-                <optgroup label="Modèles de décision (presque gratuits, ne rédigent rien)">
+                <optgroup label={t("Modèles de décision (presque gratuits, ne rédigent rien)")}>
                   {state.decisions.map((o) => <option key={o.id} value={o.id}>{o.nom}{price(o.prix_entree) ? ` · ${price(o.prix_entree)}` : ""}</option>)}
                 </optgroup>
               )}
               {small.length > 0 && (
-                <optgroup label="Petits modèles (savent aussi écrire, plus chers)">
+                <optgroup label={t("Petits modèles (savent aussi écrire, plus chers)")}>
                   {small.map((o) => <option key={o.modele} value={o.modele}>{o.nom}{price(o.prix_entree) ? ` · ${price(o.prix_entree)}` : ""}</option>)}
                 </optgroup>
               )}
             </select>
             <Button variant="outline" size="sm" disabled={busy} onClick={() => act("/api/decision/mesurer", {})}>
-              {busy ? <Loader2 className="animate-spin" /> : <RefreshCw />}Mesurer à nouveau
+              {busy ? <Loader2 className="animate-spin" /> : <RefreshCw />}{t("Mesurer à nouveau")}
             </Button>
           </div>
-          {noKey && <p className="text-xs text-muted-foreground">Clé OpenRouter (Réglages &gt; Voix) ou TypeSafe ci-dessous.</p>}
+          {noKey && <p className="text-xs text-muted-foreground">{t("Clé OpenRouter (Réglages > Voix) ou TypeSafe ci-dessous.")}</p>}
           <div className="flex flex-wrap items-end gap-2">
             <Label className="min-w-0 flex-1">
-              Clé TypeSafe pour Jev (facultative)
+              {t("Clé TypeSafe pour Jev (facultative)")}
               <Input
                 type="password"
                 autoComplete="off"
                 value={key}
                 onChange={(e) => setKey(e.target.value)}
-                placeholder={state.cles.typesafe ? "Clé enregistrée (colle une autre clé pour la remplacer)" : "Inutile si tu as une clé OpenRouter"}
+                placeholder={state.cles.typesafe ? t("Clé enregistrée (colle une autre clé pour la remplacer)") : t("Inutile si tu as une clé OpenRouter")}
               />
             </Label>
-            <Button variant="outline" size="sm" disabled={busy || !key.trim()} onClick={() => saveKey(key)}>Vérifier et enregistrer</Button>
-            {state.cles.typesafe && <Button variant="ghost" size="sm" disabled={busy} onClick={() => saveKey("")}>Retirer</Button>}
+            <Button variant="outline" size="sm" disabled={busy || !key.trim()} onClick={() => saveKey(key)}>{t("Vérifier et enregistrer")}</Button>
+            {state.cles.typesafe && <Button variant="ghost" size="sm" disabled={busy} onClick={() => saveKey("")}>{t("Retirer")}</Button>}
           </div>
           {failed.length > 0 && (
             <p className="w-full text-xs text-muted-foreground">
-              Écartés au dernier essai : {failed.map((c) => `${c.nom} (${c.erreur.replace(/\.$/, "").toLowerCase()})`).join(", ")}.
+              {t("Écartés au dernier essai : {liste}.", { liste: failed.map((c) => `${c.nom} (${c.erreur.replace(/\.$/, "").toLowerCase()})`).join(", ") })}
             </p>
           )}
         </div>

@@ -36,6 +36,7 @@ node scripts/verifier.mjs voice    # seulement les étapes qui contiennent ce mo
 - **Dis ce que tu as prouvé.** `docs/etat.md` classe les preuves du simple écrit à la personne réelle. Ce fichier est généré par `tools/eval/score.mjs` : ne le modifie pas à la main.
 - **Une promesse suit sa preuve.** Le README n'annonce que ce que le code tient, et il dit ce qui reste à vérifier.
 - **Écris pour la personne qui lit.** L'interface et la documentation sont en français clair, sans jargon.
+- **Chaque texte de l'interface existe en français et en anglais.** Écris-le en français dans `t("…")` (`frontend/src/i18n/index.ts`) et ajoute sa traduction dans `frontend/src/i18n/en/`. `node scripts/i18n-analyse.mjs`, dans `frontend/`, liste ce qui reste en dur ; `src/i18n/i18n.test.ts` échoue sur un oubli.
 
 ## Où est quoi
 

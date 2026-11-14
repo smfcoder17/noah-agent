@@ -52,6 +52,7 @@ jobs:
           docker run --rm -v "$PWD:/repo:ro" node:22-alpine node /repo/tests/desktop/dossiers_test.mjs
           docker run --rm -v "$PWD:/repo:ro" node:22-alpine node /repo/tests/desktop/fichiers_test.mjs
           node tests/desktop/pont_reel.mjs
+          node tests/desktop/textes_test.mjs
       - name: Appairage
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" \
@@ -101,6 +102,7 @@ jobs:
       - name: Jeton Android chiffré par le Keystore (vrai Pairing.java sur un Keystore simulé, grep des dépendances)
         run: |
           sh tests/android/droits_test.sh
+          node tests/android/strings_test.mjs
           docker run --rm -v "$PWD/mobile:/mobile:ro" -v "$PWD/tests:/tests:ro" eclipse-temurin:21-jdk-alpine \
             sh /tests/android/keystore_test.sh
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \
@@ -247,7 +249,7 @@ jobs:
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/agents/modes_test.py"
       - name: Modèles d'agent, routines en pause et premier message
         run: |
-          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/agents/presets_test.py && python /tests/agents/presets_routines_test.py"
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/agents/presets_test.py && python /tests/agents/presets_routines_test.py && python /tests/agents/presets_en_test.py"
       - name: L'agent change ses réglages non sensibles, et rien d'autre
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/agents/reglages_test.py"

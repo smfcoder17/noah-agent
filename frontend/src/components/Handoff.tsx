@@ -3,6 +3,7 @@ import { Check, Hand, MonitorPlay, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui";
 import { get, send } from "@/lib/api";
+import { t } from "@/i18n";
 
 type Call = { id: string; message: string; depuis: number; origine: string };
 
@@ -31,10 +32,10 @@ export function HandoffBanner({ agentId, onOpenScreen }: { agentId: string; onOp
       }
     };
     poll();
-    const t = subscribeUpdates(poll);
+    const stop = subscribeUpdates(poll);
     return () => {
       alive = false;
-      t();
+      stop();
     };
   }, [agentId]);
 
@@ -55,11 +56,11 @@ export function HandoffBanner({ agentId, onOpenScreen }: { agentId: string; onOp
   return (
     <div role="alert" className="mx-3 mt-2 flex flex-col gap-2 rounded-xl border-2 border-accent bg-accent-soft p-3 sm:flex-row sm:items-center">
       <Hand className="hidden size-5 shrink-0 text-accent sm:block" />
-      <p className="min-w-0 flex-1 text-sm"><b>{self ? "À toi : " : "L'agent a besoin de toi : "}</b>{call.message}</p>
+      <p className="min-w-0 flex-1 text-sm"><b>{self ? t("À toi : ") : t("L'agent a besoin de toi : ")}</b>{call.message}</p>
       <div className="flex shrink-0 gap-1.5">
-        <Button size="sm" variant="outline" onClick={onOpenScreen}><MonitorPlay />Voir l'écran</Button>
-        {!self && <Button size="sm" onClick={() => answer("fait")} disabled={busy}><Check />C'est fait</Button>}
-        <Button size="sm" variant="ghost" onClick={() => answer("impossible")} disabled={busy} aria-label={self ? "Annuler" : "Je ne peux pas"} title={self ? "Annuler" : "Je ne peux pas"}><X /></Button>
+        <Button size="sm" variant="outline" onClick={onOpenScreen}><MonitorPlay />{t("Voir l'écran")}</Button>
+        {!self && <Button size="sm" onClick={() => answer("fait")} disabled={busy}><Check />{t("C'est fait")}</Button>}
+        <Button size="sm" variant="ghost" onClick={() => answer("impossible")} disabled={busy} aria-label={self ? t("Annuler") : t("Je ne peux pas")} title={self ? t("Annuler") : t("Je ne peux pas")}><X /></Button>
       </div>
     </div>
   );

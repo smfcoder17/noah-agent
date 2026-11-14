@@ -19,6 +19,7 @@ import { canFrame, CopyImageButton, isImagePath, useDownload, useViewer } from "
 import { kindOfFile, parseElement, type ElementSpec } from "@/lib/elements";
 import { ElementCard } from "./elements/ElementCard";
 import { SandboxedFrame } from "./elements/SandboxedFrame";
+import { locale, t } from "@/i18n";
 
 type Series = { name?: string; values: number[] };
 type ChartSpec = { type: "chart"; title?: string; kind?: "bar" | "line"; labels: string[]; series: Series[]; note?: string };
@@ -33,7 +34,7 @@ type Spec = ChartSpec | TableSpec | GridSpec | ChoiceSpec | PreviewSpec | VideoS
 // Palette des séries (distincte des couleurs d'état).
 const SERIES = ["#2a47c9", "#0f766e", "#b4541a", "#7c3aed"];
 
-const fmt = (n: number) => new Intl.NumberFormat("fr-FR", { notation: Math.abs(n) >= 10000 ? "compact" : "standard", maximumFractionDigits: 1 }).format(n);
+const fmt = (n: number) => new Intl.NumberFormat(locale(), { notation: Math.abs(n) >= 10000 ? "compact" : "standard", maximumFractionDigits: 1 }).format(n);
 
 const PAGE_WIDTH = "min(calc(100cqw - 2.5rem), 60rem)";
 
@@ -62,7 +63,7 @@ function toCsv(columns: string[], rows: (string | number)[][]) {
 function CsvButton({ columns, rows, name }: { columns: string[]; rows: (string | number)[][]; name: string }) {
   const text = "﻿" + toCsv(columns, rows);
   const href = useMemo(() => URL.createObjectURL(new Blob([text], { type: "text/csv" })), [text]);
-  const file = `${name || "donnees"}.csv`;
+  const file = `${name || t("donnees")}.csv`;
   return (
     <Button asChild variant="outline" size="sm">
       <a href={href} download={file} onClick={(e) => nativeSave(file, "text/csv", text) && e.preventDefault()}><Download />CSV</a>
@@ -75,7 +76,7 @@ export function Chart({ spec, expand }: { spec: ChartSpec; expand?: React.ReactN
   const labels = spec.labels ?? [];
   const series = (spec.series ?? []).filter((s) => Array.isArray(s.values));
   const max = Math.max(1, ...series.flatMap((s) => s.values.map(Number).filter(Number.isFinite)));
-  const columns = ["", ...series.map((s, i) => s.name || `Série ${i + 1}`)];
+  const columns = ["", ...series.map((s, i) => s.name || t("Série {n}", { n: i + 1 }))];
   const rows = labels.map((l, i) => [l, ...series.map((s) => s.values[i] ?? "")]);
   const W = 640, H = 200, pad = 28;
   const step = (W - pad * 2) / Math.max(1, labels.length);
@@ -86,10 +87,10 @@ export function Chart({ spec, expand }: { spec: ChartSpec; expand?: React.ReactN
       note={spec.note}
       // Dans le fil, le graphique reste petit et léger : un seul bouton, qui l'ouvre en grand avec son tableau et son CSV.
       actions={expand ?? (
-        <div className="flex shrink-0 gap-1" role="group" aria-label="Affichage">
-          <Button size="sm" variant={asTable ? "outline" : "default"} aria-pressed={!asTable} onClick={() => setAsTable(false)}>Graphique</Button>
-          <Button size="sm" variant={asTable ? "default" : "outline"} aria-pressed={asTable} onClick={() => setAsTable(true)}>Tableau</Button>
-          <CsvButton columns={columns} rows={rows} name={spec.title ?? "graphique"} />
+        <div className="flex shrink-0 gap-1" role="group" aria-label={t("Affichage")}>
+          <Button size="sm" variant={asTable ? "outline" : "default"} aria-pressed={!asTable} onClick={() => setAsTable(false)}>{t("Graphique")}</Button>
+          <Button size="sm" variant={asTable ? "default" : "outline"} aria-pressed={asTable} onClick={() => setAsTable(true)}>{t("Tableau")}</Button>
+          <CsvButton columns={columns} rows={rows} name={spec.title ?? t("graphique")} />
         </div>
       )}
     >
@@ -97,7 +98,7 @@ export function Chart({ spec, expand }: { spec: ChartSpec; expand?: React.ReactN
         <TableBody columns={columns} rows={rows} />
       ) : (
         <div className="px-3 pt-2 pb-3">
-          <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label={spec.title ?? "Graphique"}>
+          <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label={spec.title ?? t("Graphique")}>
             <line x1={pad} x2={W - pad} y1={H - pad} y2={H - pad} stroke="var(--border)" />
             {spec.kind === "line"
               ? series.map((s, si) => (
@@ -173,11 +174,11 @@ function TableBody({ columns, rows }: { columns: string[]; rows: (string | numbe
 const cell = (v: unknown) => (v == null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v));
 
 /** « 12 lignes de plus » : ce que l'aperçu du fil ne montre pas, et qui s'ouvre en grand. */
-function More({ count, unit, onOpen }: { count: number; unit: [string, string]; onOpen?: () => void }) {
+function More({ count, text, onOpen }: { count: number; text: (n: number) => string; onOpen?: () => void }) {
   if (count <= 0) return null;
-  const label = `${count} ${count > 1 ? unit[1] : unit[0]} de plus`;
+  const label = text(count);
   return onOpen
-    ? <button type="button" onClick={onOpen} className="w-full border-t border-border/60 px-4 py-2 text-left text-xs font-medium text-accent hover:bg-muted">{label} · tout voir</button>
+    ? <button type="button" onClick={onOpen} className="w-full border-t border-border/60 px-4 py-2 text-left text-xs font-medium text-accent hover:bg-muted">{t("{texte} · tout voir", { texte: label })}</button>
     : <p className="border-t border-border/60 px-4 py-2 text-xs text-muted-foreground">{label}</p>;
 }
 
@@ -185,9 +186,9 @@ export function Table({ spec, limit, expand, onOpen }: { spec: TableSpec; limit?
   const rows = (spec.rows ?? []).map((r) => r.map((v) => (typeof v === "number" ? v : cell(v))));
   const columns = (spec.columns ?? []).map(cell);
   return (
-    <Frame title={spec.title} note={spec.note} actions={<div className="flex shrink-0 gap-1"><CsvButton columns={columns} rows={rows} name={spec.title ?? "tableau"} />{expand}</div>}>
+    <Frame title={spec.title} note={spec.note} actions={<div className="flex shrink-0 gap-1"><CsvButton columns={columns} rows={rows} name={spec.title ?? t("tableau")} />{expand}</div>}>
       <TableBody columns={columns} rows={limit ? rows.slice(0, limit) : rows} />
-      {limit && <More count={rows.length - limit} unit={["ligne", "lignes"]} onOpen={onOpen} />}
+      {limit && <More count={rows.length - limit} text={(n) => (n > 1 ? t("{n} lignes de plus", { n }) : t("{n} ligne de plus", { n }))} onOpen={onOpen} />}
     </Frame>
   );
 }
@@ -228,7 +229,7 @@ export function Grid({ spec, limit, expand, onOpen }: { spec: GridSpec; limit?: 
           );
         })}
       </div>
-      {limit && <More count={items.length - limit} unit={["élément", "éléments"]} onOpen={onOpen} />}
+      {limit && <More count={items.length - limit} text={(n) => (n > 1 ? t("{n} éléments de plus", { n }) : t("{n} élément de plus", { n }))} onOpen={onOpen} />}
     </Frame>
   );
 }
@@ -245,8 +246,8 @@ function Frozen({ onWake, page }: { onWake: () => void; page: boolean }) {
   return (
     <div className="relative flex h-36 flex-col items-center justify-center gap-2 overflow-hidden bg-gradient-to-br from-muted via-surface to-muted px-4 text-center">
       <div aria-hidden className="absolute inset-0 bg-[repeating-linear-gradient(135deg,transparent_0_14px,var(--border)_14px_15px)] opacity-40" />
-      <p className="relative text-xs text-muted-foreground">{page ? "En veille pour ne rien consommer." : "En veille."}</p>
-      <Button size="sm" variant="outline" className="relative bg-surface" onClick={onWake}><Play />Recharger</Button>
+      <p className="relative text-xs text-muted-foreground">{page ? t("En veille pour ne rien consommer.") : t("En veille.")}</p>
+      <Button size="sm" variant="outline" className="relative bg-surface" onClick={onWake}><Play />{t("Recharger")}</Button>
     </div>
   );
 }
@@ -264,7 +265,7 @@ export function Preview({ spec }: { spec: PreviewSpec }) {
   const view = useViewer();
   const download = useDownload();
   const path = String(spec.path || "");
-  const name = path.split("/").pop() || "fichier";
+  const name = path.split("/").pop() || t("fichier");
   // Une app est un dossier : son nom parle plus que « index.html ».
   const title = spec.title || (/^index.html?$/i.test(name) ? path.split("/").slice(-2)[0] : name);
   const raw = rawFileUrl(agentId, path);
@@ -321,19 +322,19 @@ export function Preview({ spec }: { spec: PreviewSpec }) {
       actions={
         <div className="flex shrink-0 gap-1">
           {heavy && stale && woken && (
-            <Button size="sm" variant="ghost" onClick={() => setWoken(false)}><Moon />Mettre en veille</Button>
+            <Button size="sm" variant="ghost" onClick={() => setWoken(false)}><Moon />{t("Mettre en veille")}</Button>
           )}
           {image && !broken && <CopyImageButton src={media} compact />}
           {(image || frame) && !frozen && !broken && (
-            <Button size="sm" variant="outline" onClick={open} aria-label="Agrandir"><Maximize2 /><span className={image ? "max-sm:hidden" : undefined}>Agrandir</span></Button>
+            <Button size="sm" variant="outline" onClick={open} aria-label={t("Agrandir")}><Maximize2 /><span className={image ? "max-sm:hidden" : undefined}>{t("Agrandir")}</span></Button>
           )}
           {(frame || image) && !inAndroidApp() && !broken && (
             <Button size="icon-sm" variant="ghost" asChild>
-              <a href={image ? media : url} target="_blank" rel="noopener" aria-label="Ouvrir dans un onglet"><ExternalLink /></a>
+              <a href={image ? media : url} target="_blank" rel="noopener" aria-label={t("Ouvrir dans un onglet")}><ExternalLink /></a>
             </Button>
           )}
           <Button size="icon-sm" variant="ghost" asChild>
-            <a href={save} onClick={(e) => { e.preventDefault(); download(save, name); }} aria-label={`Télécharger ${name}`}><Download /></a>
+            <a href={save} onClick={(e) => { e.preventDefault(); download(save, name); }} aria-label={t("Télécharger {nom}", { nom: name })}><Download /></a>
           </Button>
         </div>
       }
@@ -347,7 +348,7 @@ export function Preview({ spec }: { spec: PreviewSpec }) {
       ) : VIDEO_RE.test(path) ? (
         <video controls preload="metadata" src={url} className="block max-h-[480px] w-full bg-black" />
       ) : image && broken ? (
-        <p className="px-4 py-3 text-sm text-muted-foreground">Cette image n'est plus disponible.</p>
+        <p className="px-4 py-3 text-sm text-muted-foreground">{t("Cette image n'est plus disponible.")}</p>
       ) : image ? (
         <button type="button" onClick={open} className="block w-full cursor-zoom-in bg-muted">
           <img src={media} alt={title} loading="lazy" onError={() => setBroken(true)} className="mx-auto max-h-96 object-contain" />
@@ -366,7 +367,7 @@ export function Preview({ spec }: { spec: PreviewSpec }) {
           <FileText className="size-8 text-muted-foreground" />
           <span className="flex flex-col">
             <span className="font-medium">{name}</span>
-            <span className="text-xs text-muted-foreground">{inAndroidApp() ? "Toucher pour télécharger" : "Cliquer pour télécharger"}</span>
+            <span className="text-xs text-muted-foreground">{inAndroidApp() ? t("Toucher pour télécharger") : t("Cliquer pour télécharger")}</span>
           </span>
         </a>
       )}
@@ -385,7 +386,7 @@ function Choice({ spec }: { spec: ChoiceSpec }) {
   return (
     <section className="my-3 flex flex-col gap-2">
       {spec.question && <p className="text-[15px] font-semibold">{spec.question}</p>}
-      <div role="group" aria-label={spec.question || "Réponses proposées"} className="flex flex-col gap-2">
+      <div role="group" aria-label={spec.question || t("Réponses proposées")} className="flex flex-col gap-2">
         {(spec.options ?? []).map((o) => (
           <button
             key={o}
@@ -420,13 +421,13 @@ export const PREVIEW_ITEMS = 4;
 function DataPreview({ spec, code }: { spec: ChartSpec | TableSpec | GridSpec; code: string }) {
   const { agentId } = useContext(AgentContext);
   const view = useViewer();
-  const title = spec.title || ({ chart: "Graphique", table: "Tableau", grid: "Grille" })[spec.type];
+  const title = spec.title || ({ chart: t("Graphique"), table: t("Tableau"), grid: t("Grille") })[spec.type];
   const open = () => {
     // Le visualiseur lit les images de la grille par leur adresse servie, comme le faisait la carte.
     const data = spec.type === "grid" ? { ...spec, items: spec.items.map((it) => ({ ...it, image: typeof it.image === "string" && it.image.startsWith("/opt/data/") ? mediaUrl(agentId, it.image) : it.image })) } : spec;
     view({ kind: "element", element: { type: "element", kind: spec.type, title, description: spec.note, source: "noah", size: new TextEncoder().encode(code).length, data: data as unknown as Record<string, unknown>, agentId } });
   };
-  const expand = <Button size="sm" variant="outline" onClick={open} aria-label={`Ouvrir « ${title} » en grand`}><Maximize2 /><span className="max-sm:hidden">Agrandir</span></Button>;
+  const expand = <Button size="sm" variant="outline" onClick={open} aria-label={t("Ouvrir « {titre} » en grand", { titre: title })}><Maximize2 /><span className="max-sm:hidden">{t("Agrandir")}</span></Button>;
   if (spec.type === "chart") return <Chart spec={{ ...spec, title }} expand={expand} />;
   if (spec.type === "table") return <Table spec={{ ...spec, title }} limit={PREVIEW_ROWS} expand={expand} onOpen={open} />;
   return <Grid spec={{ ...spec, title }} limit={PREVIEW_ITEMS} expand={expand} onOpen={open} />;
@@ -447,7 +448,7 @@ function Quotable({ spec, children }: { spec: Spec; children: React.ReactNode })
             className="h-7 text-xs text-muted-foreground opacity-0 pointer-coarse:opacity-100 group-hover/quote:opacity-100 focus-visible:opacity-100"
             onClick={() => add(quote)}
           >
-            <Reply />Répondre à ceci
+            <Reply />{t("Répondre à ceci")}
           </Button>
         </div>
       )}
@@ -474,7 +475,7 @@ export function NoahWidget({ code, components }: SyntaxHighlighterProps) {
   const asText = <components.Pre><components.Code>{code}</components.Code></components.Pre>;
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     // Pendant le streaming, le JSON est incomplet : on attend sans afficher le code brut. Une fois la réponse finie, il reste lisible.
-    return streaming ? <div className="my-3 h-24 animate-pulse rounded-2xl border border-border bg-muted/60" aria-label="Widget en préparation" /> : asText;
+    return streaming ? <div className="my-3 h-24 animate-pulse rounded-2xl border border-border bg-muted/60" aria-label={t("Widget en préparation")} /> : asText;
   }
   const spec = parsed as Spec;
   const block = normalizeBlock(spec);
@@ -490,7 +491,7 @@ function shown(spec: Spec, code: string): React.ReactNode {
     case "table":
     case "grid": return <Quotable spec={spec}><DataPreview spec={spec} code={code} /></Quotable>;
     case "choice": return <Choice spec={{ ...spec, question: typeof spec.question === "string" ? spec.question : "", options: [...new Set(spec.options.map(String))] }} />;
-    case "preview": return <Quotable spec={spec}><ElementCard spec={{ type: "element", kind: kindOfFile(spec.path), title: spec.title || spec.path.split("/").pop() || "Fichier", path: spec.path, description: spec.note, source: "noah" }} /></Quotable>;
+    case "preview": return <Quotable spec={spec}><ElementCard spec={{ type: "element", kind: kindOfFile(spec.path), title: spec.title || spec.path.split("/").pop() || t("Fichier"), path: spec.path, description: spec.note, source: "noah" }} /></Quotable>;
     case "video": return <Quotable spec={spec}><VideoEmbed url={spec.url} title={spec.title} /></Quotable>;
     default: return null;
   }

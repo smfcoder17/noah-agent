@@ -6,6 +6,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { ChevronLeft, X } from "lucide-react";
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { t } from "@/i18n";
 
 const buttonVariants = cva(
   "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-medium transition-colors disabled:pointer-events-none disabled:opacity-50 cursor-pointer [&_svg]:size-4 [&_svg]:shrink-0",
@@ -101,10 +102,10 @@ export function DialogContent({
       >
         <div className="flex items-start justify-between gap-4 max-md:sticky max-md:-top-3 max-md:z-10 max-md:-mx-4 max-md:-mt-3 max-md:justify-start max-md:gap-2 max-md:bg-surface max-md:px-2 max-md:pt-3 max-md:pb-1">
           {onBack ? (
-            <Button variant="ghost" size="icon-sm" aria-label="Retour" onClick={onBack} className="md:hidden"><ChevronLeft /></Button>
+            <Button variant="ghost" size="icon-sm" aria-label={t("Retour")} onClick={onBack} className="md:hidden"><ChevronLeft /></Button>
           ) : (
             <DialogPrimitive.Close asChild>
-              <Button variant="ghost" size="icon-sm" aria-label="Retour" className="md:hidden"><ChevronLeft /></Button>
+              <Button variant="ghost" size="icon-sm" aria-label={t("Retour")} className="md:hidden"><ChevronLeft /></Button>
             </DialogPrimitive.Close>
           )}
           <div className="flex min-w-0 flex-col gap-1 max-md:pt-0.5">
@@ -116,7 +117,7 @@ export function DialogContent({
             )}
           </div>
           <DialogPrimitive.Close asChild>
-            <Button variant="ghost" size="icon-sm" aria-label="Fermer" className="max-md:ml-auto">
+            <Button variant="ghost" size="icon-sm" aria-label={t("Fermer")} className="max-md:ml-auto">
               <X />
             </Button>
           </DialogPrimitive.Close>

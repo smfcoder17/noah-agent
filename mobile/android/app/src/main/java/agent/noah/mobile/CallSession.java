@@ -54,19 +54,19 @@ public class CallSession extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         String agent = intent == null ? null : intent.getStringExtra("agent");
         NotificationManager manager = getSystemService(NotificationManager.class);
-        NotificationChannel channel = new NotificationChannel(CHANNEL, "Appel en cours", NotificationManager.IMPORTANCE_DEFAULT);
+        NotificationChannel channel = new NotificationChannel(CHANNEL, getString(R.string.call_ongoing_channel), NotificationManager.IMPORTANCE_DEFAULT);
         channel.setSound(null, null);
         manager.createNotificationChannel(channel);
         PendingIntent back = PendingIntent.getActivity(this, NOTIFICATION,
             new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP), PendingIntent.FLAG_IMMUTABLE);
         // Présentée comme un appel : en tête du volet, sans son, Raccrocher visible sans rien déplier.
-        String name = agent == null ? "ton agent" : agent;
-        int color = NoahFace.colorOf(intent == null ? null : intent.getStringExtra("couleur"), name);
+        String name = agent == null ? getString(R.string.call_your_agent) : agent;
+        int color = NoahFace.colorOf(intent == null ? null : intent.getStringExtra("couleur"), agent);
         String shape = intent == null ? null : intent.getStringExtra("forme"), detail = intent == null ? null : intent.getStringExtra("detail");
         Person who = new Person.Builder().setName(name).setIcon(IconCompat.createWithBitmap(NoahFace.bitmap(this, color, shape, detail, 192))).build();
         Notification note = new NotificationCompat.Builder(this, CHANNEL)
-            .setSmallIcon(R.drawable.ic_stat_noah).setContentTitle("En appel avec " + name)
-            .setContentText("Le micro reste ouvert.").setOngoing(true).setCategory(NotificationCompat.CATEGORY_CALL)
+            .setSmallIcon(R.drawable.ic_stat_noah).setContentTitle(getString(R.string.call_with, name))
+            .setContentText(getString(R.string.call_mic_open)).setOngoing(true).setCategory(NotificationCompat.CATEGORY_CALL)
             .setGroup("appel-en-cours").setContentIntent(back)
             .setStyle(NotificationCompat.CallStyle.forOngoingCall(who, hangUp(this))).build();
         try {

@@ -1,0 +1,101 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!-- Textes de l'app en français : mêmes clés que values/strings.xml (tests/android/strings_test.mjs le vérifie). -->
+<resources>
+    <!-- Appels d'un agent (CallActivity, CallSession, CallWatch, NoahPush) -->
+    <string name="call_incoming_kind">Appel vocal de ton agent</string>
+    <string name="call_decline">Refuser</string>
+    <string name="call_answer">Répondre</string>
+    <string name="call_ongoing_channel">Appel en cours</string>
+    <string name="call_your_agent">ton agent</string>
+    <string name="call_with">En appel avec %1$s</string>
+    <string name="call_mic_open">Le micro reste ouvert.</string>
+    <string name="call_watch_channel">Noah prêt à t\'appeler</string>
+    <string name="call_watch_title">Noah peut t\'appeler</string>
+    <string name="call_calling_you">t\'appelle</string>
+    <string name="calls_channel">Appels de tes agents</string>
+
+    <!-- Notifications (NoahPush) -->
+    <string name="push_generic">Nouvelle notification. Ouvre Noah pour la voir.</string>
+    <string name="push_generic_short">Nouvelle notification.</string>
+    <string name="push_quiet_channel">Fins de tâche et routines</string>
+    <string name="push_public">Noah a du nouveau</string>
+
+    <!-- Image et PDF (ElementActivity) -->
+    <string name="element_close">Fermer</string>
+    <string name="element_share">Partager</string>
+    <string name="element_open_with">Ouvrir avec</string>
+    <string name="element_save">Enregistrer</string>
+    <string name="element_saved">Fichier enregistré</string>
+    <string name="element_save_failed">Enregistrement impossible</string>
+    <string name="element_no_app">Aucune application ne peut ouvrir ce fichier</string>
+    <string name="element_pdf_unreadable">PDF illisible. Utilise Ouvrir avec.</string>
+    <string name="element_image_unreadable">Image illisible. Utilise Ouvrir avec.</string>
+    <string name="element_page_unreadable">Page illisible</string>
+    <string name="element_previous_page">Page précédente</string>
+    <string name="element_next_page">Page suivante</string>
+
+    <!-- Fenêtre principale (MainActivity) -->
+    <string name="main_hang_up">Raccrocher</string>
+    <string name="main_download_failed">Ce fichier n\'a pas pu être téléchargé.</string>
+    <string name="main_downloading">Téléchargement de %1$s</string>
+    <string name="main_server_too_old">Ton serveur doit être mis à jour pour cette version de l\'app.</string>
+    <string name="main_server_down">Ton serveur ne répond pas.</string>
+    <string name="main_auto_retry">Nouvel essai automatique…</string>
+    <string name="main_retry">Réessayer</string>
+    <string name="main_change_server">Changer de serveur</string>
+    <string name="main_change_server_question">Changer de serveur ?</string>
+    <string name="main_change_server_message">Ce téléphone ne sera plus relié à %1$s. Tu pourras le relier de nouveau avec un QR code.</string>
+    <string name="main_cancel">Annuler</string>
+    <string name="main_this_server">ce serveur</string>
+
+    <!-- Mode flottant (NoahBubble) -->
+    <string name="bubble_channel">Bulle de Noah</string>
+    <string name="bubble_active">La bulle de Noah est active</string>
+    <string name="bubble_hint">Maintiens-la pour dicter. Le micro n\'écoute que pendant ce geste.</string>
+    <string name="bubble_stop">Arrêter</string>
+    <string name="bubble_description">Noah : toucher pour ouvrir, maintenir pour dicter</string>
+    <string name="bubble_allow_mic">Autorise le micro dans Réglages > Téléphone.</string>
+    <string name="bubble_call_busy">Un appel est en cours : le micro est déjà pris.</string>
+    <string name="bubble_mic_unavailable">Le micro n\'est pas disponible. Une autre app s\'en sert peut-être.</string>
+    <string name="bubble_listening">Je t\'écoute… Relâche pour envoyer.</string>
+    <string name="bubble_release_cancel">Relâche pour annuler</string>
+    <string name="bubble_slide_cancel">Glisse ici pour annuler</string>
+    <string name="bubble_hold_longer">Maintiens un peu plus longtemps pour dicter.</string>
+    <string name="bubble_mic_cut">Android a coupé le micro en arrière-plan. Ouvre Noah, relance la bulle, puis réessaie.</string>
+    <string name="bubble_heard_nothing">Je n\'ai rien entendu. Rien n\'est parti.</string>
+    <string name="bubble_transcribing">J\'écris ce que tu as dit…</string>
+    <string name="bubble_quote">« %1$s »</string>
+    <string name="bubble_unlinked">Cet appareil n\'est plus relié à ton serveur.</string>
+    <string name="bubble_agent_gone">Cet agent n\'existe plus. Choisis-en un autre dans Réglages > Téléphone.</string>
+    <string name="bubble_no_reply_posting">Ton serveur ne répond plus. Regarde la conversation : ton message est peut-être parti.</string>
+    <string name="bubble_no_reply">Ton serveur ne répond pas. Rien n\'est parti.</string>
+    <string name="bubble_sent">Message envoyé. Il y travaille…</string>
+    <string name="bubble_still_working">Il y travaille encore. Tu recevras une notification à la fin.</string>
+    <string name="bubble_refused">Ton serveur a refusé ce message.</string>
+    <string name="bubble_done">C\'est fait. Le résultat est dans la conversation.</string>
+
+    <!-- Pont avec l'interface (NoahShellPlugin) : messages montrés à la personne -->
+    <string name="shell_unknown_right">Droit inconnu</string>
+    <string name="shell_no_screen">Cet écran n\'existe pas sur ce téléphone.</string>
+    <string name="shell_location_option_off">La position n\'est pas activée dans Réglages > Téléphone.</string>
+    <string name="shell_location_disabled">La localisation est coupée sur ce téléphone.</string>
+    <string name="shell_location_not_found">Le téléphone ne trouve pas sa position pour l\'instant.</string>
+    <string name="shell_pick_agent">Choisis un agent.</string>
+    <string name="shell_allow_overlay">Autorise d\'abord la superposition.</string>
+    <string name="shell_allow_mic">Autorise d\'abord le micro.</string>
+    <string name="shell_download_failed">Téléchargement impossible</string>
+    <string name="shell_in_downloads">%1$s est dans Téléchargements</string>
+    <string name="shell_save_failed">Ce fichier n\'a pas pu être enregistré.</string>
+    <string name="shell_window_closed">Fenêtre fermée</string>
+    <string name="shell_no_app">Aucune application ne peut ouvrir ce fichier.</string>
+    <string name="shell_file_failed">Fichier introuvable, trop volumineux ou accès refusé. Réessaie.</string>
+    <string name="shell_missing_session">Adresse ou session manquante (le serveur doit être en HTTPS)</string>
+    <string name="shell_store_session_failed">Impossible de ranger la session : %1$s</string>
+
+    <!-- Mises à jour de l'app (Canal, variantes github et play) -->
+    <string name="update_url_refused">Adresse de mise à jour refusée</string>
+    <string name="update_allow_install">Autorise Noah à installer des apps, puis appuie à nouveau sur Installer.</string>
+    <string name="update_title">Mise à jour de Noah</string>
+    <string name="update_download_failed">La mise à jour n\'a pas pu être téléchargée.</string>
+    <string name="update_play">Les mises à jour de cette version arrivent par le Play Store.</string>
+</resources>

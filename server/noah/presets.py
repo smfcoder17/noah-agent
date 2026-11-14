@@ -5,13 +5,16 @@ Un modèle ne donne aucun droit, aucun mode d'accord et aucune routine active. S
 (table routines_suggerees) et pas dans le cron d'Hermes : rien ne tourne, aucun modèle n'est appelé. Un geste de la personne
 (machine.py, « Activer ») crée la vraie routine, une seule fois. À la création, l'agent écrit aussi un premier message, tiré
 du modèle sans appel au modèle : ce qu'il sait faire seul et ses routines à activer.
+
+presets.en.json porte l'anglais des champs visibles, par identifiant de modèle et par position. Le français reste la source :
+le `quand` français donne l'horaire cron, quelle que soit la langue montrée. La langue vient de l'en-tête Accept-Language.
 """
 import json
 import re
 import time
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from . import access, auth, db
 
@@ -68,17 +71,55 @@ def horaire(quand: str) -> str | None:
     return f"{int(m['m'] or 0)} {int(m['h'])} {day} * {week}"
 
 
+VISIBLES = ("nom", "accroche", "role", "demandes", "routines", "connexions")  # ce que la personne lit, traduit dans presets.en.json
+
+
+def check_en(data: dict, en: dict) -> dict:
+    """Chaque champ visible de chaque modèle a son anglais, avec les mêmes bornes et des listes de même longueur."""
+    assert _demandes(en["defaut"]["demandes"]), "demandes par défaut en anglais"
+    assert set(en["presets"]) == {p["id"] for p in data["presets"]}, "modèles traduits"
+    for p in data["presets"]:
+        pid, t = p["id"], en["presets"][p["id"]]
+        assert set(t) == set(VISIBLES), f"{pid} : champs en anglais"
+        assert 1 <= len(t["nom"]) <= 40 and 1 <= len(t["accroche"]) <= 90 and "\n" not in t["accroche"], f"{pid} : nom ou accroche en anglais"
+        assert 500 <= len(t["role"]) <= 1200, f"{pid} : rôle anglais de {len(t['role'])} caractères"
+        assert _demandes(t["demandes"]), f"{pid} : demandes en anglais"
+        assert len(t["routines"]) == len(p["routines"]), f"{pid} : nombre de routines en anglais"
+        for r in t["routines"]:
+            assert set(r) == {"nom", "quand", "consigne"} and all(isinstance(v, str) and v for v in r.values()), f"{pid} : routine en anglais"
+        assert len(t["connexions"]) == len(p["connexions"]) and all(isinstance(x, str) and x for x in t["connexions"]), f"{pid} : connexions en anglais"
+    return en
+
+
 DATA = check(json.loads((Path(__file__).parent / "presets.json").read_text(encoding="utf-8")))
 BY_ID = {p["id"]: p for p in DATA["presets"]}
+EN = check_en(DATA, json.loads((Path(__file__).parent / "presets.en.json").read_text(encoding="utf-8")))
 
 
-def find(preset_id: str) -> dict | None:
-    """Le modèle demandé à la création ; vide : partir de zéro. Un identifiant inconnu est refusé."""
+def lang(request: Request | None) -> str:
+    """La langue de l'interface : « fr » si l'en-tête commence par fr ou manque (les clients d'avant), sinon « en »."""
+    header = ((request.headers.get("accept-language") if request else "") or "").strip().lower()
+    return "fr" if not header or header.startswith("fr") else "en"
+
+
+def localized(preset: dict, langue: str) -> dict:
+    """Le modèle dans cette langue : mêmes champs, même apparence ; seuls les textes visibles changent."""
+    if langue == "fr":
+        return preset
+    return {**preset, **EN["presets"][preset["id"]]}
+
+
+def demandes_defaut(langue: str) -> list[str]:
+    return DATA["defaut"]["demandes"] if langue == "fr" else EN["defaut"]["demandes"]
+
+
+def find(preset_id: str, langue: str = "fr") -> dict | None:
+    """Le modèle demandé à la création, dans la langue de la personne ; vide : partir de zéro. Un identifiant inconnu est refusé."""
     if not preset_id:
         return None
     if preset_id not in BY_ID:
         raise HTTPException(400, "Ce modèle d'agent n'existe pas. Choisis-en un autre, ou pars de zéro.")
-    return BY_ID[preset_id]
+    return localized(BY_ID[preset_id], langue)
 
 
 def apply(agent_id: str, preset: dict | None) -> None:
@@ -88,12 +129,15 @@ def apply(agent_id: str, preset: dict | None) -> None:
     with db.connect() as c:
         c.execute("UPDATE agents SET color = ?, shape = ?, detail = ? WHERE id = ?", (preset["couleur"], preset["shape"], preset["detail"], agent_id))
         if not c.execute("SELECT 1 FROM routines_suggerees WHERE agent_id = ?", (agent_id,)).fetchone():
+            # Le texte dans la langue de la personne ; l'horaire, toujours du `quand` français de presets.json, à la même position.
+            source = BY_ID[preset["id"]]["routines"]
             c.executemany("INSERT INTO routines_suggerees (agent_id, nom, quand, horaire, consigne, cree) VALUES (?, ?, ?, ?, ?, ?)",
-                          [(agent_id, r["nom"], r["quand"], horaire(r["quand"]), r["consigne"], time.time()) for r in preset["routines"]])
+                          [(agent_id, r["nom"], r["quand"], horaire(s["quand"]), r["consigne"], time.time())
+                           for r, s in zip(preset["routines"], source)])
     db.set_setting(f"preset_{agent_id}", preset["id"])
 
 
-def welcome(agent_id: str, name: str, preset: dict | None, conversation, save_message) -> None:
+def welcome(agent_id: str, name: str, preset: dict | None, conversation, save_message, langue: str = "fr") -> None:
     """Le premier message de l'agent, écrit une seule fois, sans appel au modèle : tiré du modèle. `conversation()` rend
     sa conversation principale (créée au besoin) ; une conversation qui a déjà un message n'en reçoit pas d'autre."""
     if not preset:
@@ -102,15 +146,22 @@ def welcome(agent_id: str, name: str, preset: dict | None, conversation, save_me
     with db.connect() as c:
         if c.execute("SELECT 1 FROM messages WHERE conversation_id = ?", (conv,)).fetchone():
             return
-    text = first_message(name, preset)
+    text = first_message(name, preset, langue)
     save_message(conv, "agent", text)
     from . import machine  # machine importe ce module : ici seulement
-    machine.add_context(conv, agent_note(text, bool(preset["routines"])))  # comme un résultat de routine : il l'a en tête au prochain message
+    machine.add_context(conv, agent_note(text, bool(preset["routines"]), langue))  # comme un résultat de routine : il l'a en tête au prochain message
 
 
-def agent_note(text: str, routines: bool) -> str:
+def agent_note(text: str, routines: bool, langue: str = "fr") -> str:
     """Ce que l'agent reçoit de son premier message : Noah l'a écrit à sa place, il ne le saurait pas sinon. Avec les routines en
     pause, la commande qui les active : « active la première » ne doit pas créer une routine en double."""
+    if langue != "fr":
+        note = f"[You wrote this to the person when you were created, from your template:]\n{text}"
+        if routines:
+            note += ("\n[These routines are paused in Noah, not in your list yet. `python3 /opt/data/noah.py routines` shows them under "
+                     "“suggerees”, each with its id. If the person asks you to turn one on: "
+                     "`python3 /opt/data/noah.py routine-action suggeree-<id> reprendre`. Don't create a new one instead.]")
+        return note
     note = f"[Tu as écrit ceci à la personne à ta création, depuis ton modèle :]\n{text}"
     if routines:
         note += ("\n[Ces routines sont en pause dans Noah, pas encore dans ta liste. `python3 /opt/data/noah.py routines` les montre sous "
@@ -119,8 +170,10 @@ def agent_note(text: str, routines: bool) -> str:
     return note
 
 
-def first_message(name: str, preset: dict) -> str:
+def first_message(name: str, preset: dict, langue: str = "fr") -> str:
     accroche = preset["accroche"][0].lower() + preset["accroche"][1:]
+    if langue != "fr":
+        return _first_message_en(name, preset, accroche)
     lines = [f"Bonjour, je suis {name}. Modèle « {preset['nom']} » : {accroche}", ""]
     if preset["routines"]:
         lines.append("Ce que je peux faire seul, à heure fixe, sans que tu me le redemandes :")
@@ -130,6 +183,21 @@ def first_message(name: str, preset: dict) -> str:
     else:
         lines += ["Je travaille quand tu me le demandes. Si une tâche revient souvent, je te proposerai d'en faire une routine.", ""]
     lines.append("Pour commencer, tu peux me demander :")
+    lines += [f"- {d}" for d in preset["demandes"]]
+    return "\n".join(lines)
+
+
+def _first_message_en(name: str, preset: dict, accroche: str) -> str:
+    # « Activer », « Détails », « Routines » : les libellés de l'interface en anglais (frontend/src/i18n/en/pouvoirs.ts).
+    lines = [f"Hi, I'm {name}. “{preset['nom']}” template: {accroche}", ""]
+    if preset["routines"]:
+        lines.append("What I can do on my own, on a schedule, without you asking again:")
+        lines += [f"- **{r['nom']}** ({r['quand'].split(',')[0]}): {r['consigne']}" for r in preset["routines"]]
+        lines += ["", "These routines are paused: nothing runs until you turn them on. "
+                  "To turn one on, tap “Turn on” in Details, Routines tab, or ask me.", ""]
+    else:
+        lines += ["I work when you ask me to. If a task keeps coming up, I'll suggest making it a routine.", ""]
+    lines.append("To get started, you can ask me:")
     lines += [f"- {d}" for d in preset["demandes"]]
     return "\n".join(lines)
 
@@ -181,14 +249,15 @@ router = APIRouter()
 
 
 @router.get("/api/presets")
-def list_presets(user: int = Depends(auth.current_user)):
+def list_presets(request: Request, user: int = Depends(auth.current_user)):
     """Les modèles d'agent, les demandes générales, et le modèle de chaque agent que ce compte voit (pour l'écran vide)."""
     with db.connect() as c:
         rows = c.execute("SELECT key, value FROM settings WHERE key LIKE 'preset\\_%' ESCAPE '\\'").fetchall()
     agents = {r["key"][7:]: r["value"] for r in rows if r["value"] in BY_ID}
+    langue = lang(request)
     return {
         "version": DATA["version"],
-        "presets": DATA["presets"],
-        "defaut": DATA["defaut"],
+        "presets": [localized(p, langue) for p in DATA["presets"]],
+        "defaut": {**DATA["defaut"], "demandes": demandes_defaut(langue)},
         "agents": {a: p for a, p in agents.items() if access.right(user, a)},
     }

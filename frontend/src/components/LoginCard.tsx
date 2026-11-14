@@ -2,16 +2,17 @@
 // Un vrai formulaire : un gestionnaire de mots de passe s'y déclenche. Rien ne reste à l'écran ni dans le stockage du navigateur.
 import { Check, KeyRound, MonitorPlay, Trash2, TriangleAlert, X } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useId, useState } from "react";
+import { t } from "@/i18n";
 import { ApiError, get, type LoginAsked, request, send } from "@/lib/api";
 import { Button, ErrorText, Input } from "./ui";
 
 export type LoginResult = "envoye" | "meme" | "refuse" | "echec";
 
 const LOGIN_DONE: Record<LoginResult, string> = {
-  envoye: "Formulaire envoyé à la page",
-  meme: "Envoyé, mais la page n'a pas changé : le site a peut-être refusé",
-  refuse: "Pas maintenant",
-  echec: "La connexion n'a pas abouti, ton agent le sait",
+  envoye: t("Formulaire envoyé à la page"),
+  meme: t("Envoyé, mais la page n'a pas changé : le site a peut-être refusé"),
+  refuse: t("Pas maintenant"),
+  echec: t("La connexion n'a pas abouti, ton agent le sait"),
 };
 
 export function LoginCard({ agentId, asked, onDone }: { agentId: string; asked: LoginAsked; onDone: (result: LoginResult) => void }) {
@@ -65,42 +66,42 @@ export function LoginCard({ agentId, asked, onDone }: { agentId: string; asked: 
       <div className="flex items-start gap-2">
         <KeyRound className="mt-0.5 size-4 shrink-0 text-warn" />
         <div className="flex min-w-0 flex-col gap-0.5">
-          <span className="break-words text-sm font-semibold">{code ? `Code demandé par ${asked.site}` : `Se connecter à ${asked.site}`}</span>
+          <span className="break-words text-sm font-semibold">{code ? t("Code demandé par {site}", { site: asked.site }) : t("Se connecter à {site}", { site: asked.site })}</span>
           <span className="break-all text-xs text-muted-foreground">{asked.origine}</span>
         </div>
       </div>
-      <p className="text-sm">{code ? "Le code va directement dans la page, ton agent ne le voit pas." : "Le mot de passe va directement dans la page, ton agent ne le voit pas."}</p>
+      <p className="text-sm">{code ? t("Le code va directement dans la page, ton agent ne le voit pas.") : t("Le mot de passe va directement dans la page, ton agent ne le voit pas.")}</p>
       {!asked.chiffre && (
         <p className="flex items-start gap-1.5 text-xs text-warn">
-          <TriangleAlert className="mt-px size-3.5 shrink-0" />Cette page n'est pas chiffrée (pas de https) : ce que tu envoies peut être lu en route.
+          <TriangleAlert className="mt-px size-3.5 shrink-0" />{t("Cette page n'est pas chiffrée (pas de https) : ce que tu envoies peut être lu en route.")}
         </p>
       )}
       {code ? (
         <label htmlFor={`${ids}-code`} className="flex flex-col gap-1 text-xs font-medium">
-          Code
+          {t("Code")}
           <Input id={`${ids}-code`} name="one-time-code" autoComplete="one-time-code" inputMode="numeric" maxLength={16} required value={secret} onChange={(e) => setSecret(e.target.value)} className="h-9 bg-background" />
         </label>
       ) : (
         <>
           <label htmlFor={`${ids}-id`} className="flex flex-col gap-1 text-xs font-medium">
-            Identifiant
+            {t("Identifiant")}
             <Input id={`${ids}-id`} name="username" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} maxLength={320} required={asked.identifiant_requis} readOnly={!touched} onFocus={() => setTouched(true)} value={identifier} onChange={(e) => setIdentifier(e.target.value)} className="h-9 bg-background" />
           </label>
           <label htmlFor={`${ids}-mdp`} className="flex flex-col gap-1 text-xs font-medium">
-            Mot de passe
+            {t("Mot de passe")}
             <Input id={`${ids}-mdp`} name="password" type="password" autoComplete="current-password" maxLength={1024} required readOnly={!touched} onFocus={() => setTouched(true)} value={secret} onChange={(e) => setSecret(e.target.value)} className="h-9 bg-background" />
           </label>
           <label className="flex items-center gap-2 text-xs">
             <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="size-4 accent-accent" />
-            Retenir pour que ton agent se reconnecte sans te redemander
+            {t("Retenir pour que ton agent se reconnecte sans te redemander")}
           </label>
         </>
       )}
       <ErrorText>{error}</ErrorText>
       <div className="flex flex-wrap gap-2">
-        <Button type="submit" variant="warn" size="sm" disabled={busy}>{busy ? "Connexion…" : "Se connecter"}</Button>
-        <Button type="button" variant="outline" size="sm" disabled={busy} onClick={decline}>Pas maintenant</Button>
-        <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => window.dispatchEvent(new Event("noah:voir-ecran"))}><MonitorPlay />Prendre le contrôle du navigateur</Button>
+        <Button type="submit" variant="warn" size="sm" disabled={busy}>{busy ? t("Connexion…") : t("Se connecter")}</Button>
+        <Button type="button" variant="outline" size="sm" disabled={busy} onClick={decline}>{t("Pas maintenant")}</Button>
+        <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => window.dispatchEvent(new Event("noah:voir-ecran"))}><MonitorPlay />{t("Prendre le contrôle du navigateur")}</Button>
       </div>
     </form>
   );
@@ -136,13 +137,13 @@ export function SavedLogins({ agentId }: { agentId: string }) {
   if (!logins?.length && !error) return null;
   return (
     <div className="flex flex-col gap-1.5 rounded-xl border border-border p-2.5">
-      <span className="text-sm font-medium">Sites où ton agent se reconnecte seul</span>
+      <span className="text-sm font-medium">{t("Sites où ton agent se reconnecte seul")}</span>
       <ul className="flex flex-col gap-1">
         {logins?.map((login) => (
           <li key={login.id} className="flex items-center gap-2 text-sm">
             <KeyRound className="size-3.5 shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate" title={login.origine}>{login.site}</span>
-            <Button variant="ghost" size="sm" aria-label={`Oublier ${login.site}`} onClick={() => forget(login)}><Trash2 />Oublier</Button>
+            <Button variant="ghost" size="sm" aria-label={t("Oublier {site}", { site: login.site })} onClick={() => forget(login)}><Trash2 />{t("Oublier")}</Button>
           </li>
         ))}
       </ul>

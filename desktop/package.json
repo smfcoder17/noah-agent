@@ -35,6 +35,7 @@
       "fichiers.js",
       "setup.html",
       "setup.js",
+      "textes.js",
       "icon.png"
     ],
     "afterPack": "apres-empaquetage.js",

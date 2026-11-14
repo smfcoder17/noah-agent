@@ -1,15 +1,16 @@
 import { useContext, useState, type ComponentProps } from "react";
 import type { CodeHeaderProps, MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import { SensitiveContext, SensitiveLink, SensitiveText, sensitiveChildren } from "./SensitiveText";
+import { t } from "@/i18n";
 
 function SensitiveCodeHeader({ code, language }: CodeHeaderProps) {
   const hidden = useContext(SensitiveContext);
   const [error, setError] = useState("");
   return <div className="flex items-center gap-3 text-xs"><SensitiveText text={language || ""} /><button onClick={(e) => {
     const block = e.currentTarget.parentElement?.nextElementSibling;
-    if (hidden && block?.querySelector(".sensitive-token:not(.shown)")) { setError("Révèle les données avant de copier."); return; }
+    if (hidden && block?.querySelector(".sensitive-token:not(.shown)")) { setError(t("Révèle les données avant de copier.")); return; }
     setError(""); void navigator.clipboard?.writeText(code);
-  }}>Copier le code</button>{error && <span role="status">{error}</span>}</div>;
+  }}>{t("Copier le code")}</button>{error && <span role="status">{error}</span>}</div>;
 }
 
 /** Les feuilles du Markdown passent toutes par le même masquage, même imbriquées. */

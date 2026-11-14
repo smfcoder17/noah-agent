@@ -2,6 +2,10 @@
 const { WebContentsView, ipcMain, Notification } = require("electron");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
+const textes = require("./textes");
+
+// Textes fixes de bandeau.html : la page n'a pas de script, son preload les demande et les pose (data-i18n).
+const PAGE_KEYS = ["bandeau.page", "bandeau.titre", "bandeau.detail", "bandeau.boutons", "bandeau.raccourcis"];
 
 const file = path.join(__dirname, "bandeau.html");
 const url = pathToFileURL(file).href;
@@ -12,7 +16,7 @@ const pages = new WeakMap();
 // pas être adoptés après coup. Sa vue permet de réduire le viewport et les CSS fixes.
 function pageFor(win, view) {
   if (pages.has(win)) return pages.get(win);
-  if (!view) throw new Error("Le bandeau attend la WebContentsView de la page Noah.");
+  if (!view) throw new Error("Le bandeau attend la WebContentsView de la page Noah."); // i18n-ignore : erreur de programmation, jamais montrée
   const container = win.contentView;
   const page = { offset: 0, layout: () => {
     if (win.isDestroyed() || view.webContents.isDestroyed()) return;
@@ -31,7 +35,7 @@ function pageFor(win, view) {
 }
 
 function create(win, mainPage) {
-  if (win.isDestroyed()) throw new Error("Le bandeau a été interrompu : rien n'a été fait.");
+  if (win.isDestroyed()) throw new Error("Le bandeau a été interrompu : rien n'a été fait."); // i18n-ignore : lu par le serveur
   mainPage ??= [...win.contentView.children].find((view) => view.webContents);
   current?.dispose(); // retirer la vue et les handlers de l'ancienne fenêtre avant les nouveaux
   const page = pageFor(win, mainPage);
@@ -77,7 +81,7 @@ function create(win, mainPage) {
     clearTimeout(item.timer);
     item.notification?.close();
     update();
-    item.settle(response, error || (Date.now() >= item.until ? new Error("Cette demande a expiré avant ton accord : rien n'a été fait.") : null));
+    item.settle(response, error || (Date.now() >= item.until ? new Error("Cette demande a expiré avant ton accord : rien n'a été fait.") : null)); // i18n-ignore : lu par le serveur
     return true;
   };
   const answer = (id, response) => {
@@ -86,6 +90,8 @@ function create(win, mainPage) {
   };
   ipcMain.handle("noah:accord", (e, id, response) => trusted(e) && answer(id, response));
   ipcMain.handle("noah:bandeau-etat", (e) => trusted(e) ? state() : null);
+  ipcMain.handle("noah:bandeau-textes", (e) => trusted(e)
+    ? { langue: textes.langue(), textes: Object.fromEntries(PAGE_KEYS.map((key) => [key, textes.t(key)])) } : null);
   // Reçoit les frappes natives même si le focus est resté dans la page du serveur.
   // Sous Windows, AltGr envoie Ctrl+Alt : sur un clavier AZERTY, AltGr+A tapé dans la page aurait autorisé l'action.
   // Le raccourci ne vaut donc qu'avec la touche Alt de gauche : tant que celle de droite (AltGr) est tenue, rien ne passe.
@@ -109,8 +115,8 @@ function create(win, mainPage) {
     win.show(); win.focus(); wc.focus();
   };
   const request = (shown, until, signal) => {
-    if (Date.now() >= until) return Promise.reject(new Error("Cette demande a expiré sans avoir été affichée : rien n'a été fait."));
-    if (!alive() || pending || signal?.aborted) return Promise.reject(new Error("Cette demande n'a pas pu être affichée : rien n'a été fait."));
+    if (Date.now() >= until) return Promise.reject(new Error("Cette demande a expiré sans avoir été affichée : rien n'a été fait.")); // i18n-ignore : lu par le serveur
+    if (!alive() || pending || signal?.aborted) return Promise.reject(new Error("Cette demande n'a pas pu être affichée : rien n'a été fait.")); // i18n-ignore : lu par le serveur
     return new Promise((resolve, reject) => {
       // L'identifiant d'affichage n'est pas le jeton qui autorise l'action dans actions.js.
       const abort = () => finish(shown.refuseIndex);
@@ -122,7 +128,7 @@ function create(win, mainPage) {
       pending.timer = setTimeout(() => finish(shown.refuseIndex), until - Date.now());
       update();
       try {
-        const n = new Notification({ title: "Noah attend ton accord", body: "Ouvre Noah pour vérifier l'action sur ton ordinateur." });
+        const n = new Notification({ title: textes.t("bandeau.notif.titre"), body: textes.t("bandeau.notif.texte") });
         pending.notification = n;
         n.on("click", focus); n.show();
       } catch { /* L'accord reste accessible si Windows coupe les notifications. */ }
@@ -132,7 +138,7 @@ function create(win, mainPage) {
   win.on("resize", layout);
   container.on("bounds-changed", layout);
   layout();
-  const lostView = () => finish(null, new Error("Le bandeau a été interrompu : rien n'a été fait."));
+  const lostView = () => finish(null, new Error("Le bandeau a été interrompu : rien n'a été fait.")); // i18n-ignore : lu par le serveur
   wc.on("render-process-gone", lostView);
   wc.loadFile(file).catch(lostView);
   const dispose = () => {
@@ -152,6 +158,7 @@ function create(win, mainPage) {
     if (!win.isDestroyed()) container.removeChildView(view);
     ipcMain.removeHandler("noah:accord");
     ipcMain.removeHandler("noah:bandeau-etat");
+    ipcMain.removeHandler("noah:bandeau-textes");
     if (!wc.isDestroyed()) wc.close();
     if (current === instance) current = null;
   };
@@ -164,6 +171,6 @@ function create(win, mainPage) {
 
 module.exports = {
   create,
-  request: (shown, until, signal) => current ? current.request(shown, until, signal) : Promise.reject(new Error("Cette demande n'a pas pu être affichée : rien n'a été fait.")),
+  request: (shown, until, signal) => current ? current.request(shown, until, signal) : Promise.reject(new Error("Cette demande n'a pas pu être affichée : rien n'a été fait.")), // i18n-ignore : lu par le serveur
   focus: () => current?.focus(),
 };

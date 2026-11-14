@@ -5,6 +5,17 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import { videoFromUrl, type VideoRef } from "@/lib/chatMedia";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui";
+import { t } from "@/i18n";
+
+// Les titres par défaut de chatMedia.ts (module pur, sans i18n), traduits ici.
+const LABELS: Record<string, string> = {
+  "Vidéo YouTube": t("Vidéo YouTube"), // i18n-ignore : clé, le titre écrit par chatMedia.ts
+  "Vidéo Vimeo": t("Vidéo Vimeo"), // i18n-ignore : clé
+  "Publication X": t("Publication X"), // i18n-ignore : clé
+  "Vidéo TikTok": t("Vidéo TikTok"), // i18n-ignore : clé
+  "Publication Instagram": t("Publication Instagram"), // i18n-ignore : clé
+  "Vidéo Instagram": t("Vidéo Instagram"), // i18n-ignore : clé
+};
 
 // Une seule vidéo jouée à la fois : retirer le cadre de la précédente la coupe.
 let playing: string | null = null;
@@ -51,9 +62,9 @@ export function VideoEmbed({ url, title }: { url: unknown; title?: unknown }) {
   }, [measured]);
   if (!video) {
     // L'agent a écrit autre chose qu'une adresse reconnue : ni cadre, ni lien cliquable vers on ne sait quoi.
-    return <p className="my-3 rounded-2xl border border-border bg-surface px-4 py-3 text-sm text-muted-foreground">Vidéo non reconnue : elle ne peut pas être lue ici.</p>;
+    return <p className="my-3 rounded-2xl border border-border bg-surface px-4 py-3 text-sm text-muted-foreground">{t("Vidéo non reconnue : elle ne peut pas être lue ici.")}</p>;
   }
-  const heading = (typeof title === "string" && title.trim().slice(0, 200)) || video.label;
+  const heading = (typeof title === "string" && title.trim().slice(0, 200)) || LABELS[video.label] || video.label;
   return (
     <section data-noah-video={video.platform} className="my-3 overflow-hidden rounded-2xl border border-border bg-surface">
       {on ? (
@@ -74,7 +85,7 @@ export function VideoEmbed({ url, title }: { url: unknown; title?: unknown }) {
         <button
           type="button"
           onClick={() => play(video.key)}
-          aria-label={`Lire ici : ${heading}`}
+          aria-label={t("Lire ici : {titre}", { titre: heading })}
           className={cn(
             "group flex w-full cursor-pointer flex-col items-center justify-center gap-2 bg-gradient-to-br from-muted via-surface to-muted px-4 text-center",
             video.portrait ? "h-48" : "aspect-video",
@@ -83,8 +94,8 @@ export function VideoEmbed({ url, title }: { url: unknown; title?: unknown }) {
           <span className="grid size-14 place-items-center rounded-full bg-foreground text-background shadow-sm transition-transform group-hover:scale-105">
             <Play className="size-6 translate-x-px" />
           </span>
-          <span className="text-sm font-medium">Lire ici</span>
-          <span className="text-xs text-muted-foreground">Rien ne part vers {video.name} avant ce clic.</span>
+          <span className="text-sm font-medium">{t("Lire ici")}</span>
+          <span className="text-xs text-muted-foreground">{t("Rien ne part vers {plateforme} avant ce clic.", { plateforme: video.name })}</span>
         </button>
       ) : null}
       <footer className={cn("flex flex-wrap items-center justify-between gap-2 px-3 py-2", (on || video.embedUrl) && "border-t border-border/60")}>
@@ -94,10 +105,10 @@ export function VideoEmbed({ url, title }: { url: unknown; title?: unknown }) {
         </div>
         <div className="flex shrink-0 gap-1">
           {on && (
-            <Button size="sm" variant="ghost" onClick={() => play(null)}><X />Fermer</Button>
+            <Button size="sm" variant="ghost" onClick={() => play(null)}><X />{t("Fermer")}</Button>
           )}
           <Button size="sm" variant="outline" asChild>
-            <a href={video.openUrl} target="_blank" rel="noopener noreferrer" className="no-underline"><ExternalLink />Ouvrir dans {video.name}</a>
+            <a href={video.openUrl} target="_blank" rel="noopener noreferrer" className="no-underline"><ExternalLink />{t("Ouvrir dans {plateforme}", { plateforme: video.name })}</a>
           </Button>
         </div>
       </footer>

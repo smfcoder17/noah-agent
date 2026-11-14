@@ -3,6 +3,7 @@
 import { useAui } from "@assistant-ui/react";
 import { Loader2, MapPin } from "lucide-react";
 import { useEffect, useState } from "react";
+import { t, tr } from "@/i18n";
 import { type Agent, get } from "@/lib/api";
 import { CONFIDENTIALITE_URL } from "@/lib/editeur";
 import { Button, ErrorText } from "./ui";
@@ -27,11 +28,11 @@ const native = () => window.Capacitor?.Plugins?.NoahShell;
 export const phoneSettingsAvailable = () => !!native()?.droits;
 
 const WORD: Record<State, string> = {
-  accorde: "Autorisé",
-  a_demander: "Pas encore demandé",
-  refuse: "Refusé",
-  bloque: "Refusé dans Android",
-  sans_droit: "Aucun droit à donner",
+  accorde: t("Autorisé"),
+  a_demander: t("Pas encore demandé"),
+  refuse: t("Refusé"),
+  bloque: t("Refusé dans Android"),
+  sans_droit: t("Aucun droit à donner"),
 };
 
 function Row({ title, state, children, button, onAsk }: { title: string; state: State; children: React.ReactNode; button?: string; onAsk?: () => void }) {
@@ -44,7 +45,7 @@ function Row({ title, state, children, button, onAsk }: { title: string; state: 
       <p className="text-xs text-muted-foreground">{children}</p>
       {onAsk && state !== "accorde" && state !== "sans_droit" && (
         <Button size="sm" variant="outline" className="self-start" onClick={onAsk}>
-          {state === "bloque" ? "Ouvrir les réglages d'Android" : button ?? "Autoriser"}
+          {state === "bloque" ? t("Ouvrir les réglages d'Android") : button ?? t("Autoriser")}
         </Button>
       )}
     </div>
@@ -75,7 +76,7 @@ export function PhoneSettings() {
   const startBubble = async () => {
     setError("");
     const agent = agents.find((a) => a.id === agentId);
-    if (!agent || !rights) return setError("Crée d'abord un agent.");
+    if (!agent || !rights) return setError(t("Crée d'abord un agent."));
     if (rights.superposition !== "accorde") return ask("superposition");
     if (rights.micro !== "accorde") return ask("micro");
     await native()?.bulle?.({ actif: true, agent: agent.id, nom: agent.name, couleur: agent.color, forme: agent.shape ?? "", detail: agent.detail ?? "" }).catch((e: Error) => setError(e.message));
@@ -97,63 +98,63 @@ export function PhoneSettings() {
     await refresh();
   };
 
-  if (!rights) return <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture des droits du téléphone…</p>;
+  if (!rights) return <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("Lecture des droits du téléphone…")}</p>;
   const bubble = rights.bulle.active;
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-2 rounded-2xl border border-accent/40 p-4">
-        <p className="text-sm font-semibold">Mode flottant</p>
+        <p className="text-sm font-semibold">{t("Mode flottant")}</p>
         <p className="text-xs text-muted-foreground">
-          Une bulle au-dessus de tes apps. Maintiens-la pour dicter.
+          {t("Une bulle au-dessus de tes apps. Maintiens-la pour dicter.")}
         </p>
         <label className="flex items-center gap-2 text-sm">
-          Agent de la bulle
+          {t("Agent de la bulle")}
           <select className="rounded-lg border border-border bg-surface px-2 py-1 text-sm" value={agentId} onChange={(e) => setChosen(e.target.value)} disabled={bubble}>
             {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
         </label>
         {bubble ? (
-          <Button size="sm" variant="outline" className="self-start" onClick={stopBubble}>Arrêter la bulle</Button>
+          <Button size="sm" variant="outline" className="self-start" onClick={stopBubble}>{t("Arrêter la bulle")}</Button>
         ) : (
           <Button size="sm" className="self-start" onClick={startBubble}>
-            {rights.superposition !== "accorde" ? "Autoriser la superposition" : rights.micro !== "accorde" ? "Autoriser le micro" : "Lancer la bulle"}
+            {rights.superposition !== "accorde" ? t("Autoriser la superposition") : rights.micro !== "accorde" ? t("Autoriser le micro") : t("Lancer la bulle")}
           </Button>
         )}
         <p className="text-xs text-muted-foreground">
-          Après un redémarrage, relance-la ici.
-          {rights.notifications === "accorde" ? "" : " Sans notifications, arrête-la ici."}
+          {t("Après un redémarrage, relance-la ici.")}
+          {rights.notifications === "accorde" ? "" : " " + t("Sans notifications, arrête-la ici.")}
         </p>
       </div>
-      <Row title="Notifications" state={rights.notifications} onAsk={() => ask("notifications")}>
-        Fins de tâche et appels.
+      <Row title={t("Notifications")} state={rights.notifications} onAsk={() => ask("notifications")}>
+        {t("Fins de tâche et appels.")}
         {rights.distributeurs === 0
-          ? " Installe l'app gratuite ntfy, puis « Activer » dans Réglages > Notifications."
-          : rights.inscrit ? "" : " Touche « Activer » dans Réglages > Notifications."}
+          ? " " + t("Installe l'app gratuite ntfy, puis « Activer » dans Réglages > Notifications.")
+          : rights.inscrit ? "" : " " + t("Touche « Activer » dans Réglages > Notifications.")}
       </Row>
-      <Row title="Micro" state={rights.micro} onAsk={() => ask("micro")}>
-        Pour dicter et appeler un agent.
+      <Row title={t("Micro")} state={rights.micro} onAsk={() => ask("micro")}>
+        {t("Pour dicter et appeler un agent.")}
       </Row>
-      <Row title="Photos et fichiers" state={rights.photos}>
-        Noah ne reçoit que ce que tu choisis.
+      <Row title={t("Photos et fichiers")} state={rights.photos}>
+        {t("Noah ne reçoit que ce que tu choisis.")}
       </Row>
-      <Row title="Position" state={rights.position} onAsk={() => choosePosition(true)} button="Autoriser et activer">
-        Lue quand tu la joins, puis envoyée au fournisseur du modèle.
+      <Row title={t("Position")} state={rights.position} onAsk={() => choosePosition(true)} button={t("Autoriser et activer")}>
+        {t("Lue quand tu la joins, puis envoyée au fournisseur du modèle.")}
       </Row>
       {rights.position === "accorde" && (
         <label className="-mt-1 flex items-center gap-3 rounded-2xl border border-border p-4 text-sm">
           <input type="checkbox" checked={rights.positionActive} onChange={(e) => choosePosition(e.target.checked)} />
-          <span>Proposer « Joindre ma position » dans la zone de saisie</span>
+          <span>{t("Proposer « Joindre ma position » dans la zone de saisie")}</span>
         </label>
       )}
-      <Row title="Superposition" state={rights.superposition} onAsk={() => ask("superposition")}>
-        Pour la bulle seulement.
+      <Row title={t("Superposition")} state={rights.superposition} onAsk={() => ask("superposition")}>
+        {t("Pour la bulle seulement.")}
       </Row>
-      <Row title="Batterie sans restriction" state={rights.batterie} onAsk={() => ask("batterie")}>
-        Pour que les appels sonnent écran éteint.
+      <Row title={t("Batterie sans restriction")} state={rights.batterie} onAsk={() => ask("batterie")}>
+        {t("Pour que les appels sonnent écran éteint.")}
       </Row>
       <ErrorText>{error}</ErrorText>
       <p className="text-xs text-muted-foreground">
-        Ce que l'app fait de tes données : <a className="underline" href={CONFIDENTIALITE_URL}>politique de confidentialité</a>.
+        {tr("Ce que l'app fait de tes données : {lien}.", { lien: <a className="underline" href={CONFIDENTIALITE_URL}>{t("politique de confidentialité")}</a> })}
       </p>
     </div>
   );
@@ -177,7 +178,7 @@ export function AttachPosition() {
     setError("");
     try {
       const p = (await native()?.position?.()) as { latitude: number; longitude: number; precision: number };
-      const line = `Ma position : ${p.latitude.toFixed(5)}, ${p.longitude.toFixed(5)} (à ${Math.round(p.precision)} m près)`;
+      const line = t("Ma position : {lat}, {lon} (à {m} m près)", { lat: p.latitude.toFixed(5), lon: p.longitude.toFixed(5), m: Math.round(p.precision) });
       const current = aui.composer.getState().text;
       aui.composer.setText(current.trim() ? `${current.trimEnd()}\n${line}` : line);
     } catch (e) {
@@ -187,7 +188,7 @@ export function AttachPosition() {
     }
   };
   return (
-    <Button type="button" variant="ghost" size="icon" aria-label="Joindre ma position" title={error || "Joindre ma position au message"} className={error ? "text-warn" : "text-muted-foreground"} onClick={attach} disabled={busy}>
+    <Button type="button" variant="ghost" size="icon" aria-label={t("Joindre ma position")} title={error || t("Joindre ma position au message")} className={error ? "text-warn" : "text-muted-foreground"} onClick={attach} disabled={busy}>
       {busy ? <Loader2 className="animate-spin" /> : <MapPin />}
     </Button>
   );

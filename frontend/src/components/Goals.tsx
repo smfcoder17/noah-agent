@@ -1,6 +1,7 @@
 // Objectifs : ce que la personne veut atteindre. Ses agents les gardent en tête et cherchent comment l'aider (server/noah/proactif.py).
 import { Check, ChevronRight, Loader2, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { t } from "@/i18n";
 import { type Agent, del, get, type Goal, send } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button, Dialog, DialogContent, ErrorText, Input } from "./ui";
@@ -20,14 +21,14 @@ function GoalRow({ goal, agentName, onChange, onRemove }: { goal: Goal; agentNam
         size="icon-sm"
         className="shrink-0"
         onClick={() => onChange(goal.id, { etat: finished ? "actif" : "fait" })}
-        aria-label={finished ? `Reprendre : ${goal.texte}` : `Marquer comme fait : ${goal.texte}`}
-        title={finished ? "Reprendre" : "C'est fait"}
+        aria-label={finished ? t("Reprendre : {objectif}", { objectif: goal.texte }) : t("Marquer comme fait : {objectif}", { objectif: goal.texte })}
+        title={finished ? t("Reprendre") : t("C'est fait")}
       >
         {finished ? <RotateCcw /> : <span aria-hidden className="grid size-4 place-items-center rounded-full border-2 border-muted-foreground/60"><Check className="size-2.5 opacity-0" /></span>}
       </Button>
       <div className="flex min-h-8 min-w-0 flex-1 flex-col justify-center">
         {editing === null ? (
-          <button type="button" onClick={() => setEditing(goal.texte)} className={cn("cursor-text text-left text-sm", finished && "text-muted-foreground line-through")} aria-label={`Modifier : ${goal.texte}`}>{goal.texte}</button>
+          <button type="button" onClick={() => setEditing(goal.texte)} className={cn("cursor-text text-left text-sm", finished && "text-muted-foreground line-through")} aria-label={t("Modifier : {objectif}", { objectif: goal.texte })}>{goal.texte}</button>
         ) : (
           <Input
             autoFocus
@@ -43,12 +44,12 @@ function GoalRow({ goal, agentName, onChange, onRemove }: { goal: Goal; agentNam
               }
             }}
             className="h-8"
-            aria-label="Modifier l'objectif"
+            aria-label={t("Modifier l'objectif")}
           />
         )}
-        {agentName && <span className="text-xs text-muted-foreground">Pour {agentName}</span>}
+        {agentName && <span className="text-xs text-muted-foreground">{t("Pour {agent}", { agent: agentName })}</span>}
       </div>
-      <Button variant="ghost" size="icon-sm" className="shrink-0 text-muted-foreground" onClick={() => onRemove(goal)} aria-label={`Retirer : ${goal.texte}`}><Trash2 /></Button>
+      <Button variant="ghost" size="icon-sm" className="shrink-0 text-muted-foreground" onClick={() => onRemove(goal)} aria-label={t("Retirer : {objectif}", { objectif: goal.texte })}><Trash2 /></Button>
     </li>
   );
 }
@@ -112,30 +113,30 @@ export function Goals({ open, agents, agentId, onOpenChange }: { open: boolean; 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {open && (
-        <DialogContent title="Objectifs" description="Ce que tu veux atteindre." className="max-w-lg max-sm:p-4">
+        <DialogContent title={t("Objectifs")} description={t("Ce que tu veux atteindre.")} className="max-w-lg max-sm:p-4">
           <form onSubmit={add} className="flex flex-col gap-2">
             <div className="flex items-center gap-1.5">
-              <Input value={text} onChange={(e) => setText(e.target.value)} maxLength={300} placeholder="Poster chaque jour, répondre à ma communauté…" aria-label="Nouvel objectif" className="min-w-0 flex-1" />
-              {canDictate && <DictateButton dictation={dictation} what="un objectif" field />}
-              <Button type="submit" size="icon" disabled={!text.trim() || busy} aria-label="Ajouter l'objectif" className="shrink-0">{busy ? <Loader2 className="animate-spin" /> : <Plus />}</Button>
+              <Input value={text} onChange={(e) => setText(e.target.value)} maxLength={300} placeholder={t("Poster chaque jour, répondre à ma communauté…")} aria-label={t("Nouvel objectif")} className="min-w-0 flex-1" />
+              {canDictate && <DictateButton dictation={dictation} what={t("un objectif")} field />}
+              <Button type="submit" size="icon" disabled={!text.trim() || busy} aria-label={t("Ajouter l'objectif")} className="shrink-0">{busy ? <Loader2 className="animate-spin" /> : <Plus />}</Button>
             </div>
             {mine.length > 1 && (
-              <select value={target} onChange={(e) => setTarget(e.target.value)} aria-label="Pour quel agent" className="h-9 w-full cursor-pointer rounded-lg border border-border bg-background px-2 text-sm">
-                <option value="">Pour tous mes agents</option>
-                {mine.map((a) => <option key={a.id} value={a.id}>Pour {a.name}</option>)}
+              <select value={target} onChange={(e) => setTarget(e.target.value)} aria-label={t("Pour quel agent")} className="h-9 w-full cursor-pointer rounded-lg border border-border bg-background px-2 text-sm">
+                <option value="">{t("Pour tous mes agents")}</option>
+                {mine.map((a) => <option key={a.id} value={a.id}>{t("Pour {agent}", { agent: a.name })}</option>)}
               </select>
             )}
           </form>
           <ErrorText>{error}</ErrorText>
-          {!goals && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Lecture…</p>}
-          {goals && !active.length && <p className="text-sm text-muted-foreground">Aucun objectif. Chaque jour, un agent t'aidera à avancer.</p>}
-          {active.length > 0 && <ul aria-label="Objectifs en cours" className="flex flex-col gap-2">{active.map(row)}</ul>}
+          {!goals && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("Lecture…")}</p>}
+          {goals && !active.length && <p className="text-sm text-muted-foreground">{t("Aucun objectif. Chaque jour, un agent t'aidera à avancer.")}</p>}
+          {active.length > 0 && <ul aria-label={t("Objectifs en cours")} className="flex flex-col gap-2">{active.map(row)}</ul>}
           {done.length > 0 && (
             <div className="flex flex-col gap-2">
               <button type="button" aria-expanded={showDone} onClick={() => setShowDone(!showDone)} className="flex cursor-pointer items-center gap-1.5 text-left text-xs font-medium text-muted-foreground hover:text-foreground">
-                <ChevronRight className={cn("size-3.5 transition-transform", showDone && "rotate-90")} />Faits ({done.length})
+                <ChevronRight className={cn("size-3.5 transition-transform", showDone && "rotate-90")} />{t("Faits ({n})", { n: done.length })}
               </button>
-              {showDone && <ul aria-label="Objectifs faits" className="flex flex-col gap-2">{done.map(row)}</ul>}
+              {showDone && <ul aria-label={t("Objectifs faits")}className="flex flex-col gap-2">{done.map(row)}</ul>}
             </div>
           )}
         </DialogContent>

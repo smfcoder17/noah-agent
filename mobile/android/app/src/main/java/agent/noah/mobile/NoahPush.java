@@ -143,12 +143,12 @@ public class NoahPush extends PushService {
         } catch (Exception ignored) {
             // message mal formé : canal habituel
         }
-        show(id, "Noah", "Nouvelle notification. Ouvre Noah pour la voir.", "/", generic);
+        show(id, "Noah", getString(R.string.push_generic), "/", generic);
         new Thread(() -> handle(message, id)).start();
     }
 
     private void handle(PushMessage message, int id) {
-        String title = "Noah", text = "Nouvelle notification.", url = "/";
+        String title = "Noah", text = getString(R.string.push_generic_short), url = "/";
         try {
             JSONObject data = new JSONObject(new String(message.getContent(), StandardCharsets.UTF_8));
             // Comme le service worker : le contenu ne s'affiche que s'il est destiné à la session de ce téléphone.
@@ -236,7 +236,7 @@ public class NoahPush extends PushService {
         manager.createNotificationChannel(new NotificationChannel(CHANNEL, "Noah", NotificationManager.IMPORTANCE_HIGH));
         String type = message.optString("type");
         boolean quiet = "fin".equals(type) || "routines".equals(type);
-        if (quiet) manager.createNotificationChannel(new NotificationChannel(QUIET, "Fins de tâche et routines", NotificationManager.IMPORTANCE_DEFAULT));
+        if (quiet) manager.createNotificationChannel(new NotificationChannel(QUIET, getString(R.string.push_quiet_channel),NotificationManager.IMPORTANCE_DEFAULT));
         Intent open = new Intent(this, MainActivity.class).putExtra("url", url).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         // Un code par notification : sinon toucher une ancienne ouvrirait la page de la dernière reçue.
         PendingIntent tap = PendingIntent.getActivity(this, id, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
@@ -249,7 +249,7 @@ public class NoahPush extends PushService {
             .setSmallIcon(R.drawable.ic_stat_noah).setContentTitle(title).setContentText(text)
             .setStyle(new NotificationCompat.BigTextStyle().bigText(text)).setContentIntent(tap).setAutoCancel(true)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-            .setPublicVersion(new NotificationCompat.Builder(this, quiet ? QUIET : CHANNEL).setSmallIcon(R.drawable.ic_stat_noah).setContentTitle("Noah a du nouveau").build())
+            .setPublicVersion(new NotificationCompat.Builder(this, quiet ? QUIET : CHANNEL).setSmallIcon(R.drawable.ic_stat_noah).setContentTitle(getString(R.string.push_public)).build())
             .setOnlyAlertOnce(true); // le remplacement générique → contenu ne sonne pas deux fois
         try {
             NotificationManagerCompat.from(this).notify(id, n.build());
@@ -260,7 +260,7 @@ public class NoahPush extends PushService {
 
     /** Un rappel sonne comme un appel. Android 14 peut refuser le plein écran à une app qui n'est pas un téléphone : il reste la sonnerie. */
     static void ring(Context context, NotificationManager manager, int id, String title, String text, String url, int color, String shape, String detail, PendingIntent tap) {
-        NotificationChannel channel = new NotificationChannel(CALLS, "Appels de tes agents", NotificationManager.IMPORTANCE_HIGH);
+        NotificationChannel channel = new NotificationChannel(CALLS, context.getString(R.string.calls_channel),NotificationManager.IMPORTANCE_HIGH);
         channel.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE),
             new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE).build());
         channel.enableVibration(true);

@@ -8,6 +8,7 @@ import { cn, safeMedia } from "@/lib/utils";
 import { NoahTile, type NoahHandle, type NoahState } from "./Noah";
 import { Button } from "./ui";
 import { canFrame, useDownload, useViewer } from "./Viewer";
+import { t } from "@/i18n";
 
 export const CALL_SLOT = "noah-call-slot";
 const PIP_WIDTH = 300; // plus étroit qu'aucun téléphone : c'est la fenêtre flottante
@@ -39,7 +40,7 @@ export function artefactsOf(messages: readonly Message[], link: (text: string) =
       if (p.type !== "text" || !p.text) continue;
       for (const [, bang, title, url] of link(p.text).matchAll(/(!?)\[([^\]]*)\]\(([^)\s]+)\)/g)) {
         const kind = bang || IMAGE.test(url) || DATA_IMAGE.test(url) ? "image" : "file";
-        if (usable(url, kind)) found.set(url, { kind, url, title: title || (kind === "image" ? "Image" : "Fichier") });
+        if (usable(url, kind)) found.set(url, { kind, url, title: title || (kind === "image" ? t("Image") : t("Fichier")) });
       }
     }
   }
@@ -105,7 +106,7 @@ function ArtefactCard({ item, large }: { item: Artefact; large?: boolean }) {
     else download(`${item.url}?download=1`, item.title);
   };
   return (
-    <button type="button" onClick={open} aria-label={`Ouvrir ${item.title}`} className={cn("group overflow-hidden rounded-xl border border-border bg-surface text-left shadow-sm", large ? "w-full" : "w-28 shrink-0")}>
+    <button type="button" onClick={open} aria-label={t("Ouvrir {titre}", { titre: item.title })} className={cn("group overflow-hidden rounded-xl border border-border bg-surface text-left shadow-sm", large ? "w-full" : "w-28 shrink-0")}>
       {item.kind === "image" ? (
         <img src={safeMedia(item.url)} alt={item.title} className={cn("w-full bg-muted object-contain", large ? "max-h-[38vh]" : "h-20 object-cover")} />
       ) : (
@@ -155,16 +156,16 @@ export function CallStage(props: {
   }, [needsYou]);
 
   const interrupt = speaking && (
-    <Button variant="outline" onClick={onInterrupt}><Square className="fill-current" />Interrompre</Button>
+    <Button variant="outline" onClick={onInterrupt}><Square className="fill-current" />{t("Interrompre")}</Button>
   );
   const mute = (
-    <button type="button" onClick={onMute} aria-pressed={muted} aria-label={muted ? "Rétablir le micro" : "Couper le micro"} title={muted ? "Rétablir le micro" : "Couper le micro"}
+    <button type="button" onClick={onMute} aria-pressed={muted} aria-label={muted ? t("Rétablir le micro") : t("Couper le micro")} title={muted ? t("Rétablir le micro") : t("Couper le micro")}
       className={cn("flex size-12 items-center justify-center rounded-full border border-border", muted ? "bg-foreground text-background" : "bg-surface")}>
       {muted ? <MicOff className="size-5" /> : <Mic className="size-5" />}
     </button>
   );
   const hangUp = (
-    <button type="button" onClick={onHangUp} aria-label="Raccrocher" title="Raccrocher" className="flex size-12 items-center justify-center rounded-full bg-danger text-white">
+    <button type="button" onClick={onHangUp} aria-label={t("Raccrocher")} title={t("Raccrocher")} className="flex size-12 items-center justify-center rounded-full bg-danger text-white">
       <PhoneOff className="size-5" />
     </button>
   );
@@ -172,16 +173,16 @@ export function CallStage(props: {
   let view: React.ReactNode;
   if (floating) {
     view = (
-      <div role="region" aria-label="Appel vocal" className="fixed inset-0 z-[70] flex flex-col items-center justify-center gap-2 bg-background">
+      <div role="region" aria-label={t("Appel vocal")} className="fixed inset-0 z-[70] flex flex-col items-center justify-center gap-2 bg-background">
         <Face {...faceProps} className="size-20" />
         <p className="text-xs tabular-nums text-muted-foreground">{time}</p>
       </div>
     );
   } else if (big) {
     view = (
-      <div role="region" aria-label="Appel vocal" className="fixed inset-0 z-40 flex flex-col overflow-y-auto bg-background pt-[max(12px,env(safe-area-inset-top))] pb-[max(16px,env(safe-area-inset-bottom))]">
+      <div role="region" aria-label={t("Appel vocal")} className="fixed inset-0 z-40 flex flex-col overflow-y-auto bg-background pt-[max(12px,env(safe-area-inset-top))] pb-[max(16px,env(safe-area-inset-bottom))]">
         <div className="flex items-center gap-2 px-3">
-          <Button variant="ghost" size="icon-sm" onClick={() => setBig(false)} aria-label="Réduire l'appel"><ChevronDown /></Button>
+          <Button variant="ghost" size="icon-sm" onClick={() => setBig(false)} aria-label={t("Réduire l'appel")}><ChevronDown /></Button>
           <p className="min-w-0 flex-1 truncate text-center text-sm font-medium">{agentName} · <span className="tabular-nums">{time}</span></p>
           <span className="size-8" />
         </div>
@@ -201,8 +202,8 @@ export function CallStage(props: {
                 </div>
               )}
               {steps.length > 0 && (
-                <section aria-label="Ce que fait l'agent" className="rounded-xl border border-border bg-surface p-3">
-                  <p className="mb-1 text-xs text-muted-foreground">{busy ? "En ce moment" : "Pendant l'appel"}</p>
+                <section aria-label={t("Ce que fait l'agent")} className="rounded-xl border border-border bg-surface p-3">
+                  <p className="mb-1 text-xs text-muted-foreground">{busy ? t("En ce moment") : t("Pendant l'appel")}</p>
                   <ol className="flex flex-col gap-1 text-sm">
                     {steps.map((s, i) => <li key={`${i}-${s}`} className={cn("truncate", s === now && busy ? "font-medium" : "text-muted-foreground")}>{s}</li>)}
                   </ol>
@@ -214,7 +215,7 @@ export function CallStage(props: {
         <div className="flex flex-wrap items-center justify-center gap-3 px-4">
           {interrupt}
           {extra}
-          {canWatch && <Button variant="outline" onClick={() => { setBig(false); window.dispatchEvent(new Event("noah:voir-ecran")); }}><MonitorPlay />Voir son écran</Button>}
+          {canWatch && <Button variant="outline" onClick={() => { setBig(false); window.dispatchEvent(new Event("noah:voir-ecran")); }}><MonitorPlay />{t("Voir son écran")}</Button>}
           {mute}
           {hangUp}
         </div>
@@ -222,11 +223,11 @@ export function CallStage(props: {
     );
   } else {
     view = (
-      <div role="region" aria-label="Appel vocal" className="flex items-center gap-3 border-b border-accent/40 bg-accent-soft/40 px-3 py-2">
-        <button type="button" onClick={() => setBig(true)} aria-label="Agrandir l'appel" className="flex min-w-0 flex-1 items-center gap-3 text-left">
+      <div role="region" aria-label={t("Appel vocal")} className="flex items-center gap-3 border-b border-accent/40 bg-accent-soft/40 px-3 py-2">
+        <button type="button" onClick={() => setBig(true)} aria-label={t("Agrandir l'appel")} className="flex min-w-0 flex-1 items-center gap-3 text-left">
           <Face {...faceProps} className="size-10" />
           <span className="min-w-0 flex-1">
-            <span className="block text-xs tabular-nums text-muted-foreground">En appel avec {agentName} · {time}</span>
+            <span className="block text-xs tabular-nums text-muted-foreground">{t("En appel avec {nom} · {duree}", { nom: agentName, duree: time })}</span>
             <span className={cn("line-clamp-2 text-sm font-semibold", phase === "error" && "text-warn")} aria-live="polite">{status}</span>
             <span className="block truncate text-xs text-muted-foreground">{now && busy ? now : hint}</span>
           </span>

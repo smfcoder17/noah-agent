@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { Section } from "./AgentPowers";
 import { NOAH_COLORS, NOAH_DETAILS, NOAH_SHAPES, Noah, NoahTile, agentColor } from "./Noah";
 import { Button, ErrorText } from "./ui";
+import { t } from "@/i18n";
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 
@@ -44,15 +45,15 @@ export function AgentAppearance({ agent, onChanged }: { agent: Agent; onChanged:
   };
 
   return (
-    <Section title="Apparence">
+    <Section title={t("Apparence")}>
       <div className="flex flex-col gap-4 rounded-xl bg-muted/60 p-3">
         <div className="flex items-center gap-3">
           <NoahTile color={color} shape={shape} detail={detail} className="size-20" />
-          <p className="text-sm text-muted-foreground">Aperçu de {agent.name}.</p>
+          <p className="text-sm text-muted-foreground">{t("Aperçu de {nom}.", { nom: agent.name })}</p>
         </div>
 
         <fieldset className="flex flex-col gap-2">
-          <legend className="mb-1 text-xs font-medium text-muted-foreground">Couleur</legend>
+          <legend className="mb-1 text-xs font-medium text-muted-foreground">{t("Couleur")}</legend>
           <div className="flex flex-wrap items-center gap-2">
             {NOAH_COLORS.map((c) => (
               <button
@@ -69,18 +70,18 @@ export function AgentAppearance({ agent, onChanged }: { agent: Agent; onChanged:
             <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
               <input
                 type="color"
-                aria-label="Couleur au choix"
+                aria-label={t("Couleur au choix")}
                 value={HEX.test(color) ? color.toLowerCase() : NOAH_COLORS[0].hex}
                 onChange={(e) => HEX.test(e.target.value) && touch(setColor)(e.target.value)}
                 className="size-7 cursor-pointer rounded-full border-0 bg-transparent p-0"
               />
-              Au choix
+              {t("Au choix")}
             </label>
           </div>
         </fieldset>
 
         <fieldset className="flex flex-col gap-2">
-          <legend className="mb-1 text-xs font-medium text-muted-foreground">Forme du visage</legend>
+          <legend className="mb-1 text-xs font-medium text-muted-foreground">{t("Forme du visage")}</legend>
           <div className="grid grid-cols-5 gap-1.5">
             {NOAH_SHAPES.map((s) => (
               <button
@@ -101,7 +102,7 @@ export function AgentAppearance({ agent, onChanged }: { agent: Agent; onChanged:
         </fieldset>
 
         <fieldset className="flex flex-col gap-2">
-          <legend className="mb-1 text-xs font-medium text-muted-foreground">Détail distinctif</legend>
+          <legend className="mb-1 text-xs font-medium text-muted-foreground">{t("Détail distinctif")}</legend>
           <div className="flex flex-wrap gap-1.5">
             {NOAH_DETAILS.map((d) => (
               <button
@@ -124,15 +125,15 @@ export function AgentAppearance({ agent, onChanged }: { agent: Agent; onChanged:
         <div className="flex items-center justify-end gap-2">
           {done && !changed && (
             <span role="status" className="mr-auto flex items-center gap-1 text-xs text-muted-foreground">
-              <Check className="size-3.5" /> Enregistré
+              <Check className="size-3.5" /> {t("Enregistré")}
             </span>
           )}
           {changed && (
             <Button type="button" variant="outline" size="sm" onClick={() => { setColor(saved.color); setShape(saved.shape); setDetail(saved.detail); }} disabled={busy}>
-              Annuler
+              {t("Annuler")}
             </Button>
           )}
-          <Button type="button" size="sm" onClick={save} disabled={busy || !changed}>Enregistrer</Button>
+          <Button type="button" size="sm" onClick={save} disabled={busy || !changed}>{t("Enregistrer")}</Button>
         </div>
       </div>
     </Section>
