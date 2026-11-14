@@ -123,3 +123,7 @@ Ces déclarations apparaissent après le téléversement d'un AAB. Rien n'est t�
 | `SYSTEM_ALERT_WINDOW` | Bulle flottante, activée par la personne. Pas de déclaration Play dédiée connue ; à justifier si l'examen le demande. |
 | `ACCESS_FINE_LOCATION` | Premier plan seulement : pas de déclaration de position en arrière-plan. |
 | `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | Usage restreint par Google ; justification : sonner un appel écran éteint. À vérifier, peut être refusé. |
+
+## Coordonnées (14 novembre)
+
+Enregistrées dans Paramètres de la fiche Play Store, la console a affiché « Modification enregistrée » : e-mail `contact@smfcoder.com` (choisi par Franck), site `https://noah-agent.smfcoder.com`. C'est la même adresse que dans l'appli (`frontend/src/lib/editeur.ts`) et sur le site.
