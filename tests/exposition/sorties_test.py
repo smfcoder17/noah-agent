@@ -70,6 +70,9 @@ KNOWN = {
     # Connecteurs à clé (connecteurs_cles.py) : serveur MCP contacté seulement si la personne y colle sa clé, logo du site au même moment
     "api.githubcopilot.com": "à la demande", "mcp.airtable.com": "à la demande", "mcp.stripe.com": "à la demande", "mcp.apify.com": "à la demande",
     "airtable.com": "à la demande",
+    # Connexion « Sign in with ChatGPT », faite par l'app de bureau sur le PC de la personne quand elle la lance (desktop/chatgpt.js) ;
+    # la doc d'OpenAI n'est citée qu'en commentaire
+    "auth.openai.com": "à la demande", "developers.openai.com": "lien montré",
     # Pages où la personne crée sa clé, et sources citées en commentaire : jamais appelées par le serveur
     "dashboard.stripe.com": "lien montré", "console.apify.com": "lien montré", "support.airtable.com": "lien montré",
     "docs.stripe.com": "lien montré", "docs.apify.com": "lien montré",
