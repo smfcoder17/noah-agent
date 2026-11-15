@@ -50,7 +50,7 @@ check("une seule commande spawn, sous le compte 1001", (source.match(/spawn\(/g)
 check("rien de la requête n'atteint spawn : pas de req. dans le plugin", !/\breq\b|\breq\./.test(source));
 check("les jetons ne passent pas au bureau", /const env = \{ DISPLAY: display, PATH:/.test(source) && !/\.\.\.process\.env/.test(source));
 const noah = readFileSync(join(ROOT, "launcher/camofox-noah/index.js"), "utf8");
-check("le plugin Noah ne lance aucun processus", !/child_process|\bspawn\(|\bexec\(/.test(noah));
+check("le plugin Noah ne lance aucun processus", !/child_process|\bspawn\(|(?<![.\w])exec\(/.test(noah)); // « .exec( » d'une expression régulière n'est pas un lancement
 
 // 3. L'image ne contient ni terminal ni outil de pilotage X.
 const image = readFileSync(join(ROOT, "launcher/camofox-bureau/Dockerfile"), "utf8");

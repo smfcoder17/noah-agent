@@ -37,6 +37,13 @@ async def online(*a, **k):
 
 hermes.health = online
 
+
+async def restart(agent_id):  # le réveil d'un agent injoignable passe par le lanceur, absent ici
+    pass
+
+
+hermes.restart = restart
+
 # 1. Les erreurs brutes deviennent une phrase utile.
 cases = {
     "Error code: 401 - {'error': {'message': 'API key expired.', 'code': 401}}": "a expiré",
@@ -151,8 +158,14 @@ assert sent and sent[-1].startswith("[Nous sommes le ") and " h " in sent[-1].sp
 print("3b. chaque tour dit à l'agent le jour et l'heure")
 
 # 4. Jamais de message sans réponse ni erreur.
-before = len(stored())
+# Un seul refus : l'agent redémarrait, il est réveillé et la demande repart sans erreur (0.2.1).
 script[:] = ["refus"]
+r, _ = chat("hi")
+assert r.status_code == 200 and not script, (r.status_code, script)
+print("4a. un refus isolé : l'agent est réveillé et la demande repart")
+# Refus répétés : l'agent ne revient pas, le message reste écrit avec son erreur.
+before = len(stored())
+script[:] = ["refus", "refus"]
 r, _ = chat("hi")
 assert r.status_code == 503
 after = stored()

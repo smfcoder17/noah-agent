@@ -50,6 +50,14 @@ hermes.run_events = run_events
 hermes.health = online
 
 
+async def restart(agent_id):  # le réveil d'un agent injoignable passe par le lanceur, absent ici
+    restarted.append(agent_id)
+
+
+restarted = []
+hermes.restart = restart
+
+
 def rows(conversation=conv):
     with db.connect() as c:
         return [(r["role"], r["text"]) for r in c.execute("SELECT role, text FROM messages WHERE conversation_id = ? ORDER BY id", (conversation,))]
