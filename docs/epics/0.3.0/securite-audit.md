@@ -56,3 +56,10 @@ Réponse courte : personne de l'extérieur n'a obtenu de droits, ni accès au co
 | F4 | Faible | Verrous de connexion en mémoire, remis à zéro au redémarrage | main.py:457,791,920 | persister | à faire |
 | F5 | Faible | CSRF comparé au Host reçu | main.py:84-101 | comparer à NOAH_DOMAIN | à faire |
 | F6-F8 | Faible | Appairage : GET qui modifie l'état, verrou global des codes courts ; réglages média modifiables par l'agent | main.py:520-669, 4228-4255 | voir rapport | à faire |
+
+## Limites connues (relecture GLM 5.3 Flash, `revue-glm.md`)
+
+| # | Limite | Pourquoi elle reste | Ce qui la borne |
+|---|---|---|---|
+| L1 | Partage de dossiers : un lien symbolique posé sous une racine autorisée (`NOAH_SHARE_ROOTS`) et qui mène vers `/etc` ou `/var/run` passe les contrôles de chemin (partie 3 n°2). | Le lanceur tourne dans son conteneur : il ne voit pas le disque de l'hôte, donc ne peut pas résoudre un lien de l'hôte (`os.path.realpath` lirait son propre système de fichiers). Docker résout le lien au montage. | Racines choisies par le propriétaire de la machine ; refus de tout dossier du système et de tout ancêtre de l'un d'eux (`launcher.py`, `_holds_system`) ; écriture refusée sur une racine entière. Correction propre : résolution côté hôte (app de bureau) avant l'envoi au lanceur. |
+| L2 | Mises à jour : qui tient déjà le socket Docker peut recréer le serveur ou le lanceur avec son propre `NOAH_UPDATE_KEY` et ses propres `NOAH_IMAGE_SOURCES` (partie 6 n°4). | Le socket Docker donne déjà l'hôte entier : il n'y a rien à protéger de plus contre lui depuis l'intérieur d'un conteneur. | Sources par dépôt exact (plus d'espace de noms ouvert), valeurs par défaut si la variable est vide ou mal formée ; socket réservé au lanceur (M9). |

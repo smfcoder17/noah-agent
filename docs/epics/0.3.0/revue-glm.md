@@ -131,3 +131,48 @@ VERDICT: FAIL
 Rien de bloquant immédiat (aucune faille exploitable sans clé volée ni accès à l'env), mais les constats 1, 2 et 4 doivent être corrigés avant fusion du lot F.
 
 VERDICT: FAIL
+
+## Suivi des constats (correction du 15 novembre 2026)
+
+Chaque constat vérifié dans le code avant correction. « Corrigé » : avec son test. « Non fondé » : avec la ligne qui le prouve.
+
+| Constat | État | Preuve |
+|---|---|---|
+| P0 n°1 `sameOrigin` et `file:` | Non fondé | `desktop/main.js:221-227` compare à `origin`, posé seulement l.154 (`noah.start`, http://localhost) et l.200 (adresse validée par `serverOrigin`, l.212-213 : https ou http local) : jamais « null ». Une URL `file:` a l'origine « null » et ne passe donc jamais ; seule l'égalité exacte avec `SETUP_URL` l'admet (l.607). |
+| P0 n°2 options sous l'agent dans la barre de gauche | Non fondé | `desktop/SideRail.tsx:45` passe `showTabs={false}` ; test « D5 barre de gauche minimale » (`lot-d-interface.test.tsx`) vérifie qu'aucune option n'est rendue. |
+| P0 n°3 HTML ou SVG ouvert par son nom | Non fondé, prouvé par test | `kindOfFile` classe html/htm/svg en `page`, rendue par `SandboxedFrame` (`sandbox="allow-scripts"`, sans `allow-same-origin`) ; le serveur ajoute `Content-Security-Policy: sandbox …` à tout fichier brut (`main.py:3497`). Test « P0n3 » (`lot-d-interface.test.tsx`). |
+| P0 n°4 aperçu remplacé par la liste vide | Corrigé | `Files.tsx` teste l'aperçu avant la liste vide ; test « P0n4 ». |
+| P0 n°5 « Retirer » et coffre | Corrigé | `BrowserSites` dit que les identifiants restent dans Réglages > Coffre ; test « P0n5 » (`Vault.test.tsx`). |
+| P1 n°1 aperçu de session hérité par un autre agent | Corrigé | `key={agent.id}` sur `<Session>` et aperçu rattaché à son agent ; test « P1n1 ». |
+| P1 n°2 choix de compte gardé d'une demande à l'autre | Corrigé | `LoginCard` : choix rattaché à `asked.id` et à la liste ; test « P1n2 ». |
+| P1 n°3 identifiant facultatif dans le coffre | Corrigé | `required` côté écran, `Saisis l'identifiant.` dans `coffre._validated` et à l'import CSV ; tests « P1n3 » (vitest et `coffre_030_test.py`). |
+| P1 n°4 sondage de session en continu | Non fondé | `Session.tsx:41` `if (!active) return;` : `active` vient de `SeenActive`, fourni par `KeptTab` (`SidePanel.tsx:33-39`) selon sa visibilité. |
+| P1 n°5 `Promise.all` dans `SavedLogins` | Corrigé | deux lectures indépendantes, liste affichée même si le droit échoue ; test « P1n5 ». |
+| P1 n°6 rubrique Coffre pour un non-propriétaire | Non fondé | le coffre est par personne (B2) : `coffre.py:730` `my_vault` ne demande qu'une session (`auth.current_user`), pas de 403. Masquer la rubrique priverait chaque profil de son propre coffre. |
+| P2 n°1 largeur non bornée au rendu | Corrigé | `usePanelWidth` borne au rendu et suit `resize` ; test « P2n1 ». |
+| P2 n°2 focus perdu depuis le menu « … » | Corrigé | `WorkMenu.pick` rend le focus à « … » avant l'action ; test « P2n2 ». |
+| P2 n°3 Détails n'ouvre pas le panneau | Non fondé (choix à confirmer par Franck) | Détails est un interrupteur assumé (`WorkBar.tsx:31`, `aria-pressed`) et le test D1 l'exige (`lot-d-interface.test.tsx`, « les détails sont un interrupteur ») ; le test « chaque icône ouvre son panneau » passe. |
+| P2 n°4 écriture à chaque `pointermove` | Corrigé | largeur écrite au relâchement seulement ; test « P2n4 ». |
+| P2 n°5 Échap bloqué par une couche masquée | Corrigé | `covered()` ne compte que les couches visibles ; test « P2n5 ». |
+| P3 n°1 `/var` et `/` partageables | Corrigé | `_holds_system` refuse tout ancêtre d'un dossier du système, `//` et `.` normalisés ; test « 5b » (`tests/agents/petit_vps_test.py`). |
+| P3 n°2 liens symboliques | Limite notée | `securite-audit.md`, « Limites connues » L1 : le lanceur ne voit pas le disque de l'hôte. |
+| P3 n°3 `caddy:tag@sha256` refusé (lanceur) | Corrigé | `launcher/updater.py` : dépôts exacts, `:tag` retiré avant comparaison ; contrôlé dans `tests/updates/logic_test.py` (bloc « lanceur »). |
+| P3 n°4 message de `get.sh` | Corrigé | 404 et réseau distingués, `NOAH_DEPUIS_DEPOT=1` nommé ; `tests/install/get_admin.sh` (dernier bloc). |
+| P3 n°5 indice de connexion en routine | Reporté | le correctif est dans `server/noah/agent_plugin/__init__.py` (LOGIN_HINT l.1560, refus l.702), réservé à un autre agent ; à faire : « en routine : `list` puis `fill` ». Le refus actuel dit déjà de prévenir la personne et de continuer, sans boucle. |
+| P4 n°1 remplissage d'office pour un autre profil | Corrigé | `_ask` lit l'auteur de la tâche avant tout : ni identifiant ni code tapé d'office hors du propriétaire, `fill` par handle refusé (`not_owner`) ; test « P4n1 » (`coffre_030_test.py`). |
+| P4 n°2 site noté connecté par un autre profil | Corrigé | `_after_fill(user=…)` ne note que pour le propriétaire ; test « P4n2 ». |
+| P4 n°3 coffre plein silencieux | Corrigé | `vault_full` et consigne de ne pas relancer, `coffre_plein` à l'écran ; test « P4n3 ». |
+| P4 n°4 IPv6 refusé | Corrigé | `origin_of` accepte une IPv6 valide, entre crochets ; test « P4n4 ». |
+| P4 n°5 clé TOTP abîmée → 500 | Corrigé | `reveal` répond 422 sans la clé ; test « P4n5 ». |
+| P5 n°1 processus appariés FIFO | Corrigé | `session.py` : identifiant d'appel quand Hermes le donne, sinon `proc_…` vs avant-plan ; tests « P5n1 » (`session_test.py`). |
+| P5 n°2 `desktop.user_tasks` qui attendrait le bureau | Non fondé | `desktop.py:779-785` ne lit que `_tasks` en mémoire, sans réseau ; l'appelant (`main.agent_session`) ne l'appelle que pour le propriétaire, donc sans son 404. |
+| P5 n°3 garde de taille en HTTP/2 | Non fondé | uvicorn (`server/Dockerfile:27`, `uvicorn[standard]`) ne parle que HTTP/1.1 ; Caddy (`deploy/Caddyfile:40`) relaie en HTTP/1.1, avec `Content-Length` ou `Transfer-Encoding: chunked`, et ce dernier sans longueur est refusé (`main.py:122`). |
+| P5 n°4 « connecté » sur une page publique | Corrigé (option la plus sûre) | « connecté » seulement après une connexion envoyée par le serveur (`verify(proven=True)`, coffre) ; sur la parole de l'agent : « non vérifié » ; test « P5n4 » (`sites_test.py`). |
+| P5 n°5 purge hors `finally` | Corrigé | `session.run_ended` dans le `finally` du tour (`main.py`) ; test « P5n5 » (AST, `session_test.py`). |
+| P5 n°6 erreurs non capturées des routines | Corrigé | `except Exception` journalisé, cache remis à jour ; test « P5n6 ». |
+| P5 n°7 déconnexion sur tout le site | Corrigé (option la plus sûre) | « à reconnecter » sur l'hôte exact ; autres hôtes du site : « non vérifié » ; test « P5n7 » (`sites_test.py`). |
+| P5 n°8 `/api/setup/restore` sans borne | Corrigé | 20 Go (`NOAH_RESTORE_MAX`), annoncée ou comptée pendant la lecture ; compte existant refusé avant le premier octet ; `tests/install/restauration_taille_test.py`. |
+| P6 n°1 espace de noms `ghcr.io/smfcoder17/` | Corrigé | dépôts exacts dans `updates.py` et `updater.py` ; `tests/updates/logic_test.py`. |
+| P6 n°2 étiquette avant l'empreinte | Corrigé | dépôt comparé sans `:tag`, formes `docker.io/…` admises ; `logic_test.py`. |
+| P6 n°3 variable vide ou mal formée | Corrigé | `image_sources` : entrées `strip()`, valeurs par défaut si vide ou mal formée ; `logic_test.py`. |
+| P6 n°4 environnement modifiable par qui a le socket | Limite notée | `securite-audit.md`, « Limites connues » L2. |
