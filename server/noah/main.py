@@ -3672,9 +3672,9 @@ async def _browser_wake(agent_id: str, may_restart: bool = True, started: bool =
     return d
 
 
-async def _browser_restart(agent_id: str) -> dict:
+async def _browser_restart(agent_id: str, new_identity: bool = False) -> dict:
     try:
-        await hermes.restart_browser(agent_id)
+        await hermes.restart_browser(agent_id, new_identity)
     except httpx.HTTPStatusError:
         await hermes.ensure_browser(agent_id)  # conteneur absent : on le recrée
     for _ in range(30):
@@ -3791,9 +3791,10 @@ async def browser_cookies(agent_id: str, body: CookieImport, user: int = Depends
 
 
 @app.post("/api/agents/{agent_id}/browser/restart")
-async def browser_restart(agent_id: str, user: int = Depends(auth.current_user)):
+async def browser_restart(agent_id: str, nouvelle_identite: bool = False, user: int = Depends(auth.current_user)):
+    """nouvelle_identite : le navigateur repart avec une autre machine (écran, matériel, polices, WebGL), puis la garde."""
     _usable(user, agent_id, "admin")
-    return await _browser_restart(agent_id)
+    return await _browser_restart(agent_id, nouvelle_identite)
 
 
 # --- Médias et voix --------------------------------------------------------------------------

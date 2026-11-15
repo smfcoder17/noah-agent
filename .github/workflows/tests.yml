@@ -214,6 +214,10 @@ jobs:
           docker run --rm -v "$PWD/launcher/camofox-noah:/p:ro" -v "$PWD/tests:/tests:ro" node:22-alpine \
             sh -c "mkdir -p /data && node /tests/navigateur/sessions_test.mjs"
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim python /tests/navigateur/envoi_outil_test.py
+      - name: "Empreinte du navigateur : la même d'un lancement à l'autre, une par agent, régénérable"
+        run: |
+          docker run --rm -v "$PWD/launcher/camofox-noah:/p:ro" -v "$PWD/tests:/tests:ro" node:22-alpine \
+            sh -c "mkdir -p /data && node /tests/navigateur/empreinte_test.mjs"
       - name: "Se connecter à un site : l'agent ne voit jamais le mot de passe (usage unique, expiration, droits, origine de la page)"
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/tools/coffre_test.py"

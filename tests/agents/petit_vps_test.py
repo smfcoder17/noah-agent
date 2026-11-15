@@ -312,6 +312,24 @@ except Recree:
 client.containers.create.side_effect = None
 print("13. navigateur : une identité vide ne remplace jamais celle en place")
 
+# 13 bis. Empreinte : un redémarrage la garde ; une nouvelle identité l'efface d'abord, navigateur arrêté ou non.
+nav = MagicMock(status="running", labels={launcher.BROWSER_LABEL: "essai"})
+client.containers.get.side_effect = lambda nom: nav
+assert launcher.restart_browser("essai") == {"ok": True, "new_identity": False}
+assert not nav.exec_run.called and nav.restart.call_args.kwargs == {"timeout": 20}, "redémarrage : l'empreinte doit rester"
+nav = MagicMock(status="exited", labels={launcher.BROWSER_LABEL: "essai"})
+nav.exec_run.return_value = MagicMock(exit_code=0)
+assert launcher.restart_browser("essai", new_identity=True)["new_identity"] is True
+assert nav.start.called and nav.exec_run.call_args.args[0] == ["rm", "-f", "/data/empreinte.json"] and nav.restart.called
+nav.exec_run.return_value = MagicMock(exit_code=1)
+nav.restart.reset_mock()
+try:
+    launcher.restart_browser("essai", new_identity=True)
+    sys.exit("empreinte non effacée : le redémarrage ne doit pas faire croire à une nouvelle identité")
+except launcher.HTTPException:
+    assert not nav.restart.called
+print("13 bis. navigateur : empreinte gardée au redémarrage, effacée seulement sur demande")
+
 # 14. Paquets : un agent qui s'arrête pendant la boucle n'empêche pas les suivants de retrouver les leurs.
 casse, bon = MagicMock(name="casse"), MagicMock(name="bon")
 casse.exec_run.side_effect = docker.errors.APIError("is not running")
