@@ -25,6 +25,8 @@ export type ChatMessage = {
   createdAt?: Date;
   storedId?: number;
   reactions?: Reactions;
+  /** Le modèle qui a écrit cette réponse : l'écran marque un changement de modèle (Thread.tsx, ModelDivider). */
+  model?: string;
   /** Détail tel que stocké d'une trace de fil : sa ligne change à la fin du fil, sans changer le nombre de messages. */
   trace?: string;
 };
@@ -67,7 +69,7 @@ const storedDate = (at: string | undefined) => (at ? new Date(`${at.replace(" ",
 
 function fromStored(stored: StoredMessage, i: number): ChatMessage {
   const m = stored;
-  return { ...fromStoredContent(m, m.id ?? i), createdAt: storedDate(m.created_at), storedId: m.id, reactions: m.reactions };
+  return { ...fromStoredContent(m, m.id ?? i), createdAt: storedDate(m.created_at), storedId: m.id, reactions: m.reactions, ...(m.role === "agent" && m.model ? { model: m.model } : {}) };
 }
 
 function fromStoredContent(m: StoredMessage, i: number): ChatMessage {
@@ -168,6 +170,7 @@ function apply(msg: ChatMessage, ev: ChatEvent | ChoiceEvent, runId: string | nu
         ],
       };
     case "done": {
+      if (ev.model) msg = { ...msg, model: ev.model }; // le modèle qui a écrit la réponse, sans attendre de relire la conversation
       // Le serveur donne ce que la conversation garde : l'écran finit dessus, même si des détails ont coupé le texte en morceaux.
       if (ev.status === "completed" && ev.reponse) {
         const others = withoutSteps(settle(parts)).filter((p) => p.type !== "text");
@@ -284,7 +287,7 @@ const convertMessage = (m: ChatMessage): ThreadMessageLike => ({
   role: m.role,
   content: m.content as ThreadMessageLike["content"],
   createdAt: m.createdAt,
-  metadata: { custom: { storedId: m.storedId, reactions: m.reactions } },
+  metadata: { custom: { storedId: m.storedId, reactions: m.reactions, model: m.model } },
   status: m.role === "assistant" ? (m.running ? { type: "running" } : { type: "complete", reason: "stop" }) : undefined,
   attachments: (m.attachments ?? []).map((name, i) => ({
     id: `${m.id}-att-${i}`,
@@ -426,8 +429,9 @@ export function useAgentChat(opts: {
       setMessages((cur) => {
         if (rows.length !== cur.length || traceMoved(rows, cur)) return rows.map(fromStored);
         // Même nombre : on garde l'affichage, en apprenant le numéro des messages écrits ici (pour pouvoir y réagir) et leurs réactions.
-        const changed = rows.some((r, i) => r.id !== cur[i].storedId || JSON.stringify(r.reactions ?? null) !== JSON.stringify(cur[i].reactions ?? null));
-        return changed ? cur.map((m, i) => ({ ...m, storedId: rows[i].id, reactions: rows[i].reactions })) : cur;
+        const modelOf = (r: StoredMessage) => (r.role === "agent" && r.model) || undefined;
+        const changed = rows.some((r, i) => r.id !== cur[i].storedId || JSON.stringify(r.reactions ?? null) !== JSON.stringify(cur[i].reactions ?? null) || (modelOf(r) ?? cur[i].model) !== cur[i].model);
+        return changed ? cur.map((m, i) => ({ ...m, storedId: rows[i].id, reactions: rows[i].reactions, model: modelOf(rows[i]) ?? m.model })) : cur;
       });
     }
   }, []);

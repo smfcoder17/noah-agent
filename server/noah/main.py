@@ -2384,9 +2384,9 @@ def messages(conv_id: str, limit: int | None = None, avant: int | None = None, d
         where, args = where + " AND id < ?", [*args, avant]
     if depuis is not None:
         where, args = where + " AND id >= ?", [*args, depuis]
-    query = f"SELECT id, role, text, detail, created_at FROM messages WHERE {where} ORDER BY id"
+    query = f"SELECT id, role, text, detail, model, created_at FROM messages WHERE {where} ORDER BY id"
     if limit is not None:
-        query, args = f"SELECT * FROM (SELECT id, role, text, detail, created_at FROM messages WHERE {where} ORDER BY id DESC LIMIT ?) ORDER BY id", [*args, min(max(limit, 1), 500)]
+        query, args = f"SELECT * FROM (SELECT id, role, text, detail, model, created_at FROM messages WHERE {where} ORDER BY id DESC LIMIT ?) ORDER BY id", [*args, min(max(limit, 1), 500)]
     with db.connect() as c:
         rows = [dict(r) for r in c.execute(query, args).fetchall()]
         given: dict[int, dict] = {}
@@ -2495,9 +2495,9 @@ def _conversation_owner(conv_id: str) -> int | None:
     return row["user_id"] if row else None
 
 
-def _save_message(conv_id: str, role: str, text: str, detail: str | None = None) -> None:
+def _save_message(conv_id: str, role: str, text: str, detail: str | None = None, model: str | None = None) -> None:
     with db.connect() as c:
-        c.execute("INSERT INTO messages (conversation_id, role, text, detail) VALUES (?, ?, ?, ?)", (conv_id, role, text, detail))
+        c.execute("INSERT INTO messages (conversation_id, role, text, detail, model) VALUES (?, ?, ?, ?, ?)", (conv_id, role, text, detail, model))
         c.execute("UPDATE conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (conv_id,))
 
 
@@ -2981,6 +2981,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
             return
 
     async def body():
+        relay.turn_model.pop(conv_id, None)  # le modèle de ce tour, pas celui du précédent
         yield _sse({"type": "start", "conversation_id": conv_id, "run_id": run_id})
         reply: list[str] = []  # ce que l'agent écrit depuis son dernier outil : sa réponse s'il n'en lance plus
         steps: list[str] = []  # ce qu'il a écrit avant un outil : le récit de son travail, rangé à part
@@ -3062,6 +3063,8 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
                         # L'écran finit sur ce que la conversation garde : un texte coupé par des détails ou rangé trop tôt se répare ici.
                         settled, left = _final_answer(reply, steps, kept, out.get("output") or "", True)
                         out = {**out, "reponse": settled, "etapes": left, "recu": recu.of_turn(conv_id, settled, ledger)}
+                    if relay.turn_model.get(conv_id):  # l'écran marque la réponse sans attendre de relire la conversation
+                        out = {**out, "model": relay.turn_model[conv_id]}
                 yield _sse(out)
                 if out["type"] == "done":
                     final = out
@@ -3097,7 +3100,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
         _model_replied(final, text, rev)
         receipt = recu.of_turn(conv_id, text, ledger) if succeeded and text else None
         if text:
-            _save_message(conv_id, "agent", text, recu.detail_of(steps, receipt))
+            _save_message(conv_id, "agent", text, recu.detail_of(steps, receipt), relay.turn_model.pop(conv_id, None))
             note = recu.note_for_agent(receipt)
             if note:
                 machine.add_context(conv_id, note)

@@ -419,7 +419,57 @@ function DayDivider() {
   );
 }
 
-const QUICK_EMOJI = ["👍", "❤️", "👎", "😂", "😮", "😢", "🙏", "🔥", "🎉"];
+type ModelMark = { model: string; before: string | null };
+const modelOfMessage = (m: { metadata?: { custom?: Record<string, unknown> } } | undefined): string =>
+  typeof m?.metadata?.custom?.model === "string" ? (m.metadata.custom.model as string) : "";
+
+/**
+ * Le modèle de cette réponse, et celui de la réponse de l'agent qui la précède (null : aucune, c'est le début du fil lu).
+ * Une chaîne, pas un objet, pour que le sélecteur ne redessine rien tant qu'elle ne change pas.
+ */
+function useModelMark(): ModelMark | null {
+  const key = useAuiState((s) => {
+    const model = modelOfMessage(s.message);
+    if (!model) return "";
+    for (let i = s.message.index - 1; i >= 0; i--) {
+      const before = modelOfMessage(s.thread.messages[i]);
+      if (before) return JSON.stringify({ model, before });
+    }
+    return JSON.stringify({ model, before: null });
+  });
+  return useMemo(() => (key ? (JSON.parse(key) as ModelMark) : null), [key]);
+}
+
+/**
+ * Entre deux réponses écrites par des modèles différents, une ligne fine : « Passage à … ». Au début du fil, « Modèle : … ».
+ * Comme le séparateur système de T3 Code : une règle et un libellé discret, sans carte ni bouton. Le nom complet au survol.
+ */
+function ModelDivider() {
+  const mark = useModelMark();
+  if (!mark || mark.before === mark.model) return null;
+  const name = readableModel(mark.model);
+  return (
+    <div data-model-divider className="my-1 flex items-center gap-3 text-[11px] text-muted-foreground/80" title={mark.model}>
+      <span className="h-px flex-1 bg-border/70" />
+      <span className="max-w-[70%] truncate">{mark.before === null ? t("Modèle : {nom}", { nom: name }) : t("Passage à {nom}", { nom: name })}</span>
+      <span className="h-px flex-1 bg-border/70" />
+    </div>
+  );
+}
+
+/** Dans la rangée d'actions d'une réponse : le modèle qui l'a écrite, visible au survol comme Copier et Signaler. */
+function MessageModel() {
+  const mark = useModelMark();
+  if (!mark) return null;
+  return (
+    <span data-message-model title={mark.model} aria-label={t("Écrit par {nom}", { nom: readableModel(mark.model) })}
+      className="max-w-40 truncate px-1 text-[11px] leading-8 text-muted-foreground max-sm:max-w-28">
+      {readableModel(mark.model)}
+    </span>
+  );
+}
+
+const QUICK_EMOJI =["👍", "❤️", "👎", "😂", "😮", "😢", "🙏", "🔥", "🎉"];
 
 /** Les réactions d'un message, et de quoi y réagir : visible au survol, toujours là sur un écran tactile. */
 function MessageReactions() {
@@ -607,7 +657,8 @@ const AssistantMessage = memo(function AssistantMessage() {
   return (
     <>
     <DayDivider />
-    <MessagePrimitive.Root data-noah-msg={id} data-reply-source className="group relative flex scroll-mt-4 flex-col gap-1 py-2 md:pl-11">
+    <ModelDivider />
+    <MessagePrimitive.Root data-noah-msg={id} data-reply-sourceclassName="group relative flex scroll-mt-4 flex-col gap-1 py-2 md:pl-11">
       {/* Dans la marge, il reste en vue quand une longue réponse défile. */}
       {wide && !(empty && running && busyActivity) && (
         <span className="absolute inset-y-2 left-0">
@@ -651,6 +702,7 @@ const AssistantMessage = memo(function AssistantMessage() {
               </Button>
             </ActionBarPrimitive.Copy>
             <ReportAnswer readText={() => answerText(id)} />
+            <MessageModel />
             {copyWarning && <span role="status" className="text-xs text-muted-foreground">{t("Révèle les données avant de copier.")}</span>}
           </ActionBarPrimitive.Root>
         )}

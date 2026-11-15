@@ -156,3 +156,20 @@ it("pendant le travail, un message entre dans le fil tout de suite et reçoit l'
   expect(screen.chat().whileBusy.active).toBe(true);
   await screen.close();
 });
+
+it("chaque réponse garde son modèle : celui enregistré, puis celui que la fin du tour annonce", async () => {
+  serve({ c10: [stored(1, "user", "Bonjour"), { ...stored(2, "agent", "Salut"), model: "openai/gpt-5.1" }, { ...stored(3, "agent", "Ancienne"), model: null }] });
+  api.streamChat.mockImplementation(async (_body: unknown, onEvent: (ev: unknown) => void) => {
+    onEvent({ type: "start", run_id: "run10", conversation_id: "c10" });
+    onEvent({ type: "message", text: "Nouvelle" });
+    serve({ c10: new Promise(() => {}) }); // la relecture qui suit ne revient pas : seule la fin du tour donne le modèle
+    onEvent({ type: "done", status: "completed", reponse: "Nouvelle", model: "anthropic/claude-sonnet-4.5" });
+  });
+  const screen = await open("c10");
+  await vi.waitFor(() => expect(textOf(screen.chat())).toEqual(["Bonjour", "Salut", "Ancienne"]));
+  const models = () => screen.chat().runtime.thread.getState().messages.map((m) => (m.metadata.custom as { model?: string }).model);
+  expect(models()).toEqual([undefined, "openai/gpt-5.1", undefined]);
+  await act(async () => { screen.chat().runtime.thread.append({ role: "user", content: [{ type: "text", text: "Et toi ?" }] }); });
+  await vi.waitFor(() => expect(models()).toEqual([undefined, "openai/gpt-5.1", undefined, undefined, "anthropic/claude-sonnet-4.5"]));
+  await screen.close();
+});

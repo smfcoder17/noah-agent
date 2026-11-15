@@ -204,7 +204,7 @@ export type Conversation = {
 };
 export type Reactions = { user?: string; agent?: string };
 /** `trace` : une ligne pour la personne dans la conversation principale, qui ouvre un fil. Son détail : voir TraceDetail. */
-export type StoredMessage = { reactions?: Reactions; id?: number; role: "user" | "agent" | "error" | "trace" | "accord"; text: string; detail?: string | null; created_at: string };
+export type StoredMessage = { reactions?: Reactions; id?: number; role: "user" | "agent" | "error" | "trace" | "accord"; text: string; detail?: string | null; created_at: string; /** Le modèle qui a écrit cette réponse (absent des anciens messages). */ model?: string | null };
 export type TraceDetail = { fil: string; entete: string; consigne: string; etat: "en_cours" | "fini" | "echec"; issue: string };
 export type AgentUsage = {
   agent_id: string;
@@ -256,7 +256,7 @@ export type ChatEvent =
   | { type: "activity_detail"; detail: unknown }
   | { type: "raw"; kind: string; data: unknown }
   | { type: "approval"; request_id: string; generation: number; summary: string; demande?: string; apercu?: string[] }
-  | { type: "done"; status: string; output?: string; error?: string; details?: string; reponse?: string; etapes?: string[]; recu?: Recu | null };
+  | { type: "done"; status: string; output?: string; error?: string; details?: string; reponse?: string; etapes?: string[]; recu?: Recu | null; model?: string };
 
 /** Ce que l'agent a écrit, comparé à ce que ses outils ont fait (server/noah/recu.py). */
 export type Recu = {

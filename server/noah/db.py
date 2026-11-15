@@ -122,6 +122,8 @@ def init() -> None:
         # Tâche (conversation) qui a provoqué l'appel ; vide pour le travail de fond (tâches planifiées, surveillance).
         _add_columns(db, "usage", {"conversation_id": "TEXT"})
         _add_columns(db, "messages", {"detail": "TEXT"})  # d'une erreur : ce qui permet de la diagnostiquer
+        # Réponse de l'agent : le modèle qui l'a écrite (relay.turn_model). Vide pour les anciens messages et ce que Noah écrit seul.
+        _add_columns(db, "messages", {"model": "TEXT"})
         db.execute("CREATE INDEX IF NOT EXISTS usage_conversation ON usage(conversation_id)")
         _add_columns(db, "agents", {"color": "TEXT NOT NULL DEFAULT ''", "pinned": "INTEGER NOT NULL DEFAULT 0"})
         # Visage choisi : forme et détail distinctif (vides = le visage d'origine). Valeurs validées par la route.
