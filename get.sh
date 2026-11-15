@@ -12,6 +12,7 @@
 #   NOAH_ADMIN_USER=franck         le premier compte, au lieu du lien à code d'installation ; avec :
 #   NOAH_ADMIN_PASSWORD=…          son mot de passe, 12 caractères au moins, à changer à la première connexion
 #   NOAH_COMPOSE_URL=https://…     fichier compose à utiliser (une copie à toi, par exemple)
+#   NOAH_TRUSTED_PROXIES=nom       derrière un Traefik qui ne s'appelle pas traefik : le nom de son conteneur
 # Relancer la commande met Noah Agent à jour sans toucher aux données ni aux secrets.
 set -eu
 
@@ -126,6 +127,11 @@ chmod 600 .env
 if [ -n "${NOAH_DOMAIN:-}" ]; then
   grep -v '^NOAH_DOMAIN=' .env > .env.new || true
   echo "NOAH_DOMAIN=$NOAH_DOMAIN" >> .env.new && mv .env.new .env
+fi
+# Derrière un Traefik qui ne s'appelle pas « traefik » : son nom, pour croire l'adresse du visiteur qu'il transmet. Gardé pour les mises à jour.
+if [ -n "${NOAH_TRUSTED_PROXIES:-}" ]; then
+  grep -v '^NOAH_TRUSTED_PROXIES=' .env > .env.new || true
+  echo "NOAH_TRUSTED_PROXIES=$NOAH_TRUSTED_PROXIES" >> .env.new && mv .env.new .env
 fi
 # Premier compte choisi au déploiement : transmis au serveur par .env, retiré dès que le compte existe (voir plus bas).
 if [ -n "${NOAH_ADMIN_USER:-}" ] && [ -n "${NOAH_ADMIN_PASSWORD:-}" ]; then

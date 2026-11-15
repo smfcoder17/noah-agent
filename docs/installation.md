@@ -75,7 +75,7 @@ Un Traefik tient déjà les ports 80 et 443 ? Le Caddy de Noah ne pourrait pas d
 - **Par la commande :** `get.sh` voit le Traefik et place Noah derrière lui. Tes autres sites ne bougent pas. Sans domaine, il prend `<ip-en-tirets>.sslip.io`.
 - **Par Docker Manager :** déploie plutôt `https://raw.githubusercontent.com/smfcoder17/noah-agent/main/deploy/docker-compose.traefik.yml`. Ce fichier exige `NOAH_DOMAIN` : dans le YAML Editor, remplace ses deux occurrences `${NOAH_DOMAIN…}` par ton sous-domaine. Ses images ne sont pas épinglées par empreinte.
 
-Dans les deux cas, ton Traefik doit partager un réseau avec Noah : `docker network connect noah-net <nom-du-conteneur-traefik>`. Si son résolveur de certificats ne s'appelle pas `letsencrypt`, donne son nom dans `NOAH_TRAEFIK_RESOLVER`. Noah publie aussi le serveur sur `127.0.0.1:8088` (`NOAH_PUBLISH`), pour un Traefik qui ne lit pas Docker.
+Dans les deux cas, ton Traefik doit partager un réseau avec Noah : `docker network connect noah-net <nom-du-conteneur-traefik>`. Si son résolveur de certificats ne s'appelle pas `letsencrypt`, donne son nom dans `NOAH_TRAEFIK_RESOLVER`. Si le conteneur ne s'appelle pas `traefik`, donne son nom dans `NOAH_TRUSTED_PROXIES` : Noah ne croit l'adresse du visiteur transmise que de ce conteneur. Noah publie aussi le serveur sur `127.0.0.1:8088` (`NOAH_PUBLISH`), pour un Traefik qui ne lit pas Docker.
 
 Ce chemin n'a pas encore été suivi avec le Traefik de Hostinger.
 

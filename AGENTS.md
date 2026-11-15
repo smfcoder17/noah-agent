@@ -84,7 +84,7 @@ Prends une seule branche. Dans chacune, l'URL est celle du **fichier**. L'URL du
 curl -fsSL https://raw.githubusercontent.com/smfcoder17/noah-agent/main/get.sh | NOAH_DOMAIN=noah.exemple.com sh
 ```
 
-Sans sous-domaine, retire `NOAH_DOMAIN=noah.exemple.com`. La variable se place devant `sh`, jamais devant `curl`. Compte choisi au déploiement : ajoute `NOAH_ADMIN_USER=nom NOAH_ADMIN_PASSWORD=provisoire` au même endroit (12 caractères au moins, à changer à sa première connexion) ; le script les retire de `.env` dès que le compte existe. Avec un Traefik en place, le script se range derrière lui ; fais ensuite `docker network connect noah-net <nom-du-conteneur-traefik>`. Installation dans `/opt/noah`.
+Sans sous-domaine, retire `NOAH_DOMAIN=noah.exemple.com`. La variable se place devant `sh`, jamais devant `curl`. Compte choisi au déploiement : ajoute `NOAH_ADMIN_USER=nom NOAH_ADMIN_PASSWORD=provisoire` au même endroit (12 caractères au moins, à changer à sa première connexion) ; le script les retire de `.env` dès que le compte existe. Avec un Traefik en place, le script se range derrière lui ; fais ensuite `docker network connect noah-net <nom-du-conteneur-traefik>`. Si ce conteneur ne s'appelle pas `traefik`, ajoute `NOAH_TRUSTED_PROXIES=<son-nom>` devant `sh` : sinon tous les visiteurs partagent son adresse pour le verrou de connexion. Installation dans `/opt/noah`.
 
 **B. API ou MCP Hostinger.** Outil `VPS_createNewProjectV1` (`POST /api/vps/v1/virtual-machines/{id}/docker`) :
 
