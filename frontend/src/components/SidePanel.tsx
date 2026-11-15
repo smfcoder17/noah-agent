@@ -23,6 +23,7 @@ import { ShareDialog } from "./Sharing";
 import { STATE_WORD, StateShape } from "./Sidebar";
 import { Button, Dialog, DialogContent, Tabs, TabsContent, TabsList, TabsTrigger } from "./ui";
 import { langue, locale, t, tr } from "@/i18n";
+import { activityResult, activityTitle } from "@/lib/lignesServeur";
 
 /** Dates et nombres : le français garde la forme canadienne d'origine, les autres langues suivent leur usage. */
 const FORMAT = langue() === "fr" ? "fr-CA" : locale();
@@ -203,10 +204,10 @@ function ActivityPeriod({ label, rows, first, onOpen }: { label: string; rows: L
       {open && rows.slice(0, shown).map((r, i) => (
         <button key={i} type="button" onClick={() => onOpen(r.conversation_id, r.main)} className="flex cursor-pointer flex-col gap-0.5 rounded-lg px-2 py-1.5 text-left hover:bg-muted">
           <span className="flex items-baseline justify-between gap-2 text-sm">
-            <span className="min-w-0 truncate">{r.titre.replace(/^Ton juge a refusé : /, t("Bloqué : ")).replace(/^Ton juge demande ton accord : .*/, t("Accord demandé"))}</span>
+            <span className="min-w-0 truncate">{activityTitle(r.titre)}</span>
             <span className="shrink-0 text-xs text-muted-foreground">{new Date(r.at * 1000).toLocaleTimeString(FORMAT, { hour: "2-digit", minute: "2-digit" })}</span>
           </span>
-          <span className="truncate text-xs text-muted-foreground"><span className={cn("font-medium", LOG_WORD[r.etat][1])}>{LOG_WORD[r.etat][0]}</span>{r.resultat ? ` · ${r.resultat}` : ""}</span>
+          <span className="truncate text-xs text-muted-foreground"><span className={cn("font-medium", LOG_WORD[r.etat][1])}>{LOG_WORD[r.etat][0]}</span>{r.resultat ? ` · ${activityResult(r.resultat)}` : ""}</span>
         </button>
       ))}
       {open && rows.length > shown && (

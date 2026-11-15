@@ -367,7 +367,7 @@ export function DictateButton({ dictation, what = t("un message"), field = false
         aria-pressed={state === "recording"}
         aria-label={state === "recording" ? t("Arrêter la dictée") : t("Dicter {quoi}", { quoi: what })}
         title={state === "recording" ? (field ? t("Arrêter la dictée") : t("Arrêter la dictée (Envoyer envoie directement)")) : t("Dicter")}
-        className={cn(state === "idle" && "text-muted-foreground")}
+        className={cn("cible-tactile", state === "idle" && "text-muted-foreground")}
       >
         {state === "finishing" ? <Loader2 className="animate-spin" /> : state === "recording" ? <Level level={level} /> : <Mic />}
       </Button>
@@ -385,7 +385,7 @@ export function DictateButton({ dictation, what = t("un message"), field = false
 
 export function VoiceModeButton({ onClick }: { onClick: () => void }) {
   return (
-    <Button type="button" variant="ghost" size="icon" data-mode-vocal onClick={onClick} aria-label={t("Mode vocal")} title={t("Parler avec l'agent")} className="text-muted-foreground">
+    <Button type="button" variant="ghost" size="icon" data-mode-vocal onClick={onClick} aria-label={t("Mode vocal")} title={t("Parler avec l'agent")} className="cible-tactile text-muted-foreground">
       <AudioLines />
     </Button>
   );

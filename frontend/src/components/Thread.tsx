@@ -187,7 +187,7 @@ function PlusMenu() {
   const item = "flex min-h-11 w-full cursor-pointer items-center gap-3 rounded-xl px-3 text-left text-[15px] hover:bg-muted";
   return (
     <div ref={box} className="relative md:hidden">
-      <Button type="button" variant="ghost" size="icon" aria-label={t("Ajouter")} aria-expanded={open} className="rounded-full text-muted-foreground" onClick={() => setOpen((o) => !o)}>
+      <Button type="button" variant="ghost" size="icon" aria-label={t("Ajouter")} aria-expanded={open} className="cible-tactile rounded-full text-muted-foreground" onClick={() => setOpen((o) => !o)}>
         <Plus className={cn("transition-transform", open && "rotate-45")} />
       </Button>
       {open && (
@@ -557,17 +557,17 @@ function MessageReactions() {
       {theirs && <span role="img" aria-label={t("Réaction de l'agent : {emoji}", { emoji: theirs })} className="rounded-full border border-border bg-surface px-1.5 text-sm leading-6">{theirs}</span>}
       {custom?.reactions?.retenu && <span title={t("L'agent l'a retenu pour la suite")} className="text-[11px] text-muted-foreground">{t("retenu")}</span>}
       {mine && (
-        <button type="button" onClick={() => set(null)} disabled={readOnly} aria-label={t("Retirer ta réaction {emoji}", { emoji: mine })} className="cursor-pointer rounded-full border border-accent/40 bg-accent-soft px-1.5 text-sm leading-6">{mine}</button>
+        <button type="button" onClick={() => set(null)} disabled={readOnly} aria-label={t("Retirer ta réaction {emoji}", { emoji: mine })} className="cible-tactile cursor-pointer rounded-full border border-accent/40 bg-accent-soft px-1.5 text-sm leading-6">{mine}</button>
       )}
       {stored && !readOnly && (
-        <Button variant="ghost" size="icon-sm" onClick={() => setOpen(!open)} aria-expanded={open} aria-label={t("Réagir")} className={cn("opacity-0 pointer-coarse:opacity-70 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-60", open && "opacity-100")}>
+        <Button variant="ghost" size="icon-sm" onClick={() => setOpen(!open)} aria-expanded={open} aria-label={t("Réagir")} className={cn("cible-tactile opacity-0 pointer-coarse:opacity-70 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-60", open && "opacity-100")}>
           <SmilePlus />
         </Button>
       )}
       {open && (
         <span role="group" aria-label={t("Choisir une réaction")} className="absolute bottom-full left-0 z-20 mb-1 flex gap-0.5 rounded-full border border-border bg-surface p-1 shadow-md">
           {QUICK_EMOJI.map((e) => (
-            <button key={e} type="button" onClick={() => set(e)} aria-label={t("Réagir {emoji}", { emoji: e })} className="grid size-8 cursor-pointer place-items-center rounded-full text-lg hover:bg-muted">{e}</button>
+            <button key={e} type="button" onClick={() => set(e)} aria-label={t("Réagir {emoji}", { emoji: e })} className="cible-tactile grid size-8 cursor-pointer place-items-center rounded-full text-lg hover:bg-muted">{e}</button>
           ))}
         </span>
       )}
@@ -618,7 +618,7 @@ const UserMessage = memo(function UserMessage() {
       <div className="flex items-center gap-2">
         <ActionBarPrimitive.Root className="flex gap-1 opacity-0 pointer-coarse:opacity-70 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
           <ActionBarPrimitive.Copy asChild>
-            <Button variant="ghost" size="icon-sm" aria-label={t("Copier mon message")}>
+            <Button variant="ghost" size="icon-sm" aria-label={t("Copier mon message")} className="cible-tactile">
               <MessagePrimitive.If copied><Check /></MessagePrimitive.If>
               <MessagePrimitive.If copied={false}><Copy /></MessagePrimitive.If>
             </Button>
@@ -640,7 +640,7 @@ function TakeBack() {
   const text = useAuiState((s) => s.message.content.map((p) => (p.type === "text" ? p.text : "")).join("").trim());
   if (readOnly || !text) return null;
   return (
-    <Button variant="ghost" size="icon-sm" aria-label={t("Reprendre ce message")} title={t("Reprendre ce message")}
+    <Button variant="ghost" size="icon-sm" aria-label={t("Reprendre ce message")} title={t("Reprendre ce message")} className="cible-tactile"
       onClick={() => {
         aui.thread().composer().setText(text);
         document.querySelector<HTMLTextAreaElement>("[data-composer-input]")?.focus();
@@ -772,7 +772,7 @@ const AssistantMessage = memo(function AssistantMessage() {
             )}
           >
             <ActionBarPrimitive.Copy asChild>
-              <Button variant="ghost" size="icon-sm" aria-label={t("Copier la réponse")} onClickCapture={(e) => { if (e.currentTarget.closest("[data-noah-msg]")?.querySelector(".sensitive-token:not(.shown)")) { e.preventDefault(); e.stopPropagation(); setCopyWarning(true); } else setCopyWarning(false); }}>
+              <Button variant="ghost" size="icon-sm" aria-label={t("Copier la réponse")} className="cible-tactile" onClickCapture={(e) => { if (e.currentTarget.closest("[data-noah-msg]")?.querySelector(".sensitive-token:not(.shown)")) { e.preventDefault(); e.stopPropagation(); setCopyWarning(true); } else setCopyWarning(false); }}>
                 <MessagePrimitive.If copied><Check /></MessagePrimitive.If>
                 <MessagePrimitive.If copied={false}><Copy /></MessagePrimitive.If>
               </Button>
@@ -873,7 +873,7 @@ function Composer({ onVoiceMode, inCall }: { onVoiceMode: () => void; inCall: bo
               size="icon"
               data-envoyer aria-label={t("Envoyer")}
               title={t("Termine la transcription puis envoie")}
-              className="rounded-xl"
+              className="cible-tactile rounded-xl"
               disabled={dictation.state === "finishing"}
               onClick={() => void dictation.finish(true)}
             >
@@ -881,16 +881,16 @@ function Composer({ onVoiceMode, inCall }: { onVoiceMode: () => void; inCall: bo
             </Button>
           ) : (
             <ComposerPrimitive.Send asChild>
-              <Button size="icon" data-envoyer aria-label={t("Envoyer")} className="rounded-xl"><ArrowUp /></Button>
+              <Button size="icon" data-envoyer aria-label={t("Envoyer")} className="cible-tactile rounded-xl"><ArrowUp /></Button>
             </ComposerPrimitive.Send>
           )}
         </ThreadPrimitive.If>
         <ThreadPrimitive.If running>
-          <Button type="button" size="icon" data-envoyer aria-label={t("Envoyer")} title={t("Il répond tout de suite ; le travail continue")} className="rounded-xl" onClick={sendWhileBusy}>
+          <Button type="button" size="icon" data-envoyer aria-label={t("Envoyer")} title={t("Il répond tout de suite ; le travail continue")} className="cible-tactile rounded-xl" onClick={sendWhileBusy}>
             <ArrowUp />
           </Button>
           <ComposerPrimitive.Cancel asChild>
-            <Button size="icon" variant="outline" aria-label={t("Arrêter")} className="rounded-xl"><Square className="fill-current" /></Button>
+            <Button size="icon" variant="outline" aria-label={t("Arrêter")} className="cible-tactile rounded-xl"><Square className="fill-current" /></Button>
           </ComposerPrimitive.Cancel>
         </ThreadPrimitive.If>
       </div>
