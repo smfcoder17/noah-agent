@@ -31,7 +31,7 @@ from pydantic import BaseModel, Field
 
 from . import access, accounts, apprentissage, appareils, auth, bureautique, catalog, chauffe, coffre, connecteurs, connecteurs_cles, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, propositions, public, publication, push, recu, recuperation, relay, session, sites, updates, watch
 from . import config
-from . import accords, bus, credits, presets, rapide, ui_preferences, linkpreview, providers as provider_accounts
+from . import accords, bus, credits, presets, rapide, sensitive, ui_preferences, linkpreview, providers as provider_accounts
 from .config import WEB_DIR, forget_setup_code
 from .hermes import Agent
 
@@ -1556,6 +1556,9 @@ async def _running_routines(agent_id: str, user: int) -> list[dict]:
         _routine_reading[agent_id] = task
         await asyncio.wait({task}, timeout=0.3)  # une machine qui répond vite donne déjà sa réponse
     return _routine_cache.get(agent_id, (0.0, cached))[1]
+# Des jetons sans coût, hors modèle gratuit : le prix de ce modèle est inconnu. L'écran dit « prix inconnu », jamais 0 $ (C5).
+UNPRICED = ("SUM(CASE WHEN u.cost = 0 AND u.prompt_tokens + u.completion_tokens > 0 AND u.model NOT LIKE '%:free' "
+            "AND u.model NOT LIKE '% · abonnement' AND u.model NOT LIKE 'forfait%' THEN 1 ELSE 0 END)")  # un abonnement par le PC n'est pas « prix inconnu » (A7)
 
 
 @app.get("/api/usage")
@@ -1571,7 +1574,7 @@ def usage(user: int = Depends(auth.current_user)):
         rows = c.execute(
             "SELECT u.agent_id, COALESCE(a.name, u.agent_id) AS name, SUM(u.cost) AS cost, "
             "SUM(u.prompt_tokens + u.completion_tokens) AS tokens, COUNT(*) AS calls, "
-            "SUM(u.prompt_tokens) AS prompt_tokens, SUM(u.cached_tokens) AS cached_tokens "
+            "SUM(u.prompt_tokens) AS prompt_tokens, SUM(u.cached_tokens) AS cached_tokens, " + UNPRICED + " AS sans_prix "
             "FROM usage u LEFT JOIN agents a ON a.id = u.agent_id LEFT JOIN conversations v ON v.id = u.conversation_id "
             f"WHERE u.created_at >= :start AND {seen} GROUP BY u.agent_id ORDER BY cost DESC",
             {"start": relay.month_start(), "me": user},
@@ -1590,14 +1593,15 @@ def usage(user: int = Depends(auth.current_user)):
         # Par jour (chez l'utilisateur), sur 14 jours, et par tâche ce mois-ci : où part l'argent. Regroupé par tranche
         # de 10 minutes en SQL, puis rangé dans son jour avec le décalage horaire de cette date (heure d'été).
         slices = c.execute(
-            "SELECT u.agent_id, substr(u.created_at, 1, 15) || '0:00' AS slice, SUM(u.cost) AS cost, "
+            "SELECT u.agent_id, substr(u.created_at, 1, 15) || '0:00' AS slice, SUM(u.cost) AS cost, " + UNPRICED + " AS sans_prix, "
             "SUM(u.prompt_tokens + u.completion_tokens) AS tokens, COUNT(*) AS calls "
             "FROM usage u LEFT JOIN conversations v ON v.id = u.conversation_id "
             f"WHERE u.created_at >= datetime('now', '-15 days') AND {seen} GROUP BY u.agent_id, slice", {"me": user},
         ).fetchall()
     by_day: dict[tuple[str, str], dict] = {}
     for r in slices:
-        d = by_day.setdefault((r["agent_id"], relay.local_day(r["slice"])), {"cost": 0.0, "tokens": 0, "calls": 0})
+        d = by_day.setdefault((r["agent_id"], relay.local_day(r["slice"])), {"cost": 0.0, "tokens": 0, "calls": 0, "sans_prix": 0})
+        d["sans_prix"] += r["sans_prix"]
         d["cost"] += r["cost"]
         d["tokens"] += r["tokens"]
         d["calls"] += r["calls"]
@@ -1605,7 +1609,7 @@ def usage(user: int = Depends(auth.current_user)):
     with db.connect() as c:
         tasks = c.execute(
             "SELECT u.agent_id, u.conversation_id, COALESCE(v.title, 'Travail de fond') AS title, v.main, "
-            "SUM(u.cost) AS cost, SUM(u.prompt_tokens + u.completion_tokens) AS tokens, COUNT(*) AS calls "
+            "SUM(u.cost) AS cost, SUM(u.prompt_tokens + u.completion_tokens) AS tokens, COUNT(*) AS calls, " + UNPRICED + " AS sans_prix "
             "FROM usage u LEFT JOIN conversations v ON v.id = u.conversation_id "
             f"WHERE u.created_at >= :start AND {seen} AND (v.user_id = :me OR u.conversation_id IS NULL) "
             "GROUP BY u.agent_id, u.conversation_id ORDER BY cost DESC, tokens DESC LIMIT 50",
@@ -1617,7 +1621,8 @@ def usage(user: int = Depends(auth.current_user)):
             "agents": [dict(r) for r in rows], "profil": {"depense": round(spent, 4), "plafond": cap},
             "daily": float(daily) if daily and installation else None, "today": today,
             "days": days,
-            "tasks": [{**dict(r), "main": bool(r["main"])} for r in tasks]}
+            # Un titre écrit par l'agent (fil, routine) peut recopier une clé : elle reste masquée ici aussi.
+            "tasks": [{**dict(r), "title": sensitive.mask_keys(r["title"]), "main": bool(r["main"])} for r in tasks]}
 
 
 class Budget(BaseModel):
@@ -2624,6 +2629,7 @@ def _with_attachments(text: str, paths: list[str]) -> str:
 @app.post("/api/chat")
 async def chat(body: ChatMessage, request: Request, noah_session: str | None = Cookie(None),
                user: int = Depends(auth.current_user)):
+    body.text = sensitive.mask_keys(body.text)  # une clé collée ne va ni au modèle, ni dans un titre, ni dans un journal
     agent = _usable(user, body.agent_id)
     conv_id = body.conversation_id
     with db.connect() as c:
@@ -2744,6 +2750,7 @@ def _own_conversation(user: int, agent: Agent, conv_id: str | None) -> str:
 async def chat_after(body: LaterMessage, user: int = Depends(auth.current_user)):
     """Une demande faite en appel pendant que l'agent travaille, puis raccroché : le serveur la garde jusqu'à ce qu'il ait
     fini. Sur le téléphone, l'écran peut se fermer juste après : ça ne peut pas rester du côté de l'application."""
+    body.text = sensitive.mask_keys(body.text)
     agent = _usable(user, body.agent_id)
     conv_id = _own_conversation(user, agent, body.conversation_id)
     request_id = f"{user}:{body.client_id or uuid.uuid4().hex}"
@@ -2794,6 +2801,7 @@ def _recent_turns(conv_id: str) -> list[dict]:
 async def chat_while_busy(body: WhileBusy, user: int = Depends(auth.current_user)):
     """Un message pendant le travail : réponse tout de suite, précision glissée dans le travail, ou demande à la suite.
     Écrit avant toute réponse ; si le tri échoue, il attend son tour plutôt que de se perdre."""
+    body.text = sensitive.mask_keys(body.text)
     agent = _usable(user, body.agent_id)
     conv_id = _own_conversation(user, agent, body.conversation_id)
     request_id = f"{user}:{body.client_id}"

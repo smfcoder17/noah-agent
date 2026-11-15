@@ -1,5 +1,25 @@
-﻿"""Masquage d'affichage des notifications, réglé par compte."""
+﻿"""Masquage d'affichage des notifications, réglé par compte ; et des clés d'API collées dans la conversation, toujours."""
 import re
+
+# Les formes publiées des clés courantes (OpenAI et compatibles, Stripe, GitHub, Slack, AWS, Google) et les jetons JWT. Le préfixe
+# reste lisible : la personne et l'agent savent de quel service il s'agit, sans que la clé passe par le modèle ni par un titre.
+KEYS = re.compile(
+    r"(?<![\w-])(?:"
+    r"(sk-)[A-Za-z0-9_-]{16,}"
+    r"|((?:sk|rk)_(?:live|test)_)[A-Za-z0-9]{10,}"
+    r"|(gh[pousr]_)[A-Za-z0-9]{20,}"
+    r"|(github_pat_)[A-Za-z0-9_]{20,}"
+    r"|(xox[abposr]-)[A-Za-z0-9-]{10,}"
+    r"|(AKIA)[0-9A-Z]{16}(?![0-9A-Za-z])"
+    r"|(AIza)[0-9A-Za-z_-]{30,}"
+    r"|(eyJ)[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"
+    r")")
+KEY_SHOWN = "•••• (clé masquée)"
+
+
+def mask_keys(value: str) -> str:
+    """Une clé collée devient « sk-•••• (clé masquée) » : ni le modèle, ni les titres, ni les journaux ne la gardent."""
+    return KEYS.sub(lambda m: next(g for g in m.groups() if g) + KEY_SHOWN, str(value))
 
 
 def luhn(value: str) -> bool:
@@ -14,6 +34,7 @@ def luhn(value: str) -> bool:
 
 
 def mask(value: str) -> str:
+    value = mask_keys(value)
     value = re.sub(r"[\w.!#$%&'*+/=?^`{|}~-]+@([\w-]+\.)+[\w-]+", lambda m: m[0].split("@")[0][:2] + "•••@" + m[0].split("@")[1][:1] + "•••." + m[0].split(".")[-1], value)
     cards = re.compile(r"(?<!\d)(?=((?:(?:\d{4}[ -]){2}\d{4}[ -]\d{1,4}(?:[ -]\d{1,3})?|\d{4}[ -]\d{6}[ -]\d{5}|\d{13,19}))(?!\d))")
     spans, end = [], 0

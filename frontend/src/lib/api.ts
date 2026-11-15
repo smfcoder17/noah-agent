@@ -214,6 +214,7 @@ export type AgentUsage = {
   calls: number;
   prompt_tokens: number;
   cached_tokens: number;
+  sans_prix?: number; // appels sans prix connu ce mois-ci : « prix inconnu », jamais 0 $
 };
 /** L'agent a besoin d'une connexion : ce que la carte montre vient de la vraie page, jamais d'un texte de l'agent. */
 /** `comptes` : plusieurs identifiants retenus pour ce site, la personne choisit lequel (nom et deux premiers caractères seulement). */
@@ -230,7 +231,7 @@ export type Usage = {
   agents: AgentUsage[];
   daily?: number | null; // plafond par agent et par jour
   today?: Record<string, { depense: number; plafond: number | null }>;
-  days?: { agent_id: string; day: string; cost: number; tokens: number; calls: number }[]; // 14 derniers jours
+  days?: { agent_id: string; day: string; cost: number; tokens: number; calls: number; sans_prix?: number }[]; // 14 derniers jours
   tasks?: TaskUsage[]; // ce mois-ci, la plus coûteuse d'abord
   profil?: { depense: number; plafond: number | null }; // ce que paie ce compte et son plafond du mois
 };
@@ -243,6 +244,7 @@ export type TaskUsage = {
   cost: number;
   tokens: number;
   calls: number;
+  sans_prix?: number;
 };
 export type WorkspaceFile = { path: string; size: number; modified: number };
 

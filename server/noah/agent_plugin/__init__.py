@@ -275,8 +275,8 @@ def check_mcp(tool_name: str, args: dict) -> dict | None:
         # elle permet d'écrire, et l'appel passe. C'est le seul endroit où l'autonomie lève une carte de connexion.
         return None
     shown = json.dumps(args, ensure_ascii=False, default=str)
-    if len(shown) > 600:  # le serveur compare à ce qui a été montré : ce qui dépasse compte aussi, par son empreinte
-        shown = f"{shown[:600]}… [empreinte {hashlib.sha256(shown.encode()).hexdigest()[:16]}]"
+    if len(shown) > CARD_CHARS:  # le serveur compare à ce qui a été montré : ce qui dépasse compte aussi, par son empreinte
+        shown = f"{shown[:CARD_CHARS]}… [empreinte {hashlib.sha256(shown.encode()).hexdigest()[:16]}]"
     # Clé neuve à chaque appel : aucun accord ne se réutilise, même si un client répondait « pour la session ».
     return {"action": "approve", "rule_key": f"noah-mcp-{uuid.uuid4().hex}",
             "message": f"Outil « {server} » : {tool}\n{shown}"}
@@ -742,15 +742,30 @@ JUGE_URL = "http://noah-server:8080/agent-api/juge"
 JUGE_SECONDS = 20  # petit modèle (2,5 s) puis second avis du cerveau (12 s) dans juge.py : ce délai-ci couvre en plus le réseau et une machine chargée
 JUGE_MAX_BYTES = 64 * 1024  # corps JSON UTF-8 total ; au-delà, accord local, jamais une comparaison sur un extrait
 CARD_MAX_BYTES = 256 * 1024  # affichage intégral jusqu'à ce seuil UTF-8, indépendant du plafond du juge
+CARD_CHARS = 4000  # ce qu'une carte d'accord montre d'un appel ; mcp._shown garde le même seuil, sans quoi aucun passage ne correspond
 ROOTS = {"", ".", "..", "~", "$HOME", "${HOME}", "$HERMES_HOME", "${HERMES_HOME}", "*", "/", "/opt", "/opt/data", WORKSPACE,
          "/etc", "/usr", "/var", "/home", "/root", "/bin", "/lib", "/boot"}
 _SENSITIVE_BASE = r"(?:/opt/data/|\$\{?HERMES_HOME\}?/|~/|\$\{?HOME\}?/|/root/|\.\./)"
 SECRET_PATHS = re.compile(
     _SENSITIVE_BASE + r"(?:\.env\b|auth\.json\b|config\.yaml\b|google_token|\.credentials)"
     r"|mcp-tokens|/etc/noah\b|(?:^|[\s'\"/=])\.ssh(?:/|\b)|\bid_(?:rsa|ed25519|ecdsa|dsa)\b|/proc/(?:self|\d+|\*)/environ"
-    r"|\.aws/credentials|\.netrc\b|\.git-credentials\b|/var/run/secrets", re.I)
-ENV_DUMP = re.compile(r"(?:^|[;&|(]\s*|\$\(\s*)(?:sudo\s+)?(?:printenv\b|env\s*(?:$|[|;&>)])|export\s+-p\b|compgen\s+-e\b|declare\s+-x\b)"
-                      r"|os\.environ(?!\s*(?:\.get\s*\(|\[))|process\.env(?!\.)", re.M)
+    r"|\.aws/credentials|\.netrc\b|\.git-credentials\b|/var/run/secrets|/proc/[^\s'\"]*environ", re.I)
+ENV_DUMP = re.compile(r"(?:^|[;&|(]\s*|\$\(\s*)(?:sudo\s+)?(?:printenv\b|env\s*(?:$|[|;&>)])|env\s+-0\b|export\s+-p\b|compgen\s+-[ev]\b|declare\s+-[xp]\b"
+                      r"|typeset\s+-[xp]\b|(?:set|export|declare|typeset)\s*(?:$|[|;&>)]))"
+                      r"|os\.environ(?!\s*(?:\.get\s*\(|\[))|process\.env(?!\.)"
+                      # Lire une variable au nom de secret, depuis un programme : le même secret que printenv.
+                      r"|os\.(?:environ(?:\.get)?\s*[\[(]|getenv\s*\()\s*[rbf]?['\"][^'\"]*(?:KEY|TOKEN|SECRET|PASSW|CREDENTIAL)"
+                      r"|process\.env(?:\.|\[\s*['\"`])\w*(?:KEY|TOKEN|SECRET|PASSW|CREDENTIAL)"
+                      r"|\bfrom\s+os\s+import\s+[^\n]*\benviron\b|getattr\(\s*os\s*,\s*['\"]environ|\bos\.environb\b|\bvars\(\s*os\s*\)|\bos\.__dict__", re.M | re.I)
+# Les fichiers secrets de cette machine, tels quels : un joker du shell (« .e* », « auth.js?n », « [a]uth.json ») ou une variable
+# (« /opt/data/$f ») qui peut les désigner vaut le nom écrit en entier. La vraie barrière reste un utilisateur Linux séparé (à faire).
+SECRET_FILES = (f"/opt/data/{n}" for n in (".env", "auth.json", "config.yaml", "noah.py", "google_token.json", ".credentials", ".credentials.json",
+                                           "mcp-tokens", "mcp-tokens/a.json", "google-comptes/a/google_token.json", ".ssh/id_rsa", ".netrc",
+                                           ".git-credentials", ".aws/credentials"))
+SECRET_FILES = (*SECRET_FILES, "/etc/noah", "/etc/noah/mcp-droits.json", "/root/.ssh/id_rsa", "/root/.env", "/root/.netrc",
+                "/proc/self/environ", "/proc/1/environ", "/proc/thread-self/environ", "/var/run/secrets/a")
+_GLOB = re.compile(r"[*?\[{$`]")
+LISTS_NAMES = {"ls", "du", "stat"}  # ne montrent que des noms ou des tailles, jamais un contenu
 SECRET_VAR = re.compile(r"\$\{?\w*(?:API_?KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL)\w*\}?", re.I)
 READS_TOOL = re.compile(r"\b(?:cat|head|tail|less|more|grep|egrep|fgrep|rg|sed|awk|strings|base64|xxd|od|nl|tac|cp|mv|scp|curl)\b[^|;&\n]*(?:/|\s)noah\.py\b"
                         r"|open\([^)]*noah\.py", re.I)
@@ -904,10 +919,45 @@ def _wipes(command: str) -> bool:
     return False
 
 
+def _braces(word: str, depth: int = 0) -> list[str]:
+    """« a{b,c}d » : ce que le shell en fait, une accolade à la fois ; au-delà de quelques niveaux, le joker suffit."""
+    m = re.search(r"\{([^{}]*,[^{}]*)\}", word)
+    if not m or depth > 3:
+        return [word]
+    return [w for part in m.group(1).split(",")[:20] for w in _braces(word[:m.start()] + part + word[m.end():], depth + 1)]
+
+
+def _as_pattern(word: str) -> str:
+    """Un mot du shell comme motif : les variables connues remplacées, les autres (et toute substitution) valent « * »."""
+    word = re.sub(r"\$\{?(?:HOME|HERMES_HOME)\}?", DATA, word)
+    return re.sub(r"\$\{[^}]*\}|\$\(\([^)]*\)\)|\$\([^)]*\)?|`[^`]*`?|\$[\w@*#?$!-]?", "*", word)
+
+
+def secret_pattern(text: str) -> bool:
+    """Un joker ou une variable qui peut désigner un fichier secret (SECRET_FILES). Les listes de noms (ls, du, stat) restent permises."""
+    import fnmatch
+    for words in command_segments(text)[:200]:
+        words = strip_command_prefix(words)
+        if not words or os.path.basename(words[0]) in LISTS_NAMES:
+            continue
+        for word in words[:400]:
+            word = word.strip("'\"")
+            value = word.split("=", 1)[1] if word.startswith("-") and "=" in word else word
+            if not _GLOB.search(value) or len(value) > 500:
+                continue
+            for candidate in _braces(value):
+                pattern = _full_path(_as_pattern(candidate))
+                if any(fnmatch.fnmatchcase(secret, pattern) for secret in SECRET_FILES):
+                    return True
+    return False
+
+
 def _refused_command(text: str) -> str | None:
     if _wipes(text):
         return REFUSED_WIPE
     if SECRET_PATHS.search(text) or ENV_DUMP.search(text) or READS_TOOL.search(text) or SECRET_SEARCH.search(text):
+        return REFUSED_SECRET
+    if secret_pattern(text):
         return REFUSED_SECRET
     if INTO_DATA.search(text) and DATA_SECRET_NAMES.search(text):
         return REFUSED_SECRET
@@ -966,6 +1016,69 @@ def refused_outright(tool_name: str, args: dict | None) -> str | None:
     if tool_name.startswith("mcp__") and MASS_TOOL.search(tool_name):
         return REFUSED_WIPE
     return None
+
+
+# --- Lectures dehors : une adresse sert aussi à emporter des données -------------------------------------------------------
+# La requête (après « ? »), le chemin et chaque étiquette du nom d'hôte (un sous-domaine se lit chez celui qui tient le domaine)
+# sont bornés. Au-delà, la lecture n'est plus une lecture : le juge la range en ligne 6 et la personne décide.
+QUERY_MAX = 200
+PATH_MAX = 200
+LABEL_MAX = 40
+_CURL_VALUE = {"-o", "--output", "-A", "--user-agent", "-e", "--referer", "-w", "--write-out", "-m", "--max-time", "--connect-timeout",
+               "--retry", "-r", "--range", "-C", "--continue-at", "-x", "--proxy", "--resolve", "--connect-to", "--cacert", "--cert", "--key"}
+_WGET_VALUE = {"-O", "--output-document", "-P", "--directory-prefix", "-o", "--output-file", "-a", "--append-output", "-U", "--user-agent",
+               "-t", "--tries", "-T", "--timeout", "-w", "--wait", "-e", "--execute", "-i", "--input-file", "--referer"}
+_ADDRESS = re.compile(r"^(?:https?://)?[\w-]+(?:\.[\w-]+)+(?::\d+)?(?:[/?#]|$)", re.I)
+
+
+def outside_addresses(tool_name: str, args: dict | None) -> list[str]:
+    """Les adresses qu'une lecture va chercher dehors : browser_navigate, web_extract, curl et wget. Rien pour le reste."""
+    args = args if isinstance(args, dict) else {}
+    if tool_name == "browser_navigate":
+        return [str(args.get("url") or "")]
+    if tool_name == "web_extract":
+        urls = args.get("urls")
+        found = [str(u) for u in urls] if isinstance(urls, list) else []
+        return found + ([str(args["url"])] if args.get("url") else [])
+    if tool_name != "terminal":
+        return []
+    found = []
+    for words in command_segments(str(args.get("command") or "")):
+        words = strip_command_prefix(words)
+        name = os.path.basename(words[0]) if words else ""
+        if name not in ("curl", "wget"):
+            continue
+        valued = _CURL_VALUE if name == "curl" else _WGET_VALUE
+        for i, word in enumerate(words[1:], 1):
+            if word.startswith("-") or words[i - 1] in valued:
+                continue
+            if "://" in word or _ADDRESS.match(word):
+                found.append(word)
+    return found
+
+
+def _split_address(url: str) -> tuple[str, str, str]:
+    """(hôte, chemin, requête) d'une adresse, sans la valider : un hôte vide reste un hôte vide."""
+    rest = url.strip().split("://", 1)[1] if "://" in url else url.strip()
+    rest = rest.split("#", 1)[0]
+    rest, _, query = rest.partition("?")
+    host, slash, path = rest.partition("/")
+    host = host.rsplit("@", 1)[-1].split(":", 1)[0].lower().rstrip(".")
+    return host, slash + path, query
+
+
+def address_host(url: str) -> str:
+    return _split_address(url)[0]
+
+
+def address_too_long(url: str) -> bool:
+    host, path, query = _split_address(url)
+    return len(query) > QUERY_MAX or len(path) > PATH_MAX or any(len(label) > LABEL_MAX for label in host.split("."))
+
+
+def long_address(tool_name: str, args: dict | None) -> bool:
+    """Une lecture dehors dont l'adresse dépasse les bornes : elle pourrait emporter des données dans son chemin ou son hôte."""
+    return any(address_too_long(u) for u in outside_addresses(tool_name, args))
 
 
 def _reading_segment(words: list[str]) -> bool:
@@ -1027,7 +1140,7 @@ def _reading_segment(words: list[str]) -> bool:
             return False
         if "-X" in rest and rest[rest.index("-X") + 1:][:1] not in (["GET"], ["HEAD"]):
             return False
-        if any("?" in w and len(w.split("?", 1)[1]) > 200 for w in rest):
+        if any("?" in w and len(w.split("?", 1)[1]) > QUERY_MAX for w in rest) or long_address("terminal", {"command": shlex.join(words)}):
             return False  # une adresse sert aussi à emporter des données
         return all(in_workspace(path) for path in _downloads(words))
     return False
@@ -1081,11 +1194,12 @@ def no_effect(tool_name: str, args: dict | None) -> bool:
     # todo (tools/todo_tool.py d'Hermes) : une liste en mémoire de l'agent, ni fichier, ni réseau, ni coût. Il reste dans NO_EFFECT.
     if tool_name in ("image_generate", "video_generate", "text_to_speech", "skill_manage"):
         return False
+    if tool_name in ("browser_navigate", "web_extract") and long_address(tool_name, args):
+        return False  # une adresse sert aussi à emporter des données : requête, chemin, sous-domaine
     if tool_name in NO_EFFECT:
         return True
     if tool_name == "browser_navigate":
-        url = str(args.get("url") or "")
-        return len(url.split("?", 1)[1]) <= 200 if "?" in url else True  # une adresse sert aussi à emporter des données
+        return True
     if tool_name == "browser_press":  # défiler ou déplacer le focus ; Espace, Entrée ou une lettre valident ou écrivent
         return str(args.get("key") or "").strip().lower() in SAFE_KEYS
     if tool_name in ("process", "process_manage"):
@@ -1425,12 +1539,23 @@ STRONG_SIGNS = re.compile(
     r"|\bn['e]\s*(?:le\s+|lui\s+|en\s+)*(?:dis|dites|parle|parlez|informe|informez|pr[ée]viens|pr[ée]venez|mentionne|mentionnez|signale|signalez)\b.{0,30}\b(?:pas|jamais|rien)\b.{0,40}\b(?:utilisateur|propri[ée]taire|personne)\b"
     r"|<\|?(?:system|im_start|im_end|endoftext)\|?>|</?system>|\[/?INST\]"
     r"|\byou\s+are\s+now\b|\bnew\s+(?:system\s+)?instructions?\s*:|\bnouvelles?\s+(?:consignes?|instructions?)\s*:"
+    # Les mêmes consignes dans d'autres langues courantes : espagnol, portugais, italien, allemand, néerlandais, russe, chinois, japonais.
+    r"|\b(?:ignora|ignore|ignorar|olvida|esquece|esqueça|dimentica)\s+(?:(?:todas?|tutte|las|los|as|os|le|tus|tuas|suas|sus|tue)\s+)*"
+    r"(?:instrucciones|instruções|instrucoes|istruzioni|indicaciones|reglas|regras|regole)\s+(?:anteriores|previas|prévias|precedenti)\b"
+    r"|\b(?:ignoriere|ignorier|vergiss)\s+(?:(?:alle|die|deine|ihre|vorherigen|bisherigen|obigen)\s+)*(?:anweisungen|regeln|instruktionen|vorgaben)\b"
+    r"|\bnegeer\s+(?:(?:alle|de|je|vorige|eerdere)\s+)*(?:instructies|regels)\b"
+    r"|игнорируй\w*\s+(?:\w+\s+){0,2}(?:инструкц|правил)\w*"
+    r"|(?:忽略|无视|忘记|忽視|無視)(?:之前|以上|上面|先前|所有|全部|的)*(?:指令|指示|规则|規則|提示)"
+    r"|(?:以前|前|上記)の(?:指示|命令|ルール)を(?:無視|忘れ)"
     r"|[​-‏⁠﻿]{4,}|[\U000E0000-\U000E007F]", re.I | re.S)
 WEAK_SIGNS = re.compile(
     r"\b(?:as\s+an?\s+ai|ai\s+(?:agent|assistant)|language\s+model|agents?\s+ia|assistants?\s+ia|agents?\s+autonomes?)\b"
     r"|\b(?:you\s+must|tu\s+dois|vous\s+devez|please\s+(?:run|execute|send|click)|execute\s+the\s+following|run\s+this\s+command|ex[ée]cutez?\s+(?:cette|la\s+commande)|lance\s+cette\s+commande)\b"
     r"|\bcurl\s+\S+\s*\|", re.I)
 LONG_TEXT = 8000
+# Au-delà, tout contenu de dehors va au modèle du tri (sous son plafond horaire), même sans motif : une consigne écrite dans une
+# autre langue, ou tournée sans aucun mot connu, n'a pas de motif. En dessous, ce texte court n'a que les motifs.
+SORT_FROM = 400
 SENT_HEAD, SENT_TAIL, SENT_AROUND = 3000, 1500, 600
 FOREIGN = re.compile(r"https?:\\?/\\?/([^\s/:\"'<>)\]\\]+)", re.I)
 EMAILS = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
@@ -1559,7 +1684,8 @@ LOGIN_FIELD = re.compile(r'\b(?:textbox|searchbox)\s+"[^"\n]*(?:password|mot de 
                          r'|type=["\']?password', re.I)
 LOGIN_HINT = ("\n\n[Noah : cette page demande une connexion. Prends maintenant browser_vault action=save_login (Noah reprend lui-même "
               "l'identifiant retenu pour ce site ; un code : enter_code). C'est ce qui montre la carte à la personne et la prévient. Ne finis pas ton tour en disant qu'une demande l'attend : "
-              "sans carte ni appel (noah.py appeler), rien ne l'attend.]")
+              "sans carte ni appel (noah.py appeler), rien ne l'attend. En routine, quand personne n'est devant l'écran : browser_vault action=list puis fill ; "
+              "sans identifiant retenu, préviens la personne et continue le reste.]")
 
 
 def _note_written(tool_name: str, args: dict, result: str) -> None:
@@ -1607,7 +1733,7 @@ def _transform_outside(tool_name: str = "", args: dict | None = None, result=Non
         _remember_page(session, result)
     _remember_addresses(session, tool_name, result)
     level, where = signs_in(result)
-    if not level and len(result) < LONG_TEXT:
+    if not level and len(result) <= SORT_FROM:
         return None
     # Même si le tri tombe ensuite en panne, le signal local appartient à ce
     # dernier message précis ; une nouvelle demande effacera aussi ses extraits.
@@ -1638,15 +1764,30 @@ def _transform_outside(tool_name: str = "", args: dict | None = None, result=Non
 
 
 def _shown_call(tool_name: str, args: dict) -> str:
+    """L'appel tel qu'il partira, en entier jusqu'à ce qu'une carte affiche ; au-delà, son début et l'empreinte du tout."""
     shown = json.dumps(args, ensure_ascii=False, default=str)
-    if len(shown) > 600:
-        shown = f"{shown[:600]}… [empreinte {hashlib.sha256(shown.encode()).hexdigest()[:16]}]"
+    if len(shown) > CARD_CHARS:
+        shown = f"{shown[:CARD_CHARS]}… [empreinte {hashlib.sha256(shown.encode()).hexdigest()[:16]}]"
     return f"Outil : {tool_name}\n{shown}"
+
+
+def _too_long_for_card(tool_name: str, args: dict) -> dict | None:
+    """Une commande que la carte ne montrerait pas en entier ne se demande pas : la personne ne peut pas accepter ce qu'elle ne voit pas."""
+    command = _command_of(tool_name, args)
+    if not command or len(json.dumps(args, ensure_ascii=False, default=str)) <= CARD_CHARS:
+        return None
+    return {"action": "block", "message": (
+        f"Noah refuse : cette commande fait {len(command)} caractères et une carte d'accord en montre {CARD_CHARS} au plus. "
+        "La personne ne peut pas accepter ce qu'elle ne voit pas en entier. Découpe-la en plusieurs commandes plus courtes, ou écris "
+        "un script dans ton dossier de travail, relis-le, puis lance-le : chaque étape pourra lui être montrée.")}
 
 
 def _ask_person(tool_name: str, args: dict, reason: str, already: dict | None, comparison: dict | None = None,
                 instructions: list[str] | None = None) -> dict:
     """Clé neuve à chaque appel : aucun accord ne se réutilise. La phrase de tête est reconnue par mcp.plain_request."""
+    too_long = _too_long_for_card(tool_name, args)
+    if too_long:
+        return too_long
     shown = (already.get("message") or "") if already else _shown_call(tool_name, args)
     if instructions:
         comparison = {**(comparison or {"demande": [], "propose": outgoing_call(tool_name, args), "ecarts": [reason]}),
@@ -1745,7 +1886,10 @@ def check_juge(tool_name: str, args: dict, directive: dict | None, hook: dict) -
             # « agir » n'atteste ni le texte ni la destination d'un envoi.
             directive = google or directive
         elif no_effect(tool_name, args):
-            return directive
+            here = str(hook.get("session_id") or "")
+            if not (outside_addresses(tool_name, args) and max(_hardened.get(here, 0), _reported_hardened.get(here, 0)) > time.time()):
+                return directive
+            # Tour durci : une lecture dehors part au juge, qui la compare aux sites que la personne a écrits.
         elif hook.get("_noah_lien") and _autonomy() != "prudent":
             here = str(hook.get("session_id") or "")
             if max(_hardened.get(here, 0), _reported_hardened.get(here, 0)) <= time.time():
