@@ -126,8 +126,9 @@ async def browser_status(agent_id: str) -> str:
     return (await _launcher("GET", f"/agents/{agent_id}/browser", timeout=5))["status"]
 
 
-async def restart_browser(agent_id: str) -> None:
-    await _launcher("POST", f"/agents/{agent_id}/browser/restart")
+async def restart_browser(agent_id: str, new_identity: bool = False) -> None:
+    """new_identity : oublie l'empreinte gardée du navigateur (une neuve est tirée puis gardée)."""
+    await _launcher("POST", f"/agents/{agent_id}/browser/restart" + ("?new_identity=true" if new_identity else ""))
 
 
 # Identité Camoufox partagée par l'agent et l'écran : l'onglet que l'utilisateur voit est celui de l'agent.

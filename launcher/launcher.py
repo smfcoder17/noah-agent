@@ -83,8 +83,8 @@ BROWSER_IMAGE = os.environ.get("BROWSER_IMAGE", "ghcr.io/smfcoder17/noah-browser
 BROWSER_PREFIX = "noah-browser-"
 BROWSER_LABEL = "noah.browser"
 # Version des réglages du navigateur ; un conteneur plus ancien est recréé (le profil reste dans son volume).
-# 15 : sessions enregistrées chaque minute (connexions gardées après un arrêt brutal) ; 14 : remplir une page de connexion ; 12 : image Noah avec bureau, sans uBlock ; 11 : toutes les routes sous clé ; 10 : clé du mode privé à part ; 9 : aucune capture pendant une prise en main ; 8 : jetons hors de la config Docker
-BROWSER_VERSION = "16"
+# 17 : empreinte tirée une fois par agent, gardée dans /data/empreinte.json ; 15 : sessions enregistrées chaque minute (connexions gardées après un arrêt brutal) ; 14 : remplir une page de connexion ; 12 : image Noah avec bureau, sans uBlock ; 11 : toutes les routes sous clé ; 10 : clé du mode privé à part ; 9 : aucune capture pendant une prise en main ; 8 : jetons hors de la config Docker
+BROWSER_VERSION = "17"
 
 
 FROZEN_WAIT = 30  # secondes ; sous le délai de 120 s du serveur (hermes._launcher)
@@ -324,9 +324,15 @@ def stop_browser(agent_id: str):
     return {"ok": True}
 
 
+FINGERPRINT_FILE = "/data/empreinte.json"  # voir keepFingerprint dans camofox-noah/index.js
+
+
 @app.post("/agents/{agent_id}/browser/restart", dependencies=[Depends(auth), Depends(_frozen)])
-def restart_browser(agent_id: str):
-    """Redémarre le conteneur du navigateur (écran figé, navigateur planté). Profil et cookies restent."""
+def restart_browser(agent_id: str, new_identity: bool = False):
+    """Redémarre le conteneur du navigateur (écran figé, navigateur planté). Profil et cookies restent.
+
+    new_identity : l'empreinte gardée (écran, matériel, polices, WebGL) est oubliée ; Firefox en tire une neuve au démarrage
+    et la garde à son tour. Les cookies restent : un site connecté verra une autre machine et peut redemander la connexion."""
     check_id(agent_id)
     try:
         c = client.containers.get(BROWSER_PREFIX + agent_id)
@@ -334,8 +340,13 @@ def restart_browser(agent_id: str):
         raise HTTPException(404, "Navigateur introuvable")
     if c.labels.get(BROWSER_LABEL) != agent_id:
         raise HTTPException(403, "Ce conteneur n'est pas un navigateur Noah Agent")
-    c.restart(timeout=10)
-    return {"ok": True}
+    if new_identity:
+        if c.status != "running":
+            c.start()
+        if c.exec_run(["rm", "-f", FINGERPRINT_FILE], user="root").exit_code != 0:
+            raise HTTPException(502, "L'empreinte du navigateur n'a pas pu être effacée : réessaie.")
+    c.restart(timeout=20)  # comme l'arrêt : le temps d'enregistrer les cookies de la session
+    return {"ok": True, "new_identity": new_identity}
 
 
 # --- Fichiers de l'espace de travail ----------------------------------------------

@@ -578,6 +578,82 @@ export default function register(app, ctx) {
     ctx.log("info", "noah: nouveaux onglets gardés dans le conteneur de l'agent");
   });
   keepSessions(ctx);
+  keepFingerprint(ctx);
+}
+
+/**
+ * Empreinte gardée : Camofox demande à camoufox-js une empreinte neuve (écran, matériel, polices, WebGL, graines du canvas
+ * et de l'audio) à chaque démarrage de Firefox, donc après chaque veille, arrêt, mise à jour ou plantage. Les cookies, eux,
+ * reviennent à l'identique : Google voit une session connue revenir sur une autre machine, et la coupe.
+ * Au premier lancement réussi, on garde dans le volume de l'agent l'empreinte telle que Firefox l'a reçue (après les
+ * corrections du bureau), puis on la repose à chaque lancement. Ce qui ne décrit pas la machine reste celui du lancement :
+ * langue et fuseau de l'agent, extensions de l'image. La régénérer : supprimer ce fichier (le lanceur le fait sur demande).
+ */
+export const FINGERPRINT_FILE = "/data/empreinte.json";
+// Réglages du lancement, pas de la machine : ils suivent l'agent (langue, fuseau) et l'image (extensions).
+const NOT_FINGERPRINT = /^(locale:|geolocation:|timezone$|webrtc:|humanize|addons$|allowMainWorld$|debug$)/;
+const KEPT_PREFS = ["webgl.enable-webgl2"]; // tirée avec le rendu WebGL : les deux vont ensemble
+
+function readCamouConfig(env) {
+  const keys = Object.keys(env || {}).filter((k) => /^CAMOU_CONFIG_\d+$/.test(k)).sort((a, b) => +a.split("_")[2] - +b.split("_")[2]);
+  return keys.length ? JSON.parse(keys.map((k) => env[k]).join("")) : null;
+}
+
+function writeCamouConfig(env, config) {
+  for (const k of Object.keys(env)) if (/^CAMOU_CONFIG_\d+$/.test(k)) delete env[k];
+  const text = JSON.stringify(config);
+  for (let i = 0, n = 1; i < text.length; i += 32767, n++) env[`CAMOU_CONFIG_${n}`] = text.slice(i, i + 32767);
+}
+
+export function keepFingerprint(ctx, file = FINGERPRINT_FILE) {
+  let launching = null; // options du lancement en cours, lues une fois que tous les plugins sont passés
+  let failures = 0; // lancements avec l'empreinte gardée qui n'ont pas abouti, de suite
+  ctx.events.on("browser:launching", ({ options }) => {
+    if (launching?.kept) failures++;
+    launching = { options, kept: false };
+    let kept;
+    try {
+      kept = JSON.parse(fs.readFileSync(file, "utf8"));
+    } catch (e) {
+      if (e.code !== "ENOENT") ctx.log("warn", `noah: empreinte illisible, une neuve sera gardée (${e.message})`);
+      return;
+    }
+    const config = readCamouConfig(options.env);
+    if (!config || !kept?.config) return;
+    if (failures >= 2) { // jamais bloquer le navigateur : on lance avec une empreinte neuve, sans toucher au fichier
+      ctx.log("warn", "noah: empreinte gardée non reprise, deux lancements ont échoué avec elle", { failures });
+      return;
+    }
+    // Firefox mis à jour avec l'image : une vraie machine garde tout, sauf le numéro de version.
+    const ff = /Firefox\/(\d+)\.0/.exec(config["navigator.userAgent"] || "")?.[1];
+    for (const k of Object.keys(config)) if (!NOT_FINGERPRINT.test(k)) delete config[k];
+    for (const [k, v] of Object.entries(kept.config)) {
+      if (NOT_FINGERPRINT.test(k)) continue;
+      config[k] = ff && typeof v === "string" && /^(navigator|headers)\./.test(k) ? v.replace(/(?<!\d)(1\d{2})(\.0)(?!\d)/g, `${ff}$2`) : v;
+    }
+    writeCamouConfig(options.env, config);
+    options.firefoxUserPrefs = { ...(options.firefoxUserPrefs || {}), ...(kept.prefs || {}) };
+    launching.kept = true;
+    ctx.log("info", "noah: empreinte gardée reprise", { depuis: kept.depuis, ecran: [config["screen.width"], config["screen.height"]] });
+  });
+  ctx.events.on("browser:launched", () => {
+    const done = launching;
+    launching = null;
+    failures = 0;
+    if (!done || fs.existsSync(file)) return;
+    const all = readCamouConfig(done.options.env);
+    if (!all) return;
+    const config = Object.fromEntries(Object.entries(all).filter(([k]) => !NOT_FINGERPRINT.test(k)));
+    const prefs = Object.fromEntries(KEPT_PREFS.filter((k) => k in (done.options.firefoxUserPrefs || {})).map((k) => [k, done.options.firefoxUserPrefs[k]]));
+    try {
+      const tmp = `${file}.tmp-${process.pid}`;
+      fs.writeFileSync(tmp, JSON.stringify({ depuis: new Date().toISOString(), config, prefs }), { mode: 0o600 });
+      fs.renameSync(tmp, file);
+      ctx.log("info", "noah: empreinte gardée pour les prochains lancements", { ecran: [config["screen.width"], config["screen.height"]] });
+    } catch (e) {
+      ctx.log("warn", `noah: empreinte non gardée (${e.message})`);
+    }
+  });
 }
 
 /**
