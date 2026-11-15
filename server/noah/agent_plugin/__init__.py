@@ -655,10 +655,11 @@ VAULT_SCHEMA = {
     "name": "browser_vault",
     "description": (
         "Se connecter à un site sur la page ACTUELLE du navigateur, sans que le mot de passe entre dans la conversation. "
-        "Actions : list (appelle-la d'abord : les identifiants retenus, sous forme de handles) ; fill (handle : remplit et envoie le formulaire, "
-        "seulement sur le site exact de cet identifiant, sans rien demander) ; save_login (rien de retenu pour ce site : la personne voit une carte "
-        "avec le site réel, saisit ses identifiants, et le formulaire part tout seul ; l'appel attend sa réponse) ; enter_code (un code reçu par la "
-        "personne, demandé de la même façon) ; wait (handle : la personne n'a pas encore répondu, error_type=still_waiting, et tu continues d'attendre sa carte). "
+        "Actions : save_login (sur une page de connexion, appelle-la directement : Noah cherche lui-même dans le coffre de la personne ; un seul "
+        "identifiant pour ce site, il remplit et envoie sans rien demander, automatic=true ; plusieurs ou aucun, la personne voit une carte avec le "
+        "site réel, choisit son compte ou saisit ses identifiants, et le formulaire part tout seul ; l'appel attend sa réponse) ; enter_code (un code : "
+        "Noah le tape lui-même s'il a la clé d'authentificateur du site, sinon il le demande de la même façon) ; list (les identifiants retenus : "
+        "nom, site, deux premiers caractères) ; fill (handle : remplit avec cet identifiant, seulement sur son site) ; wait (handle : la personne n'a pas encore répondu, error_type=still_waiting, et tu continues d'attendre sa carte). "
         "Ne tape, ne demande et ne répète jamais un mot de passe ou un code toi-même. Après chaque action, relis la page. "
         "Arrête-toi sur save_declined. Sur page=meme, le site a peut-être refusé : dis ce qu'il indique."
     ),
@@ -1556,8 +1557,8 @@ WRITTEN_MAX = 2000
 # attend ta réponse » et rien n'attend : ni carte dans « À toi », ni notification.
 LOGIN_FIELD = re.compile(r'\b(?:textbox|searchbox)\s+"[^"\n]*(?:password|mot de passe|passwort|contraseña|passcode|code de v[ée]rification|verification code)'
                          r'|type=["\']?password', re.I)
-LOGIN_HINT = ("\n\n[Noah : cette page demande une connexion. Prends maintenant browser_vault (action=list, puis fill, ou save_login ; un code : "
-              "enter_code). C'est ce qui montre la carte à la personne et la prévient. Ne finis pas ton tour en disant qu'une demande l'attend : "
+LOGIN_HINT = ("\n\n[Noah : cette page demande une connexion. Prends maintenant browser_vault action=save_login (Noah reprend lui-même "
+              "l'identifiant retenu pour ce site ; un code : enter_code). C'est ce qui montre la carte à la personne et la prévient. Ne finis pas ton tour en disant qu'une demande l'attend : "
               "sans carte ni appel (noah.py appeler), rien ne l'attend.]")
 
 

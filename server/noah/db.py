@@ -274,6 +274,14 @@ def init() -> None:
         db.execute("CREATE INDEX IF NOT EXISTS propositions_agent ON propositions(agent_id, jour)")
         db.execute("CREATE INDEX IF NOT EXISTS publications_empreinte ON publications(plateforme, empreinte, at)")
         _adopt(db)
+        # 0.3.0 : le coffre appartient à la personne (coffre.py), partagé par ses agents selon un droit par agent.
+        db.execute("CREATE TABLE IF NOT EXISTS coffre (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
+                   "genre TEXT NOT NULL DEFAULT 'login' CHECK (genre IN ('login', 'carte', 'totp')), nom TEXT NOT NULL DEFAULT '', "
+                   "origine TEXT NOT NULL DEFAULT '', secret TEXT NOT NULL, created_at REAL NOT NULL, used_at REAL)")
+        db.execute("CREATE INDEX IF NOT EXISTS coffre_user ON coffre(user_id, genre)")
+        db.execute("CREATE TABLE IF NOT EXISTS coffre_agents (agent_id TEXT PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE, "
+                   "utiliser INTEGER NOT NULL)")
+        _migrate_logins(db)
         db.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_one_owner ON users(role) WHERE role = 'owner'")
         db.commit()  # le changement de journal ne se fait pas au milieu d'une transaction
         # WAL : les lectures ne bloquent plus pendant une écriture (flux de chat et relais en parallèle).
@@ -290,6 +298,22 @@ def _adopt(db) -> None:
         db.execute("UPDATE agents SET owner_id = ? WHERE owner_id IS NULL", (row["id"],))
         db.execute("UPDATE usage SET owner_id = COALESCE((SELECT owner_id FROM agents a WHERE a.id = usage.agent_id), ?) "
                    "WHERE owner_id IS NULL", (row["id"],))
+
+
+def _migrate_logins(db) -> None:
+    """Les identifiants retenus par agent (avant 0.3.0) passent au coffre de son propriétaire, ligne pour ligne : même id (le handle
+    que l'agent connaît), même secret scellé, mêmes dates. L'agent qui les avait garde le droit de s'en servir, même partagé.
+    Une ligne dont on ne trouve pas le propriétaire reste où elle est : rien ne se perd."""
+    rows = db.execute("SELECT l.id, l.agent_id, l.origine, l.secret, l.created_at, l.used_at, a.owner_id FROM agent_logins l "
+                      "JOIN agents a ON a.id = l.agent_id").fetchall()
+    for row in rows:
+        if row["owner_id"] is None:
+            continue
+        db.execute("INSERT OR IGNORE INTO coffre (id, user_id, genre, nom, origine, secret, created_at, used_at) VALUES (?, ?, 'login', '', ?, ?, ?, ?)",
+                   (row["id"], row["owner_id"], row["origine"], row["secret"], row["created_at"], row["used_at"]))
+        if db.execute("SELECT 1 FROM coffre WHERE id = ? AND secret = ?", (row["id"], row["secret"])).fetchone():
+            db.execute("INSERT OR IGNORE INTO coffre_agents (agent_id, utiliser) VALUES (?, 1)", (row["agent_id"],))
+            db.execute("DELETE FROM agent_logins WHERE id = ?", (row["id"],))
 
 
 def owner_id() -> int | None:

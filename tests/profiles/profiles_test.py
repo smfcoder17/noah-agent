@@ -366,7 +366,9 @@ ROUTES = {
     ("GET", "/api/agents/{agent_id}/proactif"): "admin",
     ("PUT", "/api/agents/{agent_id}/proactif"): "proprietaire",
     ("POST", "/api/agents/{agent_id}/proactif/passer"): "proprietaire",
-    ("GET", "/api/agents/{agent_id}/coffre"): "admin",
+    ("GET", "/api/agents/{agent_id}/coffre"): "proprietaire",  # 0.3.0 : le coffre est à la personne, même un admin ne le lit pas
+    ("GET", "/api/agents/{agent_id}/coffre-droit"): "proprietaire",
+    ("PUT", "/api/agents/{agent_id}/coffre-droit"): "proprietaire",
     ("GET", "/api/agents/{agent_id}/appel"): "lecture",
     ("POST", "/api/agents/{agent_id}/appel/{call_id}"): "admin",
     ("GET", "/api/calls/{call_id}"): "auteur",
@@ -436,7 +438,10 @@ WHITELIST = {
     ("GET", "/api/modes/{level}/modeles"): "Mêmes droits que la lecture du niveau (modes_test).",
     ("PUT", "/api/modes/{level}"): "Réservé au propriétaire, Auto global compris (test_default_brain_access et modes_test).",
     ("POST", "/api/agents/{agent_id}/connexions/{ask_id}"): "Droit usage sur l'agent, refusé à un invité séparé, demande propre à cet agent (coffre_test).",
-    ("DELETE", "/api/agents/{agent_id}/coffre/{login_id}"): "Droit admin sur l'agent, et la ligne doit être à cet agent (coffre_test).",
+    ("DELETE", "/api/agents/{agent_id}/coffre/{login_id}"): "Propriétaire de l'agent seulement, et la ligne doit être dans son coffre (coffre_test, coffre_030_test).",
+    ("PUT", "/api/coffre/{item_id}"): "Un élément du coffre de ce compte seulement : 404 pour un autre (coffre_030_test).",
+    ("DELETE", "/api/coffre/{item_id}"): "Un élément du coffre de ce compte seulement : 404 pour un autre (coffre_030_test).",
+    ("POST", "/api/coffre/{item_id}/voir"): "Un élément du coffre de ce compte seulement, après la preuve (coffre_030_test).",
     ("GET", "/api/post-image/{name}"): "Publique : la plateforme vient chercher l'image. Adresse tirée au hasard, de courte durée, retirée après la publication (publication_test).",
     ("GET", "/api/apercu/{token}/{path:path}"): "Sans session : le lien signé porte le compte, le dossier et l'expiration, et suit les droits (apercu_test).",
     ("POST", "/api/desktop/result/{rid}"): "Seulement l'appareil à qui la demande a été donnée (appareils_test et test_desktop).",
@@ -507,6 +512,9 @@ OWNER_WITH_ID = {("PATCH", "/api/profiles/{profile_id}"): {"budget": None}, ("DE
                  ("PUT", "/api/fournisseurs/{provider}"): {"api_key": "cle-de-test"}}
 # … et les routes ouvertes, chacune avec la raison pour laquelle elle ne montre rien d'un autre.
 OPEN_ROUTES = {
+    ("GET", "/api/coffre"): "Le coffre du compte connecté seulement, sans aucune valeur (coffre_030_test).",
+    ("POST", "/api/coffre"): "Ajoute au coffre du compte connecté seulement (coffre_030_test).",
+    ("POST", "/api/coffre/import"): "Importe dans le coffre du compte connecté seulement (coffre_030_test).",
     ("POST", "/api/liens/apercu"): "Page publique lue sans session distante, pas de données de profil ; connexion Noah exigée (test_public_assets).",
     ("POST", "/api/liens/media"): "Image publique lue sans session distante, pas de données de profil ; connexion Noah exigée (test_public_assets).",
     ("GET", "/api/me/interface"): "Préférences du compte connecté seulement (test_personal).",

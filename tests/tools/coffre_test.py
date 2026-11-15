@@ -60,6 +60,7 @@ with db.connect() as c:
     c.execute("INSERT INTO agents (id, name, role, api_key, owner_id) VALUES (?, 'Noah', '', 'k', ?)", (A, ALICE))
     c.execute("INSERT INTO agent_shares (agent_id, user_id, droit) VALUES (?, ?, 'usage')", (A, UMA))
     c.execute("INSERT INTO agent_shares (agent_id, user_id, droit) VALUES (?, ?, 'admin')", (A, ADA))
+coffre.set_may_use(A, True)  # agent partagé : son coffre est éteint d'office (coffre_030_test.py) ; ici, le propriétaire l'a ouvert
 
 
 def conversation(user: int) -> str:
@@ -104,7 +105,11 @@ def web(user: int) -> dict:
 AGENT = {"Authorization": f"Bearer {relay.token_for(A)}"}
 
 
-def ask(action="save_login", **extra) -> dict:
+def ask(action="save_login", keep=False, **extra) -> dict:
+    """save_login ouvre une carte quand le coffre n'a rien pour ce site (0.3.0 : sinon le serveur remplit lui-même) : on le vide d'abord."""
+    if action == "save_login" and not keep:
+        with db.connect() as c:
+            c.execute("DELETE FROM coffre")
     return client.post("/agent-api/coffre", headers=AGENT, json={"action": action, "session": f"noah-{CONV}", **extra}).json()
 
 
@@ -141,7 +146,7 @@ def test_card_shows_the_real_page():
     fill = page.fills[-1]
     check("la page reçoit les identifiants, avec l'origine lue et non une autre", fill["motDePasse"] == MOT_DE_PASSE and fill["identifiant"] == IDENTIFIANT and fill["origine"] == ORIGINE and fill["onglet"] == "t1", list(fill))
     with db.connect() as c:
-        kept = [r["secret"] for r in c.execute("SELECT secret FROM agent_logins")]
+        kept = [r["secret"] for r in c.execute("SELECT secret FROM coffre")]
     check("ce qui est retenu est scellé", kept and not any(MOT_DE_PASSE in s or IDENTIFIANT in s for s in kept))
     seen = agent_gets(ask_id)
     check("l'agent reçoit le résultat, sans le secret", seen["success"] and MOT_DE_PASSE not in json.dumps(seen) and IDENTIFIANT not in json.dumps(seen), seen)
@@ -259,6 +264,9 @@ def test_csrf():
 
 
 def test_saved_logins():
+    ask_id = ask()["attente"]  # une première connexion retenue
+    answer(ask_id)
+    agent_gets(ask_id)
     listed = ask("list")
     check("list : le site et un compte masqué, jamais le secret", listed["items"] and listed["items"][0]["origin"] == ORIGINE and MOT_DE_PASSE not in json.dumps(listed) and IDENTIFIANT not in json.dumps(listed), listed)
     handle = listed["items"][0]["handle"]
@@ -270,9 +278,13 @@ def test_saved_logins():
     fills = len(page.fills)
     out = ask("fill", handle=handle)
     check("fill sur un autre site : refus, rien n'est écrit", out.get("error_type") == "origin_mismatch" and len(page.fills) == fills, out)
-    page.origine = "https://instagram.com"  # sans www : une origine exacte, pas un domaine voisin
+    for neighbour in ("http://instagram.com", "https://instagram.com:8443", "https://www.instagram.co"):
+        page.origine = neighbour
+        out = ask("fill", handle=handle)
+        check(f"fill sur {neighbour} : refus", out.get("error_type") == "origin_mismatch" and len(page.fills) == fills, out)
+    page.origine = "https://instagram.com"  # 0.3.0 (B1) : même site enregistrable, en https, même port
     out = ask("fill", handle=handle)
-    check("fill sur un sous-domaine voisin : refus", out.get("error_type") == "origin_mismatch" and len(page.fills) == fills, out)
+    check("fill sans www sur le même site : accepté", out.get("success") and len(page.fills) == fills + 1, out)
     page.origine = ORIGINE
     check("handle inconnu", ask("fill", handle="login_0")["error_type"] == "unknown_handle")
     with db.connect() as c:
@@ -283,14 +295,20 @@ def test_saved_logins():
     shown = client.get(f"/api/agents/{A}/coffre", headers=web(ALICE))
     check("l'écran reçoit les sites seulement", shown.status_code == 200 and set(shown.json()[0]) == {"id", "site", "origine"} and MOT_DE_PASSE not in shown.text and IDENTIFIANT not in shown.text, shown.text)
     check("une personne invitée ne voit pas ces sites", client.get(f"/api/agents/{A}/coffre", headers=web(UMA)).status_code == 403)
+    check("un admin qui n'est pas le propriétaire non plus : c'est le coffre d'Alice", client.get(f"/api/agents/{A}/coffre", headers=web(ADA)).status_code == 403)
     check("un inconnu non plus", client.get(f"/api/agents/{A}/coffre", headers=web(BRUNO)).status_code == 404)
     check("une personne invitée ne les retire pas", client.delete(f"/api/agents/{A}/coffre/{handle}", headers=web(UMA)).status_code == 403)
 
-    ask_id = ask()["attente"]
+    page.reply = {**page.reply, "page": "meme"}  # le site refuse l'identifiant retenu, rempli d'office
+    out = ask(keep=True)
+    check("save_login avec un seul identifiant : rempli d'office, sans carte", out.get("automatic") and out["page"] == "meme" and coffre.pending(CONV) is None, out)
+    page.reply = {**page.reply, "page": "changee"}
+    ask_id = ask(keep=True)["attente"]
+    check("refusé par le site, il n'est plus repris d'office : la carte s'ouvre", bool(ask_id))
     client.post(f"/api/agents/{A}/connexions/{ask_id}", headers=web(ALICE), json={"identifiant": IDENTIFIANT, "mot_de_passe": "nouveau-Zq81x"})
     agent_gets(ask_id)
     with db.connect() as c:
-        rows = c.execute("SELECT secret FROM agent_logins WHERE agent_id = ?", (A,)).fetchall()
+        rows = c.execute("SELECT secret FROM coffre WHERE user_id = ?", (ALICE,)).fetchall()
     check("même site, même identifiant : le nouveau remplace l'ancien", len(rows) == 1 and json.loads(db.unseal(rows[0]["secret"]))["mot_de_passe"] == "nouveau-Zq81x")
     check("retirer", client.delete(f"/api/agents/{A}/coffre/{handle}", headers=web(ALICE)).status_code == 200 and client.get(f"/api/agents/{A}/coffre", headers=web(ALICE)).json() == [])
     check("retirer deux fois", client.delete(f"/api/agents/{A}/coffre/{handle}", headers=web(ALICE)).status_code == 404)
@@ -346,7 +364,7 @@ def test_nothing_is_kept_in_clear():
     for secret in (MOT_DE_PASSE, CODE, "nouveau-Zq81x"):
         check(f"base : {secret[:3]}… absent de toutes les tables", secret not in text)
     check("base : aussi dans les fichiers, y compris le journal d'écriture", not any(MOT_DE_PASSE.encode() in p.read_bytes() for p in DATA.rglob("*") if p.is_file()))
-    check("la table retenue est bien là, scellée", dump["agent_logins"] and IDENTIFIANT not in json.dumps(dump["agent_logins"]) and json.loads(db.unseal(dump["agent_logins"][0]["secret"]))["mot_de_passe"] == MOT_DE_PASSE)
+    check("la table retenue est bien là, scellée", dump["coffre"] and IDENTIFIANT not in json.dumps(dump["coffre"]) and json.loads(db.unseal(dump["coffre"][0]["secret"]))["mot_de_passe"] == MOT_DE_PASSE)
     check("messages et journal sans rien", MOT_DE_PASSE not in json.dumps(dump["messages"]) and MOT_DE_PASSE not in json.dumps(dump["journal"]))
     check("journaux du serveur sans rien", not any(MOT_DE_PASSE in line or CODE in line for line in LOGS), [l for l in LOGS if MOT_DE_PASSE in l][:2])
     check("diagnostics sans rien", MOT_DE_PASSE not in json.dumps(list(diagnostics._recent), default=str))
