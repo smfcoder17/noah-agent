@@ -4,7 +4,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import { BrowserSites } from "./AgentPowers";
-import { LoginCard } from "./LoginCard";
+import { LoginCard, SavedLogins } from "./LoginCard";
 import { Vault } from "./Vault";
 
 const MDP = "valeur-Secrete-91x";
@@ -140,4 +140,48 @@ it("B5 les sessions affichées sont celles du registre vérifié, avec leur éta
   expect(rows[1]).toContain("À reconnecter");
   expect(rows[2]).toContain("Non vérifié");
   expect(host.textContent).toContain("Sessions dans son navigateur");
+});
+
+// Relecture GLM 0.3.0 (docs/epics/0.3.0/revue-glm.md).
+it("P0n5 « Retirer » une session dit que les identifiants restent dans le coffre", async () => {
+  serve({ "/api/agents/a1/sites": [{ hote: "instagram.com", nom: "instagram.com", compte: "", vu_a: 1, etat: "connecte" }] });
+  const host = await render(<BrowserSites agentId="a1" />);
+  expect(host.textContent).toContain("Les identifiants retenus restent dans Réglages > Coffre");
+});
+
+it("P1n2 une nouvelle demande repart du premier compte proposé, jamais d'un choix d'avant", async () => {
+  const calls = serve({ "POST /api/agents/a1/connexions/q2": { ok: true, page: "changee" } });
+  const base = { type: "connexion" as const, site: "instagram.com", origine: "https://www.instagram.com", chiffre: true, identifiant_requis: true };
+  const first = { ...base, id: "q1", comptes: [{ id: "login_1", nom: "Perso", compte: "fr•••" }, { id: "login_2", nom: "Boutique", compte: "bo•••" }] };
+  const second = { ...base, id: "q2", comptes: [{ id: "login_3", nom: "Pro", compte: "pr•••" }, { id: "login_1", nom: "Perso", compte: "fr•••" }] };
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  unmount = () => { act(() => root.unmount()); host.remove(); };
+  await act(async () => root.render(<LoginCard agentId="a1" asked={first} onDone={vi.fn()} />));
+  await act(async () => [...host.querySelectorAll<HTMLInputElement>('input[type="radio"]')][1].click());
+  await act(async () => root.render(<LoginCard agentId="a1" asked={second} onDone={vi.fn()} />)); // même carte, nouvelle demande
+  expect(host.querySelectorAll<HTMLInputElement>('input[type="radio"]')[0].checked).toBe(true);
+  await act(async () => host.querySelector<HTMLFormElement>("form")!.requestSubmit());
+  await flush();
+  expect(JSON.parse(calls[0].body)).toEqual({ choix: "login_3" });
+});
+
+it("P1n3 ajouter un identifiant : l'identifiant est requis, comme le mot de passe", async () => {
+  serve({ "/api/coffre": { elements: [], agents: [] } });
+  const host = await render(<Vault />);
+  await act(async () => button(host, "Ajouter : Identifiant").click());
+  const [, , ident, pwd] = [...host.querySelectorAll<HTMLInputElement>("form input")];
+  expect(ident.required).toBe(true);
+  expect(pwd.required).toBe(true);
+});
+
+it("P1n5 un refus sur le droit du coffre n'efface pas la liste des identifiants retenus", async () => {
+  serve({
+    "/api/agents/a1/coffre-droit": () => [500, { detail: "Panne passagère" }],
+    "/api/agents/a1/coffre": [{ id: "login_1", site: "instagram.com", origine: "https://www.instagram.com" }],
+  });
+  const host = await render(<SavedLogins agentId="a1" />);
+  expect(host.textContent).toContain("instagram.com");
+  expect(host.textContent).toContain("Panne passagère");
 });

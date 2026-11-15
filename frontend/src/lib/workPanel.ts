@@ -60,12 +60,20 @@ const widthKey = (tab: PanelTab) => (tab === "computer" ? "noah:panneau-ordinate
 export const panelMax = () => Math.max(PANEL_MIN, window.innerWidth - 560);
 export const clampWidth = (w: number) => Math.round(Math.min(panelMax(), Math.max(PANEL_MIN, w)));
 
-/** Largeur du panneau, réglée en tirant son bord ou au clavier, retenue par sorte (ordinateur à part). */
+/** Largeur du panneau, réglée en tirant son bord ou au clavier, retenue par sorte (ordinateur à part). Bornée au rendu et à
+ * chaque redimensionnement de la fenêtre : une largeur retenue sur un grand écran n'écrase pas la conversation sur un petit
+ * (relecture 0.3.0, partie 2 n°1). `change(w, false)` pendant un glissement : écrite une seule fois, au relâchement (n°4). */
 export function usePanelWidth(tab: PanelTab) {
   const stored = () => { const n = Number(read(widthKey(tab))); return clampWidth(n > 0 ? n : panelDefault(tab)); };
   const [width, setWidth] = useState(stored);
+  const [, setViewport] = useState(() => window.innerWidth);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => setWidth(stored()), [tab]);
-  const change = useCallback((w: number) => { const next = clampWidth(w); setWidth(next); write(widthKey(tab), String(next)); }, [tab]);
-  return [width, change] as const;
+  useEffect(() => {
+    const resize = () => setViewport(window.innerWidth);
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, []);
+  const change = useCallback((w: number, keep = true) => { const next = clampWidth(w); setWidth(next); if (keep) write(widthKey(tab), String(next)); }, [tab]);
+  return [clampWidth(width), change] as const;
 }

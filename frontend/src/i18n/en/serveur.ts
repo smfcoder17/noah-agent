@@ -61,6 +61,8 @@ export default {
   "Seul le propriétaire de l'agent règle l'accès à son coffre.": "Only the agent's owner sets its access to their vault.",
   "Donne l'adresse du site (ex. https://www.instagram.com).": "Give the site's address (e.g. https://www.instagram.com).",
   "Saisis le mot de passe.": "Enter the password.",
+  "Saisis l'identifiant.": "Enter the username.",
+  "Cette clé d'authentificateur est illisible : remplace-la.": "This authenticator key is unreadable: replace it.",
   "Ce numéro de carte n'est pas valide.": "This card number isn't valid.",
   "Date d'expiration attendue sous la forme MM/AA.": "Expiry date expected as MM/YY.",
   "Cette clé d'authentificateur n'est pas valide.": "This authenticator key isn't valid.",

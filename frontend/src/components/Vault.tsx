@@ -53,7 +53,7 @@ function ItemForm({ genre, element, onSaved, onCancel }: { genre: VaultGenre; el
       {genre !== "carte" && field("origine", t("Adresse du site"), { placeholder: keep, required: !editing, inputMode: "url", autoCapitalize: "none", spellCheck: false })}
       {genre === "login" && (
         <>
-          {field("identifiant", t("Identifiant"), { maxLength: 320, autoCapitalize: "none", spellCheck: false, placeholder: keep, autoComplete: "off" })}
+          {field("identifiant", t("Identifiant"), { maxLength: 320, required: !editing, autoCapitalize: "none", spellCheck: false, placeholder: keep, autoComplete: "off" })}
           {field("mot_de_passe", t("Mot de passe"), { type: "password", maxLength: 1024, required: !editing, placeholder: keep, autoComplete: "new-password" })}
         </>
       )}

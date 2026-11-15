@@ -310,3 +310,111 @@ it("E2 — cibles tactiles du téléphone : 44 px au moins", () => {
   expect(shell).toMatch(/\.work-menu-list button \{[^}]*min-height:48px/);
   expect(shell).toMatch(/\.session-row \{[^}]*min-height:44px/);
 });
+
+// --- Relecture GLM 0.3.0 (docs/epics/0.3.0/revue-glm.md) -----------------------------------------------------------------
+
+it("P0n3 — un HTML ou un SVG du dossier de l'agent, ouvert par son nom, s'affiche en bac à sable sans allow-same-origin", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 200 })));
+  files.push({ path: "outputs/piege.html", size: 10, modified: 1_700_000_400 }, { path: "outputs/dessin.svg", size: 10, modified: 1_700_000_350 });
+  try {
+    for (const path of ["outputs/piege.html", "outputs/dessin.svg"]) {
+      await act(async () => root.render(<Files key={path} agentId="a" refreshKey={0} canDelete onGiven={vi.fn()} />));
+      await settle();
+      await act(async () => host.querySelector<HTMLButtonElement>(`button[title="${path}"]`)!.click());
+      await until(".file-preview iframe");
+      const frame = host.querySelector<HTMLIFrameElement>(".file-preview iframe")!;
+      expect(frame.getAttribute("src")).toBe(`/api/agents/a/files/raw/${path}`);
+      expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
+      expect(frame.getAttribute("sandbox")).not.toContain("allow-same-origin");
+    }
+  } finally { files.splice(-2); vi.unstubAllGlobals(); }
+});
+
+it("P0n4 — la liste vidée pendant un aperçu ne le remplace pas : l'aperçu et son Retour restent", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response("du texte", { status: 200 })));
+  const saved = files.splice(0);
+  files.push(...saved);
+  try {
+    await act(async () => root.render(<Files agentId="a" refreshKey={0} canDelete onGiven={vi.fn()} />));
+    await settle();
+    await act(async () => byLabel("Aperçu de rapport.md")!.click());
+    await until(".file-preview");
+    files.splice(0);
+    await act(async () => root.render(<Files agentId="a" refreshKey={1} canDelete onGiven={vi.fn()} />));
+    await settle();
+    expect(host.querySelector(".file-preview")).not.toBeNull();
+    expect(byLabel("Retour aux fichiers")).not.toBeNull();
+  } finally { files.splice(0); files.push(...saved); vi.unstubAllGlobals(); }
+});
+
+it("P1n1 — l'aperçu ouvert dans la session d'un agent ne passe pas à un autre agent", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response("du texte", { status: 200 })));
+  try {
+    await act(async () => root.render(<Session agentId="a" withFiles refreshKey={0} onOpenThread={vi.fn()} />));
+    await settle();
+    await act(async () => [...host.querySelectorAll<HTMLButtonElement>('[aria-labelledby="session-files"] button')][0].click());
+    await until(".file-preview");
+    await act(async () => root.render(<Session agentId="b" withFiles refreshKey={0} onOpenThread={vi.fn()} />));
+    await settle();
+    expect(host.querySelector(".file-preview")).toBeNull();
+    expect(host.querySelector(".session-bar")).not.toBeNull();
+  } finally { vi.unstubAllGlobals(); }
+});
+
+it("P2n1 — une largeur retenue trop grande est bornée au rendu, puis à chaque redimensionnement", async () => {
+  localStorage.setItem("noah:panneau", "1000");
+  await act(async () => root.render(<Panel />));
+  const panel = () => host.querySelector<HTMLElement>("aside.work-panel")!;
+  expect(panel().style.width).toBe("1000px"); // 1600 - 560 = 1040 : elle tient
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: 900 });
+  await act(async () => { window.dispatchEvent(new Event("resize")); });
+  expect(panel().style.width).toBe("340px"); // la conversation garde ses 560 px
+  expect(host.querySelector('[role="separator"]')!.getAttribute("aria-valuenow")).toBe("340");
+});
+
+it("P2n4 — glisser le bord écrit la largeur une seule fois, au relâchement", async () => {
+  await act(async () => root.render(<Panel />));
+  const panel = host.querySelector<HTMLElement>("aside.work-panel")!;
+  panel.getBoundingClientRect = () => ({ right: 1600, left: 1180, top: 0, bottom: 800, width: 420, height: 800, x: 1180, y: 0, toJSON() {} }) as DOMRect;
+  const grip = host.querySelector<HTMLElement>('[role="separator"]')!;
+  grip.setPointerCapture = vi.fn();
+  const writes = vi.spyOn(Storage.prototype, "setItem");
+  try {
+    await act(async () => { grip.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, clientX: 1180 })); });
+    for (const x of [1170, 1150, 1100, 1080]) await act(async () => { grip.dispatchEvent(new MouseEvent("pointermove", { clientX: x })); });
+    expect(panel.style.width).toBe("520px");
+    expect(writes.mock.calls.filter(([k]) => k === "noah:panneau")).toHaveLength(0);
+    await act(async () => { grip.dispatchEvent(new MouseEvent("pointerup", {})); });
+    expect(writes.mock.calls.filter(([k]) => k === "noah:panneau")).toEqual([["noah:panneau", "520"]]);
+  } finally { writes.mockRestore(); }
+});
+
+it("P2n5 — une couche restée montée mais masquée ne bloque pas Échap", async () => {
+  const close = vi.fn();
+  await act(async () => root.render(<Panel onClose={close} />));
+  const hidden = document.createElement("div"); hidden.hidden = true;
+  const menu = document.createElement("div"); menu.setAttribute("role", "menu"); hidden.append(menu);
+  const gone = document.createElement("div"); gone.setAttribute("role", "dialog"); gone.style.display = "none";
+  document.body.append(hidden, gone);
+  await press("Escape");
+  expect(close).toHaveBeenCalledTimes(1);
+});
+
+it("P2n2 — ouvert depuis le menu « … », le panneau rend le focus au bouton « … » en se fermant", async () => {
+  wide = false;
+  function Phone() {
+    const [tab, setTab] = useState<PanelTab | null>(null);
+    return <>
+      <WorkMenu agent={agent()} active={tab} onOpen={setTab} details={false} onDetails={vi.fn()} />
+      {tab && <WorkPanel open tab={tab} title="Fichiers" expanded={false} onExpand={vi.fn()} onClose={() => setTab(null)}><p>contenu</p></WorkPanel>}
+    </>;
+  }
+  await act(async () => root.render(<Phone />));
+  const more = byLabel("Contenus de l'agent")!;
+  await act(async () => more.click());
+  await act(async () => [...host.querySelectorAll<HTMLButtonElement>('[role="menu"] button')][2].click());
+  expect(document.activeElement).toBe(host.querySelector("aside.work-panel"));
+  await press("Escape");
+  expect(host.querySelector("aside.work-panel")).toBeNull();
+  expect(document.activeElement).toBe(more);
+});

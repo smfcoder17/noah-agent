@@ -54,7 +54,8 @@ export function WorkMenu({ agent, active, onOpen, details, onDetails }: Props) {
     const at = items.indexOf(document.activeElement as HTMLButtonElement);
     items[(at + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
   };
-  const pick = (action: () => void) => { setOpen(false); action(); };
+  // Le focus revient sur « … » avant que l'entrée choisie disparaisse : le panneau ouvert le rendra là (relecture 0.3.0, partie 2 n°2).
+  const pick = (action: () => void) => { setOpen(false); box.current?.querySelector<HTMLButtonElement>("button")?.focus({ preventScroll: true }); action(); };
   return (
     <div className="work-menu" ref={box}>
       <button type="button" className="shell-icon fill" aria-label={t("Contenus de l'agent")} aria-haspopup="menu" aria-expanded={open} disabled={!agent} onClick={() => setOpen(!open)}><MoreHorizontal size={20} /></button>

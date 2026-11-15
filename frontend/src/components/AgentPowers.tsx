@@ -912,6 +912,8 @@ export function BrowserSites({ agentId }: { agentId: string }) {
           </li>
         ))}
       </ul>
+      {/* Retirer ne touche pas au coffre : le dire, pour que personne ne croie avoir coupé l'accès (relecture 0.3.0, partie 0 n°5). */}
+      <p className="text-xs text-muted-foreground">{t("« Retirer » enlève la session de cette liste. Les identifiants retenus restent dans Réglages > Coffre : l'agent pourra s'en resservir.")}</p>
     </div>
   );
 }

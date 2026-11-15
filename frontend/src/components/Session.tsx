@@ -32,7 +32,10 @@ export function Session({ agentId, withFiles, refreshKey, onOpenThread }: { agen
   const active = useContext(SeenActive);
   const [data, setData] = useState<{ agent: string; session: AgentSession } | null>(null);
   const [error, setError] = useState("");
-  const [preview, setPreview] = useState<{ path: string; size: number } | null>(null);
+  // L'aperçu appartient à l'agent pour qui il a été ouvert : un autre agent ne l'hérite pas (relecture 0.3.0, partie 1 n°1).
+  const [previewed, setPreviewed] = useState<{ agent: string; path: string; size: number } | null>(null);
+  const preview = previewed?.agent === agentId ? previewed : null;
+  const setPreview = (f: { path: string; size: number } | null) => setPreviewed(f && { ...f, agent: agentId });
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!active) return;

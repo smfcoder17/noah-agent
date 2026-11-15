@@ -117,6 +117,7 @@ export default {
   "À reconnecter": "Sign in again",
   "Non vérifié": "Not verified",
   "Sessions dans son navigateur": "Sessions in its browser",
+  "« Retirer » enlève la session de cette liste. Les identifiants retenus restent dans Réglages > Coffre : l'agent pourra s'en resservir.": "“Remove” takes the session off this list. Saved logins stay in Settings > Vault: the agent can use them again.",
   "Terminer la connexion": "Finish connecting",
   "Ce qu'il peut faire": "What it can do",
   "Accepte dans l'onglet ouvert. Noah termine seul.": "Approve in the tab that opened. Noah finishes on its own.",

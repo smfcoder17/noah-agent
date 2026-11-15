@@ -113,7 +113,7 @@ export function SidePanel({
         </Details></details>
       </KeptTab>
       <KeptTab value="session" shown={tab === "session"} className="min-h-0 flex-1 overflow-y-auto px-1">
-        <Session agentId={agent.id} withFiles={canTalk(agent)} refreshKey={refreshKey} onOpenThread={(id) => { onOpenThread(id); if (window.matchMedia("(max-width: 767px)").matches) onClose(); }} />
+        <Session key={agent.id} agentId={agent.id} withFiles={canTalk(agent)} refreshKey={refreshKey} onOpenThread={(id) => { onOpenThread(id); if (window.matchMedia("(max-width: 767px)").matches) onClose(); }} />
       </KeptTab>
       <KeptTab value="files" shown={tab === "files"} className="min-h-0 flex-1 overflow-y-auto">
         <Files key={agent.id} agentId={agent.id} refreshKey={refreshKey} canDelete={admin} onGiven={() => window.matchMedia("(max-width: 767px)").matches && onClose()} />

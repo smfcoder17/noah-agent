@@ -73,10 +73,11 @@ export const Files = memo(function Files({ agentId, refreshKey, canDelete, onGiv
   }, [files, query]);
   const tree = useMemo(() => buildTree(shown), [shown]);
 
+  // L'aperçu d'abord : une liste vidée pendant qu'il est ouvert ne le remplace pas sans bouton Retour (relecture 0.3.0, partie 0 n°4).
+  if (preview) return <FilePreview agentId={agentId} path={preview.path} size={preview.size} backLabel={t("Retour aux fichiers")} onBack={() => setPreviewed(null)} />;
   if (error && !files) return <p className="text-sm text-danger">{error}</p>;
   if (!files) return <p className="text-sm text-muted-foreground">{t("Chargement…")}</p>;
   if (!files.length) return <p className="text-sm text-muted-foreground">{t("Aucun fichier pour l'instant.")}</p>;
-  if (preview) return <FilePreview agentId={agentId} path={preview.path} size={preview.size} backLabel={t("Retour aux fichiers")} onBack={() => setPreviewed(null)} />;
 
   const toggle = (paths: string[], on: boolean) =>
     setPicked((cur) => {

@@ -10,7 +10,15 @@ import { t } from "@/i18n";
 const STEP = 32;
 
 /** Une couche posée au-dessus (dialogue, visionneuse) reçoit Échap d'abord : le panneau ne se ferme pas avec elle. */
-const covered = () => !!document.querySelector('[role="dialog"], .right-panel, [role="menu"]');
+/** Seule une couche visible compte : un nœud resté monté mais masqué ne bloque pas Échap (relecture 0.3.0, partie 2 n°5). */
+const covered = () => [...document.querySelectorAll<HTMLElement>('[role="dialog"], .right-panel, [role="menu"]')].some((el) => {
+  if (el.closest('[hidden], [inert], [aria-hidden="true"]')) return false;
+  for (let at: HTMLElement | null = el; at; at = at.parentElement) {
+    const style = getComputedStyle(at);
+    if (style.display === "none" || style.visibility === "hidden") return false;
+  }
+  return true;
+});
 
 export function WorkPanel({ open, tab, title, expanded, onExpand, onClose, children }: {
   /** Gardé monté une fois ouvert (l'écran de l'ordinateur reste connecté) : fermé, il ne prend plus ni focus ni Échap. */
@@ -45,8 +53,12 @@ export function WorkPanel({ open, tab, title, expanded, onExpand, onClose, child
     const handle = e.currentTarget;
     handle.setPointerCapture(e.pointerId);
     const right = self.current?.getBoundingClientRect().right ?? window.innerWidth;
-    const move = (m: PointerEvent) => setWidth(right - m.clientX);
-    const up = () => { handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", up); handle.removeEventListener("pointercancel", up); };
+    let last = width;
+    const move = (m: PointerEvent) => { last = right - m.clientX; setWidth(last, false); }; // retenue au relâchement seulement
+    const up = () => {
+      handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", up); handle.removeEventListener("pointercancel", up);
+      setWidth(last);
+    };
     handle.addEventListener("pointermove", move);
     handle.addEventListener("pointerup", up);
     handle.addEventListener("pointercancel", up);

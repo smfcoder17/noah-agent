@@ -29,7 +29,11 @@ export function LoginCard({ agentId, asked, onDone }: { agentId: string; asked: 
   const url = `/api/agents/${agentId}/connexions/${asked.id}`;
 
   const comptes = !code ? asked.comptes ?? [] : [];
-  const [chosen, setChosen] = useState<string | null>(comptes[0]?.id ?? null);
+  // Le choix vaut pour cette demande et cette liste : une nouvelle demande, ou un compte retiré de la liste, repart du premier
+  // compte proposé (relecture 0.3.0, partie 1 n°2).
+  const [choice, setChoice] = useState<{ ask: string; id: string | null }>(() => ({ ask: asked.id, id: comptes[0]?.id ?? null }));
+  const chosen = choice.ask === asked.id && (choice.id === null || comptes.some((c) => c.id === choice.id)) ? choice.id : comptes[0]?.id ?? null;
+  const setChosen = (id: string | null) => setChoice({ ask: asked.id, id });
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -145,13 +149,12 @@ export function SavedLogins({ agentId }: { agentId: string }) {
   const [right, setRight] = useState<VaultRight | null>(null);
   const [error, setError] = useState("");
   const load = useCallback(async () => {
-    try {
-      const [r, l] = await Promise.all([get<VaultRight>(`/api/agents/${agentId}/coffre-droit`), get<SavedLogin[]>(`/api/agents/${agentId}/coffre`)]);
-      setRight(r);
-      setLogins(l);
-    } catch (e) {
-      if (!(e instanceof ApiError && (e.status === 403 || e.status === 404))) setError((e as Error).message);
-    }
+    // Deux lectures indépendantes : un refus du droit n'efface pas la liste (relecture 0.3.0, partie 1 n°5).
+    const quiet = (e: unknown) => { if (!(e instanceof ApiError && (e.status === 403 || e.status === 404))) setError((e as Error).message); };
+    await Promise.all([
+      get<VaultRight>(`/api/agents/${agentId}/coffre-droit`).then(setRight, quiet),
+      get<SavedLogin[]>(`/api/agents/${agentId}/coffre`).then(setLogins, quiet),
+    ]);
   }, [agentId]);
   useEffect(() => void load(), [load]);
   const forget = async (login: SavedLogin) => {
@@ -173,7 +176,7 @@ export function SavedLogins({ agentId }: { agentId: string }) {
       setError((e as Error).message);
     }
   };
-  if (!right && !error) return null;
+  if (!right && !logins && !error) return null;
   return (
     <div className="flex flex-col gap-1.5 rounded-xl border border-border p-2.5">
       <span className="text-sm font-medium">{t("Identifiants retenus")}</span>
