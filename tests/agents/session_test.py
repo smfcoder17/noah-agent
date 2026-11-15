@@ -126,6 +126,20 @@ check("profil en usage : pas de routines", shared.get("/api/agents/a1/session").
 web.get("/api/agents/a1/session")
 check("routines gardées quelques secondes", calls == [])
 
+# Une machine lente ou éteinte ne retient pas la barre : la dernière lecture répond tout de suite.
+async def slow_admin(agent_id, action, body=None, timeout=90):
+    import asyncio
+    await asyncio.sleep(3)
+    return {"routines": []}
+
+
+machine.admin = slow_admin
+main._routine_cache["a1"] = (0.0, main._routine_cache["a1"][1])
+started = time.monotonic()
+slow = web.get("/api/agents/a1/session").json()
+check("machine lente : réponse en moins d'une seconde", time.monotonic() - started < 1)
+check("machine lente : dernière lecture gardée", [x["titre"] for x in slow["routines"]] == ["Revue du matin"])
+
 # Agent invisible : 404, comme partout.
 check("inconnu pour un autre compte", stranger.get("/api/agents/a1/session").status_code == 404)
 check("sans session : 401", TestClient(main.app).get("/api/agents/a1/session").status_code == 401)

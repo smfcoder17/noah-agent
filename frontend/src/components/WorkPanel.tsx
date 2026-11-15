@@ -28,7 +28,7 @@ export function WorkPanel({ open, tab, title, expanded, onExpand, onClose, child
     const before = document.activeElement as HTMLElement | null;
     self.current?.focus({ preventScroll: true });
     return () => { if (before?.isConnected && !before.closest("[hidden]")) before.focus({ preventScroll: true }); };
-  }, [open, tab]);
+  }, [open]);
   useEffect(() => {
     if (!open) return;
     const key = (e: KeyboardEvent) => {

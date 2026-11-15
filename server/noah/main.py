@@ -1489,15 +1489,10 @@ async def agent_session(agent_id: str, user: int = Depends(auth.current_user)):
 
 
 _routine_cache: dict[str, tuple[float, list[dict]]] = {}
+_routine_reading: dict[str, asyncio.Task] = {}
 
 
-async def _running_routines(agent_id: str, user: int) -> list[dict]:
-    """Les routines qui tournent en ce moment. Elles font partie des réglages de l'agent : seulement pour qui les administre."""
-    if access.right(user, agent_id) not in ("proprietaire", "admin"):
-        return []
-    at, cached = _routine_cache.get(agent_id, (0.0, []))
-    if time.monotonic() - at < 10:
-        return cached
+async def _read_routines(agent_id: str) -> None:
     try:
         found = await asyncio.wait_for(machine.admin(agent_id, "routines", timeout=4), 5)
     except (asyncio.TimeoutError, HTTPException, httpx.HTTPError):
@@ -1505,7 +1500,21 @@ async def _running_routines(agent_id: str, user: int) -> list[dict]:
     running = [{"id": str(r.get("id")), "titre": r.get("name") or "", "depuis": r.get("last_run_at")}
                for r in found.get("routines") or [] if str(r.get("state") or "").lower() in ("running", "en_cours")]
     _routine_cache[agent_id] = (time.monotonic(), running)
-    return running
+
+
+async def _running_routines(agent_id: str, user: int) -> list[dict]:
+    """Les routines qui tournent en ce moment. Elles font partie des réglages de l'agent : seulement pour qui les administre.
+    La machine de l'agent est lue à part, au plus une fois toutes les dix secondes : une machine lente ou éteinte ne retient
+    jamais la barre de session, qui répond avec la dernière lecture."""
+    if access.right(user, agent_id) not in ("proprietaire", "admin"):
+        return []
+    at, cached = _routine_cache.get(agent_id, (0.0, []))
+    reading = _routine_reading.get(agent_id)
+    if time.monotonic() - at >= 10 and (reading is None or reading.done()):
+        task = asyncio.create_task(_read_routines(agent_id))
+        _routine_reading[agent_id] = task
+        await asyncio.wait({task}, timeout=0.3)  # une machine qui répond vite donne déjà sa réponse
+    return _routine_cache.get(agent_id, (0.0, cached))[1]
 
 
 @app.get("/api/usage")
