@@ -422,7 +422,16 @@ async function flushOnce() {
   }
   const pending = readConfig().a_revoquer || [];
   const done = new Set();
+  const current = readConfig();
+  let currentToken = null;
+  try { currentToken = current.jeton ? safeStorage.decryptString(Buffer.from(current.jeton, "base64")) : null; } catch { currentToken = null; }
   for (const item of pending) {
+    // La session en service n'est jamais révoquée : la file la contient parfois (oubli puis réappairage), et la
+    // révoquer coupait l'app de son serveur à chaque lancement (« Relier à nouveau » sans fin).
+    if (item.server === current.server && item.jeton === current.jeton) {
+      done.add(item.jeton);
+      continue;
+    }
     if (serverOrigin(item.server || "") !== item.server) {
       done.add(item.jeton); // http public : on n'envoie pas la session en clair, on l'abandonne
       continue;
@@ -430,6 +439,10 @@ async function flushOnce() {
     let ok = false;
     try {
       const token = safeStorage.decryptString(Buffer.from(item.jeton, "base64"));
+      if (currentToken && token === currentToken && item.server === current.server) {
+        done.add(item.jeton); // même session, chiffrée autrement : on la garde
+        continue;
+      }
       const r = await fetch(`${item.server}/api/devices/self`, {
         method: "DELETE", headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10000),
       });
