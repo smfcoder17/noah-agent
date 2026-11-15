@@ -43,6 +43,8 @@ export function kindOfFile(path: string): ElementKind {
   const TABLE = "xlsx xlsm csv tsv".split(" ");
   const DOCTEXT = "docx docm dotx odt ods odp".split(" ");
   if (IMAGE.includes(ext)) return "image";
+  // Une page web (et un SVG) se montre rendue, pas en code source : avant la liste des textes, qui contient aussi html.
+  if (ext === "html" || ext === "htm" || ext === "svg") return "page";
   if (VIDEO.includes(ext)) return "video";
   if (AUDIO.includes(ext)) return "audio";
   if (ext === "pdf") return "pdf";

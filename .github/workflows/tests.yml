@@ -53,6 +53,7 @@ jobs:
           docker run --rm -v "$PWD:/repo:ro" node:22-alpine node /repo/tests/desktop/fichiers_test.mjs
           node tests/desktop/pont_reel.mjs
           node tests/desktop/textes_test.mjs
+          node tests/desktop/injoignable_test.mjs
       - name: Appairage
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" \

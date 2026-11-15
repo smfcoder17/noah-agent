@@ -195,6 +195,35 @@ const samePath = (path: string) => path.replace(/^\/opt\/data\/workspace\//, "")
 const fileName = (path: string) => path.split("/").pop() || path;
 const fence = (spec: Record<string, unknown>) => `\`\`\`noah\n${JSON.stringify(spec)}\n\`\`\``;
 
+// Types de blocs que l'agent écrit (prompt du serveur, « Montrer plutôt qu'écrire »). Les autres objets JSON restent du texte.
+const BLOCK_TYPES = new Set(["preview", "video", "choice", "posts", "products", "links", "sources", "grid", "table", "chart", "element"]);
+const BARE_START = /^\s*\{\s*"type"\s*:/;
+
+/** Un objet de bloc seul sur sa ligne, mais sans sa clôture ```noah : l'agent recopie parfois l'exemple du prompt tel quel. */
+function bareBlock(line: string): Record<string, unknown> | null {
+  const raw = line.trim();
+  if (/^(?: {4}|\t)/.test(line) || !BARE_START.test(raw) || !raw.endsWith("}")) return null; // bloc de code indenté : texte
+  try {
+    const spec = JSON.parse(raw);
+    if (!spec || typeof spec !== "object" || Array.isArray(spec) || !BLOCK_TYPES.has(spec.type)) return null;
+    if (spec.type === "preview" && (typeof spec.path !== "string" || !spec.path)) return null;
+    return spec;
+  } catch {
+    return null;
+  }
+}
+
+/** Remet sa clôture à un bloc écrit sans elle, hors des blocs de code. Sinon son chemin devient une carte au milieu du JSON. */
+function fenceBareBlocks(text: string) {
+  return text
+    .split(CODE_BLOCKS)
+    .map((chunk, i) => (i % 2 ? chunk : chunk.split("\n").map((line) => {
+      const spec = bareBlock(line);
+      return spec ? `\n${fence(spec)}\n` : line;
+    }).join("\n")))
+    .join("");
+}
+
 function widgetsIn(text: string) {
   const out: Record<string, unknown>[] = [];
   for (const [, body] of text.matchAll(WIDGET_BLOCK)) {
@@ -252,6 +281,7 @@ export type MessageContext = {
  * Les blocs de code restent intacts.
  */
 export function linkMessage(text: string, { fileUrl, before = "", after = "", streaming = false }: MessageContext) {
+  [text, before, after] = [fenceBareBlocks(text), fenceBareBlocks(before), fenceBareBlocks(after)];
   const later = new Set([...shownByWidgets(text), ...shownByWidgets(after)]);
   const shown = shownByWidgets(before);
   // Une partie précédente a cité l'image sans la montrer si un widget plus loin s'en charge : c'est à ce widget de la montrer.
@@ -287,6 +317,8 @@ export function linkMessage(text: string, { fileUrl, before = "", after = "", st
         const unfinished = streaming && i === lastProse && n === lines.length - 1;
         // Le chemin d'une image en train d'arriver ne s'affiche pas : il laissera place au widget.
         if (unfinished && /^\s*MEDIA:\s*\//i.test(line) && !MEDIA_LINE.test(line)) return;
+        // Un bloc sans clôture en train d'arriver non plus : il deviendra le bloc une fois fini.
+        if (unfinished && BARE_START.test(line)) return;
         if (!unfinished) {
           const lone = LONE_URL.exec(line);
           const video = lone && videoFromUrl(lone[1] ?? lone[3] ?? lone[4]);
