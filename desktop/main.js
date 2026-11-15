@@ -65,25 +65,43 @@ async function noahHome() {
 const loading = () => `<!doctype html><meta charset="utf-8"><title>Noah Agent</title>
 <style>body{margin:0;height:100vh;display:grid;place-items:center;font:15px system-ui,sans-serif;background:#faf8f5;color:#3a3530}
 @media (prefers-color-scheme:dark){body{background:#1c1a18;color:#e8e2da}}
-div{text-align:center;max-width:420px;padding:24px}p{opacity:.75;line-height:1.5}button{font:inherit;padding:8px 16px;border-radius:10px;border:1px solid #c9bfb3;background:transparent;color:inherit;cursor:pointer}</style>
-<div><h2>Noah Agent</h2><p id="s">${t("demarrage.attente")}</p><button id="r" hidden onclick="location.hash='retry'">${t("commun.reessayer")}</button></div>`;
+div{text-align:center;max-width:420px;padding:24px}p{opacity:.75;line-height:1.5}button{font:inherit;padding:8px 16px;border-radius:10px;border:1px solid #c9bfb3;background:transparent;color:inherit;cursor:pointer}
+div div{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;padding:0}</style>
+<div><h2>Noah Agent</h2><p id="s">${t("demarrage.attente")}</p><div><button id="r" hidden onclick="location.hash='retry'">${t("commun.reessayer")}</button><button id="c" hidden onclick="location.hash='changer-'+Date.now()">${t("serveur.changer.titre")}</button></div></div>`;
 
+/** Texte de l'écran d'attente. En échec : « Réessayer », et « Changer de serveur » dès qu'un choix est mémorisé (adresse fausse,
+ * serveur disparu) : la personne n'est jamais enfermée dans l'attente. */
 function status(text, failed = false) {
   if (!win || win.isDestroyed()) return;
-  const js = `document.getElementById('s').textContent=${JSON.stringify(text)};document.getElementById('r').hidden=${!failed};`;
+  const change = failed && !!readConfig().mode;
+  const js = `document.getElementById('s').textContent=${JSON.stringify(text)};document.getElementById('r').hidden=${!failed};document.getElementById('c').hidden=${!change};`;
   page.webContents.executeJavaScript(js).catch(() => {});
 }
 
-// Serveur injoignable (démarrage, ou coupé pendant l'usage) : nouvel essai toutes les 5 s, sans redemander
-// l'appairage (la session reste dans le trousseau). G3.6 : reconnecté moins de 30 s après le retour du serveur.
-const RECONNECT_MS = 5000;
+// Serveur injoignable (démarrage, ou coupé pendant l'usage) : nouvel essai après 5 s, 15 s, 30 s, puis toutes les 60 s, sans
+// redemander l'appairage (la session reste dans le trousseau). Un serveur déjà joint depuis le lancement (coupé pendant
+// l'usage) est réessayé au plus toutes les 25 s : G3.6, reconnecté moins de 30 s après le retour du serveur.
+const RECONNECT_MS = [5000, 15000, 30000, 60000];
+const RECONNECT_KNOWN_MS = 25000;
 let reconnect = null;
-function reconnectLater() {
+let attempts = 0; // essais manqués d'affilée, remis à zéro quand le serveur répond ou quand il est oublié
+let reached = ""; // dernier serveur qui a répondu depuis le lancement
+function reconnectDelay() {
+  const ms = RECONNECT_MS[Math.min(attempts, RECONNECT_MS.length - 1)];
+  return reached && readConfig().server === reached ? Math.min(ms, RECONNECT_KNOWN_MS) : ms;
+}
+function reconnectLater(ms = reconnectDelay()) {
   clearTimeout(reconnect);
+  attempts++;
   reconnect = setTimeout(() => {
     reconnect = null;
     if (readConfig().mode === "remote") boot();
-  }, RECONNECT_MS);
+  }, ms);
+}
+function stopReconnect() {
+  clearTimeout(reconnect);
+  reconnect = null;
+  attempts = 0;
 }
 
 async function boot() {
@@ -149,10 +167,13 @@ async function openRemote(server) {
     if (!r.ok) throw new Error(String(r.status));
   } catch {
     if (stale()) return;
-    status(t("connexion.injoignable", { serveur: server }), true);
-    return reconnectLater();
+    const ms = reconnectDelay();
+    status(t("connexion.injoignable", { serveur: server, secondes: ms / 1000 }), true);
+    return reconnectLater(ms);
   }
   if (stale()) return; // serveur changé pendant l'attente : ce démarrage ne pose plus rien
+  attempts = 0;
+  reached = server;
   if (token) await useToken(server, token);
   if (stale()) {
     // Serveur oublié pendant la pose du cookie : on le retire, rien de l'ancien serveur ne se rouvre.
@@ -438,6 +459,7 @@ async function forgetOnce({ revoke = true } = {}, asked, askedToken) {
   const { server, jeton: sealedToken } = readConfig();
   if (server !== asked || sealedToken !== askedToken) return; // déjà oublié, ou nouvel appairage depuis la demande
   pairingGeneration++; // toute attente d'accord en cours est abandonnée
+  stopReconnect(); // plus de nouvel essai vers l'adresse oubliée
   const token = storedToken();
   if (server && revoke && sealedToken && !token) {
     // Trousseau indisponible : on ne peut pas la lire maintenant, mais elle reste chiffrée. Gardée telle quelle dans
@@ -561,13 +583,16 @@ function createWindow() {
   page.webContents.on("did-fail-load", (_e, code, _desc, url, mainFrame) => {
     if (!mainFrame || code === -3 || readConfig().mode !== "remote" || !sameOrigin(url)) return; // -3 : navigation annulée
     page.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(loading())}`).then(() => {
-      status(t("connexion.perdue"), true);
-      reconnectLater();
+      const ms = reconnectDelay();
+      status(t("connexion.perdue", { secondes: ms / 1000 }), true);
+      reconnectLater(ms);
     }).catch(() => {});
   });
-  // « Réessayer » de l'écran de démarrage.
+  // « Réessayer » et « Changer de serveur » de l'écran de démarrage. Le second, seulement depuis cet écran local :
+  // une page du serveur n'ouvre pas la boîte de changement par son adresse.
   page.webContents.on("did-navigate-in-page", (_e, url) => {
     if (url.endsWith("#retry")) boot();
+    else if (url.startsWith("data:") && /#changer-\d+$/.test(url)) changeServer();
   });
   // Fermer la fenêtre la cache : Noah continue (routines, fils de travail). Quitter depuis la zone de notification.
   // La taille retrouvée au prochain lancement ; pas la position, qui pourrait tomber sur un écran débranché depuis.
