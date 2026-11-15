@@ -101,7 +101,15 @@ else
   if ! curl -fsSL "$RELEASE_COMPOSE" -o docker-compose.yml.new; then
     # Plus de repli silencieux sur le compose du dépôt : il tire des étiquettes non signées (audit 0.3.0, E2). Pour un
     # essai sans version publiée, NOAH_DEPUIS_DEPOT=1 le demande en connaissance de cause.
-    [ "${NOAH_DEPUIS_DEPOT:-}" = 1 ] || fail "Impossible de télécharger la version publiée de Noah ($RELEASE_COMPOSE). Vérifie le réseau, puis relance la même commande."
+    if [ "${NOAH_DEPUIS_DEPOT:-}" != 1 ]; then
+      rm -f docker-compose.yml.new
+      # Deux causes, deux remèdes : aucune version publiée (relancer ne changera rien), ou le réseau (relecture 0.3.0, partie 3 n°4).
+      code=$(curl -sL -o /dev/null -w '%{http_code}' "$RELEASE_COMPOSE" 2>/dev/null || true)
+      if [ "$code" = 404 ]; then
+        fail "Aucune version de Noah n'est publiée pour l'instant ($RELEASE_COMPOSE) : relancer la même commande échouerait encore. Pour un essai quand même, depuis le dépôt et avec des images non épinglées, relance-la avec NOAH_DEPUIS_DEPOT=1 placé devant sh."
+      fi
+      fail "Impossible de télécharger la version publiée de Noah ($RELEASE_COMPOSE, réponse ${code:-aucune}). Vérifie le réseau, puis relance la même commande. Si aucune version n'est publiée : NOAH_DEPUIS_DEPOT=1 placé devant sh installe depuis le dépôt, images non épinglées."
+    fi
     printf '\n\033[33mInstallation depuis le dépôt (NOAH_DEPUIS_DEPOT=1) : images non épinglées.\033[0m\n' >&2
     curl -fsSL "$RAW/deploy/docker-compose.yml" -o docker-compose.yml.new
   fi

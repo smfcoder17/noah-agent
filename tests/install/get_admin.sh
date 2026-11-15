@@ -55,3 +55,29 @@ TRAVAIL2=$(mktemp -d)
 NOAH_DIR="$TRAVAIL2" sh /repo/get.sh >/dev/null 2>&1
 if grep -q 'NOAH_ADMIN' "$NOAH_VU"; then echo "ÉCHEC variables écrites sans raison"; exit 1; fi
 echo "ok   sans les variables, rien n'est écrit"
+
+# Relecture 0.3.0, partie 3 n°4 : aucune version publiée, ou réseau coupé ; le message dit lequel et nomme NOAH_DEPUIS_DEPOT=1.
+for cas in 404 000; do
+  cat > "$FAUX/curl" <<EOF2
+#!/bin/sh
+rel=; w=
+for a in "\$@"; do case "\$a" in *releases/latest*) rel=1 ;; -w) w=1 ;; esac; done
+if [ -n "\$rel" ]; then
+  if [ -n "\$w" ]; then printf '$cas'; [ "$cas" = 404 ] && exit 0; exit 6; fi
+  exit 22
+fi
+while [ \$# -gt 0 ]; do if [ "\$1" = "-o" ]; then echo "faux" > "\$2"; fi; shift; done
+exit 0
+EOF2
+  chmod +x "$FAUX/curl"
+  ICI=$(mktemp -d)
+  if sortie=$(NOAH_DIR="$ICI" sh /repo/get.sh 2>&1); then echo "ÉCHEC ($cas) get.sh a continué sans version publiée"; exit 1; fi
+  printf '%s' "$sortie" | grep -q 'NOAH_DEPUIS_DEPOT=1' || { echo "ÉCHEC ($cas) NOAH_DEPUIS_DEPOT=1 n'est pas nommé : $sortie"; exit 1; }
+  if [ "$cas" = 404 ]; then
+    printf '%s' "$sortie" | grep -q "Aucune version de Noah n'est publiée" || { echo "ÉCHEC 404 non reconnu : $sortie"; exit 1; }
+  else
+    printf '%s' "$sortie" | grep -q 'Vérifie le réseau' || { echo "ÉCHEC réseau non reconnu : $sortie"; exit 1; }
+  fi
+  [ ! -e "$ICI/docker-compose.yml" ] || { echo "ÉCHEC ($cas) un compose est resté"; exit 1; }
+done
+echo "ok   sans version publiée ou sans réseau : la cause est dite, et NOAH_DEPUIS_DEPOT=1 est nommé"
