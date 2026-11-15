@@ -17,7 +17,7 @@ import {
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import { ArrowUp, Check, ChevronRight, ChevronUp, Copy, FileText, Loader2, Paperclip, Reply, SmilePlus, Square, TriangleAlert, X, ChevronDown, Plug, Plus } from "lucide-react";
-import { Children, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Children, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import remarkGfm from "remark-gfm";
 import { WhileBusyContext, AgentContext, HistoryContext } from "@/lib/agentContext";
 import { MOOD_FACE, moodLabel, moodOf, usePanelEnd, useMood, useWide } from "@/lib/chatMood";
@@ -39,6 +39,7 @@ import { DictateButton, useDictation, VoiceMode, VoiceModeButton } from "./Voice
 import { readableModel } from "@/lib/modes";
 import { demandesFor, usePresets } from "@/lib/presets";
 import { refreshAccords } from "@/lib/events";
+import { returnMoment } from "@/lib/retour";
 import { NoahWidget } from "./Widgets";
 import { langue, locale, t } from "@/i18n";
 
@@ -202,13 +203,40 @@ function PlusMenu() {
   );
 }
 
-/** La ligne de travail : une seule, remplacée à chaque étape, retirée quand l'agent a fini. */
-function Activity({ args }: ToolCallMessagePartProps) {
-  const label = String(args.label);
+/** La ligne de travail vit dans le statut de la mascotte (moodLabel) : ici, rien, pour ne pas la dire deux fois. */
+function Activity(_: ToolCallMessagePartProps) {
+  return null;
+}
+
+/** Depuis combien de temps il travaille : « 12 s », puis « 1 min 05 ». */
+function useElapsed(on: boolean) {
+  const [start] = useState(() => Date.now());
+  const [now, setNow] = useState(start);
+  useEffect(() => {
+    if (!on) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [on]);
+  const s = Math.max(0, Math.round((now - start) / 1000));
+  return s < 60 ? t("{n} s", { n: s }) : t("{m} min {s}", { m: Math.floor(s / 60), s: String(s % 60).padStart(2, "0") });
+}
+
+/**
+ * La seule mascotte de la conversation, sous le travail en cours : son visage dit son humeur, la ligne dit l'étape.
+ * Pas de cercle qui tourne : le texte s'éclaire en vague tant qu'il travaille, et le temps passé s'affiche à côté.
+ */
+function LiveStatus({ face, label, working }: { face: ReactNode; label: string; working: boolean }) {
+  const elapsed = useElapsed(working);
   return (
-    <div className="flex items-center gap-2 py-0.5 text-[13px] text-muted-foreground max-md:hidden" aria-live="polite">
-      <Loader2 className="size-3.5 shrink-0 animate-spin text-accent" />
-      <span className="truncate">{/[….!?]$/.test(label) ? label : `${label}…`}</span>
+    <div data-live-status className="flex items-center gap-3 pt-1" aria-live="polite">
+      <span className="relative shrink-0">
+        {working && <span aria-hidden className="live-halo absolute inset-0 rounded-full" />}
+        {face}
+      </span>
+      <div className="flex min-w-0 flex-col">
+        <span key={label} className={cn("live-step min-w-0 truncate text-[14px]", working ? "shimmer-text" : "text-muted-foreground")}>{label}</span>
+        {working && <span className="text-xs tabular-nums text-muted-foreground/80">{elapsed}</span>}
+      </div>
     </div>
   );
 }
@@ -676,46 +704,26 @@ const AssistantMessage = memo(function AssistantMessage() {
     return (
       <>
       <DayDivider />
-      <MessagePrimitive.Root data-noah-msg={id} className="flex min-w-0 scroll-mt-4 flex-col py-1 md:pl-11">
+      <MessagePrimitive.Root data-noah-msg={id} className="flex min-w-0 scroll-mt-4 flex-col py-1">
         <MessagePrimitive.Parts components={{ tools: TOOLS }} />
       </MessagePrimitive.Root>
       </>
     );
   }
-  // Le travail suivi près de la saisie a son propre visage : un seul bouge à la fois.
+  // Une seule mascotte dans toute la conversation : sous le travail en cours, jamais à côté des réponses finies.
   const live = isLast && !busyActivity && mood !== "rest";
-  const face = (className: string) => (
-    <NoahTile color={agentColor} shape={agentShape} detail={agentDetail} state={live ? MOOD_FACE[mood] : "idle"} still={!isLast || !!busyActivity} className={className} />
-  );
   return (
     <>
     <DayDivider />
     <ModelDivider />
-    <MessagePrimitive.Root data-noah-msg={id} data-reply-sourceclassName="group relative flex scroll-mt-4 flex-col gap-1 py-2 md:pl-11">
-      {/* Dans la marge, il reste en vue quand une longue réponse défile. */}
-      {wide && !(empty && running && busyActivity) && (
-        <span className="absolute inset-y-2 left-0">
-          <span className="sticky top-2 block">{face(cn("transition-[width,height,margin] duration-200", live ? "-ml-1 size-10" : "size-8"))}</span>
-        </span>
-      )}
-      <div data-noah-answer className="max-w-[92%] min-w-0">
-        {empty && running ? (
-          // Un travail repris (app rouverte) dit déjà ce qu'il fait au-dessus de la saisie : pas deux indicateurs.
-          !busyActivity && (
-            <div className="flex items-center gap-2 text-[13px] text-muted-foreground max-md:hidden">
-              <Loader2 className="size-3.5 animate-spin text-accent" /> {t("Réflexion…")}
-            </div>
-          )
-        ) : (
+    <MessagePrimitive.Root data-noah-msg={id} data-reply-source className="group relative flex scroll-mt-4 flex-col gap-1 py-2">
+      {!(empty && running) && (
+        <div data-noah-answer className="max-w-[92%] min-w-0">
           <MessagePrimitive.Parts components={{ Text: MarkdownText, tools: TOOLS }} />
-        )}
-      </div>
-      {/* Sur un téléphone, pas de marge : le visage se tient sous le travail, tout près de la saisie, son statut à côté. */}
-      {!wide && live && (
-        <div className="flex items-center gap-2.5 pt-1 text-[13px] text-muted-foreground" aria-live="polite">
-          {face("size-10")}
-          <span className="min-w-0 truncate">{label}</span>
         </div>
+      )}
+      {live && (
+        <LiveStatus face={<NoahTile color={agentColor} shape={agentShape} detail={agentDetail} state={MOOD_FACE[mood]} className={wide ? "size-12" : "size-11"} />} label={label} working={mood === "think" || mood === "work"} />
       )}
       {/* Place réservée : le bouton apparaît au survol sans décaler le texte en dessous. */}
       <div className="flex h-8 items-center gap-2">
@@ -844,7 +852,7 @@ function WhileBusyPanel() {
   if (!busy.activity && !busy.waiting.length && !busy.sending.length) return null;
   return (
     <div className="mb-2 flex w-full flex-col gap-1 text-xs text-muted-foreground">
-      {busy.activity && <div className="flex items-center gap-2.5 px-1 text-[13px]"><NoahTile color={agentColor} shape={agentShape} detail={agentDetail} state="working" className="size-10" /><span className="truncate">{busy.activity}…</span></div>}
+      {busy.activity && <div className="px-1"><LiveStatus face={<NoahTile color={agentColor} shape={agentShape} detail={agentDetail} state="working" className="size-11" />} label={`${busy.activity}…`} working /></div>}
       {busy.sending.map((item) => (
         <div key={item.id} className="flex items-center gap-2 rounded-lg border border-border bg-surface px-2 py-1.5">
           <span className="shrink-0">{item.late ? t("Réception à vérifier") : t("Envoi")}</span>
@@ -869,6 +877,47 @@ function WhileBusyPanel() {
             {t("Retirer")}
           </button>
         </div>
+      ))}
+    </div>
+  );
+}
+
+/** Au retour : 3 ou 4 demandes à toucher, au-dessus de la saisie. Un toucher remplit la saisie, rien ne part seul. */
+function ReturnCards({ agentId }: { agentId: string }) {
+  const aui = useAui();
+  const running = useAuiState((s) => s.thread.isRunning);
+  const empty = useAuiState((s) => s.composer.isEmpty);
+  const lastUser = useAuiState((s) => {
+    for (let i = s.thread.messages.length - 1; i >= 0; i--) if (s.thread.messages[i].role === "user") return s.thread.messages[i].createdAt?.getTime() ?? null;
+    return null;
+  });
+  const lastAgent = useAuiState((s) => {
+    const m = s.thread.messages[s.thread.messages.length - 1];
+    return m?.role === "assistant" ? m.createdAt?.getTime() ?? null : null;
+  });
+  const [routines, setRoutines] = useState<string[]>([]);
+  const [hidden, setHidden] = useState(false);
+  useEffect(() => {
+    setHidden(false);
+    get<{ routines: { name: string | null; enabled: boolean }[] }>(`/api/agents/${agentId}/routines`)
+      .then((r) => setRoutines(r.routines.filter((x) => x.enabled && x.name).map((x) => x.name as string)))
+      .catch(() => setRoutines([]));
+  }, [agentId]);
+  const moment = returnMoment(lastUser, lastAgent, Date.now());
+  if (!moment || running || !empty || hidden) return null;
+  const cards = [
+    moment === "hier" ? t("Montre-moi tout ce que tu as fait depuis hier") : t("Montre-moi ce que tu as fait depuis mon dernier message"),
+    ...routines.slice(0, 2).map((name) => t("Lance « {nom} » maintenant", { nom: name })),
+    t("Qu'est-ce qui attend ma réponse ?"),
+    t("Que me proposes-tu pour la suite ?"),
+  ].slice(0, 4);
+  return (
+    <div data-return-cards className="flex w-full gap-2 overflow-x-auto pb-1 [scrollbar-width:none] max-md:-mx-1 max-md:px-1 md:grid md:grid-cols-2">
+      {cards.map((d) => (
+        <button key={d} type="button" onClick={() => { aui.thread().composer().setText(d); setHidden(true); }}
+          className="min-h-11 shrink-0 cursor-pointer rounded-xl border border-border bg-surface px-3 py-2 text-left text-sm transition-colors hover:bg-muted max-md:max-w-[70%]">
+          {d}
+        </button>
       ))}
     </div>
   );
@@ -960,6 +1009,7 @@ export const Thread = memo(function Thread({ report, onReportRead, onCall }: { r
             ) : (
               <>
                 {voice && <VoiceMode onClose={() => setVoice(false)} report={report} onReportRead={onReportRead} link={link} />}
+                {!voice && <ReturnCards agentId={agentId} />}
                 <Composer onVoiceMode={() => setVoice(true)} inCall={voice} />
               </>
             )}

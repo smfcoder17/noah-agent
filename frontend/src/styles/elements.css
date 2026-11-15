@@ -40,3 +40,11 @@
   [data-noah-composer][data-vide] button[data-envoyer] { display:none; }
   [data-noah-composer]:not([data-vide]) button[data-mode-vocal] { display:none; }
 }
+/* Statut de la mascotte : le texte s'éclaire en vague, l'étape nouvelle glisse en place, un halo respire derrière le visage. */
+.shimmer-text { background:linear-gradient(90deg,var(--muted-foreground) 0%,var(--muted-foreground) 35%,var(--foreground) 50%,var(--muted-foreground) 65%,var(--muted-foreground) 100%); background-size:250% 100%; -webkit-background-clip:text; background-clip:text; color:transparent; animation:noah-shimmer 2.2s linear infinite; }
+@keyframes noah-shimmer { from { background-position:100% 0; } to { background-position:-150% 0; } }
+.live-step { animation:noah-step-in .35s cubic-bezier(.2,.8,.2,1); }
+@keyframes noah-step-in { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
+.live-halo { background:radial-gradient(circle,var(--accent) 0%,transparent 70%); opacity:.35; animation:noah-halo 2.4s ease-in-out infinite; }
+@keyframes noah-halo { 0%,100% { transform:scale(.85); opacity:.18; } 50% { transform:scale(1.25); opacity:.4; } }
+@media (prefers-reduced-motion: reduce) { .shimmer-text { animation:none; color:var(--muted-foreground); } .live-halo,.live-step { animation:none; } }
