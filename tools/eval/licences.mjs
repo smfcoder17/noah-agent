@@ -43,6 +43,7 @@ const images = [
   ["ghcr.io/jo-inc/camofox-browser", "à confirmer sur son dépôt, Camoufox et Firefox sont sous MPL-2.0"],
   ["Openbox, tint2, PCManFM, Mousepad (bureau de l'agent, dans l'image noah-browser)", "GPL-2.0-or-later (tint2 GPL-2.0-only), programmes séparés non liés au code de Noah ; sources : paquets Debian trixie"],
   ["caddy", "Apache-2.0"],
+  ["liste publique des suffixes (server/noah/suffixes_publics.dat, dans l'image du serveur)", "MPL-2.0, fichier de données non modifié"],
 ];
 
 const lines = ["# Licences de ce qui est distribué", "", "Généré par `node tools/eval/licences.mjs`. Noah Agent est sous PolyForm Noncommercial 1.0.0 (voir LICENSE) : ce fichier vérifie que chaque dépendance le permet.", ""];
