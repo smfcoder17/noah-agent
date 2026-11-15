@@ -16,6 +16,7 @@ import { Connections, Folders, Memory, Routines, Section, Software, Watches } fr
 import { Boundary } from "./Boundary";
 import { Proactive } from "./Proactive";
 import { Files } from "./Files";
+import { Session } from "./Session";
 import { AgentFace } from "./Noah";
 import { ShareDialog } from "./Sharing";
 import { STATE_WORD, StateShape } from "./Sidebar";
@@ -25,7 +26,7 @@ import { langue, locale, t, tr } from "@/i18n";
 /** Dates et nombres : le français garde la forme canadienne d'origine, les autres langues suivent leur usage. */
 const FORMAT = langue() === "fr" ? "fr-CA" : locale();
 
-export type PanelTab = "activity" | "files" | "connections" | "competences" | "computer" | "routines" | "memory";
+export type PanelTab = "activity" | "files" | "connections" | "competences" | "computer" | "routines" | "memory" | "session";
 
 /** Première visite seulement : ensuite le contenu reste monté, mais ses lectures suivent sa visibilité. */
 function KeptTab({ value, shown, className, children }: { value: string; shown: boolean; className: string; children: React.ReactNode }) {
@@ -110,6 +111,9 @@ export function SidePanel({
             <input type="checkbox" checked={technical} onChange={(e) => onTechnical(e.target.checked)} className="size-5 accent-[var(--accent)]" />
           </label>
         </Details></details>
+      </KeptTab>
+      <KeptTab value="session" shown={tab === "session"} className="min-h-0 flex-1 overflow-y-auto px-1">
+        <Session agentId={agent.id} withFiles={canTalk(agent)} refreshKey={refreshKey} onOpenThread={(id) => { onOpenThread(id); if (window.matchMedia("(max-width: 767px)").matches) onClose(); }} />
       </KeptTab>
       <KeptTab value="files" shown={tab === "files"} className="min-h-0 flex-1 overflow-y-auto">
         <Files key={agent.id} agentId={agent.id} refreshKey={refreshKey} canDelete={admin} onGiven={() => window.matchMedia("(max-width: 767px)").matches && onClose()} />

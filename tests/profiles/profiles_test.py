@@ -333,6 +333,7 @@ ROUTES = {
     ("POST", "/api/agents/{agent_id}/connections/apps/{name}/{action}"): "admin",
     ("GET", "/api/agents/{agent_id}/publication"): "admin",
     ("GET", "/api/agents/{agent_id}/activite"): "lecture",
+    ("GET", "/api/agents/{agent_id}/session"): "lecture",
     ("POST", "/api/agents/{agent_id}/publication/instagram"): "admin",
     ("POST", "/api/agents/{agent_id}/publication/x"): "admin",
     ("POST", "/api/agents/{agent_id}/connections/tools/test"): "admin",

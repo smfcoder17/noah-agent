@@ -32,7 +32,7 @@ it("aligne tous les agents en haut, avec leur état ; l'agent ouvert est sélect
   await render(base({ agent: agents[0], agents, onPickAgent: picked }));
   expect(rows().map((r) => r.textContent)).toEqual(["NoahDisponible", "VeilleTravaille", "BMDÀ toi · 2 accords2", "QuatreDisponible", "CinqDisponible"]);
   expect(rows()[0].getAttribute("aria-current")).toBe("true");
-  expect(rows()[0].getAttribute("aria-expanded")).toBe("true");
+  expect(rows()[0].getAttribute("aria-expanded")).toBeNull(); // rien à déplier : ni options (en haut à droite), ni historique
   expect(rows().slice(1).every((r) => r.getAttribute("aria-current") === null && r.getAttribute("aria-expanded") === "false")).toBe(true);
   expect(rows()[2].getAttribute("aria-label")).toBe("BMD, À toi · 2 accords · 2 en attente");
   // Plus de section « Discussions » ni de bouton de nouvelle discussion : une seule discussion par agent.
@@ -42,20 +42,15 @@ it("aligne tous les agents en haut, avec leur état ; l'agent ouvert est sélect
   expect(picked).toHaveBeenCalledWith("b");
 });
 
-it("déplie les options sous l'agent sélectionné seulement, Discussion par défaut, et se replie au clic", async () => {
-  const onTab = vi.fn();
-  await render(base({ agent: agents[1], agents, onTab }));
+it("ne déplie plus d'options sous l'agent (elles sont en haut à droite de la conversation) ; seul l'historique se replie", async () => {
+  await render(base({ agent: agents[1], agents }));
+  expect(host.querySelector('[role="group"]')).toBeNull();
+  for (const label of ["Discussion", "Activité", "Tâches", "Fichiers", "Ordinateur"]) expect(button(label)).toBeUndefined();
+  await render(base({ agent: agents[1], agents, conversations: threads }));
   const groups = [...host.querySelectorAll('[role="group"]')];
   expect(groups.map((g) => g.getAttribute("aria-label"))).toEqual(["Options de Veille"]);
-  const options = [...groups[0].querySelectorAll("button")].map((b) => b.textContent);
-  expect(options).toEqual(["Discussion", "Activité", "Tâches", "Fichiers", "Ordinateur"]);
-  expect(button("Discussion")!.getAttribute("aria-current")).toBe("page");
-  await act(async () => button("Fichiers")!.click());
-  expect(onTab).toHaveBeenCalledWith("files");
-  await render(base({ agent: agents[1], agents, onTab, active: "files" }));
-  expect(button("Fichiers")!.getAttribute("aria-current")).toBe("page");
-  expect(button("Discussion")!.getAttribute("aria-current")).toBeNull();
-  // Un clic sur l'agent ouvert replie ses options, un autre les rouvre.
+  expect([...groups[0].querySelectorAll(":scope > button")].map((b) => b.textContent?.replace(/[0-9]+$/, ""))).toEqual(["Historique"]);
+  // Un clic sur l'agent ouvert replie son historique, un autre le rouvre.
   await act(async () => rows()[1].click());
   expect(rows()[1].getAttribute("aria-expanded")).toBe("false");
   expect(host.querySelector('[role="group"]')).toBeNull();
@@ -83,7 +78,6 @@ it("ouvre l'historique de lui-même quand on y lit un fil, et le marque", async 
   await render(base({ agent: agents[0], agents, conversations: threads, activeThread: "3" }));
   expect(button("Historique")!.getAttribute("aria-expanded")).toBe("true");
   expect(button("De lui-même")!.getAttribute("aria-current")).toBe("page");
-  expect(button("Discussion")!.getAttribute("aria-current")).toBeNull();
 });
 
 it("met À toi tout en haut avec son compteur, et peu d'entrées en bas", async () => {
@@ -94,7 +88,7 @@ it("met À toi tout en haut avec son compteur, et peu d'entrées en bas", async 
   expect(first.querySelector('[aria-label="3 en attente"]')).not.toBeNull();
   await act(async () => first.click());
   expect(inbox).toHaveBeenCalledTimes(1);
-  expect([...host.querySelectorAll(".rail-bottom button")].map((b) => b.textContent)).toEqual(["Nouvel agent", "Objectifs", "Rechercher", "Réglages"]);
+  expect([...host.querySelectorAll(".rail-bottom button")].map((b) => b.textContent)).toEqual(["Nouvel agent", "Objectifs", "Rechercher", "Réglages", "Replier la barre"]);
   await act(async () => button("Nouvel agent")!.click());
   expect(newAgent).toHaveBeenCalledTimes(1);
 });

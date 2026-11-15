@@ -5,6 +5,23 @@
 .rail-dot { width:6px; height:6px; flex:none; border-radius:999px; background:var(--warn); }
 .rail-count { flex:none; min-width:18px; padding:0 5px; border-radius:999px; background:var(--warn); color:var(--bg); font-size:11px; font-weight:700; line-height:18px; text-align:center; }
 .rail-bottom { flex:none; border-top:1px solid var(--line); padding-top:6px; }
+.rail-label { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.rail-fold { color:var(--soft); }
+/* L'agent ouvert : grand visage sans tuile, nom, état, réglages juste à côté. */
+.agent-nav-hero-face { width:52px; height:52px; }
+.agent-nav-item.is-hero .agent-nav-row { padding-top:10px; padding-bottom:10px; }
+.agent-nav-item.is-hero .agent-nav-text b { font-size:15px; }
+/* Repliée : les icônes et les visages seuls ; le nom reste dans l'infobulle et le nom accessible. */
+:root:has(.side-rail.is-folded) { --rail-width:68px; }
+.side-rail.is-folded { padding:14px 8px; align-items:stretch; }
+.side-rail.is-folded .rail-row { justify-content:center; padding:8px 0; position:relative; }
+.side-rail.is-folded .rail-label, .side-rail.is-folded .rail-agents-label, .side-rail.is-folded .agent-nav-text, .side-rail.is-folded .agent-nav-chevron,
+.side-rail.is-folded .agent-nav-settings, .side-rail.is-folded .agent-nav-options { display:none; }
+.side-rail.is-folded .rail-count { position:absolute; top:2px; right:2px; }
+.side-rail.is-folded .agent-nav-row, .side-rail.is-folded .is-selected .agent-nav-row { justify-content:center; padding:6px 0; }
+.side-rail.is-folded .agent-nav-row .rail-count { right:0; top:0; }
+.side-rail.is-folded .agent-nav-hero-face { width:40px; height:40px; }
+.side-rail.is-folded .agent-nav-item.is-selected { padding-bottom:0; }
 .rail-agents-label { padding:10px 10px 2px; }
 .rail-agents-scroll { flex:1; min-height:0; overflow-y:auto; margin:0 -4px; padding:0 4px; }
 /* Agents alignés : une ligne par agent ; l'agent ouvert déplie ses options. */

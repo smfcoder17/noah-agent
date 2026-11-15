@@ -194,11 +194,14 @@ type TileProps = {
   voiceLevel?: Level;
   handle?: Ref<NoahHandle>;
   className?: string;
+  /** Le visage seul, sans la tuile autour (barre de gauche). */
+  bare?: boolean;
 };
 
 /** Noah dans sa tuile arrondie (avatar de la liste, de l'en-tête, des détails). Il peut sauter au-dessus de la tuile : rien ne le coupe. */
-export function NoahTile({ color, className, ...face }: TileProps) {
+export function NoahTile({ color, className, bare, ...face }: TileProps) {
   const safe = HEX.test(color) ? color : NOAH_COLORS[0].hex;
+  if (bare) return <span className={cn("grid shrink-0 place-items-center", className)}><Noah color={safe} {...face} className="size-full" /></span>;
   return (
     <span
       className={cn("grid shrink-0 place-items-center rounded-[30%] ring-1 ring-black/5", className)}
