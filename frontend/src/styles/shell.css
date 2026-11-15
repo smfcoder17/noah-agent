@@ -26,7 +26,9 @@ button.shell-row { cursor:pointer; }
 @media(max-width:767px) {
   .noah-shell { display:flex; flex-direction:column; height:calc(100% - var(--kb,0px)); }
   .mobile-header { flex:none; display:grid; grid-template-columns:44px 1fr 44px; align-items:center; padding:4px 12px 8px; padding-top:max(4px,env(safe-area-inset-top)); }
-  .mobile-agent { display:grid; justify-items:center; gap:2px; min-width:0; cursor:pointer; }
+  /* En-tête compact : le visage à côté du nom, pas au-dessus. La conversation garde la hauteur. */
+  .mobile-agent { display:grid; grid-template-columns:auto minmax(0,auto); justify-content:center; justify-items:start; align-items:center; column-gap:8px; row-gap:0; min-width:0; cursor:pointer; }
+  .mobile-agent > :first-child:not(b) { grid-row:span 2; }
   .mobile-agent b { font-size:15px; font-weight:700; }
   .mobile-agent small { font-size:12px; color:var(--muted-foreground); display:flex; align-items:center; gap:5px; max-width:100%; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
   .chat-pane > header { display:none; }

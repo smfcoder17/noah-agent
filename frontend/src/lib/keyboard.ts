@@ -29,7 +29,8 @@ export function useKeyboardInset() {
       });
     };
     if (native) void import("@capacitor/keyboard").then(async ({ Keyboard }) => {
-      for (const [event, value] of [["keyboardDidShow", true], ["keyboardDidHide", false]] as const) {
+      // « Will » d'abord : la mise en page suit le clavier pendant qu'il monte, au lieu de sauter une fois qu'il est là.
+      for (const [event, value] of [["keyboardWillShow", true], ["keyboardWillHide", false], ["keyboardDidShow", true], ["keyboardDidHide", false]] as const) {
         const h = await Keyboard.addListener(event as "keyboardDidShow", (info) => { nativeHeight = value ? info.keyboardHeight : 0; update(); });
         if (disposed) await h.remove(); else handles.push(h);
       }

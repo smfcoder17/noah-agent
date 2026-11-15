@@ -385,7 +385,7 @@ export function DictateButton({ dictation, what = t("un message"), field = false
 
 export function VoiceModeButton({ onClick }: { onClick: () => void }) {
   return (
-    <Button type="button" variant="ghost" size="icon" onClick={onClick} aria-label={t("Mode vocal")} title={t("Parler avec l'agent")} className="text-muted-foreground">
+    <Button type="button" variant="ghost" size="icon" data-mode-vocal onClick={onClick} aria-label={t("Mode vocal")} title={t("Parler avec l'agent")} className="text-muted-foreground">
       <AudioLines />
     </Button>
   );

@@ -16,7 +16,7 @@ import {
   useAuiState,
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
-import { ArrowUp, Check, ChevronRight, ChevronUp, Copy, FileText, Loader2, Paperclip, Reply, SmilePlus, Square, TriangleAlert, X, ChevronDown, Plug } from "lucide-react";
+import { ArrowUp, Check, ChevronRight, ChevronUp, Copy, FileText, Loader2, Paperclip, Reply, SmilePlus, Square, TriangleAlert, X, ChevronDown, Plug, Plus } from "lucide-react";
 import { Children, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import remarkGfm from "remark-gfm";
 import { WhileBusyContext, AgentContext, HistoryContext } from "@/lib/agentContext";
@@ -158,14 +158,47 @@ function ModelChip() {
 }
 
 /** Ses outils sous la saisie, à côté du modèle : un geste ouvre ses connexions, comme le « + » de ChatGPT ou « Connect apps » de Grok Bot. */
+const openTools = () => window.dispatchEvent(new CustomEvent("noah:ouvrir-panneau", { detail: "connections" }));
 function ToolsChip() {
   const { canWatch, readOnly } = useContext(AgentContext);
   if (!canWatch || readOnly) return null;
   return (
-    <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("noah:ouvrir-panneau", { detail: "connections" }))} title={t("Connecter un outil")}
-      className="flex h-9 shrink-0 cursor-pointer items-center gap-1 rounded-lg px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground">
-      <Plug className="size-3.5 shrink-0 max-sm:size-5" /><span className="max-sm:sr-only">{t("Outils")}</span>
+    <button type="button" onClick={openTools} title={t("Connecter un outil")}
+      className="flex h-9 shrink-0 cursor-pointer items-center gap-1 rounded-lg px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground max-md:hidden">
+      <Plug className="size-3.5 shrink-0" /><span>{t("Outils")}</span>
     </button>
+  );
+}
+
+/** Téléphone : un seul « + » à gauche de la saisie, comme ChatGPT et Grok. Fichiers, outils et position s'y rangent, le texte garde la place. */
+function PlusMenu() {
+  const { canWatch, readOnly } = useContext(AgentContext);
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [open]);
+  const item = "flex min-h-11 w-full cursor-pointer items-center gap-3 rounded-xl px-3 text-left text-[15px] hover:bg-muted";
+  return (
+    <div ref={box} className="relative md:hidden">
+      <Button type="button" variant="ghost" size="icon" aria-label={t("Ajouter")} aria-expanded={open} className="rounded-full text-muted-foreground" onClick={() => setOpen((o) => !o)}>
+        <Plus className={cn("transition-transform", open && "rotate-45")} />
+      </Button>
+      {open && (
+        <div role="menu" className="absolute bottom-full left-0 z-30 mb-4 flex w-56 flex-col gap-0.5 rounded-2xl border border-border bg-surface p-1.5 shadow-lg" onClick={() => setOpen(false)}>
+          <ComposerPrimitive.AddAttachment asChild multiple>
+            <button type="button" role="menuitem" className={item}><Paperclip className="size-5 text-muted-foreground" />{t("Joindre des fichiers")}</button>
+          </ComposerPrimitive.AddAttachment>
+          {canWatch && !readOnly && (
+            <button type="button" role="menuitem" className={item} onClick={openTools}><Plug className="size-5 text-muted-foreground" />{t("Outils")}</button>
+          )}
+          <AttachPosition />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -720,6 +753,7 @@ function Composer({ onVoiceMode, inCall }: { onVoiceMode: () => void; inCall: bo
   const dictating = dictation.state !== "idle";
   const busy = useContext(WhileBusyContext);
   const aui = useAui();
+  const empty = useAuiState((s) => s.composer.isEmpty);
   const sendWhileBusy = () => {
     const composer = aui.thread().composer();
     const state = composer.getState();
@@ -732,19 +766,20 @@ function Composer({ onVoiceMode, inCall }: { onVoiceMode: () => void; inCall: bo
   return (
     <>
     <WhileBusyPanel />
-    <ComposerPrimitive.Root data-noah-composer className="flex w-full flex-col gap-2 rounded-2xl border border-border bg-surface p-2 shadow-sm focus-within:border-accent">
+    <ComposerPrimitive.Root data-noah-composer data-vide={empty && !dictating ? "" : undefined} className="flex w-full flex-col gap-2 rounded-2xl border border-border bg-surface p-2 shadow-sm focus-within:border-accent">
       <QuoteChips />
       <div className="flex flex-wrap gap-1.5 empty:hidden">
         <ComposerPrimitive.Attachments components={{ Attachment: AttachmentChip }} />
       </div>
       {/* Le texte a toute la largeur et les boutons passent dessous, comme dans les apps de chat : les puces ne l'écrasent jamais. */}
       <div className="flex flex-wrap items-end gap-1.5">
+        <PlusMenu />
         <ComposerPrimitive.AddAttachment asChild multiple>
-          <Button variant="ghost" size="icon" aria-label={t("Joindre des fichiers")} className="mr-auto text-muted-foreground">
+          <Button variant="ghost" size="icon" aria-label={t("Joindre des fichiers")} className="mr-auto text-muted-foreground max-md:hidden">
             <Paperclip />
           </Button>
         </ComposerPrimitive.AddAttachment>
-        <AttachPosition />
+        <span className="contents max-md:hidden"><AttachPosition /></span>
         <ModelChip />
         <ToolsChip />
         <ComposerPrimitive.Input
