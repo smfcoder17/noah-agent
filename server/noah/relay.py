@@ -488,9 +488,25 @@ def _completion_reply(reply: dict, stream: bool) -> Response:
     return Response(frames, media_type="text/event-stream")
 
 
+# Ce que l'agent peut demander au fournisseur, avec la clé du propriétaire : le chat et ses voisins, rien d'autre. Sans
+# cette liste, `../../api/delete` atteignait n'importe quelle route du fournisseur avec la clé (audit 0.3.0, Sonnet n°2).
+RELAY_GET = re.compile(r"models(/[A-Za-z0-9._:@-]+)?")
+RELAY_POST = re.compile(r"(chat/completions|completions|embeddings|responses|images/generations|audio/speech|audio/transcriptions)")
+
+
+def relay_path_allowed(method: str, path: str) -> bool:
+    if any(part in ("", ".", "..") for part in path.split("/")) or "%" in path or "\\" in path:
+        return False
+    return bool((RELAY_GET if method == "GET" else RELAY_POST).fullmatch(path))
+
+
 @router.api_route("/relay/v1/{path:path}", methods=["GET", "POST"])
 async def relay(path: str, request: Request):
     agent_id = _agent_from(request)
+    # Le chemin brut, avant toute normalisation : « %2e%2e » et « .. » sont refusés tels quels.
+    raw = request.scope.get("raw_path", b"").decode("latin-1").split("?", 1)[0]
+    if not relay_path_allowed(request.method, path) or "%" in raw or "/.." in raw or "/./" in raw:
+        raise HTTPException(404, "Route du fournisseur non permise")
     task = _task_of(agent_id)  # lue au départ de l'appel : la tâche peut finir avant la réponse du fournisseur
     provider = db.get_setting("provider")
     if not provider:
