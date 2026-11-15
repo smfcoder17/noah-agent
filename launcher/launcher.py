@@ -42,7 +42,17 @@ def _shared_key() -> str:
 
 KEY = _shared_key()
 IMAGE = os.environ.get("AGENT_IMAGE", "nousresearch/hermes-agent@sha256:9c5561579f3ffdf333401797094ac3a743738d6c25d40f4331c7bf77b694238d")
-NETWORK = os.environ["AGENT_NETWORK"]
+# E1 (audit 0.3.0) : agents et navigateurs sur un réseau à eux, où le lanceur n'est pas. Les fichiers d'avant donnaient
+# « noah-net », le réseau commun avec le lanceur : il devient « noah-agents ». Un autre nom (bancs d'essai) reste tel quel.
+SHARED_NETWORK = "noah-net"
+NETWORK = "noah-agents" if os.environ.get("AGENT_NETWORK", SHARED_NETWORK) in ("", SHARED_NETWORK) else os.environ["AGENT_NETWORK"]
+MANAGED_NETWORK = NETWORK == "noah-agents"  # créé et tenu par le lanceur ; un réseau de banc d'essai l'est par son banc
+SERVER_NAME = os.environ.get("NOAH_SERVER_NAME", "noah-server")
+# Capacités : toutes retirées, puis seulement celles dont l'essai a prouvé le besoin (isolement_reel.sh, securite-audit.md).
+# Hermes démarre en root sous s6 puis passe à l'utilisateur hermes (SETUID, SETGID), règle son volume (CHOWN, DAC_OVERRIDE)
+# et s'arrête proprement (KILL : s6 signale des processus d'un autre utilisateur). Camoufox tourne en root : aucune.
+AGENT_CAPS = ["CHOWN", "DAC_OVERRIDE", "SETUID", "SETGID", "KILL"]
+BROWSER_CAPS: list[str] = []
 PREFIX = "noah-agent-"
 LABEL = "noah.agent"
 DATA = "/opt/data"
@@ -52,10 +62,104 @@ client = docker.from_env()
 # Ni /docs, ni /redoc, ni /openapi.json : les machines des agents joignent ce service, il ne leur décrit pas ses routes.
 app = FastAPI(title="Noah Agent launcher", docs_url=None, redoc_url=None, openapi_url=None)
 
+# E1 : le lanceur ne répond qu'aux conteneurs nommés ici (le serveur), au relais des mises à jour et à lui-même. Les autres
+# voisins de son réseau (Caddy) reçoivent 403, même avec la clé. Vide (bancs d'essai, fichiers d'avant) : pas de filtre.
+CLIENTS = [n.strip() for n in os.environ.get("NOAH_LANCEUR_CLIENTS", "").split(",") if n.strip()]
+_peers: dict[str, float] = {}  # adresse -> fin de validité
+_peers_read = [0.0]
+
+
+def _peer_allowed(host: str) -> bool:
+    if not CLIENTS or host in ("127.0.0.1", "::1"):
+        return True
+    now = time.monotonic()
+    if _peers.get(host, 0) > now:
+        return True
+    if now - _peers_read[0] < 1:  # une adresse inconnue ne fait pas interroger Docker à chaque appel
+        return False
+    _peers_read[0] = now
+    known = set()
+    for name in (*CLIENTS, updater.RELAY):
+        try:
+            networks = client.containers.get(name).attrs.get("NetworkSettings", {}).get("Networks") or {}
+        except Exception:  # noqa: BLE001 - absent (relais) ou Docker occupé : pas d'adresse de plus
+            continue
+        known |= {n.get("IPAddress") for n in networks.values() if isinstance(n, dict) and n.get("IPAddress")}
+    _peers.clear()
+    _peers.update({ip: now + 60 for ip in known})
+    return host in known
+
+
+@app.middleware("http")
+async def _only_clients(request: Request, call_next):
+    from starlette.concurrency import run_in_threadpool
+    if not await run_in_threadpool(_peer_allowed, request.client.host if request.client else ""):
+        return JSONResponse({"detail": "Le lanceur ne répond qu'au serveur."}, status_code=403)
+    return await call_next(request)
+
+
+_network_lock = threading.Lock()
+
+
+def _ensure_agents_network() -> None:
+    """E1 : le réseau des agents existe, et le serveur y est branché sous son nom (les agents l'appellent noah-server).
+    Le lanceur, lui, n'y est jamais : un agent ou un navigateur compromis ne le joint pas."""
+    if not MANAGED_NETWORK:
+        return
+    with _network_lock:
+        try:
+            net = client.networks.get(NETWORK)
+        except NotFound:
+            net = client.networks.create(NETWORK, driver="bridge", labels={"noah.reseau": "agents"})
+        try:
+            server = client.containers.get(SERVER_NAME)
+        except NotFound:
+            return  # le serveur n'est pas encore créé : la veille le branchera
+        if NETWORK not in (server.attrs.get("NetworkSettings", {}).get("Networks") or {}):
+            net.connect(server, aliases=[SERVER_NAME])
+            print(f"[lanceur] {SERVER_NAME} branché sur {NETWORK}", flush=True)
+
+
+def _watch_network() -> None:
+    """Le serveur recréé par `docker compose up` perd les réseaux branchés à la main : la veille le rebranche."""
+    while True:
+        try:
+            _ensure_agents_network()
+        except Exception as e:  # noqa: BLE001 - Docker occupé : au prochain tour
+            print(f"[lanceur] réseau des agents : {e}", flush=True)
+        time.sleep(15)
+
+
+_key_read = [None]  # date du fichier de secrets au dernier chargement de KEY
+
+
+def _reload_key() -> bool:
+    """M5 : la clé renouvelée par `python -m noah.cle_lanceur` (serveur) est prise sans redémarrer ; l'ancienne ne vaut plus.
+    Une clé fixée par l'environnement ne change pas ici."""
+    global KEY
+    if os.environ.get("LAUNCHER_KEY"):
+        return False
+    path = Path(os.environ.get("NOAH_SECRETS_FILE", "/secrets/noah.json"))
+    try:
+        stamp = path.stat().st_mtime_ns
+        if stamp == _key_read[0]:
+            return False
+        fresh = json.loads(path.read_text())["LAUNCHER_KEY"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+    _key_read[0] = stamp
+    changed = bool(fresh) and fresh != KEY
+    if changed:
+        KEY = fresh
+    return changed
+
 
 def auth(authorization: str = Header("")) -> None:
-    if not hmac.compare_digest(authorization.encode(), f"Bearer {KEY}".encode()):
-        raise HTTPException(401, "Clé du lanceur invalide")
+    if hmac.compare_digest(authorization.encode(), f"Bearer {KEY}".encode()):
+        return
+    if _reload_key() and hmac.compare_digest(authorization.encode(), f"Bearer {KEY}".encode()):
+        return
+    raise HTTPException(401, "Clé du lanceur invalide")
 
 
 def check_id(agent_id: str) -> str:
@@ -83,8 +187,9 @@ BROWSER_IMAGE = os.environ.get("BROWSER_IMAGE", "ghcr.io/smfcoder17/noah-browser
 BROWSER_PREFIX = "noah-browser-"
 BROWSER_LABEL = "noah.browser"
 # Version des réglages du navigateur ; un conteneur plus ancien est recréé (le profil reste dans son volume).
+# 19 : aucune capacité, réseau des agents sans le lanceur (E1).
 # 17 : empreinte tirée une fois par agent, gardée dans /data/empreinte.json ; 15 : sessions enregistrées chaque minute (connexions gardées après un arrêt brutal) ; 14 : remplir une page de connexion ; 12 : image Noah avec bureau, sans uBlock ; 11 : toutes les routes sous clé ; 10 : clé du mode privé à part ; 9 : aucune capture pendant une prise en main ; 8 : jetons hors de la config Docker
-BROWSER_VERSION = "18"
+BROWSER_VERSION = "19"
 
 
 FROZEN_WAIT = 30  # secondes ; sous le délai de 120 s du serveur (hermes._launcher)
@@ -231,6 +336,7 @@ def _ensure_browser(agent_id: str, body: BrowserKeys, image: str | None = None, 
     image = image or updater.pinned("navigateur", BROWSER_IMAGE)  # version figée par la dernière mise à jour
     _ensure_image(image)
     image_cfg = client.images.get(image).attrs["Config"]
+    _ensure_agents_network()
     c = client.containers.create(
         image,
         name=name,
@@ -272,9 +378,11 @@ def _ensure_browser(agent_id: str, body: BrowserKeys, image: str | None = None, 
         nano_cpus=_cpus(4),
         shm_size="1g",
         security_opt=["no-new-privileges"],
-        # Comme les agents : sans NET_RAW, un navigateur compromis ne peut ni usurper une adresse sur noah-net ni écouter
-        # le trafic des autres (audit 0.3.0, E1). PID bornés : un onglet fou n'épuise pas l'hôte (M8).
-        cap_drop=["NET_RAW", "SYS_ADMIN", "MKNOD"],
+        # E1 : aucune capacité (Camoufox tourne en root dans son conteneur et n'en demande aucune : isolement_reel.sh). Sans
+        # NET_RAW, un navigateur compromis n'écoute ni n'usurpe rien ; il est sur le réseau des agents, sans le lanceur.
+        # PID bornés : un onglet fou n'épuise pas l'hôte (M8).
+        cap_drop=["ALL"],
+        cap_add=list(BROWSER_CAPS),
         pids_limit=2048,
     )
     # Sans CAMOFOX_ACCESS_KEY, Camofox ne protège que l'import de cookies : les agents sont sur le même réseau, et celui d'un
@@ -679,6 +787,7 @@ def _run_agent(agent_id: str, api_key: str, folders: list[Folder]):
         volumes[f.chemin] = {"bind": f"{DATA}/dossiers/{f.nom}", "mode": "rw" if f.ecriture else "ro"}
     image = updater.pinned("hermes", IMAGE)
     _ensure_image(image)
+    _ensure_agents_network()
     c = client.containers.create(
         image,
         command="gateway run",
@@ -696,7 +805,8 @@ def _run_agent(agent_id: str, api_key: str, folders: list[Folder]):
         log_config=LOG_CONFIG,
         nano_cpus=_cpus(2),
         security_opt=["no-new-privileges"],
-        cap_drop=["NET_RAW", "SYS_ADMIN", "MKNOD"],
+        cap_drop=["ALL"],  # E1 : puis seulement les capacités prouvées (AGENT_CAPS)
+        cap_add=list(AGENT_CAPS),
         pids_limit=2048,  # une boucle de processus de l'agent n'épuise pas l'hôte (audit 0.3.0, M8)
     )
     # Jeton de l'API dans le .env du volume, avant le premier démarrage : l'API n'est jamais ouverte sans lui.
@@ -1080,6 +1190,75 @@ def _exists_container(name: str) -> bool:
 
 
 threading.Thread(target=_migrate_agent_tokens, daemon=True).start()
+
+
+def _isolate_existing() -> None:
+    """Conteneurs d'avant E1 : agents et navigateurs passent du réseau commun au leur, sans redémarrer ; un agent sans
+    `cap_drop: ALL` est recréé une fois sur la même image (même volume, même jeton), comme pour la migration du jeton.
+    Les navigateurs le sont à leur prochaine ouverture (BROWSER_VERSION)."""
+    if not MANAGED_NETWORK:
+        return
+    try:
+        _ensure_agents_network()
+        for label in (LABEL, BROWSER_LABEL):
+            for c in client.containers.list(all=True, filters={"label": label}):
+                nets = c.attrs.get("NetworkSettings", {}).get("Networks") or {}
+                if NETWORK not in nets:
+                    client.networks.get(NETWORK).connect(c, aliases=[c.name])
+                if SHARED_NETWORK in nets:
+                    client.networks.get(SHARED_NETWORK).disconnect(c)
+    except Exception as e:  # noqa: BLE001 - au prochain démarrage du lanceur
+        print(f"[lanceur] passage des agents sur {NETWORK} remis : {e}", flush=True)
+        return
+    _recovering.join(600)
+    with updater._lock:
+        try:
+            if updater.load_state().get("en_cours"):
+                return  # une mise à jour recrée déjà le parc
+        except updater.Corrupt:
+            return
+        for c in client.containers.list(all=True, filters={"label": LABEL}):
+            if (c.attrs.get("HostConfig", {}).get("CapDrop") or []) != ["ALL"] and not c.name.endswith("-ancien"):
+                _recreate_isolated(c)
+
+
+def _recreate_isolated(c) -> None:
+    name, running = c.name, c.status == "running"
+    if _exists_container(name + "-ancien"):
+        print(f"[lanceur] isolement de {name} remis : {name}-ancien existe déjà", flush=True)
+        return
+    renamed, new_id = False, None
+    try:
+        c.stop(timeout=30)
+        c.rename(name + "-ancien")
+        renamed = True
+        c.reload()
+        hc = c.attrs["HostConfig"]  # _create_like recopie cette configuration : on y pose l'isolement
+        hc.update(CapDrop=["ALL"], CapAdd=list(AGENT_CAPS), SecurityOpt=sorted(set(hc.get("SecurityOpt") or []) | {"no-new-privileges"}))
+        updater._create_like(c, name, c.image.id)
+        new = client.containers.get(name)
+        new_id = new.id
+        if running:
+            new.start()
+            if not updater.healthy(name, 120):
+                raise RuntimeError("l'agent ne répond pas une fois isolé")
+        c.remove(force=True)
+        print(f"[lanceur] {name} recréé isolé (cap_drop ALL)", flush=True)
+    except Exception as e:  # noqa: BLE001 — l'ancien conteneur revient tel quel
+        print(f"[lanceur] isolement de {name} annulé : {e}", flush=True)
+        if new_id:
+            try:
+                client.containers.get(new_id).remove(force=True)
+            except NotFound:
+                pass
+        if renamed:
+            c.rename(name)
+        if running:
+            c.start()
+
+
+threading.Thread(target=_isolate_existing, daemon=True).start()
+threading.Thread(target=_watch_network, daemon=True).start()
 
 
 def not_updating(agent_id: str = "") -> None:

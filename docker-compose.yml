@@ -37,7 +37,10 @@ services:
     environment:
       LAUNCHER_KEY: ${LAUNCHER_KEY}
       AGENT_IMAGE: nousresearch/hermes-agent@sha256:9c5561579f3ffdf333401797094ac3a743738d6c25d40f4331c7bf77b694238d
-      AGENT_NETWORK: noah-net
+      # E1 : réseau des agents et des navigateurs, créé par le lanceur ; le serveur y est branché, le lanceur jamais.
+      AGENT_NETWORK: noah-agents
+      # Seul le serveur (et le relais des mises à jour) obtient une réponse du lanceur.
+      NOAH_LANCEUR_CLIENTS: noah-server
       # Dossiers de l'ordinateur que l'utilisateur peut partager avec ses agents (racines séparées par « ; »).
       # Vide : partage coupé (cas d'un VPS). L'application de bureau le remplit avec le dossier personnel.
       NOAH_SHARE_ROOTS: ${NOAH_SHARE_ROOTS:-}

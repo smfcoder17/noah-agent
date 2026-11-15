@@ -110,7 +110,7 @@ def created() -> dict:
 launcher._run_agent("essai", "k", [])
 agent = created()
 assert not PUBLISHING & set(agent), f"agent : {PUBLISHING & set(agent)}"
-assert agent["network"] == "noah-net" and agent["name"] == "noah-agent-essai", agent
+assert agent["network"] == "noah-agents" and agent["name"] == "noah-agent-essai", agent  # E1 : « noah-net » des fichiers d'avant devient le réseau des agents
 assert agent["environment"]["API_SERVER_HOST"] == "0.0.0.0", "le contrôle attend une écoute sur le réseau interne"
 client.containers.create.reset_mock()
 launcher.container = lambda agent_id: None  # le navigateur vérifie d'abord que l'agent existe
@@ -126,9 +126,9 @@ except Created:
     pass
 browser = created()
 assert not PUBLISHING & set(browser), f"navigateur : {PUBLISHING & set(browser)}"
-assert browser["network"] == "noah-net", browser
+assert browser["network"] == "noah-agents", browser
 assert browser["environment"]["CAMOFOX_CRASH_REPORT_ENABLED"] == "false", "rapports de plantage du navigateur activés"
-print("5. agent et navigateur créés par le lanceur : réseau noah-net, aucun port publié")
+print("5. agent et navigateur créés par le lanceur : réseau des agents (noah-agents), aucun port publié")
 
 # 6. Tous les appels Docker du lanceur, même ceux que ce test ne déclenche pas : aucun ne publie de port.
 found = []
