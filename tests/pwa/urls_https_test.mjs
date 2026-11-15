@@ -25,6 +25,8 @@ const INTERNES = [
   ["desktop/noah.js", "http://127.0.0.1:${env.NOAH_PORT", "la fenêtre de l'app de bureau charge Noah en local, sans barre d'adresse"],
   ["get.sh", "urlopen('http://127.0.0.1:8080/api/status')", "question posée au serveur depuis son conteneur, jamais affichée"],
   ["server/noah/accounts.py", 'REDIRECT = "http://127.0.0.1:1/"', "retour OAuth de Google, jamais ouvert"],
+  ["desktop/chatgpt.js", "http://127.0.0.1:${actual}/auth/callback", "retour de la connexion OpenAI, ouvert par le navigateur de la personne sur sa propre machine"],
+  ["launcher/updater.py", "http://127.0.0.1:{port}/health", "question posée à un agent depuis son propre conteneur, jamais affichée"],
   ["frontend/src/components/AgentPowers.tsx", 'placeholder="http://127.0.0.1:…/callback', "retour OAuth d'un outil, à recopier"],
 ];
 

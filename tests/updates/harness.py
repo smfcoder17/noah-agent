@@ -26,6 +26,8 @@ import updater as u  # noqa: E402
 
 c = docker.from_env()
 REG = os.environ["REGISTRY"]
+# Les images de test viennent du registre local : elles rejoignent les dépôts permis (audit 0.3.0, M4), pour ce test seulement.
+u.SOURCES = u.SOURCES + (f"{REG}/noahtest/app".lower(), f"{REG}/noahtest/launcher".lower())
 AGENTS = ["noahtest-agent-a", "noahtest-agent-b"]
 u.components = lambda: {"hermes": list(AGENTS)}
 _component = u._component
