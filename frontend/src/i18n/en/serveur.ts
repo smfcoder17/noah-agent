@@ -383,4 +383,6 @@ export default {
   "Veille introuvable": "Watch not found",
   "Une routine à condition a besoin d'une condition. Sans condition, c'est une routine normale.": "A conditional routine needs a condition. Without one, it's a regular routine.",
   "Connecteur inconnu.": "Unknown connector.",
+  "Route du fournisseur non permise": "This provider route is not allowed",
+  "Requête trop grande.": "Request too large.",
 } satisfies Record<string, string>;
