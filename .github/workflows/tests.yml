@@ -200,6 +200,9 @@ jobs:
       - name: "Connecteurs globaux et compétences : exclusion réelle, agent neuf, droits par agent, invités, autre compte"
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/launcher:/l" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/tools/connecteurs_test.py"
+      - name: "Connecteurs à clé (GitHub, Airtable, Stripe, Apify) : clé scellée et jamais renvoyée, outils par agent, juge sur une écriture"
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/tools/connecteurs_cles_test.py"
       - name: Restauration (archive refusée si elle sort de backup.sh)
         run: |
           docker run --rm -e NOAH_TOOL=1 -v "$PWD/launcher:/l" -v "$PWD/tests:/tests" python:3.12-slim sh -c \

@@ -716,6 +716,8 @@ async def _health(row) -> dict:
 
 async def connections_state(agent_id: str, apps: list[dict], personal: dict) -> dict:
     """Les droits et l'état de ce qui est branché. Jamais le jeton : seulement s'il y en a un."""
+    from . import connecteurs_cles
+
     _scope(agent_id)
     rows = {r["nom"]: r for r in _rows(agent_id)}
     mine = [r for r in rows.values() if r["auth"] != "catalogue"]
@@ -728,6 +730,7 @@ async def connections_state(agent_id: str, apps: list[dict], personal: dict) -> 
         if row["auth"] == "oauth" and not connected and etat == "ok":
             etat = "a_connecter"
         tools.append({"nom": row["nom"], "url": publication.real_url(row["url"]), "compte": publication.account_of(_token(row)) if publication.ours(row["url"]) else "", "auth": row["auth"], "jeton": bool(row["jeton"]), "droit": row["droit"],
+                      "hote": connecteurs_cles.host_of(row["nom"], row["url"]),
                       "etat": etat, "erreur": health["erreur"] or _MESSAGES.get(etat, ""), "connecte": connected,
                       "outils": _public_tools(json.loads(fresh["outils"] or "[]"))})
     installed = [a for a in apps if a.get("installe")]
@@ -1108,7 +1111,10 @@ def plain_request(summary: str, command: bool = False) -> dict:
     m = ASKED.match(summary)
     if not m:
         return {"demande": "Ton agent veut lancer une commande sensible sur sa machine." if command else "Ton agent te demande de valider une action.", "apercu": []}
-    app = m.group(1).replace("-", " ").title()
+    from . import connecteurs_cles
+
+    known = connecteurs_cles.entry(m.group(1))  # « GitHub », « Stripe » : le nom de la marque, pas « Github », « Stripe Lecture »
+    app = known.titre if known else m.group(1).replace("-", " ").title()
     tool, _, shown = summary[m.end():].partition("\n")
     words = set(re.split(r"[_\W]+", tool.lower()))
     wish = f"utiliser {app}"
