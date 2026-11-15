@@ -13,6 +13,10 @@ const bandeau = require("./bandeau");
 const permissions = require("./permissions");
 const { t, langue } = require("./textes");
 
+// Essai d'une version de développement à côté de l'app installée : son propre dossier (réglages, session, clé de
+// chiffrement), pour ne jamais lire ni révoquer la session de l'app installée.
+if (process.env.NOAH_PROFIL) app.setPath("userData", path.join(app.getPath("appData"), `Noah Agent ${process.env.NOAH_PROFIL}`));
+
 let win = null;
 let page = null;
 let tray = null;
@@ -118,7 +122,7 @@ async function boot() {
   reconnect = null;
   const config = readConfig();
   // Premier lancement (et pas une copie de développement avec Docker sous la main) : où vit Noah ?
-  if (!config.mode && !isNoahHome(path.resolve(__dirname, ".."))) {
+  if (!config.mode && (process.env.NOAH_PROFIL || !isNoahHome(path.resolve(__dirname, "..")))) {
     origin = "";
     return page.webContents.loadFile(path.join(__dirname, "setup.html"));
   }
