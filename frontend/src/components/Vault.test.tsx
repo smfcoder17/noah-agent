@@ -1,0 +1,143 @@
+// Lot B de la 0.3.0 (coffre) côté écran : Réglages > Coffre ne montre aucune valeur sans preuve, l'import dit pourquoi une ligne
+// est refusée ; la carte de connexion propose de choisir un compte retenu ; la liste des sessions dit leur état vérifié.
+import { act } from "react";
+import { createRoot } from "react-dom/client";
+import { afterEach, expect, it, vi } from "vitest";
+import { BrowserSites } from "./AgentPowers";
+import { LoginCard } from "./LoginCard";
+import { Vault } from "./Vault";
+
+const MDP = "valeur-Secrete-91x";
+const ELEMENTS = [
+  { id: "login_1", genre: "login", nom: "", site: "instagram.com", origine: "https://www.instagram.com", apercu: "fr•••", utilise_a: null },
+  { id: "carte_1", genre: "carte", nom: "Visa", site: "", origine: "", apercu: "Visa •••• 4242 · 12/30", utilise_a: null },
+];
+
+type Call = { url: string; method: string; body: string };
+type Route = unknown | ((body: Record<string, unknown>) => [number, unknown]);
+class NoObserver { observe() {} disconnect() {} unobserve() {} }
+function serve(routes: Record<string, Route>) {
+  const calls: Call[] = [];
+  vi.stubGlobal("IntersectionObserver", NoObserver);
+  vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit = {}) => {
+    calls.push({ url, method: init.method ?? "GET", body: String(init.body ?? "") });
+    const path = url.split("?")[0];
+    const key = `${init.method ?? "GET"} ${path}`;
+    const found = key in routes ? routes[key] : path in routes ? routes[path] : undefined;
+    if (found === undefined) return new Response(JSON.stringify({ detail: "absent" }), { status: 404 });
+    const [status, json] = typeof found === "function" ? (found as (b: Record<string, unknown>) => [number, unknown])(JSON.parse(String(init.body || "{}"))) : [200, found];
+    return new Response(JSON.stringify(json), { status, headers: { "Content-Type": "application/json" } });
+  }));
+  return calls;
+}
+
+function type(input: HTMLInputElement, value: string) {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+const flush = () => act(async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); });
+let unmount: (() => void) | null = null;
+afterEach(() => { unmount?.(); unmount = null; vi.unstubAllGlobals(); });
+
+async function render(node: React.ReactNode) {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  await act(async () => root.render(node));
+  await flush();
+  unmount = () => { act(() => root.unmount()); host.remove(); };
+  return host;
+}
+
+const button = (root: ParentNode, label: string) => [...root.querySelectorAll("button")].find((b) => b.getAttribute("aria-label") === label || b.textContent === label)!;
+
+it("B6 la liste du coffre ne porte aucune valeur ; voir demande la preuve, puis montre la valeur", async () => {
+  const calls = serve({
+    "/api/coffre": { elements: ELEMENTS, agents: [{ id: "a1", nom: "Noah", utiliser: true, partage: false }, { id: "a2", nom: "Équipe", utiliser: false, partage: true }] },
+    "/api/me/double-verification": { active: false },
+    "POST /api/coffre/login_1/voir": (b: Record<string, unknown>) => b.motdepasse === "bon" ? [200, { identifiant: "franck@exemple.fr", mot_de_passe: MDP }] : [428, { detail: "Confirme ton mot de passe pour voir ce secret." }],
+  });
+  const host = await render(<Vault />);
+  expect(host.textContent).toContain("instagram.com");
+  expect(host.textContent).toContain("Visa •••• 4242 · 12/30");
+  expect(host.textContent).toContain("partagé : éteint d'office");
+  expect(host.innerHTML).not.toContain(MDP);
+  await act(async () => button(host, "Voir instagram.com").click());
+  await flush();
+  const password = document.body.querySelector<HTMLInputElement>("#proof-password")!;
+  expect(password).not.toBeNull();
+  expect(host.innerHTML).not.toContain(MDP);
+  await act(async () => type(password, "bon"));
+  await act(async () => password.form!.requestSubmit());
+  await flush();
+  expect(host.textContent).toContain(MDP);
+  const sent = calls.filter((c) => c.url === "/api/coffre/login_1/voir").map((c) => JSON.parse(c.body));
+  expect(sent[sent.length - 1]).toMatchObject({ motdepasse: "bon" });
+  await act(async () => button(host, "Cacher instagram.com").click());
+  expect(host.innerHTML).not.toContain(MDP);
+});
+
+it("B6 import CSV : le compte rendu dit chaque ligne refusée et sa raison", async () => {
+  const calls = serve({
+    "/api/coffre": { elements: [], agents: [] },
+    "POST /api/coffre/import": { ajoutes: 2, remplaces: 0, refuses: [{ ligne: 3, raison: "Adresse du site manquante ou illisible." }] },
+  });
+  const host = await render(<Vault />);
+  expect(host.textContent).toContain("Ton coffre est vide.");
+  const input = host.querySelector<HTMLInputElement>('input[type="file"]')!;
+  const csv = "name,url,username,password\nA,https://www.instagram.com,x,p1\nB,,x,p2\nC,https://www.linkedin.com,x,p3\n";
+  const file = new File([csv], "export.csv", { type: "text/csv" });
+  Object.defineProperty(input, "files", { value: [file], configurable: true });
+  await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
+  await flush();
+  await flush();
+  expect(JSON.parse(calls.find((c) => c.url === "/api/coffre/import")!.body)).toEqual({ csv });
+  expect(host.textContent).toContain("2 ajoutés, 0 mis à jour, 1 refusés");
+  expect(host.textContent).toContain("Ligne 3 : Adresse du site manquante ou illisible.");
+});
+
+it("B6 ajouter un identifiant : un vrai formulaire, le mot de passe masqué", async () => {
+  const calls = serve({ "/api/coffre": { elements: [], agents: [] }, "POST /api/coffre": ELEMENTS[0] });
+  const host = await render(<Vault />);
+  await act(async () => button(host, "Ajouter : Identifiant").click());
+  const inputs = [...host.querySelectorAll<HTMLInputElement>("form input")];
+  const [, origin, ident, pwd] = inputs;
+  expect(pwd.type).toBe("password");
+  await act(async () => { type(origin, "instagram.com"); type(ident, "franck"); type(pwd, MDP); });
+  await act(async () => host.querySelector<HTMLFormElement>("form")!.requestSubmit());
+  await flush();
+  expect(JSON.parse(calls.find((c) => c.method === "POST" && c.url === "/api/coffre")!.body)).toEqual({ genre: "login", nom: "", origine: "instagram.com", identifiant: "franck", mot_de_passe: MDP });
+  expect(host.innerHTML).not.toContain(MDP);
+});
+
+it("B1 deux comptes retenus : la carte demande lequel et n'envoie que le choix", async () => {
+  const calls = serve({ "POST /api/agents/a1/connexions/q1": { ok: true, page: "changee" } });
+  const done = vi.fn();
+  const asked = { id: "q1", type: "connexion" as const, site: "instagram.com", origine: "https://www.instagram.com", chiffre: true, identifiant_requis: true,
+    comptes: [{ id: "login_1", nom: "Perso", compte: "fr•••" }, { id: "login_2", nom: "Boutique", compte: "bo•••" }] };
+  const host = await render(<LoginCard agentId="a1" asked={asked} onDone={done} />);
+  expect(host.textContent).toContain("Quel compte ?");
+  expect(host.textContent).toContain("Boutique · bo•••");
+  expect(host.querySelector('input[type="password"]')).toBeNull();
+  const radios = [...host.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
+  await act(async () => radios[1].click());
+  await act(async () => host.querySelector<HTMLFormElement>("form")!.requestSubmit());
+  await flush();
+  expect(JSON.parse(calls[0].body)).toEqual({ choix: "login_2" });
+  expect(done).toHaveBeenCalledWith("envoye");
+});
+
+it("B5 les sessions affichées sont celles du registre vérifié, avec leur état", async () => {
+  serve({ "/api/agents/a1/sites": [
+    { hote: "instagram.com", nom: "instagram.com", compte: "", vu_a: 1, etat: "connecte" },
+    { hote: "linkedin.com", nom: "LinkedIn", compte: "", vu_a: 1, etat: "a_reconnecter" },
+    { hote: "ancien.fr", nom: "Ancien", compte: "", vu_a: 1, etat: "non_verifie" },
+  ] });
+  const host = await render(<BrowserSites agentId="a1" />);
+  const rows = [...host.querySelectorAll("li")].map((li) => li.textContent);
+  expect(rows[0]).toContain("Connecté");
+  expect(rows[1]).toContain("À reconnecter");
+  expect(rows[2]).toContain("Non vérifié");
+  expect(host.textContent).toContain("Sessions dans son navigateur");
+});
