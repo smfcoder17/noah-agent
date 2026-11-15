@@ -569,12 +569,24 @@ def _same_or_under(path: str, root: str) -> tuple[bool, bool]:
 
 # Jamais partageables, même sous une racine large (« / ») : le socket Docker et les dossiers du système donneraient
 # l'hôte à l'agent (audit 0.3.0, DeepSeek M2).
-SYSTEM = re.compile(r"^/(var/run|run|proc|sys|dev|etc|boot|root|var/lib/docker|var/lib/containerd|usr|bin|sbin|lib|lib64)(/|$)|docker.sock", re.I)
+SYSTEM_DIRS = ("var/run", "run", "proc", "sys", "dev", "etc", "boot", "root", "var/lib/docker", "var/lib/containerd", "usr", "bin",
+               "sbin", "lib", "lib64")
+SYSTEM = re.compile(r"^/(" + "|".join(re.escape(d) for d in SYSTEM_DIRS) + r")(/|$)|docker.sock", re.I)
+
+
+def _holds_system(p: str) -> bool:
+    """`/`, `/var`, `/var/lib`… : un dossier qui contient un dossier du système. Le monter monterait aussi ce qu'il contient
+    (relecture 0.3.0, partie 3 n°1 : `/var` exposait `/var/run/docker.sock`)."""
+    low = p.lower()
+    return low == "" or any(("/" + d).startswith(low + "/") for d in SYSTEM_DIRS)
 
 
 def _shareable(path: str) -> bool:
-    p = _norm(path)
-    if not p or ".." in p.split("/") or SENSITIVE.search(p) or SYSTEM.search(p):
+    """Limite connue : le lanceur ne voit pas le disque de l'hôte, il ne lit donc pas les liens symboliques. Un lien posé sous une
+    racine autorisée et qui mène vers /etc passerait ces tests (docs/epics/0.3.0/securite-audit.md, « Limites »)."""
+    p = re.sub(r"/+", "/", _norm(path))
+    parts = p.split("/")
+    if not p or ".." in parts or "." in parts or SENSITIVE.search(p) or SYSTEM.search(p) or (p.startswith("/") and _holds_system(p)):
         return False
     return any(any(_same_or_under(p, root)) for root in SHARE_ROOTS)
 

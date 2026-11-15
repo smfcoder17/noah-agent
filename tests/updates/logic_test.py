@@ -49,9 +49,44 @@ try:
     raise AssertionError("image d'une source inconnue acceptée")
 except ValueError as e:
     assert "source inconnue" in str(e), e
-# … sauf si l'installation l'a déclaré (copie du projet, registre local de test).
-u.IMAGE_SOURCES += ("localhost:5000/",)
+# Relecture 0.3.0, partie 6 n°1 : un dépôt exact, pas tout l'espace de noms du compte.
+for ref in ("ghcr.io/smfcoder17/noah-dev-cache@" + D, "ghcr.io/smfcoder17/noah-server-x@" + D, "ghcr.io/smfcoder17@" + D,
+            "evil.io/caddy@" + D, "docker.io/caddy2@" + D):
+    try:
+        u.verify(*signed({"version": "1.3.0", "images": {"x": ref}}))
+        raise AssertionError(f"dépôt hors liste accepté : {ref}")
+    except ValueError as e:
+        assert "source inconnue" in str(e), (ref, e)
+# Partie 6 n°2 : une étiquette avant l'empreinte, et les formes docker.io, passent.
+for ref in ("caddy:2.10-alpine@" + D, "docker.io/library/caddy@" + D, "docker.io/library/caddy:2@" + D, "nousresearch/hermes-agent:0.2@" + D,
+            "docker.io/nousresearch/hermes-agent@" + D, "ghcr.io/smfcoder17/noah-launcher:stable@" + D, "ghcr.io/smfcoder17/noah-browser@" + D):
+    assert u.verify(*signed({"version": "1.3.0", "images": {"x": ref}})), ref
+# Partie 6 n°3 : variable vide, espaces, entrée mal formée.
+assert u.image_sources("") == u.DEFAULT_IMAGE_SOURCES and u.image_sources(None) == u.DEFAULT_IMAGE_SOURCES
+assert u.image_sources(" , ") == u.DEFAULT_IMAGE_SOURCES
+assert u.image_sources(" ghcr.io/moi/noah-server , localhost:5000/a/b ") == ("ghcr.io/moi/noah-server", "localhost:5000/a/b")
+assert u.image_sources("ghcr.io/moi/,caddy") == u.DEFAULT_IMAGE_SOURCES, "un espace de noms ouvert n'est pas un dépôt"
+assert u.image_sources("caddy@") == u.DEFAULT_IMAGE_SOURCES and u.image_sources("caddy:2") == u.DEFAULT_IMAGE_SOURCES
+assert u.repository("localhost:5000/a/b:v1@" + D) == "localhost:5000/a/b" and u.repository("caddy@" + D) == "caddy"
+# … un dépôt déclaré par l'installation (copie du projet, registre local de test) passe.
+u.IMAGE_SOURCES += ("localhost:5000/a/b",)
 assert u.verify(*signed({"version": "1.3.0", "images": {"x": "localhost:5000/a/b@" + D}}))  # registre avec port
+# La même règle côté lanceur (launcher/updater.py), qui vérifie le manifeste une seconde fois.
+import importlib.util  # noqa: E402
+if os.path.exists("/launcher/updater.py"):
+    spec = importlib.util.spec_from_file_location("updater_lanceur", "/launcher/updater.py")
+    lu = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(lu)
+    except ImportError:
+        lu = None
+    if lu:
+        assert lu.SOURCES == u.DEFAULT_IMAGE_SOURCES and lu.DEFAULT_SOURCES == u.DEFAULT_IMAGE_SOURCES, "deux listes différentes"
+        assert lu.allowed_ref("caddy:2.10-alpine@" + D) and lu.allowed_ref("docker.io/library/caddy@" + D)
+        assert not lu.allowed_ref("ghcr.io/smfcoder17/noah-dev-cache@" + D) and not lu.allowed_ref("caddy:latest")
+        assert lu.image_sources("") == lu.DEFAULT_SOURCES and lu.image_sources(" a/b , c ") == ("a/b", "c")
+        print("lanceur : mêmes dépôts exacts, étiquette tolérée avant l'empreinte : OK")
+print("sources des images : dépôts exacts, étiquette tolérée, variable vide ou mal formée ramenée aux défauts : OK")
 
 # Versions en attente : instance par instance, et épinglage des agents à venir.
 running = {"noah-server": [{"digests": ["ghcr.io/smfcoder17/noah-server@" + D], "image_id": "x"}],

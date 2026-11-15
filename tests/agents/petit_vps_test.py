@@ -131,6 +131,14 @@ for chemin in ("/home/moi/.bashrc", "/home/moi/.profile", "/home/moi/.gitconfig"
 assert launcher._shareable("/home/moi/profile"), "un dossier nommé comme un fichier sensible, sans le point, reste partageable"
 print("5. dossiers : pas d'écriture sur une racine entière, ni rien de ce qui s'exécute à l'ouverture d'une session")
 
+launcher.SHARE_ROOTS[:] = ["/"]  # relecture 0.3.0, partie 3 n°1 : une racine large ne donne aucun ancêtre d'un dossier du système
+for chemin in ("/", "//", "/var", "/var/", "/VAR", "/var/lib", "/var//run", "/var/./run", "/var/run/docker.sock", "/run", "/etc", "/proc", "/sys", "/dev", "/var/lib/docker", "/usr"):
+    assert not launcher._shareable(chemin), f"partageable sous « / » : {chemin}"
+for chemin in ("/home/moi/projet", "/srv/donnees", "/var/www", "/var/log"):
+    assert launcher._shareable(chemin), f"refusé à tort : {chemin}"
+launcher.SHARE_ROOTS[:] = ["/home/moi", "C:/Users/Moi"]
+print("5b. racine « / » : ni « / », ni « /var », ni aucun dossier qui contient le socket Docker ou un dossier du système")
+
 client.containers.create.reset_mock()
 client.containers.create.side_effect = None
 launcher._run_agent("hote", "k", [])

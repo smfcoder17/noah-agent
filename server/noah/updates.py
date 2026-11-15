@@ -40,8 +40,31 @@ MANIFEST_URL = os.environ.get("NOAH_UPDATE_MANIFEST",
 PUBLIC_KEY = os.environ.get("NOAH_UPDATE_KEY", "")
 # Dépôts d'où une mise à jour peut tirer une image : une clé de signature volée ne fait pas installer n'importe quelle
 # image (audit 0.3.0, M4). Une copie du projet sous un autre compte pose NOAH_IMAGE_SOURCES.
-IMAGE_SOURCES = tuple(s for s in os.environ.get(
-    "NOAH_IMAGE_SOURCES", "ghcr.io/smfcoder17/,nousresearch/hermes-agent@,docker.io/nousresearch/hermes-agent@,caddy@").split(",") if s)
+# Des dépôts exacts, jamais un espace de noms entier : `ghcr.io/smfcoder17/` laisserait passer n'importe quelle image du
+# compte (relecture 0.3.0, partie 6 n°1). Même liste dans launcher/updater.py. Limite connue : qui tient le socket Docker
+# peut recréer le service avec son propre NOAH_UPDATE_KEY et ses propres sources (securite-audit.md, « Limites »).
+DEFAULT_IMAGE_SOURCES = ("ghcr.io/smfcoder17/noah-server", "ghcr.io/smfcoder17/noah-launcher", "ghcr.io/smfcoder17/noah-browser",
+                         "nousresearch/hermes-agent", "docker.io/nousresearch/hermes-agent", "caddy", "docker.io/library/caddy")
+REPO_RE = re.compile(r"[a-z0-9]([a-z0-9._-]*[a-z0-9])?((:[0-9]+)?(/[a-z0-9]([a-z0-9._-]*[a-z0-9])?)+)?")  # un port, seulement devant un chemin
+
+
+def image_sources(raw: str | None) -> tuple:
+    """NOAH_IMAGE_SOURCES : des dépôts séparés par des virgules. Vide, ou une seule entrée mal formée : les valeurs par défaut."""
+    items = tuple(s.strip().lower() for s in (raw or "").split(",") if s.strip())
+    if not items or not all(REPO_RE.fullmatch(s) for s in items):
+        return DEFAULT_IMAGE_SOURCES
+    return items
+
+
+def repository(ref: str) -> str:
+    """`caddy:2.10-alpine@sha256:…` → `caddy` : le dépôt seul, sans étiquette ni empreinte."""
+    name = ref.split("@", 1)[0]
+    head, _, last = name.rpartition("/")
+    last = last.split(":", 1)[0]
+    return f"{head}/{last}" if head else last
+
+
+IMAGE_SOURCES = image_sources(os.environ.get("NOAH_IMAGE_SOURCES"))
 STATE = DATA_DIR / "updates.json"
 CHECK_EVERY = 3600
 WINDOW_HOURS = 3
@@ -234,7 +257,7 @@ def verify(raw: bytes, signature: str) -> dict:
     for comp, ref in manifest["images"].items():
         if not isinstance(ref, str) or not re.fullmatch(r"[a-z0-9./_:-]+@sha256:[0-9a-f]{64}", ref):
             raise ValueError(f"image sans empreinte pour {comp}")
-        if not ref.startswith(IMAGE_SOURCES):
+        if repository(ref) not in IMAGE_SOURCES:
             raise ValueError(f"image d'une source inconnue pour {comp}")
     return manifest
 

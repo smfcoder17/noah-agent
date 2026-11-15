@@ -63,12 +63,33 @@ MAX_TRIES = 3  # échecs sans faute de l'image (disque plein, registre…) : au-
 REF = re.compile(r"[a-z0-9./_:-]+@sha256:[0-9a-f]{64}")
 # Dépôts d'où une mise à jour peut tirer une image : une clé de signature volée ne fait pas installer n'importe quelle
 # image (audit 0.3.0, M4). Une copie du projet sous un autre compte pose NOAH_IMAGE_SOURCES.
-SOURCES = tuple(s for s in os.environ.get(
-    "NOAH_IMAGE_SOURCES", "ghcr.io/smfcoder17/,nousresearch/hermes-agent@,docker.io/nousresearch/hermes-agent@,caddy@").split(",") if s)
+# Des dépôts exacts, jamais un espace de noms (relecture 0.3.0, partie 6) ; même liste dans server/noah/updates.py.
+DEFAULT_SOURCES = ("ghcr.io/smfcoder17/noah-server", "ghcr.io/smfcoder17/noah-launcher", "ghcr.io/smfcoder17/noah-browser",
+                   "nousresearch/hermes-agent", "docker.io/nousresearch/hermes-agent", "caddy", "docker.io/library/caddy")
+REPO_RE = re.compile(r"[a-z0-9]([a-z0-9._-]*[a-z0-9])?((:[0-9]+)?(/[a-z0-9]([a-z0-9._-]*[a-z0-9])?)+)?")  # un port, seulement devant un chemin
+
+
+def image_sources(raw: str | None) -> tuple:
+    """NOAH_IMAGE_SOURCES : des dépôts séparés par des virgules. Vide, ou une entrée mal formée : les valeurs par défaut."""
+    items = tuple(s.strip().lower() for s in (raw or "").split(",") if s.strip())
+    if not items or not all(REPO_RE.fullmatch(s) for s in items):
+        return DEFAULT_SOURCES
+    return items
+
+
+def repository(ref: str) -> str:
+    """`caddy:2.10-alpine@sha256:…` → `caddy` : le dépôt seul, sans étiquette ni empreinte."""
+    name = ref.split("@", 1)[0]
+    head, _, last = name.rpartition("/")
+    last = last.split(":", 1)[0]
+    return f"{head}/{last}" if head else last
+
+
+SOURCES = image_sources(os.environ.get("NOAH_IMAGE_SOURCES"))
 
 
 def allowed_ref(ref: str) -> bool:
-    return bool(REF.fullmatch(ref)) and ref.startswith(SOURCES)
+    return bool(REF.fullmatch(ref)) and repository(ref) in SOURCES
 _lock = threading.Lock()
 
 SERVER, CADDY = "noah-server", "noah-caddy"
