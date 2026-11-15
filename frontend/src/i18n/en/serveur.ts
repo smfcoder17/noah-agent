@@ -383,4 +383,5 @@ export default {
   "Veille introuvable": "Watch not found",
   "Une routine à condition a besoin d'une condition. Sans condition, c'est une routine normale.": "A conditional routine needs a condition. Without one, it's a regular routine.",
   "Connecteur inconnu.": "Unknown connector.",
+  "Ouvre Noah Agent sur ton ordinateur et allume cet abonnement dans son menu Abonnements, puis réessaie.": "Open Noah Agent on your computer and turn this subscription on in its Subscriptions menu, then try again.",
 } satisfies Record<string, string>;

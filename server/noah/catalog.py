@@ -232,6 +232,9 @@ async def check_key(provider: str, api_key: str) -> None:
 
 
 async def models_for(provider: str, api_key: str | None, base_url: str | None = None) -> list[dict]:
+    from . import desktop  # desktop passe par relay, qui passe par ce module
+    if provider in desktop.PC_PROVIDERS:  # abonnement par l'ordinateur : les modèles que l'application de bureau annonce
+        return desktop.pc_models(provider)
     if provider in ("mistral", "deepseek"):
         if not api_key:
             return []
@@ -274,6 +277,10 @@ def groups(provider: str, models: list[dict]) -> list[dict]:
     """Groupes recommandés : pour chaque labo et chaque gamme de prix, le modèle le plus récent."""
     if provider == "custom":
         return []
+    if provider == "ordinateur:claude-code":  # sans prix : les trois gammes de Claude Code, quand l'ordinateur les annonce
+        by_id = {m["id"]: m for m in models}
+        return [{"id": gid, "title": title, "hint": hint, "models": [by_id[name]]} for gid, title, hint, _, _ in TIERS
+                for name in [{"fast": "haiku", "balanced": "sonnet", "smart": "opus"}.get(gid)] if name in by_id]
     if provider in ("ollama", "ollama-cloud"):
         cloud = [m for m in models if m.get("cloud")]
         local = [m for m in models if not m.get("cloud")]

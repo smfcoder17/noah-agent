@@ -60,12 +60,27 @@ class Answer:
 
 # --- Où on parle ------------------------------------------------------------------------------------------------------
 
+def _backup() -> dict | None:
+    """Cerveau par un abonnement de l'ordinateur : les petits travaux (juge, titres, réponses à toucher) restent chez le fournisseur
+    de secours, avec sa clé. L'abonnement ne sert que les tours de l'agent, et seulement quand l'ordinateur est là."""
+    from . import desktop
+    return relay.fallback_link() if db.get_setting("provider") in desktop.PC_PROVIDERS else None
+
+
 def _brain() -> str:
-    return db.get_setting("model") or ""
+    backup = _backup()
+    return backup["modele"] if backup else db.get_setting("model") or ""
 
 
 def _credentials() -> tuple[str | None, str | None, str | None]:
     provider = db.get_setting("provider")
+    from . import desktop
+    if provider in desktop.PC_PROVIDERS:
+        backup = _backup()
+        if not backup:
+            return None, None, None
+        from . import providers
+        return backup["fournisseur"], providers.key_of(backup["fournisseur"]), providers.base_of(backup["fournisseur"])
     key = db.get_setting("api_key", secret=True) if db.get_setting("api_key") else None
     return provider, key, db.get_setting("base_url") or None
 

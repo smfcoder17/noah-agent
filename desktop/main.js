@@ -36,8 +36,12 @@ const rights = () => {
   const c = readConfig();
   return { claude: c.abonnement_claude === true, claudeProfil: c.abonnement_claude_outils === "complet" ? "complet" : "fichiers",
     claudeMinutes: Number.isInteger(c.abonnement_claude_minutes) ? Math.min(Math.max(c.abonnement_claude_minutes, 5), 120) : 30,
+    claudeCerveau: c.abonnement_claude_cerveau === true,
     chatgpt: c.abonnement_chatgpt === true, chatgptModele: typeof c.chatgpt_modele === "string" ? c.chatgpt_modele : "" };
 };
+// noah-agent://abonnements/claude (ou /chatgpt), depuis le web ou le téléphone : ouvre l'app, ou la ramène au premier plan, sur cet abonnement.
+const liens = require("./liens");
+let askedSubscription = liens.fromArgv(process.argv);
 actions.configure({ autonomy: autonomy.get, rights });
 // Démarrage avec l'ordinateur : coupé tant que la personne ne l'a pas choisi dans le menu (demarrage.js).
 const startup = require("./demarrage").create(app, readConfig, writeConfig);
@@ -596,12 +600,14 @@ function createWindow() {
   // Liens externes : dans le navigateur de l'utilisateur, jamais dans la fenêtre de Noah.
   page.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/.test(url)) shell.openExternal(url);
+    else openSubscription(liens.subscriptionOf(url)); // noah-agent://abonnements/… cliqué dans l'app : son écran, ici même
     return { action: "deny" };
   });
   const stayHome = (e, url) => {
     if (url.startsWith("data:") || url.startsWith("file:") || sameOrigin(url)) return;
     e.preventDefault();
     if (/^https?:/.test(url)) shell.openExternal(url);
+    else openSubscription(liens.subscriptionOf(url));
   };
   page.webContents.on("will-navigate", stayHome);
   page.webContents.on("will-redirect", stayHome); // une redirection du serveur ne passe pas par will-navigate
@@ -711,13 +717,13 @@ async function chatgptLogin() {
   subscriptionsChanged();
 }
 
-function subscriptionsMenu() {
+function subscriptionsMenu(only) {
   const r = rights();
   const c = claude.status();
   const claudeState = !c.installe ? t("abonnement.claude.absent") : !c.connecte ? t("abonnement.claude.deconnecte")
     : t("abonnement.claude.connecte", { offre: c.offre || "—" });
   const models = chatgpt.models();
-  return { label: t("menu.abonnements"), submenu: [
+  const items = [
     { label: claudeState, enabled: false },
     { label: t("abonnement.claude.permis"), type: "checkbox", checked: r.claude, enabled: c.installe, click: async (item) => {
       if (item.checked && !(await askSystem(t("abonnement.claude.permis"), t("abonnement.claude.avertissement"), t("abonnement.allumer")))) return subscriptionsChanged();
@@ -727,6 +733,11 @@ function subscriptionsMenu() {
     ...[["fichiers", t("abonnement.claude.fichiers")], ["complet", t("abonnement.claude.complet")]].map(([value, label]) => ({
       label, type: "radio", checked: r.claudeProfil === value, click: () => { writeConfig({ abonnement_claude_outils: value }); subscriptionsChanged(); },
     })),
+    { label: t("abonnement.claude.cerveau"), type: "checkbox", checked: r.claudeCerveau, enabled: c.connecte, click: async (item) => {
+      if (item.checked && !(await askSystem(t("abonnement.claude.cerveau"), t("abonnement.claude.cerveau_avertissement"), t("abonnement.allumer")))) return subscriptionsChanged();
+      writeConfig({ abonnement_claude_cerveau: item.checked });
+      subscriptionsChanged();
+    } },
     { label: t("abonnement.claude.arreter"), enabled: c.occupe, click: () => { claude.stopAll("annule"); } },
     { label: t("abonnement.claude.verifier"), click: detectClaude },
     { type: "separator" },
@@ -738,7 +749,21 @@ function subscriptionsMenu() {
     ...(models.length ? [{ label: t("abonnement.chatgpt.modele"), submenu: models.map((m) => ({
       label: m.nom, type: "radio", checked: (r.chatgptModele || models[0].slug) === m.slug, click: () => { writeConfig({ chatgpt_modele: m.slug }); subscriptionsChanged(); },
     })) }] : []),
-  ] };
+  ];
+  // Un seul abonnement (lien noah-agent://) : sa partie du menu, avant ou après le séparateur.
+  const cut = items.findIndex((i) => i.type === "separator");
+  const shown = only === "claude" ? items.slice(0, cut) : only === "chatgpt" ? items.slice(cut + 1) : items;
+  return { label: t("menu.abonnements"), submenu: shown };
+}
+
+/** L'écran d'un abonnement : la fenêtre au premier plan, et le menu de cet abonnement ouvert dessus (connexion, droits, modèle). */
+function openSubscription(page) {
+  if (!page || !app.isReady()) return;
+  show();
+  setTimeout(() => {
+    if (!win || win.isDestroyed()) return;
+    Menu.buildFromTemplate(subscriptionsMenu(page).submenu).popup({ window: win });
+  }, 400);
 }
 
 function trayMenu() {
@@ -929,11 +954,21 @@ ipcMain.handle("noah:open-path", async (e, p) => {
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on("second-instance", show); // aussi au retour d'une connexion : noah://connexion, proposé par le navigateur
-  app.setAsDefaultProtocolClient("noah");
-  app.on("open-url", (e) => { // macOS : le retour d'une connexion arrive ainsi
-    e.preventDefault();
+  // Aussi au retour d'une connexion (noah://connexion, proposé par le navigateur) et pour noah-agent://abonnements/… : la seconde
+  // instance s'arrête aussitôt, et celle-ci passe au premier plan sur ce que le lien demande.
+  app.on("second-instance", (_e, argv) => {
     show();
+    openSubscription(liens.fromArgv(argv));
+  });
+  app.setAsDefaultProtocolClient("noah");
+  // En développement (electron .), Windows doit relancer electron avec le dossier de l'app pour ouvrir le lien.
+  if (process.defaultApp && process.argv[1]) app.setAsDefaultProtocolClient(liens.SCHEME, process.execPath, [path.resolve(process.argv[1])]);
+  else app.setAsDefaultProtocolClient(liens.SCHEME);
+  app.on("open-url", (e, url) => { // macOS : le retour d'une connexion et les liens noah-agent:// arrivent ainsi
+    e.preventDefault();
+    if (!app.isReady()) { askedSubscription = liens.subscriptionOf(url) || askedSubscription; return; }
+    show();
+    openSubscription(liens.subscriptionOf(url));
   });
   // Sous Windows, le nom sur les notifications et le groupe dans la barre des tâches (sinon « electron.app.Noah Agent »).
   app.setAppUserModelId("agent.noah.desktop");
@@ -957,7 +992,7 @@ if (!app.requestSingleInstanceLock()) {
     // Le jeton ChatGPT : chiffré par le système, dans son propre fichier. Claude Code : son état, demandé à la CLI toutes les 10 minutes.
     chatgpt.configure({ storage: chatgpt.sealedFile(path.join(app.getPath("userData"), "chatgpt.bin"), safeStorage) });
     chatgpt.refreshCatalog().then(subscriptionsChanged, () => {});
-    detectClaude();
+    detectClaude().then(() => openSubscription(askedSubscription));
     setInterval(detectClaude, 10 * 60 * 1000);
     setInterval(() => chatgpt.refreshCatalog().catch(() => {}), 60 * 60 * 1000);
   });

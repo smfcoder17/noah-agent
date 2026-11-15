@@ -9,13 +9,14 @@ import { ProviderLogo } from "./ProviderLogo";
 import { Button, ErrorText, Input } from "./ui";
 import { locale, t } from "@/i18n";
 
-type Priced = { free?: boolean; price_in?: number | null; price_out?: number | null; prix?: string | null };
+type Priced = { free?: boolean; price_in?: number | null; price_out?: number | null; prix?: string | null; abonnement?: boolean };
 
 // Coût d'une tâche type : ~20 000 jetons lus, ~2 000 écrits.
 export const taskCost = (m: Priced) =>
   m.free ? 0 : m.price_in == null ? null : (m.price_in * 20000 + (m.price_out ?? m.price_in) * 2000) / 1e6;
 /** `short` : sans « par tâche », pour la colonne étroite d'une liste. */
 export const costLabel = (m: Priced, short = false) => {
+  if (m.abonnement) return t("Compris dans l'abonnement"); // 0 $ connu, jamais « prix inconnu »
   if (m.prix) return short ? m.prix.replace(/ par tâche$/, "") : m.prix; // i18n-ignore : libellé de prix venu du serveur
   const c = taskCost(m);
   if (c === 0) return t("Gratuit");

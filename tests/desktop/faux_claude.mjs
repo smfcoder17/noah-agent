@@ -1,7 +1,7 @@
 // Faux binaire `claude` pour les tests : mêmes formes de sortie que la CLI (auth status --json, -p --output-format stream-json).
 // Il écrit vraiment dans son dossier de travail, et note ses arguments dans FAUX_CLAUDE_TRACE.
 //   « LENT » dans la consigne : il travaille longtemps (arrêt, délai) ; « LIMITE » : la limite de l'abonnement est atteinte.
-import { appendFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const args = process.argv.slice(2);
@@ -16,9 +16,39 @@ if (args[0] === "auth" && args[1] === "status") {
   process.exit(0);
 }
 
+// Tour du cerveau (--system-prompt-file) : mêmes formes que la vraie CLI avec --json-schema (structured_output dans le résultat).
+//   « OUTIL_TERMINAL » : demande l'outil terminal, puis répond quand son résultat est dans la conversation ;
+//   « ILLISIBLE » : une première réponse qui n'est pas du JSON, valide à la relance ; « TOUJOURS_ILLISIBLE » : jamais valide ;
+//   « OUTIL_INCONNU » : un outil qui n'existe pas ; « LENT » : ne répond jamais (arrêt) ; « LIMITE » : limite atteinte.
+const brain = async (prompt) => {
+  const at = (flag) => (args.includes(flag) ? args[args.indexOf(flag) + 1] : undefined);
+  const model = at("--model");
+  const schema = at("--json-schema");
+  const system = readFileSync(at("--system-prompt-file"), "utf8");
+  trace({ args, prompt, system, cwd: process.cwd(), cerveau: true });
+  const usage = { input_tokens: 100, cache_read_input_tokens: 20, cache_creation_input_tokens: 0, output_tokens: 7 };
+  const done = (fields) => { say({ type: "result", subtype: "success", is_error: false, session_id: "s-cerveau", num_turns: 1, total_cost_usd: 0.01, duration_ms: 50, usage, ...fields }); process.exit(0); };
+  say({ type: "system", subtype: "init", session_id: "s-cerveau", tools: [], model });
+  if (prompt.includes("LENT")) await new Promise(() => setInterval(() => {}, 1000));
+  if (prompt.includes("LIMITE")) {
+    say({ type: "result", subtype: "error_during_execution", is_error: true, result: "Claude usage limit reached. Your limit will reset at 5pm.", usage });
+    process.exit(1);
+  }
+  if (!schema) return done({ result: `réponse de Claude Code (${model})` });
+  const retried = prompt.includes("a été refusée");
+  if (prompt.includes("TOUJOURS_ILLISIBLE") || (prompt.includes("ILLISIBLE") && !retried)) return done({ result: "Voici ma réponse, sans JSON." });
+  if (prompt.includes("OUTIL_INCONNU")) return done({ result: "", structured_output: { texte: "", appels: [{ nom: "rm_rf", arguments: {} }] } });
+  if (prompt.includes("OUTIL_TERMINAL") && !prompt.includes("<<résultat de l'outil")) {
+    return done({ result: "", structured_output: { texte: "Je regarde.", appels: [{ nom: "terminal", arguments: { command: "echo bonjour" } }] } });
+  }
+  const result = prompt.match(/<<résultat de l'outil[^>]*>>\n([^\n]*)/)?.[1];
+  return done({ result: "", structured_output: { texte: result ? `Fini : ${result}` : `réponse de Claude Code (${model})`, appels: [] } });
+};
+
 let prompt = "";
 process.stdin.on("data", (c) => (prompt += c));
 process.stdin.on("end", async () => {
+  if (args.includes("--system-prompt-file")) return brain(prompt);
   trace({ args, prompt, cwd: process.cwd() });
   const session = "sess-1234";
   say({ type: "system", subtype: "init", session_id: session, cwd: process.cwd(), tools: [] });

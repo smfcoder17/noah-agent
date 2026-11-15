@@ -79,6 +79,15 @@ try {
     assert.ok(!("temperature" in sent) && !("max_tokens" in sent));
   });
 
+  await step("A6 : les modèles du compte vont au battement ; le modèle choisi dans la liste des fournisseurs part chez OpenAI", async () => {
+    assert.deepEqual(actions.subscriptions().chatgpt.modeles, ["gpt-essai"]);
+    const out = await actions.perform({ id: `c-${Math.random()}`, agent: "Nadine", action: "chatgpt", modele: "gpt-choisi",
+      requete: { messages: [{ role: "user", content: "Bonjour" }] } }, {});
+    assert.equal(out.ok, true, JSON.stringify(out));
+    assert.equal(openai.state.seen.at(-1).model, "gpt-choisi");
+    assert.equal(out.reponse.choices[0].message.content, "réponse du forfait (gpt-choisi)");
+  });
+
   await step("outils : passés par additional_tools ; l'appel revient en tool_calls ; le résultat repart en function_call_output", async () => {
     const tools = [{ type: "function", function: { name: "lire", description: "Lit un fichier", parameters: { type: "object", properties: { chemin: { type: "string" } } } } }];
     let out = await turn({ messages: [{ role: "user", content: "Lis notes.txt" }], tools });

@@ -4,6 +4,9 @@
 //      (il lit le fichier produit) ; une tâche longue rend « en_cours » et s'arrête sur demande.
 //   2. Un tour du cerveau de l'agent passe par le forfait ChatGPT de l'ordinateur ; forfait épuisé ou ordinateur déconnecté,
 //      le fournisseur habituel répond à sa place.
+//   3. (0.3.0, lot A) « Claude Code (ton ordinateur) » choisi comme fournisseur par l'API de l'écran : un tour du cerveau passe
+//      par claude -p sur l'ordinateur, l'appel d'outil revient en tool_calls, l'outil est exécuté, la réponse finale arrive ;
+//      ordinateur déconnecté, le cerveau d'avant (le secours) répond.
 //   node tests/desktop/abonnements_reel.mjs
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -64,6 +67,16 @@ req = urllib.request.Request("http://127.0.0.1:8080/relay/v1/chat/completions", 
                              headers={"Authorization": "Bearer %s", "Content-Type": "application/json"})
 print(json.dumps(json.load(urllib.request.urlopen(req, timeout=300))))
 ''' % relay.token_for("a1"))
+# Un tour avec outils, comme Hermes : le corps Chat Completions entier en argument.
+open("/tmp/tour.py", "w", encoding="utf8").write('''import json, sys, urllib.request
+req = urllib.request.Request("http://127.0.0.1:8080/relay/v1/chat/completions", method="POST", data=sys.argv[1].encode(),
+                             headers={"Authorization": "Bearer %s", "Content-Type": "application/json"})
+print(json.dumps(json.load(urllib.request.urlopen(req, timeout=300))))
+''' % relay.token_for("a1"))
+open("/tmp/suivi.py", "w", encoding="utf8").write('''import json, sqlite3
+c = sqlite3.connect("/tmp/noah-data/noah.db")
+print(json.dumps([list(r) for r in c.execute("SELECT model, cost, prompt_tokens, completion_tokens FROM usage ORDER BY id DESC LIMIT 3")]))
+''')
 json.dump({"token": token, "appareil": auth.device_id(auth.digest(token))}, open("/tmp/ready.json", "w"))
 import uvicorn
 uvicorn.run(main.app, host="0.0.0.0", port=8080, log_level="warning")
@@ -151,7 +164,7 @@ if (!ready) {
   const config = {};
   chatgpt.configure({ issuer: openai.origin, api: `${openai.origin}/v1`, storage: { read: () => sealed && JSON.parse(sealed), write: (d) => { sealed = d ? JSON.stringify(d) : null; } } });
   await chatgpt.login({ open: (url) => openai.browser(url), read: () => config, write: (p) => Object.assign(config, p), port: 0 });
-  actions.configure({ autonomy: () => "auto", rights: () => ({ claude: true, claudeProfil: "fichiers", claudeMinutes: 30, chatgpt: true, chatgptModele: "" }) });
+  actions.configure({ autonomy: () => "auto", rights: () => ({ claude: true, claudeProfil: "fichiers", claudeMinutes: 30, claudeCerveau: true, chatgpt: true, chatgptModele: "" }) });
   const store = dossiers.createStore(join(base, "profil", "dossiers.json"));
   const confie = store.add(projet);
   store.setWrite(confie.id, true);
@@ -197,6 +210,29 @@ if (!ready) {
   out = await brain("LIMITE");
   check("forfait épuisé : le fournisseur habituel répond sans erreur", out.choices?.[0]?.message?.content === "réponse du fournisseur habituel", JSON.stringify(out));
 
+  // 3 bis. Claude Code choisi comme fournisseur, comme dans Réglages > Modèles : le tour part vers claude -p sur l'ordinateur.
+  const api = (path, method, body) => fetch(`${ORIGIN}${path}`, { method, headers: { Authorization: `Bearer ${ready.token}`, "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined }).then(async (r) => ({ status: r.status, data: await r.json().catch(() => null) }));
+  const listed = (await api("/api/fournisseurs", "GET")).data?.find((p) => p.id === "ordinateur:claude-code");
+  check("Claude Code (ton ordinateur) est listé, ordinateur prêt", listed?.ordinateur === true && listed.pret === true, JSON.stringify(listed));
+  const plugged = await api("/api/fournisseurs/ordinateur:claude-code", "PUT", {});
+  const chosen = await api("/api/model", "POST", { provider: "ordinateur:claude-code", model: "sonnet" });
+  check("branché sans clé (3 modèles), puis choisi comme cerveau (sonnet)", plugged.data?.models === 3 && chosen.status === 200, JSON.stringify([plugged, chosen]));
+  const TOOLS = [{ type: "function", function: { name: "terminal", description: "Lance une commande", parameters: { type: "object", properties: { command: { type: "string" } }, required: ["command"] } } }];
+  const asked = [{ role: "system", content: "Tu es Nadine." }, { role: "user", content: "OUTIL_TERMINAL : dis bonjour par le terminal" }];
+  out = await run("/tmp/tour.py", JSON.stringify({ model: "sonnet", messages: asked, tools: TOOLS }));
+  const call = out.choices?.[0]?.message?.tool_calls?.[0];
+  check("le cerveau par Claude Code demande l'outil : tool_calls OpenAI valides", out.choices?.[0]?.finish_reason === "tool_calls" && call?.function?.name === "terminal"
+    && JSON.parse(call.function.arguments).command === "echo bonjour", JSON.stringify(out));
+  // Hermes exécute l'outil sur la machine de l'agent, puis rend son résultat au cerveau.
+  const ran = docker("exec", NAME, "sh", "-c", call ? JSON.parse(call.function.arguments).command : "false").stdout.trim();
+  out = await run("/tmp/tour.py", JSON.stringify({ model: "sonnet", tools: TOOLS, messages: [...asked, { role: "assistant", content: out.choices[0].message.content, tool_calls: [call] },
+    { role: "tool", tool_call_id: call?.id, content: ran }] }));
+  check("l'outil exécuté, la réponse finale arrive par Claude Code", ran === "bonjour" && out.choices?.[0]?.message?.content === "Fini : bonjour", JSON.stringify(out));
+  const suivi = await run("/tmp/suivi.py");
+  check("suivi : « Claude Code · sonnet · abonnement », 0 $, jetons rapportés par la CLI", Array.isArray(suivi) && suivi[0][0] === "Claude Code · sonnet · abonnement"
+    && suivi[0][1] === 0 && suivi[0][2] === 120 && suivi[0][3] === 7, JSON.stringify(suivi));
+
   // 4. Ordinateur déconnecté : le fournisseur habituel, sans erreur visible.
   listening.stop();
   let horsLigne = false;
@@ -206,7 +242,7 @@ if (!ready) {
   }
   const avant = openai.state.seen.length;
   out = await brain("Encore bonjour");
-  check("ordinateur déconnecté : le fournisseur habituel répond", horsLigne && out.choices?.[0]?.message?.content === "réponse du fournisseur habituel", JSON.stringify(out));
+  check("ordinateur déconnecté : le fournisseur habituel (le secours de Claude Code) répond", horsLigne && out.choices?.[0]?.message?.content === "réponse du fournisseur habituel", JSON.stringify(out));
   check("et rien n'est parti vers OpenAI", openai.state.seen.length === avant);
   out = await agent("ordinateur", "confier", "Résume encore.", "--dossier", "Projet");
   check("ordinateur déconnecté : confier le dit à l'agent, qui fait la tâche lui-même", /toi-même/.test(out.erreur ?? ""), JSON.stringify(out));

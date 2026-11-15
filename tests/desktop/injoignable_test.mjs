@@ -84,7 +84,7 @@ try {
     "./bandeau": { create() {} }, "./autonomie": require("../../desktop/autonomie.js"),
     "./config": require("../../desktop/config.js"), "./demarrage": require("../../desktop/demarrage.js"),
     "./permissions": require("../../desktop/permissions.js"), "./textes": require("../../desktop/textes.js"),
-    "./claude": require("../../desktop/claude.js"), "./chatgpt": require("../../desktop/chatgpt.js"),
+    "./claude": require("../../desktop/claude.js"), "./chatgpt": require("../../desktop/chatgpt.js"), "./liens": require("../../desktop/liens.js"),
   };
   modules["./textes"].choisir("fr");
   runInNewContext(`${readFileSync(mainPath, "utf8")}\ncreateWindow();`, {
