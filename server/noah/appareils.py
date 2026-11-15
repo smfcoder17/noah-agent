@@ -134,11 +134,20 @@ def pending(request: Request, user: int = Depends(auth.current_user)):
     me = _session_of(request)
     now = datetime.now(timezone.utc).isoformat()
     with db.connect() as c:
+        # La fenêtre de l'app de bureau a sa propre session, fille de celle de l'appareil : c'est l'appareil qui compte.
+        parent = c.execute("SELECT parent FROM window_sessions WHERE token = ?", (me,)).fetchone()
+        device = parent["parent"] if parent else me
+        mine = c.execute("SELECT created_at FROM sessions WHERE token = ?", (device,)).fetchone()
+        # « avant_moi » : née avant que cet appareil soit relié. La personne est devant lui, elle vient de se connecter :
+        # l'écran ne lui saute pas au visage (il reste pour les appareils plus anciens, et en notification), mais
+        # l'alerte reste là pour qu'un appareil récent puisse encore trancher quand plus aucun n'est au-dessus de tout soupçon.
+        born = (mine["created_at"] if mine else "") or ""
         rows = c.execute("SELECT a.* FROM alertes_appareils a JOIN sessions s ON s.token = a.session "
-                         "WHERE a.user_id = ? AND a.tranche = 0 AND a.session != ? AND s.expires_at > ? ORDER BY a.cree",
-                         (user, me, now)).fetchall()
+                         "WHERE a.user_id = ? AND a.tranche = 0 AND a.session NOT IN (?, ?) AND s.expires_at > ? ORDER BY a.cree",
+                         (user, me, device, now)).fetchall()
         return {"alertes": [{"id": r["id"], "nom": r["nom"], "type": r["type"], "ip": r["ip"], "reseau_connu": bool(r["reseau_connu"]),
-                             "date": r["cree"], "peut_confirmer": _may_confirm(c, user, me, r["session"])} for r in rows]}
+                             "date": r["cree"], "peut_confirmer": _may_confirm(c, user, me, r["session"]),
+                             "avant_moi": bool(born) and r["cree"] <= born} for r in rows]}
 
 
 def _alert(c, user: int, alert_id: str, me: str):

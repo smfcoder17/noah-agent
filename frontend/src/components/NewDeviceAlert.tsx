@@ -7,7 +7,7 @@ import { get, send } from "@/lib/api";
 import { useProof } from "./Proof";
 import { Button, ErrorText } from "./ui";
 
-type Alert = { id: string; nom: string; type: string; ip: string; reseau_connu: boolean; date: string; peut_confirmer: boolean };
+type Alert = { id: string; nom: string; type: string; ip: string; reseau_connu: boolean; date: string; peut_confirmer: boolean; avant_moi?: boolean };
 
 const when = (iso: string) => new Date(iso).toLocaleString(locale(), { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
@@ -49,7 +49,8 @@ export function NewDeviceAlert({ onChangePassword }: { onChangePassword: () => v
     load();
   };
 
-  const device = alerts.find((a) => !closed.includes(a.id));
+  // Une alerte née avant que cet appareil soit relié ne lui saute pas au visage : la personne vient de se connecter ici.
+  const device = alerts.find((a) => !closed.includes(a.id) && !a.avant_moi);
   if (!device && !cut) return null;
   return (
     <div className="fixed inset-0 z-40 grid place-items-center overflow-y-auto bg-black/45 p-3">

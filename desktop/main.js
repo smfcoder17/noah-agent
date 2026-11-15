@@ -841,8 +841,16 @@ ipcMain.handle("noah:langue", () => langue());
 
 // Page de Noah (app reliée à un serveur) : appareil déconnecté côté serveur, l'utilisateur le relie de nouveau.
 ipcMain.handle("noah:forget-server", async (e) => {
-  if (!origin || !sameOrigin(e.senderFrame.url)) return;
-  await forgetServer(); // en mode local aussi : l'écran « Relier de nouveau » doit toujours mener quelque part
+  if (origin && !sameOrigin(e.senderFrame.url)) return;
+  await forgetServer().catch(() => {}); // en mode local aussi : l'écran « Relier de nouveau » doit toujours mener quelque part
+  // Quoi qu'il arrive à l'oubli (session illisible, adresse déjà oubliée, révocation en échec), on finit sur l'écran
+  // d'accueil : jamais une app bloquée sur « Cet appareil n'est plus relié ».
+  if (!page.webContents.getURL().endsWith("setup.html")) {
+    writeConfig({ mode: null, server: null, jeton: null });
+    origin = "";
+    show();
+    await page.webContents.loadFile(path.join(__dirname, "setup.html"));
+  }
 });
 ipcMain.handle("noah:dossiers", (e) => (origin && sameOrigin(e.senderFrame.url) ? foldersState() : null));
 ipcMain.handle("noah:dossier-ajouter", async (e) => {

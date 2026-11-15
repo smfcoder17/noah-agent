@@ -800,6 +800,7 @@ check(len(seen) == 1 and seen[0]["ip"] == "203.0.113.7" and seen[0]["reseau_conn
 check(pending(newcomer) == [], "l'appareil lui-même n'est pas signalé")
 second_look = bearer(device(franck, "Tablette neuve"))
 check([a["id"] for a in pending(second_look)] == [seen[0]["id"]], "un appareil qui n'a jamais rien vu voit aussi l'alerte : l'état est côté serveur")
+check(seen[0]["avant_moi"] is False and pending(second_look)[0]["avant_moi"] is True, "mais sans écran qui saute au visage : elle est née avant lui, la personne vient de le relier")
 check(pending(bearer(device(nina))) == [], "profil isolé : un autre compte ne la voit pas")
 check(bearer(device(nina)).post(f"/api/me/alertes-appareils/{seen[0]['id']}/pas-moi").status_code == 404 and newcomer.get("/api/me").status_code == 200, "ni ne la tranche")
 check(newcomer.post(f"/api/me/alertes-appareils/{seen[0]['id']}/moi").status_code == 404, "l'appareil signalé ne se confirme pas lui-même")
