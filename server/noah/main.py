@@ -1556,7 +1556,9 @@ def usage(user: int = Depends(auth.current_user)):
         # Des jetons sans coût : le plafond ne les a pas comptés. Un modèle gratuit le dit dans son nom. Le propriétaire règle le budget de tout le serveur.
         unpriced = c.execute(
             "SELECT 1 FROM usage u LEFT JOIN conversations v ON v.id = u.conversation_id "
-            f"WHERE u.created_at >= :start AND {'1 = 1' if installation else seen} AND u.cost = 0 AND u.prompt_tokens + u.completion_tokens > 0 AND u.model NOT LIKE '%:free' LIMIT 1",
+            f"WHERE u.created_at >= :start AND {'1 = 1' if installation else seen} AND u.cost = 0 AND u.prompt_tokens + u.completion_tokens > 0 AND u.model NOT LIKE '%:free' "
+            # Compris dans un abonnement (Claude Code, ChatGPT par l'ordinateur) : 0 $ connu, pas un prix inconnu.
+            "AND u.model NOT LIKE '% · abonnement' AND u.model NOT LIKE 'forfait ChatGPT%' LIMIT 1",
             {"start": relay.month_start(), "me": user},
         ).fetchone()
     ids = [a["id"] for a in _agents() if access.right(user, a["id"]) == "proprietaire"]
@@ -1764,6 +1766,9 @@ async def set_model(body: ModelChoice, tasks: BackgroundTasks, user: int = Depen
         await _refuse_bad_key(body.provider, body.api_key)
     if previous and previous["provider"] != body.provider:
         _clear_agent_models()  # les modèles propres à un agent n'existent pas chez le nouveau fournisseur
+    if body.provider in desktop.PC_PROVIDERS and previous and previous["provider"] not in desktop.PC_PROVIDERS and previous["model"]:
+        # Le cerveau d'avant devient le secours : il répond quand l'ordinateur est éteint, et pour un agent partagé.
+        db.set_setting(relay.SECOURS, json.dumps({"modele": previous["model"], "fournisseur": previous["provider"]}))
     # La création et la voix passent par OpenRouter : sa clé reste pour elles quand le cerveau change de fournisseur.
     if previous and previous["provider"] == "openrouter" and previous["api_key"]:
         db.set_setting("media_api_key", previous["api_key"], secret=True)
@@ -3067,6 +3072,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
 
     async def body():
         relay.turn_model.pop(conv_id, None)  # le modèle de ce tour, pas celui du précédent
+        relay.turn_notes.pop(conv_id, None)  # « ton ordinateur est éteint » ne vaut que pour le tour qui l'a vécu
         yield _sse({"type": "start", "conversation_id": conv_id, "run_id": run_id})
         reply: list[str] = []  # ce que l'agent écrit depuis son dernier outil : sa réponse s'il n'en lance plus
         steps: list[str] = []  # ce qu'il a écrit avant un outil : le récit de son travail, rangé à part
@@ -3149,6 +3155,8 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
                         # L'écran finit sur ce que la conversation garde : un texte coupé par des détails ou rangé trop tôt se répare ici.
                         settled, left = _final_answer(reply, steps, kept, out.get("output") or "", True)
                         out = {**out, "reponse": settled, "etapes": left, "recu": recu.of_turn(conv_id, settled, ledger)}
+                        if relay.turn_notes.get(conv_id) and settled:  # le secours a répondu à la place de l'ordinateur : une ligne le dit
+                            out["reponse"] = f"_{relay.turn_notes[conv_id]}_\n\n{settled}"
                     if relay.turn_model.get(conv_id):  # l'écran marque la réponse sans attendre de relire la conversation
                         out = {**out, "model": relay.turn_model[conv_id]}
                 yield _sse(out)
@@ -3186,8 +3194,9 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
                 c.execute("DELETE FROM settings WHERE key = ?", (f"tour_ouvert:{conv_id}",))
         _model_replied(final, text, rev)
         receipt = recu.of_turn(conv_id, text, ledger) if succeeded and text else None
+        pc_note = relay.turn_notes.pop(conv_id, None)  # le secours a répondu à la place de l'ordinateur : la conversation garde la ligne
         if text:
-            _save_message(conv_id, "agent", text, recu.detail_of(steps, receipt), relay.turn_model.pop(conv_id, None))
+            _save_message(conv_id, "agent", f"_{pc_note}_\n\n{text}" if pc_note else text, recu.detail_of(steps, receipt), relay.turn_model.pop(conv_id, None))
             note = recu.note_for_agent(receipt)
             if note:
                 machine.add_context(conv_id, note)

@@ -47,7 +47,7 @@
       "icon": "icon.png",
       "signAndEditExecutable": false
     },
-    "protocols": [{ "name": "Noah Agent", "schemes": ["noah"] }],
+    "protocols": [{ "name": "Noah Agent", "schemes": ["noah", "noah-agent"] }],
     "mac": {
       "target": "dmg",
       "icon": "icon.png"

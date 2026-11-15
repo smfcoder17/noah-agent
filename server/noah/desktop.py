@@ -9,6 +9,7 @@ Les droits sur les dossiers vivent sur l'ordinateur (desktop/dossiers.js) : le s
 """
 import asyncio
 import hashlib
+import json
 import os
 import re
 import time
@@ -495,7 +496,9 @@ async def beat(body: Beat, request: Request, noah_session: str | None = Cookie(N
     """La présence, à part de l'attente longue : une fenêtre d'accord ouverte ne fait pas croire l'application fermée."""
     device = _device(request, noah_session)
     shown = [{"id": str(d.get("id", ""))[:40], "nom": str(d.get("nom", ""))[:120], "ecriture": bool(d.get("ecriture")), "absent": bool(d.get("absent"))} for d in body.dossiers]
-    _touch(device, user, os=body.os, bat=True, dossiers=shown, coupe=body.coupe, abonnements=_subscriptions(body.abonnements))
+    brains = _brains(body.abonnements)
+    _touch(device, user, os=body.os, bat=True, dossiers=shown, coupe=body.coupe, abonnements=_subscriptions(body.abonnements), cerveaux=brains)
+    _remember_models(user, brains)
     # Le compte sous une forme qui ne dit rien : l'application efface ses droits si elle change de compte.
     return {"compte": hashlib.sha256(f"noah-compte:{user}".encode()).hexdigest()[:16]}
 
@@ -811,6 +814,95 @@ async def chatgpt_call(link: dict, agent_id: str, body: dict) -> tuple[int, dict
     request = {k: v for k, v in body.items() if k not in ("model", "stream", "stream_options")}
     try:
         out = await _ask(link["appareil"], link["user"], {"agent": _agent_name(agent_id), "action": "chatgpt", "requete": request}, CHATGPT_WAIT)
+    except asyncio.TimeoutError:
+        return 504, {"erreur": "L'ordinateur n'a pas répondu à temps."}
+    except Gone:
+        return 503, {"erreur": GONE}
+    if isinstance(out, dict) and out.get("ok") and isinstance(out.get("reponse"), dict):
+        return 200, out
+    status = out.get("statut") if isinstance(out, dict) and isinstance(out.get("statut"), int) and 400 <= out["statut"] < 600 else 502
+    return status, out if isinstance(out, dict) else {}
+
+
+# --- Abonnements choisis comme fournisseurs : « Claude Code (ton ordinateur) », « ChatGPT (ton ordinateur) » ------------------
+# Choisis dans la liste des fournisseurs comme les autres. Le relais envoie le tour à un ordinateur du propriétaire de l'agent, en ligne,
+# où la personne l'a permis ; l'ordinateur le passe à son `claude -p` ou à son forfait ChatGPT et rend une réponse Chat Completions.
+# Jamais pour un agent partagé ni pour la tâche d'un invité (_gatekept) : un abonnement ne se partage pas.
+
+PC_PROVIDERS = {"ordinateur:claude-code": "claude", "ordinateur:chatgpt": "chatgpt"}
+PC_ACTION = {"ordinateur:claude-code": "claude_cerveau", "ordinateur:chatgpt": "chatgpt"}
+PC_NAME = {"ordinateur:claude-code": "Claude Code", "ordinateur:chatgpt": "ChatGPT"}
+PC_WAIT = {"ordinateur:claude-code": 660, "ordinateur:chatgpt": CHATGPT_WAIT}  # 10 min par tour sur l'ordinateur, et la file
+_MODEL_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,79}")
+INCLUDED = "compris dans l'abonnement"
+
+
+def _brains(raw: dict) -> dict:
+    """Ce que l'ordinateur permet comme cerveau : un drapeau et des noms de modèles, rien d'autre."""
+    c = raw.get("claude") if isinstance(raw.get("claude"), dict) else {}
+    g = raw.get("chatgpt") if isinstance(raw.get("chatgpt"), dict) else {}
+
+    def names(value) -> list[str]:
+        return [m for m in value if isinstance(m, str) and _MODEL_NAME.fullmatch(m)][:40] if isinstance(value, list) else []
+
+    return {"ordinateur:claude-code": {"pret": c.get("connecte") is True and c.get("cerveau") is True, "modeles": names(c.get("modeles"))},
+            "ordinateur:chatgpt": {"pret": g.get("connecte") is True and g.get("permis") is True, "modeles": names(g.get("modeles"))}}
+
+
+def _remember_models(user: int, brains: dict) -> None:
+    """La liste des modèles reste lisible ordinateur éteint : la dernière vue, par compte."""
+    for provider, state in brains.items():
+        if state["modeles"]:
+            key = f"pc_modeles:{user}:{provider}"
+            value = json.dumps(state["modeles"])
+            if db.get_setting(key) != value:
+                db.set_setting(key, value)
+
+
+def pc_models(provider: str, user: int | None = None) -> list[dict]:
+    """Les modèles que l'ordinateur annonce pour cet abonnement, comme ceux des autres fournisseurs, avec « compris dans l'abonnement »."""
+    user = user or db.owner_id()
+    try:
+        names = json.loads(db.get_setting(f"pc_modeles:{user}:{provider}") or "[]")
+    except ValueError:
+        names = []
+    lab = "anthropic" if provider == "ordinateur:claude-code" else "openai"
+    return [{"id": m, "name": f"{PC_NAME[provider]} · {m}", "lab": lab, "created": 0, "context": 200000 if lab == "anthropic" else 0,
+             "price_in": None, "price_out": None, "tools": True, "vision": False, "free": False, "prix": INCLUDED, "abonnement": True}
+            for m in names if isinstance(m, str) and _MODEL_NAME.fullmatch(m)]
+
+
+def pc_link(agent_id: str, provider: str) -> dict | None:
+    """Un ordinateur du propriétaire de l'agent, en ligne, accès non coupé, où cet abonnement est connecté et permis comme cerveau.
+    None : agent partagé, tâche d'un invité, ordinateur éteint ou abonnement coupé, et le relais passe au fournisseur de secours."""
+    if provider not in PC_PROVIDERS or _gatekept(agent_id):
+        return None
+    owner = access.owner_of(agent_id)
+    for device, seen in list(_seen.items()):
+        if seen.get("user") != owner or not _online(device) or seen.get("coupe"):
+            continue
+        if ((seen.get("cerveaux") or {}).get(provider) or {}).get("pret"):
+            return {"fournisseur": provider, "appareil": device, "user": owner}
+    return None
+
+
+def pc_ready(provider: str, user: int) -> bool:
+    """Un ordinateur de ce compte est en ligne avec cet abonnement prêt : l'écran le dit à côté du fournisseur."""
+    return any(s.get("user") == user and _online(d) and not s.get("coupe") and ((s.get("cerveaux") or {}).get(provider) or {}).get("pret")
+               for d, s in list(_seen.items()))
+
+
+def usage_name(provider: str, model: str) -> str:
+    """Le nom de l'appel dans le suivi et l'Activité : « Claude Code · sonnet · abonnement »."""
+    return f"{PC_NAME[provider]} · {model} · abonnement"
+
+
+async def pc_call(link: dict, agent_id: str, body: dict, model: str) -> tuple[int, dict]:
+    """Un tour Chat Completions vers l'ordinateur, qui le passe à son abonnement et rend une réponse Chat Completions."""
+    request = {k: v for k, v in body.items() if k not in ("model", "stream", "stream_options")}
+    item = {"agent": _agent_name(agent_id), "action": PC_ACTION[link["fournisseur"]], "requete": request, "modele": model}
+    try:
+        out = await _ask(link["appareil"], link["user"], item, PC_WAIT[link["fournisseur"]])
     except asyncio.TimeoutError:
         return 504, {"erreur": "L'ordinateur n'a pas répondu à temps."}
     except Gone:

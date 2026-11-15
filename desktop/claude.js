@@ -2,6 +2,7 @@
 // Noah ne lit, ne copie et ne relaie jamais ses identifiants : il demande l'état de la connexion à la CLI elle-même
 // (`claude auth status --json`) et n'en garde que trois champs, puis lui confie une tâche entière (`claude -p`) dans un dossier confié.
 const { execFile, spawn } = require("node:child_process");
+const { randomBytes } = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -178,9 +179,221 @@ function run({ consigne, cwd, profile = "fichiers", minutes = 30, onLine = () =>
   });
 }
 
-/** « Couper l'accès » ou fermeture de l'app : la tâche en cours s'arrête. */
-function stopAll(why = "coupe") {
-  current?.stop(why);
+// --- Cerveau d'un agent par Claude Code ---------------------------------------------------------------------------------
+// Un tour du cerveau (Chat Completions, avec les outils de l'agent) passe par `claude -p`, le binaire officiel, connecté par la
+// personne. Les outils propres de Claude Code sont coupés (--tools "") : il ne fait rien sur l'ordinateur, il décide. Les outils de
+// l'agent sont décrits dans la consigne système, et sa décision revient en JSON validé (--json-schema), puis traduite en
+// `tool_calls` OpenAI. Rien n'est lu des identifiants de la personne : la CLI s'en charge.
+
+const BRAIN_MODELS = ["sonnet", "opus", "haiku"]; // les noms complets que --model accepte passent aussi (BRAIN_MODEL)
+const BRAIN_MODEL = /^(sonnet|opus|haiku|fable|claude-[a-z0-9][a-z0-9.-]{0,60})(\[1m\])?$/;
+const BRAIN_MINUTES = 10; // délai d'un tour
+const MAX_PROMPT = 2_000_000; // un contexte plus gros ne part pas
+let brainQueue = Promise.resolve(); // un seul tour à la fois sur cet ordinateur : les autres attendent leur tour
+let brainRunning = null;
+
+const models = () => (last.connecte ? BRAIN_MODELS.map((slug) => ({ slug, nom: `Claude Code · ${slug}` })) : []);
+
+/** Le texte d'un contenu Chat Completions ; une image ne passe pas par l'entrée standard, elle est signalée. */
+function contentText(content) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content.map((p) => (typeof p === "string" ? p : p?.type === "image_url" ? "[image jointe, non transmise à Claude Code]" : typeof p?.text === "string" ? p.text : "")) // i18n-ignore : lu par le modèle
+    .filter(Boolean).join("\n");
 }
 
-module.exports = { configure, locate, detect, status, busy, run, stopAll, argsFor, PROFILES };
+/** Les outils de l'agent (format OpenAI), réduits à ce que le modèle doit savoir : nom, description, paramètres. */
+function toolsOf(body) {
+  return (Array.isArray(body?.tools) ? body.tools : []).filter((t) => t?.type === "function" && /^[\w.-]{1,64}$/.test(String(t.function?.name || "")))
+    .map((t) => ({ name: t.function.name, description: String(t.function.description || ""), parameters: t.function.parameters || { type: "object", properties: {} } }));
+}
+
+/** Schéma de la réponse : un texte, et la liste des outils à lancer maintenant (noms fermés). */
+function brainSchema(tools) {
+  return {
+    type: "object", additionalProperties: false, required: ["texte", "appels"],
+    properties: {
+      texte: { type: "string" },
+      appels: { type: "array", items: { type: "object", additionalProperties: false, required: ["nom", "arguments"],
+        properties: { nom: { type: "string", enum: tools.map((t) => t.name) }, arguments: { type: "object" } } } },
+    },
+  };
+}
+
+/** Consigne système (celle de l'agent, puis les outils et la forme de la réponse) et conversation, en texte. */
+function brainPrompt(body, tools) {
+  const system = [];
+  const lines = [];
+  for (const msg of Array.isArray(body?.messages) ? body.messages : []) {
+    const text = contentText(msg?.content);
+    if (msg?.role === "system" || msg?.role === "developer") { if (text) system.push(text); continue; }
+    if (msg?.role === "user") lines.push(`<<utilisateur>>\n${text}`);
+    else if (msg?.role === "assistant") {
+      if (text) lines.push(`<<toi>>\n${text}`);
+      for (const call of Array.isArray(msg.tool_calls) ? msg.tool_calls : []) {
+        const args = typeof call?.function?.arguments === "string" ? call.function.arguments : JSON.stringify(call?.function?.arguments ?? {});
+        lines.push(`<<toi : appel d'outil ${call?.function?.name} (id ${call?.id})>>\n${args}`);
+      }
+    } else if (msg?.role === "tool") lines.push(`<<résultat de l'outil (id ${msg.tool_call_id})>>\n${text}`); // i18n-ignore : lu par le modèle
+  }
+  const rules = tools.length
+    ? ["# Comment répondre", // i18n-ignore : lu par le modèle
+      "Tu es le cerveau d'un agent Noah. Tu ne lances rien toi-même : tu décides, et Noah exécute les outils ci-dessous puis te rend leur résultat.", // i18n-ignore : lu par le modèle
+      "Réponds toujours par un seul objet JSON : {\"texte\": \"…\", \"appels\": [{\"nom\": \"…\", \"arguments\": {…}}]}.", // i18n-ignore : lu par le modèle
+      "- Pour répondre à la personne : ta réponse dans « texte », « appels » vide.", // i18n-ignore : lu par le modèle
+      "- Pour utiliser des outils : « appels » liste ceux à lancer maintenant, avec des arguments conformes à leurs paramètres ; « texte » peut rester vide.", // i18n-ignore : lu par le modèle
+      "", "# Outils de l'agent", ...tools.map((t) => `## ${t.name}\n${t.description}\nParamètres (JSON Schema) : ${JSON.stringify(t.parameters)}`)] // i18n-ignore : lu par le modèle
+    : [];
+  return {
+    system: [...system, ...(rules.length ? ["", ...rules] : [])].join("\n\n").trim() || "Tu es le cerveau d'un agent Noah.", // i18n-ignore : lu par le modèle
+    conversation: `Conversation jusqu'ici ; réponds au dernier message.\n\n${lines.join("\n\n")}\n`, // i18n-ignore : lu par le modèle
+  };
+}
+
+/** Arguments exacts du tour : aucun outil de Claude Code, aucun réglage, plugin, MCP ni CLAUDE.md de la personne, rien d'enregistré. */
+function brainArgs(model, systemFile, schema) {
+  return ["-p", "--output-format", "stream-json", "--verbose", "--model", model, "--tools", "", "--system-prompt-file", systemFile,
+    ...(schema ? ["--json-schema", JSON.stringify(schema)] : []),
+    "--safe-mode", "--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence"];
+}
+
+/** La décision du modèle, vérifiée : { texte, appels } ou une raison de refus. Sans outils, le texte suffit. */
+function readDecision(final, tools) {
+  if (!tools.length) return { texte: String(final?.result ?? "").trim(), appels: [] };
+  let data = final?.structured_output;
+  if (data === undefined || data === null) {
+    const raw = String(final?.result ?? "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+    try { data = JSON.parse(raw); } catch { return { raison: "la réponse n'est pas un objet JSON" }; } // i18n-ignore : lu par le modèle
+  }
+  if (!data || typeof data !== "object" || Array.isArray(data)) return { raison: "la réponse n'est pas un objet JSON" }; // i18n-ignore : lu par le modèle
+  const texte = typeof data.texte === "string" ? data.texte : "";
+  const appels = Array.isArray(data.appels) ? data.appels : [];
+  const names = new Set(tools.map((t) => t.name));
+  const out = [];
+  for (const call of appels) {
+    let args = call?.arguments;
+    if (typeof args === "string") { try { args = JSON.parse(args); } catch { return { raison: `arguments illisibles pour ${String(call?.nom).slice(0, 60)}` }; } } // i18n-ignore : lu par le modèle
+    if (!names.has(call?.nom)) return { raison: `outil inconnu : ${String(call?.nom).slice(0, 60)}` }; // i18n-ignore : lu par le modèle
+    if (!args || typeof args !== "object" || Array.isArray(args)) return { raison: `arguments de ${call.nom} : un objet est attendu` }; // i18n-ignore : lu par le modèle
+    out.push({ nom: call.nom, arguments: args });
+  }
+  if (!texte.trim() && !out.length) return { raison: "ni texte ni appel d'outil" }; // i18n-ignore : lu par le modèle
+  return { texte, appels: out };
+}
+
+/** Un lancement de `claude -p` pour ce tour : rend { final, stderr, arret? } ou { spawnError }. */
+function spawnBrain(bin, args, stdin, signal) {
+  return new Promise((resolve) => {
+    let final = null, buffer = "", stderr = "", stopped = null;
+    const child = spawn(bin.cmd, [...bin.prefix, ...args], { cwd: os.tmpdir(), windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+    const stop = (why) => {
+      if (stopped || child.exitCode !== null) return;
+      stopped = why;
+      if (process.platform === "win32") execFile("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true }, () => {});
+      else { child.kill("SIGINT"); setTimeout(() => { if (child.exitCode === null) child.kill("SIGKILL"); }, 2000).unref(); }
+    };
+    brainRunning = { stop };
+    const timer = setTimeout(() => stop("delai"), BRAIN_MINUTES * minuteMs);
+    const onAbort = () => stop(signal.reason === "coupe" ? "coupe" : "annule");
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+    const take = (raw) => {
+      try { const e = JSON.parse(raw); if (e.type === "result") final = e; } catch { /* ligne illisible : ignorée */ }
+    };
+    child.stdout.on("data", (chunk) => {
+      buffer += chunk;
+      let i;
+      while ((i = buffer.indexOf("\n")) >= 0) { take(buffer.slice(0, i).trim()); buffer = buffer.slice(i + 1); }
+    });
+    child.stderr.on("data", (chunk) => { stderr = (stderr + chunk).slice(-3000); });
+    child.stdin.on("error", () => {});
+    child.stdin.end(stdin);
+    let finished = false;
+    const done = (code, spawnError) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      brainRunning = null;
+      if (buffer.trim()) take(buffer.trim());
+      resolve({ final, stderr, code, spawnError, arret: stopped });
+    };
+    child.on("error", (e) => done(null, e));
+    child.on("close", (code) => done(code));
+  });
+}
+
+const tokens = (u) => ({
+  prompt: (Number(u?.input_tokens) || 0) + (Number(u?.cache_read_input_tokens) || 0) + (Number(u?.cache_creation_input_tokens) || 0),
+  completion: Number(u?.output_tokens) || 0, cached: Number(u?.cache_read_input_tokens) || 0,
+});
+
+/** Un tour du cerveau : rend { ok, reponse (Chat Completions), modele, duree_ms } ou { erreur, statut, code }. */
+function brain({ body, model, signal } = {}) {
+  const turn = brainQueue.then(() => brainTurn({ body, model, signal }));
+  brainQueue = turn.catch(() => {});
+  return turn;
+}
+
+async function brainTurn({ body, model, signal }) {
+  if (signal?.aborted) return { erreur: "tour annulé", statut: 499, code: "annule" }; // i18n-ignore : lu par le serveur
+  const bin = locate();
+  if (!bin) return { erreur: "Claude Code n'est pas installé sur cet ordinateur.", statut: 503, code: "absent" }; // i18n-ignore : lu par le serveur
+  const chosen = BRAIN_MODEL.test(String(model || "")) ? String(model) : BRAIN_MODELS[0];
+  const tools = toolsOf(body);
+  const { system, conversation } = brainPrompt(body, tools);
+  if (system.length + conversation.length > MAX_PROMPT) return { erreur: "contexte trop long pour Claude Code", statut: 413, code: "trop_long" }; // i18n-ignore : lu par le serveur
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "noah-cerveau-"));
+  const systemFile = path.join(dir, "consigne-systeme");
+  fs.writeFileSync(systemFile, system, { mode: 0o600 });
+  const started = Date.now();
+  const used = { prompt: 0, completion: 0, cached: 0 };
+  try {
+    let stdin = conversation;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const run = await spawnBrain(bin, brainArgs(chosen, systemFile, tools.length ? brainSchema(tools) : null), stdin, signal);
+      const u = tokens(run.final?.usage);
+      used.prompt += u.prompt; used.completion += u.completion; used.cached += u.cached;
+      if (run.arret === "delai") return { erreur: "Claude Code n'a pas répondu en 10 minutes", statut: 504, code: "delai" }; // i18n-ignore : lu par le serveur
+      if (run.arret) return { erreur: "tour arrêté", statut: 499, code: run.arret }; // i18n-ignore : lu par le serveur
+      if (run.spawnError) return { erreur: short(run.spawnError.message, 300), statut: 503, code: "absent" };
+      const why = `${run.final?.result ?? ""} ${run.final?.subtype ?? ""} ${run.stderr}`;
+      if (/usage limit|rate limit|limit reached|5-hour limit|weekly limit/i.test(why)) return { erreur: short(run.final?.result || run.stderr, 300), statut: 429, code: "limite" };
+      if (!run.final || run.final.is_error || run.code !== 0) {
+        return { erreur: short(run.final?.result || run.stderr || `Claude Code s'est arrêté (code ${run.code}).`, 300), statut: 502, code: "echec" }; // i18n-ignore : lu par le serveur
+      }
+      const decision = readDecision(run.final, tools);
+      if (decision.raison) {
+        // Une relance, avec la raison : au-delà, le fournisseur suivant répond plutôt qu'un appel d'outil inventé.
+        stdin = `${conversation}\n<<Noah>>\nTa réponse précédente a été refusée : ${decision.raison}. Réponds seulement par l'objet JSON demandé.\n`; // i18n-ignore : lu par le modèle
+        if (attempt === 0) continue;
+        return { erreur: `réponse illisible de Claude Code (${decision.raison})`, statut: 502, code: "illisible" }; // i18n-ignore : lu par le serveur
+      }
+      const calls = decision.appels.map((c) => ({ id: `call_${randomBytes(9).toString("hex")}`, type: "function", function: { name: c.nom, arguments: JSON.stringify(c.arguments) } }));
+      const message = { role: "assistant", content: decision.texte || (calls.length ? null : "") };
+      if (calls.length) message.tool_calls = calls;
+      return {
+        ok: true, modele: chosen, duree_ms: Date.now() - started,
+        reponse: {
+          id: `claude-code-${randomBytes(6).toString("hex")}`, object: "chat." + "completion", created: Math.floor(Date.now() / 1000), model: chosen,
+          choices: [{ index: 0, message, finish_reason: calls.length ? "tool_calls" : "stop" }],
+          usage: { prompt_tokens: used.prompt, completion_tokens: used.completion, total_tokens: used.prompt + used.completion, prompt_tokens_details: { cached_tokens: used.cached } },
+        },
+      };
+    }
+    return { erreur: "réponse illisible de Claude Code", statut: 502, code: "illisible" }; // i18n-ignore : lu par le serveur
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const brainBusy = () => Boolean(brainRunning);
+
+/** « Couper l'accès » ou fermeture de l'app : la tâche en cours s'arrête, et le tour du cerveau en cours aussi. */
+function stopAll(why = "coupe") {
+  current?.stop(why);
+  brainRunning?.stop(why);
+}
+
+module.exports = { configure, locate, detect, status, busy, run, stopAll, argsFor, PROFILES, brain, brainArgs, brainBusy, models, BRAIN_MODELS,
+  brainPrompt, readDecision };

@@ -134,8 +134,10 @@ _listed: dict[str, tuple[float, list[dict]]] = {}
 
 
 async def _models_of(provider: str) -> list[dict]:
+    from . import desktop, providers
+    if provider in desktop.PC_PROVIDERS:  # lu dans le dernier battement de l'ordinateur : rien à garder en cache
+        return desktop.pc_models(provider)
     key = key_of(provider)
-    from . import providers
     base_url = providers.base_of(provider)
     stamp = hashlib.sha256(f"{provider}|{key}|{base_url}".encode()).hexdigest()
     hit = _listed.get(stamp)
@@ -223,6 +225,8 @@ async def tier_link(level: str, tier: str, models: list[dict] | None = None) -> 
 def free_order(models: list[dict], brain: bool = True) -> list[dict]:
     """Gratuits d'abord, puis du moins cher au plus cher, les prix inconnus en dernier."""
     def fits(m: dict) -> bool:
+        if m.get("abonnement"):  # un abonnement par l'ordinateur se choisit, il n'entre jamais seul dans la chaîne Gratuit
+            return False
         return not brain or (not NOT_BRAIN.search(m["id"]) and not (0 < (m.get("context") or 0) < MIN_CONTEXT))
 
     def rank(m: dict):
@@ -460,7 +464,8 @@ def _row(link: dict | None, models: dict[tuple[str, str], dict]) -> dict | None:
         return None
     m = models.get((link.get("fournisseur", ""), link["modele"])) or {}
     return {**link, "nom": m.get("name") or link["modele"], "price_in": m.get("price_in"), "price_out": m.get("price_out"),
-            "free": bool(m.get("free")), "prix": m.get("prix"), "inconnu": not m}
+            "free": bool(m.get("free")), "prix": m.get("prix"), "inconnu": not m,
+            "abonnement": bool(m.get("abonnement"))}
 
 
 async def state(level: str) -> dict:
@@ -512,7 +517,7 @@ async def get_modes(level: str, user: int = Depends(auth.current_user)):
 async def get_mode_models(level: str, user: int = Depends(auth.current_user)):
     _check_level(level)
     _owner_for_level(level, user)
-    keep = ("id", "name", "lab", "created", "context", "price_in", "price_out", "vision", "free", "fournisseur", "prix")
+    keep = ("id", "name", "lab", "created", "context", "price_in", "price_out", "vision", "free", "fournisseur", "prix", "abonnement")
     models = await available(level)
     # Rangée des fournisseurs réellement présents dans la liste : la recherche les groupe au lieu de les deviner.
     if level != BRAIN:

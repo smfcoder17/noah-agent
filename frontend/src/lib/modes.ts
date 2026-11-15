@@ -55,6 +55,8 @@ export type ListedModel = {
   free: boolean;
   fournisseur: string;
   prix?: string | null;
+  /** Abonnement par l'ordinateur (Claude Code, ChatGPT) : compris dans l'abonnement. */
+  abonnement?: boolean;
 };
 
 const JOURS: Record<string, string> = { "0": t("dimanche"), "1": t("lundi"), "2": t("mardi"), "3": t("mercredi"), "4": t("jeudi"), "5": t("vendredi"), "6": t("samedi"), "7": t("dimanche") };

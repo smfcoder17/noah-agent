@@ -272,6 +272,39 @@ def month_start() -> str:
 # Conversation -> dernier modèle qui a répondu pendant son tour : celui qui a écrit la réponse finale. main._run l'efface au
 # départ du tour et l'enregistre avec la réponse. Les petits travaux du modèle de décision n'y entrent pas.
 turn_model: dict[str, str] = {}
+# Conversation -> la ligne que la conversation affiche avec la réponse quand l'ordinateur n'a pas pu répondre (main._run).
+turn_notes: dict[str, str] = {}
+
+SECOURS = "secours_cerveau"  # le fournisseur qui répond quand un abonnement par l'ordinateur ne peut pas (posé par main.set_model)
+
+
+def fallback_link() -> dict | None:
+    """Le fournisseur de secours d'un cerveau « par l'ordinateur » : le cerveau d'avant, avec sa clé gardée. None : aucun."""
+    from . import desktop, modes
+    try:
+        link = json.loads(db.get_setting(SECOURS) or "null")
+    except ValueError:
+        return None
+    if not isinstance(link, dict) or not link.get("modele") or link.get("fournisseur") in (None, "", *desktop.PC_PROVIDERS):
+        return None
+    link = {"modele": str(link["modele"]), "fournisseur": str(link["fournisseur"])}
+    return link if link["fournisseur"] in modes.usable_providers() else None
+
+
+def _provider_label(provider: str) -> str:
+    from . import hermes
+    return hermes.PROVIDERS.get(provider, {}).get("label", provider)
+
+
+def _journal_turn(agent_id: str, task: str | None, name: str, usage: dict | None, seconds: float) -> None:
+    """Activité : chaque tour du cerveau par un abonnement, avec ses jetons et sa durée, « compris dans l'abonnement »."""
+    if not task:
+        return
+    used = int((usage or {}).get("prompt_tokens") or 0) + int((usage or {}).get("completion_tokens") or 0)
+    shown = f"{used:,}".replace(",", " ") + " jetons · " + f"{seconds:.1f}".replace(".", ",") + " s · compris dans l'abonnement"
+    with db.connect() as c:
+        c.execute("INSERT INTO journal (agent_id, conversation_id, kind, titre, resultat, etat, at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                  (agent_id, task, "cerveau", name[:200], shown[:300], "fait", time.time()))
 
 
 def _note_model(task: str | None, model: str, small: bool) -> None:
@@ -350,6 +383,15 @@ def _note_status(agent_id: str, status: int) -> None:
         _reached[agent_id] = time.time()
 
 
+COMPUTER_OFF = ("Ton ordinateur ne répond pas (éteint, Noah Agent fermé, ou abonnement coupé dans son menu Abonnements), et aucun "
+                "fournisseur de secours n'est branché. Ouvre Noah Agent sur ton ordinateur, ou choisis un autre cerveau dans Réglages > Modèles.")
+
+
+def _computer_unavailable(agent_id: str) -> JSONResponse:
+    _failing.setdefault(agent_id, time.time())
+    return JSONResponse({"error": {"message": COMPUTER_OFF, "type": "computer_unavailable", "code": 503}}, status_code=503)
+
+
 def _unreachable(agent_id: str) -> JSONResponse:
     _failing.setdefault(agent_id, time.time())
     return JSONResponse({"error": {"message": UNREACHABLE, "type": "upstream_unreachable", "code": 502}}, status_code=502)
@@ -420,7 +462,9 @@ async def _chain_of(agent_id: str, asked: str, body: dict | None = None) -> list
     single = [{"modele": _current_brain(agent_id, asked), "fournisseur": db.get_setting("provider") or ""}]
     helper = decision.model()
     if helper and helper != db.get_setting("model") and asked == helper:  # ses petits travaux restent au modèle de décision
-        return single
+        from . import desktop
+        backup = fallback_link() if single[0]["fournisseur"] in desktop.PC_PROVIDERS else None
+        return [{"modele": asked, "fournisseur": backup["fournisseur"]}] if backup else single  # chez le secours, avec sa clé
     if modes.agent_mode(agent_id) == modes.AUTO:
         return await modes.auto_chain(agent_id, body or {}) or single
     return await modes.agent_chain(agent_id) or single
@@ -511,13 +555,17 @@ async def relay(path: str, request: Request):
     provider = db.get_setting("provider")
     if not provider:
         raise HTTPException(503, "Aucun modèle n'est configuré")
-    api_key = db.get_setting("api_key", secret=True) if db.get_setting("api_key") else None
+    from . import desktop
+    on_pc = provider in desktop.PC_PROVIDERS  # abonnement par l'ordinateur : aucune adresse ni clé ici
+    api_key = db.get_setting("api_key", secret=True) if db.get_setting("api_key") and not on_pc else None
     base = upstream_base(provider, db.get_setting("base_url"))
-    if not base:
+    if not base and not on_pc:
         raise HTTPException(503, "Ce fournisseur n'a pas d'adresse : renseigne-la dans Réglages > Modèles et budget > Cerveau.")
     url = f"{base}/{path}"
     headers = _upstream_headers(provider, api_key)
 
+    if request.method == "GET" and on_pc:
+        return JSONResponse({"object": "list", "data": [{"id": m["id"], "object": "model", "owned_by": provider} for m in desktop.pc_models(provider)]})
     if request.method == "GET":
         try:
             r = await upstream_client().get(url, headers=headers, params=request.query_params, timeout=30)
@@ -541,8 +589,16 @@ async def relay(path: str, request: Request):
     from . import modes
 
     chat = path.endswith("chat/completions")
+    if on_pc and not chat:
+        return JSONResponse({"error": {"message": "Ce fournisseur ne sert que la conversation.", "type": "not_supported", "code": 404}}, status_code=404)
     effort = modes.reasoning(agent_id) if chat else None
     chain = modes.ordered(await _chain_of(agent_id, model, body)) if chat else [{"modele": model, "fournisseur": provider}]
+    pc_chain = chat and any(link.get("fournisseur") in desktop.PC_PROVIDERS for link in chain)
+    if pc_chain:  # ordinateur éteint, abonnement épuisé, agent partagé : le secours répond, en dernier
+        backup = fallback_link()
+        if backup and backup not in chain:
+            chain = [*chain, backup]
+    missed = {"eteint": False}
 
     def target(link: dict) -> tuple[str, dict]:
         """L'adresse et les en-têtes de ce maillon. Chaque clé ne part que vers son fournisseur."""
@@ -555,6 +611,32 @@ async def relay(path: str, request: Request):
         modes.cool(link, status, retry_after)
         print(f"[relais] {agent_id} : {link['modele']} indisponible ({status or 'injoignable'}), le suivant prend le relais", flush=True)
 
+    async def on_computer(link: dict) -> Response | None:
+        """Un maillon « par l'ordinateur ». None : il ne répond pas, le suivant prend le relais."""
+        pc = desktop.pc_link(agent_id, link["fournisseur"])
+        if not pc:
+            missed["eteint"] = missed["eteint"] or not desktop._gatekept(agent_id)  # un invité n'a pas à savoir où est l'ordinateur
+            return None
+        if modes.resting(link):
+            return None
+        started = time.time()
+        status, out = await desktop.pc_call(pc, agent_id, body, link["modele"])
+        if status != 200:
+            retry_later(link, status)
+            return None
+        reply = out["reponse"]
+        name = desktop.usage_name(link["fournisseur"], str(out.get("modele") or link["modele"]))
+        _note_status(agent_id, 200)
+        _note_model(task, name, _small_work(model))
+        await _record(agent_id, name, {**(reply.get("usage") or {}), "cost": 0}, task, link["fournisseur"])
+        _journal_turn(agent_id, task, name, reply.get("usage"), time.time() - started)
+        return _completion_reply(reply, stream)
+
+    def answered_by(link: dict) -> None:
+        """La réponse vient du secours alors que l'ordinateur devait répondre : la conversation le dit d'une ligne."""
+        if missed["eteint"] and task and link["fournisseur"] not in desktop.PC_PROVIDERS:
+            turn_notes[task] = f"Ton ordinateur est éteint : réponse par {_provider_label(link['fournisseur'])} · {link['modele']}."
+
     def bodies(link: dict) -> list[dict]:
         """Un fournisseur qui refuse le niveau de raisonnement répond sans : le réglage ne casse pas l'agent."""
         if not chat:
@@ -563,8 +645,7 @@ async def relay(path: str, request: Request):
 
     # Forfait ChatGPT de la personne, par son ordinateur : essayé d'abord quand il est là et permis. Absent, épuisé ou en panne :
     # mis au repos, et la chaîne habituelle répond à sa place, sans rien changer pour l'agent.
-    if chat and not _small_work(model):
-        from . import desktop
+    if chat and not pc_chain and not _small_work(model):
         pc = desktop.chatgpt_link(agent_id)
         if pc and not modes.resting(pc):
             status, out = await desktop.chatgpt_call(pc, agent_id, body)
@@ -580,6 +661,11 @@ async def relay(path: str, request: Request):
     if not stream:
         for i, link in enumerate(chain):
             last = i == len(chain) - 1
+            if link["fournisseur"] in desktop.PC_PROVIDERS:
+                answer = await on_computer(link)
+                if answer:
+                    return answer
+                continue
             to, sent = target(link)
             try:
                 tries = bodies(link)
@@ -599,15 +685,22 @@ async def relay(path: str, request: Request):
             if r.status_code == 200:
                 if chat:
                     _note_model(task, link["modele"], _small_work(model))
+                    answered_by(link)
                 try:
                     await _record(agent_id, link["modele"], r.json().get("usage"), task, link["fournisseur"])
                 except ValueError:
                     pass
             return Response(r.content, status_code=r.status_code, media_type=r.headers.get("content-type"))
+        return _computer_unavailable(agent_id)
 
     client = upstream_client()
     for i, link in enumerate(chain):
         last = i == len(chain) - 1
+        if link["fournisseur"] in desktop.PC_PROVIDERS:
+            answer = await on_computer(link)
+            if answer:
+                return answer
+            continue
         to, sent = target(link)
         # Un flux compressé retarde le premier mot. Un fournisseur peut compresser quand même : aiter_bytes décompresse.
         plain = {**sent, "Accept-Encoding": "identity"}
@@ -655,8 +748,11 @@ async def relay(path: str, request: Request):
         _note_status(agent_id, 200)
         if chat:
             _note_model(task, link["modele"], _small_work(model))
+            answered_by(link)
         return StreamingResponse(_passthrough(agent_id, upstream, chunks, head, link, task), status_code=200,
                                  media_type=upstream.headers.get("content-type", "text/event-stream"))
+    if pc_chain:
+        return _computer_unavailable(agent_id)
     return _unreachable(agent_id)  # chaîne vide : impossible, _chain_of rend toujours au moins le cerveau
 
 

@@ -228,6 +228,10 @@ PROVIDERS = {
     "ollama-cloud": {"label": "Ollama Cloud", "env": "OLLAMA_API_KEY", "model": "gpt-oss:120b"},
     # Tout service qui parle l'API OpenAI : LM Studio, vLLM, LiteLLM, llama.cpp… La clé est facultative.
     "custom": {"label": "Autre service compatible OpenAI", "env": None, "model": ""},
+    # Abonnements de la personne, par son application de bureau (desktop.PC_PROVIDERS) : aucune clé ici, rien ne part d'ici vers
+    # Anthropic ou OpenAI. Ordinateur éteint, ou agent partagé : le fournisseur de secours répond (relay.py).
+    "ordinateur:claude-code": {"label": "Claude Code (ton ordinateur)", "env": None, "model": "sonnet"},
+    "ordinateur:chatgpt": {"label": "ChatGPT (ton ordinateur)", "env": None, "model": ""},
 }
 
 

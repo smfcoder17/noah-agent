@@ -37,6 +37,8 @@ def connected(provider: str) -> bool:
 
 @router.get("/api/fournisseurs")
 async def list_providers(_user: int = Depends(access.owner_only)):
+    from . import desktop
+
     async def describe(p, v):
         branch = connected(p)
         count = int(db.get_setting(f"provider_count:{p}") or 0)
@@ -47,7 +49,8 @@ async def list_providers(_user: int = Depends(access.owner_only)):
             except (httpx.HTTPError, ValueError, KeyError):
                 pass  # hors connexion : garder le dernier nombre connu
         return {"id": p, "label": v["label"], "needs_key": v["env"] is not None, "own_url": p in relay.OWN_URL,
-                "connected": branch, "models": count, "base_url": base_of(p) or ""}
+                "connected": branch, "models": count, "base_url": base_of(p) or "", "ordinateur": p in desktop.PC_PROVIDERS,
+                "pret": desktop.pc_ready(p, _user) if p in desktop.PC_PROVIDERS else None}
     return await asyncio.gather(*(describe(p, v) for p, v in hermes.PROVIDERS.items()))
 
 
@@ -79,6 +82,9 @@ async def connect(provider: str, body: Choice, _user: int = Depends(access.owner
     except (httpx.HTTPError, ValueError, KeyError):
         raise HTTPException(400, "Connexion impossible. Vérifie l'adresse et la clé, puis réessaie.") from None
     if not models:
+        from . import desktop
+        if provider in desktop.PC_PROVIDERS:
+            raise HTTPException(400, "Ouvre Noah Agent sur ton ordinateur et allume cet abonnement dans son menu Abonnements, puis réessaie.")
         raise HTTPException(400, "Ce fournisseur ne propose aucun modèle utilisable.")
     remember(provider, key, base)
     db.set_setting(f"provider_count:{provider}", str(len(models)))

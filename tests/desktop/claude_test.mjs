@@ -174,6 +174,121 @@ try {
     assert.equal(out.limite, true);
     assert.match(out.erreur, /limit/);
   });
+
+  // --- Claude Code comme cerveau (lot A de la 0.3.0) ---
+  const TOOLS = [{ type: "function", function: { name: "terminal", description: "Lance une commande", parameters: { type: "object", properties: { command: { type: "string" } }, required: ["command"] } } }];
+  const turn = (messages, more = {}) => ({ id: `c-${Math.random()}`, agent: "Nadine", action: "claude_cerveau", modele: "sonnet",
+    requete: { messages, tools: TOOLS }, ...more });
+  const brainRuns = () => traces().filter((r) => r.cerveau);
+
+  await step("A3 cerveau : les modèles du compte vont au battement, le droit « cerveau » est éteint par défaut", async () => {
+    const subs = actions.subscriptions().claude;
+    assert.deepEqual(subs.modeles, ["sonnet", "opus", "haiku"]);
+    assert.equal(subs.cerveau, false);
+    const out = await actions.perform(turn([{ role: "user", content: "Bonjour" }]), ctx());
+    assert.equal(out.code, "coupe", JSON.stringify(out));
+    assert.equal(brainRuns().length, 0);
+    rights = { ...rights, claudeCerveau: true };
+    assert.equal(actions.subscriptions().claude.cerveau, true);
+  });
+
+  await step("A1 cerveau : claude -p répond ; outils de Claude Code coupés, consigne système par fichier, --model passé tel quel", async () => {
+    const out = await actions.perform(turn([{ role: "system", content: "Tu es Nadine." }, { role: "user", content: "Bonjour" }], { modele: "opus" }), ctx());
+    assert.equal(out.ok, true, JSON.stringify(out));
+    assert.equal(out.modele, "opus");
+    assert.equal(out.reponse.choices[0].message.content, "réponse de Claude Code (opus)");
+    assert.equal(out.reponse.choices[0].finish_reason, "stop");
+    assert.deepEqual(out.reponse.usage, { prompt_tokens: 120, completion_tokens: 7, total_tokens: 127, prompt_tokens_details: { cached_tokens: 20 } });
+    const run = brainRuns().at(-1);
+    const at = (flag) => run.args[run.args.indexOf(flag) + 1];
+    assert.equal(at("--model"), "opus");
+    assert.equal(at("--tools"), "", "aucun outil de Claude Code");
+    assert.ok(run.args.includes("--safe-mode") && run.args.includes("--strict-mcp-config") && run.args.includes("--no-session-persistence"), run.args.join(" "));
+    assert.ok(!run.args.includes("--bare") && !run.args.includes("--dangerously-skip-permissions"));
+    assert.ok(run.system.startsWith("Tu es Nadine.") && run.system.includes("## terminal") && run.system.includes("\"command\""), run.system);
+    assert.match(run.prompt, /<<utilisateur>>\nBonjour/);
+    assert.ok(!run.prompt.includes("Tu es Nadine."), "la consigne système ne passe pas dans la conversation");
+    const schema = JSON.parse(at("--json-schema"));
+    assert.deepEqual(schema.properties.appels.items.properties.nom.enum, ["terminal"]);
+  });
+
+  await step("A3 cerveau : un modèle inconnu de --model ne part pas tel quel (repli sur sonnet)", async () => {
+    const out = await actions.perform(turn([{ role: "user", content: "Bonjour" }], { modele: "--dangerously-skip-permissions" }), ctx());
+    assert.equal(out.modele, "sonnet");
+    assert.ok(!brainRuns().at(-1).args.includes("--dangerously-skip-permissions"));
+  });
+
+  await step("A2 cerveau : l'outil demandé revient en tool_calls OpenAI valides, puis la réponse finale lit son résultat", async () => {
+    const asked = [{ role: "user", content: "OUTIL_TERMINAL : dis bonjour par le terminal" }];
+    let out = await actions.perform(turn(asked), ctx());
+    assert.equal(out.ok, true, JSON.stringify(out));
+    const message = out.reponse.choices[0].message;
+    assert.equal(out.reponse.choices[0].finish_reason, "tool_calls");
+    assert.equal(message.tool_calls.length, 1);
+    const [call] = message.tool_calls;
+    assert.equal(call.type, "function");
+    assert.match(call.id, /^call_[0-9a-f]{18}$/);
+    assert.equal(call.function.name, "terminal");
+    assert.deepEqual(JSON.parse(call.function.arguments), { command: "echo bonjour" });
+    const history = [...asked, { role: "assistant", content: message.content, tool_calls: message.tool_calls },
+      { role: "tool", tool_call_id: call.id, content: "bonjour" }];
+    out = await actions.perform(turn(history), ctx());
+    assert.equal(out.reponse.choices[0].message.content, "Fini : bonjour");
+    assert.equal(out.reponse.choices[0].message.tool_calls, undefined);
+    assert.ok(brainRuns().at(-1).prompt.includes(`<<toi : appel d'outil terminal (id ${call.id})>>`));
+  });
+
+  await step("analyse stricte : une sortie illisible est relancée une fois ; toujours illisible ou outil inconnu, refusée", async () => {
+    let before = brainRuns().length;
+    let out = await actions.perform(turn([{ role: "user", content: "ILLISIBLE" }]), ctx());
+    assert.equal(out.ok, true, JSON.stringify(out));
+    assert.equal(brainRuns().length, before + 2, "une relance");
+    assert.match(brainRuns().at(-1).prompt, /a été refusée : la réponse n'est pas un objet JSON/);
+    before = brainRuns().length;
+    out = await actions.perform(turn([{ role: "user", content: "TOUJOURS_ILLISIBLE" }]), ctx());
+    assert.equal(out.ok, undefined);
+    assert.equal(out.statut, 502);
+    assert.equal(out.code, "illisible");
+    assert.equal(brainRuns().length, before + 2, "une seule relance");
+    out = await actions.perform(turn([{ role: "user", content: "OUTIL_INCONNU" }]), ctx());
+    assert.equal(out.code, "illisible");
+    assert.match(out.erreur, /outil inconnu : rm_rf/);
+  });
+
+  await step("limite de l'abonnement pendant un tour : 429, le relais passe au suivant", async () => {
+    const out = await actions.perform(turn([{ role: "user", content: "LIMITE" }]), ctx());
+    assert.equal(out.statut, 429);
+    assert.equal(out.code, "limite");
+  });
+
+  await step("un tour à la fois (file) ; Stop (demande retirée) arrête le tour en moins de 5 s", async () => {
+    let wanted = true;
+    const t0 = Date.now();
+    const slow = actions.perform(turn([{ role: "user", content: "LENT" }]), ctx({ stillWanted: async () => wanted }));
+    await new Promise((r) => setTimeout(r, 500));
+    assert.equal(claude.brainBusy(), true);
+    let second = null;
+    const next = actions.perform(turn([{ role: "user", content: "Bonjour" }]), ctx()).then((r) => (second = r));
+    await new Promise((r) => setTimeout(r, 800));
+    assert.equal(second, null, "le second attend son tour");
+    wanted = false;
+    const stopped = Date.now();
+    const out = await slow;
+    assert.equal(out.code, "annule", JSON.stringify(out));
+    assert.ok(Date.now() - stopped < 5000, `arrêt en ${Date.now() - stopped} ms`);
+    await next;
+    assert.equal(second.ok, true, "puis le suivant passe");
+    assert.ok(Date.now() - t0 < 15000);
+  });
+
+  await step("« Couper l'accès » arrête aussi le tour du cerveau", async () => {
+    const running = actions.perform(turn([{ role: "user", content: "LENT" }]), ctx());
+    await new Promise((r) => setTimeout(r, 500));
+    claude.stopAll("coupe");
+    const out = await running;
+    assert.equal(out.code, "coupe", JSON.stringify(out));
+    assert.equal(claude.brainBusy(), false);
+  });
 } finally {
   rmSync(base, { recursive: true, force: true, maxRetries: 5 });
 }

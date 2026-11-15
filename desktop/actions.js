@@ -34,7 +34,7 @@ const actionContext = new AsyncLocalStorage();
 // Les seuls appelants de configure sont le processus principal et les tests : aucun IPC de la page web.
 let getAutonomy = () => "prudent";
 // Droits des abonnements, réglés sur cet ordinateur seulement (menu de l'icône) : éteints par défaut, le serveur ne peut pas les allumer.
-let getRights = () => ({ claude: false, claudeProfil: "fichiers", claudeMinutes: 30, chatgpt: false, chatgptModele: "" });
+let getRights = () => ({ claude: false, claudeProfil: "fichiers", claudeMinutes: 30, claudeCerveau: false, chatgpt: false, chatgptModele: "" });
 // Résultat d'une action : renvoyé après une coupure, 1, 3 puis 9 s plus tard. Transferts : 2 minutes au plus,
 // sinon deux fichiers figés bloqueraient toute la file (MAX_FILES_RUNNING).
 let resultDelays = [1000, 3000, 9000];
@@ -288,6 +288,8 @@ async function performAction(req, ctx) {
       return claudeTask(req, ctx, who, store, stop, refused);
     case "chatgpt":
       return chatgptTurn(req, store);
+    case "claude_cerveau":
+      return claudeBrainTurn(req, ctx, store);
     case "lister":
     case "lire":
     case "ecrire":
@@ -357,8 +359,9 @@ function subscriptions() {
   const rights = getRights();
   const c = claude.status();
   return {
-    claude: { installe: c.installe, connecte: c.connecte, offre: c.offre, methode: c.methode, permis: Boolean(rights.claude), occupe: c.occupe },
-    chatgpt: { connecte: chatgpt.connected(), permis: Boolean(rights.chatgpt) },
+    claude: { installe: c.installe, connecte: c.connecte, offre: c.offre, methode: c.methode, permis: Boolean(rights.claude), occupe: c.occupe,
+      cerveau: Boolean(rights.claudeCerveau), modeles: claude.models().map((m) => m.slug) },
+    chatgpt: { connecte: chatgpt.connected(), permis: Boolean(rights.chatgpt), modeles: chatgpt.models().map((m) => m.slug).slice(0, 40) },
   };
 }
 
@@ -412,7 +415,27 @@ async function chatgptTurn(req, store) {
   if (store?.isCut()) return CUT;
   if (!rights.chatgpt) return { erreur: "forfait ChatGPT coupé sur cet ordinateur", statut: 503, code: "coupe" }; // i18n-ignore : lu par le serveur
   if (!req.requete || typeof req.requete !== "object") return { erreur: "requête illisible", statut: 400, code: "illisible" }; // i18n-ignore : lu par le serveur
-  return chatgpt.call(req.requete, rights.chatgptModele || "");
+  // Le modèle choisi dans la liste des fournisseurs, sinon celui du menu de cet ordinateur.
+  return chatgpt.call(req.requete, (typeof req.modele === "string" && req.modele) || rights.chatgptModele || "");
+}
+
+/** Un tour du cerveau de l'agent par Claude Code (`claude -p`, outils de la CLI coupés). Aucun accord : la personne l'a allumé ici.
+ * Un tour à la fois (file dans claude.js) ; Stop, une demande retirée ou « Couper l'accès » l'arrêtent en moins de 5 s. */
+async function claudeBrainTurn(req, ctx, store) {
+  const rights = getRights();
+  if (store?.isCut()) return CUT;
+  if (!rights.claudeCerveau) return { erreur: "Claude Code comme cerveau est coupé sur cet ordinateur", statut: 503, code: "coupe" }; // i18n-ignore : lu par le serveur
+  if (!req.requete || typeof req.requete !== "object") return { erreur: "requête illisible", statut: 400, code: "illisible" }; // i18n-ignore : lu par le serveur
+  const cancel = new AbortController();
+  const watch = setInterval(async () => {
+    if (store?.isCut()) return cancel.abort("coupe");
+    try { if (ctx.stillWanted && !(await ctx.stillWanted())) cancel.abort("annule"); } catch { /* réseau : on réessaie */ }
+  }, 2000);
+  try {
+    return await claude.brain({ body: req.requete, model: req.modele, signal: cancel.signal });
+  } finally {
+    clearInterval(watch);
+  }
 }
 
 async function files(req, ctx, store) {

@@ -409,4 +409,5 @@ export default {
   "Connecteur inconnu.": "Unknown connector.",
   "Route du fournisseur non permise": "This provider route is not allowed",
   "Requête trop grande.": "Request too large.",
+  "Ouvre Noah Agent sur ton ordinateur et allume cet abonnement dans son menu Abonnements, puis réessaie.": "Open Noah Agent on your computer and turn this subscription on in its Subscriptions menu, then try again.",
 } satisfies Record<string, string>;
