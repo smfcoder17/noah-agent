@@ -26,6 +26,7 @@ import csv
 import hashlib
 import hmac
 import io
+import ipaddress
 import json
 import re
 import secrets
@@ -105,7 +106,14 @@ def origin_of(address: str) -> str:
     except ValueError:
         return ""
     host = (parts.hostname or "").lower()
-    if parts.scheme not in ("http", "https") or not host or not re.fullmatch(r"[a-z0-9.\-\[\]:]+", host) or "." not in host and host != "localhost":
+    if ":" in host:  # une adresse IPv6 ([::1]) : valide, et gardée entre crochets comme dans la page
+        try:
+            host = "[" + ipaddress.IPv6Address(host).compressed + "]"
+        except ValueError:
+            return ""
+    elif parts.scheme not in ("http", "https") or not host or not re.fullmatch(r"[a-z0-9.\-]+", host) or "." not in host and host != "localhost":
+        return ""
+    if parts.scheme not in ("http", "https"):
         return ""
     default = 443 if parts.scheme == "https" else 80
     return f"{parts.scheme}://{host}" + (f":{port}" if port and port != default else "")
@@ -214,14 +222,17 @@ def _outcome(filled: dict, origin: str, saved: bool = False, handle: str = "") -
     return done
 
 
-async def _after_fill(agent_id: str, filled: dict, origin: str, item_id: str = "") -> None:
+async def _after_fill(agent_id: str, filled: dict, origin: str, item_id: str = "", user: int | None = None) -> None:
     """Un remplissage qui a marché : le serveur relit la page, et le site n'est noté connecté que s'il y est resté, sans champ de
-    mot de passe (sites.py). Un remplissage refusé par le site : cet élément n'est plus pris d'office pendant un moment."""
+    mot de passe (sites.py). Un remplissage refusé par le site : cet élément n'est plus pris d'office pendant un moment.
+    Seule la connexion du propriétaire note le site : le registre décrit sa session, pas celle d'une autre personne."""
     if not filled.get("ok"):
         return
     if filled.get("page") == "meme" or not filled.get("complet", True):
         if item_id:
             _failed[item_id] = time.monotonic()
+        return
+    if user is None or user != owner(agent_id):
         return
     from . import sites
     await sites.verify(agent_id, origin)
@@ -347,12 +358,19 @@ async def _use_login(agent_id: str, page: dict, row) -> dict:
     filled = await _fill(agent_id, page, {"identifiant": secret.get("identifiant"), "motDePasse": secret.get("mot_de_passe")})
     with db.connect() as c:
         c.execute("UPDATE coffre SET used_at = ? WHERE id = ?", (time.time(), row["id"]))
-    await _after_fill(agent_id, filled, page["origine"], row["id"])
+    await _after_fill(agent_id, filled, page["origine"], row["id"], user=owner(agent_id))
     return _outcome(filled, page["origine"], saved=True, handle=row["id"])
+
+
+def _owner_turn(agent_id: str) -> bool:
+    """Toutes les tâches en cours de cet agent sont celles de son propriétaire : lui seul fait taper ses secrets."""
+    return access.callers(agent_id) == {owner(agent_id)}
 
 
 async def _fill_saved(agent_id: str, handle: str) -> dict:
     row = _login_row(agent_id, handle)
+    if row and not _owner_turn(agent_id):
+        return _refused("not_owner", "Les identifiants retenus sont ceux du propriétaire de l'agent, et cette tâche n'est pas la sienne. Demande avec action=save_login.")
     if not row:
         return _refused("unknown_handle", "Identifiant inconnu : regarde action=list, ou demande-le avec action=save_login.")
     page = await _page(agent_id)
@@ -380,11 +398,19 @@ async def _ask(agent_id: str, kind: str, session: str) -> dict:
     if kind == "code" and not fields.get("code"):
         return _refused("no_code_field", "Aucun champ de code sur cette page. Si le site attend une validation dans une application, dis à la personne de la faire, puis relis la page.")
     _sweep()
+    with db.connect() as c:
+        row = c.execute("SELECT user_id FROM conversations WHERE id = ?", (conv,)).fetchone()
+    if not row:
+        return _refused("prompt_unavailable", "Conversation introuvable.")
+    # Remplir d'office, c'est taper un secret du propriétaire : seulement dans une tâche qu'il a lancée lui-même. Pour un autre
+    # profil, une carte vide, sans les comptes du propriétaire.
+    by_owner = row["user_id"] == owner(agent_id)
     choices = []
     if kind == "connexion":
         from . import sites
-        sites.needs_sign_in(agent_id, origin)  # une page de connexion sur un site noté connecté : sa session est partie
-        found = [r for r in _matching(agent_id, origin) if r["id"] not in _failed]
+        if by_owner:
+            sites.needs_sign_in(agent_id, origin)  # une page de connexion sur un site noté connecté : sa session est partie
+        found = [r for r in _matching(agent_id, origin) if r["id"] not in _failed] if by_owner else []
         if len(found) == 1:
             done = await _use_login(agent_id, page, found[0])
             if done.get("success"):
@@ -392,7 +418,7 @@ async def _ask(agent_id: str, kind: str, session: str) -> dict:
             return done
         choices = [{"id": r["id"], "nom": _label(r), "compte": _mask(_secret(r).get("identifiant") or "")} for r in found]
     if kind == "code":
-        keys = [r for r in _matching(agent_id, origin, "totp") if r["id"] not in _failed]
+        keys = [r for r in _matching(agent_id, origin, "totp") if r["id"] not in _failed] if by_owner else []
         if len(keys) == 1:
             try:
                 code = totp_code(_secret(keys[0]).get("cle") or "")
@@ -400,17 +426,11 @@ async def _ask(agent_id: str, kind: str, session: str) -> dict:
                 code = ""
             if code:
                 filled = await _fill(agent_id, page, {"code": code})
-                await _after_fill(agent_id, filled, origin, keys[0]["id"])
+                await _after_fill(agent_id, filled, origin, keys[0]["id"], user=row["user_id"])
                 done = _outcome(filled, origin)
                 if done.get("success"):
                     done["automatic"] = True
                 return done
-    with db.connect() as c:
-        row = c.execute("SELECT user_id FROM conversations WHERE id = ?", (conv,)).fetchone()
-    if not row:
-        return _refused("prompt_unavailable", "Conversation introuvable.")
-    if choices and row["user_id"] != owner(agent_id):
-        choices = []  # le choix montre les comptes du propriétaire : à lui seul
     for other in _asked.values():  # une seule carte par conversation : la dernière demande remplace l'autre
         if other["conv"] == conv and not other.get("answered"):
             _finish(other, _refused("cancelled", "Remplacée par une nouvelle demande."))
@@ -555,13 +575,20 @@ async def answer_login(agent_id: str, ask_id: str, request: Request, user: int =
             keep = (item["type"] == "connexion" and not chosen and body.get("retenir") is not False and filled.get("ok") and filled.get("complet", True)
                     and filled.get("page") != "meme" and user == owner(agent_id))
             handle = _remember(user, item["origine"], identifier, password) if keep else ""
-            await _after_fill(agent_id, filled, item["origine"], chosen["id"] if chosen else "")
+            await _after_fill(agent_id, filled, item["origine"], chosen["id"] if chosen else "", user=user)
             result = _outcome(filled, item["origine"], saved=bool(handle) or bool(chosen), handle=handle or (chosen["id"] if chosen else ""))
+            if keep and not handle and result.get("success"):  # coffre plein : le dire, au lieu d'une demande qui reviendrait en boucle
+                result["vault_full"] = True
+                result["next"] = ("Connexion faite, mais le coffre de la personne est plein : rien n'a été retenu. Dis-le-lui (Réglages > Coffre) "
+                                  "et ne rappelle pas save_login pour le retenir.")
     finally:
         _finish(item, result)
     if not result["success"]:
         raise HTTPException(409, result["error"])
-    return {"ok": True, "page": result.get("page"), "retenu": bool(result.get("saved")) and not chosen}
+    done = {"ok": True, "page": result.get("page"), "retenu": bool(result.get("saved")) and not chosen}
+    if result.get("vault_full"):
+        done["coffre_plein"] = True
+    return done
 
 
 # --- Côté personne : l'agent et son droit -----------------------------------------------------------------------------
@@ -661,6 +688,8 @@ def _validated(body: dict, genre: str, before: dict | None = None) -> tuple[str,
             raise HTTPException(400, "Donne l'adresse du site (ex. https://www.instagram.com).")
         identifier = _text(body, "identifiant", MAX_IDENTIFIER).strip() if body.get("identifiant") is not None else before.get("identifiant", "")
         password = _text(body, "mot_de_passe", MAX_PASSWORD) or before.get("mot_de_passe", "")
+        if not identifier:  # sans lui, l'élément ne sert à rien : chaque connexion le redemanderait
+            raise HTTPException(400, "Saisis l'identifiant.")
         if not password:
             raise HTTPException(400, "Saisis le mot de passe.")
         return name, origin, {"identifiant": identifier, "mot_de_passe": password}
@@ -749,7 +778,11 @@ async def reveal(item_id: str, request: Request, user: int = Depends(auth.curren
     main._prove_if_needed(request, user, _text(body, "motdepasse", 256), _text(body, "code", 32), "Confirme ton mot de passe pour voir ce secret.")
     secret = _secret(row)
     if row["genre"] == "totp":
-        return {"cle": secret.get("cle", ""), "code": totp_code(secret.get("cle", ""))}
+        try:
+            code = totp_code(secret.get("cle", ""))
+        except (ValueError, TypeError):  # binascii.Error en est une : une clé abîmée en base, sans la citer
+            raise HTTPException(422, "Cette clé d'authentificateur est illisible : remplace-la.") from None
+        return {"cle": secret.get("cle", ""), "code": code}
     return {k: v for k, v in secret.items() if k in ("identifiant", "mot_de_passe", "numero", "expiration", "titulaire")}
 
 
@@ -798,6 +831,9 @@ async def import_csv(request: Request, user: int = Depends(auth.current_user)):
                 continue
             if not value["mot_de_passe"]:
                 refused.append({"ligne": line, "raison": "Mot de passe manquant."})
+                continue
+            if not value["identifiant"].strip():
+                refused.append({"ligne": line, "raison": "Identifiant manquant."})
                 continue
             if len(value["mot_de_passe"]) > MAX_PASSWORD or len(value["identifiant"]) > MAX_IDENTIFIER or len(value["nom"]) > 200:
                 refused.append({"ligne": line, "raison": "Un champ est trop long."})

@@ -329,6 +329,79 @@ def test_model_never_sees_a_secret():
     check("aucune valeur dans les notifications", not [p for p in pushed if any(s in p for s in (MDP_A, ID_A, ID_B))])
 
 
+def test_other_profile_turn_never_fills():
+    """Relecture GLM partie 4 n°1 et 2 : un agent du propriétaire partagé (droit admin), tâche lancée par l'autre profil. Le serveur
+    ne tape jamais d'office un secret du propriétaire (identifiant ou code), ni par son handle ; la connexion de l'autre profil ne
+    note pas le site « connecté »."""
+    A5 = "a5-partage-admin"
+    with db.connect() as c:
+        c.execute("INSERT INTO agents (id, name, role, api_key, owner_id) VALUES (?, ?, '', 'k', ?)", (A5, A5, ALICE))
+        c.execute("INSERT INTO agent_shares (agent_id, user_id, droit) VALUES (?, ?, 'admin')", (A5, BRUNO))
+        c.execute("DELETE FROM coffre WHERE user_id = ?", (ALICE,))
+    client.put(f"/api/agents/{A5}/coffre-droit", headers=web(ALICE), json={"utiliser": True})
+    CONVS[A5] = main._new_conversation(BRUNO, A5, "Essai invité")
+    relay.active[A5] = [CONVS[A5]]
+    r = client.post("/api/coffre", headers=web(ALICE), json={"genre": "login", "origine": "https://www.instagram.com", "identifiant": ID_A, "mot_de_passe": MDP_A})
+    handle = r.json()["id"]
+    client.post("/api/coffre", headers=web(ALICE), json={"genre": "totp", "origine": "https://www.instagram.com", "cle": TOTP_KEY})
+    page.origine, page.champs, page.after = "https://www.instagram.com", {"identifiant": True, "motDePasse": True, "code": False}, None
+    fills = len(page.fills)
+    out = vault(A5)
+    shown = client.get(f"/api/conversations/{CONVS[A5]}/en-cours", headers=web(BRUNO)).json()["connexion"]
+    check("P4n1 tâche d'un autre profil, un seul identifiant du propriétaire : carte vide, rien tapé d'office",
+          "attente" in out and len(page.fills) == fills and shown and not shown.get("comptes"), (out, shown))
+    client.delete(f"/agent-api/coffre/{out['attente']}", headers={"Authorization": f"Bearer {relay.token_for(A5)}"})
+    page.champs = {"identifiant": False, "motDePasse": False, "code": True}
+    out = vault(A5, "enter_code")
+    check("P4n1 de même pour le code d'authentificateur du propriétaire", "attente" in out and len(page.fills) == fills, out)
+    client.delete(f"/agent-api/coffre/{out['attente']}", headers={"Authorization": f"Bearer {relay.token_for(A5)}"})
+    page.champs = {"identifiant": True, "motDePasse": True, "code": False}
+    out = vault(A5, "fill", handle=handle)
+    check("P4n1 ni par son handle", out.get("error_type") == "not_owner" and len(page.fills) == fills, out)
+    ask_id = vault(A5)["attente"]
+    r = client.post(f"/api/agents/{A5}/connexions/{ask_id}", headers=web(BRUNO), json={"identifiant": "bruno@ailleurs.fr", "mot_de_passe": "mdp-de-bruno-1"})
+    agent_gets(A5, ask_id)
+    listed = client.get(f"/api/agents/{A5}/sites", headers=web(ALICE)).json()
+    check("P4n2 la connexion de l'autre profil part dans la page, sans noter le site connecté",
+          r.status_code == 200 and page.fills[-1]["identifiant"] == "bruno@ailleurs.fr" and not [s for s in listed if s["etat"] == "connecte"], (r.text, listed))
+    relay.active[A5] = []
+    CONVS[A5] = main._new_conversation(ALICE, A5, "Essai propriétaire")
+    relay.active[A5] = [CONVS[A5]]
+    out = vault(A5)
+    check("P4n1 la tâche du propriétaire, elle, remplit d'office", out.get("automatic") and page.fills[-1]["motDePasse"] == MDP_A, out)
+    relay.active[A5] = []
+    with db.connect() as c:
+        c.execute("DELETE FROM coffre WHERE user_id = ?", (ALICE,))
+
+
+def test_review_small_fixes():
+    """Relecture GLM partie 1 n°3, partie 4 n°3 à 5."""
+    r = client.post("/api/coffre", headers=web(ALICE), json={"genre": "login", "origine": "https://exemple.org", "identifiant": "", "mot_de_passe": "seul-Mdp-1"})
+    check("P1n3 un identifiant sans identifiant est refusé par le serveur", r.status_code == 400 and "identifiant" in r.text, r.text)
+    out = client.post("/api/coffre/import", headers=web(ALICE), json={"csv": "url,username,password\nhttps://exemple.org,,csv-Pw9-secret\n"}).json()
+    check("P1n3 de même à l'import", out["ajoutes"] == 0 and out["refuses"] == [{"ligne": 2, "raison": "Identifiant manquant."}], out)
+    check("P4n4 une adresse IPv6 est une origine", coffre.origin_of("http://[::1]:8080/login") == "http://[::1]:8080"
+          and coffre.origin_of("https://[2001:db8::1]/") == "https://[2001:db8::1]" and coffre.origin_of("http://[zz::1]/") == "", coffre.origin_of("http://[::1]:8080/login"))
+    with db.connect() as c:
+        c.execute("INSERT INTO coffre (id, user_id, genre, nom, origine, secret, created_at) VALUES ('totp_abime', ?, 'totp', '', 'https://exemple.org', ?, ?)",
+                  (ALICE, db.seal(json.dumps({"cle": "1A"})), time.time()))
+    r = client.post("/api/coffre/totp_abime/voir", headers=web(ALICE), json={"motdepasse": "motdepasse-a"})
+    check("P4n5 une clé abîmée en base : erreur propre, sans la clé", r.status_code == 422 and "1A" not in r.text, r.text)
+    with db.connect() as c:
+        c.execute("DELETE FROM coffre WHERE user_id = ?", (ALICE,))
+        count = c.execute("SELECT COUNT(*) FROM coffre WHERE user_id = ?", (ALICE,)).fetchone()[0]
+    saved_max, coffre.MAX_ITEMS = coffre.MAX_ITEMS, count
+    page.origine, page.champs, page.after = "https://www.instagram.com", {"identifiant": True, "motDePasse": True, "code": False}, None
+    try:
+        ask_id = vault(A1)["attente"]
+        r = client.post(f"/api/agents/{A1}/connexions/{ask_id}", headers=web(ALICE), json={"identifiant": ID_A, "mot_de_passe": MDP_A})
+        seen = agent_gets(A1, ask_id)
+    finally:
+        coffre.MAX_ITEMS = saved_max
+    check("P4n3 coffre plein : la personne et l'agent le savent, l'agent ne relance pas",
+          r.json().get("coffre_plein") and seen.get("vault_full") and "ne rappelle pas save_login" in seen.get("next", ""), (r.text, seen))
+
+
 test_migration_without_loss()
 test_server_picks_the_only_login()
 test_two_accounts_ask_which()
@@ -336,5 +409,7 @@ test_vault_is_per_person()
 test_totp_and_card()
 test_settings_screen()
 test_reconnect_state()
+test_other_profile_turn_never_fills()
+test_review_small_fixes()
 test_model_never_sees_a_secret()
 print(f"coffre 0.3.0 : {checks} vérifications, tout est vert")
