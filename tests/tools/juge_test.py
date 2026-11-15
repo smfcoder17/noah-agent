@@ -1436,6 +1436,21 @@ assert to_server("", {"outil": "terminal", "args": SCRIPT, "session": quoted_ses
 set_mode("prudent")
 print("28. C1 : citation exacte retrouvée dans ses messages : passe et notée dans l'Activité ; inventée, retouchée, trop courte, niée, de l'agent, sous une règle, en Prudent ou durci : accord")
 
+# --- 28b. D1 : payer, supprimer définitivement, toucher un secret, changer des droits demandent toujours, même cités (B4) ----------
+reset()
+set_mode("auto")
+d1_session = f"noah-{conversation(text=ASKED)}"
+for motif in ("paiement", "suppression", "irreversible", "secrets", "protections", "droits"):
+    juge._cache.clear()
+    provider.verdict = {"ligne": 6, "motif": motif, "certitude": 95, "citation": QUOTE}
+    result = to_server("", {"outil": "terminal", "args": SCRIPT, "session": d1_session})
+    assert result["verdict"] == "accord" and "citation" not in result, (motif, result)
+juge._cache.clear()
+provider.verdict = {"ligne": 6, "motif": "demande", "certitude": 95, "citation": QUOTE}
+assert to_server("", {"outil": "terminal", "args": SCRIPT, "session": d1_session})["verdict"] == "passe", "C1 reste valable pour le reste"
+set_mode("prudent")
+print("28b. D1 : en Auto, une citation exacte ne fait passer ni un paiement, ni une suppression définitive, ni un secret, ni un changement de droits")
+
 # --- 29. Lot C (C3) : un accord vaut pour l'appel exact montré, une fois ; le titre dit l'action --------------------------------
 reset()
 from noah import accords  # noqa: E402

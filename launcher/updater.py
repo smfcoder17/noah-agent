@@ -618,9 +618,22 @@ def _through_caddy() -> bool:
         return False
 
 
+# E1 : le lanceur n'est plus sur le réseau des agents et des navigateurs. Leur santé se lit dans leur conteneur.
+INSIDE = {"noah-agent-": 8642, "noah-browser-": 9377}
+
+
+def _answers_inside(c, port: int) -> bool:
+    try:
+        code, out = c.exec_run(["curl", "-s", "-o", "/dev/null", "-m", "5", "-w", "%{http_code}", f"http://127.0.0.1:{port}/health"])
+    except Exception:  # noqa: BLE001 - conteneur qui redémarre
+        return False
+    return code == 0 and (out or b"").strip() == b"200"
+
+
 def healthy(name: str, seconds: int | None = None) -> bool:
     """Sain = répond 3 fois de suite (sur 10 s avec POLL à 5 s), sans redémarrer entre-temps."""
     url = _health_url(name)
+    inside = next((port for prefix, port in INSIDE.items() if name.startswith(prefix)), None)
     deadline = time.time() + (HEALTH if seconds is None else seconds)
     streak, restarts = 0, None
     while time.time() < deadline:
@@ -630,7 +643,8 @@ def healthy(name: str, seconds: int | None = None) -> bool:
         if restarts is not None and count != restarts:
             streak = 0
         restarts = count
-        streak = streak + 1 if running and (_answers(url) if url else True) else 0
+        answers = _answers_inside(c, inside) if inside and running else (_answers(url) if url else True)
+        streak = streak + 1 if running and answers else 0
         if streak >= 3:
             return True
         time.sleep(POLL)

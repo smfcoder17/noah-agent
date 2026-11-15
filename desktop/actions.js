@@ -383,7 +383,8 @@ async function claudeTask(req, ctx, who, store, stop, refused) {
   const minutes = Math.min(Math.max(1, Number(req.minutes) || rights.claudeMinutes || 30), rights.claudeMinutes || 30);
   const args = claude.argsFor(profile);
   actionContext.getStore().plan = { program: "claude", args, path: folder.chemin, consigne, minutes };
-  if (getAutonomy() !== "auto") {
+  // Sonnet n°4 : le profil « complet » (commandes, web) demande toujours, même en Auto : le bandeau local est le plancher.
+  if (getAutonomy() !== "auto" || profile === "complet") {
     if (tooLong(consigne)) return { erreur: "Consigne trop longue pour être montrée en entier avant l'accord : fais-en une plus courte (30 lignes, 2 000 caractères)." }; // i18n-ignore : lu par le serveur
     const detail = t("accord.claude.detail", { dossier: folder.chemin, outils: claude.PROFILES[profile].tools.join(", "), minutes, consigne });
     if (!(await confirm(t("accord.claude", { agent: who }), detail))) return refused;
@@ -454,6 +455,10 @@ async function files(req, ctx, store) {
     }
     // Ce qui suit écrit : on repart de l'état présent du dossier, et chaque attente (fenêtre, corbeille, livraison) se revérifie.
     if (!folder.ecriture) throw new dossiers.Refus(`Le dossier « ${folder.nom} » est en lecture seule.`); // i18n-ignore : lu par le serveur
+    // Sonnet n°7 : en Auto, aucun script, raccourci ni fichier de démarrage ne s'écrit sans que la personne le voie.
+    if (getAutonomy() === "auto" && (req.action === "ecrire" || req.action === "deplacer") && dossiers.startsByItself(folder.chemin, req.action === "ecrire" ? req.chemin : req.vers)) {
+      throw new dossiers.Refus("En Auto, l'agent n'écrit ni script (.bat, .cmd, .ps1, .vbs), ni raccourci, ni fichier dans un dossier de démarrage. La personne peut passer l'ordinateur en Prudent pour le valider elle-même."); // i18n-ignore : lu par le serveur
+    }
     const recheck = () => {
       if (store.isCut()) return CUT;
       const approval = approvalFailure();

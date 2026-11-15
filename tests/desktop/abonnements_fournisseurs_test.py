@@ -40,6 +40,7 @@ with db.connect() as c:
 CONV = main._new_conversation(ALICE, AGENT, "Conversation", main=True)
 
 upstream_calls = []
+upstream_paths = []
 
 
 class Upstream(BaseHTTPRequestHandler):
@@ -48,6 +49,7 @@ class Upstream(BaseHTTPRequestHandler):
     def do_POST(self):  # noqa: N802
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         upstream_calls.append(body)
+        upstream_paths.append(self.path)
         reply = {"id": "u1", "object": "chat.completion", "model": body["model"], "usage": {"prompt_tokens": 3, "completion_tokens": 2},
                  "choices": [{"index": 0, "message": {"role": "assistant", "content": "réponse du secours"}, "finish_reason": "stop"}]}
         data = json.dumps(reply).encode()
@@ -282,7 +284,25 @@ with db.connect() as c:
 desktop._seen[DEVICE]["at"] = 0
 r = agent.post("/relay/v1/chat/completions", json=CHAT)
 assert r.status_code == 503 and r.json()["error"]["type"] == "computer_unavailable" and "Ouvre Noah Agent" in r.json()["error"]["message"], r.text
+# m2 : la tâche d'un invité, sans secours, reçoit une erreur neutre : rien ne dit qu'un ordinateur existe ni qu'il ne répond pas.
+real_guest = access.guest_task
+access.guest_task = lambda agent_id: True
+for streamed in (False, True):
+    r = agent.post("/relay/v1/chat/completions", json={**CHAT, "stream": streamed})
+    said = r.json()["error"]["message"].lower()
+    assert r.status_code == 503 and r.json()["error"]["type"] != "computer_unavailable" and "ordinateur" not in said and "noah agent" not in said, r.text
+access.guest_task = real_guest
+# m8 : sans secours, embeddings, images et audio n'ont personne pour répondre : 404, rien ne part.
+before = len(upstream_paths)
+r = agent.post("/relay/v1/embeddings", json={"model": "emb", "input": "bonjour"})
+assert r.status_code == 404 and len(upstream_paths) == before, r.text
 db.set_setting(relay.SECOURS, secours)
+# m8 : avec un cerveau par l'ordinateur, embeddings, images et audio passent par le secours, avec sa clé, au lieu d'un 404.
+for route in ("embeddings", "images/generations", "audio/speech"):
+    before = len(upstream_paths)
+    r = agent.post(f"/relay/v1/{route}", json={"model": "emb", "input": "bonjour", "prompt": "un chat"})
+    assert r.status_code == 200 and len(upstream_paths) == before + 1 and upstream_paths[-1] == f"/v1/{route}", (route, r.status_code, r.text, upstream_paths[-1:])
+print("   m2 : invité sans secours, erreur neutre ; m8 : embeddings, images, audio par le secours (404 sans secours)")
 beat()
 print("A4. éteint, disparu en route, épuisé (puis au repos sans redemander) : le secours répond avec sa ligne ; sans secours, une erreur qui dit quoi faire")
 

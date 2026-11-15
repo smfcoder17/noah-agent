@@ -50,7 +50,10 @@ services:
       # Hermes figé : la version que les tests font tourner. On la change seulement après avoir rejoué la suite dessus.
       AGENT_IMAGE: nousresearch/hermes-agent@sha256:9c5561579f3ffdf333401797094ac3a743738d6c25d40f4331c7bf77b694238d
       BROWSER_IMAGE: ghcr.io/smfcoder17/noah-browser:stable
-      AGENT_NETWORK: noah-net
+      # E1 : réseau des agents et des navigateurs, créé par le lanceur ; le serveur y est branché, le lanceur jamais.
+      AGENT_NETWORK: noah-agents
+      # Seul le serveur (et le relais des mises à jour) obtient une réponse du lanceur.
+      NOAH_LANCEUR_CLIENTS: noah-server
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       # État des mises à jour (versions en service, versions bloquées après un échec).

@@ -479,4 +479,17 @@ function refusedRoot(chemin) {
   return path.parse(chemin).root === chemin || chemin.split(path.sep).some((p) => SENSITIVE_DIR.test(p));
 }
 
-module.exports = { DECEIVING, MAX_FILE, Refus, alwaysAllowed, createStore, explain, fingerprint, inside, list, locate, makeDir, move, pieces, read, refusedRoot, resolve, sha256, simple, toTrash, write };
+// Sonnet n°7 : ce qu'une écriture sans carte ne pose jamais en Auto : un script ou un raccourci qui se lance d'un double clic, ou
+// n'importe quel fichier d'un dossier de démarrage (Windows, Linux, macOS), qui se lancerait à la prochaine ouverture de session.
+const LAUNCHES = /\.(bat|cmd|ps1|vbs|lnk|url)$/i;
+const STARTUP = [/[\\/]start menu[\\/]programs[\\/]startup(?=[\\/]|$)/i, /[\\/]\.config[\\/]autostart(?=[\\/]|$)/i, /[\\/]library[\\/]launchagents(?=[\\/]|$)/i];
+
+/** Vrai si écrire `relative` dans ce dossier poserait un script, un raccourci, ou un fichier dans un dossier de démarrage. */
+function startsByItself(folderPath, relative) {
+  const parts = pieces(relative);
+  if (LAUNCHES.test(parts.at(-1) || "")) return true;
+  const { target } = resolve(folderPath, relative); // liens et jonctions compris : le vrai chemin d'arrivée
+  return [target, path.join(folderPath, ...parts)].some((p) => STARTUP.some((re) => re.test(p)));
+}
+
+module.exports = { DECEIVING, MAX_FILE, Refus, alwaysAllowed, createStore, explain, fingerprint, inside, list, locate, makeDir, move, pieces, read, refusedRoot, resolve, sha256, simple, startsByItself, toTrash, write };

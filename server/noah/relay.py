@@ -387,8 +387,15 @@ COMPUTER_OFF = ("Ton ordinateur ne répond pas (éteint, Noah Agent fermé, ou a
                 "fournisseur de secours n'est branché. Ouvre Noah Agent sur ton ordinateur, ou choisis un autre cerveau dans Réglages > Modèles.")
 
 
+# m2 (A8) : un invité ou un agent partagé n'apprend ni que l'ordinateur du propriétaire existe, ni qu'il ne répond pas.
+BRAIN_UNAVAILABLE = "Le cerveau de cet agent n'est pas disponible pour le moment. Réessaie plus tard, ou préviens la personne qui te l'a partagé."
+
+
 def _computer_unavailable(agent_id: str) -> JSONResponse:
+    from . import desktop
     _failing.setdefault(agent_id, time.time())
+    if desktop._gatekept(agent_id):
+        return JSONResponse({"error": {"message": BRAIN_UNAVAILABLE, "type": "brain_unavailable", "code": 503}}, status_code=503)
     return JSONResponse({"error": {"message": COMPUTER_OFF, "type": "computer_unavailable", "code": 503}}, status_code=503)
 
 
@@ -534,7 +541,9 @@ def _completion_reply(reply: dict, stream: bool) -> Response:
 
 # Ce que l'agent peut demander au fournisseur, avec la clé du propriétaire : le chat et ses voisins, rien d'autre. Sans
 # cette liste, `../../api/delete` atteignait n'importe quelle route du fournisseur avec la clé (audit 0.3.0, Sonnet n°2).
-RELAY_GET = re.compile(r"models(/[A-Za-z0-9._:@-]+)?")
+# m6 : un identifiant de modèle peut porter des « / » (OpenRouter : openai/gpt-4o) ; « . », « .. », « % » et les segments vides restent refusés
+# par relay_path_allowed et par le contrôle du chemin brut.
+RELAY_GET = re.compile(r"models(/[A-Za-z0-9._:@-]+)*")
 RELAY_POST = re.compile(r"(chat/completions|completions|embeddings|responses|images/generations|audio/speech|audio/transcriptions)")
 
 
@@ -589,10 +598,14 @@ async def relay(path: str, request: Request):
     from . import modes
 
     chat = path.endswith("chat/completions")
-    if on_pc and not chat:
+    # m8 : un abonnement par l'ordinateur ne sert que la conversation. Embeddings, images et audio passent par le secours, avec sa clé ;
+    # sans secours, personne ne peut répondre.
+    side = fallback_link() if on_pc and not chat else None
+    if on_pc and not chat and not side:
         return JSONResponse({"error": {"message": "Ce fournisseur ne sert que la conversation.", "type": "not_supported", "code": 404}}, status_code=404)
     effort = modes.reasoning(agent_id) if chat else None
-    chain = modes.ordered(await _chain_of(agent_id, model, body)) if chat else [{"modele": model, "fournisseur": provider}]
+    chain = (modes.ordered(await _chain_of(agent_id, model, body)) if chat
+             else [{"modele": model, "fournisseur": side["fournisseur"] if side else provider}])
     pc_chain = chat and any(link.get("fournisseur") in desktop.PC_PROVIDERS for link in chain)
     if pc_chain:  # ordinateur éteint, abonnement épuisé, agent partagé : le secours répond, en dernier
         backup = fallback_link()

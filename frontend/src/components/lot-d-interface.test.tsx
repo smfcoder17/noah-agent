@@ -311,6 +311,27 @@ it("E2 — cibles tactiles du téléphone : 44 px au moins", () => {
   expect(shell).toMatch(/\.session-row \{[^}]*min-height:44px/);
 });
 
+it("F1 — 375×812 : chaque cible de la conversation fait 44 px au moins (Copier, Modifier, Réagir, +, dictée, voix, Stop), l'icône garde sa taille", () => {
+  const shell = readFileSync("src/styles/shell.css", "utf8");
+  const phone = shell.match(/@media\(max-width:767px\) \{[^@]*\.cible-tactile \{[^}]*\}/)?.[0] ?? "";
+  expect(phone).toMatch(/\.cible-tactile \{[^}]*min-height:44px/);
+  expect(phone).toMatch(/\.cible-tactile \{[^}]*min-width:44px/);
+  expect(phone).not.toMatch(/\.cible-tactile[^{]*svg/); // l'icône garde sa taille ([&_svg]:size-4 du bouton)
+  const sources = ["Thread.tsx", "Voice.tsx", "ReportAnswer.tsx"].map((f) => readFileSync(`src/components/${f}`, "utf8")).join("\n");
+  const tag = (label: string) => {
+    const at = sources.indexOf(`aria-label={${label}`);
+    expect(at, label).toBeGreaterThan(-1);
+    const start = sources.lastIndexOf("<", at);
+    return sources.slice(start, sources.indexOf(">", at));
+  };
+  for (const label of ['t("Copier mon message")', 't("Copier la réponse")', 't("Reprendre ce message")', 't("Réagir")', 't("Ajouter")',
+    'state === "recording" ? t("Arrêter la dictée")', 't("Mode vocal")', 't("Arrêter")', 't("Envoyer")', 't("Signaler la réponse")', 't("Réagir {emoji}"', 't("Retirer ta réaction {emoji}"']) {
+    expect(tag(label), label).toContain("cible-tactile");
+  }
+  expect(sources.match(/data-envoyer aria-label=\{t\("Envoyer"\)\}/g)?.length).toBe(3);
+  for (const m of sources.matchAll(/<Button[^>]*data-envoyer[\s\S]*?>/g)) expect(m[0]).toContain("cible-tactile");
+});
+
 // --- Relecture GLM 0.3.0 (docs/epics/0.3.0/revue-glm.md) -----------------------------------------------------------------
 
 it("P0n3 — un HTML ou un SVG du dossier de l'agent, ouvert par son nom, s'affiche en bac à sable sans allow-same-origin", async () => {

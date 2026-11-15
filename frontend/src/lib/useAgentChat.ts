@@ -12,6 +12,7 @@ import { onForget, SeenActive, seenGeneration } from "./seen";
 import { ApiError, type ChatEvent, get, type LoginAsked, send, type Reactions, type Recu, type StoredMessage, request, StreamLost, streamChat, uploadFile } from "./api";
 import { accordLabel, refreshAccords, useAccords } from "./events";
 import { t, tServeur } from "@/i18n";
+import { pcNote } from "./lignesServeur";
 
 type TextPart = { type: "text"; text: string };
 type ToolPart = { type: "tool-call"; toolCallId: string; toolName: string; args: Record<string, unknown>; result?: unknown };
@@ -89,7 +90,7 @@ function fromStoredContent(m: StoredMessage, i: number): ChatMessage {
     return { id: `h${i}`, role: "assistant", trace: m.detail ?? "", content: [{ type: "tool-call", toolCallId: `t${i}`, toolName: "trace", args: traceArgs(m), result: true }] };
   }
   const { steps, recu } = stored(m.detail);
-  return { id: `h${i}`, role: "assistant", content: [{ type: "text", text: m.text }, ...recuParts(recu), ...(steps.length ? [stepsPart(steps)] : [])] };
+  return { id: `h${i}`, role: "assistant", content: [{ type: "text", text: m.role === "agent" ? pcNote(m.text) : m.text }, ...recuParts(recu), ...(steps.length ? [stepsPart(steps)] : [])] };
 }
 
 const stepsPart = (steps: string[]): Part => ({ type: "tool-call", toolCallId: "steps", toolName: "steps", args: { steps } as never, result: true });
@@ -174,7 +175,7 @@ function apply(msg: ChatMessage, ev: ChatEvent | ChoiceEvent, runId: string | nu
       // Le serveur donne ce que la conversation garde : l'écran finit dessus, même si des détails ont coupé le texte en morceaux.
       if (ev.status === "completed" && ev.reponse) {
         const others = withoutSteps(settle(parts)).filter((p) => p.type !== "text");
-        return { ...msg, content: [...others, { type: "text", text: ev.reponse }, ...recuParts(ev.recu), ...(ev.etapes?.length ? [stepsPart(ev.etapes)] : [])], running: false };
+        return { ...msg, content: [...others, { type: "text", text: pcNote(ev.reponse) }, ...recuParts(ev.recu), ...(ev.etapes?.length ? [stepsPart(ev.etapes)] : [])], running: false };
       }
       let next = settle(parts);
       if (!next.some((p) => p.type === "text") && ev.output) next = [...next, { type: "text", text: ev.output }];

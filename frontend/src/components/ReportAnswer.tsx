@@ -24,7 +24,7 @@ export function ReportAnswer({ readText }: { readText: () => string }) {
   };
   return (
     <>
-      <Button variant="ghost" size="icon-sm" aria-label={t("Signaler la réponse")} title={t("Signaler cette réponse")} onClick={show}>
+      <Button variant="ghost" size="icon-sm" aria-label={t("Signaler la réponse")} title={t("Signaler cette réponse")} className="cible-tactile" onClick={show}>
         <Flag />
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
