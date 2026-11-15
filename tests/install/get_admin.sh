@@ -37,6 +37,8 @@ echo "ok   transmis au démarrage par .env, tel quel"
 if grep -q 'NOAH_ADMIN' "$TRAVAIL/.env"; then echo "ÉCHEC encore dans .env après la création du compte"; exit 1; fi
 grep -q '^NOAH_DOMAIN=noah.exemple.com$' "$TRAVAIL/.env" || { echo "ÉCHEC le domaine a disparu de .env"; exit 1; }
 echo "ok   retiré de .env dès que le compte existe, le domaine reste"
+[ "$(stat -c %a "$TRAVAIL/.env")" = 600 ] || { echo "ÉCHEC .env lisible par d'autres ($(stat -c %a "$TRAVAIL/.env"))"; exit 1; }
+echo "ok   .env lisible par root seul (audit 0.3.0, M3)"
 if printf '%s' "$sortie" | grep -qF "$MOT"; then echo "ÉCHEC mot de passe dans la sortie du script"; exit 1; fi
 printf '%s' "$sortie" | grep -q 'avec le compte patronne' || { echo "ÉCHEC la sortie ne dit pas comment se connecter : $sortie"; exit 1; }
 printf '%s' "$sortie" | grep -q 'installation=' && { echo "ÉCHEC un lien à code d'installation est montré"; exit 1; }

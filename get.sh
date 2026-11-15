@@ -98,10 +98,11 @@ say "Téléchargement de Noah Agent…"
 if [ -n "$COMPOSE_URL" ]; then
   curl -fsSL "$COMPOSE_URL" -o docker-compose.yml.new
 else
-  if ! curl -fsSL "$RELEASE_COMPOSE" -o docker-compose.yml.new 2>/dev/null; then
-    # Pas encore de version publiée : compose du dépôt, qui suit les étiquettes (stable). Les mises à jour signées
-    # épingleront chaque image par empreinte dès la première version.
-    printf '\n\033[33mAucune version publiée : installation depuis le dépôt (images non épinglées).\033[0m\n' >&2
+  if ! curl -fsSL "$RELEASE_COMPOSE" -o docker-compose.yml.new; then
+    # Plus de repli silencieux sur le compose du dépôt : il tire des étiquettes non signées (audit 0.3.0, E2). Pour un
+    # essai sans version publiée, NOAH_DEPUIS_DEPOT=1 le demande en connaissance de cause.
+    [ "${NOAH_DEPUIS_DEPOT:-}" = 1 ] || fail "Impossible de télécharger la version publiée de Noah ($RELEASE_COMPOSE). Vérifie le réseau, puis relance la même commande."
+    printf '\n\033[33mInstallation depuis le dépôt (NOAH_DEPUIS_DEPOT=1) : images non épinglées.\033[0m\n' >&2
     curl -fsSL "$RAW/deploy/docker-compose.yml" -o docker-compose.yml.new
   fi
 fi
@@ -110,7 +111,10 @@ mv docker-compose.yml.new docker-compose.yml
 mkdir -p scripts
 for f in backup.sh restore.sh; do curl -fsSL "$RAW/scripts/$f" -o "scripts/$f" 2>/dev/null || true; done
 # Le domaine choisi reste dans .env : une mise à jour (nouveau compose) ne le perd pas.
+# .env porte le mot de passe provisoire du premier compte : lisible par root seul, même après chaque mv (audit 0.3.0, M3).
+umask 077
 touch .env
+chmod 600 .env
 if [ -n "${NOAH_DOMAIN:-}" ]; then
   grep -v '^NOAH_DOMAIN=' .env > .env.new || true
   echo "NOAH_DOMAIN=$NOAH_DOMAIN" >> .env.new && mv .env.new .env
