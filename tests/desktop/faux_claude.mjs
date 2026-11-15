@@ -7,6 +7,8 @@ import { join } from "node:path";
 const args = process.argv.slice(2);
 const trace = (what) => process.env.FAUX_CLAUDE_TRACE && appendFileSync(process.env.FAUX_CLAUDE_TRACE, JSON.stringify(what) + "\n");
 const say = (event) => process.stdout.write(JSON.stringify(event) + "\n");
+// D8 : variables qui feraient facturer l'API au lieu de l'abonnement ; elles ne doivent jamais arriver ici. NOAH_GARDE prouve que le reste passe.
+const billing = () => Object.keys(process.env).filter((k) => /^(anthropic|claude)_/i.test(k));
 
 if (args[0] === "auth" && args[1] === "status") {
   // La vraie CLI rend aussi l'e-mail et l'organisation : Noah ne doit pas les garder.
@@ -25,7 +27,7 @@ const brain = async (prompt) => {
   const model = at("--model");
   const schema = at("--json-schema");
   const system = readFileSync(at("--system-prompt-file"), "utf8");
-  trace({ args, prompt, system, cwd: process.cwd(), cerveau: true });
+  trace({ args, prompt, system, cwd: process.cwd(), cerveau: true, facturation: billing(), garde: process.env.NOAH_GARDE });
   const usage = { input_tokens: 100, cache_read_input_tokens: 20, cache_creation_input_tokens: 0, output_tokens: 7 };
   const done = (fields) => { say({ type: "result", subtype: "success", is_error: false, session_id: "s-cerveau", num_turns: 1, total_cost_usd: 0.01, duration_ms: 50, usage, ...fields }); process.exit(0); };
   say({ type: "system", subtype: "init", session_id: "s-cerveau", tools: [], model });
@@ -49,7 +51,7 @@ let prompt = "";
 process.stdin.on("data", (c) => (prompt += c));
 process.stdin.on("end", async () => {
   if (args.includes("--system-prompt-file")) return brain(prompt);
-  trace({ args, prompt, cwd: process.cwd() });
+  trace({ args, prompt, cwd: process.cwd(), facturation: billing(), garde: process.env.NOAH_GARDE });
   const session = "sess-1234";
   say({ type: "system", subtype: "init", session_id: session, cwd: process.cwd(), tools: [] });
   if (prompt.includes("LENT")) {
