@@ -96,3 +96,55 @@ it("l'écran vide propose les demandes du modèle de l'agent, sinon les généra
   expect(demandesFor(PRESETS, "autre")).toEqual(["Général 1", "Général 2", "Général 3", "Général 4"]);
   expect(demandesFor(null, "autre")).toEqual([]);
 });
+
+// ─── Lot barre : la forme choisie est celle de l'agent ───────────────────────────────────────────────────────────────────
+
+const shapeOf = (host: HTMLElement) => host.querySelector<SVGElement>("form > div svg[data-shape]")!.getAttribute("data-shape");
+const shapeButton = (host: HTMLElement, name: string) => [...host.querySelectorAll<HTMLButtonElement>("fieldset button[aria-pressed]")].find((b) => b.textContent === name)!;
+
+it("point 4 : choisir un modèle montre sa forme dans l'aperçu, et la forme est proposée parmi toutes les autres", async () => {
+  const { host, root } = await render(null);
+  expect(shapeOf(host)).toBe("gomme");
+  await act(async () => button(host, "Veille").click());
+  expect(shapeOf(host)).toBe("bulle"); // avant : toujours la gomme, quel que soit le modèle
+  expect([...host.querySelectorAll("fieldset button[aria-pressed]")].map((b) => b.textContent).filter((x) => ["Gomme", "Bulle", "Cube", "Goutte", "Pastille"].includes(x!))).toEqual(["Gomme", "Bulle", "Cube", "Goutte", "Pastille"]);
+  expect(shapeButton(host, "Bulle").getAttribute("aria-pressed")).toBe("true");
+  expect(button(host, "Antenne").getAttribute("aria-pressed")).toBe("true"); // le détail du modèle aussi
+  await act(async () => root.unmount());
+});
+
+it("point 4 : la forme choisie à la création part avec l'agent, et le serveur la garde", async () => {
+  vi.mocked(send).mockResolvedValue({ id: "veille-ab12" });
+  const { host, root } = await render(null);
+  await act(async () => button(host, "Veille").click());
+  await act(async () => shapeButton(host, "Cube").click());
+  expect(shapeOf(host)).toBe("cube");
+  await act(async () => button(host, "Créer l'agent").click());
+  expect(send).toHaveBeenCalledWith("/api/agents/veille-ab12/look", { shape: "cube" }, "PATCH"); // couleur et détail du modèle : posés par le serveur
+  await act(async () => root.unmount());
+});
+
+it("point 4 : partir de zéro, on choisit sa forme et son détail ; sans changement rien n'est envoyé en plus", async () => {
+  vi.mocked(send).mockResolvedValue({ id: "z1" });
+  const { host, root } = await render(null);
+  await act(async () => shapeButton(host, "Goutte").click());
+  await act(async () => button(host, "Joues rosées").click());
+  host.querySelector("input")!.focus();
+  await act(async () => { const i = host.querySelector("input")!; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(i, "Léa"); i.dispatchEvent(new Event("input", { bubbles: true })); });
+  await act(async () => button(host, "Créer l'agent").click());
+  expect(send).toHaveBeenCalledWith("/api/agents/z1/look", { color: "#ff7a59", shape: "goutte", detail: "joues" }, "PATCH");
+  await act(async () => root.unmount());
+});
+
+it("point 4 : un agent existant montre sa forme, et la changer l'enregistre", async () => {
+  vi.mocked(send).mockResolvedValue({});
+  const agent = { id: "a1", name: "Léa", role: "", color: "#ff7a59", shape: "goutte", detail: "", droit: "proprietaire" } as Agent;
+  const { host, root, onSaved } = await render(agent);
+  expect(shapeOf(host)).toBe("goutte");
+  expect(shapeButton(host, "Goutte").getAttribute("aria-pressed")).toBe("true");
+  await act(async () => shapeButton(host, "Pastille").click());
+  await act(async () => button(host, "Enregistrer").click());
+  expect(send).toHaveBeenCalledWith("/api/agents/a1/look", { color: "#ff7a59", shape: "pastille" }, "PATCH");
+  expect(onSaved).toHaveBeenCalledWith("a1");
+  await act(async () => root.unmount());
+});

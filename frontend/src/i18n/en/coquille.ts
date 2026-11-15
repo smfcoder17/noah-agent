@@ -177,7 +177,6 @@ export default {
   "Chaque agent a sa propre machine, son navigateur, sa mémoire et ses fichiers.": "Each agent has its own machine, browser, memory and files.",
   "La suppression n'a pas abouti : {erreur}": "Couldn't delete: {erreur}",
   "Couleur": "Color",
-  "Forme du visage et détails : dans le panneau de l'agent, section Apparence.": "Face shape and details: in the agent's panel, Appearance section.",
   "Ex. Léa, Assistant courriels, Veille": "E.g. Lea, Email assistant, Watch",
   "Rôle et consignes": "Role and instructions",
   "Ex. Tu tries mes courriels chaque matin et tu me signales seulement ce qui demande une réponse.": "E.g. You sort my email every morning and only flag what needs a reply.",
@@ -195,6 +194,7 @@ export default {
   // components/AgentNav.tsx
   "en cours": "in progress",
   "{n} en attente": "{n} waiting",
+  "Menu de {nom}": "{nom} menu",
   "Page de {nom}": "{nom}'s page",
   "Historique de {nom}": "{nom}'s history",
   "Archivés ({n})": "Archived ({n})",

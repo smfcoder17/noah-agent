@@ -435,6 +435,10 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
     setSidebarOpen(false);
   };
 
+  /** Menu d'un agent de la barre : sa page, ou sa fenêtre de personnalisation, sans quitter ce qu'on lit si c'est un autre agent. */
+  const openAgentPage = (id: string) => { if (id !== agentId) selectAgent(id); navigation.dispatch({ type: "push", route: { kind: "agent" } }); };
+  const customizeAgent = (id: string) => { const target = agents.find((a) => a.id === id); if (target) setAgentDialog({ open: true, agent: target }); };
+
   const newDiscussion = async () => {
     if (!agent) { setAgentDialog({ open: true, agent: null }); return; }
     if (!canTalk(agent) || newBusy) return;
@@ -508,7 +512,7 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
         }}
       />
       <LayoutShell>
-        <SideRail waiting={waiting} onInbox={() => setInbox(true)} agent={agent} agents={agents} tabs={tabs} active={navActive} conversations={conversations ?? []} activeThread={threadId} onTab={goTab} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} onPickAgent={selectAgent} onMenu={() => setSidebarOpen(true)} onThread={(id) => { goTab("chat"); setThreadId(id); }} onSettings={() => setSettings("home")} onGoals={() => setGoals(true)} onNewAgent={() => setAgentDialog({ open: true, agent: null })} />
+        <SideRail waiting={waiting} onInbox={() => setInbox(true)} agent={agent} agents={agents} tabs={tabs} active={navActive} conversations={conversations ?? []} activeThread={threadId} onTab={goTab} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} onPickAgent={selectAgent} onMenu={() => setSidebarOpen(true)} onThread={(id) => { goTab("chat"); setThreadId(id); }} onSettings={() => setSettings("home")} onGoals={() => setGoals(true)} onNewAgent={() => setAgentDialog({ open: true, agent: null })} onAgentPage={openAgentPage} onCustomize={customizeAgent} />
         <div className="work-area">
         <div className="work-main">
           <MobileHeader agent={agent} status={agent?.step || liveStatus || (agent?.online ? t("En ligne") : t("Hors ligne"))} onMenu={() => setSidebarOpen(true)} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} busy={newBusy} onNew={() => void newDiscussion()}
@@ -585,7 +589,7 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
             </WorkPanel>
           </KeepAlive>}
         </div>
-        {sidebarOpen && <Drawer waiting={waiting} onInbox={() => { setSidebarOpen(false); setInbox(true); }} agents={agents} agentId={agentId} conversations={conversations ?? []} tabs={tabs} active={navActive} activeThread={threadId} onAgent={selectAgent} onAgentPage={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} onThread={(id) => { goTab("chat"); setThreadId(id); }} onTab={goTab} onNewAgent={() => { setSidebarOpen(false); setAgentDialog({ open: true, agent: null }); }} onCustomize={() => { setSidebarOpen(false); navigation.dispatch({ type: "push", route: { kind: "customize" } }); }} onSettings={() => { setSidebarOpen(false); setSettings("home"); }} onGoals={() => { setSidebarOpen(false); setGoals(true); }} onClose={() => setSidebarOpen(false)} onLogout={logout} />}
+        {sidebarOpen && <Drawer waiting={waiting} onInbox={() => { setSidebarOpen(false); setInbox(true); }} agents={agents} agentId={agentId} conversations={conversations ?? []} tabs={tabs} active={navActive} activeThread={threadId} onAgent={selectAgent} onAgentPage={openAgentPage} onCustomizeAgent={customizeAgent} onThread={(id) => { goTab("chat"); setThreadId(id); }} onTab={goTab} onNewAgent={() => { setSidebarOpen(false); setAgentDialog({ open: true, agent: null }); }} onCustomize={() => { setSidebarOpen(false); navigation.dispatch({ type: "push", route: { kind: "customize" } }); }} onSettings={() => { setSidebarOpen(false); setSettings("home"); }} onGoals={() => { setSidebarOpen(false); setGoals(true); }} onClose={() => setSidebarOpen(false)} onLogout={logout} />}
         {latest("customize") && <CustomizeTabs tabs={tabs} save={saveTabs} error={tabsError} onClose={() => navigation.dispatch({ type: "close", kind: "customize" })} />}
         {latest("agent") && agent && <AgentPage agent={agent} onClose={() => navigation.dispatch({ type: "close", kind: "agent" })} onPanel={(tab) => { navigation.dispatch({ type: "close", kind: "agent" }); setPanel(tab); }} onBrain={() => setModelDialog(true)} onEdit={() => setAgentDialog({ open: true, agent })} onNotifications={() => setSettings("notifications")} onAutonomy={() => setSettings("privacy")} />}
         <Suspense fallback={null}>

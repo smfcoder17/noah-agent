@@ -244,17 +244,19 @@ it("D4 — session : une tâche lancée apparaît en moins de 3 s, disparaît à
 
 const railProps = { agent: agent(), agents: [agent(), agent({ id: "b", name: "Veille" })], conversations: [], onAgent: vi.fn(), onPickAgent: vi.fn(), onMenu: vi.fn(), onThread: vi.fn(), onSettings: vi.fn(), onGoals: vi.fn() };
 
-it("D5 — barre de gauche minimale : grand visage sans tuile, nom, état, réglages à côté, plus de sous-menu", async () => {
+it("D5 — barre de gauche minimale : grand visage sans tuile, nom, état, trois petits points à côté, plus de sous-menu", async () => {
   const page = vi.fn();
-  await act(async () => root.render(<SideRail {...railProps} onAgent={page} />));
+  await act(async () => root.render(<SideRail {...railProps} onAgentPage={page} />));
   const hero = host.querySelector<HTMLElement>(".agent-nav-item.is-hero")!;
   expect(hero.querySelector("[data-agent]")!.getAttribute("data-bare")).toBe("true");
   expect(hero.querySelector("[data-agent]")!.className).toContain("agent-nav-hero-face");
   expect(hero.textContent).toContain("Noah");
   expect(hero.textContent).toContain("Disponible");
   expect(host.querySelector('[data-agent="b"]')!.getAttribute("data-bare")).toBe("false");
-  await act(async () => byLabel("Page de Noah")!.click());
-  expect(page).toHaveBeenCalled();
+  expect(byLabel("Page de Noah")).toBeNull(); // plus d'icône de réglages
+  await act(async () => byLabel("Menu de Noah")!.click());
+  await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent === "Page de Noah")!.click());
+  expect(page).toHaveBeenCalledWith("a");
   for (const label of ["Discussion", "Activité", "Tâches", "Fichiers", "Ordinateur"]) expect(host.textContent).not.toContain(label);
   expect(host.querySelector('[role="group"]')).toBeNull();
 });
