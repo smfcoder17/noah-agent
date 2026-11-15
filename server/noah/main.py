@@ -28,7 +28,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Str
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import access, accounts, apprentissage, appareils, auth, bureautique, catalog, chauffe, coffre, connecteurs, connecteurs_cles, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, propositions, public, publication, push, recu, recuperation, relay, sites, updates, watch
+from . import access, accounts, apprentissage, appareils, auth, bureautique, catalog, chauffe, coffre, connecteurs, connecteurs_cles, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, propositions, public, publication, push, recu, recuperation, relay, session, sites, updates, watch
 from . import config
 from . import accords, bus, credits, presets, rapide, ui_preferences, linkpreview, providers as provider_accounts
 from .config import WEB_DIR, forget_setup_code
@@ -1464,6 +1464,48 @@ def activity(agent_id: str, user: int = Depends(auth.current_user)):
                          "WHERE j.agent_id = ? AND (v.user_id = ? OR v.shared) AND j.at >= ? ORDER BY j.id DESC LIMIT 500",
                          (agent_id, user, time.time() - JOURNAL_SECONDS)).fetchall()
     return [{**dict(r), "main": bool(r["main"]), "de_lui_meme": r["titre"].startswith(proactif.MARK)} for r in rows]
+
+
+@app.get("/api/agents/{agent_id}/session")
+async def agent_session(agent_id: str, user: int = Depends(auth.current_user)):
+    """La barre de session : ce que l'agent fait maintenant, dans ce que cette personne a le droit de voir. Relue toutes les
+    deux secondes : rien ici n'attend la machine de l'agent, sauf les routines, lues à part et gardées quelques secondes."""
+    access.access(user, agent_id, "lecture")
+    with db.connect() as c:
+        rows = c.execute("SELECT id, title, origin, main, user_id FROM conversations WHERE agent_id = ? AND (user_id = ? OR shared = 1)",
+                         (agent_id, user)).fetchall()
+        asked = c.execute("SELECT d.id, d.vers, d.consigne, d.created_at, a.name FROM delegations d LEFT JOIN agents a ON a.id = d.vers "
+                          "WHERE d.de = ? AND d.etat = 'en_cours' ORDER BY d.created_at", (agent_id,)).fetchall()
+    visible = {r["id"] for r in rows}
+    work = [{"id": r["id"], "titre": r["title"], "origine": r["origin"], "main": bool(r["main"]) and r["user_id"] == user,
+             "etat": "approve" if task_state.get(r["id"]) == "approve" else "work", "activite": task_activity.get(r["id"])}
+            for r in rows if coordination._busy(agent_id, r["id"])]
+    # Une demande passée à un autre agent : son nom et sa consigne, seulement si la personne voit aussi cet agent-là.
+    others = [{"id": d["id"], "agent": d["name"] or d["vers"], "titre": d["consigne"].split("\n")[0][:120], "debut": d["created_at"]}
+              for d in asked if access.right(user, d["vers"])]
+    confided = (await desktop.user_tasks(agent_id, user))["taches"] if access.owner_of(agent_id) == user else []
+    return {"travaux": work, "processus": session.processes(agent_id, visible), "demandes": others, "confiees": confided,
+            "routines": await _running_routines(agent_id, user)}
+
+
+_routine_cache: dict[str, tuple[float, list[dict]]] = {}
+
+
+async def _running_routines(agent_id: str, user: int) -> list[dict]:
+    """Les routines qui tournent en ce moment. Elles font partie des réglages de l'agent : seulement pour qui les administre."""
+    if access.right(user, agent_id) not in ("proprietaire", "admin"):
+        return []
+    at, cached = _routine_cache.get(agent_id, (0.0, []))
+    if time.monotonic() - at < 10:
+        return cached
+    try:
+        found = await asyncio.wait_for(machine.admin(agent_id, "routines", timeout=4), 5)
+    except (asyncio.TimeoutError, HTTPException, httpx.HTTPError):
+        found = {}
+    running = [{"id": str(r.get("id")), "titre": r.get("name") or "", "depuis": r.get("last_run_at")}
+               for r in found.get("routines") or [] if str(r.get("state") or "").lower() in ("running", "en_cours")]
+    _routine_cache[agent_id] = (time.monotonic(), running)
+    return running
 
 
 @app.get("/api/usage")
@@ -3014,6 +3056,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
                     yield _sse({"type": "activity", "label": "Le travail précédent a été coupé par un redémarrage. Il n'est pas repris."})
                     continue
                 ledger.feed(kind, data)
+                session.note(agent.id, conv_id, kind, data)
                 if (data.get("tool_name") or data.get("tool")) == "delegate_task":
                     if kind == "tool.started":
                         args = data.get("args") if isinstance(data.get("args"), dict) else {}
@@ -3097,6 +3140,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
             yield _sse(final)
         for thread, _ in delegated:  # run interrompu pendant une délégation
             _close_delegation(thread, None, True)
+        session.run_ended(agent.id, conv_id)
         succeeded = bool(final) and final.get("status") in ("completed", None)
         if succeeded and not any(CHOICE_RE.search(k) for k in kept):
             # Les réponses à toucher demandent un appel au petit modèle (jusqu'à 7 s) : la fin de la réponse est déjà
