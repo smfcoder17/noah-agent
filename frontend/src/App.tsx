@@ -24,6 +24,7 @@ import { ConnectedBanner } from "@/components/ConnectedBanner";
 import { DeviceApproval, keepApprovalRequest } from "@/components/DeviceApproval";
 import { NewDeviceAlert } from "@/components/NewDeviceAlert";
 import { HandoffBanner } from "@/components/Handoff";
+import { DelegatedTasks } from "@/components/DelegatedTasks";
 import { agentColor } from "@/components/Noah";
 import { Boundary } from "@/components/Boundary";
 import { Inbox } from "@/components/Inbox";
@@ -506,6 +507,7 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
           <ChatPane title={thread?.title || agent?.name || "Noah"} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} actions={<Button variant="ghost" size="icon-sm" aria-label={t("Détails techniques")} onClick={() => setDetails(!details)}><Bug /></Button>}>
           <AppUpdate /><div id={CALL_SLOT} />
           {agent && canAdmin(agent) && <HandoffBanner agentId={agent.id} onOpenScreen={() => setPanel("computer")} />}
+          {agent && canAdmin(agent) && <DelegatedTasks agentId={agent.id} />}
           <div className="min-h-0 flex-1">
             {inCall && (inCall.chatKey !== liveKey || !conversations) && <div key={inCall.chatKey} hidden><AgentChat {...inCall} /></div>}
             {agent && conversations ? (

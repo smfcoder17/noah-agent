@@ -471,6 +471,23 @@ def _warmup_reply(model: str, stream: bool) -> Response:
     return Response(frames, media_type="text/event-stream")
 
 
+def _completion_reply(reply: dict, stream: bool) -> Response:
+    """Une réponse Chat Completions entière, rendue telle quelle ou en flux (l'agent a pu demander un flux)."""
+    if not stream:
+        return JSONResponse(reply)
+    base = {"id": reply.get("id", "chatgpt"), "created": reply.get("created", int(time.time())), "model": reply.get("model", ""), "object": "chat.completion.chunk"}
+    choice = (reply.get("choices") or [{}])[0]
+    message = choice.get("message") or {}
+    delta = {"role": "assistant", "content": message.get("content") or ""}
+    chunks = [{"choices": [{"index": 0, "delta": delta, "finish_reason": None}]}]
+    calls = [{"index": i, **call} for i, call in enumerate(message.get("tool_calls") or [])]
+    if calls:
+        chunks.append({"choices": [{"index": 0, "delta": {"tool_calls": calls}, "finish_reason": None}]})
+    chunks.append({"choices": [{"index": 0, "delta": {}, "finish_reason": choice.get("finish_reason") or "stop"}], "usage": reply.get("usage")})
+    frames = "".join(f"data: {json.dumps(base | c)}\n\n" for c in chunks) + "data: [DONE]\n\n"
+    return Response(frames, media_type="text/event-stream")
+
+
 @router.api_route("/relay/v1/{path:path}", methods=["GET", "POST"])
 async def relay(path: str, request: Request):
     agent_id = _agent_from(request)
@@ -527,6 +544,22 @@ async def relay(path: str, request: Request):
         if not chat:
             return [body]
         return [_payload(body, link, effort, stream)] + ([_payload(body, link, None, stream)] if effort else [])
+
+    # Forfait ChatGPT de la personne, par son ordinateur : essayé d'abord quand il est là et permis. Absent, épuisé ou en panne :
+    # mis au repos, et la chaîne habituelle répond à sa place, sans rien changer pour l'agent.
+    if chat and not _small_work(model):
+        from . import desktop
+        pc = desktop.chatgpt_link(agent_id)
+        if pc and not modes.resting(pc):
+            status, out = await desktop.chatgpt_call(pc, agent_id, body)
+            if status == 200:
+                reply = out["reponse"]
+                name = "forfait ChatGPT" + (f" · {out['modele']}" if out.get("modele") else "")
+                _note_status(agent_id, 200)
+                _note_model(task, name, False)
+                await _record(agent_id, name, {**(reply.get("usage") or {}), "cost": 0}, task, "chatgpt-pc")
+                return _completion_reply(reply, stream)
+            retry_later(pc, status)
 
     if not stream:
         for i, link in enumerate(chain):

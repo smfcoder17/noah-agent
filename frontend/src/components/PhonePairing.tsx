@@ -12,7 +12,20 @@ import { minutes } from "./PairingTime";
 import { Button, ErrorText } from "./ui";
 
 type Pairing = { adresse: string; serveur: string; code: string; expire: number };
-type Device = { id: string; nom: string; type: string; depuis: string | null; vu: string | null; ip: string; version: string; en_ligne?: boolean; attente?: number; actuel: boolean };
+type Device = { id: string; nom: string; type: string; depuis: string | null; vu: string | null; ip: string; version: string; en_ligne?: boolean; attente?: number; actuel: boolean; abonnements?: Subscriptions };
+type Subscriptions = { claude?: { installe: boolean; connecte: boolean; offre: string; permis: boolean }; chatgpt?: { connecte: boolean; permis: boolean } };
+
+/** Ce que l'ordinateur dit de ses abonnements : Claude Code (tâches confiées) et forfait ChatGPT (cerveau). Réglés sur l'ordinateur. */
+function subscriptionLines(s?: Subscriptions): string[] {
+  const lines: string[] = [];
+  const c = s?.claude;
+  if (c?.installe) {
+    const state = !c.connecte ? t("installé, non connecté") : c.offre ? t("connecté, abonnement {offre}", { offre: c.offre }) : t("connecté");
+    lines.push(c.connecte && !c.permis ? t("Claude Code sur ce PC : {etat}, tâches non permises", { etat: state }) : t("Claude Code sur ce PC : {etat}", { etat: state }));
+  }
+  if (s?.chatgpt?.connecte) lines.push(s.chatgpt.permis ? t("ChatGPT : connecté, sert de cerveau quand ce PC est allumé") : t("ChatGPT : connecté, pas utilisé comme cerveau"));
+  return lines;
+}
 
 type Pending = { id: string; appareil: string; type: string; ip: string; age: number; expire: number; autre_reseau: boolean };
 
@@ -133,6 +146,7 @@ function DeviceList({ refresh }: { refresh: number }) {
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm">{d.nom || t("Appareil")}{d.actuel && <span className="ml-2 text-xs text-ok">{t("cet appareil")}</span>}</p>
               {(d.en_ligne || d.type === "desktop") && !d.actuel && <p className={d.en_ligne ? "text-xs text-ok" : "text-xs text-muted-foreground"}>{d.en_ligne ? t("En ligne") : t("Éteint, ou application fermée")}</p>}
+              {d.type === "desktop" && subscriptionLines(d.abonnements).map((line) => <p key={line} className="text-xs">{line}</p>)}
               {!!d.attente && <p className="text-xs">{d.attente === 1 ? t("Un fichier attend cet ordinateur") : t("{n} fichiers attendent cet ordinateur", { n: d.attente })}</p>}
               <p className="text-xs text-muted-foreground">{[KINDS[d.type] ?? d.type, since(d.depuis), ago(d.vu), d.ip, d.version && t("version {version}", { version: d.version })].filter(Boolean).join(" · ")}</p>
             </div>

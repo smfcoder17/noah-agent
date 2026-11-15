@@ -282,6 +282,28 @@ export default {
   "Noah compare ce qui est écrit à ce que ses actions ont donné. Il ne sait pas ce qui est arrivé chez le destinataire.": "Noah compares what was written with what its actions produced. It can't know what happened on the recipient's end.",
   "{libelle} : {texte}": "{libelle}: {texte}",
 
+  // PhonePairing.tsx : abonnements de l'ordinateur
+  "installé, non connecté": "installed, not signed in",
+  "connecté, abonnement {offre}": "signed in, {offre} plan",
+  "connecté": "signed in",
+  "Claude Code sur ce PC : {etat}": "Claude Code on this PC: {etat}",
+  "Claude Code sur ce PC : {etat}, tâches non permises": "Claude Code on this PC: {etat}, tasks not allowed",
+  "ChatGPT : connecté, sert de cerveau quand ce PC est allumé": "ChatGPT: signed in, used as the brain while this PC is on",
+  "ChatGPT : connecté, pas utilisé comme cerveau": "ChatGPT: signed in, not used as the brain",
+
+  // DelegatedTasks.tsx
+  "{n} s": "{n} s",
+  "en cours depuis {duree}": "running for {duree}",
+  "terminée, 1 fichier modifié": "done, 1 file changed",
+  "terminée, {n} fichiers modifiés": "done, {n} files changed",
+  "arrêtée : limite de l'abonnement atteinte": "stopped: subscription limit reached",
+  "arrêtée": "stopped",
+  "échouée": "failed",
+  "Tâche confiée à Claude Code sur {appareil}": "Task handed to Claude Code on {appareil}",
+  "abonnement {offre}": "{offre} plan",
+  "abonnement": "subscription",
+  "Arrêter la tâche": "Stop the task",
+
   // mobile/Approvals.tsx
   "Accords": "Approvals",
   "Accord à donner": "Approval needed",
