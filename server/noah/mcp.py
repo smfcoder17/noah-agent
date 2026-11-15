@@ -993,6 +993,8 @@ def _names(words: list[str], limit: int = 3) -> str:
 def _command_in_words(command: str) -> str:
     """Ce que fait une commande, à l'infinitif, pour une personne qui ne lit pas de code : quoi, et sur quoi. La commande reste dans les détails."""
     lines = [line for line in command.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+    if len(lines) > 1:  # décrire la première ligne seule cacherait les suivantes : le texte entier est montré sur la carte
+        return f"lancer une commande de {len(lines)} lignes"
     try:
         words = shlex.split(lines[0]) if lines else []
     except ValueError:
@@ -1134,9 +1136,12 @@ def plain_request(summary: str, command: bool = False) -> dict:
 def _shown(tool: str, args) -> str:
     """Ce que le plugin de garde montre à la personne : un accord ne vaut que pour cela."""
     text = json.dumps(args, ensure_ascii=False, default=str)
-    if len(text) <= 600:
+    if len(text) <= SHOWN_CHARS:
         return f"{tool}\n{text}"
-    return f"{tool}\n{text[:600]}… [empreinte {hashlib.sha256(text.encode()).hexdigest()[:16]}]"
+    return f"{tool}\n{text[:SHOWN_CHARS]}… [empreinte {hashlib.sha256(text.encode()).hexdigest()[:16]}]"
+
+
+SHOWN_CHARS = 4000  # agent_plugin.CARD_CHARS : la carte montre l'appel en entier jusque-là, et le passage se compare à ce qu'elle a montré
 
 
 def approval_seen(agent_id: str, request_id: str | None, summary: str) -> None:

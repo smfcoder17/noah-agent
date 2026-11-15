@@ -39,6 +39,7 @@ import { DictateButton, useDictation, VoiceMode, VoiceModeButton } from "./Voice
 import { readableModel } from "@/lib/modes";
 import { demandesFor, usePresets } from "@/lib/presets";
 import { refreshAccords } from "@/lib/events";
+import { fullCommand } from "@/lib/accordCarte";
 import { returnMoment } from "@/lib/retour";
 import { historyStep } from "@/lib/historique";
 import { NoahWidget } from "./Widgets";
@@ -246,6 +247,7 @@ function Approval({ args, result, addResult }: ToolCallMessagePartProps) {
   const { agentId, details } = useContext(AgentContext);
   const [error, setError] = useState("");
   const preview = Array.isArray(args.apercu) ? (args.apercu as string[]) : [];
+  const command = fullCommand(args.summary); // plusieurs lignes : toutes montrées, la personne accepte ce qu'elle voit
   const [open, setOpen] = useState(false);
   const answer = async (approve: boolean) => {
     try {
@@ -276,6 +278,7 @@ function Approval({ args, result, addResult }: ToolCallMessagePartProps) {
       <span className="text-xs font-semibold uppercase tracking-wide text-warn">{t("À valider")}</span>
       <p className="text-sm font-medium">{String(args.demande || t("Ton agent te demande de valider une action."))}</p>
       {typeof args.pourquoi === "string" && args.pourquoi && <p className="-mt-2 text-[13px] text-muted-foreground">{args.pourquoi}</p>}
+      {command && <pre aria-label={t("Commande entière")} className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-background p-2 font-mono text-[11.5px]">{command}</pre>}
       {preview.length > 0 && (
         <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
           {preview.map((line) => <li key={line} className="whitespace-pre-wrap break-words">{t("« {texte} »", { texte: line })}</li>)}

@@ -8,6 +8,7 @@ import { peekScreenUrl, refuseScreenUrl, screenControl, screenUrl, screenViewOnl
 import { SEEN, SeenActive, seenGeneration } from "@/lib/seen";
 import { wireClipboard } from "@/lib/vncClipboard";
 import { cn, money } from "@/lib/utils";
+import { spentLabel } from "@/lib/depense";
 import { AgentAppearance } from "./AgentAppearance";
 import { AgentBrain } from "./AgentBrain";
 import { AgentOverview } from "./AgentOverview";
@@ -315,14 +316,14 @@ function Details({ agent, onEdit, refreshKey, onAgentChanged, onTab, onGoals, ch
       <ShareDialog agent={agent} open={sharing} onOpenChange={setSharing} onChanged={onAgentChanged} />
       {/* Ce qu'il fait et ce qu'il a fait d'abord, comme le fil de Grok Bot ; la fiche (rôle, modèle, connexions…) ensuite. */}
       {children}
-      <AgentOverview agent={agent} refreshKey={refreshKey} spent={t("{montant} $", { montant: money(mine?.cost ?? 0) })} onTab={onTab} onEdit={onEdit} onGoals={onGoals}
+      <AgentOverview agent={agent} refreshKey={refreshKey} spent={spentLabel(mine?.cost, mine?.sans_prix)} onTab={onTab} onEdit={onEdit} onGoals={onGoals}
         onBrain={() => { setBrainOpen((n) => n + 1); setTimeout(() => brainBox.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); }}
         onSpending={() => { setSpendingOpen(true); setTimeout(() => spendingBox.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); }} />
       {/* La dépense et le modèle s'ouvrent depuis leur tuile : l'onglet reste léger. */}
       {spendingOpen && <div ref={spendingBox}>
-      <Section defaultOpen title={t("Dépense")} count={t("{montant} $ ce mois-ci", { montant: money(mine?.cost ?? 0) })}>
+      <Section defaultOpen title={t("Dépense")} count={t("{montant} ce mois-ci", { montant: spentLabel(mine?.cost, mine?.sans_prix) })}>
       <div className="grid grid-cols-2 gap-2">
-        <Stat label={t("Coût ce mois-ci")} value={t("{montant} $", { montant: money(mine?.cost ?? 0) })} />
+        <Stat label={t("Coût ce mois-ci")} value={spentLabel(mine?.cost, mine?.sans_prix)} />
         <Stat label={t("Appels au modèle")} value={mine?.calls ?? 0} />
         <Stat label={t("Jetons")} value={(mine?.tokens ?? 0).toLocaleString(FORMAT)} />
         <Stat label={t("Lus depuis le cache")} value={t("{n} %", { n: cacheRate })} />
@@ -344,7 +345,7 @@ function Spending({ usage, agentId }: { usage: Usage; agentId: string }) {
     const d = new Date();
     d.setDate(d.getDate() - 13 + i);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    return { key, label: d.toLocaleDateString(FORMAT, { weekday: "short", day: "numeric" }), cost: byDay.get(key)?.cost ?? 0, tokens: byDay.get(key)?.tokens ?? 0 };
+    return { key, label: d.toLocaleDateString(FORMAT, { weekday: "short", day: "numeric" }), cost: byDay.get(key)?.cost ?? 0, tokens: byDay.get(key)?.tokens ?? 0, unpriced: byDay.get(key)?.sans_prix ?? 0 };
   });
   const top = Math.max(...days.map((d) => d.cost), 0.0001);
   const tasks = (usage.tasks ?? []).filter((t) => t.agent_id === agentId).slice(0, 5);
@@ -361,7 +362,7 @@ function Spending({ usage, agentId }: { usage: Usage; agentId: string }) {
         {days.map((d) => (
           <div
             key={d.key}
-            title={t("{jour} : {montant} $ · {n} jetons", { jour: d.label, montant: money(d.cost), n: d.tokens.toLocaleString(FORMAT) })}
+            title={t("{jour} : {montant} · {n} jetons", { jour: d.label, montant: spentLabel(d.cost, d.unpriced), n: d.tokens.toLocaleString(FORMAT) })}
             className={cn("flex-1 rounded-sm", d.cost ? "bg-foreground/70" : "bg-muted")}
             style={{ height: `${Math.max(6, (d.cost / top) * 100)}%` }}
           />
@@ -373,7 +374,7 @@ function Spending({ usage, agentId }: { usage: Usage; agentId: string }) {
             <li key={task.conversation_id ?? "fond"} className="flex items-baseline justify-between gap-2">
               <span className="truncate">{task.main ? t("Conversation principale") : task.title}</span>
               <span className="shrink-0 font-mono text-xs text-muted-foreground" title={t("{n} appels au modèle", { n: task.calls })}>
-                {t("{n} k jetons · {montant} $", { n: Math.round(task.tokens / 1000).toLocaleString(FORMAT), montant: money(task.cost) })}
+                {t("{n} k jetons · {montant}", { n: Math.round(task.tokens / 1000).toLocaleString(FORMAT), montant: spentLabel(task.cost, task.sans_prix) })}
               </span>
             </li>
           ))}
