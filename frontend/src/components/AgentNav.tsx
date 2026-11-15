@@ -19,10 +19,11 @@ export function historyOf(conversations: Conversation[]) {
 
 /**
  * Les agents, alignés en haut de la barre, comme une liste de contacts : une ligne par agent, avec son état.
- * Seul l'agent ouvert déplie ses options dessous (Discussion par défaut, puis les onglets choisis) et son historique :
- * une seule discussion par agent dans la barre, les autres fils restent à un clic.
+ * Seul l'agent ouvert déplie dessous son historique, et sur le téléphone ses options (Discussion par défaut, puis les onglets
+ * choisis) : une seule discussion par agent dans la barre, les autres fils restent à un clic. Sur l'ordinateur, les options
+ * sont en haut à droite de la conversation (`showTabs={false}`) et l'agent ouvert montre son grand visage, sans tuile.
  */
-export const AgentNav = memo(function AgentNav({ agents, agentId, tabs, active, conversations, activeThread = null, onPick, onTab, onThread, onAgentPage, variant = "rail" }: {
+export const AgentNav = memo(function AgentNav({ agents, agentId, tabs, active, conversations, activeThread = null, onPick, onTab, onThread, onAgentPage, variant = "rail", showTabs = true }: {
   agents: Agent[];
   agentId: string | null;
   tabs: NavTab[];
@@ -38,6 +39,8 @@ export const AgentNav = memo(function AgentNav({ agents, agentId, tabs, active, 
   /** La page de l'agent : cerveau, autonomie, apparence. */
   onAgentPage: () => void;
   variant?: "rail" | "drawer";
+  /** Les options de l'agent sous sa ligne (téléphone). */
+  showTabs?: boolean;
 }) {
   const [folded, setFolded] = useState(false);
   const [historyAsked, setHistoryAsked] = useState<boolean | null>(null);
@@ -49,7 +52,8 @@ export const AgentNav = memo(function AgentNav({ agents, agentId, tabs, active, 
   // L'historique s'ouvre seul quand on y lit un fil, et signale ceux qui travaillent ou attendent.
   const historyOpen = historyAsked ?? inHistory;
   const busy = history.filter((c) => c.en_cours).length;
-  const options = tabs.includes("chat") ? tabs : (["chat", ...tabs] as NavTab[]);
+  const options = !showTabs ? [] : tabs.includes("chat") ? tabs : (["chat", ...tabs] as NavTab[]);
+  const hasHistory = history.length > 0 || archived.length > 0;
 
   const thread = (c: Conversation) => (
     <button key={c.id} type="button" className="agent-nav-thread" title={c.title}
@@ -63,27 +67,29 @@ export const AgentNav = memo(function AgentNav({ agents, agentId, tabs, active, 
     <ul className={cn("agent-nav", variant === "drawer" && "agent-nav-drawer")} aria-label={t("Agents")}>
       {agents.map((a) => {
         const selected = a.id === agentId;
-        const expanded = selected && !folded;
+        const hero = selected && variant === "rail";
+        const foldable = selected && (options.length > 0 || hasHistory);
+        const expanded = foldable && !folded;
         const s = agentSummary(a);
         const pending = pendingOf(a);
         const panelId = `agent-nav-options-${a.id}`;
         return (
-          <li key={a.id} className={cn("agent-nav-item", selected && "is-selected")}>
+          <li key={a.id} className={cn("agent-nav-item", selected && "is-selected", hero && "is-hero")}>
             <div className="agent-nav-head">
               <button type="button" className="agent-nav-row"
                 aria-current={selected ? "true" : undefined}
-                aria-expanded={selected ? expanded : false}
-                aria-controls={selected ? panelId : undefined}
+                aria-expanded={foldable ? expanded : selected ? undefined : false}
+                aria-controls={expanded ? panelId : undefined}
                 aria-label={`${a.name}, ${s.text}${!selected && pending ? ` · ${t("{n} en attente", { n: pending })}` : ""}`}
                 title={a.name}
-                onClick={() => (selected ? setFolded(!folded) : onPick(a.id))}>
-                <AgentFace agent={a} className={cn("shrink-0", variant === "drawer" ? "size-10" : "size-8")} />
+                onClick={() => (selected ? foldable && setFolded(!folded) : onPick(a.id))}>
+                <AgentFace agent={a} bare={hero} className={cn("shrink-0", hero ? "agent-nav-hero-face" : variant === "drawer" ? "size-10" : "size-8")} />
                 <span className="agent-nav-text">
                   <b>{a.name}</b>
                   <small className={s.tone}><StateShape state={s.state} />{s.text}</small>
                 </span>
                 {!selected && pending > 0 && <span className="rail-count" aria-hidden>{pending}</span>}
-                {selected && <ChevronDown size={15} aria-hidden className={cn("agent-nav-chevron", !expanded && "-rotate-90")} />}
+                {foldable && <ChevronDown size={15} aria-hidden className={cn("agent-nav-chevron", !expanded && "-rotate-90")} />}
               </button>
               {selected && <button type="button" className="agent-nav-settings" aria-label={t("Page de {nom}", { nom: a.name })} title={t("Page de {nom}", { nom: a.name })} onClick={onAgentPage}><SlidersHorizontal size={15} /></button>}
             </div>
@@ -98,7 +104,7 @@ export const AgentNav = memo(function AgentNav({ agents, agentId, tabs, active, 
                     </button>
                   );
                 })}
-                {(history.length > 0 || archived.length > 0) && <>
+                {hasHistory && <>
                   <button type="button" className="agent-nav-option" aria-expanded={historyOpen} aria-controls={`${panelId}-historique`} onClick={() => setHistoryAsked(!historyOpen)}>
                     <History size={16} aria-hidden /><span>{t("Historique")}</span>
                     <span className="ml-auto flex items-center gap-1.5 text-xs tabular-nums">

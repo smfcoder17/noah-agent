@@ -16,9 +16,9 @@ export type DelegatedTask = {
   resultat?: { ok?: boolean; erreur?: string; arret?: string; limite?: boolean; fichiers?: string[] };
 };
 
-const minutes = (s: number) => (s < 60 ? t("{n} s", { n: s }) : t("{n} min", { n: Math.floor(s / 60) }));
+export const minutes = (s: number) => (s < 60 ? t("{n} s", { n: s }) : t("{n} min", { n: Math.floor(s / 60) }));
 
-function state(task: DelegatedTask): string {
+export function delegatedState(task: DelegatedTask): string {
   if (task.etat === "en_cours") return t("en cours depuis {duree}", { duree: minutes(task.duree_s) });
   if (task.etat === "fini") {
     const n = task.resultat?.fichiers?.length ?? 0;
@@ -57,7 +57,7 @@ export function DelegatedTasks({ agentId }: { agentId: string }) {
             <Laptop className="size-4 shrink-0 text-muted-foreground" />
             <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setOpen(open === task.id ? null : task.id)} aria-expanded={open === task.id}>
               <span className="font-medium">{t("Tâche confiée à Claude Code sur {appareil}", { appareil: task.appareil })}</span>
-              <span className="text-muted-foreground">{" · "}{task.offre ? t("abonnement {offre}", { offre: task.offre }) : t("abonnement")}{" · "}{task.dossier}{" · "}{state(task)}</span>
+              <span className="text-muted-foreground">{" · "}{task.offre ? t("abonnement {offre}", { offre: task.offre }) : t("abonnement")}{" · "}{task.dossier}{" · "}{delegatedState(task)}</span>
             </button>
             {task.etat === "en_cours" && <Button size="sm" variant="ghost" onClick={() => stop(task.id)} aria-label={t("Arrêter la tâche")} title={t("Arrêter la tâche")}><Square /></Button>}
           </div>

@@ -1,15 +1,16 @@
 import { memo } from "react";
-// Fichiers de l'agent : de vrais dossiers, un tri, et une sélection qu'on donne au chat ou qu'on supprime.
-import { ChevronDown, Download, Eye, FileText, Folder, MessageSquarePlus, RefreshCw, Search, Trash2, X } from "lucide-react";
+// Fichiers de l'agent : de vrais dossiers qu'on déplie, un filtre, un tri, l'aperçu dans le panneau même, et une sélection
+// qu'on donne au chat ou qu'on supprime.
+import { ChevronDown, Download, Eye, FileText, Folder, FolderOpen, MessageSquarePlus, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { mediaUrl, rawFileUrl, send, type WorkspaceFile } from "@/lib/api";
 import { useAgentData } from "@/lib/useAgentData";
 import { cn, fileSize, messageMoment } from "@/lib/utils";
 import { Button, Dialog, DialogContent } from "./ui";
-import { canFrame, useDownload, useViewer } from "./Viewer";
+import { canFrame, useDownload } from "./Viewer";
+import { FilePreview, WORKSPACE } from "./FilePreview";
 import { locale, t } from "@/i18n";
 
-const WORKSPACE = "/opt/data/workspace/";
 const ROOT_NAMES: Record<string, string> = { outputs: t("Livrables"), apps: t("Applications"), captures: t("Captures"), uploads: t("Envoyés par toi") };
 const OPEN_FIRST = new Set(["outputs", "uploads"]);
 const IMAGE = /\.(png|jpe?g|gif|webp)$/i;
@@ -55,8 +56,9 @@ export const Files = memo(function Files({ agentId, refreshKey, canDelete, onGiv
   const [sort, setSort] = useState<Sort>("recent");
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [opened, setOpened] = useState<Set<string>>(OPEN_FIRST);
-  const view = useViewer();
-  const setPreview = (p: { title: string; url: string }) => view({ kind: "file", url: p.url, title: p.title });
+  // Le fichier ouvert dans le panneau ; l'arbre reste tel quel derrière, déplié comme on l'a laissé.
+  const [preview, setPreviewed] = useState<{ path: string; size?: number } | null>(null);
+  const setPreview = (path: string, size?: number) => setPreviewed({ path, size });
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -74,6 +76,7 @@ export const Files = memo(function Files({ agentId, refreshKey, canDelete, onGiv
   if (error && !files) return <p className="text-sm text-danger">{error}</p>;
   if (!files) return <p className="text-sm text-muted-foreground">{t("Chargement…")}</p>;
   if (!files.length) return <p className="text-sm text-muted-foreground">{t("Aucun fichier pour l'instant.")}</p>;
+  if (preview) return <FilePreview agentId={agentId} path={preview.path} size={preview.size} backLabel={t("Retour aux fichiers")} onBack={() => setPreviewed(null)} />;
 
   const toggle = (paths: string[], on: boolean) =>
     setPicked((cur) => {
@@ -185,7 +188,7 @@ type RowProps = {
   orderFiles: (a: WorkspaceFile, b: WorkspaceFile) => number;
   orderFolders: (a: Node, b: Node) => number;
   searching: boolean;
-  setPreview: (p: { title: string; url: string }) => void;
+  setPreview: (path: string, size?: number) => void;
 };
 
 function FolderRows({ node, depth, ...props }: RowProps & { node: Node; depth: number }) {
@@ -201,7 +204,7 @@ function FolderRows({ node, depth, ...props }: RowProps & { node: Node; depth: n
 }
 
 function FolderRow({ node, depth, ...props }: RowProps & { node: Node; depth: number }) {
-  const { agentId, picked, opened, toggle, toggleOpen, searching, setPreview } = props;
+  const { picked, opened, toggle, toggleOpen, searching, setPreview } = props;
   const paths = useMemo(() => node.all.map((f) => f.path), [node.all]);
   const count = paths.filter((p) => picked.has(p)).length;
   const box = useRef<HTMLInputElement>(null);
@@ -217,11 +220,11 @@ function FolderRow({ node, depth, ...props }: RowProps & { node: Node; depth: nu
         <input ref={box} type="checkbox" checked={count === paths.length} onChange={(e) => toggle(paths, e.target.checked)} aria-label={t("Choisir le dossier {nom}", { nom: name })} className="size-4 shrink-0 accent-[var(--accent)]" />
         <button type="button" onClick={() => toggleOpen(node.path)} aria-expanded={open} className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left text-sm">
           <ChevronDown className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", !open && "-rotate-90")} />
-          <Folder className="size-4 shrink-0 text-muted-foreground" />
+          {open ? <FolderOpen className="size-4 shrink-0 text-accent" aria-hidden /> : <Folder className="size-4 shrink-0 text-muted-foreground" aria-hidden />}
           <span className="min-w-0 flex-1 truncate font-medium" title={node.path}>{name}</span>
           <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{paths.length}</span>
         </button>
-        {app && <Button variant="outline" size="sm" onClick={() => setPreview({ title: node.name, url: rawFileUrl(agentId, `${node.path}/index.html`) })}><Eye />{t("Ouvrir")}</Button>}
+        {app && <Button variant="outline" size="sm" onClick={() => setPreview(`${node.path}/index.html`)}><Eye />{t("Ouvrir")}</Button>}
       </div>
       {open && <FolderRows node={node} depth={depth + 1} {...props} />}
     </>
@@ -243,12 +246,12 @@ function FileRow({ file, depth, agentId, picked, toggle, setPreview }: RowProps 
       ) : (
         <FileText className="mx-2 size-4 shrink-0 text-muted-foreground" />
       )}
-      <span className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate text-sm" title={file.path}>{shown}</span>
+      <button type="button" className="flex min-w-0 flex-1 cursor-pointer flex-col rounded-md text-left" onClick={() => setPreview(file.path, file.size)} title={file.path}>
+        <span className="truncate text-sm">{shown}</span>
         <span className="text-[11px] text-muted-foreground tabular-nums">{messageMoment(new Date(file.modified * 1000))} · {fileSize(file.size)}</span>
-      </span>
+      </button>
       {(image || canFrame(file.path)) && (
-        <Button variant="ghost" size="icon-sm" onClick={() => setPreview({ title: name, url: raw })} aria-label={t("Aperçu de {nom}", { nom: name })}><Eye /></Button>
+        <Button variant="ghost" size="icon-sm" onClick={() => setPreview(file.path, file.size)} aria-label={t("Aperçu de {nom}", { nom: name })}><Eye /></Button>
       )}
       <Button variant="ghost" size="icon-sm" asChild>
         <a href={`${raw}?download=1`} onClick={(e) => { e.preventDefault(); download(`${raw}?download=1`, name); }} aria-label={t("Télécharger {nom}", { nom: name })}><Download /></a>
