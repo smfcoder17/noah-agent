@@ -98,6 +98,7 @@ KNOWN = {
     # 0.2.0 : adresses écrites dans les tests de l'interface (blocs, masquage), jamais appelées
     "boutique.example": "exemple", "shop.example.com": "exemple", "www.lemonde.fr": "exemple", "youtu.be": "exemple", "wa.me": "exemple",
     "noah.exemple.com.evil.net": "exemple", "docs.docker.com": "lien montré", "host.docker.internal": "machine elle-même",
+    "ailleurs.exemple.net": "exemple", "example.test": "exemple", "pirate.free.fr": "exemple", "adsl.free.fr": "exemple",  # tests du coffre (relecture 0.3.0, B-1)
 }
 SOURCES = [*(REPO / "server/noah").rglob("*.py"), *(REPO / "launcher").rglob("*.py"), *(REPO / "launcher").rglob("*.js"),
            *(REPO / "frontend/src").rglob("*.ts*"), REPO / "frontend/index.html", *(REPO / "mobile/www").glob("*.*"),
