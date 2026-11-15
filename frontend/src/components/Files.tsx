@@ -75,7 +75,13 @@ export const Files = memo(function Files({ agentId, refreshKey, canDelete, onGiv
 
   // L'aperçu d'abord : une liste vidée pendant qu'il est ouvert ne le remplace pas sans bouton Retour (relecture 0.3.0, partie 0 n°4).
   if (preview) return <FilePreview agentId={agentId} path={preview.path} size={preview.size} backLabel={t("Retour aux fichiers")} onBack={() => setPreviewed(null)} />;
-  if (error && !files) return <p className="text-sm text-danger">{error}</p>;
+  // Lecture impossible (lanceur absent, agent arrêté) : le message du serveur, et de quoi relire sans recharger la page.
+  if (error && !files) return (
+    <div className="flex flex-col items-start gap-2">
+      <p role="alert" className="text-sm text-danger">{error}</p>
+      <Button variant="outline" size="sm" onClick={load}><RefreshCw />{t("Réessayer")}</Button>
+    </div>
+  );
   if (!files) return <p className="text-sm text-muted-foreground">{t("Chargement…")}</p>;
   if (!files.length) return <p className="text-sm text-muted-foreground">{t("Aucun fichier pour l'instant.")}</p>;
 

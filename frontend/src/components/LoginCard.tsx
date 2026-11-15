@@ -1,6 +1,6 @@
 // La carte « Se connecter à… » : ce que la personne saisit part vers Noah Agent, qui le pose dans la page. L'agent ne le reçoit pas.
 // Un vrai formulaire : un gestionnaire de mots de passe s'y déclenche. Rien ne reste à l'écran ni dans le stockage du navigateur.
-import { Check, KeyRound, MonitorPlay, Trash2, TriangleAlert, X } from "lucide-react";
+import { Check, KeyRound, MonitorPlay, TriangleAlert, UserMinus, X } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useId, useState } from "react";
 import { t } from "@/i18n";
 import { ApiError, get, type LoginAsked, request, send } from "@/lib/api";
@@ -89,7 +89,9 @@ export function LoginCard({ agentId, asked, onDone }: { agentId: string; asked: 
           {comptes.map((c) => (
             <label key={c.id} className="flex items-center gap-2 text-sm">
               <input type="radio" name={`${ids}-compte`} className="size-4 accent-accent" checked={chosen === c.id} onChange={() => setChosen(c.id)} />
-              <span className="min-w-0 truncate">{c.nom} · {c.compte}</span>
+              <span className="min-w-0 break-all">
+                {c.origine && c.origine !== asked.origine ? t("{nom} · {compte} · retenu pour {origine}", { nom: c.nom, compte: c.compte, origine: c.origine }) : `${c.nom} · ${c.compte}`}
+              </span>
             </label>
           ))}
           <label className="flex items-center gap-2 text-sm">
@@ -139,11 +141,13 @@ export function LoginDone({ asked, result }: { asked: LoginAsked; result: LoginR
   );
 }
 
-type SavedLogin = { id: string; site: string; origine: string };
+type SavedLogin = { id: string; nom?: string; site: string; origine: string; compte?: string };
 type VaultRight = { utiliser: boolean; partage: boolean };
 
 /** Dans Connexions : les identifiants retenus que cet agent peut prendre seul, et son droit sur le coffre de son propriétaire.
- * Les noms de sites seulement : ni identifiant ni mot de passe ne reviennent ici. Un autre profil que le propriétaire n'en voit rien. */
+ * Le nom, le site et deux caractères de l'identifiant, pour distinguer deux comptes du même site : ni identifiant ni mot de passe
+ * ne reviennent ici. « Retirer de cet agent » ne touche que cet agent : l'identifiant reste dans le coffre. Un autre profil que le
+ * propriétaire n'en voit rien. */
 export function SavedLogins({ agentId }: { agentId: string }) {
   const [logins, setLogins] = useState<SavedLogin[] | null>(null);
   const [right, setRight] = useState<VaultRight | null>(null);
@@ -189,14 +193,18 @@ export function SavedLogins({ agentId }: { agentId: string }) {
       )}
       {right?.utiliser && !logins?.length && <p className="text-xs text-muted-foreground">{t("Aucun identifiant pour l'instant : ajoute-les dans Réglages > Coffre, ou retiens-les à la prochaine connexion.")}</p>}
       <ul className="flex flex-col gap-1">
-        {logins?.map((login) => (
-          <li key={login.id} className="flex items-center gap-2 text-sm">
-            <KeyRound className="size-3.5 shrink-0 text-muted-foreground" />
-            <span className="min-w-0 flex-1 truncate" title={login.origine}>{login.site}</span>
-            <Button variant="ghost" size="sm" aria-label={t("Oublier {site}", { site: login.site })} onClick={() => forget(login)}><Trash2 />{t("Oublier")}</Button>
-          </li>
-        ))}
+        {logins?.map((login) => {
+          const label = [login.nom || login.site, login.compte].filter(Boolean).join(" · ");
+          return (
+            <li key={login.id} className="flex items-center gap-2 text-sm">
+              <KeyRound className="size-3.5 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate" title={login.origine}>{label}</span>
+              <Button variant="ghost" size="sm" aria-label={t("Retirer {compte} de cet agent", { compte: label })} onClick={() => forget(login)}><UserMinus />{t("Retirer de cet agent")}</Button>
+            </li>
+          );
+        })}
       </ul>
+      {!!logins?.length && <p className="text-xs text-muted-foreground">{t("L'identifiant reste dans ton coffre (Réglages > Coffre), pour tes autres agents.")}</p>}
       <ErrorText>{error}</ErrorText>
     </div>
   );

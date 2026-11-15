@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import json
 import sqlite3
 import time
 from contextlib import contextmanager
@@ -281,6 +282,9 @@ def init() -> None:
         db.execute("CREATE INDEX IF NOT EXISTS coffre_user ON coffre(user_id, genre)")
         db.execute("CREATE TABLE IF NOT EXISTS coffre_agents (agent_id TEXT PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE, "
                    "utiliser INTEGER NOT NULL)")
+        # « Retirer de cet agent » (Connexions) : cet agent ne s'en sert plus, l'élément reste dans le coffre de la personne.
+        db.execute("CREATE TABLE IF NOT EXISTS coffre_retraits (agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, "
+                   "coffre_id TEXT NOT NULL REFERENCES coffre(id) ON DELETE CASCADE, PRIMARY KEY (agent_id, coffre_id))")
         _migrate_logins(db)
         db.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_one_owner ON users(role) WHERE role = 'owner'")
         db.commit()  # le changement de journal ne se fait pas au milieu d'une transaction
@@ -301,18 +305,39 @@ def _adopt(db) -> None:
 
 
 def _migrate_logins(db) -> None:
-    """Les identifiants retenus par agent (avant 0.3.0) passent au coffre de son propriétaire, ligne pour ligne : même id (le handle
-    que l'agent connaît), même secret scellé, mêmes dates. L'agent qui les avait garde le droit de s'en servir, même partagé.
-    Une ligne dont on ne trouve pas le propriétaire reste où elle est : rien ne se perd."""
+    """Les identifiants retenus par agent (avant 0.3.0) passent au coffre de son propriétaire : même id (le handle que l'agent
+    connaît), même secret scellé, mêmes dates. Un même compte (propriétaire, origine, identifiant) ne garde que sa ligne la plus
+    récente. Aucun droit n'est écrit : celui d'office vaut (allumé pour un agent à lui seul, éteint pour un agent partagé, ce que
+    Réglages > Coffre montre au propriétaire), et la migration ne donne jamais tout le coffre à un agent partagé.
+    Une ligne dont l'agent n'a pas de propriétaire va à celui de l'installation ; sans aucun compte, elle attend le démarrage suivant."""
     rows = db.execute("SELECT l.id, l.agent_id, l.origine, l.secret, l.created_at, l.used_at, a.owner_id FROM agent_logins l "
-                      "JOIN agents a ON a.id = l.agent_id").fetchall()
+                      "JOIN agents a ON a.id = l.agent_id ORDER BY l.created_at, l.id").fetchall()
+    installation = db.execute("SELECT id FROM users ORDER BY role = 'owner' DESC, id LIMIT 1").fetchone()
+
+    def identifier(secret: str):
+        try:
+            return json.loads(unseal(secret)).get("identifiant")
+        except Exception:  # noqa: BLE001 - illisible : la ligne passe telle quelle, sans être rapprochée d'une autre
+            return None
+
+    def recent(r) -> float:
+        return max(r["used_at"] or 0, r["created_at"] or 0)
+
     for row in rows:
-        if row["owner_id"] is None:
+        user = row["owner_id"] if row["owner_id"] is not None else (installation["id"] if installation else None)
+        if user is None:
             continue
+        who = identifier(row["secret"])
+        twin = next((r for r in db.execute("SELECT id, secret, created_at, used_at FROM coffre WHERE user_id = ? AND genre = 'login' AND origine = ? AND id != ?",
+                                           (user, row["origine"], row["id"])).fetchall() if who is not None and identifier(r["secret"]) == who), None)
+        if twin is not None and recent(twin) >= recent(row):
+            db.execute("DELETE FROM agent_logins WHERE id = ?", (row["id"],))  # le même compte, déjà là et plus récent
+            continue
+        if twin is not None:
+            db.execute("DELETE FROM coffre WHERE id = ?", (twin["id"],))
         db.execute("INSERT OR IGNORE INTO coffre (id, user_id, genre, nom, origine, secret, created_at, used_at) VALUES (?, ?, 'login', '', ?, ?, ?, ?)",
-                   (row["id"], row["owner_id"], row["origine"], row["secret"], row["created_at"], row["used_at"]))
+                   (row["id"], user, row["origine"], row["secret"], row["created_at"], row["used_at"]))
         if db.execute("SELECT 1 FROM coffre WHERE id = ? AND secret = ?", (row["id"], row["secret"])).fetchone():
-            db.execute("INSERT OR IGNORE INTO coffre_agents (agent_id, utiliser) VALUES (?, 1)", (row["agent_id"],))
             db.execute("DELETE FROM agent_logins WHERE id = ?", (row["id"],))
 
 

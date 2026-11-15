@@ -3,8 +3,9 @@
 Une seule lecture, relevée toutes les deux secondes par l'écran : les travaux en cours dans les conversations que la personne
 voit, les demandes passées à d'autres agents, les tâches confiées à son ordinateur, les routines qui tournent et les processus
 que l'agent a lancés en arrière-plan. Rien n'est inventé : un processus n'est montré que tant qu'on ne sait pas qu'il est fini,
-et jamais plus de deux heures.
+et jamais plus de deux heures. Il part dès qu'un outil dit sa fin : son lancement même, son suivi, son journal ou la liste.
 """
+import json
 import re
 import time
 
@@ -65,16 +66,57 @@ def note(agent_id: str, conv_id: str, kind: str, data: dict) -> None:
         entry = waited and waited["entry"]
         if not entry:
             return  # la fin d'une commande en avant-plan
-        found = _SESSION_ID.search(str(data.get("preview") or data.get("result") or ""))
-        if kind == "tool.failed":
+        text = _text(data)
+        found = _SESSION_ID.search(text)
+        if kind == "tool.failed" or (found and _EXITED.search(text)):  # raté, ou déjà fini quand l'outil répond
             _drop(agent_id, lambda p: p is entry)
         elif found:
             entry["session"] = found.group(1)
     elif name in ("process", "process_manage") and kind in ("tool.completed", "tool.failed"):
         target = str(args.get("session_id") or args.get("id") or "")
-        text = str(data.get("preview") or data.get("result") or "")
+        text = _text(data)
         if target and (str(args.get("action") or "") == "kill" or _EXITED.search(text)):
             _drop(agent_id, lambda p: p.get("session") == target)
+        elif not target:  # « list » : l'état de chaque processus, lu un par un
+            ended = _ended_in_list(data)
+            if ended:
+                _drop(agent_id, lambda p: p.get("session") in ended)
+
+
+def _text(data: dict) -> str:
+    """L'aperçu et le résultat entier : un aperçu tronqué peut couper la ligne qui dit l'état."""
+    return "\n".join(str(data.get(k) or "") for k in ("preview", "result"))
+
+
+def _ended_in_list(data: dict) -> set[str]:
+    """Les processus qu'une liste dit finis : chaque objet qui porte un identifiant `proc_…` et un état de fin."""
+    ended: set[str] = set()
+    parsed = []
+    for key in ("result", "preview"):
+        try:
+            parsed.append(json.loads(str(data.get(key) or "")))
+        except ValueError:
+            continue
+    if not parsed:  # pas du JSON : chaque morceau entre accolades
+        for part in re.findall(r"\{[^{}]*\}", _text(data)):
+            ident = _SESSION_ID.search(part)
+            if ident and _EXITED.search(part):
+                ended.add(ident.group(1))
+        return ended
+
+    def walk(value) -> None:
+        if isinstance(value, dict):
+            ident = _SESSION_ID.fullmatch(str(value.get("session_id") or value.get("id") or ""))
+            if ident and _EXITED.search(json.dumps({"status": value.get("status")})):
+                ended.add(ident.group(1))
+            for v in value.values():
+                walk(v)
+        elif isinstance(value, list):
+            for v in value:
+                walk(v)
+    for value in parsed:
+        walk(value)
+    return ended
 
 
 def run_ended(agent_id: str, conv_id: str) -> None:

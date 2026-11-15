@@ -656,10 +656,10 @@ VAULT_SCHEMA = {
     "description": (
         "Se connecter à un site sur la page ACTUELLE du navigateur, sans que le mot de passe entre dans la conversation. "
         "Actions : save_login (sur une page de connexion, appelle-la directement : Noah cherche lui-même dans le coffre de la personne ; un seul "
-        "identifiant pour ce site, il remplit et envoie sans rien demander, automatic=true ; plusieurs ou aucun, la personne voit une carte avec le "
+        "identifiant pour cette adresse exacte, il remplit et envoie sans rien demander, automatic=true ; sinon (plusieurs, un autre sous-domaine, aucun), la personne voit une carte avec le "
         "site réel, choisit son compte ou saisit ses identifiants, et le formulaire part tout seul ; l'appel attend sa réponse) ; enter_code (un code : "
         "Noah le tape lui-même s'il a la clé d'authentificateur du site, sinon il le demande de la même façon) ; list (les identifiants retenus : "
-        "nom, site, deux premiers caractères) ; fill (handle : remplit avec cet identifiant, seulement sur son site) ; wait (handle : la personne n'a pas encore répondu, error_type=still_waiting, et tu continues d'attendre sa carte). "
+        "nom, site, deux premiers caractères) ; fill (handle : remplit avec cet identifiant, seulement sur son adresse exacte) ; wait (handle : la personne n'a pas encore répondu, error_type=still_waiting, et tu continues d'attendre sa carte). "
         "Ne tape, ne demande et ne répète jamais un mot de passe ou un code toi-même. Après chaque action, relis la page. "
         "Arrête-toi sur save_declined. Sur page=meme, le site a peut-être refusé : dis ce qu'il indique."
     ),
@@ -703,7 +703,10 @@ def _vault_tool(args: dict, session_id: str | None = None, **_) -> str:
         return json.dumps({"success": False, "error_type": "prompt_unavailable",
                            "error": "Personne ne peut répondre pendant une routine. Préviens la personne et continue sans."}, ensure_ascii=False)
     handle = str((args or {}).get("handle") or "")
-    out = {"attente": handle} if action == "wait" else _vault_call("coffre", json.dumps({"action": action, "handle": handle, "session": session_id or ""}))
+    # browser_vault ne passe pas par le juge (NO_EFFECT) : le serveur doit apprendre ici qu'un contenu de dehors a donné des consignes
+    # dans ce tour, même quand il n'a pas pu le savoir lui-même. Il ne tape alors rien d'office (coffre._hardened).
+    hardened = max(_hardened.get(session_id or "", 0), _reported_hardened.get(session_id or "", 0)) > time.time()
+    out = {"attente": handle} if action == "wait" else _vault_call("coffre", json.dumps({"action": action, "handle": handle, "session": session_id or "", "durci": hardened}))
     end = time.monotonic() + VAULT_SLICE_SECONDS
     while "attente" in out:  # la personne n'a pas encore répondu : le serveur rend la main toutes les 25 s, pour qu'un arrêt se voie
         ask_id = str(out["attente"])

@@ -1,7 +1,7 @@
 import { ObjectPage } from "./mobile/ObjectPage";
 import { useVisibleSubscription } from "@/lib/events";
 // Ce que l'agent sait et fait de lui-même, réglable depuis Détails : routines, mémoire, connexions, logiciels, dossiers.
-import { Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, FolderOpen, HardDrive, Loader2, Pause, Pencil, Play, Plus, SlidersHorizontal, Trash2, Zap } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, FolderOpen, HardDrive, Loader2, Pause, Pencil, Play, Plus, RefreshCw, SlidersHorizontal, Trash2, Zap } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { get, request, send } from "@/lib/api";
 import { appLabel } from "@/lib/appLabel";
@@ -650,6 +650,13 @@ export function Connections({ agentId, shared = false, owner = false }: { agentI
   return (
     <Section title={t("Connexions")} count={(google?.connecte ? 1 : 0) + connected.filter((a) => a.connecte).length + tools.filter((t) => t.connecte).length} alone>
       {!data && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("Lecture…")}</p>}
+      {/* Lecture impossible (lanceur absent, agent arrêté) : le message du serveur, et de quoi relire sans recharger la page. */}
+      {!data && error && (
+        <div className="flex flex-col items-start gap-2">
+          <p role="alert" className="text-sm text-danger">{error}</p>
+          <Button variant="outline" size="sm" onClick={() => { setError(""); void load(); }}><RefreshCw />{t("Réessayer")}</Button>
+        </div>
+      )}
       {/* En haut : parcourir le catalogue et voir d'un coup ce qui est branché. Le reste (Google, outils par adresse,
           sites du navigateur) vient dessous. */}
       {data && (
@@ -693,7 +700,7 @@ export function Connections({ agentId, shared = false, owner = false }: { agentI
       ) : (
         <Button variant="ghost" size="sm" className="self-start text-muted-foreground" onClick={() => setAdding(true)}>{t("Ajouter un outil par son adresse (avancé)")}</Button>
       ))}
-      <ErrorText>{error}</ErrorText>
+      <ErrorText>{data ? error : ""}</ErrorText>
     </Section>
   );
 }
