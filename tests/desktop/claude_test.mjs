@@ -112,11 +112,37 @@ try {
 
   await step("outils complets : seulement si la personne les a choisis sur l'ordinateur", async () => {
     rights = { ...rights, claudeProfil: "complet" };
+    electron.onRequest = (s) => queueMicrotask(() => electron.answer(s.id, 0));
     await actions.perform(task("Lance les tests."), ctx());
+    electron.onRequest = null;
     const run = traces().at(-1);
     assert.ok(!run.args.includes("--restricted"));
     assert.match(run.args[run.args.indexOf("--tools") + 1], /Bash/);
     rights = { ...rights, claudeProfil: "fichiers" };
+  });
+
+  await step("Sonnet n°4 : profil « complet », même en Auto, le bandeau demande toujours ; refus = rien ne tourne", async () => {
+    assert.equal(autonomy, "auto");
+    rights = { ...rights, claudeProfil: "complet" };
+    const before = traces().length;
+    let shown = null;
+    electron.onRequest = (s) => { shown = s; queueMicrotask(() => electron.answer(s.id, s.refuseIndex)); };
+    let out = await actions.perform(task("Lance les tests."), ctx());
+    assert.equal(out.refuse, true, JSON.stringify(out));
+    assert.equal(traces().length, before, "rien n'est lancé sans accord");
+    assert.ok(shown && /Claude Code/.test(shown.message) && shown.detail.includes("Bash"), JSON.stringify(shown));
+    electron.onRequest = (s) => queueMicrotask(() => electron.answer(s.id, 0));
+    out = await actions.perform(task("Lance les tests."), ctx());
+    assert.equal(out.ok, true, JSON.stringify(out));
+    assert.equal(traces().length, before + 1);
+    electron.onRequest = null;
+    rights = { ...rights, claudeProfil: "fichiers" };
+    shown = null;
+    electron.onRequest = (s) => { shown = s; queueMicrotask(() => electron.answer(s.id, s.refuseIndex)); };
+    out = await actions.perform(task("Range les notes."), ctx());
+    electron.onRequest = null;
+    assert.equal(out.ok, true, "profil « fichiers » en Auto : pas de bandeau");
+    assert.equal(shown, null);
   });
 
   await step("Prudent : le bandeau montre le dossier, les outils et la consigne ; refus = rien ne tourne, accord = la tâche part", async () => {

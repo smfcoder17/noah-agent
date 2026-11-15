@@ -353,8 +353,37 @@ out = await perform({ action: "deplacer", dossierId: dossier.id, chemin: "rangem
 check("un dossier dans lui-même : refusé", out.refuse && existsSync(join(racine, "rangement")), JSON.stringify(out));
 reponse = 1;
 out = await perform({ action: "deplacer", dossierId: dossier.id, chemin: "rangement/occupe.txt", vers: "rangement/occupe.ps1" }, ctxRange);
-check("renommer en programme en Auto : sans accord", out.ok && boites.length === n && existsSync(join(racine, "rangement/occupe.ps1")), JSON.stringify(out));
-await perform({ action: "deplacer", dossierId: dossier.id, chemin: "rangement/occupe.ps1", vers: "rangement/occupe.txt" }, ctxRange);
+check("Sonnet n°7 : renommer en script en Auto : refusé, rien ne bouge", out.refuse === true && boites.length === n && !existsSync(join(racine, "rangement/occupe.ps1")) && existsSync(join(racine, "rangement/occupe.txt")), JSON.stringify(out));
+// Sonnet n°7 : en Auto, aucun script ni raccourci écrit sans carte, et rien dans un dossier de démarrage ; en Prudent, la carte les montre.
+for (const nom of ["n7.bat", "n7.cmd", "n7.ps1", "n7.vbs", "n7.lnk", "n7.url", "N7B.BAT", "N7b.Ps1", "n7sous/n7.cmd"]) {
+  out = await perform({ id: `n7-${nom}`, action: "ecrire", dossierId: dossier.id, chemin: nom }, ctxRange);
+  check(`Sonnet n°7 : Auto, ${nom} refusé sans fenêtre`, out.refuse === true && boites.length === n && !existsSync(join(racine, nom)), JSON.stringify(out));
+}
+const demarrageParent = join(base, "AppData");
+const demarrage = join(demarrageParent, "Roaming", "Microsoft", "Windows", "Start Menu", "Programs", "Startup");
+mkdirSync(demarrage, { recursive: true });
+mkdirSync(join(racine, ".config", "autostart"), { recursive: true });
+const startup = coupe.add(demarrage);
+coupe.setWrite(startup.id, true);
+const appdata = coupe.add(demarrageParent);
+coupe.setWrite(appdata.id, true);
+for (const [id, chemin] of [[startup.id, "note.txt"], [appdata.id, "Roaming/Microsoft/Windows/Start Menu/Programs/Startup/note.txt"],
+  [appdata.id, "Roaming/Microsoft/Windows/Start Menu/Programs/startup/note.txt"], [dossier.id, ".config/autostart/noah.desktop"], [dossier.id, ".config/autostart/note.txt"]]) {
+  out = await perform({ id: `n7-${chemin}`, action: "ecrire", dossierId: id, chemin }, ctxRange);
+  check(`Sonnet n°7 : Auto, dossier de démarrage refusé : ${chemin}`, out.refuse === true && boites.length === n, JSON.stringify(out));
+}
+check("Sonnet n°7 : rien d'écrit au démarrage", !existsSync(join(demarrage, "note.txt")) && !existsSync(join(racine, ".config/autostart/note.txt")));
+out = await perform({ action: "deplacer", dossierId: dossier.id, chemin: "rangement/occupe.txt", vers: ".config/autostart/occupe.txt" }, ctxRange);
+check("Sonnet n°7 : Auto, déplacer vers un dossier de démarrage refusé", out.refuse === true && existsSync(join(racine, "rangement/occupe.txt")), JSON.stringify(out));
+out = await perform({ id: "n7-doc", action: "ecrire", dossierId: dossier.id, chemin: "rapport.txt" }, ctxRange);
+check("Sonnet n°7 : Auto, un document passe toujours sans fenêtre", out.ok === true && boites.length === n, JSON.stringify(out));
+autonomie = "prudent";
+reponse = 0;
+out = await perform({ id: "n7-prudent", action: "ecrire", dossierId: dossier.id, chemin: "n7-prudent.bat" }, ctxRange);
+check("Sonnet n°7 : Prudent, un .bat passe par la carte, puis s'écrit", out.ok === true && boites.length === n + 1 && existsSync(join(racine, "n7-prudent.bat")), JSON.stringify(out));
+autonomie = "auto";
+reponse = 1;
+n = boites.length;
 // Revue : un dossier déplacé vers un endroit lu par un outil (.github) demande l'accord, comme ses fichiers un à un.
 mkdirSync(join(racine, "staging/workflows"), { recursive: true });
 writeFileSync(join(racine, "staging/workflows/run.yml"), "on: push");
