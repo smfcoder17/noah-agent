@@ -28,7 +28,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Str
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import access, accounts, apprentissage, appareils, auth, bureautique, catalog, chauffe, coffre, connecteurs, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, propositions, public, publication, push, recu, recuperation, relay, sites, updates, watch
+from . import access, accounts, apprentissage, appareils, auth, bureautique, catalog, chauffe, coffre, connecteurs, connecteurs_cles, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, propositions, public, publication, push, recu, recuperation, relay, sites, updates, watch
 from . import config
 from . import accords, bus, credits, presets, rapide, ui_preferences, linkpreview, providers as provider_accounts
 from .config import WEB_DIR, forget_setup_code
@@ -128,6 +128,7 @@ app.include_router(relay.router)
 app.include_router(machine.router)
 app.include_router(mcp.router)
 app.include_router(connecteurs.router)
+app.include_router(connecteurs_cles.router)  # GitHub, Airtable, Stripe en lecture, Apify : une clé, le chemin des outils par jeton
 app.include_router(publication.router)
 app.include_router(desktop.router)
 app.include_router(push.router)

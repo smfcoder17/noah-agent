@@ -67,6 +67,12 @@ KNOWN = {
     # Textes d’exemple seulement, jamais appelés : aide de la saisie et test
     "www.linkedin.com": "lien montré", "mon-fournisseur.fr": "lien montré", "exemple.org": "lien montré",
     "brollss.com": "à la demande",  # application du catalogue (MCP distant), contactée seulement si la personne la connecte
+    # Connecteurs à clé (connecteurs_cles.py) : serveur MCP contacté seulement si la personne y colle sa clé, logo du site au même moment
+    "api.githubcopilot.com": "à la demande", "mcp.airtable.com": "à la demande", "mcp.stripe.com": "à la demande", "mcp.apify.com": "à la demande",
+    "airtable.com": "à la demande",
+    # Pages où la personne crée sa clé, et sources citées en commentaire : jamais appelées par le serveur
+    "dashboard.stripe.com": "lien montré", "console.apify.com": "lien montré", "support.airtable.com": "lien montré",
+    "docs.stripe.com": "lien montré", "docs.apify.com": "lien montré",
     # Modèle de décision choisi par le propriétaire, avec sa clé (decision.py)
     "api.typesafe.ai": "fournisseur",
     # Lecteurs de vidéo dans le fil : rien ne se charge avant le clic de la personne (chatMedia.ts, exposition.py)

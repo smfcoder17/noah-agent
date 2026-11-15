@@ -531,7 +531,7 @@ export type Droit = "lire" | "agir" | "confirmer";
 type Etat = "ok" | "injoignable" | "a_connecter" | "jeton_refuse" | "refuse" | "";
 type App = { nom: string; description: string; source: string | null; oauth: boolean; hote: string | null; installe: boolean; connecte: boolean; droit?: Droit; etat?: Etat; erreur?: string };
 type FoundTool = { nom: string; description: string; lecture_seule: boolean };
-type CustomTool = { nom: string; url: string; compte?: string; auth: "aucune" | "jeton" | "oauth"; jeton: boolean; droit: Droit; etat: Etat; erreur: string; connecte: boolean; outils: FoundTool[] };
+type CustomTool = { nom: string; url: string; compte?: string; hote?: string | null; auth: "aucune" | "jeton" | "oauth"; jeton: boolean; droit: Droit; etat: Etat; erreur: string; connecte: boolean; outils: FoundTool[] };
 type GlobalConnector = { nom: string; genre: string; connecte: boolean; origine: boolean };
 type ConnectionsState = { google: GoogleState; applications: App[]; outils?: CustomTool[]; globaux?: GlobalConnector[]; age?: number };
 
@@ -682,6 +682,7 @@ export function Connections({ agentId, shared = false, owner = false }: { agentI
       {connected.map((a) => <AppRow key={a.nom} agentId={agentId} app={a} waiting={waiting[a.nom]} onWait={(m) => wait(a.nom, m)} onChange={load} onError={setError} extra={a.connecte ? scope(a.nom) : null} />)}
       {tools.map((t) => <ToolRow key={t.nom} agentId={agentId} tool={t} waiting={waiting[t.nom]} onWait={(m) => wait(t.nom, m)} onChange={load} onError={setError} extra={t.connecte ? scope(t.nom) : null} />)}
       {pending.map((g) => <PendingGlobal key={g.nom} agentId={agentId} nom={g.nom} waiting={waiting[g.nom]} onWait={(m) => wait(g.nom, m)} onChange={load} onError={setError} />)}
+      {data && <KeyConnectors agentId={agentId} shared={shared} tools={tools} onAdded={(name) => { setArriving(keyLabel(name)); load(); }} />}
       {data && <PublishCards agentId={agentId} shared={shared} tools={tools} onWait={wait} onChange={load} />}
       {data && <BrowserSites agentId={agentId} />}
       <SavedLogins agentId={agentId} />
@@ -694,6 +695,111 @@ export function Connections({ agentId, shared = false, owner = false }: { agentI
       ))}
       <ErrorText>{error}</ErrorText>
     </Section>
+  );
+}
+
+/** Connecteurs à clé : serveur MCP officiel de l'éditeur, une clé personnelle collée ici (server/noah/connecteurs_cles.py). */
+type KeyEntry = { nom: string; titre: string; hote: string; lien: string; droit: Droit };
+const KEY_TEXTS: Record<string, { quoi: string; cle: string; risque: string }> = {
+  github: {
+    quoi: t("Dépôts, tickets et demandes de fusion : lire le code, ouvrir un ticket, commenter."),
+    cle: t("Crée un jeton à accès précis (fine-grained), limité aux dépôts voulus. La lecture des contenus et des tickets suffit pour lire ; ajoute l'écriture seulement si l'agent doit créer ou commenter."),
+    risque: t("Avec l'écriture, l'agent peut ouvrir un ticket, commenter ou pousser du code."),
+  },
+  airtable: {
+    quoi: t("Bases et tables : chercher, lire et ajouter des lignes."),
+    cle: t("Crée un jeton personnel limité aux bases voulues, en lecture, et en écriture seulement si l'agent doit ajouter des lignes."),
+    risque: t("Avec l'écriture, l'agent peut ajouter, modifier ou supprimer des lignes."),
+  },
+  "stripe-lecture": {
+    quoi: t("Paiements, clients et abonnements, pour suivre tes ventes."),
+    cle: t("Crée une clé d'agent restreinte, en lecture seule. Stripe refuse les clés secrètes complètes sur son serveur MCP."),
+    risque: t("Une clé en lecture seule ne peut ni rembourser, ni facturer, ni déplacer de l'argent."),
+  },
+  apify: {
+    quoi: t("Robots de collecte du web : lancer un robot et lire ses résultats."),
+    cle: t("Copie ton jeton d'API dans Settings > API & Integrations de la console Apify."),
+    risque: t("Lancer un robot consomme ton crédit Apify."),
+  },
+};
+/** Le nom montré d'un connecteur à clé : « Stripe » plutôt que « Stripe Lecture ». */
+// i18n-ignore : des noms de marques, pareils dans toutes les langues
+const KEY_TITLES: Record<string, string> = { github: "GitHub", airtable: "Airtable", "stripe-lecture": "Stripe", apify: "Apify" };
+const keyLabel = (nom: string) => KEY_TITLES[nom] ?? appLabel(nom);
+
+export function KeyConnectors({ agentId, shared, tools, onAdded }: { agentId: string; shared: boolean; tools: CustomTool[]; onAdded: (name: string) => void }) {
+  const [entries, setEntries] = useState<KeyEntry[] | null>(null);
+  const [open, setOpen] = useState("");
+  const [value, setValue] = useState("");
+  const [droit, setDroit] = useState<Droit>("confirmer");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    get<KeyEntry[]>("/api/connections/cles").then(setEntries).catch(() => setEntries([]));
+  }, []);
+  const left = (entries ?? []).filter((e) => !tools.some((tool) => tool.nom === e.nom));
+  if (!left.length) return null;
+  const toggle = (e: KeyEntry) => {
+    setOpen((o) => (o === e.nom ? "" : e.nom));
+    setValue("");
+    setError("");
+    setDroit(e.droit);
+  };
+  const submit = async (nom: string) => {
+    setBusy(true);
+    setError("");
+    try {
+      await send(`/api/agents/${agentId}/connections/cles/${nom}`, { jeton: value.trim(), droit });
+      setValue(""); // la clé ne reste pas dans l'écran une fois branchée
+      setOpen("");
+      onAdded(nom);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="flex flex-col gap-1.5" data-connecteurs-cles>
+      <p className="mt-1 text-sm font-medium">{t("Avec une clé")}</p>
+      {left.map((e) => {
+        const text = KEY_TEXTS[e.nom];
+        return (
+          <div key={e.nom} className="flex flex-col gap-2 rounded-lg border border-border p-2.5">
+            <div className="flex items-center gap-2.5">
+              <AppLogo host={e.hote} name={e.nom} />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{keyLabel(e.nom)}</p>
+                {text && <p className="truncate text-xs text-muted-foreground" title={text.quoi}>{text.quoi}</p>}
+              </div>
+              <Button size="sm" variant="outline" onClick={() => toggle(e)} aria-expanded={open === e.nom}>{open === e.nom ? t("Fermer") : t("Connecter")}</Button>
+            </div>
+            {open === e.nom && (
+              <form className="flex flex-col gap-2" onSubmit={(ev) => { ev.preventDefault(); void submit(e.nom); }}>
+                {text && <p className="text-xs text-muted-foreground">{text.cle}</p>}
+                <a href={e.lien} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 self-start text-xs font-medium underline underline-offset-2">
+                  {t("Créer la clé chez {nom}", { nom: keyLabel(e.nom) })}<ExternalLink className="size-3" />
+                </a>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input type="password" autoComplete="off" spellCheck={false} value={value} onChange={(ev) => setValue(ev.target.value)} className="h-9 min-w-0 flex-1" autoFocus
+                    placeholder={t("Clé")} aria-label={t("Clé {nom}", { nom: keyLabel(e.nom) })} />
+                  <select aria-label={t("Droit de l'agent")} value={droit} onChange={(ev) => setDroit(ev.target.value as Droit)} className="h-9 cursor-pointer rounded-lg border border-border bg-background px-2 text-sm">
+                    {DROITS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                  </select>
+                  <Button type="submit" size="sm" disabled={!value.trim() || busy}>{busy && <Loader2 className="animate-spin" />}{t("Vérifier")}</Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {text ? `${text.risque} ` : ""}{t("Ce qui modifie quelque chose attend ton accord, sauf avec « Agir sans demander » ou en autonomie « Agir ». « Lire seulement » cache tout le reste à l'agent.")}
+                </p>
+                <p className="text-xs text-muted-foreground">{t("Le jeton reste chiffré sur ton serveur : ni l'agent ni cet écran ne le reverront.")}</p>
+                {shared && <p className="text-xs font-medium text-warn">{t("Cet agent est partagé : cet outil servira aussi à ceux à qui tu donnes le droit admin.")}</p>}
+                <ErrorText>{error}</ErrorText>
+              </form>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -909,7 +1015,7 @@ function ToolRow({ agentId, tool, waiting, onWait, onChange, onError, extra }: {
   const [busy, setBusy] = useState(false);
   const [back, setBack] = useState("");
   const base = `/api/agents/${agentId}/connections/tools/${tool.nom}`;
-  const label = appLabel(tool.nom);
+  const label = tool.hote ? keyLabel(tool.nom) : appLabel(tool.nom);
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
     onError("");
@@ -944,7 +1050,7 @@ function ToolRow({ agentId, tool, waiting, onWait, onChange, onError, extra }: {
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-border p-2.5">
       <div className="flex items-center gap-2.5">
-        <AppLogo host={hostOf(tool.url)} name={tool.nom} />
+        <AppLogo host={tool.hote ?? hostOf(tool.url)} name={tool.nom} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{label}</p>
           <p className="truncate text-xs text-muted-foreground" title={tool.url}>{tool.compte ? `@${tool.compte}` : tool.url}</p>
@@ -960,6 +1066,17 @@ function ToolRow({ agentId, tool, waiting, onWait, onChange, onError, extra }: {
         <RightSelect agentId={agentId} name={tool.nom} droit={tool.droit} onChange={onChange} onError={onError} />
         {tool.outils.length > 0 && <span title={tool.outils.map((o) => o.nom).join(", ")}>{tool.outils.length > 1 ? t("{n} outils", { n: tool.outils.length }) : t("{n} outil", { n: tool.outils.length })}</span>}
       </div>
+      {tool.outils.some((o) => o.lecture_seule) && (
+        <details className="text-xs text-muted-foreground" data-outils-separes>
+          <summary className="cursor-pointer">{t("{lecture} en lecture, {ecriture} qui modifient", { lecture: tool.outils.filter((o) => o.lecture_seule).length, ecriture: tool.outils.filter((o) => !o.lecture_seule).length })}</summary>
+          <p className="mt-1 font-medium">{t("En lecture : passent sans accord")}</p>
+          <p className="break-words font-mono">{tool.outils.filter((o) => o.lecture_seule).map((o) => o.nom).join(", ")}</p>
+          {tool.outils.some((o) => !o.lecture_seule) && <>
+            <p className="mt-1 font-medium">{tool.droit === "lire" ? t("Qui modifient : cachés à l'agent") : tool.droit === "agir" ? t("Qui modifient : sans demander") : t("Qui modifient : demandent ton accord, selon ton autonomie")}</p>
+            <p className="break-words font-mono">{tool.outils.filter((o) => !o.lecture_seule).map((o) => o.nom).join(", ")}</p>
+          </>}
+        </details>
+      )}
       {extra}
       {tool.auth === "oauth" && !tool.connecte && !waiting && (
         <Button size="sm" className="self-start" onClick={connect} disabled={busy}>{busy && <Loader2 className="animate-spin" />}{t("Terminer la connexion")}</Button>

@@ -382,4 +382,5 @@ export default {
   "50 veilles au plus par agent": "50 watches at most per agent",
   "Veille introuvable": "Watch not found",
   "Une routine à condition a besoin d'une condition. Sans condition, c'est une routine normale.": "A conditional routine needs a condition. Without one, it's a regular routine.",
+  "Connecteur inconnu.": "Unknown connector.",
 } satisfies Record<string, string>;
