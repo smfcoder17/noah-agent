@@ -26,6 +26,7 @@ import websockets
 from fastapi import BackgroundTasks, Cookie, Depends, FastAPI, HTTPException, Request, Response, WebSocket
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, Field
 
 from . import access, accounts, apprentissage, appareils, auth, bureautique, catalog, chauffe, coffre, connecteurs, connecteurs_cles, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, propositions, public, publication, push, recu, recuperation, relay, sites, updates, watch
@@ -46,6 +47,14 @@ async def internal_error(request: Request, error: Exception):
     # Répondue hors des intergiciels : ses en-têtes sont posés ici.
     return JSONResponse({"detail": "Erreur interne de Noah Agent. Détails dans Réglages > Serveur > Diagnostic."}, status_code=500,
                         headers=exposition.headers_for(request.scope))
+
+
+@app.exception_handler(RequestValidationError)
+async def invalid_request(_: Request, error: RequestValidationError):
+    """Même forme que FastAPI, sans recopier ce qui a été envoyé : un jeton ou un mot de passe trop long revenait en clair
+    dans la réponse (audit 0.3.0, Sonnet n°8)."""
+    keep = ("loc", "msg", "type")
+    return JSONResponse({"detail": [{k: e[k] for k in keep if k in e} for e in error.errors()]}, status_code=422)
 
 
 @app.exception_handler(courriel.Required)

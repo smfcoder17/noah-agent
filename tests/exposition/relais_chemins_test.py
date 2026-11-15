@@ -52,5 +52,11 @@ for method, path in (("POST", "/relay/v1/../../api/delete"), ("GET", "/relay/v1/
     check(r.status_code == 404, f"{method} {path} refusé ({r.status_code})")
 check(len(seen) == before, "rien n'est parti chez le fournisseur pour ces routes")
 check(relay.relay_path_allowed("POST", "audio/speech") and not relay.relay_path_allowed("GET", "chat/completions"), "méthode par route")
+# Une requête invalide ne recopie pas ce qu'on a envoyé (audit 0.3.0, Sonnet n°8).
+from noah import auth  # noqa: E402
+u = auth.create_user("alice", "motdepasse-alice")
+web = TestClient(main.app, headers={"Authorization": f"Bearer {auth.new_session(u, 'Firefox', 'web')}"})
+r = web.post("/api/login", json={"username": "x" * 5000, "password": "ghp_SECRET_" + "A" * 5000})
+check(r.status_code == 422 and "ghp_SECRET_" not in r.text and "xxxxxxxx" not in r.text and "loc" in r.text, "un 422 ne recopie pas le jeton envoyé")
 print("relais : tout est vert" if not fails else f"relais : {fails} échec(s)")
 sys.exit(1 if fails else 0)

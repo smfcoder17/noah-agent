@@ -599,7 +599,7 @@ function createWindow() {
     return { action: "deny" };
   });
   const stayHome = (e, url) => {
-    if (url.startsWith("data:") || url.startsWith("file:") || sameOrigin(url)) return;
+    if (url.startsWith("data:") || url.split(/[?#]/)[0] === SETUP_URL || sameOrigin(url)) return;
     e.preventDefault();
     if (/^https?:/.test(url)) shell.openExternal(url);
   };
@@ -814,7 +814,9 @@ function contextMenu(_e, params) {
 }
 
 // Écran du premier lancement (fichier local de l'app, jamais une page du serveur).
-const fromSetup = (e) => e.senderFrame.url.startsWith("file:") && e.senderFrame.url.endsWith("setup.html");
+// Le fichier exact de l'app, pas n'importe quel « setup.html » posé sur le disque (audit 0.3.0, Sonnet n°10).
+const SETUP_URL = require("node:url").pathToFileURL(path.join(__dirname, "setup.html")).href;
+const fromSetup = (e) => e.senderFrame.url.split(/[?#]/)[0] === SETUP_URL;
 // Nombre lu dans la page d'accord du navigateur, saisi dans l'écran de connexion de l'app.
 ipcMain.handle("noah:setup-number", (e, n) => {
   if (fromSetup(e)) typedNumber = String(n).replace(/\D/g, "").slice(0, 3);
