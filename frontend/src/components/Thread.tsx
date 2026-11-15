@@ -16,7 +16,7 @@ import {
   useAuiState,
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
-import { ArrowUp, Check, ChevronRight, ChevronUp, Copy, FileText, Loader2, Paperclip, Reply, SmilePlus, Square, TriangleAlert, X, ChevronDown, Plug, Plus } from "lucide-react";
+import { ArrowUp, Check, ChevronRight, ChevronUp, Copy, FileText, Loader2, Paperclip, Reply, SmilePlus, Square, TriangleAlert, X, ChevronDown, Plug, Plus, Pencil } from "lucide-react";
 import { Children, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import remarkGfm from "remark-gfm";
 import { WhileBusyContext, AgentContext, HistoryContext } from "@/lib/agentContext";
@@ -40,6 +40,7 @@ import { readableModel } from "@/lib/modes";
 import { demandesFor, usePresets } from "@/lib/presets";
 import { refreshAccords } from "@/lib/events";
 import { returnMoment } from "@/lib/retour";
+import { historyStep } from "@/lib/historique";
 import { NoahWidget } from "./Widgets";
 import { langue, locale, t } from "@/i18n";
 
@@ -612,6 +613,15 @@ const UserMessage = memo(function UserMessage() {
         <MessagePrimitive.Parts components={{ Text: UserText }} />
       </div>
       <div className="flex items-center gap-2">
+        <ActionBarPrimitive.Root className="flex gap-1 opacity-0 pointer-coarse:opacity-70 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+          <ActionBarPrimitive.Copy asChild>
+            <Button variant="ghost" size="icon-sm" aria-label={t("Copier mon message")}>
+              <MessagePrimitive.If copied><Check /></MessagePrimitive.If>
+              <MessagePrimitive.If copied={false}><Copy /></MessagePrimitive.If>
+            </Button>
+          </ActionBarPrimitive.Copy>
+          <TakeBack />
+        </ActionBarPrimitive.Root>
         <MessageReactions />
         <MessageTime />
       </div>
@@ -619,6 +629,28 @@ const UserMessage = memo(function UserMessage() {
     </>
   );
 });
+
+/** Reprendre un de mes messages : il revient dans la saisie, à modifier avant de le renvoyer. Rien ne part seul. */
+function TakeBack() {
+  const aui = useAui();
+  const { readOnly } = useContext(AgentContext);
+  const text = useAuiState((s) => s.message.content.map((p) => (p.type === "text" ? p.text : "")).join("").trim());
+  if (readOnly || !text) return null;
+  return (
+    <Button variant="ghost" size="icon-sm" aria-label={t("Reprendre ce message")} title={t("Reprendre ce message")}
+      onClick={() => {
+        aui.thread().composer().setText(text);
+        document.querySelector<HTMLTextAreaElement>("[data-composer-input]")?.focus();
+      }}>
+      <Pencil />
+    </Button>
+  );
+}
+
+function useSentHistory() {
+  const sent = useAuiState((s) => s.thread.messages.filter((m) => m.role === "user").map((m) => m.content.map((p) => (p.type === "text" ? p.text : "")).join("").trim()).filter(Boolean).join("\u0000"));
+  return useMemo(() => (sent ? sent.split("\u0000") : []), [sent]);
+}
 
 /** Bouton flottant sur un passage sélectionné d'une réponse : il le joint au prochain message. */
 function SelectionReply() {
@@ -762,6 +794,10 @@ function Composer({ onVoiceMode, inCall }: { onVoiceMode: () => void; inCall: bo
   const busy = useContext(WhileBusyContext);
   const aui = useAui();
   const empty = useAuiState((s) => s.composer.isEmpty);
+  const sent = useSentHistory();
+  const historyAt = useRef(-1); // -1 : le brouillon ; 0 : le dernier message envoyé ; 1 : l'avant-dernier…
+  const draft = useRef("");
+  useEffect(() => { historyAt.current = -1; }, [sent.length]); // un message vient de partir : on repart du plus récent
   const sendWhileBusy = () => {
     const composer = aui.thread().composer();
     const state = composer.getState();
@@ -806,6 +842,22 @@ function Composer({ onVoiceMode, inCall }: { onVoiceMode: () => void; inCall: bo
               // Pendant le travail, la saisie reste ouverte : le message est trié, jamais perdu.
               e.preventDefault();
               sendWhileBusy();
+            } else if ((e.key === "ArrowUp" || e.key === "ArrowDown") && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && !e.nativeEvent.isComposing) {
+              const field = e.currentTarget;
+              // Sur la première ligne (↑) ou la dernière (↓) : ailleurs, les flèches déplacent le curseur comme d'habitude.
+              const atStart = !field.value.slice(0, field.selectionStart ?? 0).includes("\n");
+              const atEnd = !field.value.slice(field.selectionEnd ?? 0).includes("\n");
+              if ((e.key === "ArrowUp" && !atStart) || (e.key === "ArrowDown" && !atEnd)) return;
+              if (historyAt.current < 0) draft.current = field.value;
+              const step = historyStep(sent, historyAt.current, draft.current, e.key);
+              if (!step) return;
+              e.preventDefault();
+              historyAt.current = step.index;
+              aui.thread().composer().setText(step.text);
+              // ↑ : curseur au début, pour remonter encore d'un coup ; ↓ : à la fin.
+              requestAnimationFrame(() => { const at = e.key === "ArrowUp" ? 0 : step.text.length; field.setSelectionRange(at, at); });
+            } else if (e.key !== "ArrowUp" && e.key !== "ArrowDown" && !e.key.startsWith("Shift")) {
+              historyAt.current = -1; // on tape : la navigation dans l'historique repart du plus récent
             }
           }}
         />

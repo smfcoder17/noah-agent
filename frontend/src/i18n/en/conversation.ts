@@ -341,4 +341,6 @@ export default {
   "Lance « {nom} » maintenant": "Run \"{nom}\" now",
   "Qu'est-ce qui attend ma réponse ?": "What is waiting on me?",
   "Que me proposes-tu pour la suite ?": "What do you suggest next?",
+  "Copier mon message": "Copy my message",
+  "Reprendre ce message": "Edit and resend",
 } satisfies Record<string, string>;
