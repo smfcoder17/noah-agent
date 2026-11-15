@@ -105,6 +105,21 @@ session.note("a1", thread, "tool.started", {"tool_name": "terminal", "args": {"c
 check("une commande ordinaire n'est pas un processus", web.get("/api/agents/a1/session").json()["processus"] == [])
 session.forget("a1")
 
+# Relecture m4 : un processus fini quitte la barre dès que son état le dit, quel que soit l'outil qui le dit.
+session.note("a1", thread, "tool.started", {"tool_name": "terminal", "args": {"command": "make", "background": True}})
+session.note("a1", thread, "tool.completed", {"tool_name": "terminal", "preview": '{"session_id": "proc_court1", "status": "exited", "exit_code": 0}'})
+check("m4 fini dès son lancement : il ne reste pas", web.get("/api/agents/a1/session").json()["processus"] == [])
+for n in ("a", "b"):
+    session.note("a1", thread, "tool.started", {"tool_name": "terminal", "args": {"command": f"serveur {n}", "background": True}})
+    session.note("a1", thread, "tool.completed", {"tool_name": "terminal", "preview": f"Started proc_liste{n}1"})
+session.note("a1", thread, "tool.completed", {"tool_name": "process", "args": {"action": "list"},
+             "result": '{"processes": [{"session_id": "proc_listea1", "status": "exited", "exit_code": 1}, {"session_id": "proc_listeb1", "status": "running"}]}'})
+check("m4 la liste des processus dit lequel est fini : lui seul part", [p["session"] for p in session._processes["a1"]] == ["proc_listeb1"])
+session.note("a1", thread, "tool.completed", {"tool_name": "process", "args": {"action": "log", "session_id": "proc_listeb1"},
+             "preview": "ligne 1 du journal…", "result": "ligne 1 du journal\n" * 50 + '{"status": "exited"}'})
+check("m4 l'état lu dans le résultat entier, pas seulement dans son aperçu tronqué", web.get("/api/agents/a1/session").json()["processus"] == [])
+session.forget("a1")
+
 # Relecture 0.3.0, partie 5 n°1 : la fin d'une commande en avant-plan ne prend pas la place d'un lancement en arrière-plan.
 procs = lambda: web.get("/api/agents/a1/session").json()["processus"]  # noqa: E731
 session.note("a1", thread, "tool.started", {"tool_name": "terminal", "tool_call_id": "c1", "args": {"command": "npm run dev", "background": True}})
@@ -156,9 +171,13 @@ main._routine_cache["a1"] = saved_cache
 # Une demande passée à un autre agent, en cours.
 with db.connect() as c:
     c.execute("INSERT INTO delegations (id, de, vers, conversation_id, profondeur, chaine, etat, consigne, created_at) "
-              "VALUES ('d1', 'a1', 'a2', 'x', 1, 'a1', 'en_cours', 'Surveille les prix\nDétails', ?)", (time.time(),))
+              "VALUES ('d1', 'a1', 'a2', ?, 1, 'a1', 'en_cours', 'Surveille les prix\nDétails', ?)", (thread, time.time()))
+    # D3 (relecture) : une demande lancée depuis le fil privé de Bruno ne se montre pas à Alice, même si elle voit l'agent visé.
+    c.execute("INSERT INTO delegations (id, de, vers, conversation_id, profondeur, chaine, etat, consigne, created_at) "
+              "VALUES ('d2', 'a1', 'a2', ?, 1, 'a1', 'en_cours', 'Consigne privée de Bruno', ?)", (private, time.time()))
 asks = web.get("/api/agents/a1/session").json()["demandes"]
-check("demande à un autre agent visible", [(a["agent"], a["titre"]) for a in asks] == [("Veille", "Surveille les prix")])
+check("demande à un autre agent visible", [(a["agent"], a["titre"]) for a in asks][:1] == [("Veille", "Surveille les prix")])
+check("D3 une demande lancée d'une conversation qu'elle ne voit pas reste cachée", [a["id"] for a in asks] == ["d1"])
 check("invisible pour qui ne voit pas l'agent visé", shared.get("/api/agents/a1/session").json()["demandes"] == [])
 
 # Tâches confiées à l'ordinateur : au propriétaire seulement.
@@ -188,6 +207,37 @@ started = time.monotonic()
 slow = web.get("/api/agents/a1/session").json()
 check("machine lente : réponse en moins d'une seconde", time.monotonic() - started < 1)
 check("machine lente : dernière lecture gardée", [x["titre"] for x in slow["routines"]] == ["Revue du matin"])
+
+# Relecture, point 12 : le lanceur absent n'est plus une « Erreur interne » brute pour Fichiers et Connexions.
+import httpx  # noqa: E402
+
+from noah import config, hermes  # noqa: E402
+
+
+async def launcher_gone(*_a, **_k):
+    raise httpx.ConnectError("Connection refused", request=httpx.Request("GET", f"{config.LAUNCHER_URL}/agents/a1/files"))
+
+
+async def launcher_slow(*_a, **_k):
+    raise httpx.ConnectTimeout("timed out", request=httpx.Request("POST", f"{config.LAUNCHER_URL}/agents/a1/admin/google"))
+
+
+async def elsewhere_gone(*_a, **_k):
+    raise httpx.ConnectError("Connection refused", request=httpx.Request("GET", "https://fournisseur.exemple/v1"))
+
+
+saved_files, saved_admin = hermes.list_files, machine.admin
+hermes.list_files, machine.admin = launcher_gone, launcher_slow
+try:
+    r = web.get("/api/agents/a1/files")
+    check("12 Fichiers, lanceur absent : 503 et un message clair", r.status_code == 503 and r.json()["detail"] == main.LAUNCHER_DOWN)
+    r = web.get("/api/agents/a1/connections?frais=1")
+    check("12 Connexions, lanceur trop lent : 503 et le même message", r.status_code == 503 and r.json()["detail"] == main.LAUNCHER_DOWN)
+    hermes.list_files = elsewhere_gone
+    r = TestClient(main.app, raise_server_exceptions=False, headers=web.headers).get("/api/agents/a1/files")
+    check("12 une autre panne réseau reste une erreur interne", r.status_code == 500 and "Erreur interne" in r.json()["detail"])
+finally:
+    hermes.list_files, machine.admin = saved_files, saved_admin
 
 # Agent invisible : 404, comme partout.
 check("inconnu pour un autre compte", stranger.get("/api/agents/a1/session").status_code == 404)

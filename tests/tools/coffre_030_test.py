@@ -125,46 +125,59 @@ def card(agent):
 
 
 def test_migration_without_loss():
-    """B2 : une base d'avant 0.3.0, remplie : les identifiants par agent passent au coffre du propriétaire, à l'identique."""
+    """B2 : une base d'avant 0.3.0, remplie : les identifiants par agent passent au coffre du propriétaire, à l'identique.
+    D4 : deux lignes du même compte (propriétaire, origine, identifiant) n'en font qu'une, la plus récente.
+    D5 : un agent partagé n'y gagne pas le droit sur tout le coffre du propriétaire."""
     old = {}
     with db.connect() as c:
-        for handle, agent, origin, ident, pwd in (("login_ancien1", A1, "https://www.instagram.com", ID_A, MDP_ANCIEN),
-                                                   ("login_ancien2", A3, "https://www.linkedin.com", "pro@exemple.fr", MDP_ANCIEN + "2"),
-                                                   ("login_ancien3", A3, "https://www.linkedin.com", "pro@exemple.fr", MDP_ANCIEN + "3")):
+        for handle, agent, origin, ident, pwd, used in (("login_ancien1", A1, "https://www.instagram.com", ID_A, MDP_ANCIEN, 1700000100.0),
+                                                         ("login_ancien2", A3, "https://www.linkedin.com", "pro@exemple.fr", MDP_ANCIEN + "2", 1700000300.0),
+                                                         ("login_ancien3", A3, "https://www.linkedin.com", "pro@exemple.fr", MDP_ANCIEN + "3", 1700000200.0)):
             sealed = db.seal(json.dumps({"identifiant": ident, "mot_de_passe": pwd}))
-            old[handle] = (agent, origin, sealed)
+            old[handle] = (agent, origin, sealed, used)
             c.execute("INSERT INTO agent_logins (id, agent_id, origine, secret, created_at, used_at) VALUES (?, ?, ?, ?, ?, ?)",
-                      (handle, agent, origin, sealed, 1700000000.0, 1700000100.0))
+                      (handle, agent, origin, sealed, 1700000000.0, used))
     db.init()  # le démarrage de la nouvelle version
     db.init()  # et le suivant : rien ne bouge deux fois
     with db.connect() as c:
         moved = {r["id"]: dict(r) for r in c.execute("SELECT * FROM coffre")}
         left = c.execute("SELECT COUNT(*) FROM agent_logins").fetchone()[0]
         rights = {r["agent_id"]: r["utiliser"] for r in c.execute("SELECT * FROM coffre_agents")}
-    check("migration : chaque ligne est là, même id, même secret scellé, mêmes dates, chez le propriétaire",
-          all(h in moved and moved[h]["secret"] == s and moved[h]["origine"] == o and moved[h]["user_id"] == ALICE
-              and moved[h]["created_at"] == 1700000000.0 and moved[h]["used_at"] == 1700000100.0 for h, (_, o, s) in old.items()), moved)
-    check("migration : deux mots de passe pour le même compte, aucun n'est perdu", {"login_ancien2", "login_ancien3"} <= set(moved))
-    check("migration : l'ancienne table est vide, rien n'est en double", left == 0 and len(moved) == 3, left)
-    check("migration : les agents qui s'en servaient gardent le droit, même partagé", rights == {A1: 1, A3: 1}, rights)
-    page.origine = "https://www.linkedin.com"
-    done = vault(A3, "fill", handle="login_ancien2")
-    check("une connexion enregistrée avant la migration sert toujours, par son ancien handle", done["success"] and page.fills[-1]["motDePasse"] == MDP_ANCIEN + "2", done)
-    page.origine = "https://www.instagram.com"
+    kept = ("login_ancien1", "login_ancien2")
+    check("migration : chaque compte est là, même id, même secret scellé, mêmes dates, chez le propriétaire",
+          all(h in moved and moved[h]["secret"] == old[h][2] and moved[h]["origine"] == old[h][1] and moved[h]["user_id"] == ALICE
+              and moved[h]["created_at"] == 1700000000.0 and moved[h]["used_at"] == old[h][3] for h in kept), moved)
+    check("D4 deux lignes pour le même compte : une seule reste, la plus récente", "login_ancien2" in moved and "login_ancien3" not in moved, moved)
+    check("migration : l'ancienne table est vide, rien n'est en double", left == 0 and len(moved) == 2, left)
+    check("D5 la migration n'allume pas le droit d'un agent partagé", rights.get(A3) != 1 and not coffre.may_use(A3) and coffre.may_use(A1), rights)
+    check("D5 l'écran du propriétaire le dit : agent partagé, droit éteint",
+          next(a for a in client.get("/api/coffre", headers=web(ALICE)).json()["agents"] if a["id"] == A3) == {"id": A3, "nom": A3, "utiliser": False, "partage": True})
+    done = vault(A1, "fill", handle="login_ancien1")
+    check("une connexion enregistrée avant la migration sert toujours, par son ancien handle", done["success"] and page.fills[-1]["motDePasse"] == MDP_ANCIEN, done)
+    # m7 : une ligne dont l'agent n'a pas (encore) de propriétaire est rattachée au propriétaire de l'installation au démarrage suivant.
     with db.connect() as c:
-        c.execute("DELETE FROM coffre WHERE id IN ('login_ancien2', 'login_ancien3')")
+        c.execute("INSERT INTO agents (id, name, role, api_key, owner_id) VALUES ('a0-orphelin', 'a0', '', 'k', NULL)")
+        c.execute("INSERT INTO agent_logins (id, agent_id, origine, secret, created_at, used_at) VALUES ('login_orphelin', 'a0-orphelin', 'https://exemple.org', ?, ?, NULL)",
+                  (db.seal(json.dumps({"identifiant": "o@exemple.org", "mot_de_passe": "orphelin-Pw1"})), 1700000000.0))
+        db._migrate_logins(c)
+        row = c.execute("SELECT user_id FROM coffre WHERE id = 'login_orphelin'").fetchone()
+        left = c.execute("SELECT COUNT(*) FROM agent_logins").fetchone()[0]
+    check("m7 une ligne sans propriétaire est rattachée au propriétaire de l'installation", row is not None and row["user_id"] == db.owner_id() and left == 0, (row and dict(row), left))
+    with db.connect() as c:
+        c.execute("DELETE FROM coffre WHERE id IN ('login_ancien2', 'login_orphelin')")
+        c.execute("DELETE FROM agents WHERE id = 'a0-orphelin'")
         c.execute("DELETE FROM coffre_agents WHERE agent_id = ?", (A3,))
 
 
 def test_server_picks_the_only_login():
-    """B1 : un identifiant Instagram retenu (www), page sans www : aucune carte, connexion faite par le serveur."""
-    page.origine = "https://instagram.com"
+    """B1 : un identifiant Instagram retenu, page sur la même origine exacte : aucune carte, connexion faite par le serveur."""
+    page.origine = "https://www.instagram.com"
     page.after = {"identifiant": False, "motDePasse": False, "code": False}
     fills, notices = len(page.fills), len(pushed)
     out = vault(A1)
-    check("B1 un seul identifiant pour le site : rempli d'office, sans carte ni notification",
+    check("B1 un seul identifiant pour l'origine exacte : rempli d'office, sans carte ni notification",
           out.get("success") and out.get("automatic") and card(A1) is None and len(pushed) == notices, out)
-    check("B1 la page a reçu l'ancien identifiant, sur l'origine lue", page.fills[-1]["motDePasse"] == MDP_ANCIEN and page.fills[-1]["origine"] == "https://instagram.com" and len(page.fills) == fills + 1)
+    check("B1 la page a reçu l'ancien identifiant, sur l'origine lue", page.fills[-1]["motDePasse"] == MDP_ANCIEN and page.fills[-1]["origine"] == "https://www.instagram.com" and len(page.fills) == fills + 1)
     listed = client.get(f"/api/agents/{A1}/sites", headers=web(ALICE)).json()
     check("B5 connexion vérifiée par le serveur : le site est noté connecté", [(s["hote"], s["etat"]) for s in listed] == [("instagram.com", "connecte")], listed)
     page.after, page.champs = None, {"identifiant": True, "motDePasse": True, "code": False}
@@ -404,6 +417,141 @@ def test_review_small_fixes():
           r.json().get("coffre_plein") and seen.get("vault_full") and "ne rappelle pas save_login" in seen.get("next", ""), (r.text, seen))
 
 
+def agent_auth(agent):
+    return {"Authorization": f"Bearer {relay.token_for(agent)}"}
+
+
+def test_b1_exact_origin_only():
+    """Relecture B-1 : d'office seulement sur l'origine exacte (schéma, hôte, port) ; un autre hôte du même site montre la carte
+    « Quel compte ? » avec l'origine réelle de la page ; jamais d'office dans un tour durci ; « même site » lu dans la liste publique
+    des suffixes, section privée comprise, copiée dans le dépôt."""
+    import asyncio
+    from noah import juge
+    with db.connect() as c:
+        c.execute("DELETE FROM coffre WHERE user_id = ?", (ALICE,))
+    adsl = client.post("/api/coffre", headers=web(ALICE), json={"genre": "login", "nom": "Freebox", "origine": "https://adsl.free.fr", "identifiant": ID_A, "mot_de_passe": MDP_A}).json()["id"]
+    page.origine, page.champs, page.after = "https://pirate.free.fr", {"identifiant": True, "motDePasse": True, "code": False}, None
+    fills = len(page.fills)
+    out = vault(A1)
+    shown = card(A1)
+    check("B-1 autre hôte du même site : rien tapé d'office, la carte « Quel compte ? » s'ouvre",
+          "attente" in out and len(page.fills) == fills and shown and [c["id"] for c in shown.get("comptes") or []] == [adsl], (out, shown))
+    check("B-1 la carte montre l'origine réelle de la page, et celle du compte proposé",
+          shown["origine"] == "https://pirate.free.fr" and shown["comptes"][0]["origine"] == "https://adsl.free.fr", shown)
+    client.delete(f"/agent-api/coffre/{out['attente']}", headers=agent_auth(A1))
+    out = vault(A1, "fill", handle=adsl)
+    check("B-1 ni par son handle sur l'autre hôte", out.get("error_type") == "origin_mismatch" and len(page.fills) == fills, out)
+    for neighbour in ("http://adsl.free.fr", "https://adsl.free.fr:8443"):
+        page.origine = neighbour
+        out = vault(A1)
+        check(f"B-1 {neighbour} : autre schéma ou autre port, rien d'office", "attente" in out and len(page.fills) == fills, out)
+        client.delete(f"/agent-api/coffre/{out['attente']}", headers=agent_auth(A1))
+    page.origine = "https://adsl.free.fr"
+    out = vault(A1)
+    check("B-1 sur son origine exacte : rempli d'office", out.get("automatic") and len(page.fills) == fills + 1, out)
+    fills = len(page.fills)
+    out = vault(A1, durci=True)
+    check("B-1 tour durci signalé par la garde : la carte, rien d'office", "attente" in out and len(page.fills) == fills and card(A1).get("comptes"), out)
+    client.delete(f"/agent-api/coffre/{out['attente']}", headers=agent_auth(A1))
+    out = vault(A1, "fill", handle=adsl, durci=True)
+    check("B-1 tour durci : pas de remplissage par handle", out.get("error_type") == "hardened" and len(page.fills) == fills, out)
+    client.post("/api/coffre", headers=web(ALICE), json={"genre": "totp", "origine": "https://adsl.free.fr", "cle": TOTP_KEY})
+    turn = asyncio.run(juge._read_turn(A1, juge.Call(outil="browser_vault", session=f"noah-{CONVS[A1]}"), for_key_only=True))
+    juge._harden(A1, turn)
+    try:
+        out = vault(A1)
+        check("B-1 tour durci connu du serveur seul : la carte, rien d'office", "attente" in out and len(page.fills) == fills, out)
+        client.delete(f"/agent-api/coffre/{out['attente']}", headers=agent_auth(A1))
+        page.champs = {"identifiant": False, "motDePasse": False, "code": True}
+        out = vault(A1, "enter_code")
+        check("B-1 tour durci : le code d'authentificateur n'est pas tapé d'office non plus", "attente" in out and len(page.fills) == fills, out)
+        client.delete(f"/agent-api/coffre/{out['attente']}", headers=agent_auth(A1))
+    finally:
+        juge._hardened.clear()
+        page.champs = {"identifiant": True, "motDePasse": True, "code": False}
+    check("PSL section privée : a.github.io et b.github.io ne sont pas le même site",
+          not coffre.same_site("https://a.github.io", "https://b.github.io") and coffre.site_of("https://a.github.io") == "a.github.io")
+    check("PSL section ICANN : www.exemple.co.uk et exemple.co.uk sont le même site",
+          coffre.same_site("https://www.exemple.co.uk", "https://exemple.co.uk") and coffre.site_of("https://a.b.exemple.co.uk") == "exemple.co.uk")
+    check("PSL joker et exception : *.ck, !www.ck", coffre.site_of("https://a.b.ck") == "a.b.ck" and coffre.site_of("https://x.www.ck") == "www.ck")
+    listing = (Path(coffre.__file__).parent / "suffixes_publics.dat").read_text(encoding="utf-8")
+    check("PSL copie figée dans le dépôt, avec sa source et sa date, les deux sections",
+          "publicsuffix.org" in listing[:600] and "2026-11-15" in listing[:600] and "===BEGIN PRIVATE DOMAINS===" in listing and "\ngithub.io\n" in listing
+          and not hasattr(coffre, "SHARED_HOSTING") and "httpx" not in Path(coffre.__file__).read_text(encoding="utf-8").split("def _suffixes", 1)[-1].split("\ndef ", 1)[0])
+    with db.connect() as c:
+        c.execute("DELETE FROM coffre WHERE user_id = ?", (ALICE,))
+    page.origine = "https://www.instagram.com"
+
+
+def test_review_d_fixes():
+    """Relecture D2, D4, D6, m3 et point 12 : la preuve pour changer l'origine ou l'identifiant ; les doublons réduits au choix ;
+    « Retirer » dans les Connexions d'un agent garde l'identifiant au coffre ; l'import d'une clé TOTP borné et sans doublon ;
+    deux comptes du même site se distinguent dans la liste d'un agent."""
+    with db.connect() as c:
+        c.execute("DELETE FROM coffre WHERE user_id = ?", (ALICE,))
+    fresh = {"Authorization": f"Bearer {auth.new_session(ALICE)}"}  # aucune preuve récente sur cette session
+    item = client.post("/api/coffre", headers=fresh, json={"genre": "login", "origine": "https://www.exemple.org", "identifiant": ID_A, "mot_de_passe": MDP_A}).json()
+
+    def origin():
+        return next(e for e in client.get("/api/coffre", headers=fresh).json()["elements"] if e["id"] == item["id"])["origine"]
+    r = client.put(f"/api/coffre/{item['id']}", headers=fresh, json={"nom": "Perso", "origine": "https://www.exemple.org/login"})
+    check("D2 changer le nom (même origine) : sans preuve", r.status_code == 200 and r.json()["nom"] == "Perso", r.text)
+    r = client.put(f"/api/coffre/{item['id']}", headers=fresh, json={"origine": "https://ailleurs.exemple.net"})
+    check("D2 changer l'origine sans preuve : 428, rien ne change", r.status_code == 428 and origin() == "https://www.exemple.org", r.text)
+    r = client.put(f"/api/coffre/{item['id']}", headers=fresh, json={"identifiant": "autre@exemple.fr"})
+    check("D2 changer l'identifiant sans preuve : 428", r.status_code == 428, r.text)
+    r = client.put(f"/api/coffre/{item['id']}", headers=fresh, json={"origine": "https://ailleurs.exemple.net", "motdepasse": "faux"})
+    check("D2 avec un mauvais mot de passe : refusé", r.status_code == 400 and origin() == "https://www.exemple.org", r.text)
+    r = client.put(f"/api/coffre/{item['id']}", headers=fresh, json={"origine": "https://ailleurs.exemple.net", "motdepasse": "motdepasse-a"})
+    check("D2 avec la preuve : changé", r.status_code == 200 and origin() == "https://ailleurs.exemple.net", r.text)
+
+    with db.connect() as c:
+        c.execute("DELETE FROM coffre WHERE user_id = ?", (ALICE,))
+        for i, (pwd, used) in enumerate(((MDP_A, 1700000900.0), (MDP_B, 1700000100.0))):
+            c.execute("INSERT INTO coffre (id, user_id, genre, nom, origine, secret, created_at, used_at) VALUES (?, ?, 'login', '', 'https://www.instagram.com', ?, ?, ?)",
+                      (f"login_double{i}", ALICE, db.seal(json.dumps({"identifiant": ID_A, "mot_de_passe": pwd})), 1700000000.0 + i, used))
+    page.origine, page.champs, page.after = "https://www.instagram.com", {"identifiant": True, "motDePasse": True, "code": False}, None
+    out = vault(A1)
+    check("D4 deux lignes du même compte (base déjà migrée) : un seul choix, le plus récent, rempli d'office",
+          out.get("automatic") and page.fills[-1]["motDePasse"] == MDP_A and out.get("handle") == "login_double0", out)
+
+    with db.connect() as c:
+        c.execute("DELETE FROM coffre WHERE user_id = ?", (ALICE,))
+    ids = [client.post("/api/coffre", headers=web(ALICE), json={"genre": "login", "origine": "https://example.test", "identifiant": who, "mot_de_passe": pwd}).json()["id"]
+           for who, pwd in ((ID_A, MDP_A), (ID_B, MDP_B))]
+    listed = client.get(f"/api/agents/{A1}/coffre", headers=web(ALICE))
+    check("12 deux comptes du même site : chaque ligne montre son identifiant masqué",
+          sorted(row["compte"] for row in listed.json()) == ["bo•••", "fr•••"] and ID_A not in listed.text and MDP_A not in listed.text, listed.text)
+    r = client.delete(f"/api/agents/{A1}/coffre/{ids[0]}", headers=web(ALICE))
+    check("D6 retirer d'un agent : l'identifiant reste au coffre",
+          r.status_code == 200 and ids[0] in [e["id"] for e in client.get("/api/coffre", headers=web(ALICE)).json()["elements"]], r.text)
+    check("D6 cet agent ne s'en sert plus", ids[0] not in [i["handle"] for i in vault(A1, "list")["items"]]
+          and vault(A1, "fill", handle=ids[0])["error_type"] == "unknown_handle"
+          and [row["id"] for row in client.get(f"/api/agents/{A1}/coffre", headers=web(ALICE)).json()] == [ids[1]])
+    check("D6 les autres agents du propriétaire, si", ids[0] in [i["handle"] for i in vault(A2, "list")["items"]])
+    check("D6 retirer deux fois : introuvable", client.delete(f"/api/agents/{A1}/coffre/{ids[0]}", headers=web(ALICE)).status_code == 404)
+
+    bitwarden = ("folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp\n"
+                 f",,login,Dropbox,,,0,https://www.dropbox.com,f@e.fr,bw-Pw-secret,{TOTP_KEY}\n")
+    for _ in range(2):
+        client.post("/api/coffre/import", headers=web(ALICE), json={"csv": bitwarden})
+    with db.connect() as c:
+        keys = c.execute("SELECT COUNT(*) FROM coffre WHERE user_id = ? AND genre = 'totp' AND origine = 'https://www.dropbox.com'", (ALICE,)).fetchone()[0]
+        count = c.execute("SELECT COUNT(*) FROM coffre WHERE user_id = ?", (ALICE,)).fetchone()[0]
+    check("m3 réimporter une clé TOTP ne la double pas", keys == 1, keys)
+    saved_max, coffre.MAX_ITEMS = coffre.MAX_ITEMS, count + 1
+    try:
+        out = client.post("/api/coffre/import", headers=web(ALICE), json={"csv": bitwarden.replace("dropbox", "box").replace("Dropbox", "Box")}).json()
+        with db.connect() as c:
+            after = c.execute("SELECT COUNT(*) FROM coffre WHERE user_id = ?", (ALICE,)).fetchone()[0]
+    finally:
+        coffre.MAX_ITEMS = saved_max
+    check("m3 une clé TOTP importée respecte MAX_ITEMS, avec sa raison", out["ajoutes"] == 1 and after == count + 1
+          and [r["ligne"] for r in out["refuses"]] == [2] and "plein" in out["refuses"][0]["raison"], (out, after))
+    with db.connect() as c:
+        c.execute("DELETE FROM coffre WHERE user_id = ?", (ALICE,))
+
+
 test_migration_without_loss()
 test_server_picks_the_only_login()
 test_two_accounts_ask_which()
@@ -413,5 +561,7 @@ test_settings_screen()
 test_reconnect_state()
 test_other_profile_turn_never_fills()
 test_review_small_fixes()
+test_b1_exact_origin_only()
+test_review_d_fixes()
 test_model_never_sees_a_secret()
 print(f"coffre 0.3.0 : {checks} vérifications, tout est vert")

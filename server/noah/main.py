@@ -49,6 +49,22 @@ async def internal_error(request: Request, error: Exception):
                         headers=exposition.headers_for(request.scope))
 
 
+LAUNCHER_DOWN = "Le lanceur des agents ne répond pas : l'agent est peut-être arrêté ou en train de redémarrer. Réessaie dans un instant."
+
+
+@app.exception_handler(httpx.TransportError)
+async def launcher_unreachable(request: Request, error: httpx.TransportError):
+    """Le lanceur absent ou trop lent (connexion refusée, délai dépassé) : un message clair, et l'écran propose de réessayer
+    (Fichiers, Connexions…). Toute autre panne réseau reste une erreur interne, notée au diagnostic."""
+    try:
+        target = str(error.request.url)
+    except RuntimeError:  # une erreur sans requête : on ne sait pas qui ne répond pas
+        target = ""
+    if not target.startswith(config.LAUNCHER_URL):
+        return await internal_error(request, error)
+    return JSONResponse({"detail": LAUNCHER_DOWN}, status_code=503, headers=exposition.headers_for(request.scope))
+
+
 @app.exception_handler(RequestValidationError)
 async def invalid_request(_: Request, error: RequestValidationError):
     """Même forme que FastAPI, sans recopier ce qui a été envoyé : un jeton ou un mot de passe trop long revenait en clair
@@ -1512,15 +1528,16 @@ async def agent_session(agent_id: str, user: int = Depends(auth.current_user)):
     with db.connect() as c:
         rows = c.execute("SELECT id, title, origin, main, user_id FROM conversations WHERE agent_id = ? AND (user_id = ? OR shared = 1)",
                          (agent_id, user)).fetchall()
-        asked = c.execute("SELECT d.id, d.vers, d.consigne, d.created_at, a.name FROM delegations d LEFT JOIN agents a ON a.id = d.vers "
+        asked = c.execute("SELECT d.id, d.vers, d.consigne, d.created_at, d.conversation_id, a.name FROM delegations d LEFT JOIN agents a ON a.id = d.vers "
                           "WHERE d.de = ? AND d.etat = 'en_cours' ORDER BY d.created_at", (agent_id,)).fetchall()
     visible = {r["id"] for r in rows}
     work = [{"id": r["id"], "titre": r["title"], "origine": r["origin"], "main": bool(r["main"]) and r["user_id"] == user,
              "etat": "approve" if task_state.get(r["id"]) == "approve" else "work", "activite": task_activity.get(r["id"])}
             for r in rows if coordination._busy(agent_id, r["id"])]
-    # Une demande passée à un autre agent : son nom et sa consigne, seulement si la personne voit aussi cet agent-là.
+    # Une demande passée à un autre agent : son nom et sa consigne, seulement si elle part d'une conversation que la personne voit
+    # (comme les processus), et si elle voit aussi cet agent-là.
     others = [{"id": d["id"], "agent": d["name"] or d["vers"], "titre": d["consigne"].split("\n")[0][:120], "debut": d["created_at"]}
-              for d in asked if access.right(user, d["vers"])]
+              for d in asked if d["conversation_id"] in visible and access.right(user, d["vers"])]
     confided = (await desktop.user_tasks(agent_id, user))["taches"] if access.owner_of(agent_id) == user else []
     return {"travaux": work, "processus": session.processes(agent_id, visible), "demandes": others, "confiees": confided,
             "routines": await _running_routines(agent_id, user)}
@@ -1556,9 +1573,11 @@ async def _running_routines(agent_id: str, user: int) -> list[dict]:
         _routine_reading[agent_id] = task
         await asyncio.wait({task}, timeout=0.3)  # une machine qui répond vite donne déjà sa réponse
     return _routine_cache.get(agent_id, (0.0, cached))[1]
-# Des jetons sans coût, hors modèle gratuit : le prix de ce modèle est inconnu. L'écran dit « prix inconnu », jamais 0 $ (C5).
-UNPRICED = ("SUM(CASE WHEN u.cost = 0 AND u.prompt_tokens + u.completion_tokens > 0 AND u.model NOT LIKE '%:free' "
-            "AND u.model NOT LIKE '% · abonnement' AND u.model NOT LIKE 'forfait%' THEN 1 ELSE 0 END)")  # un abonnement par le PC n'est pas « prix inconnu » (A7)
+# Des jetons sans coût, hors modèle gratuit : le prix de ce modèle est inconnu. L'écran dit « prix inconnu », jamais 0 $ (C5). Un appel
+# compris dans un abonnement par le PC (Claude Code, ChatGPT) n'est pas « prix inconnu » (A7). Une seule règle, pour le total et le détail.
+NO_PRICE = ("u.cost = 0 AND u.prompt_tokens + u.completion_tokens > 0 AND u.model NOT LIKE '%:free' "
+            "AND u.model NOT LIKE '% · abonnement' AND u.model NOT LIKE 'forfait%'")
+UNPRICED = f"SUM(CASE WHEN {NO_PRICE} THEN 1 ELSE 0 END)"
 
 
 @app.get("/api/usage")
@@ -1582,9 +1601,7 @@ def usage(user: int = Depends(auth.current_user)):
         # Des jetons sans coût : le plafond ne les a pas comptés. Un modèle gratuit le dit dans son nom. Le propriétaire règle le budget de tout le serveur.
         unpriced = c.execute(
             "SELECT 1 FROM usage u LEFT JOIN conversations v ON v.id = u.conversation_id "
-            f"WHERE u.created_at >= :start AND {'1 = 1' if installation else seen} AND u.cost = 0 AND u.prompt_tokens + u.completion_tokens > 0 AND u.model NOT LIKE '%:free' "
-            # Compris dans un abonnement (Claude Code, ChatGPT par l'ordinateur) : 0 $ connu, pas un prix inconnu.
-            "AND u.model NOT LIKE '% · abonnement' AND u.model NOT LIKE 'forfait ChatGPT%' LIMIT 1",
+            f"WHERE u.created_at >= :start AND {'1 = 1' if installation else seen} AND {NO_PRICE} LIMIT 1",
             {"start": relay.month_start(), "me": user},
         ).fetchone()
     ids = [a["id"] for a in _agents() if access.right(user, a["id"]) == "proprietaire"]

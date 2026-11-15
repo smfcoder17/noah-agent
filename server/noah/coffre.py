@@ -23,6 +23,7 @@ hors de portée de l'agent. Le mot de passe ne retourne jamais vers un navigateu
 import asyncio
 import base64
 import csv
+import functools
 import hashlib
 import hmac
 import io
@@ -32,6 +33,7 @@ import re
 import secrets
 import struct
 import time
+from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
 import httpx
@@ -53,32 +55,61 @@ MAX_ITEMS = 2000  # par personne
 MAX_IMPORT = 2 * 1024 * 1024
 MAX_IMPORT_ROWS = 5000
 FAILED_SECONDS = 600  # un identifiant retenu que le site vient de refuser n'est plus pris d'office pendant ce temps
-SECOND_LEVEL = {"ac", "co", "com", "edu", "gouv", "gov", "ne", "net", "or", "org"}
-# Des domaines où chaque sous-domaine appartient à quelqu'un d'autre : « même site » n'y veut rien dire, seule l'origine exacte compte.
-SHARED_HOSTING = {"github.io", "gitlab.io", "vercel.app", "netlify.app", "herokuapp.com", "pages.dev", "workers.dev", "web.app",
-                  "firebaseapp.com", "appspot.com", "blogspot.com", "wordpress.com", "myshopify.com", "azurewebsites.net",
-                  "cloudfront.net", "amazonaws.com", "onrender.com", "fly.dev", "glitch.me", "ngrok.io", "ngrok-free.app",
-                  "sslip.io", "nip.io", "repl.co", "replit.app", "surge.sh", "wixsite.com", "squarespace.com", "webflow.io",
-                  "notion.site", "substack.com", "tumblr.com", "weebly.com", "carrd.co", "framer.app", "duckdns.org"}
+# La liste publique des suffixes (publicsuffix.org), sections ICANN et privée, copiée dans le dépôt avec sa source et sa date :
+# jamais téléchargée au démarrage. La section privée sépare les hébergements partagés (a.github.io n'est pas b.github.io).
+SUFFIXES = Path(__file__).with_name("suffixes_publics.dat")
 
 task_state: dict[str, str] = {}  # celui de main.py, pour que la conversation et « À toi » montrent ce qui attend
 _asked: dict[str, dict] = {}
 _failed: dict[str, float] = {}  # id d'un élément du coffre → quand le site l'a refusé
 
 
+@functools.cache
+def _suffixes() -> tuple[frozenset, frozenset, frozenset]:
+    """(règles, jokers « *.x » sans l'étoile, exceptions « !x » sans le point d'exclamation), lus une fois dans le fichier."""
+    rules, wild, exceptions = set(), set(), set()
+    for line in SUFFIXES.read_text(encoding="utf-8").splitlines():
+        rule = line.strip().split(" ", 1)[0].lower()
+        if not rule or rule.startswith("//"):
+            continue
+        if rule.startswith("!"):
+            exceptions.add(rule[1:])
+        elif rule.startswith("*."):
+            wild.add(rule[2:])
+        else:
+            rules.add(rule)
+    return frozenset(rules), frozenset(wild), frozenset(exceptions)
+
+
+def _registrable(host: str) -> str:
+    """Le domaine enregistrable d'un nom d'hôte selon la liste publique des suffixes (algorithme de publicsuffix.org) : le suffixe
+    public le plus long, plus un label. Vide si l'hôte est lui-même un suffixe public."""
+    labels = host.strip(".").split(".")
+    rules, wild, exceptions = _suffixes()
+    suffix = 1  # règle par défaut « * » : le dernier label
+    for i in range(len(labels)):
+        name, parent = ".".join(labels[i:]), ".".join(labels[i + 1:])
+        if name in exceptions:
+            suffix = len(labels) - i - 1
+            break
+        if name in rules or (parent and parent in wild):
+            suffix = len(labels) - i
+            break
+    return ".".join(labels[-(suffix + 1):]) if len(labels) > suffix else ""
+
+
 def site_of(origin: str) -> str:
-    """Le domaine que la personne reconnaît : instagram.com.piege.io se lit piege.io."""
+    """Le domaine que la personne reconnaît : instagram.com.piege.io se lit piege.io, a.github.io reste a.github.io."""
     host = urlsplit(origin).hostname or ""
-    parts = host.split(".")
-    if len(parts) < 2 or re.fullmatch(r"[\d.]+", host) or ":" in host:
+    if "." not in host or re.fullmatch(r"[\d.]+", host) or ":" in host:
         return host
-    keep = 3 if len(parts) >= 3 and len(parts[-1]) == 2 and parts[-2] in SECOND_LEVEL else 2
-    return ".".join(parts[-keep:])
+    return _registrable(host) or host
 
 
 def same_site(saved: str, page: str) -> bool:
-    """Un identifiant retenu sert-il sur cette page ? Son origine exacte, ou le même site enregistrable (www.instagram.com ↔
-    instagram.com), seulement en https des deux côtés, sur le même port, et jamais sur un hébergement partagé (a.github.io ≠ b.github.io)."""
+    """Un identifiant retenu est-il du même site que cette page ? Son origine exacte, ou le même domaine enregistrable de la liste
+    publique des suffixes (www.instagram.com ↔ instagram.com), seulement en https des deux côtés et sur le même port. Seule l'origine
+    exacte remplit d'office (_ask) : un autre hôte du même site passe par la carte, où la personne voit les deux adresses."""
     if not saved or not page:
         return False
     if saved == page:
@@ -91,8 +122,11 @@ def same_site(saved: str, page: str) -> bool:
             return False
     except ValueError:
         return False
-    site = site_of(saved)
-    return bool(site) and "." in site and not re.fullmatch(r"[\d.]+", site) and site == site_of(page) and site not in SHARED_HOSTING
+    host = a.hostname or ""
+    if "." not in host or re.fullmatch(r"[\d.]+", host) or ":" in host:
+        return False
+    site = _registrable(host)
+    return bool(site) and site == _registrable(b.hostname or "")
 
 
 def origin_of(address: str) -> str:
@@ -152,7 +186,7 @@ def _view(item: dict) -> dict:
     view = {"id": item["id"], "type": item["type"], "site": item["site"], "origine": item["origine"],
             "chiffre": item["origine"].startswith("https://"), "identifiant_requis": item["identifiant_requis"]}
     if item.get("comptes"):
-        view["comptes"] = [{"id": c["id"], "nom": c["nom"], "compte": c["compte"]} for c in item["comptes"]]
+        view["comptes"] = [{"id": c["id"], "nom": c["nom"], "compte": c["compte"], "origine": c["origine"]} for c in item["comptes"]]
     return view
 
 
@@ -285,14 +319,41 @@ def _items(user: int | None, genre: str | None = None):
         return c.execute("SELECT * FROM coffre WHERE user_id = ? ORDER BY created_at", (user,)).fetchall()
 
 
+def _withdrawn(agent_id: str) -> set[str]:
+    """Les éléments que le propriétaire a retirés à cet agent (« Retirer de cet agent ») : ils restent dans son coffre."""
+    with db.connect() as c:
+        return {r["coffre_id"] for r in c.execute("SELECT coffre_id FROM coffre_retraits WHERE agent_id = ?", (agent_id,))}
+
+
 def _rows(agent_id: str, genre: str = "login"):
-    """Ce que cet agent peut utiliser du coffre de son propriétaire : rien sans le droit."""
-    return _items(owner(agent_id), genre) if may_use(agent_id) else []
+    """Ce que cet agent peut utiliser du coffre de son propriétaire : rien sans le droit, ni ce qui lui a été retiré."""
+    if not may_use(agent_id):
+        return []
+    withdrawn = _withdrawn(agent_id)
+    return [r for r in _items(owner(agent_id), genre) if r["id"] not in withdrawn]
+
+
+def _recent(row) -> float:
+    return max(row["used_at"] or 0, row["created_at"] or 0)
+
+
+def _one_per_account(rows) -> list:
+    """Un compte (origine, identifiant ou clé) une seule fois : le plus récent. Une base migrée avant la relecture D4 peut en avoir deux."""
+    best: dict[tuple, object] = {}
+    for row in rows:
+        secret = _secret(row)
+        value = secret.get("identifiant") if row["genre"] == "login" else secret.get("cle")
+        key = (row["origine"], value) if value else (row["id"],)
+        if key not in best or _recent(row) > _recent(best[key]):
+            best[key] = row
+    kept = {r["id"] for r in best.values()}
+    return [r for r in rows if r["id"] in kept]
 
 
 def _matching(agent_id: str, origin: str, genre: str = "login") -> list:
-    """Les éléments retenus pour cette page : ceux de l'origine exacte d'abord, sinon ceux du même site."""
-    rows = _rows(agent_id, genre)
+    """Les éléments retenus pour cette page : ceux de l'origine exacte d'abord, sinon ceux du même site. Seuls les premiers se
+    remplissent d'office (_ask) ; les seconds ne sont que proposés sur la carte."""
+    rows = _one_per_account(_rows(agent_id, genre))
     exact = [r for r in rows if r["origine"] == origin]
     return exact or [r for r in rows if same_site(r["origine"], origin)]
 
@@ -346,7 +407,7 @@ def _list(agent_id: str) -> dict:
 
 def _login_row(agent_id: str, login_id: str):
     """Un identifiant de ce coffre que cet agent a le droit d'utiliser, ou None."""
-    if not may_use(agent_id):
+    if not may_use(agent_id) or login_id in _withdrawn(agent_id):
         return None
     with db.connect() as c:
         return c.execute("SELECT * FROM coffre WHERE id = ? AND user_id = ? AND genre = 'login'", (login_id, owner(agent_id))).fetchone()
@@ -367,23 +428,42 @@ def _owner_turn(agent_id: str) -> bool:
     return access.callers(agent_id) == {owner(agent_id)}
 
 
-async def _fill_saved(agent_id: str, handle: str) -> dict:
+async def _hardened(agent_id: str, session: str, said: bool) -> bool:
+    """Ce tour a lu un contenu qui donne des consignes à l'agent : signalé par la garde de sa machine (`said`), ou connu du juge
+    du serveur. Alors rien ne se tape d'office : la page qui a donné les consignes peut être celle qui demande la connexion.
+    Une lecture impossible compte comme un tour durci."""
+    if said:
+        return True
+    from . import juge
+    try:
+        turn = await juge._read_turn(agent_id, juge.Call(outil="browser_vault", session=session), for_key_only=True)
+        return turn.hardened or juge._is_hardened(agent_id, turn)
+    except Exception:  # noqa: BLE001 - session illisible, base en travaux : la carte plutôt qu'un secret tapé à l'aveugle
+        return True
+
+
+async def _fill_saved(agent_id: str, handle: str, session: str = "", said_hardened: bool = False) -> dict:
+    """Remplir avec un identifiant choisi par l'agent, sans carte : seulement sur son origine exacte, et jamais dans un tour durci."""
     row = _login_row(agent_id, handle)
     if row and not _owner_turn(agent_id):
         return _refused("not_owner", "Les identifiants retenus sont ceux du propriétaire de l'agent, et cette tâche n'est pas la sienne. Demande avec action=save_login.")
     if not row:
         return _refused("unknown_handle", "Identifiant inconnu : regarde action=list, ou demande-le avec action=save_login.")
+    if await _hardened(agent_id, session, said_hardened):
+        return _refused("hardened", "Ce tour a lu un contenu qui donne des consignes : Noah ne tape aucun identifiant retenu sans la personne. "
+                                    "Prends action=save_login : elle verra le site réel et choisira son compte.")
     page = await _page(agent_id)
     if page.get("error"):
         return _refused("page_unavailable", page["error"])
-    if not same_site(row["origine"], page.get("origine") or ""):
-        return _refused("origin_mismatch", f"Refusé : cet identifiant sert sur {row['origine']}, et la page est sur {page.get('origine')}. Rien n'a été écrit.")
+    if row["origine"] != page.get("origine"):
+        return _refused("origin_mismatch", f"Refusé : cet identifiant sert sur {row['origine']}, et la page est sur {page.get('origine')}. Rien n'a été écrit. "
+                                           "Si c'est bien le même site, prends action=save_login : la personne choisira son compte en voyant l'adresse.")
     return await _use_login(agent_id, page, row)
 
 
-async def _ask(agent_id: str, kind: str, session: str) -> dict:
-    """Le serveur regarde d'abord le coffre : un seul élément pour ce site, il remplit lui-même. Sinon il ouvre la carte, et rend
-    {attente: id}, ou ce qui l'empêche."""
+async def _ask(agent_id: str, kind: str, session: str, said_hardened: bool = False) -> dict:
+    """Le serveur regarde d'abord le coffre : un seul élément pour cette origine exacte, hors tour durci, il remplit lui-même. Sinon
+    il ouvre la carte (les comptes du même site y sont proposés, avec leur adresse), et rend {attente: id}, ou ce qui l'empêche."""
     conv = _conversation(agent_id, session)
     if not conv:
         return _refused("prompt_unavailable", "Personne ne peut répondre ici (routine, ou plusieurs tâches en même temps). Préviens la personne au lieu d'attendre.")
@@ -405,20 +485,22 @@ async def _ask(agent_id: str, kind: str, session: str) -> dict:
     # Remplir d'office, c'est taper un secret du propriétaire : seulement dans une tâche qu'il a lancée lui-même. Pour un autre
     # profil, une carte vide, sans les comptes du propriétaire.
     by_owner = row["user_id"] == owner(agent_id)
+    # D'office seulement sur l'origine exacte (schéma, hôte, port), et jamais dans un tour durci : ailleurs, la carte.
+    by_itself = by_owner and not await _hardened(agent_id, session, said_hardened)
     choices = []
     if kind == "connexion":
         from . import sites
         if by_owner:
             sites.needs_sign_in(agent_id, origin)  # une page de connexion sur un site noté connecté : sa session est partie
         found = [r for r in _matching(agent_id, origin) if r["id"] not in _failed] if by_owner else []
-        if len(found) == 1:
+        if by_itself and len(found) == 1 and found[0]["origine"] == origin:
             done = await _use_login(agent_id, page, found[0])
             if done.get("success"):
                 done["automatic"] = True
             return done
-        choices = [{"id": r["id"], "nom": _label(r), "compte": _mask(_secret(r).get("identifiant") or "")} for r in found]
+        choices = [{"id": r["id"], "nom": _label(r), "compte": _mask(_secret(r).get("identifiant") or ""), "origine": r["origine"]} for r in found]
     if kind == "code":
-        keys = [r for r in _matching(agent_id, origin, "totp") if r["id"] not in _failed] if by_owner else []
+        keys = [r for r in _matching(agent_id, origin, "totp") if r["id"] not in _failed and r["origine"] == origin] if by_itself else []
         if len(keys) == 1:
             try:
                 code = totp_code(_secret(keys[0]).get("cle") or "")
@@ -458,10 +540,11 @@ async def agent_vault(request: Request):
         return _refused("guest", "Les connexions enregistrées sont réservées au propriétaire de l'agent. Dis-le simplement : cette personne se connecte elle-même, dans l'onglet Ordinateur.")
     if action == "list":
         return _list(agent_id)
+    said_hardened = body.get("durci") is True  # la garde de sa machine le sait quand le serveur n'a pas pu l'apprendre
     if action == "fill":
-        return await _fill_saved(agent_id, str(body.get("handle") or ""))
+        return await _fill_saved(agent_id, str(body.get("handle") or ""), str(body.get("session") or ""), said_hardened)
     if action in ("save_login", "enter_code"):
-        return await _ask(agent_id, "connexion" if action == "save_login" else "code", str(body.get("session") or ""))
+        return await _ask(agent_id, "connexion" if action == "save_login" else "code", str(body.get("session") or ""), said_hardened)
     if action == "unlock":
         return _refused("no_manager", "Aucun gestionnaire de mots de passe externe n'est branché sur cet agent.")
     return _refused("unknown_action", "Action inconnue : list, fill, save_login ou enter_code.")
@@ -575,6 +658,9 @@ async def answer_login(agent_id: str, ask_id: str, request: Request, user: int =
             keep = (item["type"] == "connexion" and not chosen and body.get("retenir") is not False and filled.get("ok") and filled.get("complet", True)
                     and filled.get("page") != "meme" and user == owner(agent_id))
             handle = _remember(user, item["origine"], identifier, password) if keep else ""
+            if handle:  # la personne vient de le retenir pour cet agent : un ancien « Retirer de cet agent » ne vaut plus
+                with db.connect() as c:
+                    c.execute("DELETE FROM coffre_retraits WHERE agent_id = ? AND coffre_id = ?", (agent_id, handle))
             await _after_fill(agent_id, filled, item["origine"], chosen["id"] if chosen else "", user=user)
             result = _outcome(filled, item["origine"], saved=bool(handle) or bool(chosen), handle=handle or (chosen["id"] if chosen else ""))
             if keep and not handle and result.get("success"):  # coffre plein : le dire, au lieu d'une demande qui reviendrait en boucle
@@ -604,7 +690,9 @@ def _owner_only(user: int, agent_id: str) -> None:
 def saved_logins(agent_id: str, user: int = Depends(auth.current_user)):
     """Les sites où cet agent se reconnecte seul. Ni l'identifiant ni le mot de passe ne repartent vers un écran."""
     _owner_only(user, agent_id)
-    return [{"id": row["id"], "site": site_of(row["origine"]), "origine": row["origine"]} for row in _rows(agent_id)]
+    # Deux comptes du même site se distinguent par leur nom et leurs deux premiers caractères, comme sur la carte.
+    return [{"id": row["id"], "nom": _label(row), "site": site_of(row["origine"]), "origine": row["origine"],
+             "compte": _mask(_secret(row).get("identifiant") or "")} for row in _rows(agent_id)]
 
 
 @router.get("/api/agents/{agent_id}/coffre-droit")
@@ -625,11 +713,13 @@ async def set_vault_right(agent_id: str, request: Request, user: int = Depends(a
 
 @router.delete("/api/agents/{agent_id}/coffre/{login_id}")
 def forget_login(agent_id: str, login_id: str, user: int = Depends(auth.current_user)):
+    """« Retirer de cet agent » : cet agent ne se sert plus de cet identifiant, qui reste dans le coffre de la personne (Réglages >
+    Coffre, où elle le supprime pour de bon) et sert encore à ses autres agents."""
     _owner_only(user, agent_id)
-    with db.connect() as c:
-        gone = c.execute("DELETE FROM coffre WHERE id = ? AND user_id = ? AND genre = 'login'", (login_id, user)).rowcount
-    if not gone:
+    if login_id not in {row["id"] for row in _rows(agent_id)}:
         raise HTTPException(404, "Identifiant introuvable")
+    with db.connect() as c:
+        c.execute("INSERT OR IGNORE INTO coffre_retraits (agent_id, coffre_id) VALUES (?, ?)", (agent_id, login_id))
     return {"ok": True}
 
 
@@ -754,7 +844,13 @@ async def change_in_vault(item_id: str, request: Request, user: int = Depends(au
     """Modifier : un champ de secret laissé vide garde l'ancienne valeur, qui n'a donc jamais à revenir vers l'écran."""
     row = _mine(user, item_id)
     body = await _read_answer(request)
-    name, origin, secret = _validated(body, row["genre"], {**_secret(row), "_origine": row["origine"], "_nom": row["nom"]})
+    before = _secret(row)
+    name, origin, secret = _validated(body, row["genre"], {**before, "_origine": row["origine"], "_nom": row["nom"]})
+    # Changer l'adresse ou l'identifiant, c'est décider où ce secret sera tapé : la même preuve que pour le voir (relecture D2).
+    if origin != row["origine"] or secret.get("identifiant") != before.get("identifiant"):
+        from . import main
+        main._prove_if_needed(request, user, _text(body, "motdepasse", 256), _text(body, "code", 32),
+                              "Confirme ton mot de passe pour changer l'adresse ou l'identifiant.")
     with db.connect() as c:
         c.execute("UPDATE coffre SET nom = ?, origine = ?, secret = ? WHERE id = ?", (name, origin, db.seal(json.dumps(secret)), item_id))
     _failed.pop(item_id, None)
@@ -859,6 +955,11 @@ async def import_csv(request: Request, user: int = Depends(auth.current_user)):
                     key = _totp_key(value["cle"])
                 except ValueError:
                     refused.append({"ligne": line, "raison": "Identifiant ajouté, mais sa clé d'authentificateur n'est pas valide."})
+                    continue
+                if any(_secret(r).get("cle") == key for r in _items(user, "totp") if r["origine"] == origin):
+                    continue  # déjà là : un second import ne la double pas
+                if count >= MAX_ITEMS:
+                    refused.append({"ligne": line, "raison": "Identifiant ajouté, mais ton coffre est plein : sa clé d'authentificateur n'est pas gardée."})
                     continue
                 with db.connect() as c:
                     c.execute("INSERT INTO coffre (id, user_id, genre, nom, origine, secret, created_at) VALUES (?, ?, 'totp', ?, ?, ?, ?)",

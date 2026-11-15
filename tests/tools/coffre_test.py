@@ -282,9 +282,9 @@ def test_saved_logins():
         page.origine = neighbour
         out = ask("fill", handle=handle)
         check(f"fill sur {neighbour} : refus", out.get("error_type") == "origin_mismatch" and len(page.fills) == fills, out)
-    page.origine = "https://instagram.com"  # 0.3.0 (B1) : même site enregistrable, en https, même port
+    page.origine = "https://instagram.com"  # relecture B-1 : par son handle, seulement sur l'origine exacte ; la carte, elle, le propose
     out = ask("fill", handle=handle)
-    check("fill sans www sur le même site : accepté", out.get("success") and len(page.fills) == fills + 1, out)
+    check("fill sans www sur le même site : refus, la personne choisira par la carte", out.get("error_type") == "origin_mismatch" and "save_login" in out["error"] and len(page.fills) == fills, out)
     page.origine = ORIGINE
     check("handle inconnu", ask("fill", handle="login_0")["error_type"] == "unknown_handle")
     with db.connect() as c:
@@ -293,7 +293,7 @@ def test_saved_logins():
     check("le handle d'un autre agent n'existe pas", other["error_type"] == "unknown_handle", other)
 
     shown = client.get(f"/api/agents/{A}/coffre", headers=web(ALICE))
-    check("l'écran reçoit les sites seulement", shown.status_code == 200 and set(shown.json()[0]) == {"id", "site", "origine"} and MOT_DE_PASSE not in shown.text and IDENTIFIANT not in shown.text, shown.text)
+    check("l'écran reçoit les sites seulement", shown.status_code == 200 and set(shown.json()[0]) == {"id", "nom", "site", "origine", "compte"} and shown.json()[0]["compte"] == "al•••" and MOT_DE_PASSE not in shown.text and IDENTIFIANT not in shown.text, shown.text)
     check("une personne invitée ne voit pas ces sites", client.get(f"/api/agents/{A}/coffre", headers=web(UMA)).status_code == 403)
     check("un admin qui n'est pas le propriétaire non plus : c'est le coffre d'Alice", client.get(f"/api/agents/{A}/coffre", headers=web(ADA)).status_code == 403)
     check("un inconnu non plus", client.get(f"/api/agents/{A}/coffre", headers=web(BRUNO)).status_code == 404)
@@ -393,6 +393,15 @@ def test_plugin_tool():
         out = json.loads(garde._vault_tool({"action": "save_login"}, session_id="noah-c1"))
         check("l'outil attend par tranches, puis rend le résultat", out == {"success": True, "page": "changee"} and calls[1:] == [("coffre-attendre", "x1"), ("coffre-attendre", "x1")], calls)
         check("il donne sa session au serveur", json.loads(calls[0][1])["session"] == "noah-c1")
+        check("tour ordinaire : il ne se dit pas durci", json.loads(calls[0][1]).get("durci") is False)
+        calls.clear()
+        answers[:] = [{"success": False, "error_type": "hardened"}]
+        garde._hardened["noah-c1"] = time.time() + 60
+        try:
+            garde._vault_tool({"action": "save_login"}, session_id="noah-c1")
+        finally:
+            garde._hardened.pop("noah-c1", None)
+        check("B-1 tour durci par la garde : le serveur le sait, et ne remplit rien d'office", json.loads(calls[0][1]).get("durci") is True, calls)
         check("l'outil rend la main avant la coupure de 420 s d'Hermes", garde.VAULT_SLICE_SECONDS + coffre.MAX_WAIT + 10 < 420)
         slice_seconds, garde.VAULT_SLICE_SECONDS = garde.VAULT_SLICE_SECONDS, 0
         answers[:] = [{"attente": "x3"}]

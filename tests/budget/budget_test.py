@@ -79,6 +79,14 @@ with db.connect() as c:
     already = c.execute("SELECT COUNT(*) AS n FROM usage WHERE cost = 0 AND prompt_tokens > 0").fetchone()["n"]
     c.execute("INSERT INTO usage (agent_id, model, prompt_tokens, completion_tokens, cost, cached_tokens, owner_id) VALUES ('a1', 'gratuit:free', 10, 10, 0, 0, NULL)")
 assert web.get("/api/usage").json()["non_suivi"] == bool(already), "un modèle gratuit n'est pas une dépense sans prix"
+# m5 (relecture) : une seule règle « compris dans un abonnement », pour le total comme pour le détail par agent.
+with db.connect() as c:
+    c.execute("INSERT INTO usage (agent_id, model, prompt_tokens, completion_tokens, cost, cached_tokens, owner_id) VALUES ('a1', 'forfait Codex', 10, 10, 0, 0, NULL)")
+assert web.get("/api/usage").json()["non_suivi"] == bool(already), "m5 un forfait n'est pas une dépense sans prix, quel que soit son nom"
+source = open(main.__file__, encoding="utf-8").read()
+assert source.count("'% · abonnement'") == 1 and source.count("'forfait") == 1, "m5 la règle « forfait » écrite une seule fois"
+with db.connect() as c:
+    c.execute("DELETE FROM usage WHERE model = 'forfait Codex'")
 with db.connect() as c:
     c.execute("INSERT INTO usage (agent_id, model, prompt_tokens, completion_tokens, cost, cached_tokens, owner_id) VALUES ('a1', 'sans-prix', 10, 10, 0, 0, NULL)")
 assert web.get("/api/usage").json()["non_suivi"] is True, "des jetons sans coût : l'écran doit le dire"
