@@ -64,6 +64,25 @@ check("menu Abonnements : « Claude Code comme cerveau » est un droit local, de
   assert.match(main, /askSystem\(t\("abonnement\.claude\.cerveau"\), t\("abonnement\.claude\.cerveau_avertissement"\)/);
 });
 
+check("D9 : setup.html reconnu par son chemin (espaces, .asar, casse de Windows), jamais un autre fichier", () => {
+  const win = "C:\\Program Files\\Noah Agent\\resources\\app.asar\\setup.html";
+  const sent = ["file:///C:/Program%20Files/Noah%20Agent/resources/app.asar/setup.html",
+    "file:///c:/program%20files/noah%20agent/RESOURCES/app.asar/setup.html?x=1#y",
+    "file:///C:/Program%20Files/Noah%20Agent/resources/app.asar/./sub/../setup.html",
+    "file:///C:/Program Files/Noah Agent/resources/app.asar/setup.html"];
+  for (const url of sent) assert.equal(liens.sameFile(url, win, "win32"), true, url);
+  for (const url of ["file:///C:/Users/x/Downloads/setup.html", "file:///C:/Program%20Files/Noah%20Agent/resources/app.asar.unpacked/setup.html",
+    "https://exemple.fr/setup.html", "data:text/html,setup.html", "file://autre-pc/partage/app.asar/setup.html", "pas une adresse"]) {
+    assert.equal(liens.sameFile(url, win, "win32"), false, url);
+  }
+  const nix = "/opt/Noah Agent/resources/app.asar/setup.html";
+  assert.equal(liens.sameFile("file:///opt/Noah%20Agent/resources/app.asar/setup.html", nix, "linux"), true);
+  assert.equal(liens.sameFile("file:///opt/noah%20agent/resources/app.asar/setup.html", nix, "linux"), false, "Linux : la casse compte");
+  assert.match(main, /const stayHome = \(e, url\) => \{\s*if \(url\.startsWith\("data:"\) \|\| liens\.sameFile\(url, SETUP_FILE\) \|\| sameOrigin\(url\)\) return;/);
+  assert.match(main, /const fromSetup = \(e\) => liens\.sameFile\(e\.senderFrame\.url, SETUP_FILE\);/);
+  assert.ok(!/=== SETUP_URL/.test(main), "plus de comparaison d'URL à l'égalité stricte");
+});
+
 if (failures) {
   console.log(`${failures} échec(s)`);
   process.exit(1);
