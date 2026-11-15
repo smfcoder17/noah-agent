@@ -1,12 +1,13 @@
 // Réglages > Coffre (server/noah/coffre.py) : ce que la personne garde pour ses agents, à elle seule. La liste ne porte aucune
 // valeur ; voir une valeur demande la preuve (fenêtre commune, Proof.tsx) et elle s'efface d'elle-même. Un champ de secret laissé
-// vide en modification garde l'ancienne valeur : elle n'a jamais à revenir vers l'écran pour être changée.
+// vide en modification garde l'ancienne valeur : elle n'a jamais à revenir vers l'écran pour être changée. Changer l'adresse ou
+// l'identifiant demande la même preuve que voir. Supprimer se confirme dans une fenêtre de l'interface, comme pour les fichiers.
 import { CreditCard, Eye, EyeOff, KeyRound, Pencil, ShieldCheck, Trash2, Upload } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useId, useRef, useState } from "react";
 import { t, tServeur } from "@/i18n";
 import { get, request, send } from "@/lib/api";
 import { useProof } from "./Proof";
-import { Button, ErrorText, Input, Label } from "./ui";
+import { Button, Dialog, DialogContent, ErrorText, Input, Label } from "./ui";
 
 export type VaultGenre = "login" | "carte" | "totp";
 export type VaultElement = { id: string; genre: VaultGenre; nom: string; site: string; origine: string; apercu: string; utilise_a: number | null };
@@ -17,7 +18,9 @@ type Shown = Record<string, string>;
 const SHOWN_SECONDS = 30;
 const genres = (): [VaultGenre, string][] => [["login", t("Identifiant")], ["carte", t("Carte de paiement")], ["totp", t("Clé d'authentificateur")]];
 
-function ItemForm({ genre, element, onSaved, onCancel }: { genre: VaultGenre; element?: VaultElement; onSaved: () => void; onCancel: () => void }) {
+type WithProof = ReturnType<typeof useProof>["withProof"];
+
+function ItemForm({ genre, element, withProof, onSaved, onCancel }: { genre: VaultGenre; element?: VaultElement; withProof: WithProof; onSaved: () => void; onCancel: () => void }) {
   const [values, setValues] = useState<Record<string, string>>({ nom: element?.nom ?? "", origine: element?.origine ?? "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -38,7 +41,10 @@ function ItemForm({ genre, element, onSaved, onCancel }: { genre: VaultGenre; el
     const body: Record<string, string> = { genre };
     for (const [k, v] of Object.entries(values)) if (v !== "" || k === "nom") body[k] = v;
     try {
-      await send(editing ? `/api/coffre/${element.id}` : "/api/coffre", body, editing ? "PUT" : "POST");
+      // Une modification de l'adresse ou de l'identifiant répond 428 : la fenêtre de preuve s'ouvre, et la même requête repart.
+      if (editing) {
+        if (!(await withProof(`/api/coffre/${element.id}`, body, "PUT"))) return;
+      } else await send("/api/coffre", body, "POST");
       setValues({});
       onSaved();
     } catch (e) {
@@ -145,6 +151,8 @@ export function Vault() {
   const [adding, setAdding] = useState<VaultGenre | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [shown, setShown] = useState<Record<string, Shown>>({});
+  const [removing, setRemoving] = useState<VaultElement | null>(null);
+  const [busy, setBusy] = useState(false);
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const { withProof, proofDialog } = useProof();
   const load = useCallback(() => get<{ elements: VaultElement[]; agents: VaultAgent[] }>("/api/coffre")
@@ -167,14 +175,18 @@ export function Vault() {
     }
   };
   const remove = async (el: VaultElement) => {
-    if (!confirm(t("Supprimer {nom} du coffre ? Tes agents ne pourront plus s'en servir.", { nom: el.nom || el.site }))) return;
     setError("");
+    setBusy(true);
     try {
       await request(`/api/coffre/${el.id}`, { method: "DELETE" });
       hide(el.id);
+      setRemoving(null);
       await load();
     } catch (e) {
       setError((e as Error).message);
+      setRemoving(null);
+    } finally {
+      setBusy(false);
     }
   };
   const toggle = async (agent: VaultAgent) => {
@@ -208,16 +220,16 @@ export function Vault() {
                   ? <Button variant="ghost" size="sm" onClick={() => hide(el.id)} aria-label={t("Cacher {nom}", { nom: el.nom || el.site })}><EyeOff />{t("Cacher")}</Button>
                   : <Button variant="ghost" size="sm" onClick={() => reveal(el)} aria-label={t("Voir {nom}", { nom: el.nom || el.site })}><Eye />{t("Voir")}</Button>}
                 <Button variant="ghost" size="sm" onClick={() => setEditing(editing === el.id ? null : el.id)} aria-label={t("Modifier {nom}", { nom: el.nom || el.site })}><Pencil /></Button>
-                <Button variant="ghost" size="sm" onClick={() => remove(el)} aria-label={t("Supprimer {nom}", { nom: el.nom || el.site })}><Trash2 /></Button>
+                <Button variant="ghost" size="sm" onClick={() => setRemoving(el)} aria-label={t("Supprimer {nom}", { nom: el.nom || el.site })}><Trash2 /></Button>
               </div>
               {shown[el.id] && <ShownValues genre={el.genre} shown={shown[el.id]} />}
-              {editing === el.id && <ItemForm genre={el.genre} element={el} onCancel={() => setEditing(null)} onSaved={() => { setEditing(null); void load(); }} />}
+              {editing === el.id && <ItemForm genre={el.genre} element={el} withProof={withProof} onCancel={() => setEditing(null)} onSaved={() => { setEditing(null); void load(); }} />}
             </li>
           ))}
         </ul>
       )}
       {adding ? (
-        <ItemForm key={adding} genre={adding} onCancel={() => setAdding(null)} onSaved={() => { setAdding(null); void load(); }} />
+        <ItemForm key={adding} genre={adding} withProof={withProof} onCancel={() => setAdding(null)} onSaved={() => { setAdding(null); void load(); }} />
       ) : (
         <div className="flex flex-wrap gap-2">
           {genres().map(([genre, label]) => <Button key={genre} variant="outline" size="sm" onClick={() => setAdding(genre)}>{icon(genre)}{t("Ajouter : {genre}", { genre: label })}</Button>)}
@@ -239,6 +251,16 @@ export function Vault() {
         </div>
       )}
       <ErrorText>{error}</ErrorText>
+      <Dialog open={!!removing} onOpenChange={(o) => !o && !busy && setRemoving(null)}>
+        {removing && (
+          <DialogContent title={t("Supprimer {nom} du coffre ?", { nom: removing.nom || removing.site })} description={t("Tes agents ne pourront plus s'en servir.")}>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setRemoving(null)} disabled={busy}>{t("Annuler")}</Button>
+              <Button variant="warn" onClick={() => remove(removing)} disabled={busy}><Trash2 />{t("Supprimer")}</Button>
+            </div>
+          </DialogContent>
+        )}
+      </Dialog>
       {proofDialog}
     </div>
   );

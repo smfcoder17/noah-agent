@@ -106,7 +106,6 @@ export default {
   "Retenir pour que ton agent se reconnecte sans te redemander": "Remember so your agent can sign back in without asking you again",
   "Connexion…": "Connecting…",
   "Prendre le contrôle du navigateur": "Take control of the browser",
-  "Oublier {site}": "Forget {site}",
   "Oublier": "Forget",
 
   // Profiles.tsx
@@ -284,6 +283,10 @@ export default {
   "Un autre compte": "Another account",
   "Identifiants retenus": "Saved logins",
   "Utiliser mon coffre": "Use my vault",
+  "Retirer {compte} de cet agent": "Remove {compte} from this agent",
+  "Retirer de cet agent": "Remove from this agent",
+  "L'identifiant reste dans ton coffre (Réglages > Coffre), pour tes autres agents.": "The login stays in your vault (Settings > Vault), for your other agents.",
+  "{nom} · {compte} · retenu pour {origine}": "{nom} · {compte} · saved for {origine}",
   "partagé : éteint d'office": "shared: off by default",
   "Aucun identifiant pour l'instant : ajoute-les dans Réglages > Coffre, ou retiens-les à la prochaine connexion.": "No logins yet: add them in Settings > Vault, or save them at the next sign-in.",
 } satisfies Record<string, string>;

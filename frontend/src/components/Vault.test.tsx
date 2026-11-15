@@ -185,3 +185,70 @@ it("P1n5 un refus sur le droit du coffre n'efface pas la liste des identifiants 
   expect(host.textContent).toContain("instagram.com");
   expect(host.textContent).toContain("Panne passagère");
 });
+
+// Relecture 0.3.0 du coffre (B-1, D2, D6, suppression, point 12).
+it("Suppression : la confirmation est dans l'interface, plus de confirm() du navigateur", async () => {
+  const native = vi.fn(() => true);
+  vi.stubGlobal("confirm", native);
+  const calls = serve({ "/api/coffre": { elements: ELEMENTS, agents: [] }, "DELETE /api/coffre/login_1": { ok: true } });
+  const host = await render(<Vault />);
+  await act(async () => button(host, "Supprimer instagram.com").click());
+  await flush();
+  expect(native).not.toHaveBeenCalled();
+  const dialog = document.body.querySelector('[role="dialog"]')!;
+  expect(dialog.textContent).toContain("Supprimer instagram.com du coffre ?");
+  expect(calls.some((c) => c.method === "DELETE")).toBe(false);
+  await act(async () => button(dialog, "Supprimer").click());
+  await flush();
+  expect(calls.filter((c) => c.method === "DELETE").map((c) => c.url)).toEqual(["/api/coffre/login_1"]);
+});
+
+it("D2 changer l'adresse d'un identifiant demande la preuve, puis repart avec elle", async () => {
+  const calls = serve({
+    "/api/coffre": { elements: ELEMENTS, agents: [] },
+    "/api/me/double-verification": { active: false },
+    "PUT /api/coffre/login_1": (b: Record<string, unknown>) => b.motdepasse === "bon" ? [200, ELEMENTS[0]] : [428, { detail: "Confirme ton mot de passe pour changer l'adresse ou l'identifiant." }],
+  });
+  const host = await render(<Vault />);
+  await act(async () => button(host, "Modifier instagram.com").click());
+  const [, origin] = [...host.querySelectorAll<HTMLInputElement>("form input")];
+  await act(async () => type(origin, "https://ailleurs.exemple.net"));
+  await act(async () => host.querySelector<HTMLFormElement>("form")!.requestSubmit());
+  await flush();
+  const password = document.body.querySelector<HTMLInputElement>("#proof-password")!;
+  expect(password).not.toBeNull();
+  await act(async () => type(password, "bon"));
+  await act(async () => password.form!.requestSubmit());
+  await flush();
+  const sent = calls.filter((c) => c.method === "PUT").map((c) => JSON.parse(c.body));
+  expect(sent[sent.length - 1]).toMatchObject({ origine: "https://ailleurs.exemple.net", motdepasse: "bon" });
+});
+
+it("12 et D6 Connexions : deux comptes du même site se distinguent, « Retirer de cet agent » garde l'identifiant au coffre", async () => {
+  const calls = serve({
+    "/api/agents/a1/coffre-droit": { utiliser: true, partage: false },
+    "/api/agents/a1/coffre": [
+      { id: "login_1", nom: "example.test", site: "example.test", origine: "https://example.test", compte: "fr•••" },
+      { id: "login_2", nom: "example.test", site: "example.test", origine: "https://example.test", compte: "bo•••" },
+    ],
+    "DELETE /api/agents/a1/coffre/login_2": { ok: true },
+  });
+  const host = await render(<SavedLogins agentId="a1" />);
+  const rows = [...host.querySelectorAll("li")].map((li) => li.textContent);
+  expect(rows[0]).toContain("fr•••");
+  expect(rows[1]).toContain("bo•••");
+  expect(host.textContent).not.toContain("Oublier");
+  expect(host.textContent).toContain("L'identifiant reste dans ton coffre");
+  await act(async () => button(host, "Retirer example.test · bo••• de cet agent").click());
+  await flush();
+  expect(calls.filter((c) => c.method === "DELETE").map((c) => c.url)).toEqual(["/api/agents/a1/coffre/login_2"]);
+});
+
+it("B-1 la carte « Quel compte ? » dit l'adresse d'un compte retenu sur un autre hôte que la page", async () => {
+  serve({});
+  const asked = { id: "q1", type: "connexion" as const, site: "free.fr", origine: "https://pirate.free.fr", chiffre: true, identifiant_requis: true,
+    comptes: [{ id: "login_1", nom: "Freebox", compte: "fr•••", origine: "https://adsl.free.fr" }] };
+  const host = await render(<LoginCard agentId="a1" asked={asked} onDone={vi.fn()} />);
+  expect(host.textContent).toContain("https://pirate.free.fr");
+  expect(host.textContent).toContain("Freebox · fr••• · retenu pour https://adsl.free.fr");
+});

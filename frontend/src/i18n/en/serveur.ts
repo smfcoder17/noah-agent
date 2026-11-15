@@ -73,6 +73,10 @@ export default {
   "Fichier illisible.": "Unreadable file.",
   "Colonnes introuvables : il faut au moins l'adresse du site et le mot de passe.": "Columns not found: at least the site address and the password are needed.",
   "Confirme ton mot de passe pour voir ce secret.": "Confirm your password to view this secret.",
+  "Confirme ton mot de passe pour changer l'adresse ou l'identifiant.": "Confirm your password to change the address or the login.",
+  "Identifiant ajouté, mais ton coffre est plein : sa clé d'authentificateur n'est pas gardée.": "Login added, but your vault is full: its authenticator key isn't kept.",
+  // main.py
+  "Le lanceur des agents ne répond pas : l'agent est peut-être arrêté ou en train de redémarrer. Réessaie dans un instant.": "The agent launcher isn't responding: the agent may be stopped or restarting. Try again in a moment.",
   "Adresse du site manquante ou illisible.": "Site address missing or unreadable.",
   "Mot de passe manquant.": "Password missing.",
   "Un champ est trop long.": "A field is too long.",
