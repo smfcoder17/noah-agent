@@ -34,17 +34,23 @@ export function DelegatedTasks({ agentId }: { agentId: string }) {
   const [tasks, setTasks] = useState<DelegatedTask[]>([]);
   const [open, setOpen] = useState<string | null>(null);
   useEffect(() => {
+    // Toutes les 3 s tant qu'une tâche tourne ; sinon toutes les 30 s : sans tâche, rien ne justifie 20 requêtes par minute.
     let alive = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const poll = async () => {
-      if (document.hidden) return;
-      const r = await get<{ taches: DelegatedTask[] }>(`/api/agents/${agentId}/taches-confiees`).catch(() => null);
-      if (alive && r) setTasks(r.taches);
+      let running = false;
+      if (!document.hidden) {
+        const r = await get<{ taches: DelegatedTask[] }>(`/api/agents/${agentId}/taches-confiees`).catch(() => null);
+        if (!alive) return;
+        if (r) setTasks(r.taches);
+        running = !!r?.taches.some((x) => x.etat === "en_cours");
+      }
+      if (alive) timer = setTimeout(poll, running ? 3000 : 30000);
     };
     poll();
-    const timer = setInterval(poll, 3000);
     return () => {
       alive = false;
-      clearInterval(timer);
+      clearTimeout(timer);
     };
   }, [agentId]);
   if (!tasks.length) return null;
