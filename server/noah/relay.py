@@ -269,6 +269,24 @@ def month_start() -> str:
     return first.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
+# Conversation -> dernier modèle qui a répondu pendant son tour : celui qui a écrit la réponse finale. main._run l'efface au
+# départ du tour et l'enregistre avec la réponse. Les petits travaux du modèle de décision n'y entrent pas.
+turn_model: dict[str, str] = {}
+
+
+def _note_model(task: str | None, model: str, small: bool) -> None:
+    if task and model and not small:
+        turn_model[task] = model
+
+
+def _small_work(asked: str) -> bool:
+    """Appel au modèle de décision pour un petit travail de l'agent (voir _current_brain) : il n'écrit pas la réponse."""
+    from . import decision
+
+    helper = decision.model()
+    return bool(helper and helper != db.get_setting("model") and asked == helper)
+
+
 context_size: dict[str, int] = {}  # conversation -> plus gros contexte envoyé au modèle pendant son tour en cours (voir chauffe.compact)
 
 
@@ -530,6 +548,8 @@ async def relay(path: str, request: Request):
                 continue
             _note_status(agent_id, r.status_code)
             if r.status_code == 200:
+                if chat:
+                    _note_model(task, link["modele"], _small_work(model))
                 try:
                     await _record(agent_id, link["modele"], r.json().get("usage"), task, link["fournisseur"])
                 except ValueError:
@@ -584,6 +604,8 @@ async def relay(path: str, request: Request):
                 retry_later(link, failed)
                 continue
         _note_status(agent_id, 200)
+        if chat:
+            _note_model(task, link["modele"], _small_work(model))
         return StreamingResponse(_passthrough(agent_id, upstream, chunks, head, link, task), status_code=200,
                                  media_type=upstream.headers.get("content-type", "text/event-stream"))
     return _unreachable(agent_id)  # chaîne vide : impossible, _chain_of rend toujours au moins le cerveau
