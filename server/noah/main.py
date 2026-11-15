@@ -2945,7 +2945,16 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
         raise HTTPException(404, "Agent introuvable")
     try:
         agent = await _guest_agent(agent, launched_by)
-        run_id = await _start_run(agent, context + prompt, f"noah-{conv_id}")
+        try:
+            run_id = await _start_run(agent, context + prompt, f"noah-{conv_id}")
+        except Exception:
+            # Machine de l'agent arrêtée (Docker relancé, ordinateur éteint) : on la réveille et on réessaie une fois,
+            # plutôt que de répondre « l'agent ne répond pas » jusqu'à ce que quelqu'un la relance à la main.
+            with contextlib.suppress(Exception):
+                await hermes.restart(agent.id)
+            if not await _wait_online(agent, 120):
+                raise
+            run_id = await _start_run(agent, context + prompt, f"noah-{conv_id}")
     except Exception as e:
         task_state[conv_id] = "error"
         sentence = "L'agent ne répond pas. Il redémarre peut-être, par exemple après un changement de modèle : réessaie dans un instant."
