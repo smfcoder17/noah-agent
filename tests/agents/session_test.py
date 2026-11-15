@@ -103,6 +103,55 @@ session._processes["a1"][0]["debut"] = time.time() - session.PROCESS_SECONDS - 1
 check("au-delà de deux heures, oublié", web.get("/api/agents/a1/session").json()["processus"] == [])
 session.note("a1", thread, "tool.started", {"tool_name": "terminal", "args": {"command": "ls"}})
 check("une commande ordinaire n'est pas un processus", web.get("/api/agents/a1/session").json()["processus"] == [])
+session.forget("a1")
+
+# Relecture 0.3.0, partie 5 n°1 : la fin d'une commande en avant-plan ne prend pas la place d'un lancement en arrière-plan.
+procs = lambda: web.get("/api/agents/a1/session").json()["processus"]  # noqa: E731
+session.note("a1", thread, "tool.started", {"tool_name": "terminal", "tool_call_id": "c1", "args": {"command": "npm run dev", "background": True}})
+session.note("a1", thread, "tool.started", {"tool_name": "terminal", "tool_call_id": "c2", "args": {"command": "ls"}})
+session.note("a1", thread, "tool.failed", {"tool_name": "terminal", "tool_call_id": "c2", "preview": "ls: erreur"})
+check("P5n1 l'avant-plan raté ne retire pas l'arrière-plan qui tourne (par identifiant d'appel)", len(procs()) == 1)
+session.note("a1", thread, "tool.completed", {"tool_name": "terminal", "tool_call_id": "c1", "preview": "Started proc_dev111"})
+session.note("a1", thread, "tool.completed", {"tool_name": "process", "args": {"action": "poll", "session_id": "proc_dev111"}, "preview": '{"status": "exited"}'})
+check("P5n1 son vrai identifiant de processus lui revient, et sa fin le retire", procs() == [])
+session.note("a1", thread, "tool.started", {"tool_name": "terminal", "args": {"command": "npm run dev", "background": True}})
+session.note("a1", thread, "tool.started", {"tool_name": "terminal", "args": {"command": "ls"}})
+session.note("a1", thread, "tool.completed", {"tool_name": "terminal", "preview": "README.md"})
+session.note("a1", thread, "tool.completed", {"tool_name": "terminal", "preview": "Started proc_dev222"})
+check("P5n1 sans identifiant d'appel : la sortie de ls ne finit pas le lancement", len(procs()) == 1 and session._processes["a1"][0]["session"] == "proc_dev222")
+session.note("a1", thread, "tool.completed", {"tool_name": "process", "args": {"action": "kill", "session_id": "proc_dev222"}})
+check("P5n1 puis son arrêt le retire", procs() == [])
+
+# Partie 5 n°5 : la purge de fin de tour est dans un finally, même quand l'écran se déconnecte.
+import ast  # noqa: E402
+from pathlib import Path  # noqa: E402
+tree = ast.parse(Path(main.__file__).read_text(encoding="utf-8"))
+purges = [t for t in ast.walk(tree) if isinstance(t, ast.Try) and any("session.run_ended" in ast.unparse(s) for s in t.finalbody)]
+check("P5n5 session.run_ended est dans un finally du tour", len(purges) == 1 and not any(
+    isinstance(s, ast.Expr) and "session.run_ended" in ast.unparse(s) for t in ast.walk(tree) if isinstance(t, (ast.AsyncFunctionDef, ast.FunctionDef)) for s in t.body))
+
+# Partie 5 n°6 : une réponse inattendue de la machine ne casse pas la lecture des routines ; elle est écrite au journal.
+import asyncio  # noqa: E402
+import contextlib  # noqa: E402
+import io  # noqa: E402
+
+
+async def odd_admin(agent_id, action, body=None, timeout=90):
+    return {"routines": "pas une liste"}
+
+
+async def broken_admin(agent_id, action, body=None, timeout=90):
+    raise KeyError("champ")
+
+saved_admin, saved_cache = machine.admin, main._routine_cache.get("a1")
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    for fake in (odd_admin, broken_admin):
+        machine.admin = fake
+        asyncio.run(main._read_routines("a1"))
+machine.admin = saved_admin
+check("P5n6 erreur inattendue : cache remis à jour, journal écrit", main._routine_cache["a1"][1] == [] and "routines de a1 illisibles" in out.getvalue())
+main._routine_cache["a1"] = saved_cache
 
 # Une demande passée à un autre agent, en cours.
 with db.connect() as c:

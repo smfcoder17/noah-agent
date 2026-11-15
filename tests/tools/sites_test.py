@@ -63,7 +63,8 @@ client.post("/agent-api/sites", json={"adresse": "linkedin.com"}, headers=agent)
 client.cookies.set("noah_session", auth.new_session(alice, "test"))
 asked.clear()
 listed = client.get("/api/agents/a1/sites").json()
-assert {s["hote"]: s["etat"] for s in listed} == {"linkedin.com": "connecte", "canva.com": "connecte", "ancien.fr": "non_verifie"}, listed
+# Relecture 0.3.0, partie 5 n°4 : sur la seule parole de l'agent, une page sans mot de passe ne prouve pas une session.
+assert {s["hote"]: s["etat"] for s in listed} == {"linkedin.com": "non_verifie", "canva.com": "non_verifie", "ancien.fr": "non_verifie"}, listed
 assert "lu-seulement.fr" not in str(listed) and not asked, "un site seulement lu n'apparaît pas : la liste ne lit plus les cookies"
 assert next(s for s in listed if s["hote"] == "linkedin.com")["compte"] == "franck"
 assert next(s for s in listed if s["hote"] == "linkedin.com")["nom"] == "LinkedIn"
@@ -75,6 +76,22 @@ client.cookies.set("noah_session", auth.new_session(bruno, "test"))
 assert client.get("/api/agents/a1/sites").status_code in (403, 404), "un autre compte ne voit pas ses sites"
 assert client.post("/agent-api/sites", json={"adresse": "x.com"}).status_code in (401, 403), "sans jeton d'agent, rien ne s'ajoute"
 print("Sites du navigateur : vérifiés par le serveur, sans cookies, « Retirer » tient, anciennes lignes non vérifiées, visibles par leur propriétaire seul")
+
+# Partie 5 n°4 : « connecté » seulement quand le serveur a lui-même envoyé le formulaire (coffre) ; l'agent ne le rétrograde pas.
+import asyncio as _a  # noqa: E402
+hermes.browser_call = browser
+PAGE["origine"], PAGE["champs"] = "https://www.notion.so", {"identifiant": False, "motDePasse": False, "code": False}
+r = client.post("/agent-api/sites", json={"adresse": "notion.so"}, headers=agent)
+assert r.status_code == 200 and r.json()["etat"] == "non_verifie", r.text
+assert _a.run(sites.verify("a1", "https://www.notion.so", proven=True)) == "" and sites._state("a1", "notion.so") == "connecte"
+assert client.post("/agent-api/sites", json={"adresse": "notion.so"}, headers=agent).json()["etat"] == "connecte", "une session prouvée le reste"
+# Partie 5 n°7 : une page de connexion sur accounts.google.com ne met pas mail.google.com « à reconnecter » ; il devient non vérifié.
+for h in ("accounts.google.com", "mail.google.com"):
+    sites.note("a1", h)
+sites.needs_sign_in("a1", "https://accounts.google.com/signin")
+states = {s["hote"]: s["etat"] for s in sites.listed("a1")}
+assert states["accounts.google.com"] == "a_reconnecter" and states["mail.google.com"] == "non_verifie", states
+print("P5n4 et n7 : connecté seulement sur preuve du serveur ; une page de connexion ne touche que son hôte, les autres deviennent non vérifiés")
 
 # Instagram branché par l'agent : Noah lit le jeton dans la page Meta (extension du navigateur), l'agent n'envoie rien.
 import asyncio  # noqa: E402

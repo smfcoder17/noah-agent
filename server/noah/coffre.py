@@ -235,7 +235,7 @@ async def _after_fill(agent_id: str, filled: dict, origin: str, item_id: str = "
     if user is None or user != owner(agent_id):
         return
     from . import sites
-    await sites.verify(agent_id, origin)
+    await sites.verify(agent_id, origin, proven=True)  # le serveur a lui-même envoyé le formulaire, et la page l'a quitté
 
 
 def _mask(identifier: str) -> str:

@@ -29,16 +29,42 @@ def _args(data: dict) -> dict:
     return data.get("args") if isinstance(data.get("args"), dict) else {}
 
 
+def _call_id(data: dict) -> str:
+    return str(data.get("tool_call_id") or data.get("call_id") or data.get("id") or "")
+
+
+def _answered(agent_id: str, conv_id: str, data: dict) -> dict | None:
+    """L'appel `terminal` dont cet événement est la fin : par son identifiant d'appel quand Hermes le donne. Sans identifiant, une
+    réponse qui porte un `proc_…` finit le plus ancien lancement en arrière-plan, une autre la plus ancienne commande en avant-plan
+    (à défaut, le plus ancien appel). Une commande ordinaire finie, ou ratée, ne prend jamais la place d'un lancement en
+    arrière-plan qui tourne (relecture 0.3.0, partie 5 n°1)."""
+    waiting = _waiting.get((agent_id, conv_id)) or []
+    if not waiting:
+        return None
+    call = _call_id(data)
+    if call and any(w["call"] for w in waiting):
+        at = next((i for i, w in enumerate(waiting) if w["call"] == call), None)
+        return waiting.pop(at) if at is not None else None  # un identifiant inconnu : on ne devine pas
+    background = bool(_SESSION_ID.search(str(data.get("preview") or data.get("result") or "")))
+    at = next((i for i, w in enumerate(waiting) if bool(w["entry"]) == background), 0)
+    return waiting.pop(at)
+
+
 def note(agent_id: str, conv_id: str, kind: str, data: dict) -> None:
     """Suit, dans le flux d'un travail, les commandes lancées en arrière-plan et leur fin quand l'agent la constate."""
     name, args = _tool(data), _args(data)
-    if name == "terminal" and kind == "tool.started" and args.get("background"):
-        entry = {"id": f"{conv_id}:{time.time_ns()}", "label": events.tool_label("terminal", args) or "Commande en arrière-plan",
-                 "debut": time.time(), "conversation": conv_id, "session": None}
-        _processes.setdefault(agent_id, []).append(entry)
-        _waiting.setdefault((agent_id, conv_id), []).append(entry)
+    if name == "terminal" and kind == "tool.started":
+        entry = None
+        if args.get("background"):
+            entry = {"id": f"{conv_id}:{time.time_ns()}", "label": events.tool_label("terminal", args) or "Commande en arrière-plan",
+                     "debut": time.time(), "conversation": conv_id, "session": None}
+            _processes.setdefault(agent_id, []).append(entry)
+        _waiting.setdefault((agent_id, conv_id), []).append({"call": _call_id(data), "entry": entry})
     elif name == "terminal" and kind in ("tool.completed", "tool.failed") and _waiting.get((agent_id, conv_id)):
-        entry = _waiting[(agent_id, conv_id)].pop(0)
+        waited = _answered(agent_id, conv_id, data)
+        entry = waited and waited["entry"]
+        if not entry:
+            return  # la fin d'une commande en avant-plan
         found = _SESSION_ID.search(str(data.get("preview") or data.get("result") or ""))
         if kind == "tool.failed":
             _drop(agent_id, lambda p: p is entry)
@@ -53,8 +79,9 @@ def note(agent_id: str, conv_id: str, kind: str, data: dict) -> None:
 
 def run_ended(agent_id: str, conv_id: str) -> None:
     """Fin du travail : un lancement resté sans réponse de l'outil n'a pas eu lieu."""
-    for entry in _waiting.pop((agent_id, conv_id), []):
-        if not entry.get("session"):
+    for waited in _waiting.pop((agent_id, conv_id), []):
+        entry = waited["entry"]
+        if entry and not entry.get("session"):
             _drop(agent_id, lambda p, e=entry: p is e)
 
 

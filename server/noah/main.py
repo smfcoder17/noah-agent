@@ -102,6 +102,9 @@ def _foreign_page(connection: Request | WebSocket) -> bool:
 
 OPEN_ROUTES = ("/api/login", "/api/pairing", "/api/setup", "/api/recuperation", "/api/password")
 OPEN_BODY_MAX = 64 * 1024
+# Une sauvegarde (scripts/backup.sh : base, secrets, machine et navigateur de chaque agent, en .tar.gz) pèse de quelques Mo à
+# quelques Go. Au-delà, ce n'est plus une sauvegarde de Noah : refusée avant d'être lue (relecture 0.3.0, partie 5 n°8).
+RESTORE_BODY_MAX = int(os.environ.get("NOAH_RESTORE_MAX", str(20 * 1024 ** 3)))
 
 
 @app.middleware("http")
@@ -111,9 +114,12 @@ async def same_origin_only(request: Request, call_next):
     if request.url.path.startswith(INSIDE_ONLY) and relay._from_outside(request):
         return JSONResponse({"detail": "Réservé au réseau interne."}, status_code=403)
     # Routes ouvertes sans compte : un corps énorme ne se lit pas en mémoire avant le refus (audit 0.3.0, DeepSeek M3).
-    if request.method in UNSAFE and request.url.path.startswith(OPEN_ROUTES) and request.url.path != "/api/setup/restore":
+    if request.method in UNSAFE and request.url.path.startswith(OPEN_ROUTES):
         size = request.headers.get("content-length")
-        if size is None and request.headers.get("transfer-encoding") or size is not None and (not size.isdigit() or int(size) > OPEN_BODY_MAX):
+        if request.url.path == "/api/setup/restore":  # sa propre borne, et le flux est recompté pendant la lecture (setup_restore)
+            if size is not None and (not size.isdigit() or int(size) > RESTORE_BODY_MAX):
+                return JSONResponse({"detail": "Requête trop grande."}, status_code=413)
+        elif size is None and request.headers.get("transfer-encoding") or size is not None and (not size.isdigit() or int(size) > OPEN_BODY_MAX):
             return JSONResponse({"detail": "Requête trop grande."}, status_code=413)
     if request.method in UNSAFE and _foreign_page(request):
         return Response('{"detail":"Requête refusée : elle ne vient pas de Noah."}', status_code=403,
@@ -859,10 +865,24 @@ async def setup_restore(request: Request):
     """Restaurer une sauvegarde au lieu de créer un compte (G3.5) : même code d'installation, aucun compte encore.
     L'archive part telle quelle au lanceur, qui remet les volumes puis redémarre ce serveur."""
     _too_many(request)
+    # Le compte et le code sont vérifiés avant le premier octet du corps : un compte existant, et rien n'est lu.
     await asyncio.to_thread(_check_setup_code, request.headers.get("x-noah-installation", ""), request)
     from .hermes import LAUNCHER, http
+
+    class TooBig(Exception):
+        pass
+
+    async def bounded():  # sans longueur annoncée (flux découpé), la borne se compte ici
+        read = 0
+        async for chunk in request.stream():
+            read += len(chunk)
+            if read > RESTORE_BODY_MAX:
+                raise TooBig
+            yield chunk
     try:
-        r = await http().post(f"{config.LAUNCHER_URL}/restore", headers=LAUNCHER, content=request.stream(), timeout=None)
+        r = await http().post(f"{config.LAUNCHER_URL}/restore", headers=LAUNCHER, content=bounded(), timeout=None)
+    except TooBig:
+        raise HTTPException(413, "Requête trop grande.") from None
     except httpx.HTTPError:
         raise HTTPException(503, "Le lanceur ne répond pas : réessaie dans un instant.")
     if r.status_code != 200:
@@ -1513,10 +1533,13 @@ _routine_reading: dict[str, asyncio.Task] = {}
 async def _read_routines(agent_id: str) -> None:
     try:
         found = await asyncio.wait_for(machine.admin(agent_id, "routines", timeout=4), 5)
+        running = [{"id": str(r.get("id")), "titre": r.get("name") or "", "depuis": r.get("last_run_at")}
+                   for r in found.get("routines") or [] if isinstance(r, dict) and str(r.get("state") or "").lower() in ("running", "en_cours")]
     except (asyncio.TimeoutError, HTTPException, httpx.HTTPError):
-        found = {}
-    running = [{"id": str(r.get("id")), "titre": r.get("name") or "", "depuis": r.get("last_run_at")}
-               for r in found.get("routines") or [] if str(r.get("state") or "").lower() in ("running", "en_cours")]
+        running = []
+    except Exception as e:  # noqa: BLE001 - réponse inattendue : la barre continue, et le journal le dit (relecture 0.3.0, partie 5 n°6)
+        print(f"[session] routines de {agent_id} illisibles : {type(e).__name__}: {e}", flush=True)
+        running = []
     _routine_cache[agent_id] = (time.monotonic(), running)
 
 
@@ -1903,7 +1926,8 @@ en une phrase et continue le reste. N'installe jamais un serveur MCP toi-même :
 Quand on te demande de connecter Google, Instagram ou X, suis sa recette : `python3 /opt/data/noah.py recette google` (ou `instagram`, `x`).
 Dès que tu es connecté à un site dans ton navigateur pour l'utilisateur (un compte à lui, sur un site qui n'a pas d'outil), note-le :
 `python3 /opt/data/noah.py site-connecte <adresse du site> "Nom" [--compte <identifiant affiché>]`, avec une page du site ouverte. Noah vérifie
-la page lui-même (sur ce site, plus de champ de mot de passe) avant de le montrer connecté dans ses Connexions ; sinon il dit pourquoi.
+la page lui-même (sur ce site, plus de champ de mot de passe) et le montre dans ses Connexions, « non vérifié » tant qu'il n'a pas fait
+la connexion lui-même (browser_vault) ; sinon il dit pourquoi.
 
 ## Appeler l'utilisateur
 Quand une étape doit rester la sienne (se connecter, code 2FA, CAPTCHA, payer, cliquer sur « Autoriser » pour donner accès à un compte),
@@ -3167,6 +3191,9 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
             final = {"type": "done", "status": "failed", "error": "L'agent ne répond plus. Il redémarre peut-être : réessaie dans un instant.",
                      "details": _error_details(agent, f"{type(e).__name__}: {e}", run_id)}
             yield _sse(final)
+        finally:
+            # Même quand l'écran se déconnecte en cours de tour : aucun lancement sans réponse ne reste affiché (relecture 0.3.0, partie 5 n°5).
+            session.run_ended(agent.id, conv_id)
         _, cut_short = head.flush()  # coupé avant de savoir si le début retenu était une réaction : c'était du texte
         if cut_short:
             reply.append(cut_short)
@@ -3176,7 +3203,6 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
             yield _sse(final)
         for thread, _ in delegated:  # run interrompu pendant une délégation
             _close_delegation(thread, None, True)
-        session.run_ended(agent.id, conv_id)
         succeeded = bool(final) and final.get("status") in ("completed", None)
         if succeeded and not any(CHOICE_RE.search(k) for k in kept):
             # Les réponses à toucher demandent un appel au petit modèle (jusqu'à 7 s) : la fin de la réponse est déjà

@@ -76,8 +76,12 @@ def signed_in(page: dict, address: str = "") -> str:
     return ""
 
 
-async def verify(agent_id: str, address: str = "", name: str = "", account: str = "") -> str:
-    """Lit la vraie page et note le site connecté s'il l'est. Rend la raison d'un refus, ou ""."""
+async def verify(agent_id: str, address: str = "", name: str = "", account: str = "", proven: bool = False) -> str:
+    """Lit la vraie page et note le site s'il y est resté. Rend la raison d'un refus, ou "".
+
+    « Connecté » seulement si `proven` : le serveur vient lui-même d'envoyer un formulaire de connexion (coffre.py) et la page
+    l'a quitté. Une page sans champ de mot de passe ne prouve rien de plus : un accueil public, déconnecté, en est une. Sur la
+    seule parole de l'agent, le site est noté « non vérifié » ; une ligne déjà connectée le reste (relecture 0.3.0, partie 5 n°4)."""
     page = await coffre._page(agent_id)
     if page.get("error"):
         return page["error"]
@@ -88,19 +92,30 @@ async def verify(agent_id: str, address: str = "", name: str = "", account: str 
     host = host_of(page["origine"])
     if address and host_of(address) and _site(host_of(address)) == _site(host):
         host = host_of(address)
-    return "" if note(agent_id, host, name, account) else "Ouvre une page du site lui-même dans le navigateur."
+    state = "connecte" if proven or _state(agent_id, host_of(host) or host) == "connecte" else "non_verifie"
+    return "" if note(agent_id, host, name, account, state) else "Ouvre une page du site lui-même dans le navigateur."
+
+
+def _state(agent_id: str, host: str) -> str:
+    ensure()
+    with db.connect() as c:
+        row = c.execute("SELECT etat FROM sites_connectes WHERE agent_id = ? AND hote = ?", (agent_id, host)).fetchone()
+    return row["etat"] if row else ""
 
 
 def needs_sign_in(agent_id: str, origin: str) -> None:
-    """Une page de connexion sur un site noté connecté : sa session n'est plus là."""
+    """Une page de connexion sur un site noté connecté : sa session n'est plus là. Sur l'hôte exact seulement ; les autres hôtes
+    du même site (accounts.google.com ↔ mail.google.com) ne sont plus sûrs, sans être perdus : « non vérifié » (partie 5 n°7)."""
     host = host_of(origin)
     if not host:
         return
     ensure()
     with db.connect() as c:
         for row in c.execute("SELECT hote FROM sites_connectes WHERE agent_id = ? AND etat = 'connecte'", (agent_id,)).fetchall():
-            if _site(row["hote"]) == _site(host):
+            if row["hote"] == host:
                 c.execute("UPDATE sites_connectes SET etat = 'a_reconnecter' WHERE agent_id = ? AND hote = ?", (agent_id, row["hote"]))
+            elif _site(row["hote"]) == _site(host):
+                c.execute("UPDATE sites_connectes SET etat = 'non_verifie' WHERE agent_id = ? AND hote = ?", (agent_id, row["hote"]))
 
 
 def listed(agent_id: str) -> list[dict]:
@@ -123,7 +138,7 @@ async def agent_note(body: Site, request: Request):
     why = await verify(agent_id, body.adresse, body.nom, body.compte)
     if why:
         raise HTTPException(409, f"Pas noté connecté : {why}")
-    return {"ok": True, "site": host_of(body.adresse)}
+    return {"ok": True, "site": host_of(body.adresse), "etat": _state(agent_id, host_of(body.adresse))}
 
 
 @router.delete("/agent-api/sites/{host}")
