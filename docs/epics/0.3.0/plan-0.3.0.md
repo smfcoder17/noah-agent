@@ -57,6 +57,23 @@ Avant la 0.3.0, la **0.2.1** (correctif) part avec : saisie mobile refaite, masc
 
 **Régression.** `tests/tools/juge_test.py`, tests du coffre existants, connexions déjà enregistrées toujours valides après migration.
 
+**État (branche `feat/030-coffre`).** Preuves : `tests/tools/coffre_030_test.py` (58 vérifications), `tests/tools/coffre_test.py` (100), `tests/tools/sites_test.py`, `frontend/src/components/Vault.test.tsx` (5 tests), vitest complet et build verts.
+- [x] B1 serveur qui choisit (origine exacte, puis même site en https, même port, hors hébergements partagés) ; carte « Quel compte ? » ; identifiant refusé par le site écarté 10 min du choix d'office (sinon boucle).
+- [x] B2 tables `coffre` (par personne) et `coffre_agents` (droit) ; migration `db._migrate_logins`, même id, même secret scellé.
+- [x] B3 `list` : nom, site, deux premiers caractères ; sonde sur toutes les réponses à l'agent.
+- [ ] B4 partiel : clé TOTP (code tapé par le serveur) et carte rangée sans code de sécurité. **Pas fait** : le paiement lié à un accord (boutique, montant, usage unique) ; il faut des champs de carte dans `launcher/camofox-noah` (`/noah/remplir`) et le lot C (accords). Les cartes ne sont jamais montrées au modèle.
+- [x] B5 registre vérifié (`sites.verify`), états `connecte`, `a_reconnecter`, `non_verifie` ; plus de lecture des cookies.
+- [x] B6 Réglages > Coffre : ajouter, voir après preuve (`_prove_if_needed`, 15 min), modifier, supprimer, import CSV (Chrome, Firefox, Bitwarden, 1Password), droit par agent.
+
+**Doutes (tranchés par l'option la plus sûre, à relire par Franck).**
+1. « Agent partagé » lu comme : un agent du propriétaire qui a au moins un partage (`agent_shares`). Son droit est éteint d'office ; un agent qui avait déjà des identifiants avant la migration garde le droit allumé, pour que ses connexions restent valides.
+2. « Même site enregistrable » : sans liste publique des suffixes, on calcule le site comme `site_of` et on refuse le même-site sur une liste d'hébergements partagés (`SHARED_HOSTING` : github.io, vercel.app…), en http, ou sur un autre port. L'origine exacte reste toujours acceptée.
+3. Seul le propriétaire de l'agent remplit son coffre : un admin partagé qui répond à la carte se connecte, mais rien n'est retenu, et la carte « Quel compte ? » ne lui montre pas les comptes du propriétaire. `GET /api/agents/{id}/coffre` passe de « admin » à « propriétaire ».
+4. Les sites notés avant la 0.3.0 n'ont été que déclarés par l'agent : ils restent dans la liste, marqués « Non vérifié », au lieu d'être effacés ou crus.
+5. Le modèle voit les deux premiers caractères de l'identifiant, sans le domaine de l'adresse (avant : un caractère et le domaine).
+6. Pendant une routine, le plugin refuse toujours `save_login` avant le serveur : le choix d'office ne joue pas en routine (seul `list` puis `fill`, comme avant).
+7. `tests/profiles/profiles_test.py` et `tests/exposition/sorties_test.py` échouent déjà sur `HEAD` (routes `connections/cles`, `desktop/progres`, `taches-confiees` non déclarées ; adresses OpenAI de `desktop/chatgpt.js`), hors du lot B : non corrigés ici. Les routes du coffre y sont déclarées, et le reste de `profiles_test` passe une fois ces cinq routes mises de côté.
+
 ## Lot C : juge et accords (leçons de Nod)
 
 - C1 Le juge doit citer mot pour mot les paroles de la personne pour laisser passer ; le serveur vérifie la citation ; elle s'affiche dans l'Activité.

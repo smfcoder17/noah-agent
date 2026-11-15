@@ -16,6 +16,7 @@ import { NotificationSettings } from "./NotificationSettings";
 import { PhoneSettings, phoneSettingsAvailable } from "./PhoneSettings";
 import { MyPassword, Profiles } from "./Profiles";
 import { Updates } from "./Updates";
+import { Vault } from "./Vault";
 import { Flows } from "./Flows";
 import { JudgeSetting } from "./Juge";
 import { DecisionModel } from "./DecisionModel";
@@ -27,7 +28,7 @@ import { Dialog, DialogContent, Tabs, TabsContent, TabsList, TabsTrigger } from 
 import { Button, Input, Label } from "./ui";
 import { t, tr } from "@/i18n";
 
-export type SettingsTab = "appearance" | "providers" | "home" | "mail" | "brain" | "create" | "voice" | "phone" | "notifications" | "telephone" | "security" | "updates" | "privacy" | "profiles" | "diagnostic";
+export type SettingsTab = "appearance" | "providers" | "home" | "mail" | "brain" | "create" | "voice" | "phone" | "notifications" | "telephone" | "security" | "updates" | "privacy" | "profiles" | "diagnostic" | "vault";
 
 type Kind = { label: string; setting: string; auto: string | null; routed?: boolean; models: MediaModel[] };
 type MediaState = {
@@ -39,11 +40,12 @@ type MediaState = {
   has_key?: boolean;
 };
 
-// Six rubriques, rangées par ce que la personne vient faire. Les anciens noms restent à l'intérieur : un message d'erreur qui dit « Réglages > Modèles et budget > Cerveau » reste vrai.
+// Sept rubriques, rangées par ce que la personne vient faire. Les anciens noms restent à l'intérieur : un message d'erreur qui dit « Réglages > Modèles et budget > Cerveau » reste vrai.
 function rubrics(owner: boolean): { id: string; label: string; tabs: [SettingsTab, string][] }[] {
   return [
     { id: "appearance", label: t("Apparence"), tabs: [["appearance", t("Apparence")]] },
     { id: "account", label: t("Compte"), tabs: [["security", t("Sécurité")]] },
+    { id: "vault", label: t("Coffre"), tabs: [["vault", t("Coffre")]] },
     { id: "devices", label: t("Appareils"), tabs: [["phone", t("Appareils reliés")], ...(phoneSettingsAvailable() ? [["telephone", t("Ce téléphone")] as [SettingsTab, string]] : [])] },
     { id: "notifications", label: t("Notifications"), tabs: [["notifications", t("Notifications")]] },
     ...(owner ? [
@@ -145,6 +147,9 @@ export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainS
               <DoubleVerification />
               {!owner && <MailConfirmation owner={false} />}
               <FaceMotion />
+            </TabsContent>
+            <TabsContent value="vault">
+              <Vault />
             </TabsContent>
             <TabsContent value="mail">
               <MailConfirmation owner={owner} />

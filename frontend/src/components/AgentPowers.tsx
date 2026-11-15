@@ -878,10 +878,11 @@ function PublishCards({ agentId, shared, tools, onWait, onChange }: { agentId: s
   );
 }
 
-type Site = { hote: string; nom: string; compte: string; vu_a: number; retenu?: boolean };
+type Site = { hote: string; nom: string; compte: string; vu_a: number; etat: "connecte" | "a_reconnecter" | "non_verifie" };
 
-/** Les sites où l'agent est connecté dans son navigateur, notés par lui (server/noah/sites.py). */
-function BrowserSites({ agentId }: { agentId: string }) {
+/** Les sessions de l'agent dans son navigateur : seulement ce que le serveur a vérifié (server/noah/sites.py), avec leur état.
+ * Les identifiants retenus ont leur liste à part (SavedLogins) : retenir un mot de passe n'est pas être connecté. */
+export function BrowserSites({ agentId }: { agentId: string }) {
   const [sites, setSites] = useState<Site[] | null>(null);
   const load = useCallback(() => get<Site[]>(`/api/agents/${agentId}/sites`).then(setSites).catch(() => setSites([])), [agentId]);
   useEffect(() => { load(); }, [load]);
@@ -890,9 +891,14 @@ function BrowserSites({ agentId }: { agentId: string }) {
     await request(`/api/agents/${agentId}/sites/${encodeURIComponent(host)}`, { method: "DELETE" }).catch(() => {});
     load();
   };
+  const state = (site: Site) => site.etat === "connecte"
+    ? <span className="flex items-center gap-1 text-xs font-medium text-ok"><Check className="size-3.5" />{t("Connecté")}</span>
+    : site.etat === "a_reconnecter"
+      ? <span className="text-xs font-medium text-warn">{t("À reconnecter")}</span>
+      : <span className="text-xs text-muted-foreground">{t("Non vérifié")}</span>;
   return (
     <div className="flex flex-col gap-1.5">
-      <p className="mt-1 text-sm font-medium">{t("Dans son navigateur")}</p>
+      <p className="mt-1 text-sm font-medium">{t("Sessions dans son navigateur")}</p>
       <ul className="flex flex-col divide-y divide-border overflow-hidden rounded-lg border border-border">
         {sites.map((site) => (
           <li key={site.hote} className="flex items-center gap-2.5 p-2.5">
@@ -901,7 +907,8 @@ function BrowserSites({ agentId }: { agentId: string }) {
               <span className="block truncate text-sm font-medium">{site.nom}</span>
               <span className="block truncate text-xs text-muted-foreground">{site.compte || site.hote}</span>
             </span>
-            {!site.retenu && <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={() => forget(site.hote)} aria-label={t("Retirer {nom}", { nom: site.nom })}>{t("Retirer")}</Button>}
+            {state(site)}
+            <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={() => forget(site.hote)} aria-label={t("Retirer {nom}", { nom: site.nom })}>{t("Retirer")}</Button>
           </li>
         ))}
       </ul>

@@ -28,12 +28,15 @@ export function LoginCard({ agentId, asked, onDone }: { agentId: string; asked: 
   const ids = useId();
   const url = `/api/agents/${agentId}/connexions/${asked.id}`;
 
+  const comptes = !code ? asked.comptes ?? [] : [];
+  const [chosen, setChosen] = useState<string | null>(comptes[0]?.id ?? null);
+
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setBusy(true);
     setError("");
     try {
-      const body = code ? { code: secret } : { identifiant: identifier, mot_de_passe: secret, retenir: remember };
+      const body = code ? { code: secret } : chosen ? { choix: chosen } : { identifiant: identifier, mot_de_passe: secret, retenir: remember };
       const done = await send<{ page?: string }>(url, body);
       setIdentifier("");
       setSecret("");
@@ -76,7 +79,22 @@ export function LoginCard({ agentId, asked, onDone }: { agentId: string; asked: 
           <TriangleAlert className="mt-px size-3.5 shrink-0" />{t("Cette page n'est pas chiffrée (pas de https) : ce que tu envoies peut être lu en route.")}
         </p>
       )}
-      {code ? (
+      {comptes.length > 0 && (
+        <fieldset className="flex flex-col gap-1.5">
+          <legend className="mb-1 text-xs font-medium">{t("Quel compte ?")}</legend>
+          {comptes.map((c) => (
+            <label key={c.id} className="flex items-center gap-2 text-sm">
+              <input type="radio" name={`${ids}-compte`} className="size-4 accent-accent" checked={chosen === c.id} onChange={() => setChosen(c.id)} />
+              <span className="min-w-0 truncate">{c.nom} · {c.compte}</span>
+            </label>
+          ))}
+          <label className="flex items-center gap-2 text-sm">
+            <input type="radio" name={`${ids}-compte`} className="size-4 accent-accent" checked={chosen === null} onChange={() => setChosen(null)} />
+            {t("Un autre compte")}
+          </label>
+        </fieldset>
+      )}
+      {chosen ? null : code ? (
         <label htmlFor={`${ids}-code`} className="flex flex-col gap-1 text-xs font-medium">
           {t("Code")}
           <Input id={`${ids}-code`} name="one-time-code" autoComplete="one-time-code" inputMode="numeric" maxLength={16} required value={secret} onChange={(e) => setSecret(e.target.value)} className="h-9 bg-background" />
@@ -118,12 +136,23 @@ export function LoginDone({ asked, result }: { asked: LoginAsked; result: LoginR
 }
 
 type SavedLogin = { id: string; site: string; origine: string };
+type VaultRight = { utiliser: boolean; partage: boolean };
 
-/** Dans Connexions : les sites où l'agent se reconnecte seul. Les noms de sites seulement : ni identifiant ni mot de passe ne reviennent ici. */
+/** Dans Connexions : les identifiants retenus que cet agent peut prendre seul, et son droit sur le coffre de son propriétaire.
+ * Les noms de sites seulement : ni identifiant ni mot de passe ne reviennent ici. Un autre profil que le propriétaire n'en voit rien. */
 export function SavedLogins({ agentId }: { agentId: string }) {
   const [logins, setLogins] = useState<SavedLogin[] | null>(null);
+  const [right, setRight] = useState<VaultRight | null>(null);
   const [error, setError] = useState("");
-  const load = useCallback(() => get<SavedLogin[]>(`/api/agents/${agentId}/coffre`).then(setLogins).catch((e) => setError((e as Error).message)), [agentId]);
+  const load = useCallback(async () => {
+    try {
+      const [r, l] = await Promise.all([get<VaultRight>(`/api/agents/${agentId}/coffre-droit`), get<SavedLogin[]>(`/api/agents/${agentId}/coffre`)]);
+      setRight(r);
+      setLogins(l);
+    } catch (e) {
+      if (!(e instanceof ApiError && (e.status === 403 || e.status === 404))) setError((e as Error).message);
+    }
+  }, [agentId]);
   useEffect(() => void load(), [load]);
   const forget = async (login: SavedLogin) => {
     setError("");
@@ -134,10 +163,28 @@ export function SavedLogins({ agentId }: { agentId: string }) {
       setError((e as Error).message);
     }
   };
-  if (!logins?.length && !error) return null;
+  const toggle = async () => {
+    if (!right) return;
+    setError("");
+    try {
+      setRight(await send<VaultRight>(`/api/agents/${agentId}/coffre-droit`, { utiliser: !right.utiliser }, "PUT"));
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+  if (!right && !error) return null;
   return (
     <div className="flex flex-col gap-1.5 rounded-xl border border-border p-2.5">
-      <span className="text-sm font-medium">{t("Sites où ton agent se reconnecte seul")}</span>
+      <span className="text-sm font-medium">{t("Identifiants retenus")}</span>
+      {right && (
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" className="size-4 accent-accent" checked={right.utiliser} onChange={toggle} />
+          <span className="min-w-0 flex-1">{t("Utiliser mon coffre")}</span>
+          {right.partage && <span className="text-xs text-muted-foreground">{t("partagé : éteint d'office")}</span>}
+        </label>
+      )}
+      {right?.utiliser && !logins?.length && <p className="text-xs text-muted-foreground">{t("Aucun identifiant pour l'instant : ajoute-les dans Réglages > Coffre, ou retiens-les à la prochaine connexion.")}</p>}
       <ul className="flex flex-col gap-1">
         {logins?.map((login) => (
           <li key={login.id} className="flex items-center gap-2 text-sm">

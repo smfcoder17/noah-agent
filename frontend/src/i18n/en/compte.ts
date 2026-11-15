@@ -106,7 +106,6 @@ export default {
   "Retenir pour que ton agent se reconnecte sans te redemander": "Remember so your agent can sign back in without asking you again",
   "Connexion…": "Connecting…",
   "Prendre le contrôle du navigateur": "Take control of the browser",
-  "Sites où ton agent se reconnecte seul": "Sites where your agent signs back in on its own",
   "Oublier {site}": "Forget {site}",
   "Oublier": "Forget",
 
@@ -279,4 +278,12 @@ export default {
 
   // ConnectedBanner.tsx
   "{app} est connecté": "{app} is connected",
+
+  // LoginCard.tsx (0.3.0 : coffre par personne)
+  "Quel compte ?": "Which account?",
+  "Un autre compte": "Another account",
+  "Identifiants retenus": "Saved logins",
+  "Utiliser mon coffre": "Use my vault",
+  "partagé : éteint d'office": "shared: off by default",
+  "Aucun identifiant pour l'instant : ajoute-les dans Réglages > Coffre, ou retiens-les à la prochaine connexion.": "No logins yet: add them in Settings > Vault, or save them at the next sign-in.",
 } satisfies Record<string, string>;

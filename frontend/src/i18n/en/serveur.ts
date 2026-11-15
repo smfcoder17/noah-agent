@@ -56,6 +56,30 @@ export default {
   "Ce navigateur doit être relancé pour remplir une page : lance « noah.py navigateur redemarrer », puis réessaie.": "This browser needs a restart to fill in a page: run “noah.py navigateur redemarrer”, then try again.",
   "Le navigateur n'a pas répondu : regarde l'état de la page avant de réessayer.": "The browser didn't respond: check the state of the page before trying again.",
 
+  // coffre.py (0.3.0 : coffre par personne, Réglages > Coffre)
+  "Ce compte n'est plus dans ton coffre.": "This account is no longer in your vault.",
+  "Seul le propriétaire de l'agent règle l'accès à son coffre.": "Only the agent's owner sets its access to their vault.",
+  "Donne l'adresse du site (ex. https://www.instagram.com).": "Give the site's address (e.g. https://www.instagram.com).",
+  "Saisis le mot de passe.": "Enter the password.",
+  "Ce numéro de carte n'est pas valide.": "This card number isn't valid.",
+  "Date d'expiration attendue sous la forme MM/AA.": "Expiry date expected as MM/YY.",
+  "Cette clé d'authentificateur n'est pas valide.": "This authenticator key isn't valid.",
+  "Type inconnu : identifiant, carte ou clé d'authentificateur.": "Unknown type: login, card or authenticator key.",
+  "Élément introuvable": "Item not found",
+  "Ton coffre est plein.": "Your vault is full.",
+  "Fichier vide.": "Empty file.",
+  "Fichier illisible.": "Unreadable file.",
+  "Colonnes introuvables : il faut au moins l'adresse du site et le mot de passe.": "Columns not found: at least the site address and the password are needed.",
+  "Confirme ton mot de passe pour voir ce secret.": "Confirm your password to view this secret.",
+  "Adresse du site manquante ou illisible.": "Site address missing or unreadable.",
+  "Mot de passe manquant.": "Password missing.",
+  "Un champ est trop long.": "A field is too long.",
+  "Trop de lignes : le reste n'est pas lu.": "Too many lines: the rest isn't read.",
+  "Identifiant ajouté, mais sa clé d'authentificateur n'est pas valide.": "Login added, but its authenticator key isn't valid.",
+  "Ligne illisible : le reste n'est pas lu.": "Unreadable line: the rest isn't read.",
+  // sites.py
+  "Pas noté connecté : {why}": "Not marked as signed in: {why}",
+
   // connecteurs.py
   "Google n'est pas connecté sur cet agent.": "Google isn't connected on this agent.",
   "Cette connexion n'existe pas sur cet agent.": "This connection doesn't exist on this agent.",
