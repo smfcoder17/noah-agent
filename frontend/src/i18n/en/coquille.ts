@@ -194,7 +194,6 @@ export default {
   // components/AgentNav.tsx
   "en cours": "in progress",
   "{n} en attente": "{n} waiting",
-  "Menu de {nom}": "{nom} menu",
   "Page de {nom}": "{nom}'s page",
   "Historique de {nom}": "{nom}'s history",
   "Archivés ({n})": "Archived ({n})",
