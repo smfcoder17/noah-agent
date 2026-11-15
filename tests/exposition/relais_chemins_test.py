@@ -58,5 +58,8 @@ u = auth.create_user("alice", "motdepasse-alice")
 web = TestClient(main.app, headers={"Authorization": f"Bearer {auth.new_session(u, 'Firefox', 'web')}"})
 r = web.post("/api/login", json={"username": "x" * 5000, "password": "ghp_SECRET_" + "A" * 5000})
 check(r.status_code == 422 and "ghp_SECRET_" not in r.text and "xxxxxxxx" not in r.text and "loc" in r.text, "un 422 ne recopie pas le jeton envoyé")
+# Routes sans compte : un corps énorme est refusé avant lecture (audit 0.3.0, DeepSeek M3).
+r = TestClient(main.app).post("/api/login", content=b"{" + b" " * (200 * 1024) + b"}", headers={"content-type": "application/json", "origin": "http://testserver"})
+check(r.status_code == 413, f"corps de 200 Ko refusé sur /api/login ({r.status_code})")
 print("relais : tout est vert" if not fails else f"relais : {fails} échec(s)")
 sys.exit(1 if fails else 0)

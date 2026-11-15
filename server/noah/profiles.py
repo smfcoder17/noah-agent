@@ -63,7 +63,7 @@ def create_profile(body: NewProfile, request: Request, user: int = Depends(acces
     # Un compte de plus est un accès durable : ni un jeton d'appareil, ni un cookie de fenêtre volés n'en créent sans la preuve.
     _h["critical"](request, user, "ajouter-utilisateur", body.motdepasse, body.code, body.courriel, "Confirme ton mot de passe pour créer ce profil.")
     try:
-        profile_id = auth.create_user(body.username.strip(), body.password, role="member")
+        profile_id = auth.create_user(body.username.strip(), body.password, role="member", temporary=True)  # le propriétaire ne garde pas le mot de passe (audit 0.3.0, DeepSeek F3)
     except sqlite3.IntegrityError:
         raise HTTPException(409, "Ce nom d'utilisateur existe déjà.")
     if body.budget is not None:

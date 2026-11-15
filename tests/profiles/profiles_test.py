@@ -423,6 +423,10 @@ QUERIES = {"/api/agents/{agent_id}/media": {"path": "/x.png"}, "/api/agents/{age
 
 # Routes avec un identifiant qui n'appartient à aucun agent. Chacune a sa raison et, quand c'est possible, sa vérification.
 WHITELIST = {
+    ("POST", "/api/agents/{agent_id}/connections/cles/{nom}"): "mcp.add_tool exige le droit admin sur l'agent (access.access(user, agent_id, \"admin\")).",
+    ("POST", "/api/desktop/progres/{rid}"): "Refusée si la tâche n'est pas à ce compte et à cet appareil (owner != user ou device différent : 404).",
+    ("GET", "/api/agents/{agent_id}/taches-confiees"): "Propriétaire de l'agent seulement (access.owner_of != user : 404).",
+    ("POST", "/api/desktop/taches/{rid}/arreter"): "Tâche de ce compte seulement (task[\"user\"] != user : 404).",
     ("GET", "/api/liens/image/{key}"): "Image publique mise en cache, identique pour tous ; connexion exigée (test_public_assets).",
     ("PUT", "/api/fournisseurs/{provider}"): "Configuration globale réservée au propriétaire (OWNER_WITH_ID et test_provider_access).",
     ("GET", "/api/fournisseurs/{provider}/icone"): "Icône publique sans clé ni adresse dans la réponse ; connexion exigée (test_public_assets).",
@@ -507,6 +511,7 @@ OWNER_WITH_ID = {("PATCH", "/api/profiles/{profile_id}"): {"budget": None}, ("DE
                  ("PUT", "/api/fournisseurs/{provider}"): {"api_key": "cle-de-test"}}
 # … et les routes ouvertes, chacune avec la raison pour laquelle elle ne montre rien d'un autre.
 OPEN_ROUTES = {
+    ("GET", "/api/connections/cles"): "Catalogue fixe des connecteurs par clé : noms et liens publics, jamais une clé.",
     ("POST", "/api/liens/apercu"): "Page publique lue sans session distante, pas de données de profil ; connexion Noah exigée (test_public_assets).",
     ("POST", "/api/liens/media"): "Image publique lue sans session distante, pas de données de profil ; connexion Noah exigée (test_public_assets).",
     ("GET", "/api/me/interface"): "Préférences du compte connecté seulement (test_personal).",
@@ -1383,6 +1388,9 @@ def test_profiles() -> None:
     reborn = alice.post("/api/profiles", json={"username": "pia", "password": "motdepasse-p", "motdepasse": "motdepasse-a"}).json()
     assert reborn["id"] == otto, "SQLite aurait pu ne pas réutiliser ce numéro : l'essai ne prouve plus rien"
     assert reborn["depense"] == 0 and reborn["agents"] == [], reborn
+    pia = client(reborn["id"])
+    assert pia.get("/api/agents").status_code == 403, "mot de passe de départ provisoire : rien avant d'en choisir un (audit 0.3.0, F3)"
+    auth.set_password(reborn["id"], "motdepasse-pia-a-elle")  # Pia choisit le sien
     pia = client(reborn["id"])
     assert pia.get("/api/agents").json() == [] and pia.get("/api/usage").json()["agents"] == []
     assert alice.delete(f"/api/profiles/{reborn['id']}").json()["agents"] == "aucun"

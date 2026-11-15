@@ -567,9 +567,14 @@ def _same_or_under(path: str, root: str) -> tuple[bool, bool]:
     return a == b, a.startswith(b + "/")
 
 
+# Jamais partageables, même sous une racine large (« / ») : le socket Docker et les dossiers du système donneraient
+# l'hôte à l'agent (audit 0.3.0, DeepSeek M2).
+SYSTEM = re.compile(r"^/(var/run|run|proc|sys|dev|etc|boot|root|var/lib/docker|var/lib/containerd|usr|bin|sbin|lib|lib64)(/|$)|docker.sock", re.I)
+
+
 def _shareable(path: str) -> bool:
     p = _norm(path)
-    if not p or ".." in p.split("/") or SENSITIVE.search(p):
+    if not p or ".." in p.split("/") or SENSITIVE.search(p) or SYSTEM.search(p):
         return False
     return any(any(_same_or_under(p, root)) for root in SHARE_ROOTS)
 

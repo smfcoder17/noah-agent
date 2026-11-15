@@ -100,12 +100,21 @@ def _foreign_page(connection: Request | WebSocket) -> bool:
     return not source or source.split("://", 1)[-1].split("/", 1)[0] != headers.get("host", "")
 
 
+OPEN_ROUTES = ("/api/login", "/api/pairing", "/api/setup", "/api/recuperation", "/api/password")
+OPEN_BODY_MAX = 64 * 1024
+
+
 @app.middleware("http")
 async def same_origin_only(request: Request, call_next):
     """Anti-CSRF : avec le cookie de session (navigateur), une écriture doit venir d'une page de Noah lui-même.
     Les apps et les agents s'authentifient par en-tête (Bearer), qu'une page étrangère ne peut pas poser."""
     if request.url.path.startswith(INSIDE_ONLY) and relay._from_outside(request):
         return JSONResponse({"detail": "Réservé au réseau interne."}, status_code=403)
+    # Routes ouvertes sans compte : un corps énorme ne se lit pas en mémoire avant le refus (audit 0.3.0, DeepSeek M3).
+    if request.method in UNSAFE and request.url.path.startswith(OPEN_ROUTES) and request.url.path != "/api/setup/restore":
+        size = request.headers.get("content-length")
+        if size is None and request.headers.get("transfer-encoding") or size is not None and (not size.isdigit() or int(size) > OPEN_BODY_MAX):
+            return JSONResponse({"detail": "Requête trop grande."}, status_code=413)
     if request.method in UNSAFE and _foreign_page(request):
         return Response('{"detail":"Requête refusée : elle ne vient pas de Noah."}', status_code=403,
                         media_type="application/json")
