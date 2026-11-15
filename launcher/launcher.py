@@ -84,7 +84,7 @@ BROWSER_PREFIX = "noah-browser-"
 BROWSER_LABEL = "noah.browser"
 # Version des réglages du navigateur ; un conteneur plus ancien est recréé (le profil reste dans son volume).
 # 17 : empreinte tirée une fois par agent, gardée dans /data/empreinte.json ; 15 : sessions enregistrées chaque minute (connexions gardées après un arrêt brutal) ; 14 : remplir une page de connexion ; 12 : image Noah avec bureau, sans uBlock ; 11 : toutes les routes sous clé ; 10 : clé du mode privé à part ; 9 : aucune capture pendant une prise en main ; 8 : jetons hors de la config Docker
-BROWSER_VERSION = "17"
+BROWSER_VERSION = "18"
 
 
 FROZEN_WAIT = 30  # secondes ; sous le délai de 120 s du serveur (hermes._launcher)
@@ -272,6 +272,10 @@ def _ensure_browser(agent_id: str, body: BrowserKeys, image: str | None = None, 
         nano_cpus=_cpus(4),
         shm_size="1g",
         security_opt=["no-new-privileges"],
+        # Comme les agents : sans NET_RAW, un navigateur compromis ne peut ni usurper une adresse sur noah-net ni écouter
+        # le trafic des autres (audit 0.3.0, E1). PID bornés : un onglet fou n'épuise pas l'hôte (M8).
+        cap_drop=["NET_RAW", "SYS_ADMIN", "MKNOD"],
+        pids_limit=2048,
     )
     # Sans CAMOFOX_ACCESS_KEY, Camofox ne protège que l'import de cookies : les agents sont sur le même réseau, et celui d'un
     # autre profil ouvrait des onglets ici, avec les comptes connectés de cet agent (G12.3).
@@ -676,6 +680,7 @@ def _run_agent(agent_id: str, api_key: str, folders: list[Folder]):
         nano_cpus=_cpus(2),
         security_opt=["no-new-privileges"],
         cap_drop=["NET_RAW", "SYS_ADMIN", "MKNOD"],
+        pids_limit=2048,  # une boucle de processus de l'agent n'épuise pas l'hôte (audit 0.3.0, M8)
     )
     # Jeton de l'API dans le .env du volume, avant le premier démarrage : l'API n'est jamais ouverte sans lui.
     try:

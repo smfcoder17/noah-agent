@@ -61,6 +61,14 @@ RELAY_TIMEOUT = int(os.environ.get("NOAH_RELAY_TIMEOUT", "1800"))
 SPACE_MARGIN = int(os.environ.get("NOAH_UPDATE_SPACE_MARGIN", str(512 * 1024 * 1024)))
 MAX_TRIES = 3  # échecs sans faute de l'image (disque plein, registre…) : au-delà, on attend la version suivante ou un clic
 REF = re.compile(r"[a-z0-9./_:-]+@sha256:[0-9a-f]{64}")
+# Dépôts d'où une mise à jour peut tirer une image : une clé de signature volée ne fait pas installer n'importe quelle
+# image (audit 0.3.0, M4). Une copie du projet sous un autre compte pose NOAH_IMAGE_SOURCES.
+SOURCES = tuple(s for s in os.environ.get(
+    "NOAH_IMAGE_SOURCES", "ghcr.io/smfcoder17/,nousresearch/hermes-agent@,docker.io/nousresearch/hermes-agent@,caddy@").split(",") if s)
+
+
+def allowed_ref(ref: str) -> bool:
+    return bool(REF.fullmatch(ref)) and ref.startswith(SOURCES)
 _lock = threading.Lock()
 
 SERVER, CADDY = "noah-server", "noah-caddy"
@@ -220,7 +228,7 @@ def verify_manifest(raw: bytes, signature: str) -> dict:
         raise ValueError("signature du manifeste invalide") from e
     manifest = json.loads(raw)
     images = manifest.get("images")
-    if not isinstance(images, dict) or not all(isinstance(r, str) and REF.fullmatch(r) for r in images.values()):
+    if not isinstance(images, dict) or not all(isinstance(r, str) and allowed_ref(r) for r in images.values()):
         raise ValueError("manifeste sans empreintes")
     if not re.fullmatch(r"\d+\.\d+\.\d+", str(manifest.get("version", ""))):
         raise ValueError("manifeste sans numéro de version")

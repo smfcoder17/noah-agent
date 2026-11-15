@@ -43,6 +43,14 @@ for bad_raw, bad_sig, why in [(raw + b" ", sig, "contenu modifié"), (raw, signe
         sys.exit(f"ÉCHEC : accepté malgré {why}")
     except ValueError:
         print("refusé :", why)
+# Une clé de signature volée ne fait pas installer une image d'ailleurs (audit 0.3.0, M4) : registre inconnu refusé…
+try:
+    u.verify(*signed({"version": "1.3.0", "images": {"x": "localhost:5000/a/b@" + D}}))
+    raise AssertionError("image d'une source inconnue acceptée")
+except ValueError as e:
+    assert "source inconnue" in str(e), e
+# … sauf si l'installation l'a déclaré (copie du projet, registre local de test).
+u.IMAGE_SOURCES += ("localhost:5000/",)
 assert u.verify(*signed({"version": "1.3.0", "images": {"x": "localhost:5000/a/b@" + D}}))  # registre avec port
 
 # Versions en attente : instance par instance, et épinglage des agents à venir.

@@ -38,6 +38,10 @@ MANIFEST_URL = os.environ.get("NOAH_UPDATE_MANIFEST",
 # Clé publique des versions (base64, 32 octets). Sans elle, aucune mise à jour n'est installée : un manifeste non
 # signé pourrait faire tourner n'importe quelle image avec l'accès à Docker.
 PUBLIC_KEY = os.environ.get("NOAH_UPDATE_KEY", "")
+# Dépôts d'où une mise à jour peut tirer une image : une clé de signature volée ne fait pas installer n'importe quelle
+# image (audit 0.3.0, M4). Une copie du projet sous un autre compte pose NOAH_IMAGE_SOURCES.
+IMAGE_SOURCES = tuple(s for s in os.environ.get(
+    "NOAH_IMAGE_SOURCES", "ghcr.io/smfcoder17/,nousresearch/hermes-agent@,docker.io/nousresearch/hermes-agent@,caddy@").split(",") if s)
 STATE = DATA_DIR / "updates.json"
 CHECK_EVERY = 3600
 WINDOW_HOURS = 3
@@ -230,6 +234,8 @@ def verify(raw: bytes, signature: str) -> dict:
     for comp, ref in manifest["images"].items():
         if not isinstance(ref, str) or not re.fullmatch(r"[a-z0-9./_:-]+@sha256:[0-9a-f]{64}", ref):
             raise ValueError(f"image sans empreinte pour {comp}")
+        if not ref.startswith(IMAGE_SOURCES):
+            raise ValueError(f"image d'une source inconnue pour {comp}")
     return manifest
 
 
