@@ -470,6 +470,11 @@ Sur l'ordinateur de l'utilisateur (application de bureau ouverte ; il confirme l
   ordinateur creer-dossier <dossier> <chemin>   crée un sous-dossier
   ordinateur corbeille <dossier> <chemin>  met un fichier ou un sous-dossier à la corbeille de l'ordinateur (récupérable)
   (ranger un dossier confié en écriture : ces ordres, sans accord à demander ; jamais « commande » pour ça)
+  ordinateur confier "consigne" --dossier <dossier> [--minutes 30]   confie une tâche entière à Claude Code sur son ordinateur
+                                         (son abonnement, dans un dossier confié en écriture) ; rend le compte rendu, les fichiers modifiés,
+                                         ou « en_cours » avec un id : relance alors ordinateur confier-attendre <id>
+  ordinateur confier-attendre <id>       attend la fin d'une tâche confiée (2 min 30 au plus par appel)
+  ordinateur confier-arreter <id>        arrête une tâche confiée
   (chaque ordre d'ordinateur accepte --appareil <id ou nom>)
   appareils                              ses appareils : en ligne ou non, dossiers confiés, notifications possibles
   notifier "titre" "texte" [--appareil <id ou nom>]   notification sur cet appareil seulement, ou sur tous sans --appareil
@@ -766,8 +771,23 @@ elif a[:1] == ["notifier"] and len(a) >= 2:
     rest = a[1:]
     device = option(rest, "--appareil")
     out = call("POST", "/notifier", {"titre": rest[0], "texte": " ".join(rest[1:]), "appareil": device}) if rest else {"erreur": "Donne un titre."}
+elif a[:2] == ["ordinateur", "confier"] and len(a) >= 3:
+    rest = a[2:]
+    device = option(rest, "--appareil")
+    folder = option(rest, "--dossier")
+    minutes = option(rest, "--minutes")
+    tool = option(rest, "--outil") or "claude"
+    if not folder or not rest:
+        out = {"erreur": "Usage : ordinateur confier « consigne » --dossier <dossier confié en écriture> [--minutes 30] [--appareil <id>]"}
+    else:
+        out = call("POST", "/ordinateur/confier", {"outil": tool, "consigne": " ".join(rest), "dossier": folder, "appareil": device,
+                                                   "minutes": int(minutes) if minutes.isdigit() else 30})
+elif a[:2] == ["ordinateur", "confier-attendre"] and len(a) == 3:
+    out = call("GET", "/ordinateur/confier/" + urllib.parse.quote(a[2]))
+elif a[:2] == ["ordinateur", "confier-arreter"] and len(a) == 3:
+    out = call("POST", "/ordinateur/confier/" + urllib.parse.quote(a[2]) + "/arreter", {})
 elif a[:1] == ["ordinateur"] and (len(a) < 3 or (a[1] not in ("lister", "lire", "ecrire", "deplacer", "creer-dossier", "corbeille", "ouvrir", "notifier", "copier", "lancer", "commande"))):
-    out = {"erreur": "Usage : ordinateur lister|lire|ecrire|deplacer|creer-dossier|corbeille|ouvrir|notifier|copier|lancer|commande … (voir l'aide de noah.py)"}
+    out = {"erreur": "Usage : ordinateur lister|lire|ecrire|deplacer|creer-dossier|corbeille|ouvrir|notifier|copier|lancer|commande|confier … (voir l'aide de noah.py)"}
 elif a[:1] == ["ordinateur"] and a[1] in ("lister", "lire", "ecrire", "deplacer", "creer-dossier", "corbeille"):
     rest = a[2:]
     device = option(rest, "--appareil")

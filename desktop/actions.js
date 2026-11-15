@@ -8,6 +8,8 @@ const { randomBytes, createHash } = require("node:crypto");
 const { AsyncLocalStorage } = require("node:async_hooks");
 const { BrowserWindow, clipboard, Notification, session, shell } = require("electron");
 const dossiers = require("./dossiers");
+const claude = require("./claude");
+const chatgpt = require("./chatgpt");
 const bandeau = require("./bandeau");
 const { t } = require("./textes");
 
@@ -31,14 +33,17 @@ const approvalContext = new AsyncLocalStorage();
 const actionContext = new AsyncLocalStorage();
 // Les seuls appelants de configure sont le processus principal et les tests : aucun IPC de la page web.
 let getAutonomy = () => "prudent";
+// Droits des abonnements, réglés sur cet ordinateur seulement (menu de l'icône) : éteints par défaut, le serveur ne peut pas les allumer.
+let getRights = () => ({ claude: false, claudeProfil: "fichiers", claudeMinutes: 30, chatgpt: false, chatgptModele: "" });
 // Résultat d'une action : renvoyé après une coupure, 1, 3 puis 9 s plus tard. Transferts : 2 minutes au plus,
 // sinon deux fichiers figés bloqueraient toute la file (MAX_FILES_RUNNING).
 let resultDelays = [1000, 3000, 9000];
 const RESULT_TIMEOUT = 10000;
 const TRANSFER_TIMEOUT = 120000;
 const MAX_FINISHED = 50; // résultats gardés pour ne jamais refaire une action que le serveur redonne
-const configure = ({ autonomy, resultDelays: delays }) => {
+const configure = ({ autonomy, rights, resultDelays: delays }) => {
   if (autonomy) getAutonomy = autonomy;
+  if (rights) getRights = rights;
   if (delays) resultDelays = delays;
 };
 
@@ -279,6 +284,10 @@ async function performAction(req, ctx) {
     }
     case "commande":
       return command(req, who, store, stop, refused);
+    case "claude":
+      return claudeTask(req, ctx, who, store, stop, refused);
+    case "chatgpt":
+      return chatgptTurn(req, store);
     case "lister":
     case "lire":
     case "ecrire":
@@ -341,6 +350,69 @@ async function command(req, who, store, stop, refused) {
   }
   const r = await run(program, args, cwd);
   return { ok: r.code === 0, ...r, dossier: folder ? folder.nom : undefined };
+}
+
+/** Ce que les abonnements de cet ordinateur permettent, pour le battement : jamais un e-mail, un chemin ni un jeton. */
+function subscriptions() {
+  const rights = getRights();
+  const c = claude.status();
+  return {
+    claude: { installe: c.installe, connecte: c.connecte, offre: c.offre, methode: c.methode, permis: Boolean(rights.claude), occupe: c.occupe },
+    chatgpt: { connecte: chatgpt.connected(), permis: Boolean(rights.chatgpt) },
+  };
+}
+
+const MAX_TASK = 8000;
+
+/** Une tâche entière confiée à Claude Code, dans un dossier confié en écriture. Le droit, les outils et le délai sont fixés ici. */
+async function claudeTask(req, ctx, who, store, stop, refused) {
+  const rights = getRights();
+  if (!rights.claude) return { refuse: true, message: "Sur cet ordinateur, confier des tâches à Claude Code est coupé. L'utilisateur peut l'allumer depuis l'icône de Noah, menu Abonnements." }; // i18n-ignore : lu par le serveur
+  if (claude.busy()) return { erreur: "Une tâche Claude Code tourne déjà sur cet ordinateur : attends sa fin." }; // i18n-ignore : lu par le serveur
+  const consigne = String(req.consigne || "");
+  if (!consigne.trim() || consigne.length > MAX_TASK) return { erreur: "Consigne vide ou trop longue (8 000 caractères au plus)." }; // i18n-ignore : lu par le serveur
+  if (dossiers.DECEIVING.test(consigne.replace(/[\r\n\t]/g, " "))) return { erreur: "La consigne contient des caractères invisibles : rien n'est lancé." }; // i18n-ignore : lu par le serveur
+  const folder = folderOf(req, store);
+  if (!folder) return { refuse: true, message: `Ce dossier n'est pas confié à l'agent : ${clean(req.dossierId) || "aucun"}.` }; // i18n-ignore : lu par le serveur
+  if (!folder.ecriture) return { refuse: true, message: `Le dossier « ${folder.nom} » est en lecture seule : Claude Code n'y travaille pas.` }; // i18n-ignore : lu par le serveur
+  if (UNC.test(folder.chemin) || dossiers.DECEIVING.test(folder.chemin)) return { refuse: true, message: "Ce dossier ne peut pas accueillir une tâche." }; // i18n-ignore : lu par le serveur
+  const profile = rights.claudeProfil === "complet" ? "complet" : "fichiers";
+  const minutes = Math.min(Math.max(1, Number(req.minutes) || rights.claudeMinutes || 30), rights.claudeMinutes || 30);
+  const args = claude.argsFor(profile);
+  actionContext.getStore().plan = { program: "claude", args, path: folder.chemin, consigne, minutes };
+  if (getAutonomy() !== "auto") {
+    if (tooLong(consigne)) return { erreur: "Consigne trop longue pour être montrée en entier avant l'accord : fais-en une plus courte (30 lignes, 2 000 caractères)." }; // i18n-ignore : lu par le serveur
+    const detail = t("accord.claude.detail", { dossier: folder.chemin, outils: claude.PROFILES[profile].tools.join(", "), minutes, consigne });
+    if (!(await confirm(t("accord.claude", { agent: who }), detail))) return refused;
+    const blocked = await stop();
+    if (blocked) return blocked;
+    const approval = approvalFailure(true);
+    if (approval) return approval;
+  }
+  if (store?.isCut()) return CUT;
+  if (folderOf(req, store)?.id !== folder.id) return { refuse: true, message: "Ce dossier n'est plus confié à l'agent." }; // i18n-ignore : lu par le serveur
+  // Arrêt : accès coupé, ou demande retirée par le serveur (bouton Stop, agent qui annule). Une coupure réseau seule n'arrête rien.
+  const cancel = new AbortController();
+  const watch = setInterval(async () => {
+    if (store?.isCut()) return cancel.abort("coupe");
+    try { if (ctx.stillWanted && !(await ctx.stillWanted())) cancel.abort("annule"); } catch { /* réseau : on réessaie */ }
+  }, 3000);
+  try {
+    const out = await claude.run({ consigne, cwd: folder.chemin, profile, minutes, signal: cancel.signal, onLine: (line) => ctx.progress?.(req.id, line) });
+    await ctx.flush?.(req.id);
+    return { ...out, dossier: folder.nom, outils: profile };
+  } finally {
+    clearInterval(watch);
+  }
+}
+
+/** Un tour du cerveau de l'agent, par le forfait ChatGPT de la personne. Aucun accord : elle l'a allumé sur cet ordinateur. */
+async function chatgptTurn(req, store) {
+  const rights = getRights();
+  if (store?.isCut()) return CUT;
+  if (!rights.chatgpt) return { erreur: "forfait ChatGPT coupé sur cet ordinateur", statut: 503, code: "coupe" }; // i18n-ignore : lu par le serveur
+  if (!req.requete || typeof req.requete !== "object") return { erreur: "requête illisible", statut: 400, code: "illisible" }; // i18n-ignore : lu par le serveur
+  return chatgpt.call(req.requete, rights.chatgptModele || "");
 }
 
 async function files(req, ctx, store) {
@@ -427,7 +499,7 @@ function listen(getOrigin, store) {
       const r = await fetch(`${link.origin}/api/desktop/battement`, {
         method: "POST",
         headers: { ...link.headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ os: process.platform, dossiers: store ? await shownFolders(store) : [], coupe: store ? store.isCut() : false }),
+        body: JSON.stringify({ os: process.platform, dossiers: store ? await shownFolders(store) : [], coupe: store ? store.isCut() : false, abonnements: subscriptions() }),
         signal: AbortSignal.timeout(10000),
       });
       if (r.status === 404) {
@@ -479,8 +551,24 @@ function listen(getOrigin, store) {
         if (!r.ok) throw new Error("L'accord n'a pas été pris en compte."); // i18n-ignore : lu par le serveur
       },
     };
+    // Progression d'une tâche confiée : envoyée par paquets, toutes les 2 s au plus. Une coupure perd des lignes, jamais le résultat.
+    let lines = [], sending = null;
+    const flushProgress = async () => {
+      if (!lines.length) return;
+      const batch = lines;
+      lines = [];
+      await fetch(`${link.origin}/api/desktop/progres/${req.id}`, {
+        method: "POST", headers: { ...link.headers, "Content-Type": "application/json" }, body: JSON.stringify({ lignes: batch }), signal: AbortSignal.timeout(10000),
+      }).catch(() => {});
+    };
     const ctx = {
       store,
+      progress: (_id, line) => {
+        lines.push(line);
+        if (lines.length > 50) lines.shift();
+        sending ??= new Promise((res) => setTimeout(res, 2000)).then(flushProgress).finally(() => { sending = null; });
+      },
+      flush: async () => { await sending; await flushProgress(); },
       stillWanted: async () => {
         if (stopped) return false;
         const current = await auth();
@@ -573,4 +661,4 @@ function listen(getOrigin, store) {
   };
 }
 
-module.exports = { configure, confirm, listen, perform };
+module.exports = { configure, confirm, listen, perform, subscriptions };

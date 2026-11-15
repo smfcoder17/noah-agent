@@ -1,6 +1,6 @@
 # 0.3.0 : utiliser son abonnement Claude ou ChatGPT par son ordinateur (recherche)
 
-Recherche du 14 novembre 2026, sans code changé. Rien n'a été mesuré sur Noah. Les conditions citées sont celles lues ce jour-là ; elles ont changé trois fois en 2026 et peuvent encore changer.
+Recherche du 14 novembre 2026, puis premier lot de code le même jour (voir « État » ci-dessous). Les conditions citées sont celles lues ce jour-là ; elles ont changé trois fois en 2026 et peuvent encore changer.
 
 Demande de Franck : « I want to be able to set my Noah agent on my VPS to use my subscription locally: it detects if I have a Claude subscription / ChatGPT and uses their proxy to allow me to use them from my local computer. So the address used is my own computer and it routes tasks/calls to it only if my computer is connected. »
 
@@ -9,6 +9,45 @@ Demande de Franck : « I want to be able to set my Noah agent on my VPS to use m
 1. **Claude : l'abonnement ne peut pas devenir le cerveau des agents Noah, mais il peut faire des tâches.** Anthropic interdit à un logiciel tiers de faire passer des requêtes par les identifiants d'un abonnement, et a déjà suspendu des comptes pour ça. En revanche, la personne a le droit de lancer la vraie CLI `claude`, installée et connectée par elle : l'appli de bureau peut donc confier une tâche entière à Claude Code sur son PC, dans un dossier confié, puis rendre le résultat à l'agent.
 2. **ChatGPT : il existe une voie officielle pour en faire le cerveau.** Depuis septembre 2026, OpenAI laisse les applications open source et hébergées localement utiliser le forfait ChatGPT de la personne par l'API Responses (« Sign in with ChatGPT », plan usage), et `codex exec` est permis pour les tâches. Reste à savoir si Noah y a droit, car sa licence PolyForm Noncommercial n'est pas une licence open source au sens habituel.
 3. **Tout passe par l'appli de bureau, en connexion sortante, et seulement quand le PC est allumé.** Sinon, Noah reprend le fournisseur habituel. On n'extrait jamais un jeton, on n'imite jamais un client officiel : c'est exactement ce qui fait suspendre les comptes.
+
+## État : ce qui est fait, ce qui reste (14 novembre 2026, branche de l'agent)
+
+Décisions de Franck appliquées : voie C pour Claude (tâches confiées, jamais le cerveau), voie D pour ChatGPT avec le **jeton sur le PC**.
+
+### Fait
+
+| Quoi | Où | Preuve |
+|---|---|---|
+| Détection de Claude Code par `claude auth status --json`, réduite à connecté, offre, méthode (ni e-mail ni organisation) | `desktop/claude.js` (`detect`, `locate` : `claude.exe` du PATH, celui de l'installation npm, ou `~/.local/bin`) | `tests/desktop/claude_test.mjs` |
+| Tâche confiée : `claude -p --output-format stream-json --verbose`, consigne par l'entrée standard, dans un dossier confié en écriture ; outils fixés par l'app (« fichiers » : `--restricted --strict-mcp-config --tools Read,Glob,Grep,Edit,Write`, ou « complet » : + Bash, WebSearch, WebFetch, choisi sur le PC) ; `--permission-mode acceptEdits --permission-prompts none` ; une tâche à la fois ; délai (30 min par défaut) ; arrêt par Stop, par l'agent, par « Couper l'accès » (taskkill /T sous Windows, SIGINT puis SIGTERM ailleurs) | `desktop/claude.js`, action `claude` de `desktop/actions.js` | `claude_test.mjs` : 11 étapes vertes |
+| Droit local « Laisser Noah confier des tâches à Claude Code », éteint par défaut, avec un avertissement sur les limites de l'abonnement ; Prudent : bandeau local par tâche (dossier, outils, durée, consigne entière) ; Auto : pas de bandeau sur le PC, le juge décide | menu de l'icône > Abonnements (`desktop/main.js`), `textes.js` | `claude_test.mjs` |
+| Côté serveur : `noah.py ordinateur confier "consigne" --dossier X [--minutes N]`, `confier-attendre <id>`, `confier-arreter <id>` ; « en_cours » au-delà de 150 s (sous la limite de 180 s des commandes de l'agent) ; progression (`POST /api/desktop/progres/{id}`) ; refus lisibles (PC éteint, non installé, non connecté, non permis, déjà occupé, agent partagé) ; PC déconnecté en route : « tâche interrompue » avec la dernière étape | `server/noah/desktop.py`, `hermes.py`, consigne dans `main.py` | `tests/desktop/abonnements_test.py` |
+| Juge : `ordinateur confier` est en ligne 6 (Auto et Prudent : accord ; Agir : passe) ; `confier-attendre` et `confier-arreter` ne demandent rien | `juge.py` (`DELEGATE`), `agent_plugin/__init__.py` | `abonnements_test.py`, `tests/tools/juge_test.py` toujours vert |
+| Interface : « Claude Code sur ce PC : connecté, abonnement max » et l'état ChatGPT dans Réglages > Appareils ; dans la conversation, « Tâche confiée à Claude Code sur Bureau · abonnement max · dossier · durée », dépliable avec la progression et les fichiers, bouton Stop | `frontend/src/components/PhonePairing.tsx`, `DelegatedTasks.tsx`, `i18n/en/appareils.ts` | vitest : 37 fichiers, 129 tests verts ; build vert |
+| ChatGPT : connexion officielle « Continue with ChatGPT » sur le PC (client `dynamic_agent_client` puis `oaiapp_…` rendu au retour, PKCE S256, `ext_agent_host_id` stable, retour sur `127.0.0.1`, état vérifié, jeton d'identité RS256 vérifié avec les clés de l'émetteur, portée `chatgpt.tokens.use.direct` exigée) ; jeton chiffré par `safeStorage` dans `chatgpt.bin`, renouvelé dans sa dernière minute ; liste des modèles du compte | `desktop/chatgpt.js` | `tests/desktop/chatgpt_test.mjs` : 10 étapes vertes, faux serveur OpenAI (`faux_openai.mjs`) |
+| Traduction Chat Completions ↔ Responses (instructions, messages, images, appels et résultats d'outils, outils par `additional_tools`, `store:false`, `stream:true`, champs refusés retirés, historique d'outils réparé) | `desktop/responses.js` | `chatgpt_test.mjs` |
+| Relais : avant la chaîne habituelle, un maillon « forfait ChatGPT par l'ordinateur » si un PC du propriétaire est en ligne, connecté et permis ; refus (limite du forfait → 429, panne, PC disparu) : maillon mis au repos (`modes.cool`, `modes.resting`) et le fournisseur habituel répond ; coût 0 $, noté « forfait ChatGPT · modèle » ; réponse entière ou en flux | `server/noah/relay.py`, `desktop.chatgpt_link`, `desktop.chatgpt_call` | `abonnements_test.py` (7a, 7b, 7c) |
+| **De bout en bout** : vrai serveur dans Docker, vrai `noah.py`, vraie boucle du bureau, faux `claude`, faux OpenAI. L'agent confie, le bureau exécute, le résultat revient, l'agent lit le fichier produit ; tâche longue « en_cours » puis arrêtée en moins de 10 s ; un tour du cerveau passe par le forfait ; forfait épuisé puis PC déconnecté : le fournisseur habituel répond, rien ne part vers OpenAI | `tests/desktop/abonnements_reel.mjs` | 15 vérifications vertes |
+| Essai réel du vrai `claude` (2.1.322, abonnement max) sur le PC de Franck : « crée liste.md triée à partir de notes.txt » dans un dossier temporaire | `desktop/claude.js` | `ok: true`, `liste.md` = « - kiwi / - poire / - pomme », 3 tours, 12 s, coût estimé 0,027 $, aucun autre fichier touché |
+
+Reprise d'OmniRoute (MIT, commit `418cf3439b88a6318210bb1c819d55f6aa8513ee`), avis de licence et provenance en tête de `desktop/chatgpt.js` et `desktop/responses.js` : `open-sse/config/chatgpt.ts`, `src/lib/oauth/chatgptProtocol.ts`, `open-sse/services/tokenRefresh/providers/chatgpt.ts`, `open-sse/executors/chatgpt.ts`, et quelques fonctions de `open-sse/translator/request/openai-responses/toResponses.ts`. Écarté : le fournisseur Codex d'OmniRoute (`chatgpt.com/backend-api/codex/responses`, `client_id` et `originator` de la CLI Codex, en-têtes et empreintes copiés), ses fournisseurs par cookies web, et tout le reste.
+
+### Reste à faire
+
+- **Essai réel de ChatGPT** : rien n'a été envoyé au vrai `auth.openai.com`. L'inscription dynamique (`dynamic_agent_client`), la requête de renouvellement (non décrite par la doc lue, reprise d'OmniRoute) et le format exact d'`additional_tools` sont à vérifier avec un vrai compte. L'éligibilité de Noah (décision 3) reste ouverte.
+- **Essai dans la vraie application Electron** : le menu Abonnements, la boîte d'avertissement et la connexion ChatGPT n'ont été lancés que par les tests (Electron simulé). Le bureau n'a pas été reconstruit.
+- **Codex (`codex exec`)** : pas fait. Même schéma que Claude, à ajouter dans `claude.js` ou à côté.
+- **Reprise de session** (`--resume`) : le `session_id` revient à l'agent mais aucun ordre ne le reprend.
+- **Plafond de tâches par jour** réglé sur le PC, et liste des tâches dans l'Activité : pas faits.
+- **Choix du modèle ChatGPT** : sur le PC (menu), le premier de la liste du compte par défaut ; pas affiché dans Réglages > Modèles.
+- **Annonce à la personne** des 0 $ « forfait ChatGPT » dans l'Activité : la ligne existe dans `usage`, pas d'affichage à part.
+
+### Doutes notés (Franck n'a pas pu être consulté)
+
+- Prudent sur le PC et juge en Prudent ou Auto : la personne peut avoir deux accords pour une même tâche (carte du juge, puis bandeau local). J'ai gardé les deux : le bandeau local est le plancher qui ne dépend pas du serveur.
+- « Lui passer tout ce qu'il peut » contre « pas de Bash par défaut » (décision 5) : par défaut « fichiers » ; « complet » (commandes et web) se choisit sur le PC, jamais par le serveur ni la consigne.
+- Sans `--bare` (qui ignore l'abonnement), le profil « complet » charge le `CLAUDE.md` du dossier et les hooks de la personne ; le profil « fichiers » ignore ses réglages (`--restricted`) et tout serveur MCP (`--strict-mcp-config`).
+- La phrase de l'Agent SDK (« offer claude.ai login or rate limits for their products ») reste à faire confirmer par Anthropic avant d'offrir la fonction à d'autres que Franck (décision 2).
 
 ## 1. Ce qui est permis, ce qui est risqué
 

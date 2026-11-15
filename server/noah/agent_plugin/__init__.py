@@ -989,7 +989,7 @@ def _reading_segment(words: list[str]) -> bool:
             if args[1] == "navigateur":
                 return len(args) >= 3 and args[2] in NOAH_BROWSER
             if args[1] == "ordinateur":
-                return len(args) >= 3 and args[2] in ("lister", "lire")
+                return len(args) >= 3 and args[2] in ("lister", "lire", "confier-attendre", "confier-arreter")
             return args[1] in NOAH_NO_EFFECT
         return rest in (["--version"], ["-V"])
     if "/" in name or re.fullmatch(r"\w+=.*", name):

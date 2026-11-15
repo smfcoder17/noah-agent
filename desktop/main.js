@@ -25,7 +25,16 @@ const config = () => (configStore ??= require("./config").create(path.join(app.g
 const readConfig = () => config().read();
 const writeConfig = (patch) => config().write(patch);
 const autonomy = require("./autonomie").create(readConfig, writeConfig);
-actions.configure({ autonomy: autonomy.get });
+// Abonnements de la personne (Claude Code, forfait ChatGPT) : réglés ici, sur cet ordinateur, éteints par défaut.
+const claude = require("./claude");
+const chatgpt = require("./chatgpt");
+const rights = () => {
+  const c = readConfig();
+  return { claude: c.abonnement_claude === true, claudeProfil: c.abonnement_claude_outils === "complet" ? "complet" : "fichiers",
+    claudeMinutes: Number.isInteger(c.abonnement_claude_minutes) ? Math.min(Math.max(c.abonnement_claude_minutes, 5), 120) : 30,
+    chatgpt: c.abonnement_chatgpt === true, chatgptModele: typeof c.chatgpt_modele === "string" ? c.chatgpt_modele : "" };
+};
+actions.configure({ autonomy: autonomy.get, rights });
 // Démarrage avec l'ordinateur : coupé tant que la personne ne l'a pas choisi dans le menu (demarrage.js).
 const startup = require("./demarrage").create(app, readConfig, writeConfig);
 function startupMenu() {
@@ -651,6 +660,7 @@ async function setCut(cut) {
     return foldersState();
   }
   folders().setCut(cut);
+  if (cut) claude.stopAll("coupe"); // la tâche confiée en cours s'arrête aussi
   createTrayMenuState();
   listening?.beat();
   return foldersState();
@@ -663,10 +673,62 @@ function createTrayMenuState() {
   tray.setToolTip(folders().isCut() ? t("zone.coupe") : "Noah Agent");
 }
 
+/** Après un changement d'abonnement : le menu et le serveur le savent tout de suite. */
+function subscriptionsChanged() {
+  createMenu();
+  createTrayMenuState();
+  listening?.beat();
+}
+
+async function detectClaude() {
+  await claude.detect().catch(() => {});
+  subscriptionsChanged();
+}
+
+async function chatgptLogin() {
+  try {
+    await chatgpt.login({ open: (url) => shell.openExternal(url), read: readConfig, write: writeConfig });
+  } catch (e) {
+    dialog.showMessageBox({ type: "warning", title: "Noah Agent", message: t("abonnement.chatgpt.echec"), detail: String(e.message || e).slice(0, 300) });
+  }
+  subscriptionsChanged();
+}
+
+function subscriptionsMenu() {
+  const r = rights();
+  const c = claude.status();
+  const claudeState = !c.installe ? t("abonnement.claude.absent") : !c.connecte ? t("abonnement.claude.deconnecte")
+    : t("abonnement.claude.connecte", { offre: c.offre || "—" });
+  const models = chatgpt.models();
+  return { label: t("menu.abonnements"), submenu: [
+    { label: claudeState, enabled: false },
+    { label: t("abonnement.claude.permis"), type: "checkbox", checked: r.claude, enabled: c.installe, click: async (item) => {
+      if (item.checked && !(await askSystem(t("abonnement.claude.permis"), t("abonnement.claude.avertissement"), t("abonnement.allumer")))) return subscriptionsChanged();
+      writeConfig({ abonnement_claude: item.checked });
+      subscriptionsChanged();
+    } },
+    ...[["fichiers", t("abonnement.claude.fichiers")], ["complet", t("abonnement.claude.complet")]].map(([value, label]) => ({
+      label, type: "radio", checked: r.claudeProfil === value, click: () => { writeConfig({ abonnement_claude_outils: value }); subscriptionsChanged(); },
+    })),
+    { label: t("abonnement.claude.arreter"), enabled: c.occupe, click: () => { claude.stopAll("annule"); } },
+    { label: t("abonnement.claude.verifier"), click: detectClaude },
+    { type: "separator" },
+    { label: chatgpt.connected() ? t("abonnement.chatgpt.connecte") : t("abonnement.chatgpt.deconnecte"), enabled: false },
+    chatgpt.connected()
+      ? { label: t("abonnement.chatgpt.deconnexion"), click: () => { chatgpt.logout(); writeConfig({ abonnement_chatgpt: false }); subscriptionsChanged(); } }
+      : { label: t("abonnement.chatgpt.connexion"), click: chatgptLogin },
+    { label: t("abonnement.chatgpt.permis"), type: "checkbox", checked: r.chatgpt, enabled: chatgpt.connected(), click: (item) => { writeConfig({ abonnement_chatgpt: item.checked }); subscriptionsChanged(); } },
+    ...(models.length ? [{ label: t("abonnement.chatgpt.modele"), submenu: models.map((m) => ({
+      label: m.nom, type: "radio", checked: (r.chatgptModele || models[0].slug) === m.slug, click: () => { writeConfig({ chatgpt_modele: m.slug }); subscriptionsChanged(); },
+    })) }] : []),
+  ] };
+}
+
 function trayMenu() {
   return Menu.buildFromTemplate([
     { label: t("menu.ouvrir"), click: show },
     autonomyMenu(),
+    subscriptionsMenu(),
     { label: t("menu.accord"), click: () => bandeau.focus() },
     { label: t("menu.changer"), click: changeServer },
     ...startupMenu(),
@@ -867,6 +929,12 @@ if (!app.requestSingleInstanceLock()) {
     createWindow();
     // Demandes de l'agent (ouvrir, notifier, lancer, commande, fichiers des dossiers confiés).
     listening = actions.listen(() => origin, folders());
+    // Le jeton ChatGPT : chiffré par le système, dans son propre fichier. Claude Code : son état, demandé à la CLI toutes les 10 minutes.
+    chatgpt.configure({ storage: chatgpt.sealedFile(path.join(app.getPath("userData"), "chatgpt.bin"), safeStorage) });
+    chatgpt.refreshCatalog().then(subscriptionsChanged, () => {});
+    detectClaude();
+    setInterval(detectClaude, 10 * 60 * 1000);
+    setInterval(() => chatgpt.refreshCatalog().catch(() => {}), 60 * 60 * 1000);
   });
   app.on("before-quit", (e) => {
     quitting = true;

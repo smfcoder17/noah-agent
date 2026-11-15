@@ -426,6 +426,8 @@ def mode(agent_id: str | None = None) -> str:
 TIDY = re.compile(r"(?:[ \t]*#[^\n]*\n)*[ \t]*(?:timeout[ \t]+\d+[ \t]+)?(?:/opt/hermes/\.venv/bin/|/usr/bin/)?python3?[ \t]+(?:-u[ \t]+)?"
                   r"/opt/data/noah\.py[ \t]+ordinateur[ \t]+(?P<ordre>lister|lire|ecrire|deplacer|creer-dossier|corbeille)[ \t][^;|&`$<>\n\r\\(){}]*")
 TIDY_READS = {"lister", "lire"}
+# Confier une tâche à Claude Code sur l'ordinateur : ligne 6, quelle que soit la consigne. Attendre ou arrêter la tâche ne fait rien de plus.
+DELEGATE = re.compile(r"noah\.py[ \t]+ordinateur[ \t]+confier(?:[ \t]|$)")
 # Une commande opaque ne prouve pas qu'elle reste dans le dossier confié.
 LOCAL_TOOLS = {"todo_list", "memory", "image_generate", "video_generate", "text_to_speech"}
 LOCAL_PROGRAMS = {"mkdir", "touch", "cp", "mv", "ffmpeg", "unzip"}
@@ -485,6 +487,8 @@ def classify(tool: str, args: dict, own: list[str] | tuple = ()) -> tuple[int | 
     risk = must_ask(tool, args)
     if risk:
         return 6, risk
+    if tool == "terminal" and DELEGATE.search(_command(tool, args)):
+        return 6, "doute"  # une tâche entière lancée sur l'ordinateur de la personne, avec son abonnement : effet hors de Noah
     if tidies_folder(tool, args):
         match = TIDY.fullmatch(_command(tool, args))
         return (1 if match.group("ordre") in TIDY_READS else 5 if match.group("ordre") == "corbeille" else 2), "doute"

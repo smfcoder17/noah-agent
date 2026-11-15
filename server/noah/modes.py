@@ -352,6 +352,11 @@ def cool(link: dict, status: int = 0, retry_after: str | None = None) -> None:
     _cooling[(link.get("fournisseur", ""), link["modele"])] = time.time() + seconds
 
 
+def resting(link: dict) -> bool:
+    """Ce maillon est au repos après un refus (quota, panne) : on le saute jusqu'à l'heure dite."""
+    return _cooling.get((link.get("fournisseur", ""), link["modele"]), 0) > time.time()
+
+
 def ordered(links: list[dict]) -> list[dict]:
     """Les disponibles d'abord, dans l'ordre. Les épuisés restent derrière : tous épuisés vaut mieux qu'un essai que pas de réponse."""
     now = time.time()

@@ -76,6 +76,20 @@ class Beat(BaseModel):
     os: str = Field(default="", max_length=20)
     dossiers: list[dict] = Field(default_factory=list, max_length=100)
     coupe: bool = False
+    abonnements: dict = Field(default_factory=dict)
+
+
+def _word(value, size: int = 20) -> str:
+    return value if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9._:-]{1," + str(size) + "}", value) else ""
+
+
+def _subscriptions(raw: dict) -> dict:
+    """Ce que l'ordinateur dit de ses abonnements, réduit à des drapeaux et des mots courts : jamais un e-mail ni un jeton."""
+    c = raw.get("claude") if isinstance(raw.get("claude"), dict) else {}
+    g = raw.get("chatgpt") if isinstance(raw.get("chatgpt"), dict) else {}
+    return {"claude": {"installe": c.get("installe") is True, "connecte": c.get("connecte") is True, "offre": _word(c.get("offre")).lower(),
+                       "methode": _word(c.get("methode")).lower(), "permis": c.get("permis") is True, "occupe": c.get("occupe") is True},
+            "chatgpt": {"connecte": g.get("connecte") is True, "permis": g.get("permis") is True}}
 
 
 def _queue(device: str) -> asyncio.Queue:
@@ -481,7 +495,7 @@ async def beat(body: Beat, request: Request, noah_session: str | None = Cookie(N
     """La présence, à part de l'attente longue : une fenêtre d'accord ouverte ne fait pas croire l'application fermée."""
     device = _device(request, noah_session)
     shown = [{"id": str(d.get("id", ""))[:40], "nom": str(d.get("nom", ""))[:120], "ecriture": bool(d.get("ecriture")), "absent": bool(d.get("absent"))} for d in body.dossiers]
-    _touch(device, user, os=body.os, bat=True, dossiers=shown, coupe=body.coupe)
+    _touch(device, user, os=body.os, bat=True, dossiers=shown, coupe=body.coupe, abonnements=_subscriptions(body.abonnements))
     # Le compte sous une forme qui ne dit rien : l'application efface ses droits si elle change de compte.
     return {"compte": hashlib.sha256(f"noah-compte:{user}".encode()).hexdigest()[:16]}
 
@@ -490,6 +504,8 @@ async def beat(body: Beat, request: Request, noah_session: str | None = Cookie(N
 async def still_wanted(rid: str, request: Request, noah_session: str | None = Cookie(None), user: int = Depends(auth.current_user)):
     """Une fenêtre d'accord vient de recevoir sa réponse : la demande vit-elle encore ?"""
     _, device, owner = _waiting.get(rid, (None, None, None))
+    if (_tasks.get(rid) or {}).get("arret"):  # Stop demandé : l'ordinateur arrête la tâche confiée
+        raise HTTPException(404, "Demande introuvable")
     if owner == user and device == _device(request, noah_session):
         return {"encore": True}
     row = _pending_row(rid)
@@ -612,6 +628,199 @@ async def status(user: int = Depends(auth.current_user)):
     return {"connecte": bool(mine), "systeme": mine[0].get("os", "") if mine else ""}
 
 
+# --- Abonnements par l'ordinateur : tâches confiées à Claude Code, cerveau par le forfait ChatGPT ---------------------
+# Rien ne passe par le serveur que la consigne, la progression et le résultat : la CLI officielle tourne sur l'ordinateur, connectée par
+# la personne ; le jeton ChatGPT reste sur l'ordinateur. Un agent partagé n'y a jamais accès (_gatekept), un autre compte non plus.
+
+TASK_WAIT = 150  # sous la limite des commandes de l'agent (180 s) : au-delà, il relance `ordinateur confier-attendre <id>`
+TASK_KEEP = 3600  # une tâche finie reste lisible une heure
+CHATGPT_WAIT = 240  # un tour du cerveau par l'ordinateur ; au-delà, le fournisseur habituel prend le relais
+CHATGPT_LINK = {"modele": "forfait-chatgpt", "fournisseur": "chatgpt-pc"}
+_tasks: dict[str, dict] = {}  # tâche confiée -> agent, appareil, progression, résultat
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f​-‏‪-‮⁠-⁩﻿]")
+
+
+class Delegate(BaseModel):
+    outil: str = Field(default="claude", pattern="^claude$")
+    consigne: str = Field(min_length=1, max_length=8000)
+    dossier: str = Field(min_length=1, max_length=200)  # identifiant ou nom d'un dossier confié en écriture
+    appareil: str = Field(default="", max_length=200)
+    minutes: int = Field(default=30, ge=1, le=120)
+
+
+class Progress(BaseModel):
+    lignes: list[str] = Field(default_factory=list, max_length=60)
+
+
+def _subs(device: str) -> dict:
+    return (_seen.get(device) or {}).get("abonnements") or _subscriptions({})
+
+
+def _sweep_tasks() -> None:
+    limit = time.time() - TASK_KEEP
+    for rid in [r for r, t in _tasks.items() if t["etat"] != "en_cours" and t.get("fin", 0) < limit]:
+        _tasks.pop(rid, None)
+
+
+def _device_name(user: int, device: str) -> str:
+    return next((d["nom"] for d in _known(user) if d["id"] == device), "") or "Ordinateur"
+
+
+def _shown(rid: str, task: dict) -> dict:
+    out = {"id": rid, "outil": task["outil"], "etat": task["etat"], "dossier": task["dossier"], "appareil": task["nom_appareil"],
+           "debut": task["debut"], "duree_s": int((task.get("fin") or time.time()) - task["debut"]), "progression": task["lignes"][-8:],
+           "offre": task["offre"]}
+    if task["etat"] != "en_cours":
+        r = task["resultat"]
+        out["resultat"] = {k: r[k] for k in ("ok", "texte", "fichiers", "erreur", "arret", "limite", "cout_estime_usd") if k in r}
+    return out
+
+
+async def _drive(rid: str, device: str, user: int, item: dict, seconds: float, agent_id: str) -> dict:
+    task = _tasks[rid]
+    try:
+        out = await _ask(device, user, item, seconds, agent_id=agent_id)
+        result = out if isinstance(out, dict) else {"erreur": "Réponse illisible de l'ordinateur."}
+    except asyncio.TimeoutError:
+        task["arret"] = True  # l'ordinateur arrête la CLI à sa prochaine vérification
+        result = {"erreur": "La tâche a dépassé son délai : elle est arrêtée sur l'ordinateur.", "arret": "delai"}
+    except Gone:
+        result = {"erreur": "L'ordinateur s'est déconnecté : la tâche est interrompue. Rien ne dit ce qu'elle a fait après sa dernière étape.",
+                  "interrompue": True, "derniere_progression": task["lignes"][-5:]}
+    if result.get("limite"):
+        result["conseil"] = "La limite de l'abonnement Claude de l'utilisateur est atteinte : fais la suite toi-même, et dis-le-lui."
+    task["resultat"] = result
+    task["etat"] = "fini" if result.get("ok") else "arrete" if result.get("arret") else "echec"
+    task["fin"] = time.time()
+    return result
+
+
+async def _await_task(rid: str, seconds: float) -> dict:
+    task = _tasks[rid]
+    try:
+        await asyncio.wait_for(asyncio.shield(task["job"]), seconds)
+    except asyncio.TimeoutError:
+        return {"en_cours": True, "id": rid, "progression": task["lignes"][-5:],
+                "conseil": f"Claude Code travaille encore sur l'ordinateur. Relance `python3 /opt/data/noah.py ordinateur confier-attendre {rid}` "
+                           f"(ou fais autre chose en attendant) ; `ordinateur confier-arreter {rid}` l'arrête."}
+    return {**task["resultat"], "id": rid}
+
+
+@router.post("/agent-api/ordinateur/confier")
+async def agent_delegate(body: Delegate, request: Request):
+    """Confie une tâche entière à Claude Code, sur l'ordinateur de l'utilisateur, dans un dossier qu'il a confié en écriture."""
+    agent_id = relay._agent_from(request)
+    if closed := _gatekept(agent_id):
+        return closed
+    target = access.owner_of(agent_id)
+    await _settled(target)
+    device, problem = _which(target, body.appareil)
+    if problem:
+        return {"erreur": problem + " En attendant, fais la tâche toi-même."}
+    if _too_old(device):
+        return {"erreur": "L'application de bureau de cet ordinateur est trop ancienne pour confier une tâche. Dis à l'utilisateur de la mettre à jour."}
+    claude = _subs(device)["claude"]
+    if not claude["installe"]:
+        return {"erreur": "Claude Code n'est pas installé sur cet ordinateur : fais la tâche toi-même."}
+    if not claude["connecte"]:
+        return {"erreur": "Claude Code est installé mais pas connecté : l'utilisateur doit lancer « claude » une fois pour se connecter. En attendant, fais la tâche toi-même."}
+    if not claude["permis"]:
+        return {"erreur": "L'utilisateur n'a pas permis de confier des tâches à Claude Code sur cet ordinateur (icône de Noah > Abonnements). Fais la tâche toi-même, ou propose-lui de l'allumer."}
+    _sweep_tasks()
+    busy = next((r for r, t in _tasks.items() if t["appareil"] == device and t["etat"] == "en_cours"), None)
+    if busy:
+        return {"erreur": f"Une tâche Claude Code tourne déjà sur cet ordinateur ({busy}) : attends-la avec `ordinateur confier-attendre {busy}`."}
+    rid = uuid.uuid4().hex
+    item = {"id": rid, "agent": _agent_name(agent_id), "action": "claude", "consigne": body.consigne, "dossierId": body.dossier, "minutes": body.minutes}
+    _tasks[rid] = {"agent_id": agent_id, "user": target, "appareil": device, "nom_appareil": _device_name(target, device), "outil": body.outil,
+                   "dossier": body.dossier, "offre": claude["offre"], "debut": time.time(), "lignes": [], "etat": "en_cours", "resultat": {}}
+    _tasks[rid]["job"] = asyncio.create_task(_drive(rid, device, target, item, body.minutes * 60 + ANSWER + 60, agent_id))
+    return await _await_task(rid, TASK_WAIT)
+
+
+@router.get("/agent-api/ordinateur/confier/{rid}")
+async def agent_task_wait(rid: str, request: Request, attendre: int = TASK_WAIT):
+    agent_id = relay._agent_from(request)
+    task = _tasks.get(rid)
+    if not task or task["agent_id"] != agent_id:
+        return {"erreur": "Tâche inconnue, ou finie depuis plus d'une heure."}
+    return await _await_task(rid, min(max(attendre, 0), TASK_WAIT))
+
+
+def _stop_task(rid: str) -> None:
+    _tasks[rid]["arret"] = True
+
+
+@router.post("/agent-api/ordinateur/confier/{rid}/arreter")
+async def agent_task_stop(rid: str, request: Request):
+    agent_id = relay._agent_from(request)
+    task = _tasks.get(rid)
+    if not task or task["agent_id"] != agent_id:
+        return {"erreur": "Tâche inconnue."}
+    _stop_task(rid)
+    return await _await_task(rid, 20)
+
+
+@router.post("/api/desktop/progres/{rid}")
+async def task_progress(rid: str, body: Progress, request: Request, noah_session: str | None = Cookie(None), user: int = Depends(auth.current_user)):
+    """L'avancement d'une tâche confiée, envoyé par l'ordinateur qui la fait, et lui seul."""
+    _, device, owner = _waiting.get(rid, (None, None, None))
+    task = _tasks.get(rid)
+    if not task or owner != user or device != _device(request, noah_session):
+        raise HTTPException(404, "Demande introuvable")
+    task["lignes"] = (task["lignes"] + [_CONTROL.sub(" ", str(line))[:300] for line in body.lignes])[-40:]
+    return {"ok": True}
+
+
+@router.get("/api/agents/{agent_id}/taches-confiees")
+async def user_tasks(agent_id: str, user: int = Depends(auth.current_user)):
+    """Les tâches que cet agent a confiées à l'ordinateur : en cours, ou finies depuis dix minutes. Pour son propriétaire seulement."""
+    if access.owner_of(agent_id) != user:
+        raise HTTPException(404, "Agent introuvable")
+    _sweep_tasks()
+    recent = time.time() - 600
+    return {"taches": [_shown(r, t) for r, t in _tasks.items() if t["agent_id"] == agent_id and (t["etat"] == "en_cours" or t.get("fin", 0) > recent)]}
+
+
+@router.post("/api/desktop/taches/{rid}/arreter")
+async def user_task_stop(rid: str, user: int = Depends(auth.current_user)):
+    task = _tasks.get(rid)
+    if not task or task["user"] != user:
+        raise HTTPException(404, "Tâche introuvable")
+    _stop_task(rid)
+    return {"ok": True}
+
+
+def chatgpt_link(agent_id: str) -> dict | None:
+    """Le maillon « forfait ChatGPT par l'ordinateur » : seulement si un ordinateur du propriétaire est en ligne, connecté à ChatGPT,
+    et que la personne l'a permis sur lui. Sinon None, et le relais garde la chaîne habituelle."""
+    if _gatekept(agent_id):
+        return None
+    owner = access.owner_of(agent_id)
+    for device, seen in list(_seen.items()):
+        if seen.get("user") != owner or not _online(device) or seen.get("coupe"):
+            continue
+        g = (seen.get("abonnements") or {}).get("chatgpt") or {}
+        if g.get("connecte") and g.get("permis"):
+            return {**CHATGPT_LINK, "appareil": device, "user": owner}
+    return None
+
+
+async def chatgpt_call(link: dict, agent_id: str, body: dict) -> tuple[int, dict]:
+    """Envoie un tour Chat Completions à l'ordinateur, qui l'envoie à OpenAI avec son jeton et rend une réponse Chat Completions."""
+    request = {k: v for k, v in body.items() if k not in ("model", "stream", "stream_options")}
+    try:
+        out = await _ask(link["appareil"], link["user"], {"agent": _agent_name(agent_id), "action": "chatgpt", "requete": request}, CHATGPT_WAIT)
+    except asyncio.TimeoutError:
+        return 504, {"erreur": "L'ordinateur n'a pas répondu à temps."}
+    except Gone:
+        return 503, {"erreur": GONE}
+    if isinstance(out, dict) and out.get("ok") and isinstance(out.get("reponse"), dict):
+        return 200, out
+    status = out.get("statut") if isinstance(out, dict) and isinstance(out.get("statut"), int) and 400 <= out["statut"] < 600 else 502
+    return status, out if isinstance(out, dict) else {}
+
+
 # --- Ce que l'agent et l'interface savent des appareils -----------------------------------------------------------------
 
 def decorate(user: int, devices: list[dict]) -> list[dict]:
@@ -629,7 +838,8 @@ def decorate(user: int, devices: list[dict]) -> list[dict]:
         recent = bool(d.get("vu")) and now - datetime.fromisoformat(d["vu"]) < auth.SEEN_EVERY * 2
         out.append({**d, "en_ligne": _online(d["id"]) if d["type"] == "desktop" or seen else recent,
                     "notifiable": _online(d["id"]) or d["id"] in push,
-                    "dossiers": seen.get("dossiers", []), "coupe": bool(seen.get("coupe")), "attente": pending.get(d["id"], 0)})
+                    "dossiers": seen.get("dossiers", []), "coupe": bool(seen.get("coupe")), "attente": pending.get(d["id"], 0),
+                    "abonnements": seen.get("abonnements") or _subscriptions({})})
     return out
 
 
@@ -640,7 +850,7 @@ async def agent_devices(request: Request):
         return closed
     owner = access.owner_of(agent_id)
     await _settled(owner)
-    keep = ("id", "nom", "type", "en_ligne", "notifiable", "dossiers", "coupe", "attente")
+    keep = ("id", "nom", "type", "en_ligne", "notifiable", "dossiers", "coupe", "attente", "abonnements")
     return {"appareils": [{k: d[k] for k in keep} for d in decorate(owner, auth.devices(owner, None))]}
 
 
