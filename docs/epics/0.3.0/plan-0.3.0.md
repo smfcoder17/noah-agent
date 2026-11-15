@@ -44,7 +44,7 @@ Avant la 0.3.0, la **0.2.1** (correctif) part avec : saisie mobile refaite, masc
 
 **But.** L'agent ne redemande plus un identifiant déjà retenu, et la liste des sites dit la vérité.
 
-- B1 `coffre.py` : sur une page de connexion, le **serveur** cherche les identifiants du site (origine exacte, puis même site enregistrable : `www.instagram.com` ↔ `instagram.com`) ; un seul : il remplit sans demander ; plusieurs : la carte demande lequel ; aucun : la carte demande l'identifiant.
+- B1 `coffre.py` : sur une page de connexion, le **serveur** cherche les identifiants du site. Il ne remplit sans demander que sur l'origine exacte, hors tour durci ; un compte du même site enregistrable (liste publique des suffixes) passe par la carte, qui montre son origine (relecture 0.3.0, B-1) ; un seul sur l'origine exacte : il remplit ; plusieurs : la carte demande lequel ; aucun : la carte demande l'identifiant.
 - B2 Coffre **par personne**, partagé par ses agents (droit « utiliser mon coffre » par agent, allumé pour les agents du propriétaire, éteint pour un agent partagé). Migration des lignes par agent vers le propriétaire, sans perte.
 - B3 Le modèle ne voit jamais un secret : nom, site, deux premiers caractères de l'identifiant. Remplissage et envoi par le serveur en une étape.
 - B4 Cartes de paiement et clés d'authentificateur (TOTP) dans le coffre ; une carte ne part qu'après accord pour un paiement précis (boutique, montant) ; le code de sécurité est tapé par la personne. Code TOTP tapé par le serveur sans passer au modèle.
@@ -58,7 +58,7 @@ Avant la 0.3.0, la **0.2.1** (correctif) part avec : saisie mobile refaite, masc
 **Régression.** `tests/tools/juge_test.py`, tests du coffre existants, connexions déjà enregistrées toujours valides après migration.
 
 **État (branche `feat/030-coffre`).** Preuves : `tests/tools/coffre_030_test.py` (58 vérifications), `tests/tools/coffre_test.py` (100), `tests/tools/sites_test.py`, `frontend/src/components/Vault.test.tsx` (5 tests), vitest complet et build verts.
-- [x] B1 serveur qui choisit (origine exacte, puis même site en https, même port, hors hébergements partagés) ; carte « Quel compte ? » ; identifiant refusé par le site écarté 10 min du choix d'office (sinon boucle).
+- [x] B1 serveur qui choisit (d'office sur l'origine exacte seulement ; même site, liste publique des suffixes, par la carte) ; carte « Quel compte ? » ; identifiant refusé par le site écarté 10 min du choix d'office (sinon boucle).
 - [x] B2 tables `coffre` (par personne) et `coffre_agents` (droit) ; migration `db._migrate_logins`, même id, même secret scellé.
 - [x] B3 `list` : nom, site, deux premiers caractères ; sonde sur toutes les réponses à l'agent.
 - [ ] B4 partiel : clé TOTP (code tapé par le serveur) et carte rangée sans code de sécurité. **Pas fait** : le paiement lié à un accord (boutique, montant, usage unique) ; il faut des champs de carte dans `launcher/camofox-noah` (`/noah/remplir`) et le lot C (accords). Les cartes ne sont jamais montrées au modèle.
@@ -66,8 +66,8 @@ Avant la 0.3.0, la **0.2.1** (correctif) part avec : saisie mobile refaite, masc
 - [x] B6 Réglages > Coffre : ajouter, voir après preuve (`_prove_if_needed`, 15 min), modifier, supprimer, import CSV (Chrome, Firefox, Bitwarden, 1Password), droit par agent.
 
 **Doutes (tranchés par l'option la plus sûre, à relire par Franck).**
-1. « Agent partagé » lu comme : un agent du propriétaire qui a au moins un partage (`agent_shares`). Son droit est éteint d'office ; un agent qui avait déjà des identifiants avant la migration garde le droit allumé, pour que ses connexions restent valides.
-2. « Même site enregistrable » : sans liste publique des suffixes, on calcule le site comme `site_of` et on refuse le même-site sur une liste d'hébergements partagés (`SHARED_HOSTING` : github.io, vercel.app…), en http, ou sur un autre port. L'origine exacte reste toujours acceptée.
+1. « Agent partagé » lu comme : un agent du propriétaire qui a au moins un partage (`agent_shares`). Son droit est éteint d'office ; la migration ne l'allume pas non plus, même s'il avait des identifiants : le propriétaire le rallume dans Réglages > Coffre (relecture 0.3.0, D5).
+2. « Même site enregistrable » : calculé avec la liste publique des suffixes, section privée comprise (copie figée `server/noah/suffixes_publics.dat`). Il ne sert qu'à proposer un compte sur la carte, jamais à remplir d'office (relecture 0.3.0, B-1).
 3. Seul le propriétaire de l'agent remplit son coffre : un admin partagé qui répond à la carte se connecte, mais rien n'est retenu, et la carte « Quel compte ? » ne lui montre pas les comptes du propriétaire. `GET /api/agents/{id}/coffre` passe de « admin » à « propriétaire ».
 4. Les sites notés avant la 0.3.0 n'ont été que déclarés par l'agent : ils restent dans la liste, marqués « Non vérifié », au lieu d'être effacés ou crus.
 5. Le modèle voit les deux premiers caractères de l'identifiant, sans le domaine de l'adresse (avant : un caractère et le domaine).
