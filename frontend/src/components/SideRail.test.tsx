@@ -1,4 +1,6 @@
 import { act } from "react";
+import { readFileSync } from "node:fs";
+import { RAIL_KEY } from "@/lib/workPanel";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Agent, Conversation } from "@/lib/api";
@@ -10,7 +12,7 @@ import { AWAY, pageOf, RAIL_PAGE } from "./ConversationRail";
 
 let host: HTMLDivElement, root: Root;
 beforeEach(() => { host = document.createElement("div"); document.body.append(host); root = createRoot(host); });
-afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
+afterEach(async () => { await act(async () => root.unmount()); host.remove(); localStorage.removeItem(RAIL_KEY); });
 
 const agent = (id: string, name: string, tasks: Agent["tasks"] = {}) =>
   ({ id, name, online: true, state: "idle", tasks, droit: "proprietaire", color: "#000", pinned: false, partage: false, role: "", step: null }) as Agent;
@@ -116,4 +118,88 @@ it("garde la colonne des repères par dix, et la fenêtre suit la lecture", () =
   expect(pageOf(0, 4)).toBe(0); // moins d'une page : une seule fenêtre
   expect(pageOf(99, 4)).toBe(0);
   expect(AWAY).toBe(3);
+});
+
+// ─── Lot barre : les trois petits points, le menu au survol, le clic droit ───────────────────────────────────────────────
+
+const dots = (name: string) => document.querySelector<HTMLButtonElement>(`button[aria-label="Menu de ${name}"]`);
+const menu = () => document.querySelector<HTMLElement>('[role="menu"]');
+const menuItems = () => [...menu()!.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
+const css = readFileSync("src/styles/desktop.css", "utf8");
+
+it("point 1 : plus d'icône de réglages, trois petits points par agent à la place", async () => {
+  await render(base({ agent: agents[0], agents }));
+  expect(document.querySelector(".agent-nav-settings")).toBeNull();
+  expect(document.querySelector('button[aria-label="Page de Noah"]')).toBeNull();
+  for (const a of agents) {
+    const b = dots(a.name)!;
+    expect(b, a.name).not.toBeNull();
+    expect(b.getAttribute("aria-haspopup")).toBe("menu");
+    expect(b.getAttribute("aria-expanded")).toBe("false");
+    expect(b.querySelectorAll("circle")).toHaveLength(3); // trois points, pas un autre pictogramme
+  }
+  // Les points ne sont pas dans le bouton de la ligne : le nom et le statut gardent toute la place.
+  expect(rows()[0].querySelector(".agent-nav-more")).toBeNull();
+  expect(css).not.toMatch(/padding-right:56px/);
+});
+
+it("point 2 : cachés par défaut, visibles au survol de n'importe quel agent, au focus clavier et sur écran tactile", () => {
+  expect(css).toMatch(/\.agent-nav-more \{[^}]*opacity:0/);
+  expect(css).toMatch(/\.agent-nav-item:hover \.agent-nav-more[^{]*\{[^}]*opacity:1/);
+  expect(css).toMatch(/\.agent-nav-item:focus-within \.agent-nav-more[^{]*\{[^}]*opacity:1/);
+  expect(css).toMatch(/\.agent-nav-more\[aria-expanded="true"\][^{]*\{[^}]*opacity:1/);
+  expect(css).toMatch(/@media \(hover: none\)[^{]*\{[^}]*\.agent-nav-more[^}]*opacity:1/);
+  // Le survol ne dépend pas de l'agent ouvert : la règle vise la ligne, pas `.is-selected`.
+  expect(css).not.toMatch(/\.is-selected:hover \.agent-nav-more/);
+});
+
+it("point 2 : un clic sur les points d'un agent non ouvert ouvre son menu ; Personnaliser et Page agissent sur lui", async () => {
+  const custom = vi.fn(), page = vi.fn(), pick = vi.fn(), open = vi.fn();
+  await render(base({ agent: agents[0], agents, onCustomize: custom, onAgent: open, onPickAgent: pick, onAgentPage: page }));
+  expect(menu()).toBeNull();
+  await act(async () => dots("Veille")!.click());
+  expect(menu()).not.toBeNull();
+  expect(dots("Veille")!.getAttribute("aria-expanded")).toBe("true");
+  expect(menuItems().map((b) => b.textContent)).toEqual(["Personnaliser", "Page de Veille"]);
+  await act(async () => menuItems()[0].click());
+  expect(custom).toHaveBeenCalledWith("b");
+  expect(menu()).toBeNull(); // il se referme après le choix
+  await act(async () => dots("Veille")!.click());
+  await act(async () => menuItems()[1].click());
+  expect(page).toHaveBeenCalledWith("b");
+  expect(pick).not.toHaveBeenCalled(); // le menu n'ouvre pas la conversation de l'agent
+  expect(open).not.toHaveBeenCalled();
+});
+
+it("point 2 : Échap referme le menu et rend le focus aux points ; un clic ailleurs le referme", async () => {
+  await render(base({ agent: agents[0], agents, onCustomize: noOp }));
+  await act(async () => dots("Noah")!.click());
+  expect(document.activeElement?.getAttribute("role")).toBe("menuitem"); // le clavier entre dans le menu
+  await act(async () => { document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+  expect(menu()).toBeNull();
+  expect(document.activeElement).toBe(dots("Noah"));
+  await act(async () => dots("Noah")!.click());
+  await act(async () => { document.body.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true })); });
+  expect(menu()).toBeNull();
+});
+
+it("point 2 : sans le droit d'administrer, le menu n'offre pas Personnaliser", async () => {
+  const lecture = { ...agents[1], droit: "lecture" } as Agent;
+  await render(base({ agent: agents[0], agents: [agents[0], lecture], onCustomize: noOp }));
+  await act(async () => dots("Veille")!.click());
+  expect(menuItems().map((b) => b.textContent)).toEqual(["Page de Veille"]);
+});
+
+it("point 3 : barre repliée, un clic droit sur un agent ouvre le même menu, sur cet agent", async () => {
+  const custom = vi.fn();
+  localStorage.setItem(RAIL_KEY, "1");
+  await render(base({ agent: agents[0], agents, onCustomize: custom }));
+  expect(document.querySelector("aside.side-rail")!.classList.contains("is-folded")).toBe(true);
+  const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 120 });
+  await act(async () => { rows()[1].dispatchEvent(event); });
+  expect(event.defaultPrevented).toBe(true); // pas le menu du navigateur
+  expect(menuItems().map((b) => b.textContent)).toEqual(["Personnaliser", "Page de Veille"]);
+  expect(menu()!.getAttribute("aria-label")).toBe("Menu de Veille");
+  await act(async () => menuItems()[0].click());
+  expect(custom).toHaveBeenCalledWith("b");
 });

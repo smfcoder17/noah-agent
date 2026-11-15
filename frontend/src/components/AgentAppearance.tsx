@@ -5,14 +5,15 @@ import { useState } from "react";
 import { type Agent, send } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Section } from "./AgentPowers";
-import { NOAH_COLORS, NOAH_DETAILS, NOAH_SHAPES, Noah, NoahTile, agentColor } from "./Noah";
+import { NOAH_COLORS, NoahTile, agentColor } from "./Noah";
+import { DetailChoices, ShapeChoices, shapeId } from "./FaceChoices";
 import { Button, ErrorText } from "./ui";
 import { t } from "@/i18n";
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 
 export function AgentAppearance({ agent, onChanged }: { agent: Agent; onChanged: () => void }) {
-  const saved = { color: agentColor(agent), shape: agent.shape || "gomme", detail: agent.detail || "" };
+  const saved = { color: agentColor(agent), shape: shapeId(agent.shape), detail: agent.detail || "" };
   const [color, setColor] = useState(saved.color);
   const [shape, setShape] = useState(saved.shape);
   const [detail, setDetail] = useState(saved.detail);
@@ -80,46 +81,8 @@ export function AgentAppearance({ agent, onChanged }: { agent: Agent; onChanged:
           </div>
         </fieldset>
 
-        <fieldset className="flex flex-col gap-2">
-          <legend className="mb-1 text-xs font-medium text-muted-foreground">{t("Forme du visage")}</legend>
-          <div className="grid grid-cols-5 gap-1.5">
-            {NOAH_SHAPES.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                aria-pressed={shape === s.id}
-                onClick={() => touch(setShape)(s.id)}
-                className={cn(
-                  "flex cursor-pointer flex-col items-center gap-1 rounded-lg border border-transparent bg-surface px-1 py-1.5 text-[11px] hover:border-border",
-                  shape === s.id && "ring-2 ring-accent",
-                )}
-              >
-                <Noah color={color} shape={s.id} detail="" still className="size-9" />
-                {s.name}
-              </button>
-            ))}
-          </div>
-        </fieldset>
-
-        <fieldset className="flex flex-col gap-2">
-          <legend className="mb-1 text-xs font-medium text-muted-foreground">{t("Détail distinctif")}</legend>
-          <div className="flex flex-wrap gap-1.5">
-            {NOAH_DETAILS.map((d) => (
-              <button
-                key={d.id || "aucun"}
-                type="button"
-                aria-pressed={detail === d.id}
-                onClick={() => touch(setDetail)(d.id)}
-                className={cn(
-                  "cursor-pointer rounded-full border border-transparent bg-surface px-3 py-1 text-xs hover:border-border",
-                  detail === d.id && "ring-2 ring-accent font-medium",
-                )}
-              >
-                {d.name}
-              </button>
-            ))}
-          </div>
-        </fieldset>
+        <ShapeChoices color={color} value={shape} onPick={touch(setShape)} />
+        <DetailChoices value={detail} onPick={touch(setDetail)} />
 
         <ErrorText>{error}</ErrorText>
         <div className="flex items-center justify-end gap-2">

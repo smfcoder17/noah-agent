@@ -3,6 +3,7 @@ import { type Agent, del, send } from "@/lib/api";
 import { forgetPresets, type Preset, usePresets } from "@/lib/presets";
 import { cn } from "@/lib/utils";
 import { NOAH_COLORS, NoahTile, agentColor } from "./Noah";
+import { DetailChoices, ShapeChoices, shapeId } from "./FaceChoices";
 import { PresetNote, PresetPicker } from "./PresetPicker";
 import { Button, Dialog, DialogContent, ErrorText, Input, Label, Textarea } from "./ui";
 import { DictateButton, NO_AGENT, useCanDictate, useFieldDictation } from "./Voice";
@@ -41,6 +42,8 @@ function AgentForm({ agent, onSaved, onDeleted, onCancel }: { agent: Agent | nul
   const [name, setName] = useState(agent?.name ?? "");
   const [role, setRole] = useState(agent?.role ?? "");
   const [color, setColor] = useState(agent ? agentColor(agent) : NOAH_COLORS[0].hex);
+  const [shape, setShape] = useState(shapeId(agent?.shape));
+  const [detail, setDetail] = useState(agent?.detail ?? "");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(false);
@@ -50,12 +53,14 @@ function AgentForm({ agent, onSaved, onDeleted, onCancel }: { agent: Agent | nul
   // Un agent pas encore créé n'a pas d'identifiant : la dictée est celle du compte qui parle.
   const dictation = useFieldDictation(agent?.id ?? NO_AGENT, (text) => setRole((cur) => (cur.trim() ? `${cur.trimEnd()} ${text}` : text).slice(0, ROLE_MAX)));
 
-  // Un modèle pré-remplit le nom, le rôle et la couleur ; tout reste modifiable avant « Créer ».
+  // Un modèle pré-remplit le nom, le rôle et le visage (couleur, forme, détail) ; tout reste modifiable avant « Créer ».
   const pick = (p: Preset | null) => {
     setPreset(p);
     setName(p?.nom ?? "");
     setRole(p?.role ?? "");
     setColor(p?.couleur ?? NOAH_COLORS[0].hex);
+    setShape(shapeId(p?.shape));
+    setDetail(p?.detail ?? "");
   };
 
   const save = async (e: React.FormEvent) => {
@@ -67,7 +72,7 @@ function AgentForm({ agent, onSaved, onDeleted, onCancel }: { agent: Agent | nul
       // Le nom et le rôle redémarrent l'agent ; la couleur seule non.
       if (name.trim() !== agent.name || role.trim() !== agent.role)
         await send(`/api/agents/${agent.id}`, { name: name.trim(), role: role.trim() }, "PATCH");
-      await send(`/api/agents/${agent.id}/look`, { color }, "PATCH");
+      await send(`/api/agents/${agent.id}/look`, { color, ...(shape !== shapeId(agent.shape) && { shape }), ...(detail !== (agent.detail ?? "") && { detail }) }, "PATCH");
       onSaved(agent.id);
     } catch (err) {
       setError((err as Error).message);
@@ -85,9 +90,11 @@ function AgentForm({ agent, onSaved, onDeleted, onCancel }: { agent: Agent | nul
       return;
     }
     forgetPresets(); // l'écran vide du nouvel agent relit son modèle
-    // L'agent existe déjà : un échec de la couleur ne doit pas laisser recliquer « Créer » (un deuxième agent).
-    // La couleur du modèle est posée par le serveur ; elle se change ensuite dans le panneau de l'agent.
-    if (color !== preset?.couleur) await send(`/api/agents/${id}/look`, { color }, "PATCH").catch(() => {});
+    // L'agent existe déjà : un échec du visage ne doit pas laisser recliquer « Créer » (un deuxième agent).
+    // Le visage du modèle est posé par le serveur : seul ce que la personne a changé après coup repart.
+    const base = { color: preset?.couleur ?? "", shape: shapeId(preset?.shape), detail: preset?.detail ?? "" };
+    const look = { ...(color !== base.color && { color }), ...(shape !== base.shape && { shape }), ...(detail !== base.detail && { detail }) };
+    if (Object.keys(look).length) await send(`/api/agents/${id}/look`, look, "PATCH").catch(() => {});
     onSaved(id);
   };
 
@@ -111,7 +118,7 @@ function AgentForm({ agent, onSaved, onDeleted, onCancel }: { agent: Agent | nul
     <form onSubmit={save} className="flex flex-col gap-4">
       {!agent && presets && presets.presets.length > 0 && <PresetPicker presets={presets.presets} value={preset?.id ?? ""} onPick={pick} />}
       <div className="flex items-center gap-4">
-        <NoahTile color={color} className="size-20" />
+        <NoahTile color={color} shape={shape} detail={detail} className="size-20" />
         <fieldset className="flex flex-col gap-2">
           <legend className="mb-2 text-sm font-medium">{t("Couleur")}</legend>
           <div className="flex flex-wrap gap-2">
@@ -128,9 +135,10 @@ function AgentForm({ agent, onSaved, onDeleted, onCancel }: { agent: Agent | nul
               />
             ))}
           </div>
-          <span className="text-xs text-muted-foreground">{t("Forme du visage et détails : dans le panneau de l'agent, section Apparence.")}</span>
         </fieldset>
       </div>
+      <ShapeChoices color={color} value={shape} onPick={setShape} />
+      <DetailChoices value={detail} onPick={setDetail} />
       <Label>
         {t("Nom")}
         <Input required maxLength={40} placeholder={t("Ex. Léa, Assistant courriels, Veille")} value={name} onChange={(e) => setName(e.target.value)} />

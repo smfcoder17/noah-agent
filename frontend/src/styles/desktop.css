@@ -16,7 +16,7 @@
 .side-rail.is-folded { padding:14px 8px; align-items:stretch; }
 .side-rail.is-folded .rail-row { justify-content:center; padding:8px 0; position:relative; }
 .side-rail.is-folded .rail-label, .side-rail.is-folded .rail-agents-label, .side-rail.is-folded .agent-nav-text, .side-rail.is-folded .agent-nav-chevron,
-.side-rail.is-folded .agent-nav-settings, .side-rail.is-folded .agent-nav-options { display:none; }
+.side-rail.is-folded .agent-nav-more, .side-rail.is-folded .agent-nav-options { display:none; }
 .side-rail.is-folded .rail-count { position:absolute; top:2px; right:2px; }
 .side-rail.is-folded .agent-nav-row, .side-rail.is-folded .is-selected .agent-nav-row { justify-content:center; padding:6px 0; }
 .side-rail.is-folded .agent-nav-row .rail-count { right:0; top:0; }
@@ -29,17 +29,26 @@
 .agent-nav-item { border-radius:var(--radius-12); }
 .agent-nav-item.is-selected { background:var(--card); box-shadow:var(--shadow-active); padding-bottom:4px; }
 .agent-nav-head { position:relative; display:flex; align-items:center; }
-.agent-nav-row { flex:1; min-width:0; display:flex; align-items:center; gap:10px; padding:7px 34px 7px 8px; border-radius:var(--radius-12); text-align:left; color:var(--ink); cursor:pointer; }
+.agent-nav-row { flex:1; min-width:0; display:flex; align-items:center; gap:10px; padding:7px 8px; border-radius:var(--radius-12); text-align:left; color:var(--ink); cursor:pointer; }
 .agent-nav-row:hover { background:color-mix(in srgb, var(--card) 70%, transparent); }
 .is-selected .agent-nav-row:hover { background:transparent; }
 .agent-nav-text { display:flex; flex-direction:column; min-width:0; flex:1; }
 .agent-nav-text b { font-size:13.5px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .agent-nav-text small { display:flex; align-items:center; gap:5px; font-size:11.5px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 .agent-nav-row .rail-count { position:absolute; right:10px; }
-.agent-nav-chevron { position:absolute; right:34px; color:var(--soft); transition:transform .15s; }
-.agent-nav-settings { position:absolute; right:6px; width:26px; height:26px; display:grid; place-items:center; border-radius:var(--radius-8); color:var(--soft); cursor:pointer; }
-.agent-nav-settings:hover { background:var(--muted); color:var(--ink); }
-.is-selected .agent-nav-row { padding-right:56px; }
+.agent-nav-chevron { flex:none; color:var(--soft); transition:transform .15s; }
+/* Les trois petits points : cachés jusqu'au survol de la ligne de n'importe quel agent (ouvert ou non), visibles au focus clavier et menu ouvert. */
+.agent-nav-more { position:absolute; right:4px; width:26px; height:26px; display:grid; place-items:center; border-radius:var(--radius-8); color:var(--soft); background:var(--muted); cursor:pointer; opacity:0; transition:opacity .12s; }
+.agent-nav-item:hover .agent-nav-more, .agent-nav-item:focus-within .agent-nav-more, .agent-nav-more[aria-expanded="true"] { opacity:1; }
+.agent-nav-more:hover { color:var(--ink); background:var(--line); }
+/* Sans survol possible (écran tactile), ils restent visibles : sinon le menu serait hors d'atteinte. */
+@media (hover: none) { .agent-nav-more { opacity:1; } }
+.agent-menu { display:grid; gap:1px; min-width:200px; padding:6px; border:1px solid var(--line); border-radius:var(--radius-14); background:var(--card); box-shadow:var(--shadow-menu); }
+.agent-menu.is-floating { position:fixed; z-index:60; width:208px; }
+.agent-nav-item > .agent-menu { margin:2px 8px 4px; }
+.agent-menu-item { display:flex; align-items:center; min-height:36px; padding:0 12px; border-radius:var(--radius-10); color:var(--ink); font-size:13.5px; text-align:left; cursor:pointer; }
+.agent-menu-item:hover, .agent-menu-item:focus-visible { background:var(--muted); }
+.agent-menu button:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
 .agent-nav-options { display:grid; gap:1px; padding:2px 4px 0 14px; }
 .agent-nav-option { display:flex; align-items:center; gap:9px; min-height:32px; padding:5px 10px; border-radius:var(--radius-8); color:var(--soft); font-size:13px; text-align:left; cursor:pointer; }
 .agent-nav-option:hover { background:var(--muted); color:var(--ink); }
@@ -56,9 +65,9 @@
 .agent-nav-drawer .agent-nav-text b { font-size:15px; }
 .agent-nav-drawer .agent-nav-text small { font-size:12.5px; }
 .agent-nav-drawer .agent-nav-option, .agent-nav-drawer .agent-nav-thread { min-height:44px; font-size:14.5px; }
-.agent-nav-drawer .agent-nav-settings { width:40px; height:40px; }
-.agent-nav-drawer .is-selected .agent-nav-row { padding-right:72px; }
-.agent-nav-drawer .agent-nav-chevron { right:48px; }
+.agent-nav-drawer .agent-nav-more { width:44px; height:44px; right:2px; opacity:1; background:transparent; }
+.agent-nav-drawer .agent-nav-row { padding-right:52px; }
+.agent-nav-drawer .agent-menu-item { min-height:44px; font-size:14.5px; }
 .agent-nav-drawer .agent-nav-option[aria-current] { background:var(--card); }
 .right-panel { position:fixed; top:0; right:0; bottom:0; width:var(--right-width); display:flex; flex-direction:column; border-left:1px solid var(--line); background:var(--card); z-index:35; }
 .right-panel > header { height:56px; flex:none; display:flex; align-items:center; gap:8px; padding:0 12px 0 18px; border-bottom:1px solid var(--line); }

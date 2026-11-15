@@ -9,10 +9,10 @@ import { t } from "@/i18n";
 
 /**
  * Barre de gauche, minimale : ce qui attend la personne, puis ses agents alignés ; l'agent ouvert montre son grand visage,
- * son nom, son état et ses réglages à côté. Ses contenus (Activité, Tâches, Fichiers…) sont en haut à droite de la
+ * son nom et son état ; les trois petits points de chaque agent (au survol) ouvrent son menu. Ses contenus (Activité, Tâches, Fichiers…) sont en haut à droite de la
  * conversation. Repliée, elle ne garde que les icônes et les visages ; ce choix est retenu sur cet appareil.
  */
-export const SideRail = memo(function SideRail({ waiting = 0, onInbox, agent, agents = [], conversations, activeThread = null, onAgent, onPickAgent, onMenu, onThread, onSettings, onGoals, onNewAgent }: {
+export const SideRail = memo(function SideRail({ waiting = 0, onInbox, agent, agents = [], conversations, activeThread = null, onAgent, onPickAgent, onMenu, onThread, onSettings, onGoals, onNewAgent, onAgentPage, onCustomize }: {
   waiting?: number; onInbox?: () => void; agent: Agent | null;
   /** Tous les agents, dans l'ordre du serveur (épinglés d'abord). */
   agents?: Agent[];
@@ -25,6 +25,9 @@ export const SideRail = memo(function SideRail({ waiting = 0, onInbox, agent, ag
   onTab?: (t: NavTab) => void;
   /** Ouvre la page de l'agent ouvert. */
   onAgent: () => void;
+  /** Menu de l'agent (trois points, clic droit) : la page de l'agent donné, et sa fenêtre de personnalisation. */
+  onAgentPage?: (id: string) => void;
+  onCustomize?: (id: string) => void;
   /** Ouvre l'agent donné, depuis sa ligne. */
   onPickAgent?: (id: string) => void;
   /** Recherche : agents et fils. */
@@ -43,7 +46,8 @@ export const SideRail = memo(function SideRail({ waiting = 0, onInbox, agent, ag
     <h2 className="section-label rail-agents-label">{t("Agents")}</h2>
     <nav aria-label={t("Navigation")} className="rail-agents-scroll">
       <AgentNav agents={list} agentId={agent?.id ?? null} tabs={[]} active="chat" showTabs={false} conversations={conversations} activeThread={activeThread}
-        onPick={(id) => (onPickAgent ? onPickAgent(id) : onAgent())} onTab={() => {}} onThread={onThread} onAgentPage={onAgent} />
+        onPick={(id) => (onPickAgent ? onPickAgent(id) : onAgent())} onTab={() => {}} onThread={onThread} onCustomize={onCustomize}
+        onAgentPage={(id) => { if (onAgentPage) return onAgentPage(id); if (id !== agent?.id) onPickAgent?.(id); onAgent(); }} />
     </nav>
     <div className="rail-bottom">
       {onNewAgent && entry(t("Nouvel agent"), Plus, onNewAgent)}
