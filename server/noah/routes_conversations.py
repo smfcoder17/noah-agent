@@ -7,7 +7,7 @@ import re
 from fastapi import HTTPException, Depends, APIRouter
 from pydantic import BaseModel
 
-from . import media, access, events, apprentissage, auth, db, taches, main
+from . import media, access, events, apprentissage, auth, bus, db, desktop, handoff, machine, notifications, taches, main
 from . import main as main_module  # dans conversations(), `main` est une variable locale : le module s'y lit par ce nom
 
 router = APIRouter()
@@ -32,6 +32,11 @@ def conversations(agent_id: str, user: int = Depends(auth.current_user)):
     """La conversation principale de ce compte avec l'agent et ses fils, plus celles que d'autres ont rendues visibles.
     Un fil vieux et terminé compte comme archivé."""
     access.access(user, agent_id, "lecture")
+    return conversations_of(agent_id, user)
+
+
+def conversations_of(agent_id: str, user: int) -> list[dict]:
+    """La liste, une fois le droit vérifié (route …/conversations et ouverture)."""
     with db.connect() as c:
         rows = c.execute(
             "SELECT v.id, v.title, v.updated_at, v.main, v.archived, v.origin, v.shared, v.user_id, u.username, "
@@ -57,6 +62,45 @@ def conversations(agent_id: str, user: int = Depends(auth.current_user)):
     return out
 
 
+OUVERTURE_VERSION = 1
+OUVERTURE_PAGE = 60
+
+
+@router.get("/api/agents/{agent_id}/ouverture")
+def ouverture(agent_id: str, limit: int = OUVERTURE_PAGE, suivi: bool = True, user: int = Depends(auth.current_user)):
+    """Tout ce qu'il faut pour ouvrir un agent, en une requête (socle.md, 5.1, exigence X22). Chaque bloc a la forme de la route qu'il
+    remplace, et vient de la même fonction : …/messages (fil.messages), …/en-cours, /api/a-toi réduit à cet agent, …/appel,
+    …/taches-confiees, …/conversations. Les routes d'avant restent : les applications déjà installées les appellent.
+    `suivi` : comme pour …/en-cours, un écran regarde le fil."""
+    from . import routes_chat, routes_consommation  # à la demande : ces modules importent main, comme celui-ci
+    access.access(user, agent_id, "lecture")
+    revision = bus.revision_of(user)  # avant les lectures : un événement arrivé pendant elles ne sera pas pris pour déjà vu
+    fil = None
+    fil_id = main._main_conversation(agent_id, user)
+    if fil_id:
+        row = access.conversation(user, fil_id)
+        page = messages_page(row, fil_id, user, limit=limit)
+        premier = page[0]["id"] if page else None
+        with db.connect() as c:
+            updated = c.execute("SELECT updated_at FROM conversations WHERE id = ?", (fil_id,)).fetchone()["updated_at"]
+            plus = bool(premier is not None and c.execute("SELECT 1 FROM messages WHERE conversation_id = ? AND id < ? LIMIT 1", (fil_id, premier)).fetchone())
+        fil = {"id": fil_id, "updated_at": updated, "lecture_seule": not access.allowed(user, agent_id, "usage"), "plus": plus,
+               "messages": page, "taches": taches.du_fil(fil_id, user, premier if plus else None)}
+    en_cours = routes_chat.now_of(row, fil_id, user) if fil_id else {"occupe": False, "activite": None, "run_id": None, "file": [], "accord": None, "connexion": None}
+    if fil_id and suivi:
+        notifications.saw(fil_id)
+    mine = [i for i in routes_consommation.inbox(user) if i.get("agent_id") == agent_id]
+    attentes = {"questions": [i for i in mine if i.get("type") != "proposition" and "request_id" not in i],
+                "accords": sum(1 for i in mine if "request_id" in i),
+                "propositions": sum(1 for i in mine if i.get("type") == "proposition")}
+    owner = access.owner_of(agent_id) == user
+    return {"version": OUVERTURE_VERSION, "revision": str(revision), "fil": fil, "en_cours": en_cours, "attentes": attentes,
+            "appel": handoff.call_for(user, agent_id),
+            "taches_confiees": desktop.delegated_tasks(agent_id) if owner else [],
+            "routines": {"actives": machine.routines_connues(agent_id) if access.allowed(user, agent_id, "admin") else [], "non_vues": 0},
+            "conversations": conversations_of(agent_id, user)}
+
+
 class ArchiveBody(BaseModel):
     archived: bool
 
@@ -76,7 +120,11 @@ def archive_conversation(conv_id: str, body: ArchiveBody, user: int = Depends(au
 @router.get("/api/conversations/{conv_id}/messages")
 def messages(conv_id: str, limit: int | None = None, avant: int | None = None, depuis: int | None = None, user: int = Depends(auth.current_user)):
     """Par tranches : `limit` garde les plus récents, `avant` remonte d'une page, `depuis` reprend à partir d'un message. Sans rien : tout."""
-    conv = access.conversation(user, conv_id)
+    return messages_page(access.conversation(user, conv_id), conv_id, user, limit, avant, depuis)
+
+
+def messages_page(conv, conv_id: str, user: int, limit: int | None = None, avant: int | None = None, depuis: int | None = None) -> list[dict]:
+    """Une tranche de la conversation, une fois le droit vérifié (`conv` : la ligne de access.conversation). Route …/messages et ouverture."""
     where, args = "conversation_id = ?", [conv_id]
     if conv["user_id"] != user:  # conversation rendue visible : la trace d'un fil reste à son auteur, qui seul peut l'ouvrir
         where += " AND role != 'trace'"

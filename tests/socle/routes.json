@@ -1660,6 +1660,13 @@
 "conversations"
 ],
 [
+"/api/agents/{agent_id}/ouverture",
+[
+"GET"
+],
+"ouverture"
+],
+[
 "/api/conversations/{conv_id}/archive",
 [
 "POST"

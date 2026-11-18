@@ -1,12 +1,14 @@
 """0.4.0 : les tâches. Un travail qu'un agent fait pour la personne, pour un autre agent, de lui-même ou pour une routine.
 
-Au pas S5 du socle (docs/epics/0.4.0/socle.md, sections 3 et 4), ce fichier ne fait qu'écrire : rien n'est lu pour l'affichage, aucune
-route ne change de réponse. Il est le seul à lire la table `taches`, avec ses tests.
+Au pas S5 du socle (docs/epics/0.4.0/socle.md, sections 3 et 4), ce fichier ne fait qu'écrire : aucune route ne change de réponse.
+Au pas S6, la route d'ouverture d'un agent (section 5.1) les lit par `du_fil`, et l'interface ne s'en sert pas encore pour dessiner.
+Il est le seul à lire la table `taches`, avec ses tests.
 
 - `creer` : la double écriture. Chaque endroit où naît une sous-conversation y crée aussi sa tâche.
 - `lier_trace` : relie la tâche à la ligne de trace du fil, une fois écrite.
 - `finir` : ferme la tâche là où le travail se termine.
 - `migrer` : reprend les anciennes sous-conversations, rejouable à chaque démarrage.
+- `du_fil` : les tâches d'une page du fil, pour la route d'ouverture.
 
 Une erreur d'écriture est journalisée et ne remonte jamais : une tâche perdue ne doit pas abîmer le travail qu'elle signale.
 """
@@ -164,6 +166,34 @@ def finir(conversation_id: str, etat: str, resume: str | None = None) -> bool:
     except Exception as e:  # noqa: BLE001
         _log(f"{conversation_id} : tâche non fermée ({type(e).__name__} : {e})")
         return False
+
+
+# --- Lecture pour la route d'ouverture ---------------------------------------------------------------------
+
+DU_FIL_MAX = 200  # tâches rendues au plus : les plus récentes
+
+
+def du_fil(fil_id: str, owner_id: int, depuis_ancre: int | None) -> list[dict]:
+    """Les tâches de cette page du fil, dans l'ordre où elles s'y placent (socle.md, 3.1 : « une page de messages [a, b] porte les
+    tâches dont a <= ancre <= b »). `depuis_ancre` : l'id du premier message de la page ; None quand la page est la plus ancienne, qui
+    porte aussi celles d'avant. La page rendue est toujours la plus récente : aucune borne haute. Le compte qui lit est celui de la tâche."""
+    with db.connect() as c:
+        rows = c.execute(
+            "SELECT * FROM (SELECT t.id, t.titre, t.genre, t.demandeur, a.name AS demandeur_nom, t.etat, t.resume, t.fichiers, t.ancre, t.cree, t.fini_a "
+            "FROM taches t LEFT JOIN agents a ON a.id = t.demandeur WHERE t.fil_id = ? AND t.owner_id = ? AND (? IS NULL OR t.ancre >= ?) "
+            "ORDER BY t.ancre DESC, t.cree DESC LIMIT ?) ORDER BY ancre, cree",
+            (fil_id, owner_id, depuis_ancre, depuis_ancre, DU_FIL_MAX)).fetchall()
+    out = []
+    for r in rows:
+        try:
+            fichiers = json.loads(r["fichiers"] or "[]")
+        except ValueError:
+            fichiers = []
+        out.append({"id": r["id"], "titre": r["titre"], "genre": r["genre"],
+                    "demandeur": {"id": r["demandeur"], "nom": r["demandeur_nom"]} if r["demandeur"] else None,
+                    "etat": r["etat"], "resume": r["resume"], "fichiers": fichiers if isinstance(fichiers, list) else [],
+                    "ancre": r["ancre"], "cree": r["cree"], "fini_a": r["fini_a"], "question": None})
+    return out
 
 
 # --- Migration des anciennes sous-conversations ----------------------------------------------------------

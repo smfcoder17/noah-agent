@@ -292,6 +292,11 @@ def conversation_now(conv_id: str, suivi: bool = True, user: int = Depends(auth.
     row = access.conversation(user, conv_id)
     if suivi and row["user_id"] == user:
         notifications.saw(conv_id)
+    return now_of(row, conv_id, user)
+
+
+def now_of(row, conv_id: str, user: int) -> dict:
+    """Ce que l'agent fait dans cette conversation (route …/en-cours et ouverture). `row` : la ligne rendue par access.conversation."""
     agent_id = row["agent_id"]
     busy = coordination._busy(agent_id, conv_id)
     return {"occupe": busy, "activite": main.task_activity.get(conv_id) if busy else None, "run_id": _conversation_run(conv_id) if busy else None,

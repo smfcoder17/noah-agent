@@ -780,9 +780,14 @@ async def user_tasks(agent_id: str, user: int = Depends(auth.current_user)):
     """Les tâches que cet agent a confiées à l'ordinateur : en cours, ou finies depuis dix minutes. Pour son propriétaire seulement."""
     if access.owner_of(agent_id) != user:
         raise HTTPException(404, "Agent introuvable")
+    return {"taches": delegated_tasks(agent_id)}
+
+
+def delegated_tasks(agent_id: str) -> list[dict]:
+    """Les tâches confiées à l'ordinateur par cet agent : en cours, ou finies depuis dix minutes (route …/taches-confiees et ouverture)."""
     _sweep_tasks()
     recent = time.time() - 600
-    return {"taches": [_shown(r, t) for r, t in _tasks.items() if t["agent_id"] == agent_id and (t["etat"] == "en_cours" or t.get("fin", 0) > recent)]}
+    return [_shown(r, t) for r, t in _tasks.items() if t["agent_id"] == agent_id and (t["etat"] == "en_cours" or t.get("fin", 0) > recent)]
 
 
 @router.post("/api/desktop/taches/{rid}/arreter")

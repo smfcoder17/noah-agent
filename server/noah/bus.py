@@ -88,6 +88,13 @@ def publish(c, user: int, genre: str, contenu: dict) -> int:
     return revision
 
 
+def revision_of(user: int) -> int:
+    """La révision du flux de ce compte à l'instant de la lecture : une réponse lue avant un événement déjà reçu se jette (ouverture d'un agent)."""
+    with db.connect() as c:
+        row = c.execute("SELECT revision FROM evenements_revisions WHERE user_id = ?", (user,)).fetchone()
+    return row["revision"] if row else 0
+
+
 def prune(c) -> None:
     c.execute("DELETE FROM evenements WHERE created <= ?", (time.time() - KEEP,))
 

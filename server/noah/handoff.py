@@ -219,7 +219,12 @@ def _public(call: dict | None) -> dict | None:
 async def get_call(agent_id: str, user: int = Depends(auth.current_user)):
     """La prise en main passe par l'écran de l'agent, réservé à ceux qui ont ses réglages : les autres ne voient rien."""
     access.access(user, agent_id, "lecture")
-    return {"appel": _public(current(agent_id)) if access.allowed(user, agent_id, "admin") else None}
+    return {"appel": call_for(user, agent_id)}
+
+
+def call_for(user: int, agent_id: str) -> dict | None:
+    """L'appel d'aide ouvert pour cet agent, tel que l'écran le lit ; seuls ceux qui ont ses réglages le voient (route GET …/appel et ouverture)."""
+    return _public(current(agent_id)) if access.allowed(user, agent_id, "admin") else None
 
 
 class Answer(BaseModel):

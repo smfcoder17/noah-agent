@@ -28,7 +28,20 @@ def _check(agent_id: str, user: int) -> str:
     return agent_id
 
 
+# Les routines actives de chaque agent, telles que la dernière lecture complète les a vues : de quoi nourrir l'ouverture d'un agent
+# (cartes de retour) sans lancer le moindre `docker exec`. Rempli par _shown_routines, vidé par toute écriture de routine.
+# Le pas S7 du socle le remplira aussi par la relève de chaque minute.
+_routines_connues: dict[str, list[dict]] = {}
+
+
+def routines_connues(agent_id: str) -> list[dict]:
+    """Ce que le serveur sait des routines actives de cet agent, sans rien demander à sa machine : [] tant qu'il ne les a jamais lues."""
+    return list(_routines_connues.get(agent_id, []))
+
+
 async def admin(agent_id: str, action: str, body: dict | None = None, timeout: float = 90) -> dict:
+    if action in ("routine_creer", "routine_action"):
+        _routines_connues.pop(agent_id, None)  # une écriture : ce qui était su n'est plus sûr
     async with httpx.AsyncClient(timeout=timeout) as c:
         r = await c.post(f"{LAUNCHER_URL}/agents/{agent_id}/admin/{action}", headers=LAUNCHER,
                          content=json.dumps(body or {}, ensure_ascii=False).encode())
@@ -262,7 +275,9 @@ async def _edit_routine(agent_id: str, routine_id: str, body: RoutineEdit) -> di
 async def _shown_routines(agent_id: str) -> dict:
     found = await admin(agent_id, "routines")
     # `suggerees` : celles du modèle d'agent, en pause dans Noah (presets.py). Hors de `routines` : Hermes ne les connaît pas encore.
-    return {**found, "routines": [modes.shown_routine(agent_id, r) for r in found.get("routines") or []], "suggerees": presets.suggested(agent_id)}
+    shown = [modes.shown_routine(agent_id, r) for r in found.get("routines") or []]
+    _routines_connues[agent_id] = [{"id": r.get("id"), "nom": r["name"]} for r in shown if r.get("enabled") and r.get("name")]
+    return {**found, "routines": shown, "suggerees": presets.suggested(agent_id)}
 
 
 @router.get("/api/agents/{agent_id}/routines")
