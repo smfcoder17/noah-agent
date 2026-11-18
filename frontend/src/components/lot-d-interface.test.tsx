@@ -195,7 +195,9 @@ it("D3 — arbre : dossiers dépliables, filtre, aperçu Markdown, image et PDF 
     expect(page.getAttribute("src")).toBe("/api/agents/a/files/raw/apps/site/index.html");
     expect(page.getAttribute("sandbox")).toBe("allow-scripts");
   } finally { vi.unstubAllGlobals(); }
-});
+// Quatre aperçus chargés à la demande, deux secondes d'attente chacun au plus : sur un poste chargé, les 5 s par défaut n'y suffisent pas,
+// et le test coupé en route fait tomber les onze suivants.
+}, 30_000);
 
 it("D4 — session : une tâche lancée apparaît en moins de 3 s, disparaît à sa fin ; un fichier récent s'ouvre en aperçu", async () => {
   vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
