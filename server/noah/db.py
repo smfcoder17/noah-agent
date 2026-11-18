@@ -286,6 +286,74 @@ def init() -> None:
         db.execute("CREATE TABLE IF NOT EXISTS coffre_retraits (agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, "
                    "coffre_id TEXT NOT NULL REFERENCES coffre(id) ON DELETE CASCADE, PRIMARY KEY (agent_id, coffre_id))")
         _migrate_logins(db)
+        # 0.4.0. Une tâche : un travail qu'un agent fait pour la personne, pour un autre agent, de lui-même ou pour une routine.
+        # Elle se replie dans le fil de l'agent (`fil_id`, sa conversation principale pour ce compte), juste après le message `ancre`.
+        # `conversation_id` garde ses échanges et sa session Hermes : c'est l'ancienne sous-conversation, jamais listée.
+        # `trace_id` : l'ancienne ligne de trace que la tâche remplace à l'écran. `source_id` : la ligne d'origine
+        # (delegations.id, proactive_turns.id, id de routine). `migree` : créée par la reprise des anciennes sous-conversations.
+        db.execute("CREATE TABLE IF NOT EXISTS taches (id TEXT PRIMARY KEY, "
+                   "owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
+                   "agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, "
+                   "fil_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, "
+                   "conversation_id TEXT UNIQUE REFERENCES conversations(id) ON DELETE CASCADE, "
+                   "genre TEXT NOT NULL CHECK (genre IN ('demande', 'fil', 'initiative', 'sous_tache', 'routine', 'discussion')), "
+                   "demandeur TEXT NOT NULL DEFAULT '', parent_id TEXT, "
+                   "titre TEXT NOT NULL, titre_source TEXT NOT NULL DEFAULT 'auto' CHECK (titre_source IN ('auto', 'modele', 'personne')), "
+                   "consigne TEXT NOT NULL DEFAULT '', "
+                   "etat TEXT NOT NULL DEFAULT 'encours' CHECK (etat IN ('encours', 'attend', 'fini', 'echec')), "
+                   "resume TEXT NOT NULL DEFAULT '', fichiers TEXT NOT NULL DEFAULT '[]', "
+                   "ancre INTEGER NOT NULL DEFAULT 0, trace_id INTEGER, source_id TEXT NOT NULL DEFAULT '', "
+                   "cree REAL NOT NULL, fini_a REAL, maj REAL NOT NULL, migree INTEGER NOT NULL DEFAULT 0)")
+        db.execute("CREATE INDEX IF NOT EXISTS taches_fil ON taches(fil_id, ancre)")
+        db.execute("CREATE INDEX IF NOT EXISTS taches_owner ON taches(owner_id, etat, maj)")
+        db.execute("CREATE INDEX IF NOT EXISTS taches_agent ON taches(agent_id, cree)")
+        db.execute("CREATE INDEX IF NOT EXISTS taches_parent ON taches(parent_id)")
+        # Une question posée pendant un travail (X4). `de` : l'agent qui demande. `a` : qui doit répondre maintenant
+        # (un id d'agent, ou vide = la personne). `chemin` : la liste JSON de ceux qui l'ont eue en main, dans l'ordre.
+        # `reserve` : un sujet que seule la personne tranche ; la question ne passe alors par aucun agent.
+        # `repondu_par` : 'personne', un id d'agent, ou 'regle:<id>' quand une règle retenue a répondu.
+        # Une réponse d'agent est une « décision prise pour toi » (X35) ; `correction` : ce que la personne a rectifié ensuite.
+        db.execute("CREATE TABLE IF NOT EXISTS questions (id TEXT PRIMARY KEY, "
+                   "owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
+                   "tache_id TEXT REFERENCES taches(id) ON DELETE CASCADE, "
+                   "conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, "
+                   "de TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, a TEXT NOT NULL DEFAULT '', "
+                   "genre TEXT NOT NULL DEFAULT 'question' CHECK (genre IN ('question', 'choix')), "
+                   "titre TEXT NOT NULL, pourquoi TEXT NOT NULL DEFAULT '', choix TEXT NOT NULL DEFAULT '[]', "
+                   "libre INTEGER NOT NULL DEFAULT 1, "
+                   "reserve TEXT NOT NULL DEFAULT '' CHECK (reserve IN ('', 'payer', 'supprimer', 'secrets', 'publier')), "
+                   "chemin TEXT NOT NULL DEFAULT '[]', tours INTEGER NOT NULL DEFAULT 0, "
+                   "etat TEXT NOT NULL DEFAULT 'attend' CHECK (etat IN ('attend', 'repondue', 'annulee', 'expiree')), "
+                   "reponse TEXT NOT NULL DEFAULT '', repondu_par TEXT NOT NULL DEFAULT '', repondu_a REAL, "
+                   "correction TEXT NOT NULL DEFAULT '', corrige_a REAL, regle_id TEXT, "
+                   "message_id INTEGER, cree REAL NOT NULL, maj REAL NOT NULL)")
+        db.execute("CREATE INDEX IF NOT EXISTS questions_owner ON questions(owner_id, etat, a)")
+        db.execute("CREATE INDEX IF NOT EXISTS questions_tache ON questions(tache_id, cree)")
+        db.execute("CREATE INDEX IF NOT EXISTS questions_decidees ON questions(owner_id, repondu_a)")
+        # Ce que la personne a tranché une fois et qui vaut ensuite (X35) : sa correction d'une réponse donnée par un agent.
+        # `agent_id` vide : la règle vaut pour tous ses agents. `servie` : le nombre de fois où elle a répondu à sa place.
+        db.execute("CREATE TABLE IF NOT EXISTS regles (id TEXT PRIMARY KEY, "
+                   "owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
+                   "agent_id TEXT REFERENCES agents(id) ON DELETE CASCADE, "
+                   "question_id TEXT REFERENCES questions(id) ON DELETE SET NULL, "
+                   "sujet TEXT NOT NULL, texte TEXT NOT NULL, "
+                   "etat TEXT NOT NULL DEFAULT 'active' CHECK (etat IN ('active', 'retiree')), "
+                   "cree REAL NOT NULL, servie INTEGER NOT NULL DEFAULT 0, servie_a REAL)")
+        db.execute("CREATE INDEX IF NOT EXISTS regles_owner ON regles(owner_id, etat)")
+        # Chaque passage d'une routine, gardé hors du fil (X6). Relevé par machine.deliver_routines_once.
+        # `fichier` : l'horodatage du fichier de sortie d'Hermes ; avec la routine, il rend le relevé rejouable sans doublon.
+        # `amene` : la personne a amené ce résultat dans le fil.
+        db.execute("CREATE TABLE IF NOT EXISTS routine_passages (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                   "agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, routine_id TEXT NOT NULL, nom TEXT NOT NULL, "
+                   "fichier TEXT NOT NULL, etat TEXT NOT NULL CHECK (etat IN ('ok', 'err')), "
+                   "resume TEXT NOT NULL DEFAULT '', rendu TEXT NOT NULL DEFAULT '', erreur TEXT NOT NULL DEFAULT '', "
+                   "duree REAL, passe_a REAL NOT NULL, amene INTEGER NOT NULL DEFAULT 0, "
+                   "UNIQUE(agent_id, routine_id, fichier))")
+        db.execute("CREATE INDEX IF NOT EXISTS routine_passages_agent ON routine_passages(agent_id, passe_a)")
+        # Jusqu'où chaque compte a vu les passages d'un agent : le voyant d'Activité et « passées depuis ta dernière visite ».
+        db.execute("CREATE TABLE IF NOT EXISTS routine_vues (user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
+                   "agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, vu_a REAL NOT NULL DEFAULT 0, "
+                   "PRIMARY KEY (user_id, agent_id))")
         db.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_one_owner ON users(role) WHERE role = 'owner'")
         db.commit()  # le changement de journal ne se fait pas au milieu d'une transaction
         # WAL : les lectures ne bloquent plus pendant une écriture (flux de chat et relais en parallèle).
