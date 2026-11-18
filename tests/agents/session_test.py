@@ -140,7 +140,7 @@ check("P5n1 puis son arrêt le retire", procs() == [])
 # Partie 5 n°5 : la purge de fin de tour est dans un finally, même quand l'écran se déconnecte.
 import ast  # noqa: E402
 from pathlib import Path  # noqa: E402
-tree = ast.parse(Path(main.__file__).read_text(encoding="utf-8"))
+tree = ast.parse(Path(main.tours.__file__).read_text(encoding="utf-8"))
 purges = [t for t in ast.walk(tree) if isinstance(t, ast.Try) and any("session.run_ended" in ast.unparse(s) for s in t.finalbody)]
 check("P5n5 session.run_ended est dans un finally du tour", len(purges) == 1 and not any(
     isinstance(s, ast.Expr) and "session.run_ended" in ast.unparse(s) for t in ast.walk(tree) if isinstance(t, (ast.AsyncFunctionDef, ast.FunctionDef)) for s in t.body))
