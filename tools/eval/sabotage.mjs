@@ -1,5 +1,5 @@
 // Sensibilité des tests : on abîme le code exprès, un défaut à la fois, sur une copie. Un test qui reste vert ne protège rien.
-//     node tools/eval/sabotage.mjs [--depuis <ref>] [--liste]
+//     node tools/eval/sabotage.mjs [--depuis <ref>] [--liste] [--cibles]
 import { spawnSync } from "node:child_process";
 import { fichiersChanges, filtrer, lireDepuis } from "./depuis.mjs";
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -64,7 +64,7 @@ const SABOTAGES = [
   ["Reçu : un clic du navigateur devient une accusation", "noah/recu.py", '        elif vague:\n', '        elif False:\n', RECU],
   ["Reçu : une action cachée reste cachée", "noah/recu.py", 'if family in OUTWARD and call["etat"] == OK and family not in claimed', 'if False and family in OUTWARD and call["etat"] == OK and family not in claimed', RECU],
   ["Reçu : l'Activité dit « Fait » quand même", "noah/main.py", '("a_verifier" if recu.needs_attention(receipt) else "fait") if succeeded', '"fait" if succeeded', RECU],
-  ["Reçu : un tour de lui-même perd sa réserve", "noah/proactif.py", 'coordination._actions_line([conv]) + recu.report_line(receipt))', 'coordination._actions_line([conv]))', RECU],
+  ["Reçu : un tour de lui-même perd sa réserve", "noah/proactif.py", "coordination._actions_line([conv]) + recu.report_line(receipt)\n        short = (recu.notice", "coordination._actions_line([conv])\n        short = (recu.notice", RECU],
   ["Reçu : « RIEN » cache une action", "noah/proactif.py", 'if not (receipt or {}).get("non_dit"):\n            return', 'if True:\n            return', RECU],
   ["Juge : une panne laisse passer", "noah/juge.py", 'sure = lambda v: v is not None and v[2] >= SURE_ENOUGH  # noqa: E731', 'sure = lambda v: True  # FAUX : une panne passe pour une certitude', JUGE],
   ["Juge : la routine attend un accord que personne ne donnera", "noah/juge.py", 'elif verdict == "accord" and turn.alone:', "elif False:", JUGE],
@@ -80,8 +80,8 @@ const SABOTAGES = [
   ["Connexion : deux réponses à la même demande", "noah/coffre.py", 'item["answered"] = True  # avant la première attente : un second envoi ne passe plus', "", COFFRE],
   ["Connexion : une demande n'expire jamais", "noah/coffre.py", 'elif now > item["expires"]:', "elif False:", COFFRE],
   ["Connexion : retenu en clair dans la base", "noah/coffre.py", 'sealed = db.seal(json.dumps({"identifiant": identifier, "mot_de_passe": password}))', 'sealed = json.dumps({"identifiant": identifier, "mot_de_passe": password})', COFFRE],
-  ["Connexion : le mot de passe revient à l'agent", "noah/coffre.py", 'result = _outcome(filled, item["origine"], saved=bool(keep), handle=handle)', 'result = {**_outcome(filled, item["origine"], saved=bool(keep), handle=handle), "mot_de_passe": password}', COFFRE],
-  ["Connexion : un identifiant retenu sert sur n'importe quel site", "noah/coffre.py", 'if page.get("origine") != row["origine"]:', "if False:", COFFRE],
+  ["Connexion : le mot de passe revient à l'agent", "noah/coffre.py", "result = _outcome(filled, item[\"origine\"], saved=bool(handle) or bool(chosen), handle=handle or (chosen[\"id\"] if chosen else \"\"))", "result = {**_outcome(filled, item[\"origine\"], saved=bool(handle) or bool(chosen), handle=handle or (chosen[\"id\"] if chosen else \"\")), \"mot_de_passe\": values[\"motDePasse\"]}", COFFRE],
+  ["Connexion : un identifiant retenu sert sur n'importe quel site", "noah/coffre.py", "if row[\"origine\"] != page.get(\"origine\"):", "if False:", COFFRE],
   ["Connexion : Hermes n'a pas le consentement de la garde", "noah/hermes.py", 'plugins.setdefault("entries", {}).setdefault("noah-garde", {})["allow_tool_override"] = True', "pass", COFFRE],
   ["Connexion : la clé de l'agent remplit la page", PLUGIN, 'if (!serverKeyGiven(req)) return res.status(403).json({ error: "Forbidden" });', 'if (!agentKeyGiven(req)) return res.status(403).json({ error: "Forbidden" });', CONNEXION_PAGE],
   ["Connexion : le script qui écrit ne revérifie pas l'origine", PLUGIN, 'if (location.origin !== origine) return { refus: "origine" };', "", CONNEXION_PAGE],
@@ -104,7 +104,7 @@ const SABOTAGES = [
   ["Modes : un flux commencé bascule quand même", "noah/relay.py", 'failed = _failed_body(head)\n            if failed in modes.FAILOVER:', 'failed = 429\n            if failed in modes.FAILOVER:', MODES],
   ["Modes : un 429 ne passe pas au suivant", "noah/modes.py", 'FAILOVER = {402, 404, 408, 409, 425, 429, 500, 502, 503, 504, 524, 529}', 'FAILOVER = {402, 404, 408, 409, 425, 500, 502, 503, 504, 524, 529}', MODES],
   ["Modes : l'épuisé reste écarté pour toujours", "noah/modes.py", '(ready if _cooling.get((link.get("fournisseur", ""), link["modele"]), 0) <= now else tired).append(link)', '(ready if (link.get("fournisseur", ""), link["modele"]) not in _cooling else tired).append(link)', MODES],
-  ["Modes : un invité change les modes", "noah/modes.py", 'async def change_modes(level: str, body: ModeChange, _: int = Depends(access.owner_only)):', 'async def change_modes(level: str, body: ModeChange, _: int = Depends(auth.current_user)):', MODES],
+  ["Modes : un invité change les modes", "noah/modes.py", "user: int = Depends(access.owner_only)):\n    async with _changing:", "user: int = Depends(auth.current_user)):\n    async with _changing:", MODES],
   ["Routine : un modèle hors des clés passe", "noah/modes.py", '    if not found:\n        raise HTTPException(400, f"Modèle inconnu avec tes clés : {model_id}")\n    return _link(found["id"], found["fournisseur"])', '    return _link(model_id, provider)', MODES],
   ["Routine : le relais suit un nom écrit par l'agent", "noah/relay.py", 'pinned = await modes.routine_links(agent_id, asked)', 'pinned = await modes.routine_links(agent_id, asked) or [{"modele": asked, "fournisseur": db.get_setting("provider")}]', MODES],
   ["Décision : la clé TypeSafe repart vers l'écran", "noah/decision.py", '"cles": {service: service in keys for service in TYPED_URLS},', '"cles": {service: keys.get(service) or False for service in TYPED_URLS},', MODES],
@@ -128,7 +128,7 @@ const SABOTAGES = [
   ["Accord : second clic en erreur", "noah/main.py", 'if e.response.status_code != 409:', 'if True:', MCP],
   ["Carte d'accord : réglage technique dans l'aperçu", "noah/mcp.py", '"_urls", "_mode"))', '"_urls"))', MCP],
   ["Activité : journal gardé sans limite de durée", "noah/main.py", 'AND j.at >= ? ORDER BY', 'AND j.at >= ? - 99999999 ORDER BY', VIVANT],
-  ["Publication : X cite une image encore en traitement", "noah/publication.py", 'await _x_media_ready(c, media, _x_answer(await c.post(f"{X_API}/media/upload/{media}/finalize", headers=headers)), headers)', '_x_answer(await c.post(f"{X_API}/media/upload/{media}/finalize", headers=headers))', PUBLICATION],
+  ["Publication : X cite une image encore en traitement", "noah/publication.py", "await _x_media_ready(c, media, _x_answer(await c.post(f\"{X_API}/media/upload/{media}/finalize\", headers=headers)), headers, video)", "_x_answer(await c.post(f\"{X_API}/media/upload/{media}/finalize\", headers=headers))", PUBLICATION],
   ["Publication : X publie sur un compte remplacé", "noah/publication.py", 'if stored.get("id") != creds.get("id"):\n                raise TokenRefused()\n            creds.update(stored)\n        if time.time() < creds.get("expire"', 'if False:\n                raise TokenRefused()\n            creds.update(stored)\n        if time.time() < creds.get("expire"', PUBLICATION],
   ["Images : deux générations ensemble dépassent le plafond", "noah/media.py", 'async with _image_locks.setdefault(agent_id, asyncio.Lock()):', 'if True:', PIP + "python /tests/agents/reglages_test.py"],
   ["Journal : l'activité montre une conversation privée", "noah/main.py", 'WHERE j.agent_id = ? AND (v.user_id = ? OR v.shared) AND j.at', 'WHERE j.agent_id = ? AND (? OR 1) AND j.at', VIVANT],
@@ -185,7 +185,7 @@ const SABOTAGES = [
   ["Fuseau : un invité change l'heure du propriétaire", "noah/main.py", "await asyncio.to_thread(access.is_owner, user)", "await asyncio.to_thread(lambda u: True, user)", CONFIG_AGENT],
   ["Agent : à l'heure du serveur", "noah/hermes.py", 'tz = client_zone() or (await browser_identity()).get("timezone")', 'tz = (await browser_identity()).get("timezone")', CONFIG_AGENT],
   ["Agent : Hermes coupe le réveil à 30 s", "noah/hermes.py", 'plugins["hook_callback_timeout"] = 600', 'plugins["hook_callback_timeout"] = 30', CONFIG_AGENT],
-  ["Agent : le réveil dépasse le délai d'Hermes", "noah/agent_plugin/__init__.py", "capture_output=True, timeout=HOOK_SECONDS - 30)", "capture_output=True, timeout=900)", CONFIG_AGENT],
+  ["Agent : le réveil dépasse le délai d'Hermes", "noah/agent_plugin/__init__.py", "WAKE_SECONDS if _browser_ever_awake else HOOK_SECONDS - 30", "WAKE_SECONDS if _browser_ever_awake else 900", CONFIG_AGENT],
   ["Outil : un nom à tiret n'est jamais vu en lecture", "noah/agent_plugin/__init__.py", "if sanitize_mcp_name_component(name) == tool]", "if name == tool]", GUARD],
   ["Outil : un nom ambigu passe pour une lecture", "noah/agent_plugin/__init__.py", "return bool(same) and all(hint is True for hint in same)", "return any(hint is True for hint in same)", GUARD],
   ["Envoi : n'importe qui dépose un fichier", PLUGIN, 'if (!agentKeyGiven(req)) return res.status(403).json({ error: "Forbidden" });', "", ENVOI],
@@ -227,7 +227,7 @@ const SABOTAGES = [
   ["Connexions : un état périmé remis en mémoire", "noah/machine.py", "if _connections_version.get(agent_id, 0) == version:", "if True:", APPAREILS],
   ["Connexions : un changement n'oublie pas le cache", "noah/machine.py", "    _connections.pop(agent_id, None)\n", "", APPAREILS],
   ["Dossier : un lien sort du dossier", "desktop/dossiers.js", 'if (!inside(root, existing)) throw new Refus("Ce chemin mène hors du dossier.");', "", DOSSIERS],
-  ["Dossier : lecture seule ignorée", "desktop/dossiers.js", "async function write(folder, relative, data, { remplacer = false, attendu = \"\", id = \"\", journal = null, ask = async () => false, recheck = () => null, trash = null } = {}) {\n  if (!folder.ecriture) throw new Refus(`Le dossier « ${folder.nom} » est en lecture seule.`);\n  if (data.length > MAX_FILE)", "async function write(folder, relative, data, { remplacer = false, attendu = \"\", id = \"\", journal = null, ask = async () => false, recheck = () => null, trash = null } = {}) {\n  if (data.length > MAX_FILE)", DOSSIERS],
+  ["Dossier : lecture seule ignorée", "desktop/dossiers.js", "  if (!folder.ecriture) throw new Refus(`Le dossier « ${folder.nom} » est en lecture seule.`); // i18n-ignore : lu par le serveur\n  if (data.length > MAX_FILE)", "  if (data.length > MAX_FILE)", DOSSIERS],
   ["Dossier : un fichier existant écrasé", "desktop/dossiers.js", "fs.linkSync(temporary, candidate); // échoue d'un coup si le nom existe", "fs.copyFileSync(temporary, candidate);", DOSSIERS],
   ["Dossier : fichiers sensibles permis", "desktop/dossiers.js", 'if (isSensitive(parts) || isSensitive(path.relative(root, target).split(path.sep))) throw new Refus("Fichier sensible : refusé d\'office, quel que soit le droit.");', "", DOSSIERS],
   ["Dossier : permis pour toujours malgré un programme changé", "desktop/dossiers.js", "t.exe === print.exe && t.sha256 === print.sha256", "t.exe === print.exe", DOSSIERS],
@@ -361,6 +361,24 @@ const CHOISIS = DEPUIS ? filtrer(PAR_NOM, fichiersChanges(DEPUIS, ROOT)) : PAR_N
 if (process.argv.includes("--liste")) {
   console.log(JSON.stringify(CHOISIS.map((s) => s[0]), null, 1));
   process.exit(0);
+}
+// --cibles : chaque sabotage vise un texte présent exactement une fois dans son fichier. Aucun Docker.
+if (process.argv.includes("--cibles")) {
+  const mauvais = [];
+  for (const [sabotage, path, old] of SABOTAGES) {
+    if (!old) continue;
+    const fichier = /^(desktop|frontend|launcher)\//.test(path) ? join(ROOT, path) : join(ROOT, "server", path);
+    let fois;
+    try {
+      fois = readFileSync(fichier, "utf8").split(old).length - 1;
+    } catch {
+      fois = "fichier introuvable";
+    }
+    if (fois !== 1) mauvais.push(`${sabotage} (${path} : ${fois} fois)`);
+  }
+  if (mauvais.length) console.error(`Cibles introuvables ou multiples :\n${mauvais.map((m) => `  ${m}`).join("\n")}`);
+  console.log(`Cibles : ${SABOTAGES.length - mauvais.length} sur ${SABOTAGES.length} visent leur texte exactement une fois`);
+  process.exit(mauvais.length ? 1 : 0);
 }
 if (!CHOISIS.length) {
   console.log(DEPUIS ? `Ni fichier saboté ni test concerné n'a changé depuis ${DEPUIS} : rien à rejouer.` : "Aucun sabotage ne correspond à NOAH_SABOTAGE : rien à rejouer.");
