@@ -321,7 +321,7 @@ it("F1 — 375×812 : chaque cible de la conversation fait 44 px au moins (Copie
   expect(phone).toMatch(/\.cible-tactile \{[^}]*min-height:44px/);
   expect(phone).toMatch(/\.cible-tactile \{[^}]*min-width:44px/);
   expect(phone).not.toMatch(/\.cible-tactile[^{]*svg/); // l'icône garde sa taille ([&_svg]:size-4 du bouton)
-  const sources = ["Thread.tsx", "thread/Markdown.tsx", "thread/parts.tsx", "Voice.tsx", "ReportAnswer.tsx"].map((f) => readFileSync(`src/components/${f}`, "utf8")).join("\n");
+  const sources = ["Thread.tsx", "thread/Markdown.tsx", "thread/parts.tsx", "thread/messages.tsx", "Voice.tsx", "ReportAnswer.tsx"].map((f) => readFileSync(`src/components/${f}`, "utf8")).join("\n");
   const tag = (label: string) => {
     const at = sources.indexOf(`aria-label={${label}`);
     expect(at, label).toBeGreaterThan(-1);
