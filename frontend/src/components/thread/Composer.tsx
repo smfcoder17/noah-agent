@@ -11,7 +11,7 @@ import { readableModel } from "@/lib/modes";
 import { historyStep } from "@/lib/historique";
 import { t } from "@/i18n";
 import { AttachmentChip, QuoteChips, useSentHistory } from "./messages";
-import { WhileBusyPanel } from "../Thread"; // en attendant panneaux.tsx (commit suivant)
+import { WhileBusyPanel } from "./panneaux";
 
 // Sur téléphone, le focus ouvrirait le clavier à chaque conversation, et par-dessus un appel.
 const FINE_POINTER = window.matchMedia("(pointer: fine)").matches;
