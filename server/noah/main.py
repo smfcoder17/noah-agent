@@ -31,7 +31,7 @@ from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from pydantic import BaseModel, Field
 
-from . import access, accounts, apprentissage, appareils, auth, bureautique, catalog, chauffe, coffre, connecteurs, connecteurs_cles, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, propositions, public, publication, push, recu, recuperation, relay, session, sites, updates, watch
+from . import access, accounts, apprentissage, appareils, auth, bureautique, catalog, chauffe, coffre, connecteurs, connecteurs_cles, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, propositions, public, publication, push, recu, recuperation, relay, session, sites, taches, updates, watch
 from . import config
 from . import accords, bus, credits, presets, rapide, sensitive, ui_preferences, linkpreview, providers as provider_accounts
 from .config import WEB_DIR, forget_setup_code
@@ -255,6 +255,10 @@ async def startup() -> None:
     _spawn(desktop.keep_clean())
     _spawn(_after_updates(lambda: machine.keep_connections_warm(lambda: [a["id"] for a in _agents()], _warmable)))
     _migrate_threads()
+    try:
+        taches.migrer()  # 0.4.0 : une tâche par ancienne sous-conversation ; rejouée à chaque démarrage, jamais bloquante
+    except Exception as e:  # noqa: BLE001
+        print(f"[taches] migration : {type(e).__name__} : {e}", flush=True)
     _spawn(_resume_requests())
     _spawn(_after_updates(_refresh_browsers))
     _spawn(machine.deliver_routines(_save_message, _main_conversation))
