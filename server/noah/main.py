@@ -27,6 +27,8 @@ from fastapi import BackgroundTasks, Cookie, Depends, FastAPI, HTTPException, Re
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.exceptions import RequestValidationError
+from starlette.datastructures import MutableHeaders
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from pydantic import BaseModel, Field
 
 from . import access, accounts, apprentissage, appareils, auth, bureautique, catalog, chauffe, coffre, connecteurs, connecteurs_cles, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, propositions, public, publication, push, recu, recuperation, relay, session, sites, updates, watch
@@ -163,7 +165,30 @@ async def same_origin_only(request: Request, call_next):
     return response
 
 
+class ServerTiming:
+    """Temps passé dans le serveur, pour chaque réponse : `Server-Timing: app;dur=<ms>`. Invisible pour la personne ; c'est ce que
+    lit le budget de durée des routes (tests/budget/routes_test.py). Intergiciel ASGI brut, comme exposition.SecurityHeaders : il ne
+    met aucun flux en tampon, et la mesure part avec les en-têtes (pour un flux, au premier envoi)."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        started = time.perf_counter()
+
+        async def with_timing(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                MutableHeaders(scope=message)["Server-Timing"] = f"app;dur={(time.perf_counter() - started) * 1000:.1f}"
+            await send(message)
+
+        await self.app(scope, receive, with_timing)
+
+
 app.add_middleware(exposition.SecurityHeaders)
+app.add_middleware(ServerTiming)  # le plus extérieur : il mesure aussi les autres intergiciels
 app.include_router(relay.router)
 app.include_router(machine.router)
 app.include_router(mcp.router)

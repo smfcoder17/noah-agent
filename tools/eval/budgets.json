@@ -1,0 +1,582 @@
+{
+  "lisez-moi": "Budgets de la 0.4.0 (docs/epics/0.4.0/socle.md, section 6). seuil = la cible ; mesure = la valeur d'aujourd'hui ; bloquant = faux tant que le seuil n'est pas atteint. Un budget non bloquant réussit en ROUGE, sauf si la mesure est pire que `mesure` (plus `tolerance`) : aucune régression ne passe. Un lot qui fait baisser une mesure la baisse ici, dans le même commit ; au seuil, il passe bloquant à vrai. Cliquet : tools/eval/cliquet.mjs.",
+  "budgets": {
+    "B1.changement.doubles": {
+      "libelle": "doubles au changement d'agent, vrai navigateur",
+      "unite": "doubles",
+      "seuil": 0,
+      "mesure": 5,
+      "bloquant": false,
+      "tolerance": 2
+    },
+    "B1.changement.requetes": {
+      "libelle": "requêtes /api/ au changement d'agent, vrai navigateur et vrai serveur (X22)",
+      "unite": "requêtes",
+      "seuil": 1,
+      "mesure": 17,
+      "bloquant": false,
+      "tolerance": 2
+    },
+    "B1.chargement.doubles": {
+      "libelle": "doubles au premier chargement, vrai navigateur",
+      "unite": "doubles",
+      "seuil": 0,
+      "mesure": 14,
+      "bloquant": false,
+      "tolerance": 2
+    },
+    "B1.chargement.requetes": {
+      "libelle": "requêtes /api/ au premier chargement, hors events, vrai navigateur (X22)",
+      "unite": "requêtes",
+      "seuil": 4,
+      "mesure": 34,
+      "bloquant": false,
+      "tolerance": 2
+    },
+    "B1bis.changement.doubles": {
+      "libelle": "doubles au changement d’agent, jsdom",
+      "unite": "doubles",
+      "seuil": 0,
+      "mesure": 5,
+      "bloquant": false,
+      "tolerance": 2
+    },
+    "B1bis.changement.requetes": {
+      "libelle": "requêtes /api/ au changement d’agent, jsdom (X22)",
+      "unite": "requêtes",
+      "seuil": 1,
+      "mesure": 18,
+      "bloquant": false,
+      "tolerance": 2
+    },
+    "B1bis.chargement.doubles": {
+      "libelle": "doubles au premier chargement, jsdom",
+      "unite": "doubles",
+      "seuil": 0,
+      "mesure": 18,
+      "bloquant": false,
+      "tolerance": 2
+    },
+    "B1bis.chargement.requetes": {
+      "libelle": "requêtes /api/ au premier chargement, hors events, jsdom (X22)",
+      "unite": "requêtes",
+      "seuil": 4,
+      "mesure": 36,
+      "bloquant": false,
+      "tolerance": 2
+    },
+    "B2.gzip_ko": {
+      "libelle": "poids du premier écran, gzip (X24)",
+      "unite": "ko",
+      "seuil": 400,
+      "mesure": 497.6,
+      "bloquant": false,
+      "tolerance": 2
+    },
+    "B2bis.voies_sans_compression": {
+      "libelle": "voies de déploiement sans compression déclarée (Traefik : question 9)",
+      "unite": "",
+      "seuil": 0,
+      "mesure": 1,
+      "bloquant": false,
+      "tolerance": 0
+    },
+    "B3.ecrans_qui_debordent": {
+      "libelle": "écrans qui débordent en largeur à au moins une largeur de 320 à 1920 px (X25)",
+      "unite": "écrans",
+      "seuil": 0,
+      "mesure": 0,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/a-toi.max_ms": {
+      "libelle": "maximum de GET /api/a-toi, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 1000,
+      "mesure": 14,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/a-toi.p95_ms": {
+      "libelle": "95e centile de GET /api/a-toi, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 300,
+      "mesure": 9,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/accords.max_ms": {
+      "libelle": "maximum de GET /api/accords, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 1000,
+      "mesure": 7,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/accords.p95_ms": {
+      "libelle": "95e centile de GET /api/accords, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 300,
+      "mesure": 7,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/agents.max_ms": {
+      "libelle": "maximum de GET /api/agents, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 1000,
+      "mesure": 1104,
+      "bloquant": false,
+      "tolerance": 200
+    },
+    "B4./api/agents.p95_ms": {
+      "libelle": "95e centile de GET /api/agents, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 300,
+      "mesure": 6,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/agents/{agent}/activite.max_ms": {
+      "libelle": "maximum de GET /api/agents/{agent}/activite, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 1000,
+      "mesure": 24,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/agents/{agent}/activite.p95_ms": {
+      "libelle": "95e centile de GET /api/agents/{agent}/activite, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 300,
+      "mesure": 23,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/agents/{agent}/appel.max_ms": {
+      "libelle": "maximum de GET /api/agents/{agent}/appel, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 1000,
+      "mesure": 9,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/agents/{agent}/appel.p95_ms": {
+      "libelle": "95e centile de GET /api/agents/{agent}/appel, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 300,
+      "mesure": 9,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/agents/{agent}/competences.max_ms": {
+      "libelle": "maximum de GET /api/agents/{agent}/competences, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 1000,
+      "mesure": 1529,
+      "bloquant": false,
+      "tolerance": 200
+    },
+    "B4./api/agents/{agent}/competences.p95_ms": {
+      "libelle": "95e centile de GET /api/agents/{agent}/competences, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 300,
+      "mesure": 1528,
+      "bloquant": false,
+      "tolerance": 200
+    },
+    "B4./api/agents/{agent}/computer.max_ms": {
+      "libelle": "maximum de GET /api/agents/{agent}/computer, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 1000,
+      "mesure": 1530,
+      "bloquant": false,
+      "tolerance": 200
+    },
+    "B4./api/agents/{agent}/computer.p95_ms": {
+      "libelle": "95e centile de GET /api/agents/{agent}/computer, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 300,
+      "mesure": 1528,
+      "bloquant": false,
+      "tolerance": 200
+    },
+    "B4./api/agents/{agent}/connections.max_ms": {
+      "libelle": "maximum de GET /api/agents/{agent}/connections, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 1000,
+      "mesure": 1544,
+      "bloquant": false,
+      "tolerance": 200
+    },
+    "B4./api/agents/{agent}/connections.p95_ms": {
+      "libelle": "95e centile de GET /api/agents/{agent}/connections, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 300,
+      "mesure": 8,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/agents/{agent}/conversations.max_ms": {
+      "libelle": "maximum de GET /api/agents/{agent}/conversations, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 1000,
+      "mesure": 9,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/agents/{agent}/conversations.p95_ms": {
+      "libelle": "95e centile de GET /api/agents/{agent}/conversations, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 300,
+      "mesure": 8,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/agents/{agent}/files.max_ms": {
+      "libelle": "maximum de GET /api/agents/{agent}/files, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 1000,
+      "mesure": 1524,
+      "bloquant": false,
+      "tolerance": 200
+    },
+    "B4./api/agents/{agent}/files.p95_ms": {
+      "libelle": "95e centile de GET /api/agents/{agent}/files, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 300,
+      "mesure": 1521,
+      "bloquant": false,
+      "tolerance": 200
+    },
+    "B4./api/agents/{agent}/memory.max_ms": {
+      "libelle": "maximum de GET /api/agents/{agent}/memory, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 1000,
+      "mesure": 1536,
+      "bloquant": false,
+      "tolerance": 200
+    },
+    "B4./api/agents/{agent}/memory.p95_ms": {
+      "libelle": "95e centile de GET /api/agents/{agent}/memory, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 300,
+      "mesure": 1535,
+      "bloquant": false,
+      "tolerance": 200
+    },
+    "B4./api/agents/{agent}/proactif.max_ms": {
+      "libelle": "maximum de GET /api/agents/{agent}/proactif, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 1000,
+      "mesure": 18,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/agents/{agent}/proactif.p95_ms": {
+      "libelle": "95e centile de GET /api/agents/{agent}/proactif, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 300,
+      "mesure": 18,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/agents/{agent}/routines.max_ms": {
+      "libelle": "maximum de GET /api/agents/{agent}/routines, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 1000,
+      "mesure": 1538,
+      "bloquant": false,
+      "tolerance": 200
+    },
+    "B4./api/agents/{agent}/routines.p95_ms": {
+      "libelle": "95e centile de GET /api/agents/{agent}/routines, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 300,
+      "mesure": 1536,
+      "bloquant": false,
+      "tolerance": 200
+    },
+    "B4./api/agents/{agent}/taches-confiees.max_ms": {
+      "libelle": "maximum de GET /api/agents/{agent}/taches-confiees, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 1000,
+      "mesure": 6,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/agents/{agent}/taches-confiees.p95_ms": {
+      "libelle": "95e centile de GET /api/agents/{agent}/taches-confiees, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 300,
+      "mesure": 6,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/agents/{agent}/watches.max_ms": {
+      "libelle": "maximum de GET /api/agents/{agent}/watches, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 1000,
+      "mesure": 8,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/agents/{agent}/watches.p95_ms": {
+      "libelle": "95e centile de GET /api/agents/{agent}/watches, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 300,
+      "mesure": 8,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/calls/pending.max_ms": {
+      "libelle": "maximum de GET /api/calls/pending, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 1000,
+      "mesure": 7,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/calls/pending.p95_ms": {
+      "libelle": "95e centile de GET /api/calls/pending, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 300,
+      "mesure": 7,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/conversations/{conversation}/en-cours.max_ms": {
+      "libelle": "maximum de GET /api/conversations/{conversation}/en-cours, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 1000,
+      "mesure": 12,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/conversations/{conversation}/en-cours.p95_ms": {
+      "libelle": "95e centile de GET /api/conversations/{conversation}/en-cours, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 300,
+      "mesure": 12,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/conversations/{conversation}/messages.max_ms": {
+      "libelle": "maximum de GET /api/conversations/{conversation}/messages, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 1000,
+      "mesure": 10,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/conversations/{conversation}/messages.p95_ms": {
+      "libelle": "95e centile de GET /api/conversations/{conversation}/messages, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 300,
+      "mesure": 10,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/decision.max_ms": {
+      "libelle": "maximum de GET /api/decision, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 1000,
+      "mesure": 27,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/decision.p95_ms": {
+      "libelle": "95e centile de GET /api/decision, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 300,
+      "mesure": 25,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/devices.max_ms": {
+      "libelle": "maximum de GET /api/devices, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 1000,
+      "mesure": 10,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/devices.p95_ms": {
+      "libelle": "95e centile de GET /api/devices, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 300,
+      "mesure": 9,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/fournisseurs.max_ms": {
+      "libelle": "maximum de GET /api/fournisseurs, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 1000,
+      "mesure": 95,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/fournisseurs.p95_ms": {
+      "libelle": "95e centile de GET /api/fournisseurs, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 300,
+      "mesure": 89,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/goals.max_ms": {
+      "libelle": "maximum de GET /api/goals, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 1000,
+      "mesure": 11,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/goals.p95_ms": {
+      "libelle": "95e centile de GET /api/goals, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 300,
+      "mesure": 6,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/me.max_ms": {
+      "libelle": "maximum de GET /api/me, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 1000,
+      "mesure": 5,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/me.p95_ms": {
+      "libelle": "95e centile de GET /api/me, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 300,
+      "mesure": 5,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/me/interface.max_ms": {
+      "libelle": "maximum de GET /api/me/interface, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 1000,
+      "mesure": 5,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/me/interface.p95_ms": {
+      "libelle": "95e centile de GET /api/me/interface, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 300,
+      "mesure": 5,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/model.max_ms": {
+      "libelle": "maximum de GET /api/model, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 1000,
+      "mesure": 10,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/model.p95_ms": {
+      "libelle": "95e centile de GET /api/model, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 300,
+      "mesure": 10,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/modele-rapide.max_ms": {
+      "libelle": "maximum de GET /api/modele-rapide, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 1000,
+      "mesure": 9,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/modele-rapide.p95_ms": {
+      "libelle": "95e centile de GET /api/modele-rapide, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 300,
+      "mesure": 9,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/modes/cerveau/modeles.max_ms": {
+      "libelle": "maximum de GET /api/modes/cerveau/modeles, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 1000,
+      "mesure": 887,
+      "bloquant": false,
+      "tolerance": 200
+    },
+    "B4./api/modes/cerveau/modeles.p95_ms": {
+      "libelle": "95e centile de GET /api/modes/cerveau/modeles, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 300,
+      "mesure": 65,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/profiles.max_ms": {
+      "libelle": "maximum de GET /api/profiles, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 1000,
+      "mesure": 18,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/profiles.p95_ms": {
+      "libelle": "95e centile de GET /api/profiles, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 300,
+      "mesure": 17,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/updates.max_ms": {
+      "libelle": "maximum de GET /api/updates, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 1000,
+      "mesure": 1533,
+      "bloquant": false,
+      "tolerance": 200
+    },
+    "B4./api/updates.p95_ms": {
+      "libelle": "95e centile de GET /api/updates, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 300,
+      "mesure": 1530,
+      "bloquant": false,
+      "tolerance": 200
+    },
+    "B4./api/usage.max_ms": {
+      "libelle": "maximum de GET /api/usage, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 1000,
+      "mesure": 286,
+      "bloquant": true,
+      "tolerance": 0
+    },
+    "B4./api/usage.p95_ms": {
+      "libelle": "95e centile de GET /api/usage, 20 appels, lanceur à 1,5 s (X23)",
+      "unite": "ms",
+      "seuil": 300,
+      "mesure": 274,
+      "bloquant": false,
+      "tolerance": 200
+    },
+    "B4.ouverture.p95_ms": {
+      "libelle": "95e centile de GET /api/agents/{agent}/ouverture, 20 appels, lanceur à 1,5 s (X22)",
+      "unite": "ms",
+      "seuil": 150,
+      "mesure": null,
+      "bloquant": false,
+      "tolerance": 0,
+      "non_mesure": "la route d'ouverture est créée au pas S6 (socle.md, 5.1) : rien à mesurer avant"
+    }
+  }
+}

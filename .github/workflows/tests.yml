@@ -25,6 +25,39 @@ jobs:
         working-directory: frontend
       - run: npx tsc --noEmit && npx tsc -p tsconfig.app.json --noEmit --incremental false && npm test
         working-directory: frontend
+  # Budgets de la 0.4.0 (docs/epics/0.4.0/socle.md, section 6). Cliquet : tools/eval/budgets.json. Un budget dont le seuil n'est pas
+  # atteint réussit en « ROUGE attendu », sauf si sa mesure est pire que celle écrite ; au seuil, il devient bloquant.
+  # En local : node scripts/verifier.mjs budget
+  budgets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - name: "Requêtes à l'ouverture d'un agent dans jsdom, budget B1 bis : au plus 1 requête et aucune en double"
+        run: npm test -- src/budgets.test.tsx
+        working-directory: frontend
+      # Construit l'interface une fois, puis lit le résultat : poids gzip du premier écran et compression de chaque voie (B2, B2 bis),
+      # requêtes dans un vrai navigateur sur le vrai serveur d'essai (B1), débordement de 320 à 1920 px (B3). B1 et B3 passent
+      # par Playwright (dépendance de développement de frontend) et le Chrome du poste ; sans eux, ils disent « NON MESURÉ ».
+      - name: "Interface construite, budget B2, B2 bis, B1 et B3 : poids du premier écran, compression, requêtes à l'ouverture, débordement horizontal"
+        run: |
+          npm run build --prefix frontend
+          rc=0
+          node tools/eval/poids.mjs || rc=1
+          node tools/eval/ouverture.mjs || rc=1
+          node tools/eval/debordement.mjs || rc=1
+          exit $rc
+      - name: "Durée des routes, budget B4 : 95e centile sous 300 ms, maximum sous 1 s, lanceur lent de 1,5 s, base remplie"
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" -v "$PWD/tools:/tools:ro" python:3.12-slim sh -c \
+            "pip install -q -r /app/requirements.txt && python /tests/budget/routes_test.py"
   updates:
     runs-on: ubuntu-latest
     timeout-minutes: 90
