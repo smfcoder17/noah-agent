@@ -70,10 +70,24 @@ def finish(run: dict, text="C'est fait.", status="completed", tools=()):
     run["events"].put_nowait((f"run.{status}", {"error": "panne du fournisseur"} if status != "completed" else {}))
 
 
+def _calm() -> tuple:
+    with db.connect() as c:
+        state = (c.execute("SELECT COALESCE(MAX(id), 0) FROM messages").fetchone()[0],
+                 tuple(tuple(r) for r in c.execute("SELECT id, etat, livre FROM delegations ORDER BY id")),
+                 tuple(tuple(r) for r in c.execute("SELECT id, etat FROM voice_calls ORDER BY id")))
+    return (len(runs), state)
+
+
 async def settle():
-    """Laisse tourner les tâches de fond jusqu'à ce qu'elles soient au repos."""
+    """Laisse tourner les tâches de fond jusqu'à ce qu'elles soient au repos : au moins 250 ms comme avant, puis tant que runs, messages,
+    demandes ou rappels bougent encore (200 ms de calme, 5 s au plus). Un poste chargé ne fait plus échouer le test sur un délai fixe."""
     for _ in range(50):
         await asyncio.sleep(0.005)
+    last, calm, deadline = _calm(), 0, time.monotonic() + 5
+    while calm < 40 and time.monotonic() < deadline:
+        await asyncio.sleep(0.005)
+        now = _calm()
+        calm, last = (calm + 1, last) if now == last else (0, now)
 
 
 def messages(conv: str) -> list[dict]:
@@ -378,6 +392,10 @@ async def test_outcomes():
     (await ask("a", "b", "Longue attente")).json()
     finish(run_for("b"), "Écrit sans reprise")
     await asyncio.sleep(0.2)
+    for _ in range(100):  # FREE_WAIT de 0,05 s : sur un poste chargé, l'écriture peut venir après 0,2 s
+        if "Écrit sans reprise" in main_text("a"):
+            break
+        await asyncio.sleep(0.05)
     assert run_for("a") is busy and "Écrit sans reprise" in main_text("a")
     finish(busy)
     await consume
@@ -586,6 +604,12 @@ async def test_calls():
         coordination.RING_SECONDS = 0.05
         call_id = (await post_report("a", "Personne ne répond")).json()["id"]
         await asyncio.sleep(0.2)
+        for _ in range(100):  # minuterie de 0,05 s : sur un poste chargé, elle peut sonner après 0,2 s
+            with db.connect() as c:
+                if c.execute("SELECT etat FROM voice_calls WHERE id = ?", (call_id,)).fetchone()["etat"] == "manque":
+                    break
+            await asyncio.sleep(0.05)
+        await settle()
         with db.connect() as c:
             assert c.execute("SELECT etat FROM voice_calls WHERE id = ?", (call_id,)).fetchone()["etat"] == "manque"
         assert "Personne ne répond" in main_text("a") and messages(MAINS["a"])[-1]["text"] == coordination.ENDINGS["manque"]
