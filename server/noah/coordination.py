@@ -300,8 +300,8 @@ async def _finish(did: str, stream) -> None:
     last = _last_reply(d["conversation_id"])
     ok = _h["state"].get(d["conversation_id"]) in ("done", "choice") and last is not None and last["role"] == "agent"
     _set_state(did, "fini" if ok else "echec")
-    close_trace(d["conversation_id"], "fini" if ok else "echec", last["text"] if last else "le travail s'est arrêté sans réponse")
     taches.finir(d["conversation_id"], "fini" if ok else "echec", last["text"] if last else "le travail s'est arrêté sans réponse")
+    close_trace(d["conversation_id"], "fini" if ok else "echec", last["text"] if last else "le travail s'est arrêté sans réponse")
     if not requester_exists:
         _delivered(did)
         return
