@@ -15,7 +15,7 @@ from fastapi import Request, Depends, HTTPException, APIRouter
 from pydantic import BaseModel
 
 from .hermes import Agent
-from . import desktop, mcp, session, diagnostics, updates, notifications, machine, access, chauffe, auth, db, proactif, push, apprentissage, pendant, handoff, coordination, relay, recu, hermes, events, accords, bus, main
+from . import desktop, mcp, session, diagnostics, updates, notifications, machine, access, chauffe, auth, db, proactif, push, apprentissage, pendant, handoff, coordination, relay, recu, hermes, events, accords, bus, taches, main
 
 router = APIRouter()
 
@@ -462,6 +462,7 @@ def _open_delegation(parent_id: str, args: dict) -> str:
     with db.connect() as c:
         row = c.execute("SELECT user_id, agent_id FROM conversations WHERE id = ?", (parent_id,)).fetchone()
     thread = _new_conversation(row["user_id"], row["agent_id"], title, origin="agent")
+    taches.creer(thread, "sous_tache", titre=title)  # 0.4.0 : double écriture, fermée par _close_delegation
     main._save_message(thread, "user", "\n\n".join(goals))
     main.task_state[thread] = "work"
     return thread
@@ -474,6 +475,7 @@ def _close_delegation(thread: str, result, failed: bool) -> None:
     elif failed:
         main._save_message(thread, "error", "La sous-tâche s'est arrêtée avant la fin.")
     main.task_state[thread] = "error" if failed else "done"
+    taches.finir(thread, "echec" if failed else "fini", text or ("La sous-tâche s'est arrêtée avant la fin." if failed else ""))
 
 
 CHOICE_RE = re.compile(r"```(?:noah|noah)\s*\{[^`]*\"type\"\s*:\s*\"choice\"", re.S)

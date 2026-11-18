@@ -7,7 +7,7 @@ import re
 from fastapi import HTTPException, Depends, APIRouter
 from pydantic import BaseModel
 
-from . import media, access, events, apprentissage, auth, db, main
+from . import media, access, events, apprentissage, auth, db, taches, main
 from . import main as main_module  # dans conversations(), `main` est une variable locale : le module s'y lit par ce nom
 
 router = APIRouter()
@@ -21,7 +21,10 @@ THREAD_STALE_DAYS = 2
 @router.post("/api/agents/{agent_id}/conversations")
 def create_discussion(agent_id: str, user: int = Depends(auth.current_user)):
     access.access(user, agent_id, "usage")
-    return {"id": main._new_conversation(user, agent_id, "Nouvelle discussion")}
+    conv_id = main._new_conversation(user, agent_id, "Nouvelle discussion")
+    # 0.4.0 : double écriture. Aucun travail ne tourne à la création et aucun endroit ne ferme une discussion : elle naît « fini ».
+    taches.creer(conv_id, "discussion", titre="Nouvelle discussion", etat="fini")
+    return {"id": conv_id}
 
 
 @router.get("/api/agents/{agent_id}/conversations")

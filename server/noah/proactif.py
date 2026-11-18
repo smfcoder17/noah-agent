@@ -27,7 +27,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, model_validator
 
-from . import access, accounts, auth, coordination, db, decision, desktop, machine, notifications, propositions, recu, relay, updates, watch
+from . import access, accounts, auth, coordination, db, decision, desktop, machine, notifications, propositions, recu, relay, updates, taches, watch
 
 router = APIRouter()
 
@@ -452,6 +452,9 @@ def _turn_prompt(current: str, sorted_out: dict, new: list[dict]) -> str:
 def _set_turn(turn_id: str, state: str) -> None:
     with db.connect() as c:
         c.execute("UPDATE proactive_turns SET etat = ? WHERE id = ?", (state, turn_id))
+        conv = c.execute("SELECT conversation_id FROM proactive_turns WHERE id = ?", (turn_id,)).fetchone()
+    if conv and state in ("fini", "echec"):  # 0.4.0 : la tâche se ferme avec le tour (`a_reprendre` et `en_cours` ne la ferment pas)
+        taches.finir(conv["conversation_id"], state)
 
 
 async def _start_turn(agent_id: str, current: str, sorted_out: dict, new: list[dict]) -> str:
@@ -462,6 +465,7 @@ async def _start_turn(agent_id: str, current: str, sorted_out: dict, new: list[d
     with db.connect() as c:
         c.execute("INSERT INTO proactive_turns (id, agent_id, conversation_id, mode, titre, etat, at) VALUES (?, ?, ?, ?, ?, 'en_cours', ?)",
                   (turn_id, agent_id, conv, current, sorted_out["titre"], time.time()))
+    taches.creer(conv, "initiative", titre=sorted_out["titre"], source_id=turn_id)  # 0.4.0 : double écriture, fermée par _set_turn
     try:
         stream = await _h["run"](_h["agent"](agent_id), conv, _turn_prompt(current, sorted_out, new), live=False)
     except BaseException:

@@ -221,6 +221,10 @@ jobs:
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \
             "pip install -q -r /app/requirements.txt && python /tests/taches/migration_test.py"
+      - name: "Tâches : chaque origine d'une sous-conversation crée sa tâche, une seule, fermée à la fin du travail (double écriture 0.4.0)"
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \
+            "pip install -q -r /app/requirements.txt && python /tests/taches/double_ecriture_test.py"
       - name: Voix
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \

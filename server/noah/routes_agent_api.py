@@ -6,7 +6,7 @@ import httpx
 from fastapi import HTTPException, Request, APIRouter
 from pydantic import Field, BaseModel
 
-from . import access, machine, media, relay, notifications, proactif, modes, db, coordination, main
+from . import access, machine, media, relay, notifications, proactif, modes, db, coordination, taches, main
 
 router = APIRouter()
 
@@ -164,8 +164,14 @@ async def agent_thread(body: ThreadBody, request: Request):
     proactif.no_new_work(agent_id)
     who = access.launcher(agent_id)
     conv_id = main._new_conversation(who, agent_id, body.titre, origin="agent")
-    stream = await main._run(main._agent(agent_id), conv_id, body.consigne)
+    taches.creer(conv_id, "fil", titre=body.titre)  # 0.4.0 : double écriture, fermée par coordination.thread_ended
+    try:
+        stream = await main._run(main._agent(agent_id), conv_id, body.consigne)
+    except BaseException:  # le fil n'a pas démarré : la tâche le dit, l'erreur suit son cours
+        taches.finir(conv_id, "echec", "le travail n'a pas pu démarrer")
+        raise
     coordination.open_trace(agent_id, who, conv_id, "J'ai ouvert un fil", body.titre)
+    taches.lier_trace(conv_id)
 
     async def drain():
         try:
@@ -185,13 +191,20 @@ async def _wake_for_routine(agent_id: str, title: str, prompt: str) -> dict:
     """Une routine à condition : le cerveau travaille dans un fil à lui, sans l'historique de la conversation principale (moins cher, et
     il ne s'y mêle pas à une tâche en cours). Rend ce qu'il a répondu et ce que ça a coûté ; le fil reste visible dans Détails."""
     conv_id = main._new_conversation(db.agent_owner(agent_id), agent_id, title, origin="agent")
-    async for _ in await main._run(main._agent(agent_id), conv_id, prompt, live=False):
-        pass
+    taches.creer(conv_id, "routine", titre=title)  # 0.4.0 : double écriture, fermée ci-dessous avec le résultat
+    try:
+        async for _ in await main._run(main._agent(agent_id), conv_id, prompt, live=False):
+            pass
+    except BaseException:  # le travail s'est coupé : la tâche le dit, l'erreur suit son cours
+        taches.finir(conv_id, "echec", "le travail s'est arrêté sans réponse")
+        raise
     with db.connect() as c:
         row = c.execute("SELECT role, text FROM messages WHERE conversation_id = ? AND role IN ('agent', 'error') ORDER BY rowid DESC LIMIT 1", (conv_id,)).fetchone()
         cost = c.execute("SELECT COALESCE(SUM(cost), 0) AS total FROM usage WHERE conversation_id = ?", (conv_id,)).fetchone()["total"]
     if row and row["role"] == "agent":
+        taches.finir(conv_id, "fini", row["text"])
         return {"texte": row["text"], "cout": cost}
+    taches.finir(conv_id, "echec", row["text"] if row else "l'agent n'a rien répondu")
     return {"erreur": row["text"] if row else "l'agent n'a rien répondu", "cout": cost}
 
 
