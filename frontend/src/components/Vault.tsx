@@ -241,9 +241,9 @@ export function Vault() {
           <p className="text-sm font-medium">{t("Agents qui utilisent ton coffre")}</p>
           <ul className="flex flex-col gap-1">
             {agents.map((agent) => (
-              <li key={agent.id} className="flex items-center gap-2 text-sm">
+              <li key={agent.id} className="flex min-h-11 items-center gap-2 text-sm">
                 <input id={`coffre-${agent.id}`} type="checkbox" className="size-4 accent-accent" checked={agent.utiliser} onChange={() => toggle(agent)} />
-                <label htmlFor={`coffre-${agent.id}`} className="min-w-0 flex-1 truncate">{agent.nom}</label>
+                <label htmlFor={`coffre-${agent.id}`} className="min-w-0 flex-1 truncate py-3">{agent.nom}</label>
                 {agent.partage && <span className="text-xs text-muted-foreground">{t("partagé : éteint d'office")}</span>}
               </li>
             ))}

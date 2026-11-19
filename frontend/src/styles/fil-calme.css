@@ -250,3 +250,17 @@
   .select { min-height:48px; font-size:16px; }
   .set-row .toggle { min-width:40px; }
 }
+
+/* ---------- Téléphone : cibles de 44 px (0.4.0, lot L9b, X28) ----------
+   Tout ce qui se touche fait 44 px de haut et de large. `:root` relève la spécificité au-dessus des tailles propres à chaque bouton (.btn-sm, h-9…).
+   Les liens dans une phrase et les cases dans un <label> (qui porte la cible) en sont exemptés. */
+@media (max-width:767px) {
+  :root :is(button, [role=tab], [role=switch], [role=radio], [role=menuitem], summary, select, a.task-open):not(.dot) { min-height:44px; min-width:44px; }
+  :root :is(input:not([type=checkbox], [type=radio], [type=range], [type=file]), select) { min-height:44px; }
+  /* L'interrupteur reste un pilier de 40 × 24 à l'œil ; sa cible, elle, fait 44 × 44. */
+  :root .toggle, :root .toggle[aria-checked=true] { width:44px; height:44px; background:transparent; }
+  .toggle::before { content:""; position:absolute; left:2px; top:10px; width:40px; height:24px; border-radius:999px; background:var(--hollow); transition:background .15s; }
+  .toggle[aria-checked=true]::before { background:var(--accent); }
+  .toggle::after { top:13px; left:5px; }
+  .toggle[aria-checked=true]::after { transform:translateX(16px); }
+}
