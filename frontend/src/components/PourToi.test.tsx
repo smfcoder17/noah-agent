@@ -56,3 +56,13 @@ it("la question répondue ailleurs (la tâche, le fil) quitte la liste sans atte
   expect(host.querySelector('[data-question="q1"]')).toBeNull();
   expect(host.textContent).toContain("Une décision te revient.");
 });
+
+it("en page (zone de travail, comme le prototype) : un titre, la phrase de compte, des cartes", async () => {
+  await act(async () => root.unmount());
+  root = createRoot(host);
+  await act(async () => root.render(<Inbox open page agents={[{ id: "hugo", name: "Hugo" }] as never[]} onOpenChange={() => {}} onOpenConversation={ouvrir} />));
+  expect(host.querySelector("main.chat-pane header h1")?.textContent).toBe("Pour toi");
+  expect(host.querySelector(".col.narrow h2.title")?.textContent).toBe("Pour toi");
+  expect(host.querySelector(".col.narrow > .stack p")?.textContent).toBe("2 décisions te reviennent. Le reste se règle entre agents.");
+  expect(host.querySelectorAll(".col.narrow li.card, .col.narrow section.card").length).toBe(2);
+});

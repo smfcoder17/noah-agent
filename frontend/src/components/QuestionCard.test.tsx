@@ -42,7 +42,8 @@ it("un choix part sur place, la carte devient « Tu as répondu », les autres l
 
 it("« Autre réponse » : vide, rien ne part ; écrite, elle part avec « Envoyer »", async () => {
   await show();
-  expect(bouton("Envoyer").disabled).toBe(true);
+  await act(async () => bouton("Envoyer").click());
+  expect(send).not.toHaveBeenCalled();
   const champ = host.querySelector("input")!;
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(champ, "10 h 30");

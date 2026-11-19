@@ -60,7 +60,7 @@ export function ChoixQuestion({ q, onDone }: { q: QuestionCarte; onDone: (repons
         <form className="line g8" onSubmit={(e) => { e.preventDefault(); void answer(libre); }}>
           <label className="sr-only" htmlFor={`libre-${q.id}`}>{t("Autre réponse")}</label>
           <input id={`libre-${q.id}`} className="input grow" value={libre} placeholder={t("Autre réponse")} onChange={(e) => setLibre(e.target.value)} />
-          <button type="submit" className="btn" disabled={busy || !libre.trim()}>{t("Envoyer")}</button>
+          <button type="submit" className="btn" disabled={busy}>{t("Envoyer")}</button>
         </form>
       )}
       <ErrorText>{error}</ErrorText>

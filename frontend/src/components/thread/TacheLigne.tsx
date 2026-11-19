@@ -127,7 +127,7 @@ export function TacheLigne({ tache, agentId, agentName, defaultOpen = false, onO
           })}
           {tache.question && !repondue && <QuestionCard q={tache.question} dansTache />}
           {tache.demandeur?.nom && <p className="text-[13px] text-muted-foreground">{t("Confiée par {nom}", { nom: tache.demandeur.nom })}</p>}
-          <p className="whitespace-pre-wrap break-words">{tache.resume || (tache.etat === "encours" ? t("Le travail est en cours.") : tache.etat === "attend" ? t("Le travail attend ta réponse.") : t("Pas de compte rendu."))}</p>
+          {!(tache.question && !repondue && !tache.resume) && <p className="whitespace-pre-wrap break-words">{tache.resume || (tache.etat === "encours" ? t("Le travail est en cours.") : tache.etat === "attend" ? t("Le travail attend ta réponse.") : t("Pas de compte rendu."))}</p>}
           {files.length > 0 && <div className="flex flex-wrap items-center gap-2">{files.map((f) => <span key={f} className="file">{/\.(png|jpe?g|gif|webp)$/i.test(f) ? <ImageIcon className="size-[18px]" aria-hidden /> : <FileIcon className="size-[18px]" aria-hidden />}<span className="cut">{f}</span></span>)}</div>}
           {entrer && <div>{entrer}</div>}
         </div>

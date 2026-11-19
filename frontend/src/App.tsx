@@ -495,6 +495,7 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
     window.addEventListener("noah:ouvrir-panneau", tab);
     return () => { window.removeEventListener("noah:choisir-modele", open); window.removeEventListener("noah:ouvrir-panneau", tab); };
   }, []);
+  useEffect(() => { setInbox(false); }, [agent?.id, threadId, panel, navActive]); // « Pour toi » est une page : un autre agent, une tâche ou un onglet la ferme
   const openFromInbox = (item: InboxItem) => {
     setInbox(false);
     setAgentId(item.agent_id);
@@ -520,7 +521,8 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
         <div className="work-main">
           <MobileHeader agent={agent} status={agent?.step || liveStatus || (agent?.online ? t("En ligne") : t("Hors ligne"))} onMenu={() => setSidebarOpen(true)} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })}
             menu={<WorkMenu agent={agent} active={panel} onOpen={togglePanelOpen} waiting={waiting} onInbox={() => setInbox(true)} />} />
-          <KeepAlive active={!panel || (wide && !expanded)} className="min-h-0 flex-1">
+          {inbox && <div className="flex min-h-0 flex-1 flex-col"><Suspense fallback={null}><Inbox open page agents={agents} onOpenChange={setInbox} onOpenConversation={openFromInbox} onOpenAgent={(id) => { setInbox(false); selectAgent(id); }} /></Suspense></div>}
+          <KeepAlive active={!inbox && (!panel || (wide && !expanded))} className="min-h-0 flex-1">
           <ChatPane onMenu={() => setSidebarOpen(true)}
             title={thread?.title || agent?.name || "Noah"}
             entete={agent ? { role: agent.role, ...etatMot(agent) } : null}
@@ -634,7 +636,6 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
             refreshAgents();
           }}
         />}
-        {inbox && <Inbox open agents={agents} onOpenChange={setInbox} onOpenConversation={openFromInbox} onOpenAgent={(id) => { setInbox(false); selectAgent(id); }} />}
         {goals && <Goals open={goals} agents={agents} agentId={agentId} onOpenChange={setGoals} />}
         {settings && <SettingsDialog
           open={!!settings}

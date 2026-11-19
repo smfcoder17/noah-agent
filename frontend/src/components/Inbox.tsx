@@ -9,7 +9,6 @@ import { refreshPropositions, setPropositionCount } from "@/lib/propositions";
 import { LoginCard } from "./LoginCard";
 import { QUESTION_REPONDUE, QuestionCard } from "./QuestionCard";
 import { AgentFace } from "./Noah";
-import { StateShape } from "./Sidebar";
 import { Button, Dialog, DialogContent, ErrorText } from "./ui";
 
 /** Une idée de l'agent : « Fais-le » la lance dans sa conversation principale, « Non » la range (et il s'en souvient). */
@@ -31,8 +30,10 @@ export function PropositionCard({ item, agent, onAnswer }: { item: Proposition; 
   );
 }
 
-export function Inbox({ open, agents, onOpenChange, onOpenConversation, onOpenAgent }: {
+export function Inbox({ open, page = false, agents, onOpenChange, onOpenConversation, onOpenAgent }: {
   open: boolean;
+  /** Dans la zone de travail, comme le prototype, au lieu d'une fenêtre. */
+  page?: boolean;
   agents: Agent[];
   onOpenChange: (open: boolean) => void;
   onOpenConversation: (item: InboxItem) => void;
@@ -116,55 +117,69 @@ export function Inbox({ open, agents, onOpenChange, onOpenConversation, onOpenAg
     }
   };
   const decisions = (items?.length ?? 0) + accords.length + propositions.length;
+  const phrase = decisions === 1 ? t("Une décision te revient. Le reste se règle entre agents.") : decisions > 1 ? t("{n} décisions te reviennent. Le reste se règle entre agents.", { n: decisions }) : "";
+  const corps = (
+    <>
+        <ErrorText>{error}</ErrorText>
+      {!page && phrase ? <p className="soft text-muted-foreground">{phrase}</p> : null}
+        {!items && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("Lecture…")}</p>}
+        {items?.length === 0 && !accords.length && !propositions.length && <p className="py-4 text-sm text-muted-foreground">{t("Rien ne t'attend pour le moment.")}</p>}
+        <ul className={page ? "stack g16" : "flex max-h-[70vh] flex-col gap-4 overflow-y-auto max-md:max-h-none max-md:overflow-visible"}>
+          {[...accords, ...(items ?? [])].sort((a, b) => a.created - b.created).map((item) => {
+            if (item.question) return <li key={item.id ?? item.conversation_id}><QuestionCard q={item.question} onTache={() => onOpenConversation(item)} /></li>;
+            return (
+              <li key={item.id ?? item.conversation_id} className="card">
+                <button type="button" onClick={() => onOpenConversation(item)} className="stack g8 w-full cursor-pointer text-left" aria-label={t("Ouvrir la conversation : {demande}", { demande: item.demande })}>
+                  <span className="line wrap g8 text-[13px] text-muted-foreground">
+                    <span>{item.agent}{item.main ? "" : ` · ${item.titre}`}</span>
+                    <span className="pill wait">{item.connexion ? t("Attend ta connexion") : item.appel ? t("Attend ton aide") : item.etat === "approve" ? t("Attend ton accord") : t("Attend ton choix")}</span>
+                  </span>
+                  <span className="text-[19px] font-semibold leading-snug">{item.demande}</span>
+                  {item.pourquoi && <span className="text-muted-foreground">{item.pourquoi}</span>}
+                  {item.apercu.map((line) => <span key={line} className="text-muted-foreground">{t("« {phrase} »", { phrase: line })}</span>)}
+                </button>
+                {item.connexion && (
+                  <LoginCard
+                    agentId={item.agent_id}
+                    asked={item.connexion}
+                    onDone={(result) => {
+                      setItems((cur) => cur?.filter((i) => i.conversation_id !== item.conversation_id) ?? null);
+                      window.dispatchEvent(new CustomEvent("noah:connexion-repondue", { detail: { id: item.connexion?.id, result } }));
+                      window.dispatchEvent(new Event("noah:accord-repondu"));
+                    }}
+                  />
+                )}
+                {item.bureau ? <p className="text-sm text-muted-foreground">{t("À accepter sur ton ordinateur")}</p> : item.etat === "approve" && item.run_id && (
+                  <div className="line wrap g8">
+                    <button type="button" className="btn btn-ink" disabled={busy === item.id} onClick={() => answer(item, true)}>{t("Autoriser")}</button>
+                    <button type="button" className="btn" disabled={busy === item.id} onClick={() => answer(item, false)}>{t("Refuser")}</button>
+                  </div>
+                )}
+              </li>
+            );
+          })}
+          {propositions.map((p) => <PropositionCard key={p.id} item={p} agent={agents.find((a) => a.id === p.agent_id)} onAnswer={(choix) => void reply(p, choix)} />)}
+        </ul>
+    </>
+  );
+  if (page) {  // la page du prototype : dans la zone de travail, un titre de 26 px, une phrase, des cartes
+    return (
+      <main className="chat-pane" aria-label={t("Pour toi")}>
+        <header className="head"><div className="head-title flex min-w-0 grow items-center gap-2"><h1 className="cut">{t("Pour toi")}</h1></div></header>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="col narrow stack g16">
+            <div className="stack g4"><h2 className="title">{t("Pour toi")}</h2>{phrase ? <p className="soft text-muted-foreground">{phrase}</p> : null}</div>
+            {corps}
+          </div>
+        </div>
+      </main>
+    );
+  }
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {open && (
         <DialogContent title={t("Pour toi")} description={t("Ce que tes agents attendent de toi.")} className="max-w-2xl">
-          <ErrorText>{error}</ErrorText>
-          {(items?.length || accords.length || propositions.length) ? <p className="soft text-muted-foreground">{decisions === 1 ? t("Une décision te revient. Le reste se règle entre agents.") : t("{n} décisions te reviennent. Le reste se règle entre agents.", { n: decisions })}</p> : null}
-          {!items && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("Lecture…")}</p>}
-          {items?.length === 0 && !accords.length && !propositions.length && <p className="py-4 text-sm text-muted-foreground">{t("Rien ne t'attend pour le moment.")}</p>}
-          <ul className="flex max-h-[70vh] flex-col gap-4 overflow-y-auto max-md:max-h-none max-md:overflow-visible">
-            {[...accords, ...(items ?? [])].sort((a, b) => a.created - b.created).map((item) => {
-              const agent = agents.find((a) => a.id === item.agent_id);
-              if (item.question) return <li key={item.id ?? item.conversation_id}><QuestionCard q={item.question} onTache={() => onOpenConversation(item)} /></li>;
-              return (
-                <li key={item.id ?? item.conversation_id} className="card">
-                  <button type="button" onClick={() => onOpenConversation(item)} className="flex w-full cursor-pointer items-start gap-3 text-left" aria-label={t("Ouvrir la conversation : {demande}", { demande: item.demande })}>
-                    {agent && <AgentFace agent={agent} className="size-9 shrink-0" />}
-                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                      <span className="flex items-center gap-1.5 text-xs font-medium text-warn">
-                        <StateShape state={item.etat} />
-                        {item.connexion ? t("Attend ta connexion") : item.appel ? t("Attend ton aide") : item.etat === "approve" ? t("Attend ton accord") : t("Attend ton choix")}
-                      </span>
-                      <span className="text-sm font-medium">{item.demande}</span>
-                      {item.pourquoi && <span className="text-xs text-muted-foreground">{item.pourquoi}</span>}
-                      {item.apercu.map((line) => <span key={line} className="truncate text-xs text-muted-foreground">{t("« {phrase} »", { phrase: line })}</span>)}
-                      <span className="truncate text-xs text-muted-foreground">{item.agent}{item.main ? "" : ` · ${item.titre}`}</span>
-                    </span>
-                  </button>
-                  {item.connexion && (
-                    <LoginCard
-                      agentId={item.agent_id}
-                      asked={item.connexion}
-                      onDone={(result) => {
-                        setItems((cur) => cur?.filter((i) => i.conversation_id !== item.conversation_id) ?? null);
-                        window.dispatchEvent(new CustomEvent("noah:connexion-repondue", { detail: { id: item.connexion?.id, result } }));
-                        window.dispatchEvent(new Event("noah:accord-repondu"));
-                      }}
-                    />
-                  )}
-                  {item.bureau ? <p className="text-sm text-muted-foreground">{t("À accepter sur ton ordinateur")}</p> : item.etat === "approve" && item.run_id && (
-                    <div className="flex justify-end gap-2">
-                      <Button variant="outline" size="sm" disabled={busy === item.id} onClick={() => answer(item, false)}>{t("Refuser")}</Button>
-                      <Button variant="warn" size="sm" disabled={busy === item.id} onClick={() => answer(item, true)}>{t("Autoriser")}</Button>
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-            {propositions.map((p) => <PropositionCard key={p.id} item={p} agent={agents.find((a) => a.id === p.agent_id)} onAnswer={(choix) => void reply(p, choix)} />)}
-          </ul>
+          {corps}
         </DialogContent>
       )}
     </Dialog>
