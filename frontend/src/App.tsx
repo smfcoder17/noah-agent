@@ -7,8 +7,6 @@ import { KeepAlive } from "@/components/KeepAlive";
 import { BottomTabs } from "@/components/mobile/BottomTabs";
 import { MobileHeader } from "@/components/mobile/MobileHeader";
 import { Drawer } from "@/components/mobile/Drawer";
-import { CustomizeTabs } from "@/components/mobile/CustomizeTabs";
-import { AgentPage } from "@/components/mobile/AgentPage";
 import { useNavPrefs, type NavTab } from "@/lib/navPrefs";
 import { PANEL_NAMES, useWide, workTabsFor } from "@/lib/workPanel";
 import { WorkBar, WorkMenu } from "@/components/WorkBar";
@@ -31,7 +29,6 @@ import { HandoffBanner } from "@/components/Handoff";
 import { DelegatedTasks } from "@/components/DelegatedTasks";
 import { agentColor } from "@/components/Noah";
 import { Boundary } from "@/components/Boundary";
-import { Inbox } from "@/components/Inbox";
 import { usePropositionCount } from "@/lib/propositions";
 import type { PanelTab } from "@/components/SidePanel";
 import { SideRail } from "@/components/desktop/SideRail";
@@ -59,6 +56,9 @@ import { t, tr } from "@/i18n";
 // Chargés à la première ouverture : le premier écran n'attend que le chat.
 const AgentBrain = lazy(() => import("@/components/AgentBrain").then((m) => ({ default: m.AgentBrain })));
 const AgentDialog = lazy(() => import("@/components/AgentDialog").then((m) => ({ default: m.AgentDialog })));
+const CustomizeTabs = lazy(() => import("@/components/mobile/CustomizeTabs").then((m) => ({ default: m.CustomizeTabs })));
+const AgentPage = lazy(() => import("@/components/mobile/AgentPage").then((m) => ({ default: m.AgentPage })));
+const Inbox = lazy(() => import("@/components/Inbox").then((m) => ({ default: m.Inbox })));
 const SidePanel = lazy(() => import("@/components/SidePanel").then((m) => ({ default: m.SidePanel })));
 const SettingsDialog = lazy(() => import("@/components/Settings").then((m) => ({ default: m.SettingsDialog })));
 const Goals = lazy(() => import("@/components/Goals").then((m) => ({ default: m.Goals })));
@@ -603,8 +603,10 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
           </KeepAlive>}
         </div>
         {sidebarOpen && <Drawer waiting={waiting} onInbox={() => { setSidebarOpen(false); setInbox(true); }} onActivity={() => { setSidebarOpen(false); setPanel("activity"); }} activityDot={(ouverture?.routines.non_vues ?? 0) > 0} me={me} agents={agents} agentId={agentId} tabs={tabs} active={navActive} onAgent={selectAgent} onAgentPage={openAgentPage} onCustomizeAgent={customizeAgent} onTab={goTab} onNewAgent={() => { setSidebarOpen(false); setAgentDialog({ open: true, agent: null }); }} onCustomize={() => { setSidebarOpen(false); navigation.dispatch({ type: "push", route: { kind: "customize" } }); }} onSettings={() => { setSidebarOpen(false); setSettings("home"); }} onGoals={() => { setSidebarOpen(false); setGoals(true); }} onClose={() => setSidebarOpen(false)} onLogout={logout} />}
+        <Suspense fallback={null}>
         {latest("customize") && <CustomizeTabs tabs={tabs} save={saveTabs} error={tabsError} onClose={() => navigation.dispatch({ type: "close", kind: "customize" })} />}
         {latest("agent") && agent && <AgentPage agent={agent} onClose={() => navigation.dispatch({ type: "close", kind: "agent" })} onPanel={(tab) => { navigation.dispatch({ type: "close", kind: "agent" }); setPanel(tab); }} onBrain={() => setModelDialog(true)} onEdit={() => setAgentDialog({ open: true, agent })} onNotifications={() => setSettings("notifications")} onAutonomy={() => setSettings("privacy")} />}
+        </Suspense>
         <Suspense fallback={null}>
         {agent && (
           <Dialog open={modelDialog} onOpenChange={setModelDialog}>
@@ -630,7 +632,7 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
             refreshAgents();
           }}
         />}
-        <Inbox open={inbox} agents={agents} onOpenChange={setInbox} onOpenConversation={openFromInbox} onOpenAgent={(id) => { setInbox(false); selectAgent(id); }} />
+        {inbox && <Inbox open agents={agents} onOpenChange={setInbox} onOpenConversation={openFromInbox} onOpenAgent={(id) => { setInbox(false); selectAgent(id); }} />}
         {goals && <Goals open={goals} agents={agents} agentId={agentId} onOpenChange={setGoals} />}
         {settings && <SettingsDialog
           open={!!settings}

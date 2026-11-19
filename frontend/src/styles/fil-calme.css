@@ -39,15 +39,12 @@
 .rail-row:hover { background:var(--muted); }
 .rail-row[aria-current] { background:var(--sel); box-shadow:none; color:var(--ink); }
 .rail-count { background:var(--warn); color:var(--accent-ink); min-width:22px; padding:0 6px; font-size:12.5px; line-height:22px; }
-.rail-kbd { display:inline-block; }
 .rail-agents-label { padding:16px 10px 6px; font-size:12.5px; font-weight:600; color:var(--soft); text-transform:none; letter-spacing:0; flex:none; }
 .rail-agents-scroll { flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; margin:0 -4px; padding:0 4px; }
 .rail-new { margin-top:2px; }
 .rail-new .rail-row { color:var(--soft); font-weight:600; }
 .rail-bottom { flex:none; margin-top:auto; padding-top:8px; border-top:0; display:flex; flex-direction:column; gap:2px; }
-.rail-fold { color:var(--soft); }
 .rail-account { display:flex; align-items:center; gap:10px; width:100%; min-height:48px; padding:5px 8px; text-align:left; font-weight:400; }
-.rail-account.static { display:flex; align-items:center; gap:10px; padding:5px 8px; }
 .agent-nav-item { border-radius:var(--r-m); }
 .agent-nav-item.is-selected { background:var(--sel); box-shadow:none; padding-bottom:0; }
 .agent-nav-row { gap:10px; min-height:48px; padding:5px 8px; border-radius:var(--r-m); width:100%; }
@@ -69,7 +66,6 @@
 .side-rail.is-folded .rail-count, .side-rail.is-folded .rail-row .dot { position:absolute; right:2px; top:2px; margin:0; }
 .side-rail.is-folded .agent-nav-row .dot { position:absolute; right:3px; bottom:5px; box-shadow:0 0 0 2px var(--bg); }
 .side-rail.is-folded .agent-nav-more, .side-rail.is-folded .agent-nav-options { display:none; }
-.side-rail.is-folded .rail-agents-label { display:none; }
 
 /* ---------- En-tête et panneau de droite ---------- */
 .work-area, .work-main, .chat-pane { background:var(--card); }
@@ -140,11 +136,8 @@
 .model-chip:hover { background:var(--muted); color:var(--ink); }
 .model-chip svg { width:18px; height:18px; flex:none; }
 .send { width:36px; height:36px; flex:none; margin-left:6px; border-radius:12px; background:var(--accent); color:var(--accent-ink); display:inline-flex; align-items:center; justify-content:center; cursor:pointer; }
-.send:hover { background:var(--accent); opacity:.92; }
 .send:active { transform:scale(.95); }
-.send:disabled { opacity:1; }
 .send-stop { width:36px; height:36px; flex:none; margin-left:6px; border-radius:12px; }
-[data-noah-composer] { border-radius:16px; box-shadow:var(--shadow-s); }
 
 /* ---------- Téléphone ---------- */
 .mobile-header { align-items:center; gap:4px; height:var(--head); padding:0 6px; border-bottom:1px solid var(--line-soft); background:var(--card); }
@@ -190,7 +183,6 @@
 .rail-row { display:flex; align-items:center; width:100%; text-align:left; cursor:pointer; }
 .rail-label { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .rail-count { flex:none; border-radius:999px; text-align:center; font-weight:700; }
-.rail-fold { flex:none; }
 
 /* Une tâche ouverte, sur téléphone : un seul en-tête (menu, retour, titre, pastille), comme le prototype. */
 @media (min-width:768px) { .tache-menu { display:none; } }

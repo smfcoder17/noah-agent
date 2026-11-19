@@ -69,7 +69,7 @@
       "libelle": "poids du premier écran, gzip (X24)",
       "unite": "ko",
       "seuil": 400,
-      "mesure": 497.6,
+      "mesure": 452.2,
       "bloquant": false,
       "tolerance": 2
     },

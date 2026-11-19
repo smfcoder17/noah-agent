@@ -1,26 +1,24 @@
 /* Jetons de l'interface : ceux du prototype « Fil calme » (0.4.0). Aucun import ni dépendance. */
 :root {
-  --page:#e9ecf1; --bg:#f6f7f9; --card:#ffffff; --muted:#eceff3; --line:#dde2e8; --line-soft:#eceff3;
+  --bg:#f6f7f9; --card:#ffffff; --muted:#eceff3; --line:#dde2e8; --line-soft:#eceff3;
   --ink:#141b24; --soft:#5d6875; --accent:#2a47c9; --accent-soft:#e4e9fb; --accent-ink:#ffffff;
   --warn:#b5530f; --warn-ink:#9a4509; --warn-soft:#fdf0e3; --ok:#177a41; --ok-soft:#e3f4ea;
   --danger:#b42318; --danger-soft:#fdecea; --hollow:#8a94a0; --sel:#e8ebf0;
   --font:"Figtree Variable","Figtree","Segoe UI",system-ui,sans-serif;
   --r-s:8px; --r-m:10px; --r-l:14px; --r-xl:18px;
-  --radius-7:7px; --radius-8:8px; --radius-9:9px; --radius-10:10px; --radius-12:12px; --radius-14:14px; --radius-16:16px; --radius-18:18px; --radius-24:24px;
-  --viewer-bg:#000; --viewer-ink:#fff;
-  --shadow-mini:0 10px 24px rgba(0,0,0,.3); --shadow-drawer:8px 0 30px rgba(0,0,0,.18); --shadow-active:0 1px 2px rgba(0,0,0,.05);
-  --radius-card:16px; --radius-bubble:18px; --radius-small:14px; --radius-pill:999px;
+  --radius-8:8px; --radius-9:9px; --radius-10:10px; --radius-12:12px; --radius-14:14px; --radius-16:16px;
+  --shadow-mini:0 10px 24px rgba(0,0,0,.3);
   --shadow-s:0 1px 3px rgba(0,0,0,.07); --shadow-button:0 1px 2px rgba(0,0,0,.06); --shadow-composer:var(--shadow-s);
   --shadow-m:0 12px 30px rgba(0,0,0,.16); --shadow-menu:var(--shadow-m); --shadow-l:0 18px 44px rgba(16,21,27,.18); --shadow-panel:var(--shadow-l);
   --side:248px; --rail:64px; --right:400px; --head:52px; --hit:36px; --col:760px;
-  --rail-width:var(--side); --right-width:470px; --touch-size:48px;
+  --rail-width:var(--side); --right-width:470px;
   --background:var(--bg); --surface:var(--card); --sidebar:var(--bg); --border:var(--line);
   --foreground:var(--ink); --muted-foreground:var(--soft); --accent-foreground:var(--accent-ink);
   color-scheme:light;
 }
 @media(prefers-color-scheme:dark) {
   :root:not([data-theme=light]) {
-    --page:#080b0f; --bg:#0e1318; --card:#151c24; --muted:#1d2630; --line:#2a3542; --line-soft:#212b36;
+    --bg:#0e1318; --card:#151c24; --muted:#1d2630; --line:#2a3542; --line-soft:#212b36;
     --ink:#e6ebf0; --soft:#95a3b1; --accent:#8ea5ff; --accent-soft:#1d2852; --accent-ink:#0e1318;
     --warn:#f0a060; --warn-ink:#f0a060; --warn-soft:#3a2614; --ok:#5fd08e; --ok-soft:#143524;
     --danger:#f97066; --danger-soft:#3b1a17; --hollow:#6f7c8a; --sel:#1d2630;
@@ -29,7 +27,7 @@
   }
 }
 :root[data-theme=dark] {
-  --page:#080b0f; --bg:#0e1318; --card:#151c24; --muted:#1d2630; --line:#2a3542; --line-soft:#212b36;
+  --bg:#0e1318; --card:#151c24; --muted:#1d2630; --line:#2a3542; --line-soft:#212b36;
   --ink:#e6ebf0; --soft:#95a3b1; --accent:#8ea5ff; --accent-soft:#1d2852; --accent-ink:#0e1318;
   --warn:#f0a060; --warn-ink:#f0a060; --warn-soft:#3a2614; --ok:#5fd08e; --ok-soft:#143524;
   --danger:#f97066; --danger-soft:#3b1a17; --hollow:#6f7c8a; --sel:#1d2630;

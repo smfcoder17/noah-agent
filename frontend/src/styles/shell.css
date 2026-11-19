@@ -19,7 +19,6 @@ button.shell-row { cursor:pointer; }
 .agent-identity small { color:var(--muted-foreground); font-size:13px; }
 .page-header { flex:none; display:grid; grid-template-columns:44px 1fr 44px; padding:4px 12px 10px; align-items:center; }
 .page-header h2 { font-size:16px; text-align:center; }
-.offline-banner { padding:8px 14px; background:var(--warn-soft); color:var(--warn); font-size:13px; }
 @media(max-width:767px) {
   .noah-shell { display:flex; flex-direction:column; height:calc(100% - var(--kb,0px)); }
   /* Cibles tactiles : 44 px au moins. */
@@ -53,20 +52,9 @@ button.shell-row { cursor:pointer; }
 .work-panel [data-shell-tabs] { display:none; }
 .work-panel-grip { position:absolute; top:0; bottom:0; left:-4px; width:8px; cursor:col-resize; z-index:2; touch-action:none; }
 .work-panel-grip:hover, .work-panel-grip:focus-visible { background:linear-gradient(90deg,transparent 3px,var(--accent) 3px,var(--accent) 5px,transparent 5px); outline:none; }
-.work-panel .shell-icon:focus-visible, .work-icon:focus-visible, .work-menu-list button:focus-visible, .session-row:focus-visible, .rail-row:focus-visible, .file-preview .shell-icon:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+.work-panel .shell-icon:focus-visible, .session-row:focus-visible, .rail-row:focus-visible, .file-preview .shell-icon:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
 /* Barre du haut à droite : icônes seules, nom en infobulle au survol et au focus. */
 .work-bar { display:flex; align-items:center; gap:2px; }
-.work-icon { position:relative; width:34px; height:34px; display:grid; place-items:center; border-radius:var(--radius-8); color:var(--soft); cursor:pointer; }
-.work-icon:hover { background:var(--muted); color:var(--ink); }
-.work-icon.is-current, .work-icon[aria-pressed=true] { background:var(--accent-soft); color:var(--accent); }
-.work-tip { position:absolute; top:calc(100% + 6px); left:50%; translate:-50% 0; z-index:60; padding:4px 8px; border-radius:var(--radius-7); background:var(--ink); color:var(--bg); font-size:12px; font-weight:500; white-space:nowrap; pointer-events:none; opacity:0; visibility:hidden; transition:opacity .12s; }
-.work-icon:last-child .work-tip { left:auto; right:0; translate:none; }
-.work-icon:hover .work-tip, .work-icon:focus-visible .work-tip { opacity:1; visibility:visible; }
-/* Menu « … » du téléphone. */
-.work-menu { position:relative; }
-.work-menu-list { position:absolute; top:calc(100% + 6px); right:0; z-index:50; min-width:220px; display:flex; flex-direction:column; padding:6px; border:1px solid var(--line); border-radius:var(--radius-14); background:var(--card); box-shadow:var(--shadow-menu); }
-.work-menu-list button { display:flex; align-items:center; gap:12px; min-height:48px; padding:0 12px; border-radius:var(--radius-10); font-size:15px; text-align:left; cursor:pointer; }
-.work-menu-list button:hover, .work-menu-list button[aria-current], .work-menu-list button[aria-checked=true] { background:var(--muted); }
 /* Session et aperçus. */
 .session-row { display:flex; align-items:center; gap:10px; width:100%; min-height:44px; padding:6px 8px; border-radius:var(--radius-10); text-align:left; }
 button.session-row { cursor:pointer; }

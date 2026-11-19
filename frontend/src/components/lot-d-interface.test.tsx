@@ -325,7 +325,6 @@ it("E2 — cibles tactiles du téléphone : 44 px au moins", () => {
   const shell = readFileSync("src/styles/shell.css", "utf8");
   expect(readFileSync("src/styles/fil-calme.css", "utf8")).toMatch(/\.mobile-header \.shell-icon, \.mobile-header \.icon-btn \{ width:44px; height:44px; min-width:44px; \}/);
   expect(shell).toContain(".work-panel-head .shell-icon { width:44px; height:44px; min-width:44px; }");
-  expect(shell).toMatch(/\.work-menu-list button \{[^}]*min-height:48px/);
   expect(shell).toMatch(/\.session-row \{[^}]*min-height:44px/);
 });
 
