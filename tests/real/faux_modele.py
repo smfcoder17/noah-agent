@@ -74,6 +74,9 @@ class Handler(BaseHTTPRequestHandler):
         if not self.path.endswith("/chat/completions"):
             return self._json({"error": "introuvable"}, 404)
         text = reply_to(body.get("messages") or [])
+        if any(m.get("role") == "system" and "Titre de la tâche" in str(m.get("content")) for m in body.get("messages") or []):
+            words = re.sub(r"\[[^\]]*\]\s*", "", last_user(body.get("messages") or [])).split()[:5]  # un titre par consigne : ses cinq premiers mots
+            text = " ".join(words).capitalize() or "Tâche sans consigne"
         calling = re.search(r"Appelle-moi\s*:\s*(.+)", last_user(body.get("messages") or []))
         if calling and (body.get("messages") or [{}])[-1].get("role") == "user" and body.get("tools"):
             command = "python3 /opt/data/noah.py rappeler " + json.dumps(calling.group(1).strip(), ensure_ascii=False)

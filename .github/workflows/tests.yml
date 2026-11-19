@@ -225,6 +225,14 @@ jobs:
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \
             "pip install -q -r /app/requirements.txt && python /tests/taches/double_ecriture_test.py"
+      - name: "Tâches : le fil est la seule conversation, une demande entre agents n'en ouvre aucune et le fil reçoit trois lignes, GET /api/taches rend les mêmes tâches que le fil, redémarrage, discussion vide (0.4.0, L1)"
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \
+            "pip install -q -r /app/requirements.txt && python /tests/taches/fil_test.py"
+      - name: "Tâches : dix titres distincts écrits par le modèle rapide (faux modèle), repli sur la règle, aucun appel pour les anciennes tâches (0.4.0, L1)"
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \
+            "pip install -q -r /app/requirements.txt && python /tests/taches/titres_test.py"
       - name: "Ouverture d'un agent : une route rend le fil, ses tâches, ce qui attend, l'appel d'aide, les routines connues (forme exacte, droits d'un invité, trace à son auteur, 0.4.0)"
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \
