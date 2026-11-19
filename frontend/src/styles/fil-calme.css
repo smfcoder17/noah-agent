@@ -220,3 +220,33 @@
   .btn { min-height:44px; }
   .btn-sm { min-height:36px; }
 }
+
+/* ---------- Réglages (0.4.0, lot L9b) : la page du prototype, rubriques à gauche et détail à droite ---------- */
+.text-soft { color:var(--soft); }
+.set { display:grid; grid-template-columns:220px minmax(0,1fr); min-height:0; flex:1; background:var(--card); }
+.set-nav { padding:12px 8px; border-right:1px solid var(--line-soft); overflow-y:auto; display:flex; flex-direction:column; gap:2px; }
+.set-link { display:flex; align-items:center; gap:10px; width:100%; min-height:var(--hit); padding:0 10px; border-radius:var(--r-m); font-weight:600; text-align:left; cursor:pointer; }
+.set-link:hover { background:var(--muted); }
+.set-link[aria-current=page] { background:var(--sel); }
+.set-body { min-width:0; overflow-y:auto; padding:24px 28px 40px; }
+.set-body > .stack { max-width:640px; }
+.set-row { display:flex; align-items:center; gap:16px; padding:14px 0; }
+.set-row + .set-row { border-top:1px solid var(--line-soft); }
+.set-row > .grow > b { display:block; font-weight:600; }
+.set-row .help.block { display:block; }
+.select { min-height:40px; padding:8px 12px; border:1px solid var(--line); border-radius:var(--r-m); background:var(--card); }
+.toggle { position:relative; width:40px; height:24px; flex:none; border-radius:999px; background:var(--hollow); transition:background .15s; cursor:pointer; }
+.toggle::after { content:""; position:absolute; top:3px; left:3px; width:18px; height:18px; border-radius:999px; background:#fff; transition:transform .15s; }
+.toggle[aria-checked=true] { background:var(--accent); }
+.toggle[aria-checked=true]::after { transform:translateX(16px); }
+.seg > button[data-state=active] { background:var(--card); color:var(--ink); box-shadow:var(--shadow-s); }
+.set-body .seg { overflow-x:auto; scrollbar-width:none; }
+@media (max-width:767px) {
+  .set { grid-template-columns:minmax(0,1fr); }
+  .set-nav { border-right:0; padding:8px; }
+  .set-link { min-height:56px; }
+  .set-body { padding:16px 16px 32px; }
+  .set.detail .set-nav, .set:not(.detail) .set-body { display:none; }
+  .select { min-height:48px; font-size:16px; }
+  .set-row .toggle { min-width:40px; }
+}

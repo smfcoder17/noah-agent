@@ -64,7 +64,7 @@ const SidePanel = lazy(() => import("@/components/SidePanel").then((m) => ({ def
 const ActivitePage = lazy(() => import("@/components/ActivitePage").then((m) => ({ default: m.ActivitePage })));
 // Le bloc « Étapes » : seule une tâche ouverte le charge (budget B2).
 const EtapesTache = lazy(() => import("@/components/thread/Etapes").then((m) => ({ default: m.EtapesTache })));
-const SettingsDialog = lazy(() => import("@/components/Settings").then((m) => ({ default: m.SettingsDialog })));
+const SettingsPage = lazy(() => import("@/components/Settings").then((m) => ({ default: m.SettingsPage })));
 const Goals = lazy(() => import("@/components/Goals").then((m) => ({ default: m.Goals })));
 
 type Screen = "loading" | "onboarding" | "login" | "password" | "app" | "error" | "pairing" | "linked" | "update";
@@ -501,9 +501,9 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
     window.addEventListener("noah:ouvrir-panneau", tab);
     return () => { window.removeEventListener("noah:choisir-modele", open); window.removeEventListener("noah:ouvrir-panneau", tab); };
   }, []);
-  useEffect(() => { setInbox(false); setActivite(false); }, [agent?.id, threadId, panel, navActive]); // « Pour toi » et « Activité » sont des pages : un autre agent, une tâche ou un onglet les ferme
-  const openInbox = () => { setActivite(false); setInbox(true); };
-  const openActivite = () => { setInbox(false); setActivite(true); };
+  useEffect(() => { setInbox(false); setActivite(false); setSettings(null); }, [agent?.id, threadId, panel, navActive]); // « Pour toi » et « Activité » sont des pages : un autre agent, une tâche ou un onglet les ferme
+  const openInbox = () => { setActivite(false); setSettings(null); setInbox(true); };
+  const openActivite = () => { setInbox(false); setSettings(null); setActivite(true); };
   const openFromActivite = (agent: string, conversation: string | null) => { setActivite(false); setAgentId(agent); setThreadId(conversation); setSidebarOpen(false); setPanel(null); };
   const openFromInbox = (item: InboxItem) => {
     setInbox(false);
@@ -531,8 +531,9 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
           <MobileHeader agent={agent} status={agent?.step || liveStatus || (agent?.online ? t("En ligne") : t("Hors ligne"))} onMenu={() => setSidebarOpen(true)} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })}
             menu={<WorkMenu agent={agent} active={panel} onOpen={togglePanelOpen} waiting={waiting} onInbox={openInbox} />} />
           {inbox && <div className="flex min-h-0 flex-1 flex-col"><Suspense fallback={null}><Inbox open page agents={agents} onOpenChange={setInbox} onOpenConversation={openFromInbox} onOpenAgent={(id) => { setInbox(false); selectAgent(id); }} /></Suspense></div>}
+          {settings && <div className="flex min-h-0 flex-1 flex-col"><Suspense fallback={null}><SettingsPage tab={settings} owner={me?.role === "owner"} agents={agents} onTab={setSettings} onClose={() => setSettings(null)} onBrainSaved={() => { setSettings(null); refreshAgents(); }} /></Suspense></div>}
           {activite && <div className="flex min-h-0 flex-1 flex-col"><Suspense fallback={null}><ActivitePage agentId={agentId} onOpenTache={openFromActivite} onOpenAgent={(id) => openFromActivite(id, null)} /></Suspense></div>}
-          <KeepAlive active={!inbox && !activite && (!panel || (wide && !expanded))} className="min-h-0 flex-1">
+          <KeepAlive active={!inbox && !activite && !settings && (!panel || (wide && !expanded))} className="min-h-0 flex-1">
           <ChatPane onMenu={() => setSidebarOpen(true)}
             title={thread?.title || agent?.name || "Noah"}
             entete={agent ? { role: agent.role, ...etatMot(agent) } : null}
@@ -620,7 +621,7 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
         {sidebarOpen && <Drawer waiting={waiting} onInbox={() => { setSidebarOpen(false); openInbox(); }} onActivity={() => { setSidebarOpen(false); openActivite(); }} activityDot={(ouverture?.routines.non_vues ?? 0) > 0} me={me} agents={agents} agentId={agentId} tabs={tabs} active={navActive} onAgent={selectAgent} onAgentPage={openAgentPage} onCustomizeAgent={customizeAgent} onTab={goTab} onNewAgent={() => { setSidebarOpen(false); setAgentDialog({ open: true, agent: null }); }} onCustomize={() => { setSidebarOpen(false); navigation.dispatch({ type: "push", route: { kind: "customize" } }); }} onSettings={() => { setSidebarOpen(false); setSettings("home"); }} onGoals={() => { setSidebarOpen(false); setGoals(true); }} onClose={() => setSidebarOpen(false)} onLogout={logout} />}
         <Suspense fallback={null}>
         {latest("customize") && <CustomizeTabs tabs={tabs} save={saveTabs} error={tabsError} onClose={() => navigation.dispatch({ type: "close", kind: "customize" })} />}
-        {latest("agent") && agent && <AgentPage agent={agent} onClose={() => navigation.dispatch({ type: "close", kind: "agent" })} onPanel={(tab) => { navigation.dispatch({ type: "close", kind: "agent" }); setPanel(tab); }} onBrain={() => setModelDialog(true)} onEdit={() => setAgentDialog({ open: true, agent })} onNotifications={() => setSettings("notifications")} onAutonomy={() => setSettings("privacy")} />}
+        {latest("agent") && agent && <AgentPage agent={agent} onClose={() => navigation.dispatch({ type: "close", kind: "agent" })} onPanel={(tab) => { navigation.dispatch({ type: "close", kind: "agent" }); setPanel(tab); }} onBrain={() => setModelDialog(true)} onEdit={() => setAgentDialog({ open: true, agent })} onNotifications={() => setSettings("notifications")} onAutonomy={() => setSettings("team")} />}
         </Suspense>
         <Suspense fallback={null}>
         {agent && (
@@ -648,17 +649,6 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
           }}
         />}
         {goals && <Goals open={goals} agents={agents} agentId={agentId} onOpenChange={setGoals} />}
-        {settings && <SettingsDialog
-          open={!!settings}
-          tab={settings ?? "brain"}
-          owner={me?.role === "owner"}
-          onTab={setSettings}
-          onOpenChange={(o) => !o && setSettings(null)}
-          onBrainSaved={() => {
-            setSettings(null);
-            refreshAgents();
-          }}
-        />}
         </Suspense>
       </LayoutShell>
     </ViewerProvider></SensitiveProvider>

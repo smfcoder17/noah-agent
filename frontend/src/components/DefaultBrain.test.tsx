@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import recorded from "../__fixtures__/cerveau/reponses.json?raw";
 import type { OwnBrain } from "@/lib/modes";
 import { DefaultBrain } from "./DefaultBrain";
-import { SettingsDialog } from "./Settings";
+import { SettingsPage } from "./Settings";
 
 // Copie réelle fournie par le serveur OpenRouter (295 modèles), aucun catalogue inventé.
 const responses = JSON.parse(recorded) as Record<string, unknown>;
@@ -147,8 +147,8 @@ it("chaque agent avec le sien quand leurs modèles diffèrent, au singulier pour
 });
 
 it("branche cet écran dans Réglages > Modèles et budget > Cerveau", async () => {
-  await act(async () => root.render(<SettingsDialog open tab="brain" owner onTab={() => {}} onOpenChange={() => {}} onBrainSaved={() => {}} />));
-  const dialog = document.querySelector('[role="dialog"]')!;
+  await act(async () => root.render(<SettingsPage tab="brain" owner onTab={() => {}} onClose={() => {}} onBrainSaved={() => {}} />));
+  const dialog = document.querySelector('main[aria-label="Réglages"]')!;
   expect(dialog.querySelector('[aria-label="Cerveau par défaut"]')).not.toBeNull();
   expect(dialog.querySelectorAll('[aria-label="Niveaux Auto"] li')).toHaveLength(3);
   expect(dialog.textContent).not.toContain("Comme mes autres agents");

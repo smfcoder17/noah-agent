@@ -1,12 +1,11 @@
-import { SettingsTwoColumns } from "./desktop/SettingsTwoColumns";
 import { Appearance } from "./Appearance";
 import { Providers } from "./Providers";
 // Réglages : le cerveau des agents, les modèles de création (image, vidéo, musique), la voix et le téléphone.
 // Chaque type peut rester en « Automatique » : Noah Agent prend le meilleur modèle disponible avec la clé.
-import { Check, ChevronRight, Loader2, Play } from "lucide-react";
+import { Bell, Check, ChevronLeft, ChevronRight, Cpu, Globe, KeyRound, Link2, Loader2, Play, Server, Smartphone, Star, Sun, User, Users, type LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { get, request, send } from "@/lib/api";
-import { noahPaused, setNoahPaused } from "@/lib/noahFace";
+import { type Agent, get, request, send } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import { Boundary } from "./Boundary";
 import { DoubleVerification } from "./DoubleVerification";
 import { MailConfirmation } from "./MailConfirmation";
@@ -28,7 +27,7 @@ import { Dialog, DialogContent, Tabs, TabsContent, TabsList, TabsTrigger } from 
 import { Button, Input, Label } from "./ui";
 import { t, tr } from "@/i18n";
 
-export type SettingsTab = "appearance" | "providers" | "home" | "mail" | "brain" | "create" | "voice" | "phone" | "notifications" | "telephone" | "security" | "updates" | "privacy" | "profiles" | "diagnostic" | "vault";
+export type SettingsTab = "team" | "appearance" | "providers" | "home" | "mail" | "brain" | "create" | "voice" | "phone" | "notifications" | "telephone" | "security" | "updates" | "privacy" | "profiles" | "diagnostic" | "vault";
 
 type Kind = { label: string; setting: string; auto: string | null; routed?: boolean; models: MediaModel[] };
 type MediaState = {
@@ -40,18 +39,22 @@ type MediaState = {
   has_key?: boolean;
 };
 
-// Sept rubriques, rangées par ce que la personne vient faire. Les anciens noms restent à l'intérieur : un message d'erreur qui dit « Réglages > Modèles et budget > Cerveau » reste vrai.
-function rubrics(owner: boolean): { id: string; label: string; tabs: [SettingsTab, string][] }[] {
+// Sept rubriques d'hier, douze du prototype « Fil calme » : seules celles qui ont un réglage réel sont montrées. Bureau et Abonnements
+// attendent leur donnée (lots L7 et L12). Les anciens noms restent à l'intérieur : un message d'erreur qui dit « Réglages > Modèles et budget > Cerveau » reste vrai.
+type Rubrique = { id: string; label: string; aide: string; Icon: LucideIcon; tabs: [SettingsTab, string][] };
+function rubrics(owner: boolean): Rubrique[] {
   return [
-    { id: "appearance", label: t("Apparence"), tabs: [["appearance", t("Apparence")]] },
-    { id: "account", label: t("Compte"), tabs: [["security", t("Sécurité")]] },
-    { id: "vault", label: t("Coffre"), tabs: [["vault", t("Coffre")]] },
-    { id: "devices", label: t("Appareils"), tabs: [["phone", t("Appareils reliés")], ...(phoneSettingsAvailable() ? [["telephone", t("Ce téléphone")] as [SettingsTab, string]] : [])] },
-    { id: "notifications", label: t("Notifications"), tabs: [["notifications", t("Notifications")]] },
+    { id: "appearance", label: t("Apparence"), aide: t("Langue, thème, taille du texte"), Icon: Sun, tabs: [["appearance", t("Apparence")]] },
+    { id: "account", label: t("Compte"), aide: t("Mot de passe, double vérification"), Icon: User, tabs: [["security", t("Sécurité")]] },
+    { id: "vault", label: t("Coffre"), aide: t("Identifiants et clés"), Icon: KeyRound, tabs: [["vault", t("Coffre")]] },
+    { id: "devices", label: t("Appareils"), aide: t("Relier un appareil, droits du téléphone"), Icon: Smartphone, tabs: [["phone", t("Appareils reliés")], ...(phoneSettingsAvailable() ? [["telephone", t("Ce téléphone")] as [SettingsTab, string]] : [])] },
+    { id: "notifications", label: t("Notifications"), aide: t("Ce que tu reçois"), Icon: Bell, tabs: [["notifications", t("Notifications")]] },
+    { id: "team", label: t("Équipe"), aide: t("Chef d'équipe, autonomie"), Icon: Star, tabs: [["team", t("Équipe")]] },
     ...(owner ? [
-      { id: "models", label: t("Modèles et budget"), tabs: [["brain", t("Cerveau")], ["providers", t("Fournisseurs")], ["create", t("Création")], ["voice", t("Voix")]] as [SettingsTab, string][] },
-      { id: "people", label: t("Personnes"), tabs: [["profiles", t("Personnes")]] as [SettingsTab, string][] },
-      { id: "server", label: t("Serveur"), tabs: [["updates", t("Mises à jour")], ["mail", t("Courriel")], ["privacy", t("Confidentialité")], ["diagnostic", t("Diagnostic")]] as [SettingsTab, string][] },
+      { id: "models", label: t("Modèles et budget"), aide: t("Un modèle pour tous, budget, création, voix"), Icon: Cpu, tabs: [["brain", t("Cerveau")], ["create", t("Création")], ["voice", t("Voix")]] as [SettingsTab, string][] },
+      { id: "providers", label: t("Fournisseurs"), aide: t("Où vont tes demandes"), Icon: Globe, tabs: [["providers", t("Fournisseurs")]] as [SettingsTab, string][] },
+      { id: "people", label: t("Personnes"), aide: t("Qui a un compte sur ce serveur"), Icon: Users, tabs: [["profiles", t("Personnes")]] as [SettingsTab, string][] },
+      { id: "server", label: t("Serveur"), aide: t("Mises à jour, courriel, confidentialité"), Icon: Server, tabs: [["updates", t("Mises à jour")], ["mail", t("Courriel")], ["privacy", t("Confidentialité")], ["diagnostic", t("Diagnostic")]] as [SettingsTab, string][] },
     ] : []),
   ];
 }
@@ -68,134 +71,116 @@ export function SettingsFrame({ open, onOpenChange, title, onBack, children }: {
   return <Dialog open={open} onOpenChange={onOpenChange}>{open && <DialogContent aria-modal="true" title={title} onBack={onBack} className="desktop-settings max-w-4xl">{children}</DialogContent>}</Dialog>;
 }
 
-export function SettingsDialog({ open, tab, owner, onTab, onOpenChange, onBrainSaved }: {
-  open: boolean;
+/** Les réglages : une page de la zone de travail (comme « Pour toi » et Activité), rubriques à gauche et détail à droite ; sur téléphone, le sommaire puis la rubrique. */
+export function SettingsPage({ tab, owner, agents = [], onTab, onClose, onBrainSaved }: {
   tab: SettingsTab;
   /** Propriétaire de ce serveur : la configuration globale n'est montrée qu'à lui (le serveur la refuse aux autres). */
   owner: boolean;
+  agents?: Agent[];
   onTab: (t: SettingsTab) => void;
-  onOpenChange: (o: boolean) => void;
+  onClose: () => void;
   onBrainSaved: () => void;
 }) {
   const all = rubrics(owner);
-  const rubric = all.find((r) => r.tabs.some(([t]) => t === tab)) ?? all[0];
-  const home = tab === "home"; // le sommaire du téléphone
+  const home = tab === "home"; // le sommaire du téléphone ; sur ordinateur, la première rubrique
+  const rubric = all.find((r) => r.tabs.some(([x]) => x === tab)) ?? all[0];
+  const current: SettingsTab = home ? rubric.tabs[0][0] : tab;
   const [pairNow, setPairNow] = useState(false);
   useEffect(() => {
     if (tab !== "phone") setPairNow(false); // le code ne s'affiche d'office que quand on vient pour ça
   }, [tab]);
   return (
-    <SettingsFrame open={open} onOpenChange={onOpenChange} title={home ? t("Réglages") : rubric.label} onBack={home ? undefined : () => onTab("home")}>
-          <SettingsTwoColumns navigation={all.map((r) => <button key={r.id} aria-current={rubric.id === r.id ? "page" : undefined} onClick={() => onTab(r.tabs[0][0])}>{r.label}</button>)}>
-          {home ? (
-            <nav aria-label={t("Rubriques")} className="flex flex-col">
-              <button type="button" onClick={() => { setPairNow(true); onTab("phone"); }} className="mb-2 flex cursor-pointer items-center justify-between rounded-xl bg-accent-soft px-3 py-3.5 text-left text-sm font-medium text-accent">
-                {t("Relier un téléphone ou un ordinateur")}<ChevronRight className="size-4" />
-              </button>
-              {all.map((r) => (
-                <button key={r.id} type="button" onClick={() => onTab(r.tabs[0][0])} className="flex cursor-pointer items-center justify-between border-b border-border py-3.5 text-left text-sm font-medium last:border-b-0">
-                  {r.label}<ChevronRight className="size-4 text-muted-foreground" />
-                </button>
-              ))}
-            </nav>
-          ) : (<>
-          <div className="hidden">
-            <Tabs value={rubric.id} onValueChange={(id) => onTab(all.find((r) => r.id === id)!.tabs[0][0])} className="self-start">
-              <TabsList aria-label={t("Rubriques")} className="flex-wrap">
-                {all.map((r) => <TabsTrigger key={r.id} value={r.id}>{r.label}</TabsTrigger>)}
-              </TabsList>
-            </Tabs>
-            {/* Le geste qu'on vient faire le plus souvent ici : un clic, et le code s'affiche. */}
-            {tab !== "phone" && <button type="button" onClick={() => { setPairNow(true); onTab("phone"); }} className="cursor-pointer rounded-lg bg-accent-soft px-3 py-1.5 text-sm font-medium text-accent">{t("Relier un appareil")}</button>}
+    <main className="chat-pane" aria-label={t("Réglages")}>
+      <header className="head"><div className="head-title flex min-w-0 grow items-center gap-2"><h1 className="cut">{t("Réglages")}</h1></div></header>
+      <div className={cn("set", !home && "detail")}>
+        <nav aria-label={t("Rubriques")} className="set-nav">
+          <div className="px-0.5 pb-2.5 md:hidden">
+            <button type="button" className="btn btn-ink w-full" onClick={() => { setPairNow(true); onTab("phone"); }}><Link2 className="size-[18px]" aria-hidden />{t("Relier un téléphone ou un ordinateur")}</button>
           </div>
-          <Tabs value={tab} onValueChange={(v) => onTab(v as SettingsTab)} className="flex min-h-0 flex-col gap-4">
-            {rubric.tabs.length > 1 && (
-              <TabsList aria-label={rubric.label} className="flex-wrap self-start">
-                {rubric.tabs.map(([t, label]) => <TabsTrigger key={t} value={t}>{label}</TabsTrigger>)}
-              </TabsList>
-            )}
-            <Boundary key={tab} label={t("Cette rubrique")}>
-            <TabsContent value="appearance"><Appearance /></TabsContent>
-            <TabsContent value="providers"><Providers /></TabsContent>
-            <TabsContent value="brain">
-              <div className="flex flex-col gap-3">
-                <DefaultBrain onCancel={() => onOpenChange(false)} onDone={onBrainSaved} />
-                <FastModel />
-                <DecisionModel />
-              </div>
-            </TabsContent>
-            <TabsContent value="create">
-              <MediaPanel kinds={["image", "video", "music"]} withPreferences />
-            </TabsContent>
-            <TabsContent value="voice">
-              <div className="flex flex-col gap-3">
-                <MediaPanel kinds={["transcription", "speech"]} withVoice />
-                <VoiceServerPanel />
-              </div>
-            </TabsContent>
-            <TabsContent value="phone">
-              <PhonePairing start={pairNow} />
-            </TabsContent>
-            <TabsContent value="notifications">
-              <NotificationSettings />
-            </TabsContent>
-            <TabsContent value="telephone">
-              <PhoneSettings />
-            </TabsContent>
-            <TabsContent value="security">
-              <MyPassword />
-              <DoubleVerification />
-              {!owner && <MailConfirmation owner={false} />}
-              <FaceMotion />
-            </TabsContent>
-            <TabsContent value="vault">
-              <Vault />
-            </TabsContent>
-            <TabsContent value="mail">
-              <MailConfirmation owner={owner} />
-            </TabsContent>
-            <TabsContent value="profiles">
-              <Profiles />
-            </TabsContent>
-            <TabsContent value="updates">
-              <Updates />
-            </TabsContent>
-            <TabsContent value="privacy">
-              <div className="flex flex-col gap-4">
-                <JudgeSetting />
-                <Flows />
-              </div>
-            </TabsContent>
-            <TabsContent value="diagnostic">
-              <Diagnostic />
-            </TabsContent>
-            </Boundary>
-          </Tabs>
-          </>)}
-          </SettingsTwoColumns>
-    </SettingsFrame>
+          {all.map((r) => (
+            <button key={r.id} type="button" className="set-link" aria-current={rubric.id === r.id && (!home || window.matchMedia?.("(min-width:768px)").matches) ? "page" : undefined} onClick={() => onTab(r.tabs[0][0])}>
+              <r.Icon className="size-[18px] shrink-0 text-soft" aria-hidden />
+              <span className="grow flex min-w-0 flex-col"><span className="cut">{r.label}</span><small className="cut text-[13px] font-normal text-soft md:hidden">{r.aide}</small></span>
+              <ChevronRight className="size-4 shrink-0 text-soft md:hidden" aria-hidden />
+            </button>
+          ))}
+        </nav>
+        <div className="set-body">
+          <div className="stack g24">
+            <div className="md:hidden"><button type="button" className="btn btn-ghost btn-sm" style={{ padding: 0 }} onClick={() => onTab("home")}><ChevronLeft className="size-4" aria-hidden />{t("Réglages")}</button></div>
+            <h2 className="title">{rubric.label}</h2>
+            <Tabs value={current} onValueChange={(v) => onTab(v as SettingsTab)} className="flex min-h-0 flex-col gap-4">
+              {rubric.tabs.length > 1 && (
+                <TabsList aria-label={rubric.label} className="seg self-start">
+                  {rubric.tabs.map(([x, label]) => <TabsTrigger key={x} value={x}>{label}</TabsTrigger>)}
+                </TabsList>
+              )}
+              <Boundary key={current} label={t("Cette rubrique")}>
+                <TabsContent value="appearance"><Appearance /></TabsContent>
+                <TabsContent value="providers"><Providers /></TabsContent>
+                <TabsContent value="brain">
+                  <div className="flex flex-col gap-3">
+                    <DefaultBrain onCancel={onClose} onDone={onBrainSaved} />
+                    <FastModel />
+                    <DecisionModel />
+                  </div>
+                </TabsContent>
+                <TabsContent value="create"><MediaPanel kinds={["image", "video", "music"]} withPreferences /></TabsContent>
+                <TabsContent value="voice">
+                  <div className="flex flex-col gap-3">
+                    <MediaPanel kinds={["transcription", "speech"]} withVoice />
+                    <VoiceServerPanel />
+                  </div>
+                </TabsContent>
+                <TabsContent value="phone"><PhonePairing start={pairNow} /></TabsContent>
+                <TabsContent value="notifications"><NotificationSettings /></TabsContent>
+                <TabsContent value="telephone"><PhoneSettings /></TabsContent>
+                <TabsContent value="security">
+                  <MyPassword />
+                  <DoubleVerification />
+                  {!owner && <MailConfirmation owner={false} />}
+                </TabsContent>
+                <TabsContent value="vault"><Vault /></TabsContent>
+                <TabsContent value="team"><Equipe agents={agents} /></TabsContent>
+                <TabsContent value="mail"><MailConfirmation owner={owner} /></TabsContent>
+                <TabsContent value="profiles"><Profiles /></TabsContent>
+                <TabsContent value="updates"><Updates /></TabsContent>
+                <TabsContent value="privacy"><Flows /></TabsContent>
+                <TabsContent value="diagnostic"><Diagnostic /></TabsContent>
+              </Boundary>
+            </Tabs>
+          </div>
+        </div>
+      </div>
+    </main>
   );
 }
 
-
-/** Le mouvement des visages se coupe ici : le réglage reste sur cet appareil. */
-function FaceMotion() {
-  const [still, setStill] = useState(noahPaused);
+/** L'équipe : qui orchestre, ce qui te revient toujours, jusqu'où tes agents avancent seuls. Le chef est le premier agent créé ; en désigner un autre attend L7. */
+function Equipe({ agents }: { agents: Agent[] }) {
+  const chef = agents.find((a) => a.chef);
+  const reserve: [string, string][] = [
+    [t("Payer"), t("Un achat, un renouvellement, un abonnement.")],
+    [t("Supprimer définitivement"), t("Des fichiers, un agent, un compte.")],
+    [t("Secrets et droits"), t("Clés, mots de passe, accès donnés à un agent ou à une personne.")],
+    [t("Première publication"), t("Le premier message envoyé depuis un compte ou un site.")],
+  ];
   return (
-    <label className="mt-3 flex items-center gap-3 rounded-2xl border border-border p-4 text-sm">
-      <input
-        type="checkbox"
-        checked={still}
-        onChange={(e) => {
-          setStill(e.target.checked);
-          setNoahPaused(e.target.checked);
-        }}
-      />
-      <span>
-        <span className="block font-semibold">{t("Visages immobiles")}</span>
-        <span className="block text-xs text-muted-foreground">{t("Sur cet appareil.")}</span>
-      </span>
-    </label>
+    <div className="flex flex-col gap-6" data-equipe>
+      <section className="stack g8">
+        <h3 className="h2">{t("Qui est chef d'équipe")}</h3>
+        <p className="text-soft">{t("Il reçoit tes demandes larges, les confie aux autres, suit chaque tâche et te rend un seul compte. Le premier agent que tu as créé est ton chef d'équipe.")}</p>
+        {chef ? (
+          <div className="list"><div className="row"><span className="avatar" aria-hidden>{chef.name.charAt(0)}</span><span className="grow flex min-w-0 flex-col"><span className="row-title">{chef.name}</span><span className="row-sub">{chef.role}</span></span><span className="pill work">{t("Chef d'équipe")}</span></div></div>
+        ) : <p className="note">{t("Aucun agent pour l'instant.")}</p>}
+      </section>
+      <section className="stack g8">
+        <h3 className="h2">{t("Ce qui te revient toujours")}</h3>
+        <p className="text-soft">{t("Ces sujets ne passent jamais par un agent : ils arrivent directement dans « Pour toi ». Tu ne peux pas les déléguer.")}</p>
+        <div className="list">{reserve.map(([titre, aide]) => <div key={titre} className="row wrap"><span className="grow flex min-w-0 flex-col"><span className="row-title">{titre}</span><span className="row-sub">{aide}</span></span><span className="pill">{t("Toujours à toi")}</span></div>)}</div>
+      </section>
+      <JudgeSetting />
+    </div>
   );
 }
 

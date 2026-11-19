@@ -19,7 +19,7 @@ import { takeAsk } from "@/lib/askAgent";
 import { SideRail } from "./desktop/SideRail";
 import { Drawer } from "./mobile/Drawer";
 import { MobileHeader } from "./mobile/MobileHeader";
-import { SettingsDialog, SettingsFrame } from "./Settings";
+import { SettingsFrame, SettingsPage } from "./Settings";
 import { Dialog, DialogContent } from "./ui";
 import { ProviderLogo, providerLogo } from "./ProviderLogo";
 import { useNoahRetour } from "@/lib/useNoahRetour";
@@ -146,46 +146,28 @@ it("12 — réglages modaux, focus retenu et Échap ferme seulement la couche su
   expect(document.querySelector('[role="dialog"]')).toBeNull(); outside.remove();
 });
 
-it("12 S4 — cadre sur toute la zone de droite et liste au début, téléphone plein écran", async () => {
-  await act(async () => root.render(<SettingsDialog open tab="home" owner onTab={noOp} onOpenChange={noOp} onBrainSaved={noOp} />));
-  const frame = document.querySelector<HTMLElement>('.desktop-settings[role="dialog"]')!;
-  const columns = frame.querySelector<HTMLElement>(":scope > .settings-two-columns")!;
-  const list = columns.querySelector<HTMLElement>(":scope > .settings-list")!;
-  expect(list.firstElementChild?.textContent).toBe("Apparence");
-  expect(list.textContent).toContain("Modèles et budget");
-  expect(columns.querySelector(":scope > .settings-detail")).toBeTruthy();
-  expect(frame.scrollTop).toBe(0);
-  expect(list.scrollTop).toBe(0);
-
-  // JSDOM ne calcule pas les rectangles : ici, seulement les règles sources.
-  // tools/eval/vue-reglages.mjs vérifie la vraie App après vite build + preview.
+it("12 S4 — les réglages sont une page : rubriques à gauche, détail à droite, sommaire puis rubrique sur téléphone", async () => {
+  await act(async () => root.render(<SettingsPage tab="home" owner onTab={noOp} onClose={noOp} onBrainSaved={noOp} />));
+  const page = document.querySelector<HTMLElement>('main[aria-label="Réglages"]')!;
+  expect(document.querySelector('[role="dialog"]')).toBeNull(); // une page de la zone de travail, plus un dialogue
+  const nav = page.querySelector<HTMLElement>(".set > .set-nav")!;
+  const links = [...nav.querySelectorAll<HTMLElement>(".set-link")];
+  expect(links[0].textContent).toContain("Apparence");
+  expect(links.map((l) => l.textContent).join(" ")).toContain("Modèles et budget");
+  expect(page.querySelector(".set > .set-body")).toBeTruthy();
+  expect(page.querySelector(".set")!.classList.contains("detail")).toBe(false); // le sommaire : sur téléphone, la liste seule
+  // JSDOM ne calcule aucune mise en page : ici, seulement les règles sources (tools/eval/debordement.mjs mesure la vraie App).
   const style = document.createElement("style");
-  style.textContent = readFileSync("src/styles/desktop.css", "utf8");
+  style.textContent = readFileSync("src/styles/fil-calme.css", "utf8");
   document.head.append(style);
   try {
     const rules = [...style.sheet!.cssRules];
-    const media = (condition: string) => rules.flatMap((r) => r instanceof CSSMediaRule && r.conditionText === condition ? [...r.cssRules] : []);
     const rule = (group: CSSRule[], selector: string) => (group.find((r) => r instanceof CSSStyleRule && r.selectorText === selector) as CSSStyleRule).style;
-    const desktop = media("(min-width:768px)");
-    const frameStyle = rule(desktop, ".desktop-settings[role=dialog]");
-    for (const [property, value] of Object.entries({ inset: "0 0 0 var(--rail-width)", translate: "none", width: "auto", "max-width": "none", "max-height": "none", overflow: "hidden", padding: "0" })) {
-      expect(frameStyle.getPropertyValue(property), property).toBe(value);
-    }
-    expect(frameStyle.getPropertyValue("transform")).toBe(""); // sinon la minification retire translate:none
-    expect(rule(desktop, ".desktop-settings[role=dialog] > .settings-two-columns").getPropertyValue("flex")).toBe("1");
-    expect(rule(rules, ".settings-two-columns").getPropertyValue("grid-template-columns")).toBe("280px minmax(0,1fr)");
-    expect(rule(rules, ".settings-list").getPropertyValue("display")).toBe("flex");
-    expect(rule(rules, ".settings-list").getPropertyValue("overflow-y")).toBe("auto");
-    expect(rule(rules, ".settings-detail").getPropertyValue("overflow")).toBe("auto");
-    const phone = media("(max-width:767px)");
-    expect(rule(phone, ".settings-list").getPropertyValue("display")).toBe("none");
-    expect(rule(phone, ".settings-two-columns").getPropertyValue("flex-direction")).toBe("column");
-    // Le cadre garde les classes plein écran du dialogue commun sur téléphone.
-    expect(frame.classList.contains("max-md:inset-0")).toBe(true);
-    expect(frame.classList.contains("max-md:h-dvh")).toBe(true);
-    expect(frame.classList.contains("max-md:w-full")).toBe(true);
-    expect(frame.classList.contains("max-md:translate-x-0")).toBe(true);
-    expect(frame.classList.contains("max-md:translate-y-0")).toBe(true);
+    expect(rule(rules, ".set").getPropertyValue("grid-template-columns")).toBe("220px minmax(0,1fr)");
+    expect(rule(rules, ".set-nav").getPropertyValue("overflow-y")).toBe("auto");
+    expect(rule(rules, ".set-body").getPropertyValue("overflow-y")).toBe("auto");
+    const phone = rules.flatMap((r) => r instanceof CSSMediaRule && r.conditionText === "(max-width:767px)" ? [...r.cssRules] : []);
+    expect(rule(phone, ".set.detail .set-nav, .set:not(.detail) .set-body").getPropertyValue("display")).toBe("none");
   } finally { style.remove(); }
 });
 
