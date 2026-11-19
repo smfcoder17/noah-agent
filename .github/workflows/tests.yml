@@ -43,6 +43,9 @@ jobs:
       - name: "Requêtes à l'ouverture d'un agent dans jsdom, budget B1 bis : au plus 1 requête et aucune en double"
         run: npm test -- src/budgets.test.tsx
         working-directory: frontend
+      - name: "Tâches : la ligne de tâche du fil (repliée, dépliée, on y entre), la place des tâches dans le fil, la barre sans historique (0.4.0, L1)"
+        run: npm test -- src/components/thread/TacheLigne.test.tsx src/components/SideRail.test.tsx
+        working-directory: frontend
       # Construit l'interface une fois, puis lit le résultat : poids gzip du premier écran et compression de chaque voie (B2, B2 bis),
       # requêtes dans un vrai navigateur sur le vrai serveur d'essai (B1), débordement de 320 à 1920 px (B3). B1 et B3 passent
       # par Playwright (dépendance de développement de frontend) et le Chrome du poste ; sans eux, ils disent « NON MESURÉ ».

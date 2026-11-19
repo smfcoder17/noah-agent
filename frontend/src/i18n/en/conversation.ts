@@ -214,6 +214,7 @@ export default {
   "Le travail attend ta réponse.": "The work is waiting for your answer.",
   "Pas de compte rendu.": "No report.",
   "Ouvrir la tâche": "Open the task",
+  "Aucune tâche pour l'instant. Ce que {nom} fait pour toi ou pour un autre agent s'affichera ici.": "No tasks yet. What {nom} does for you or for another agent will show up here.",
   "Copié": "Copied",
   "Aide-moi à diagnostiquer cette erreur de Noah Agent :": "Help me diagnose this Noah Agent error:",
   "Demander à l'agent": "Ask the agent",

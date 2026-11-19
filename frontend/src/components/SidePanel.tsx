@@ -24,6 +24,8 @@ import { STATE_WORD, StateShape } from "./Sidebar";
 import { Button, Dialog, DialogContent, Tabs, TabsContent, TabsList, TabsTrigger } from "./ui";
 import { langue, locale, t, tr } from "@/i18n";
 import { activityResult, activityTitle } from "@/lib/lignesServeur";
+import { type TacheDuFil, useOuverture } from "@/lib/ouverture";
+import { TacheLigne } from "./thread/TacheLigne";
 
 /** Dates et nombres : le français garde la forme canadienne d'origine, les autres langues suivent leur usage. */
 const FORMAT = langue() === "fr" ? "fr-CA" : locale();
@@ -104,6 +106,7 @@ export function SidePanel({
       <Boundary key={agent.id} label={t("Le panneau de l'agent")}>
       <KeptTab value="activity" shown={tab === "activity"} className="min-h-0 flex-1 overflow-y-auto">
         <Approvals agentId={agent.id} />
+        <TachesPanel agent={agent} refreshKey={refreshKey} onOpen={(id) => { onOpenThread(id); onClose(); }} />
         <ActivityLog agentId={agent.id} refreshKey={refreshKey} onOpen={(id, isMain) => { onOpenThread(isMain && id === main?.id ? null : id); onClose(); }} />
         <details className="mt-2"><summary className="text-sm text-muted-foreground cursor-pointer">{t("Fils et réglages")}</summary><Details agent={agent} onEdit={onEditAgent} refreshKey={refreshKey} onAgentChanged={onAgentChanged} onTab={onTab} onGoals={onGoals}>
           <Threads threads={threads} threadId={threadId} onOpen={onOpenThread} onArchive={onArchiveThread} />
@@ -216,6 +219,49 @@ function ActivityPeriod({ label, rows, first, onOpen }: { label: string; rows: L
         </button>
       )}
     </div>
+  );
+}
+
+const TACHES_FIRST = 8;
+
+/**
+ * Les tâches de l'agent (0.4.0) : la même lecture que le fil, par `GET /api/taches`, sous la même ligne (TacheLigne). On y entre d'ici
+ * comme depuis le fil. Relue à chaque relecture de l'ouverture de l'agent, donc à chaque événement : jamais en retard sur le fil.
+ */
+function TachesPanel({ agent, refreshKey, onOpen }: { agent: Agent; refreshKey: number; onOpen: (conversation: string) => void }) {
+  const active = useContext(SeenActive);
+  const path = `/api/taches?agent_id=${agent.id}`;
+  const revision = useOuverture(agent.id)?.revision;
+  const [lues, setLues] = useState<{ agent: string; taches: TacheDuFil[] } | null>(() => (SEEN.has(path) ? { agent: agent.id, taches: SEEN.get(path) as TacheDuFil[] } : null));
+  const [shown, setShown] = useState(TACHES_FIRST);
+  const taches = lues?.agent === agent.id ? lues.taches : null; // jamais les tâches d'un autre agent, même le temps de charger
+  useEffect(() => {
+    let current = true;
+    if (!active) return;
+    const generation = seenGeneration();
+    get<{ taches: TacheDuFil[] }>(path)
+      .then((r) => {
+        if (!current || generation !== seenGeneration()) return;
+        SEEN.set(path, r.taches);
+        setLues({ agent: agent.id, taches: r.taches });
+      })
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, [agent.id, path, refreshKey, active, revision]);
+  if (!taches) return null;
+  return (
+    <section aria-label={t("Tâches")} className="flex flex-col gap-1.5">
+      <h3 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{t("Tâches")}</h3>
+      {!taches.length && <p className="text-sm text-muted-foreground">{t("Aucune tâche pour l'instant. Ce que {nom} fait pour toi ou pour un autre agent s'affichera ici.", { nom: agent.name })}</p>}
+      {taches.slice(0, shown).map((x) => <TacheLigne key={x.id} tache={x} agentId={agent.id} agentName={agent.name} onOpen={onOpen} />)}
+      {taches.length > shown && (
+        <button type="button" onClick={() => setShown(shown + 10)} className="cursor-pointer self-start rounded-lg px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground">
+          {t("… voir {n} de plus", { n: Math.min(10, taches.length - shown) })}
+        </button>
+      )}
+    </section>
   );
 }
 
