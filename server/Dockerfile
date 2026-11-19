@@ -4,6 +4,8 @@ WORKDIR /web
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY frontend/ ./
+# Le cliquet des budgets, que lit src/budgets.test.tsx : tsc -b vérifie aussi les tests.
+COPY tools/eval/cliquet.mjs tools/eval/cliquet.d.mts tools/eval/budgets.json /tools/eval/
 RUN npm run build
 
 # 2) Serveur Noah (FastAPI), qui sert aussi l'interface.
