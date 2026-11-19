@@ -287,7 +287,7 @@ LISTE_MAX = 100  # tâches d'un agent rendues à Activité, par défaut
 # Une « Nouvelle discussion » restée sans aucun message n'est pas un travail : elle ne s'affiche pas comme tâche (décision laissée par S5).
 SAUF_VIDES = ("NOT (t.genre = 'discussion' AND NOT EXISTS "
               "(SELECT 1 FROM messages m WHERE m.conversation_id = t.conversation_id AND m.role != 'trace'))")
-CHAMPS = ("t.id, t.titre, t.genre, t.demandeur, a.name AS demandeur_nom, t.etat, t.resume, t.fichiers, t.ancre, t.cree, t.fini_a, "
+CHAMPS = ("t.id, t.titre, t.genre, t.demandeur, a.name AS demandeur_nom, w.name AS agent_nom, t.etat, t.resume, t.fichiers, t.ancre, t.cree, t.fini_a, "
           "t.conversation_id, t.agent_id, t.maj")
 
 
@@ -307,6 +307,7 @@ def _forme(r) -> dict:
         fichiers = []
     return {"id": r["id"], "titre": r["titre"], "genre": r["genre"],
             "demandeur": {"id": r["demandeur"], "nom": r["demandeur_nom"]} if r["demandeur"] else None,
+            "agent": {"id": r["agent_id"], "nom": r["agent_nom"]},  # celui qui fait le travail : la ligne le nomme, pas le demandeur
             "etat": _etat(r), "resume": r["resume"], "fichiers": fichiers if isinstance(fichiers, list) else [],
             "ancre": r["ancre"], "cree": r["cree"], "fini_a": r["fini_a"], "conversation_id": r["conversation_id"], "question": None}
 
@@ -317,7 +318,7 @@ def du_fil(fil_id: str, owner_id: int, depuis_ancre: int | None) -> list[dict]:
     porte aussi celles d'avant. La page rendue est toujours la plus récente : aucune borne haute. Le compte qui lit est celui de la tâche."""
     with db.connect() as c:
         rows = c.execute(
-            f"SELECT * FROM (SELECT {CHAMPS} FROM taches t LEFT JOIN agents a ON a.id = t.demandeur "
+            f"SELECT * FROM (SELECT {CHAMPS} FROM taches t LEFT JOIN agents a ON a.id = t.demandeur LEFT JOIN agents w ON w.id = t.agent_id "
             f"WHERE t.fil_id = ? AND t.owner_id = ? AND (? IS NULL OR t.ancre >= ?) AND {SAUF_VIDES} "
             "ORDER BY t.ancre DESC, t.cree DESC LIMIT ?) ORDER BY ancre, cree",
             (fil_id, owner_id, depuis_ancre, depuis_ancre, DU_FIL_MAX)).fetchall()
@@ -330,7 +331,7 @@ def liste(owner_id: int, agent_id: str, etat: str | None = None, limite: int = L
     limite = max(1, min(int(limite), 500))
     with db.connect() as c:
         rows = c.execute(
-            f"SELECT {CHAMPS} FROM taches t LEFT JOIN agents a ON a.id = t.demandeur WHERE t.owner_id = ? AND t.agent_id = ? "
+            f"SELECT {CHAMPS} FROM taches t LEFT JOIN agents a ON a.id = t.demandeur LEFT JOIN agents w ON w.id = t.agent_id WHERE t.owner_id = ? AND t.agent_id = ? "
             f"AND (? IS NULL OR t.etat = ?) AND {SAUF_VIDES} ORDER BY t.maj DESC, t.cree DESC LIMIT ?",
             (owner_id, agent_id, etat, etat, limite)).fetchall()
     return [_forme(r) for r in rows]

@@ -119,6 +119,7 @@ async def test_demande():
     assert [t["conversation_id"] for t in ouvert["fil"]["taches"]] == [conv], ouvert["fil"]["taches"]
     tache = ouvert["fil"]["taches"][0]
     assert tache["etat"] == "fini" and tache["demandeur"]["nom"] == "Alma" and tache["resume"], tache
+    assert tache["agent"] == {"id": "b", "nom": "Basile"}, "la ligne nomme celui qui travaille (Basile), pas le demandeur (Alma)"
 
     with db.connect() as c:
         report = [dict(m) for m in c.execute("SELECT role, text FROM messages WHERE conversation_id = ? AND role = 'agent' AND text LIKE '**Basile a fini%'", (MAINS["a"],))]

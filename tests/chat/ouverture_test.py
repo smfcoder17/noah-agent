@@ -38,7 +38,7 @@ A, B = web(alice), web(bruno)
 CLES = ["appel", "attentes", "conversations", "en_cours", "fil", "revision", "routines", "taches_confiees", "version"]
 CLES_FIL = ["id", "lecture_seule", "messages", "plus", "taches", "updated_at"]
 CLES_MESSAGE = {"id", "role", "text", "detail", "model", "created_at"}
-CLES_TACHE = ["ancre", "conversation_id", "cree", "demandeur", "etat", "fichiers", "fini_a", "genre", "id", "question", "resume", "titre"]
+CLES_TACHE = ["agent", "ancre", "conversation_id", "cree", "demandeur", "etat", "fichiers", "fini_a", "genre", "id", "question", "resume", "titre"]
 
 
 def ouvre(client: TestClient, agent: str, query: str = "?limit=60"):
@@ -102,6 +102,7 @@ for t in shown.values():
 tr = shown[t_recente]
 assert tr["genre"] == "demande" and tr["etat"] == "fini" and tr["ancre"] == trace_id and tr["question"] is None, tr
 assert tr["demandeur"] == {"id": "c", "nom": "Cléo"}, tr["demandeur"]
+assert tr["agent"] == {"id": "a", "nom": "Alma"}, "la tâche nomme l'agent qui fait le travail, pas celui qui l'a demandée"
 assert tr["resume"] == "Le plan est prêt." and tr["fichiers"] == [] and isinstance(tr["cree"], float) and isinstance(tr["fini_a"], float), tr
 assert shown[t_fil]["demandeur"] is None and shown[t_fil]["fini_a"] is None and shown[t_fil]["etat"] == "encours", shown[t_fil]
 assert [t["ancre"] for t in o["fil"]["taches"]] == sorted(t["ancre"] for t in o["fil"]["taches"]), "dans l'ordre du fil"
