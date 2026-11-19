@@ -99,6 +99,12 @@ KNOWN = {
     "boutique.example": "exemple", "shop.example.com": "exemple", "www.lemonde.fr": "exemple", "youtu.be": "exemple", "wa.me": "exemple",
     "noah.exemple.com.evil.net": "exemple", "docs.docker.com": "lien montré", "host.docker.internal": "machine elle-même",
     "ailleurs.exemple.net": "exemple", "example.test": "exemple", "pirate.free.fr": "exemple", "adsl.free.fr": "exemple",  # tests du coffre (relecture 0.3.0, B-1)
+    # 0.4.0 (X17) : site d'origine écrit dans l'entrée du coffre quand une clé collée y est rangée (OffreCle.tsx), jamais appelé
+    "aistudio.google.com": "origine du coffre", "app.tavily.com": "origine du coffre", "aws.amazon.com": "origine du coffre",
+    "build.nvidia.com": "origine du coffre", "console.anthropic.com": "origine du coffre", "console.groq.com": "origine du coffre",
+    "console.x.ai": "origine du coffre", "huggingface.co": "origine du coffre", "platform.openai.com": "origine du coffre",
+    "replicate.com": "origine du coffre", "slack.com": "origine du coffre", "www.firecrawl.dev": "origine du coffre",
+    "www.perplexity.ai": "origine du coffre",
 }
 SOURCES = [*(REPO / "server/noah").rglob("*.py"), *(REPO / "launcher").rglob("*.py"), *(REPO / "launcher").rglob("*.js"),
            *(REPO / "frontend/src").rglob("*.ts*"), REPO / "frontend/index.html", *(REPO / "mobile/www").glob("*.*"),

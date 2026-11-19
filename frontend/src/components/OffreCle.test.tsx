@@ -7,7 +7,7 @@ const ouvert = vi.hoisted(() => ({ props: null as null | { initial: Record<strin
 vi.mock("./Vault", () => ({ VaultAddDialog: (p: NonNullable<typeof ouvert.props>) => { ouvert.props = p; return <div data-vault-dialog>{p.description}</div>; } }));
 
 import { masquer, oublierLesCles, retenirCles } from "@/lib/nettoyage";
-import { OffreCle } from "./OffreCle";
+import OffreCle from "./OffreCleCartes";
 
 const CLE = "sk-" + "a1B2c3D4e5F6g7H8i9J0k1L2";
 let host: HTMLDivElement, root: Root;

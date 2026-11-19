@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { lazy, memo, Suspense } from "react";
 // Fil de discussion construit sur les primitives d'assistant-ui.
 import {
   ComposerPrimitive,
@@ -12,7 +12,8 @@ import { useQuotes } from "@/lib/quotes";
 import { MODE_VOCAL } from "@/lib/workPanel";
 import { ConversationRail } from "./ConversationRail";
 import { giveFilesEvent } from "./Files";
-import { VoiceMode } from "./Voice";
+// Le mode vocal se charge au moment où la personne le lance (budget B2, 0.4.0).
+const VoiceMode = lazy(() => import("./VoiceMode").then((m) => ({ default: m.VoiceMode })));
 import { t } from "@/i18n";
 import { CarteSansConsigne, OlderMessages, UserMessage, SelectionReply, AssistantMessage } from "./thread/messages";
 import { Composer } from "./thread/Composer";
@@ -85,7 +86,7 @@ export const Thread = memo(function Thread({ report, onReportRead, onCall }: { r
               <p className="rounded-2xl border border-border bg-surface p-3 text-center text-sm text-muted-foreground">{t("Tu peux lire ici, pas écrire.")}</p>
             ) : (
               <>
-                {voice && <VoiceMode onClose={() => setVoice(false)} report={report} onReportRead={onReportRead} link={link} />}
+                {voice && <Suspense fallback={null}><VoiceMode onClose={() => setVoice(false)} report={report} onReportRead={onReportRead} link={link} /></Suspense>}
                 <Composer inCall={voice} />
               </>
             )}
