@@ -464,7 +464,23 @@ class WidgetBoundary extends Component<{ children: React.ReactNode; fallback: Re
   render() { return this.state.failed ? this.props.fallback : this.props.children; }
 }
 
-export function NoahWidget({ code, components }: SyntaxHighlighterProps) {
+/** Un bloc que l'écran ne sait pas montrer (0.4.0, X10) : replié, avec un libellé qui se lit. Jamais de JSON brut à l'écran : le contenu ne se voit qu'en dépliant. */
+export function BlocReplie({ code, libelle }: { code: string; libelle: string }) {
+  return (
+    <details data-bloc-replie className="my-3 rounded-xl border border-border bg-muted/40 text-[13px]">
+      <summary className="cursor-pointer select-none px-3 py-2 text-muted-foreground">{libelle}</summary>
+      <pre className="max-h-64 overflow-auto border-t border-border/60 px-3 py-2 text-xs whitespace-pre-wrap break-words">{code}</pre>
+    </details>
+  );
+}
+
+/** Le nom du type d'un bloc, assaini : il vient de l'agent et s'affiche dans un libellé. */
+const typeDe = (spec: unknown): string => {
+  const type = spec && typeof spec === "object" ? (spec as { type?: unknown }).type : undefined;
+  return typeof type === "string" ? type.replace(/[^\p{L}\p{N}_ -]/gu, "").slice(0, 32).trim() : "";
+};
+
+export function NoahWidget({ code }: SyntaxHighlighterProps) {
   const streaming = useAuiState((s) => s.message.status?.type === "running");
   let parsed: unknown = null;
   try {
@@ -472,16 +488,18 @@ export function NoahWidget({ code, components }: SyntaxHighlighterProps) {
   } catch {
     parsed = null;
   }
-  const asText = <components.Pre><components.Code>{code}</components.Code></components.Pre>;
+  const illisible = <BlocReplie code={code} libelle={t("Contenu que Noah n'a pas pu afficher")} />;
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    // Pendant le streaming, le JSON est incomplet : on attend sans afficher le code brut. Une fois la réponse finie, il reste lisible.
-    return streaming ? <div className="my-3 h-24 animate-pulse rounded-2xl border border-border bg-muted/60" aria-label={t("Widget en préparation")} /> : asText;
+    // Pendant le streaming, le JSON est incomplet : on attend sans rien montrer. Une fois la réponse finie, il reste replié.
+    return streaming ? <div className="my-3 h-24 animate-pulse rounded-2xl border border-border bg-muted/60" aria-label={t("Widget en préparation")} /> : illisible;
   }
   const spec = parsed as Spec;
+  const type = typeDe(spec);
+  const inconnu = <BlocReplie code={code} libelle={type ? t("Élément « {type} » que Noah ne sait pas encore afficher", { type }) : t("Contenu que Noah n'a pas pu afficher")} />;
   const block = normalizeBlock(spec);
-  if (block) return <WidgetBoundary fallback={asText}><Quotable spec={spec}><BlockCards block={block} /></Quotable></WidgetBoundary>;
-  if (!wellFormed(spec as unknown as Record<string, unknown>)) return asText;
-  return <WidgetBoundary fallback={asText}>{shown(spec, code) ?? asText}</WidgetBoundary>;
+  if (block) return <WidgetBoundary fallback={inconnu}><Quotable spec={spec}><BlockCards block={block} /></Quotable></WidgetBoundary>;
+  if (!wellFormed(spec as unknown as Record<string, unknown>)) return <BlocReplie code={code} libelle={t("Élément « {type} » incomplet, non affiché", { type: type || "?" })} />;
+  return <WidgetBoundary fallback={inconnu}>{shown(spec, code) ?? inconnu}</WidgetBoundary>;
 }
 
 function shown(spec: Spec, code: string): React.ReactNode {

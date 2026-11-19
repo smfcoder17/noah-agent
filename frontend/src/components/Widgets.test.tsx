@@ -65,10 +65,14 @@ it("links : une liste de sources avec titre et site, chaque ligne ouvre sa page"
   expect(host.textContent).toContain("Sources");
 });
 
-it("un bloc mal formé retombe en texte lisible une fois la réponse finie, jamais en écran vide", async () => {
+it("un bloc mal formé ou inconnu est replié sous un libellé lisible une fois la réponse finie, jamais en écran vide ni en JSON brut", async () => {
   for (const bad of ['{"type": "posts", "items": [', '{"type": "choice", "question": "On y va ?", "options": "Oui ou non"}', '{"type": "grid", "items": {"title": "x"}}', '{"type": "inconnu"}', '{"type": "links", "items": [{"title": "sans adresse"}]}', "[1, 2]"]) {
     await widget(bad);
-    expect(host.querySelector("pre code")?.textContent, bad).toBe(bad);
+    const replie = host.querySelector<HTMLDetailsElement>("[data-bloc-replie]");
+    expect(replie, bad).not.toBeNull();
+    expect(replie!.open, bad).toBe(false);
+    expect(replie!.querySelector("summary")?.textContent, bad).toMatch(/Noah|incomplet/);
+    expect(replie!.querySelector("pre")?.textContent, bad).toBe(bad); // le contenu reste là, replié : il ne se voit qu'en dépliant
     expect(host.querySelector('[aria-label="Widget en préparation"]'), bad).toBeNull();
   }
 });
