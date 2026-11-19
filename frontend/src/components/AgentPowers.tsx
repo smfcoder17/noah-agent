@@ -157,7 +157,7 @@ const choiceSummary = (r: Routine) => {
 };
 
 export function Routines({ agentId }: { agentId: string }) {
-  const { data, error, setError, load } = useAgentData<{ routines: Routine[]; suggerees?: SuggestedRoutine[] }>(`/api/agents/${agentId}/routines`);
+  const { data, error, setError, load } = useAgentData<{ routines: Routine[]; suggerees?: SuggestedRoutine[] }>(`/api/agents/${agentId}/routines`, { freshOnReload: false });
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [tuning, setTuning] = useState<{ id: string; value: RoutineChoice } | null>(null);
@@ -386,7 +386,7 @@ type MemoryProposal = { cible: "memory" | "user"; entree: string; raison: string
 type MemoryReview = { propositions: MemoryProposal[]; avant: number; apres: number };
 
 export function Memory({ agentId }: { agentId: string }) {
-  const { data, setData, error, setError } = useAgentData<MemoryState>(`/api/agents/${agentId}/memory`);
+  const { data, setData, error, setError } = useAgentData<MemoryState>(`/api/agents/${agentId}/memory`, { freshOnReload: false });
   const total = data ? data.memory.length + data.user.length : undefined;
   const [review, setReview] = useState<MemoryReview | null>(null);
   const [reviewing, setReviewing] = useState(false);
@@ -1440,7 +1440,7 @@ const bigSize = (n: number) => {
 };
 
 export function Software({ agentId }: { agentId: string }) {
-  const { data, error, setError, load } = useAgentData<ComputerState>(`/api/agents/${agentId}/computer`);
+  const { data, error, setError, load } = useAgentData<ComputerState>(`/api/agents/${agentId}/computer`, { freshOnReload: false });
   const [names, setNames] = useState("");
   const [busy, setBusy] = useState(false);
   const install = async (e: React.FormEvent) => {

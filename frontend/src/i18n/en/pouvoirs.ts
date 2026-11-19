@@ -298,4 +298,18 @@ export default {
   "Clé": "Key",
   "Clé {nom}": "{nom} key",
   "Ce qui modifie quelque chose attend ton accord, sauf avec « Agir sans demander » ou en autonomie « Agir ». « Lire seulement » cache tout le reste à l'agent.": "Anything that changes something waits for your approval, except with “Act without asking” or in “Act” autonomy. “Read only” hides everything else from the agent.",
+  // Routines dans Activité et initiatives (0.4.0)
+  "{n} passées depuis ta dernière visite": "{n} ran since your last visit",
+  "{n} échecs": "{n} failures",
+  "Bilan": "Summary",
+  "Pas encore passée.": "Has not run yet.",
+  "Passages": "Runs",
+  "Passage": "Run",
+  "Chargement": "Loading",
+  "Déjà dans le fil": "Already in the thread",
+  "Amener dans le fil": "Bring into the thread",
+  "Voir plus": "Show more",
+  "Des routines sont passées": "Routines have run",
+  "Message envoyé de sa propre initiative": "Message sent on its own initiative",
+  "de sa propre initiative": "on its own initiative",
 } satisfies Record<string, string>;

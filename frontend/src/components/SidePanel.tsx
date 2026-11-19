@@ -27,6 +27,7 @@ import { activityResult, activityTitle } from "@/lib/lignesServeur";
 import { type TacheDuFil, useOuverture } from "@/lib/ouverture";
 import { TacheLigne } from "./thread/TacheLigne";
 
+const ActiviteRoutines = lazy(() => import("./ActiviteRoutines").then((m) => ({ default: m.ActiviteRoutines })));
 const Decisions = lazy(() => import("./Decisions").then((m) => ({ default: m.Decisions })));
 
 /** Dates et nombres : le français garde la forme canadienne d'origine, les autres langues suivent leur usage. */
@@ -87,6 +88,7 @@ export function SidePanel({
   onTechnical: (on: boolean) => void;
 }) {
   const admin = canAdmin(agent);
+  const routinesNonVues = (useOuverture(agent.id)?.routines.non_vues ?? 0) > 0 && admin ? 1 : 0;
   return (
     <Tabs value={tab} onValueChange={(v) => onTab(v as PanelTab)} className="flex h-full min-h-0 flex-col gap-3 p-3 pt-[max(12px,env(safe-area-inset-top))]">
       <div data-shell-tabs className="flex items-center justify-between gap-2">
@@ -100,7 +102,7 @@ export function SidePanel({
             ["computer", t("Ordinateur"), Monitor, canTalk(agent)],
             ["memory", t("Mémoire"), Brain, admin],
           ] as const).filter((t) => t[3]).map(([value, label, Icon]) => (
-            <TabsTrigger key={value} value={value} aria-label={label} className={value === "competences" || value === "memory" ? "max-sm:hidden!" : undefined}><Icon aria-hidden /><span className="max-sm:max-w-full max-sm:truncate">{label}</span></TabsTrigger>
+            <TabsTrigger key={value} value={value} aria-label={label} className={value === "competences" || value === "memory" ? "max-sm:hidden!" : undefined}><Icon aria-hidden /><span className="max-sm:max-w-full max-sm:truncate">{label}</span>{value === "activity" && routinesNonVues > 0 && <span data-voyant-onglet aria-label={t("Des routines sont passées")} className="ml-1 inline-block size-1.5 rounded-full bg-[var(--accent)] shadow-[0_0_5px_var(--accent)]" />}</TabsTrigger>
           ))}
         </TabsList>
         <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label={t("Fermer le panneau")}><X /></Button>
@@ -109,6 +111,7 @@ export function SidePanel({
       <KeptTab value="activity" shown={tab === "activity"} className="min-h-0 flex-1 overflow-y-auto">
         <Approvals agentId={agent.id} />
         <TachesPanel agent={agent} refreshKey={refreshKey} onOpen={(id) => { onOpenThread(id); onClose(); }} />
+        <Suspense fallback={null}>{admin && <ActiviteRoutines agentId={agent.id} refreshKey={refreshKey} onBrought={() => { onOpenThread(null); onClose(); }} />}</Suspense>
         <Suspense fallback={null}><Decisions agentId={agent.id} refreshKey={refreshKey} /></Suspense>
         <ActivityLog agentId={agent.id} refreshKey={refreshKey} onOpen={(id, isMain) => { onOpenThread(isMain && id === main?.id ? null : id); onClose(); }} />
         <details className="mt-2"><summary className="text-sm text-muted-foreground cursor-pointer">{t("Fils et réglages")}</summary><Details agent={agent} onEdit={onEditAgent} refreshKey={refreshKey} onAgentChanged={onAgentChanged} onTab={onTab} onGoals={onGoals}>
@@ -171,7 +174,8 @@ function ComputerTab({ agent, admin, refreshKey, onClose }: { agent: Agent; admi
   );
 }
 
-type LogRow = { kind: "tache" | "accord" | "juge"; titre: string; resultat: string; etat: "fait" | "a_verifier" | "erreur" | "arrete" | "autorise" | "refuse"; at: number; conversation_id: string; main: boolean };
+type LogRow = { id?: number; kind: "tache" | "accord" | "juge"; titre: string; resultat: string; etat: "fait" | "a_verifier" | "erreur" | "arrete" | "autorise" | "refuse"; at: number; conversation_id: string; main: boolean };
+const ACTIVITE_PAGE = 50;
 const LOG_WORD: Record<LogRow["etat"], [string, string]> = {
   fait: [t("Fait"), "text-ok"], a_verifier: [t("À vérifier"), "text-warn"], erreur: [t("A échoué"), "text-danger"], arrete: [t("Arrêté"), "text-muted-foreground"], autorise: [t("Autorisé"), "text-ok"], refuse: [t("Refusé"), "text-muted-foreground"],
 };
@@ -289,9 +293,14 @@ function ActivityLog({ agentId, refreshKey, onOpen }: { agentId: string; refresh
       current = false;
     };
   }, [agentId, path, refreshKey, active]);
+  const [more, setMore] = useState<LogRow[]>([]);
+  const [fini, setFini] = useState(false);
+  useEffect(() => { setMore([]); setFini(false); }, [agentId, refreshKey]);
   if (!rows) return null;
+  const toutes = [...rows, ...more];
+  const lireSuite = () => { const dernier = toutes[toutes.length - 1]?.id; if (dernier) get<LogRow[]>(`${path}?avant=${dernier}`).then((r) => { setMore((m) => [...m, ...r]); if (r.length < ACTIVITE_PAGE) setFini(true); }).catch(() => {}); };
   const periods = new Map<string, LogRow[]>();
-  for (const r of rows) {
+  for (const r of toutes) {
     const label = activityPeriod(new Date(r.at * 1000));
     periods.set(label, [...(periods.get(label) ?? []), r]);
   }
@@ -300,6 +309,7 @@ function ActivityLog({ agentId, refreshKey, onOpen }: { agentId: string; refresh
       <h3 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{t("Ce qu'il a fait")}</h3>
       {!rows.length && <p className="text-sm text-muted-foreground">{t("Rien pour l'instant. Ses tâches et les accords que tu donnes s'afficheront ici.")}</p>}
       {[...periods].map(([label, list], i) => <ActivityPeriod key={label} label={label} rows={list} first={i === 0} onOpen={onOpen} />)}
+      {rows.length >= ACTIVITE_PAGE && !fini && <Button size="sm" variant="ghost" className="w-fit" onClick={lireSuite}>{t("Voir plus")}</Button>}
     </section>
   );
 }

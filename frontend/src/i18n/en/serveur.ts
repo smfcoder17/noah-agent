@@ -424,4 +424,5 @@ export default {
   "Une correction vide ne change rien.": "An empty correction changes nothing.",
   "Décision introuvable.": "Decision not found.",
   "Cette question n'attend plus ta réponse.": "This question no longer needs your answer.",
+  "Passage introuvable": "Run not found",
 } satisfies Record<string, string>;
