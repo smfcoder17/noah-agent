@@ -352,4 +352,9 @@ export default {
   "Réglé entre agents, sans te déranger.": "Settled between agents, without bothering you.",
   "{a} a répondu à {de}": "{a} answered {de}",
   "Corriger": "Correct",
+
+  // Decisions.tsx : « Décidé pour toi », dans Activité
+  "Décidé pour toi": "Decided for you",
+  "Corrigé par toi : {texte}": "Corrected by you: {texte}",
+  "{qui} a répondu : {reponse}": "{qui} answered: {reponse}",
 } satisfies Record<string, string>;

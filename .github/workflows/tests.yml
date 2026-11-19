@@ -245,6 +245,9 @@ jobs:
       - name: "Pour toi : la question dit qui demande et pour quelle tâche, se répond sur place, disparaît partout, survit à un redémarrage ; les choix d'un texte deviennent des lignes (0.4.0, L2b)"
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \n            "pip install -q -r /app/requirements.txt && python /tests/taches/pour_toi_test.py"
+      - name: "Règles : « Décidé pour toi » liste ce qu'un agent a réglé, « Corriger » enregistre la règle, la même question reçoit la réponse retenue sans déranger personne (0.4.0, L2c)"
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \n            "pip install -q -r /app/requirements.txt && python /tests/taches/regles_test.py"
       - name: "Ouverture d'un agent : une route rend le fil, ses tâches, ce qui attend, l'appel d'aide, les routines connues (forme exacte, droits d'un invité, trace à son auteur, 0.4.0)"
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \
