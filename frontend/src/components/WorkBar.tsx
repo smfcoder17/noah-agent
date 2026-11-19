@@ -1,20 +1,21 @@
 // Les icônes du haut à droite de la conversation, celles du prototype « Fil calme » : appeler l'agent, ouvrir ou fermer le panneau de droite.
 // Les contenus de l'agent (Activité, Tâches, Fichiers, Ordinateur, Session, Connexions) et les détails techniques sont dans le panneau,
 // sous forme d'onglets ; l'appel est le mode vocal, qui était à côté de la saisie.
-import { PanelRight, Phone } from "lucide-react";
+import { PanelRight, Phone, Search } from "lucide-react";
 import type { PanelTab } from "./SidePanel";
 import { type Agent, canTalk } from "@/lib/api";
 import { MODE_VOCAL } from "@/lib/workPanel";
 import { t } from "@/i18n";
 
-type Props = { agent: Agent | null; active: PanelTab | null; onOpen: (tab: PanelTab) => void; waiting?: number; onInbox?: () => void };
+type Props = { agent: Agent | null; active: PanelTab | null; onOpen: (tab: PanelTab) => void; waiting?: number; onInbox?: () => void; onSearch?: () => void };
 
 const call = () => window.dispatchEvent(new Event(MODE_VOCAL));
 
 /** Appeler, puis le panneau. Sur ordinateur dans l'en-tête du fil ; sur téléphone dans celui du téléphone (voir WorkMenu). */
-function Icons({ agent, active, onOpen }: Props) {
+function Icons({ agent, active, onOpen, onSearch }: Props) {
   return (
     <>
+      {onSearch && <button type="button" className="icon-btn cible-tactile" aria-label={t("Rechercher")} title={t("Rechercher")} onClick={onSearch}><Search size={18} aria-hidden /></button>}
       <button type="button" className="icon-btn cible-tactile" aria-label={t("Appeler {nom}", { nom: agent?.name ?? "" })} title={t("Appeler {nom}", { nom: agent?.name ?? "" })} disabled={!agent || !canTalk(agent)} onClick={call}>
         <Phone size={18} aria-hidden />
       </button>

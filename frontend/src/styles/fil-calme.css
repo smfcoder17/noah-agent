@@ -152,6 +152,7 @@
 .mobile-agent b { font-size:16px; font-weight:600; line-height:1.25; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .mobile-agent small { font-size:13px; line-height:1.2; color:var(--soft); max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 @media (max-width:767px) {
+  .task > .pill { display:none; }
   .noah-shell { font-size:16px; }
   .col { padding:16px; }
   .msg-me { max-width:86%; }
@@ -164,6 +165,7 @@
   .composer textarea { font-size:16px; }
   .send, .send-stop { width:40px; height:40px; border-radius:999px; }
   .chat-pane > header.head { padding:0 6px; }
+  .chat-pane > header.head:not(.tache-tete) { display:none; }
   .bottom-tabs { display:none !important; }
   .work-panel-head { padding:0 6px; }
 }
@@ -182,3 +184,14 @@
   .drawer-search { display:flex; align-items:center; gap:10px; margin:6px 8px; padding:0 12px; min-height:44px; border:1px solid var(--line); border-radius:var(--r-m); color:var(--soft); background:var(--card); }
   .drawer-search input { flex:1; min-width:0; border:0; outline:0; background:transparent; color:var(--ink); font:inherit; }
 }
+
+/* Les rangées de la barre (reprises des anciennes règles de desktop.css, retirées avec la refonte). */
+@media (min-width:768px) { .side-rail { display:flex; min-height:0; } }
+.rail-row { display:flex; align-items:center; width:100%; text-align:left; cursor:pointer; }
+.rail-label { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.rail-count { flex:none; border-radius:999px; text-align:center; font-weight:700; }
+.rail-fold { flex:none; }
+
+/* Une tâche ouverte, sur téléphone : un seul en-tête (menu, retour, titre, pastille), comme le prototype. */
+@media (min-width:768px) { .tache-menu { display:none; } }
+@media (max-width:767px) { .work-main:has(header.tache-tete) .mobile-header { display:none; } .chat-pane > header.tache-tete { padding-top:env(safe-area-inset-top); height:calc(var(--head) + env(safe-area-inset-top)); } }

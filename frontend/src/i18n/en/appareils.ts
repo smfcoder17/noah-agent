@@ -247,6 +247,7 @@ export default {
   "{n} terminées": "{n} done",
   "{n} terminée": "{n} done",
   "à": "to",
+  "{de} à {a}": "{de} to {a}",
   "Ce que tes agents attendent de toi.": "What your agents are waiting on you for.",
   "Rien ne t'attend pour le moment.": "Nothing's waiting for you right now.",
   "Ouvrir la conversation : {demande}": "Open the conversation: {demande}",

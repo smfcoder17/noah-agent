@@ -174,8 +174,25 @@ export function OlderMessages() {
   );
 }
 
+/** La consigne d'une tâche : le premier message du fil d'une tâche est celui du demandeur (coordination.py), pas celui de la personne. */
+const DEMANDE = /^\[Demande de l'agent ([^(\]]+?) \([^)]*\)[^\]]*\]\s*/;
+
 export const UserMessage = memo(function UserMessage() {
   const id = useAuiState((s) => s.message.id);
+  const text = useAuiState((s) => s.message.content.map((p) => (p.type === "text" ? p.text : "")).join(""));
+  const { tache } = useContext(AgentContext);
+  const demande = tache ? DEMANDE.exec(text) : null;
+  if (demande && tache) {
+    return (
+      <>
+      <DayDivider />
+      <MessagePrimitive.Root data-noah-msg={id} className="group msg relative flex scroll-mt-4 flex-col gap-1">
+        <span className="msg-who">{t("{de} à {a}", { de: demande[1], a: tache })}</span>
+        <p className="whitespace-pre-wrap">{text.slice(demande[0].length)}</p>
+      </MessagePrimitive.Root>
+      </>
+    );
+  }
   return (
     <>
     <DayDivider />
@@ -293,7 +310,7 @@ function answerText(id: string): string {
 }
 
 export const AssistantMessage = memo(function AssistantMessage() {
-  const { agentName, agentColor, agentShape, agentDetail } = useContext(AgentContext);
+  const { agentName, tache, agentColor, agentShape, agentDetail } = useContext(AgentContext);
   const busyActivity = useContext(WhileBusyContext).activity;
   const running = useAuiState((s) => s.message.status?.type === "running");
   const empty = useAuiState((s) => s.message.content.length === 0);
@@ -323,7 +340,7 @@ export const AssistantMessage = memo(function AssistantMessage() {
     <DayDivider />
     <ModelDivider />
     <MessagePrimitive.Root data-noah-msg={id} data-reply-source className="group msg relative flex scroll-mt-4 flex-col gap-1">
-      <span className="msg-who">{agentName}</span>
+      <span className="msg-who">{tache || agentName}</span>
       {!(empty && running) && (
         <div data-noah-answer className="min-w-0">
           <MessagePrimitive.Parts components={{ Text: MarkdownText, tools: TOOLS }} />

@@ -74,6 +74,12 @@ it("D1 — en haut à droite, les deux icônes du prototype : appeler l'agent, o
   expect(byLabel("Ouvrir ou fermer le panneau")!.getAttribute("aria-pressed")).toBe("true");
   await act(async () => byLabel("Ouvrir ou fermer le panneau")!.click());
   expect(open).toHaveBeenLastCalledWith("files");
+  // Sur ordinateur, la recherche est la première icône (comme dans le prototype) ; elle ouvre la même recherche que Ctrl K.
+  const search = vi.fn();
+  await act(async () => root.render(<WorkBar agent={agent()} active={null} onOpen={open} onSearch={search} />));
+  expect([...host.querySelectorAll(".work-bar button")].map((b) => b.getAttribute("aria-label"))).toEqual(["Rechercher", "Appeler Noah", "Ouvrir ou fermer le panneau"]);
+  await act(async () => byLabel("Rechercher")!.click());
+  expect(search).toHaveBeenCalledTimes(1);
   window.removeEventListener(MODE_VOCAL, called);
 });
 

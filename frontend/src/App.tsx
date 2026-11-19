@@ -520,7 +520,7 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
           <MobileHeader agent={agent} status={agent?.step || liveStatus || (agent?.online ? t("En ligne") : t("Hors ligne"))} onMenu={() => setSidebarOpen(true)} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })}
             menu={<WorkMenu agent={agent} active={panel} onOpen={togglePanelOpen} waiting={waiting} onInbox={() => setInbox(true)} />} />
           <KeepAlive active={!panel || (wide && !expanded)} className="min-h-0 flex-1">
-          <ChatPane
+          <ChatPane onMenu={() => setSidebarOpen(true)}
             title={thread?.title || agent?.name || "Noah"}
             entete={agent ? { role: agent.role, ...etatMot(agent) } : null}
             tache={threadId && agent ? {
@@ -531,7 +531,7 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
               retour: retourAu(agent.name),
               onRetour: () => setThreadId(null),
             } : null}
-            onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} actions={<WorkBar agent={agent} active={panel} onOpen={togglePanelOpen} />}>
+            onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} actions={<WorkBar agent={agent} active={panel} onOpen={togglePanelOpen} onSearch={() => setSidebarOpen(true)} />}>
           <AppUpdate /><div id={CALL_SLOT} />
           {agent && canAdmin(agent) && <HandoffBanner agentId={agent.id} onOpenScreen={() => setPanel("computer")} />}
           {agent && canAdmin(agent) && <DelegatedTasks agentId={agent.id} />}
