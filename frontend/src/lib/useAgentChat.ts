@@ -11,6 +11,7 @@ import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "r
 import { onForget, SeenActive, seenGeneration } from "./seen";
 import { ApiError, type ChatEvent, get, type LoginAsked, send, type Reactions, type Recu, type StoredMessage, request, StreamLost, streamChat, uploadFile } from "./api";
 import { accordLabel, refreshAccords, useAccords } from "./events";
+import { enMemoire, type EnCours, type Ouverture, useOuverture, verifier } from "./ouverture";
 import { t, tServeur } from "@/i18n";
 import { pcNote } from "./lignesServeur";
 
@@ -199,6 +200,26 @@ function apply(msg: ChatMessage, ev: ChatEvent | ChoiceEvent, runId: string | nu
 
 const messagesCache = new Map<string, ChatMessage[]>();
 const CACHED_CONVERSATIONS = 20;
+/** Ce que la mémoire sait d'une conversation : ses messages déjà lus, sinon la page du fil que l'ouverture de l'agent a rendue. */
+function memoire(conv: string | null, agent: string): ChatMessage[] | null {
+  if (!conv) return null;
+  const gardee = messagesCache.get(conv);
+  if (gardee) return gardee;
+  const fil = enMemoire(agent)?.fil;
+  if (!fil || fil.id !== conv) return null;
+  current(conv, undefined, fil.messages); // la fenêtre est la page rendue
+  return fil.messages.map(fromStored);
+}
+/** La conversation est celle dont l'ouverture de l'agent donne les messages et l'état : son fil. */
+const duFil = (agent: string, conv: string | null | undefined) => !!conv && enMemoire(agent)?.fil?.id === conv;
+/** Ce qu'il faut changer à l'écran pour passer de `cur` aux messages `rows` du serveur : rien si c'est déjà ce qu'on voit. */
+function reconcile(cur: ChatMessage[], rows: StoredMessage[]): ChatMessage[] {
+  if (rows.length !== cur.length || traceMoved(rows, cur)) return rows.map(fromStored);
+  // Même nombre : on garde l'affichage, en apprenant le numéro des messages écrits ici (pour pouvoir y réagir) et leurs réactions.
+  const modelOf = (r: StoredMessage) => (r.role === "agent" && r.model) || undefined;
+  const changed = rows.some((r, i) => r.id !== cur[i].storedId || JSON.stringify(r.reactions ?? null) !== JSON.stringify(cur[i].reactions ?? null) || (modelOf(r) ?? cur[i].model) !== cur[i].model);
+  return changed ? cur.map((m, i) => ({ ...m, storedId: rows[i].id, reactions: rows[i].reactions, model: modelOf(rows[i]) ?? m.model })) : cur;
+}
 /** Garde les messages d'une conversation pour la rouvrir sans attendre ; au-delà de vingt, la plus ancienne sort. */
 function remember(conv: string, messages: ChatMessage[]) {
   messagesCache.delete(conv);
@@ -256,8 +277,7 @@ export type WhileBusyApi = {
   cancel: (id: string) => void;
   giveUp: (id: string) => void;
 };
-type Approval = { summary: string; demande?: string; apercu?: string[]; request_id: string; generation: number; run_id: string };
-type Now = { occupe: boolean; activite: string | null; run_id: string | null; file: { id: string; text: string }[]; accord: Approval | null; connexion?: LoginAsked | null };
+type Now = EnCours;
 const IDLE: Now = { occupe: false, activite: null, run_id: null, file: [], accord: null };
 
 // Boîte d'envoi : un message reste ici, avec son identifiant, tant que le serveur n'a pas répondu. Une réponse perdue ne fait donc ni
@@ -317,8 +337,12 @@ export function useAgentChat(opts: {
   const { agentId, conversationId, details, onConversationCreated, onRunFinished, updatedAt, agentBusy } = opts;
   const takeQuotes = useRef(opts.takeQuotes);
   takeQuotes.current = opts.takeQuotes;
-  // Conversation déjà ouverte : ses messages s'affichent tout de suite, la version du serveur arrive derrière.
-  const [messages, setMessages] = useState<ChatMessage[]>(() => (conversationId && messagesCache.get(conversationId)) || []);
+  // Conversation déjà ouverte : ses messages s'affichent tout de suite, la version du serveur arrive derrière. Son fil, que l'ouverture
+  // de l'agent (lib/ouverture.ts) rend avec tout le reste : aucune requête de plus pour lui, ni pour ce que l'agent fait.
+  const ouverture = useOuverture(agentId);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => memoire(conversationId, agentId) ?? []);
+  // Ce qu'on sait déjà de cette conversation : sans rien en mémoire, l'écran montre une ossature du fil, jamais l'écran vide.
+  const [known, setKnown] = useState<string | null>(() => (memoire(conversationId, agentId) ? conversationId : null));
   const [isRunning, setRunning] = useState(false);
   const [more, setMore] = useState(false);
   const [liveLabel, setLiveLabel] = useState<string | null>(null);
@@ -342,18 +366,24 @@ export function useAgentChat(opts: {
       setMessages([]);
       return;
     }
-    setMessages(messagesCache.get(conversationId) ?? []);
+    const kept = memoire(conversationId, agentId);
+    setMessages(kept ?? []);
+    setKnown(kept ? conversationId : null);
     setMore(windows.get(conversationId)?.more ?? false);
+    // Son fil : l'ouverture de l'agent le rend déjà, et le relit à chaque événement (applyOuverture, plus bas).
+    if (duFil(agentId, conversationId)) return;
     let cancelled = false;
     const asked = anchorOf(conversationId);
     readMessages(windowUrl(conversationId))
       .then((rows) => {
         if (cancelled) return;
+        setKnown(conversationId);
         if (!current(conversationId, asked, rows)) return setMore(windows.get(conversationId)?.more ?? false);
         setMore(windows.get(conversationId)?.more ?? false);
         setMessages(rows.map(fromStored));
       })
       .catch((e) => {
+        if (!cancelled) setKnown(conversationId); // pas de réponse : l'écran vide plutôt qu'une ossature qui ne finit pas
         // Conversation refusée ou disparue : ce que la mémoire en gardait ne reste pas à l'écran.
         if (!(e instanceof ApiError) || (e.status !== 403 && e.status !== 404)) return;
         messagesCache.delete(conversationId);
@@ -372,6 +402,7 @@ export function useAgentChat(opts: {
   }, [conversationId, isRunning, messages]);
   useEffect(() => {
     if (!conversationId || !updatedAt || running.current) return;
+    if (duFil(agentId, conversationId)) return; // l'ouverture de l'agent apporte ses messages, avec leur date
     let cancelled = false;
     const asked = anchorOf(conversationId);
     readMessages(windowUrl(conversationId))
@@ -426,31 +457,53 @@ export function useAgentChat(opts: {
     const rows = await readMessages(windowUrl(conv));
     if (!current(conv, asked, rows)) return;
     if (ownConversation.current === conv) setMore(windows.get(conv)?.more ?? false);
-    if (ownConversation.current === conv && !running.current) {
-      setMessages((cur) => {
-        if (rows.length !== cur.length || traceMoved(rows, cur)) return rows.map(fromStored);
-        // Même nombre : on garde l'affichage, en apprenant le numéro des messages écrits ici (pour pouvoir y réagir) et leurs réactions.
-        const modelOf = (r: StoredMessage) => (r.role === "agent" && r.model) || undefined;
-        const changed = rows.some((r, i) => r.id !== cur[i].storedId || JSON.stringify(r.reactions ?? null) !== JSON.stringify(cur[i].reactions ?? null) || (modelOf(r) ?? cur[i].model) !== cur[i].model);
-        return changed ? cur.map((m, i) => ({ ...m, storedId: rows[i].id, reactions: rows[i].reactions, model: modelOf(rows[i]) ?? m.model })) : cur;
-      });
-    }
+    if (ownConversation.current === conv && !running.current) setMessages((cur) => reconcile(cur, rows));
   }, []);
 
-  const refreshNow = useCallback(async () => {
+  /** L'ouverture de l'agent est arrivée (ou relue) : si elle décrit cette conversation, ses messages et ce que l'agent fait s'y lisent. */
+  const applyOuverture = useCallback((data: Ouverture | null) => {
+    const fil = data?.fil;
+    const conv = ownConversation.current;
+    if (!data || !fil || !conv || fil.id !== conv) return;
+    setServerNow(data.en_cours);
+    setKnown(conv);
+    if (running.current) return; // réponse en cours d'écriture : elle n'est pas enregistrée, la relecture l'effacerait. Elle se relit à la fin du tour.
+    const open = windows.get(conv);
+    const first = fil.messages[0]?.id;
+    // Des messages plus anciens sont déjà lus : cette page ne les couvre pas, la route de la conversation reprend à partir d'eux.
+    if (open && first !== undefined && open.from < first) {
+      void reload(conv).catch(() => {});
+      return;
+    }
+    if (!current(conv, anchorOf(conv), fil.messages)) return;
+    setMore(windows.get(conv)?.more ?? false);
+    setMessages((cur) => (cur.length ? reconcile(cur, fil.messages) : fil.messages.map(fromStored)));
+  }, [reload]);
+  useEffect(() => applyOuverture(ouverture), [ouverture, applyOuverture]);
+
+  /** Relit ce que l'agent fait ici et ses messages. Son fil : par l'ouverture de l'agent, qui rend les deux (`recent` : rien à relire
+   * si elle vient d'arriver). Une autre conversation : ses deux routes, comme avant. */
+  const refresh = useCallback(async (recent?: number) => {
     const conv = ownConversation.current;
     if (!conv) return setServerNow(IDLE);
+    if (duFil(agentId, conv)) {
+      const data = await verifier(agentId, { apres: !recent, recent });
+      if (ownConversation.current === conv) applyOuverture(data);
+      return;
+    }
     const state = await get<Now>(`/api/conversations/${conv}/en-cours`).catch(() => null);
     if (!state || ownConversation.current !== conv) return;
     setServerNow(state);
     if (!running.current) await reload(conv).catch(() => {}); // un travail sans flux ici : ses messages arrivent par là
-  }, [reload]);
+  }, [agentId, applyOuverture, reload]);
+  const refreshNow = useCallback(() => refresh(), [refresh]);
 
   useEffect(() => {
     if (!active) return;
+    if (duFil(agentId, conversationId)) return setServerNow(enMemoire(agentId)?.en_cours ?? IDLE); // déjà lu avec l'ouverture
     setServerNow(IDLE);
     void refreshNow();
-  }, [conversationId, refreshNow, active]);
+  }, [conversationId, agentId, refreshNow, active]);
   // Une relecture finit après le tour : le petit « retenu » arrive sans rafraîchir la page.
   useEffect(() => {
     if (isRunning || !active) return;
@@ -460,10 +513,12 @@ export function useAgentChat(opts: {
   const watching = isRunning || serverNow.occupe || serverNow.file.length > 0 || sending.length > 0 || !!agentBusy;
   useEffect(() => {
     if (!watching) return;
-    if (!running.current) void refreshNow(); // un travail lancé sans cet écran : son accord s'affiche sans rafraîchir la page
+    if (!running.current) void refresh(1500); // un travail lancé sans cet écran : son accord s'affiche sans rafraîchir la page
+    // Le fil se relit avec l'ouverture de l'agent, à chaque événement, par un seul abonné (lib/ouverture.ts).
+    if (duFil(agentId, ownConversation.current)) return;
     // Écran caché : personne ne regarde, et le serveur le sait à ce silence (il notifie alors la fin de la tâche).
     return subscribeUpdates(() => { if (!document.hidden) return refreshNow(); });
-  }, [watching, refreshNow]);
+  }, [watching, agentId, refresh, refreshNow]);
 
   const addBeforeRunning = useCallback((news: ChatMessage[]) => setMessages((all) => insertBeforeRunning(all, news)), []);
 
@@ -709,7 +764,7 @@ export function useAgentChat(opts: {
       const tasks = (event as CustomEvent<Promise<unknown>[]>).detail;
       const conv = ownConversation.current;
       tasks.push(refreshNow());
-      if (!conv) return;
+      if (!conv || duFil(agentId, conv)) return; // son fil : l'ouverture de l'agent vient d'être relue
       const asked = anchorOf(conv);
       tasks.push(readMessages(windowUrl(conv)).then((rows) => {
         if (!current(conv, asked, rows)) return;
@@ -719,7 +774,7 @@ export function useAgentChat(opts: {
     };
     window.addEventListener("noah:resync", resyncAll);
     return () => window.removeEventListener("noah:resync", resyncAll);
-  }, [refreshNow, active]);
+  }, [refreshNow, active, agentId]);
   const askedLogin = serverNow.connexion ?? null;
   const askedLoginId = askedLogin?.id;
   useEffect(() => {
@@ -761,8 +816,11 @@ export function useAgentChat(opts: {
     adapters: { attachments },
   });
 
+  // Sans un seul message et sans rien en mémoire : l'ossature du fil, pas l'écran vide « Que doit faire X ? ».
+  const skeleton = !!conversationId && known !== conversationId && !messages.length && !isRunning;
   const history = useMemo(
     () => ({
+      skeleton,
       hasOlder: more,
       loading: loadingOlder,
       loadOlder: async () => {
@@ -790,7 +848,7 @@ export function useAgentChat(opts: {
           .catch(() => {});
       },
     }),
-    [more, loadingOlder, refreshNow],
+    [skeleton, more, loadingOlder, refreshNow],
   );
 
   // En deux mots, ce que fait l'agent : affiché près de son nom, sur le web, le bureau et le téléphone.

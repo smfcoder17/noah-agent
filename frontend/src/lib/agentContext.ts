@@ -1,8 +1,8 @@
 import { createContext } from "react";
 import type { WhileBusyApi } from "./useAgentChat";
 
-export type History = { hasOlder: boolean; loading: boolean; loadOlder: () => Promise<void>; react: (id: string, stored: number, emoji: string | null) => void };
-export const HistoryContext = createContext<History>({ hasOlder: false, loading: false, loadOlder: async () => {}, react: () => {} });
+export type History = { skeleton: boolean; hasOlder: boolean; loading: boolean; loadOlder: () => Promise<void>; react: (id: string, stored: number, emoji: string | null) => void };
+export const HistoryContext = createContext<History>({ skeleton: false, hasOlder: false, loading: false, loadOlder: async () => {}, react: () => {} });
 
 export const WhileBusyContext = createContext<WhileBusyApi>({ active: false, activity: null, waiting: [], sending: [], send: () => {}, now: async () => "", cancel: () => {}, giveUp: () => {} });
 

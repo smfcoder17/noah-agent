@@ -1,52 +1,41 @@
-import { useVisibleSubscription } from "@/lib/events";
 import { Check, Hand, MonitorPlay, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui";
-import { get, send } from "@/lib/api";
+import { send } from "@/lib/api";
+import { useOuverture } from "@/lib/ouverture";
 import { t } from "@/i18n";
-
-type Call = { id: string; message: string; depuis: number; origine: string };
 
 /**
  * L'agent a besoin de l'utilisateur (connexion, code, accord) : bandeau au-dessus de la conversation, et l'écran de
  * l'agent s'ouvre une fois par appel. L'agent attend la réponse au lieu de finir son tour.
  */
 export function HandoffBanner({ agentId, onOpenScreen }: { agentId: string; onOpenScreen: () => void }) {
-  const subscribeUpdates = useVisibleSubscription();
-  const [call, setCall] = useState<Call | null>(null);
+  // L'appel vient de l'ouverture de l'agent (lib/ouverture.ts) : lue à l'ouverture et relue à chaque événement, par un seul lecteur.
+  const asked = useOuverture(agentId)?.appel ?? null;
+  const [answered, setAnswered] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const opened = useRef<string | null>(null);
   const openScreen = useRef(onOpenScreen);
   openScreen.current = onOpenScreen;
+  const call = asked && asked.id !== answered ? asked : null;
 
+  // L'écran de l'agent s'ouvre une fois par appel.
+  const askedId = asked?.id;
   useEffect(() => {
-    let alive = true;
-    const poll = async () => {
-      if (document.hidden) return;
-      const r = await get<{ appel: Call | null }>(`/api/agents/${agentId}/appel`).catch(() => null);
-      if (!alive || !r) return;
-      setCall((cur) => (cur?.id === r.appel?.id ? cur : r.appel));
-      if (r.appel && opened.current !== r.appel.id) {
-        opened.current = r.appel.id;
-        openScreen.current();
-      }
-    };
-    poll();
-    const stop = subscribeUpdates(poll);
-    return () => {
-      alive = false;
-      stop();
-    };
-  }, [agentId]);
+    if (askedId && opened.current !== askedId) {
+      opened.current = askedId;
+      openScreen.current();
+    }
+  }, [askedId]);
 
   if (!call) return null;
   const answer = async (reponse: "fait" | "impossible") => {
     setBusy(true);
     try {
       await send(`/api/agents/${agentId}/appel/${call.id}`, { reponse });
-      setCall(null);
+      setAnswered(call.id);
     } catch {
-      setCall(null); // déjà terminé
+      setAnswered(call.id); // déjà terminé
     } finally {
       setBusy(false);
     }

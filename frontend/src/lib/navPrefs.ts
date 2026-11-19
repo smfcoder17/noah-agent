@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { currentAuthEpoch, get, send } from "./api";
-import { subscribeUpdates } from "./events";
+import { currentAuthEpoch } from "./api";
+import { ecrirePrefs, relirePrefs, suivrePrefs } from "./interfacePrefs";
 import { t } from "@/i18n";
 
 export const TAB_NAMES = { chat: t("Discussion"), activity: t("Activité"), tasks: t("Tâches"), files: t("Fichiers"), computer: t("Ordinateur"), connections: t("Connexions"), competences: t("Compétences"), memory: t("Mémoire") } as const;
@@ -20,16 +20,15 @@ export function useNavPrefs() {
   const [tabs, setTabs] = useState<NavTab[]>(DEFAULT_TABS);
   const [error, setError] = useState("");
   useEffect(() => {
-    let live = true;
-    const load = async () => { const epoch = currentAuthEpoch(); try { const p = await get<{ tabs: unknown }>("/api/me/interface"); if (live && epoch === currentAuthEpoch()) { setTabs(validTabs(p.tabs)); setError(""); } } catch { if (live) setError(t("Ordre indisponible. Réessayer.")); } };
-    const reset = () => { setTabs([...DEFAULT_TABS]); void load(); };
+    // Lue par le lecteur partagé (lib/interfacePrefs.ts), avec le thème et la taille du texte : une seule lecture pour les deux.
+    const reset = () => { setTabs([...DEFAULT_TABS]); void relirePrefs(); };
     window.addEventListener("noah:auth-epoch", reset);
-    void load(); const stop = subscribeUpdates(load);
-    return () => { live = false; stop(); window.removeEventListener("noah:auth-epoch", reset); };
+    const stop = suivrePrefs((p) => { setTabs(validTabs(p.tabs)); setError(""); }, () => setError(t("Ordre indisponible. Réessayer.")));
+    return () => { stop(); window.removeEventListener("noah:auth-epoch", reset); };
   }, []);
   const save = async (next: NavTab[]) => {
     const epoch = currentAuthEpoch();
-    try { const p = await send<{ tabs: unknown }>("/api/me/interface", { tabs: validTabs(next) }, "PUT"); if (epoch === currentAuthEpoch()) { setTabs(validTabs(p.tabs)); setError(""); } return true; }
+    try { const p = await ecrirePrefs({ tabs: validTabs(next) }); if (epoch === currentAuthEpoch()) { setTabs(validTabs(p.tabs)); setError(""); } return true; }
     catch { setError(t("Ordre non enregistré. Réessaie.")); return false; }
   };
   return { tabs, save, error };

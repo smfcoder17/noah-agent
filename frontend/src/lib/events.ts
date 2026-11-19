@@ -38,6 +38,11 @@ let epoch = "";
 let changes = 0;
 let reads = 0;
 let resyncPending = false;
+// Le premier signal `pret` d'une page vient juste après les lectures de son montage : les relancer toutes en double ne servirait à rien.
+// Une reconnexion (flux coupé puis repris) et un changement de compte relancent comme avant.
+let firstReady = true;
+/** La révision du flux vue en dernier : une réponse du serveur lue avant elle est plus vieille que ce que l'écran sait déjà. */
+export const eventRevision = () => revision;
 function resetAccount() {
   const auth = currentAuthEpoch();
   if (auth === epoch) return;
@@ -47,6 +52,7 @@ function resetAccount() {
   recent = [];
   revision = "";
   resyncPending = false;
+  firstReady = false;
   cancelUpdates();
   controller?.abort();
   controller = null;
@@ -114,7 +120,9 @@ async function consume(signal: AbortSignal) {
             buffer = buffer.slice(end + 2);
             const fields = Object.fromEntries(chunk.split("\n").map((line) => [line.split(":", 1)[0], line.slice(line.indexOf(":") + 1).trim()]));
             if (!fields.event) continue;
-            if (fields.event !== "resync") changed();
+            const firstPret = fields.event === "pret" && firstReady;
+            if (fields.event === "pret") firstReady = false;
+            if (fields.event !== "resync" && !firstPret) changed();
             revision = fields.id || revision;
             if (fields.event === "accord.clos") {
               const closed = JSON.parse(fields.data) as AccordClosed;
@@ -133,7 +141,7 @@ async function consume(signal: AbortSignal) {
               resyncPending = true;
               break;
             }
-            if (fields.event === "pret" || fields.event === "accord.demande" || fields.event === "accord.clos") {
+            if (!firstPret && (fields.event === "pret" || fields.event === "accord.demande" || fields.event === "accord.clos")) {
               if (fields.event === "accord.demande") changes++;
               await refreshAccords();
             }
@@ -161,6 +169,7 @@ function subscribe(listener: () => void) {
     document.addEventListener("visibilitychange", visible);
   }
   if (!controller) {
+    firstReady = true; // un flux qui s'ouvre après que tout s'est fermé : ses lectures de montage sont toutes récentes
     const auth = currentAuthEpoch();
     if (auth !== epoch) { items = []; recent = []; revision = ""; resyncPending = false; epoch = auth; notify(); }
     controller = new AbortController();
@@ -193,8 +202,11 @@ export function subscribeUpdates(fn: () => unknown) {
 export function useVisibleSubscription() {
   const active = useContext(SeenActive);
   const visible = useRef(active);
+  const was = useRef(active);
   visible.current = active;
-  useEffect(() => { if (active) changed(); }, [active]);
+  // Relance au retour d'un écran gardé, pas à son montage : à son montage, chaque composant lit déjà ce qu'il montre, et relancer
+  // tout ce qui est abonné relisait toute l'application à chaque changement d'agent (socle.md, 5.2).
+  useEffect(() => { if (active && !was.current) changed(); was.current = active; }, [active]);
   return useCallback((fn: () => unknown) => {
     return subscribeUpdates(() => { if (visible.current && !document.hidden) return fn(); });
   }, []);

@@ -5,31 +5,31 @@
       "libelle": "doubles au changement d'agent, vrai navigateur",
       "unite": "doubles",
       "seuil": 0,
-      "mesure": 5,
-      "bloquant": false,
+      "mesure": 0,
+      "bloquant": true,
       "tolerance": 2
     },
     "B1.changement.requetes": {
       "libelle": "requêtes /api/ au changement d'agent, vrai navigateur et vrai serveur (X22)",
       "unite": "requêtes",
       "seuil": 1,
-      "mesure": 17,
-      "bloquant": false,
+      "mesure": 1,
+      "bloquant": true,
       "tolerance": 2
     },
     "B1.chargement.doubles": {
       "libelle": "doubles au premier chargement, vrai navigateur",
       "unite": "doubles",
       "seuil": 0,
-      "mesure": 14,
-      "bloquant": false,
+      "mesure": 0,
+      "bloquant": true,
       "tolerance": 2
     },
     "B1.chargement.requetes": {
       "libelle": "requêtes /api/ au premier chargement, hors events, vrai navigateur (X22)",
       "unite": "requêtes",
       "seuil": 4,
-      "mesure": 34,
+      "mesure": 12,
       "bloquant": false,
       "tolerance": 2
     },
@@ -37,31 +37,31 @@
       "libelle": "doubles au changement d’agent, jsdom",
       "unite": "doubles",
       "seuil": 0,
-      "mesure": 5,
-      "bloquant": false,
+      "mesure": 0,
+      "bloquant": true,
       "tolerance": 2
     },
     "B1bis.changement.requetes": {
       "libelle": "requêtes /api/ au changement d’agent, jsdom (X22)",
       "unite": "requêtes",
       "seuil": 1,
-      "mesure": 18,
-      "bloquant": false,
+      "mesure": 1,
+      "bloquant": true,
       "tolerance": 2
     },
     "B1bis.chargement.doubles": {
       "libelle": "doubles au premier chargement, jsdom",
       "unite": "doubles",
       "seuil": 0,
-      "mesure": 18,
-      "bloquant": false,
+      "mesure": 0,
+      "bloquant": true,
       "tolerance": 2
     },
     "B1bis.chargement.requetes": {
       "libelle": "requêtes /api/ au premier chargement, hors events, jsdom (X22)",
       "unite": "requêtes",
       "seuil": 4,
-      "mesure": 36,
+      "mesure": 9,
       "bloquant": false,
       "tolerance": 2
     },

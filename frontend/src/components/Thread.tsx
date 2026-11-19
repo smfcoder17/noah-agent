@@ -5,7 +5,7 @@ import {
   ThreadPrimitive,
 } from "@assistant-ui/react";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
-import { AgentContext } from "@/lib/agentContext";
+import { AgentContext, HistoryContext } from "@/lib/agentContext";
 import { mediaUrl, rawFileUrl } from "@/lib/api";
 import { linkMessage, plainWidgets } from "@/lib/chatMedia";
 import { useQuotes } from "@/lib/quotes";
@@ -15,13 +15,14 @@ import { VoiceMode } from "./Voice";
 import { t } from "@/i18n";
 import { OlderMessages, UserMessage, SelectionReply, AssistantMessage } from "./thread/messages";
 import { Composer } from "./thread/Composer";
-import { ReturnCards, EmptySuggestions, EmptyNoah } from "./thread/panneaux";
+import { ReturnCards, EmptySuggestions, EmptyNoah, OssatureFil } from "./thread/panneaux";
 
 export { AgentContext, EmptySuggestions };
 
 export const Thread = memo(function Thread({ report, onReportRead, onCall }: { report: { id: string; text: string } | null; onReportRead: () => void; onCall: (on: boolean) => void }) {
   const { agentId, agentName, hint, readOnly } = useContext(AgentContext);
   const [voice, setVoice] = useState(false);
+  const { skeleton } = useContext(HistoryContext);
   // Des fichiers choisis dans le panneau : joints au prochain message, comme un passage cité.
   const { add: addQuote } = useQuotes();
   const threadRoot = useRef<HTMLDivElement>(null);
@@ -59,12 +60,14 @@ export const Thread = memo(function Thread({ report, onReportRead, onCall }: { r
           <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col pt-6">
             <OlderMessages />
             <ThreadPrimitive.Empty>
+              {skeleton ? <OssatureFil /> : (
               <div className="m-auto flex max-w-md flex-col items-center gap-2 text-center">
                 <EmptyNoah />
                 <p className="text-xl font-semibold">{t("Que doit faire {nom} ?", { nom: agentName })}</p>
                 <p className="text-sm text-muted-foreground">{hint}</p>
                 {!readOnly && <EmptySuggestions agentId={agentId} />}
               </div>
+              )}
             </ThreadPrimitive.Empty>
             <ThreadPrimitive.Messages components={{ UserMessage, AssistantMessage }} />
           </div>

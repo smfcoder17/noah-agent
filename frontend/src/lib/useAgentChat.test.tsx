@@ -173,3 +173,32 @@ it("chaque réponse garde son modèle : celui enregistré, puis celui que la fin
   await vi.waitFor(() => expect(models()).toEqual([undefined, "openai/gpt-5.1", undefined, undefined, "anthropic/claude-sonnet-4.5"]));
   await screen.close();
 });
+
+it("sans rien en mémoire, l'ossature du fil se montre pendant la lecture, jamais l'écran vide ; avec de la mémoire, rien de tel", async () => {
+  let answer!: (rows: unknown[]) => void;
+  serve({ c20: new Promise<unknown[]>((resolve) => { answer = resolve; }) });
+  const first = await open("c20");
+  expect(first.chat().history.skeleton, "rien en mémoire, la lecture n'est pas revenue : l'ossature").toBe(true);
+  await act(async () => { answer([stored(1, "user", "Bonjour")]); });
+  expect(first.chat().history.skeleton).toBe(false);
+  await first.close();
+
+  // Rouverte : ce qui est gardé se montre tout de suite, sans ossature, avant que le serveur réponde.
+  serve({ c20: new Promise(() => {}) });
+  const again = await open("c20");
+  expect(again.chat().history.skeleton).toBe(false);
+  expect(textOf(again.chat())).toEqual(["Bonjour"]);
+  await again.close();
+
+  // Une conversation qui n'existe pas encore (nouvelle) : l'écran vide est le vrai écran, pas une ossature.
+  serve({});
+  let chat!: Chat;
+  function Screen() {
+    chat = useAgentChat({ agentId: "a", conversationId: null, details: false, onConversationCreated: () => {}, onRunFinished: () => {} });
+    return null;
+  }
+  const root = createRoot(document.createElement("div"));
+  await act(async () => root.render(<Screen />));
+  expect(chat.history.skeleton).toBe(false);
+  await act(async () => root.unmount());
+});

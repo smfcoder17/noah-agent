@@ -2,7 +2,7 @@ import { useAui, useAuiState } from "@assistant-ui/react";
 import { useContext, useEffect, useRef, useState } from "react";
 import { WhileBusyContext, AgentContext } from "@/lib/agentContext";
 import { usePanelEnd } from "@/lib/chatMood";
-import { get } from "@/lib/api";
+import { useOuverture } from "@/lib/ouverture";
 import { NoahTile, type NoahHandle } from "../Noah";
 import { demandesFor, usePresets } from "@/lib/presets";
 import { returnMoment } from "@/lib/retour";
@@ -60,13 +60,11 @@ export function ReturnCards({ agentId }: { agentId: string }) {
     const m = s.thread.messages[s.thread.messages.length - 1];
     return m?.role === "assistant" ? m.createdAt?.getTime() ?? null : null;
   });
-  const [routines, setRoutines] = useState<string[]>([]);
+  // Les routines actives viennent de l'ouverture de l'agent (lib/ouverture.ts), sans question à sa machine.
+  const routines = (useOuverture(agentId)?.routines.actives ?? []).map((r) => r.nom);
   const [hidden, setHidden] = useState(false);
   useEffect(() => {
     setHidden(false);
-    get<{ routines: { name: string | null; enabled: boolean }[] }>(`/api/agents/${agentId}/routines`)
-      .then((r) => setRoutines(r.routines.filter((x) => x.enabled && x.name).map((x) => x.name as string)))
-      .catch(() => setRoutines([]));
   }, [agentId]);
   const moment = returnMoment(lastUser, lastAgent, Date.now());
   if (!moment || running || !empty || hidden) return null;
@@ -105,6 +103,18 @@ export function EmptySuggestions({ agentId }: { agentId: string }) {
           {d}
         </button>
       ))}
+    </div>
+  );
+}
+
+/** Le fil qui se charge, sans rien en mémoire : des bulles grises à la place des messages, jamais l'écran vide « Que doit faire X ? ». */
+export function OssatureFil() {
+  return (
+    <div role="status" aria-busy="true" aria-label={t("Chargement de la conversation…")} data-ossature className="flex w-full flex-1 flex-col gap-4">
+      <div className="ml-auto h-10 w-2/5 animate-pulse rounded-2xl bg-muted/60" />
+      <div className="h-20 w-3/4 animate-pulse rounded-2xl bg-muted/60" />
+      <div className="ml-auto h-10 w-1/3 animate-pulse rounded-2xl bg-muted/60" />
+      <div className="h-28 w-4/5 animate-pulse rounded-2xl bg-muted/60" />
     </div>
   );
 }

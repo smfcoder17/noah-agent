@@ -2,6 +2,7 @@ import { Laptop, Square } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui";
 import { get, send } from "@/lib/api";
+import { useOuverture } from "@/lib/ouverture";
 import { t } from "@/i18n";
 
 export type DelegatedTask = {
@@ -31,28 +32,31 @@ export function delegatedState(task: DelegatedTask): string {
 
 /** Ligne de suivi dans la conversation : la tâche que l'agent a confiée à Claude Code sur l'ordinateur, sa progression, et Stop. */
 export function DelegatedTasks({ agentId }: { agentId: string }) {
-  const [tasks, setTasks] = useState<DelegatedTask[]>([]);
+  // Les tâches viennent de l'ouverture de l'agent (lib/ouverture.ts), lue à l'ouverture et relue à chaque événement.
+  const known = useOuverture(agentId)?.taches_confiees;
+  const [tasks, setTasks] = useState<DelegatedTask[]>(known ?? []);
   const [open, setOpen] = useState<string | null>(null);
+  useEffect(() => { if (known) setTasks(known); }, [known]);
+  const running = tasks.some((x) => x.etat === "en_cours");
   useEffect(() => {
-    // Toutes les 3 s tant qu'une tâche tourne ; sinon toutes les 30 s : sans tâche, rien ne justifie 20 requêtes par minute.
+    // Toutes les 3 s tant qu'une tâche tourne, pour voir sa progression ; sinon rien : sans tâche, rien ne justifie une requête.
+    if (!running) return;
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const poll = async () => {
-      let running = false;
       if (!document.hidden) {
         const r = await get<{ taches: DelegatedTask[] }>(`/api/agents/${agentId}/taches-confiees`).catch(() => null);
         if (!alive) return;
         if (r) setTasks(r.taches);
-        running = !!r?.taches.some((x) => x.etat === "en_cours");
       }
-      if (alive) timer = setTimeout(poll, running ? 3000 : 30000);
+      if (alive) timer = setTimeout(poll, 3000);
     };
-    poll();
+    timer = setTimeout(poll, 3000);
     return () => {
       alive = false;
       clearTimeout(timer);
     };
-  }, [agentId]);
+  }, [agentId, running]);
   if (!tasks.length) return null;
   const stop = (id: string) => send(`/api/desktop/taches/${id}/arreter`, {}).catch(() => {});
   return (

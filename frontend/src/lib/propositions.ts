@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { get, isProposition } from "./api";
 import { subscribeUpdates } from "./events";
+import { onForget, seenGeneration } from "./seen";
 
 let count = 0;
 const listeners = new Set<(n: number) => void>();
@@ -10,10 +11,20 @@ const publish = (n: number) => {
   listeners.forEach((fn) => fn(n));
 };
 
-export async function refreshPropositions() {
-  const rows = await get<{ type?: string }[]>("/api/a-toi");
-  publish(rows.filter(isProposition).length);
+// Une lecture à la fois : deux demandes au même instant (montage de l'écran, événement) n'en font qu'une.
+let flying: { generation: number; read: Promise<void> } | null = null;
+export function refreshPropositions(): Promise<void> {
+  const generation = seenGeneration();
+  if (flying && flying.generation === generation) return flying.read;
+  const mine = { generation, read: null as unknown as Promise<void> };
+  mine.read = get<{ type?: string }[]>("/api/a-toi")
+    .then((rows) => { if (generation === seenGeneration()) publish(rows.filter(isProposition).length); })
+    .finally(() => { if (flying === mine) flying = null; });
+  flying = mine;
+  return mine.read;
 }
+// Changement de compte : le compteur du précédent ne ressort pas.
+onForget(() => { flying = null; publish(0); });
 
 /** Après une réponse dans « À toi » : le compteur suit sans attendre la relecture. */
 export const setPropositionCount = publish;

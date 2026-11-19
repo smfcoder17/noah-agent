@@ -49,7 +49,9 @@ import { modeName, readableModel } from "@/lib/modes";
 import { AppUpdate } from "./components/AppUpdate";
 import { Dialog, DialogContent } from "./components/ui";
 import { listenFileMenus } from "@/lib/desktop";
-import { onForget, prefetchSeen } from "@/lib/seen";
+import { useOuvertureAffichee, verifier } from "@/lib/ouverture";
+import { loadPresets } from "@/lib/presets";
+import { OssatureFil } from "@/components/thread/panneaux";
 import { t, tr } from "@/i18n";
 
 // Chargés à la première ouverture : le premier écran n'attend que le chat.
@@ -84,11 +86,6 @@ async function waitForApproval(sondage: string, expire: number): Promise<string>
 function same<T>(cur: T, next: T): T {
   return JSON.stringify(cur) === JSON.stringify(next) ? cur : next;
 }
-
-/** Relève périodique, en pause quand la fenêtre est cachée, relancée dès qu'elle revient. */
-const conversationsCache = new Map<string, Conversation[]>();
-// Changement de compte : la liste des conversations du précédent ne ressort pas, même un instant.
-onForget(() => conversationsCache.clear());
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("loading");
@@ -298,6 +295,11 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
   useEffect(() => {
     reconcilePush().catch(() => {});
   }, []);
+  // Les modèles d'agent (demandes à toucher de l'écran vide) : lus une fois au montage, avec le reste, plutôt qu'à l'ouverture du premier
+  // agent vide, où ils feraient une requête de plus à un changement d'agent.
+  useEffect(() => {
+    loadPresets().catch(() => {});
+  }, []);
   // Le démarrage a déjà lu le compte : on ne le redemande que s'il manque (fin de l'assistant de premier lancement).
   const [me, setMe] = useState<Me | null>(known);
   useEffect(() => {
@@ -306,9 +308,11 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
   }, [known]);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [agentId, setAgentId] = useState<string | null>(null);
-  // Liste associée à son agent : au retour sur un agent, celle du précédent ne doit pas lui donner une autre conversation.
-  const [listed, setListed] = useState<{ agent: string | null; list: Conversation[] | null }>({ agent: null, list: null });
-  const conversations = listed.agent === agentId ? listed.list : agentId ? conversationsCache.get(agentId) ?? null : null;
+  // L'ouverture de l'agent affiché (lib/ouverture.ts) : une requête rend la liste des conversations, le fil, ce que l'agent fait, l'appel,
+  // les tâches confiées et les routines. Ce qui est gardé en mémoire se montre tout de suite ; la lecture part derrière. Associée à son
+  // agent : au retour sur un agent, la liste du précédent ne lui donne pas une autre conversation.
+  const ouverture = useOuvertureAffichee(agentId);
+  const conversations: Conversation[] | null = ouverture?.conversations ?? null;
   // Fil ouvert à la place de la conversation principale (null = conversation principale).
   const navigation = useNavigation();
   const { tabs, save: saveTabs, error: tabsError } = useNavPrefs();
@@ -349,14 +353,12 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
   const propositions = usePropositionCount(agents.length > 0);
   const waiting = propositions + agents.reduce((total, a) => total + (a.tasks?.approve ?? 0) + (a.tasks?.choice ?? 0), 0);
   const agent = agents.find((a) => a.id === agentId) ?? null;
-  // Les onglets du panneau lisent la machine de l'agent (une seconde ou plus) : on les lit d'avance, une fois l'écran calme.
+  // Le panneau de l'agent se charge d'avance, une fois l'écran calme. Ses onglets lisent la machine de l'agent à leur ouverture : ils ne
+  // sont plus lus d'avance à chaque changement d'agent (routines, veilles, connexions : trois requêtes de plus à chaque ouverture).
   const prefetchFor = agent && canAdmin(agent) ? agent.id : null;
   useEffect(() => {
     if (!prefetchFor) return;
-    const timer = setTimeout(() => {
-      import("@/components/SidePanel").catch(() => {});
-      prefetchSeen(["routines", "watches", "connections"].map((p) => `/api/agents/${prefetchFor}/${p}`), (path) => get(path));
-    }, 1500);
+    const timer = setTimeout(() => { import("@/components/SidePanel").catch(() => {}); }, 1500);
     return () => clearTimeout(timer);
   }, [prefetchFor]);
   useNoahRetour(navigation.stack.length, navigation.dispatch, currentTab, goTab);
@@ -410,23 +412,16 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
       /* le serveur redémarre : on réessaie au prochain tour */
     }
   }, []);
+  // Relit l'ouverture de l'agent affiché : la liste des conversations, avec tout ce qui vient avec. Les événements la relisent aussi,
+  // par l'abonné du magasin ; ceci sert aux gestes qui savent qu'elle vient de changer (discussion créée, tour fini, accord répondu).
   const refreshConversations = useCallback(async () => {
-    if (!agentId) return setListed({ agent: null, list: [] });
-    const list = await get<Conversation[]>(`/api/agents/${agentId}/conversations`).catch(() => null);
-    if (list) {
-      conversationsCache.set(agentId, list);
-      setListed((cur) => ({ agent: agentId, list: same(cur.agent === agentId ? cur.list : null, list) }));
-    }
+    if (agentId) await verifier(agentId, { apres: true });
   }, [agentId]);
 
   useEffect(() => {
     refreshAgents();
     return subscribeUpdates(refreshAgents);
   }, [refreshAgents]);
-  useEffect(() => {
-    refreshConversations();
-    return subscribeUpdates(refreshConversations);
-  }, [agentId, refreshConversations]);
 
   const selectAgent = (id: string) => {
     goTab("chat");
@@ -546,7 +541,7 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
                 </Boundary>
               </div>
             ) : agent ? (
-              <p role="status" className="p-10 text-center text-sm text-muted-foreground">{t("Chargement de la conversation…")}</p>
+              <div className="flex h-full flex-col px-4 pt-6"><div className="mx-auto flex w-full max-w-3xl flex-1 flex-col"><OssatureFil /></div></div>
             ) : (
               <div className="grid h-full place-items-center p-6 text-center text-muted-foreground">
                 <div className="flex flex-col items-center gap-3">
