@@ -154,10 +154,10 @@ assert "Réponds en français" not in soul and "Réponds dans la langue de la pe
 print(f"prompt : table « ce que tu présentes → le bloc », exemple par bloc, posts, products, links ({len(widgets)} caractères)")
 
 # 0.4.0 (L4, X9) : une seule consigne de mise en forme, donnée à tous les agents avec le reste du prompt, et qui ne contredit pas les widgets.
-forme = soul[soul.index("## Mise en forme"):]
+forme = soul[soul.index("## Mise en forme"):soul.index("## Ta machine")]  # la section est en tête des capacités : les modèles retiennent mieux le début
 for needed, why in [
     ("Des phrases simples", "phrases simples"),
-    ("six puces au plus", "listes courtes"),
+    ("six lignes au plus", "listes courtes"),
     ("Jamais de tableau en barres verticales", "pas de tableau"),
     ("seulement pour du vrai code", "pas de bloc de code hors du code"),
     ("Jamais de JSON dans ton texte", "pas de JSON"),
@@ -169,6 +169,6 @@ for needed, why in [
 ]:
     assert needed in forme, why
 assert soul.count("## Mise en forme") == 1, "un seul texte de mise en forme"
-assert "```noah" not in forme and "un tableau markdown" not in soul, "la consigne ne se contredit pas : plus de tableau Markdown conseillé nulle part"
+assert forme.count("```noah") == 1 and "entre ```noah et ```" in forme and "un tableau markdown" not in soul, "la consigne ne se contredit pas : plus de tableau Markdown conseillé nulle part"
 assert main.AGENT_SETUP_VERSION.startswith("47-"), "le lot L4 ne monte pas la version : Claude la montera une fois, à la publication"
 print(f"prompt : mise en forme ({len(forme)} caractères), conciliée avec les widgets")

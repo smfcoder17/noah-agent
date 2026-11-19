@@ -1,0 +1,62 @@
+{
+ "date": "2026-11-19",
+ "modeles": [
+  "deepseek-v4.1-flash",
+  "gpt-oss:20b",
+  "glm-5.3-flash"
+ ],
+ "resultats": [
+  {
+   "etat": "apres",
+   "modele": "deepseek-v4.1-flash",
+   "demandes": 50,
+   "reponses": 50,
+   "sans_reponse": 0,
+   "avec_element_interdit": 0,
+   "par_genre": {},
+   "jetons_entree": 527852,
+   "jetons_sortie": 40603,
+   "erreurs": []
+  },
+  {
+   "etat": "apres",
+   "modele": "gpt-oss:20b",
+   "demandes": 50,
+   "reponses": 49,
+   "sans_reponse": 1,
+   "avec_element_interdit": 6,
+   "par_genre": {
+    "json": 3,
+    "adresse nue": 1,
+    "liste longue": 1,
+    "tableau": 2
+   },
+   "jetons_entree": 461923,
+   "jetons_sortie": 17114,
+   "erreurs": [
+    "réponse vide (length)"
+   ]
+  },
+  {
+   "etat": "apres",
+   "modele": "glm-5.3-flash",
+   "demandes": 50,
+   "reponses": 49,
+   "sans_reponse": 1,
+   "avec_element_interdit": 4,
+   "par_genre": {
+    "json": 3,
+    "symbole décoratif": 1
+   },
+   "jetons_entree": 490352,
+   "jetons_sortie": 51667,
+   "erreurs": [
+    "réponse vide (length)"
+   ]
+  }
+ ],
+ "jetons_entree": 1480127,
+ "jetons_sortie": 109384,
+ "cout_estime_usd": 0.575,
+ "critere_atteint": false
+}

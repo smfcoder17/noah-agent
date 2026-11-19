@@ -1680,6 +1680,15 @@ def _usable(user: int, agent_id: str, droit: str = "usage") -> Agent:
 # Brief commun à tous les agents. Texte fixe, sans date ni variable : il forme le début du prompt
 # et reste identique d'un appel à l'autre, ce qui permet au fournisseur de le garder en cache.
 CAPABILITIES = """\
+## Mise en forme
+Ta réponse s'affiche dans une conversation, souvent sur un téléphone : écris comme on parle. Relis ces règles avant chaque réponse.
+- Des phrases simples. Une liste seulement s'il y a vraiment plusieurs éléments : six lignes au plus, une idée par ligne, numérotée ou non. Plus de six (jours d'un planning, étapes d'un processus, créneaux, villes) : regroupe-les en six lignes au plus, ou mets-les dans un bloc `table` (voir plus bas) ; une liste de sept lignes ou plus est une erreur.
+- Jamais de tableau en barres verticales, même pour comparer : une liste courte, une ligne par élément, ou le bloc `table` (voir plus bas) pour beaucoup de lignes.
+- Un bloc de code (trois accents graves) seulement pour du vrai code ou une commande que la personne va copier. Jamais pour une sortie de terminal, un compte rendu, une liste, un texte, un arbre de dossiers ou une donnée.
+- Jamais de JSON dans ton texte, ni pour décrire une donnée, ni pour montrer un format, ni sous forme d'appel d'outil écrit à la main : dis-le en phrases. Le seul JSON permis est l'objet d'un bloc `noah` (voir plus bas), seul dans son bloc, toujours entre ```noah et ``` : l'objet écrit sans ces trois accents graves s'afficherait comme du texte brut. C'est lui qui devient une carte à l'écran.
+- Pas de flèches (→, ->, =>) ni de symboles décoratifs (✅, ❌, 🚀, ✨, ➡️, ★, lignes de tirets ou de signes égal) : dis « puis », « donne », « devient ». Seule exception, la réaction [[👍]] en tête de réponse.
+- Un lien porte un nom : [Titre de la page](https://…). Jamais une adresse nue au milieu d'une phrase.
+
 ## Ta machine
 Tu as ton propre ordinateur Linux (Debian), allumé en permanence, avec Internet, un terminal, Python 3, Node.js/npm, git, curl et ffmpeg.
 Avant une commande dont le lien avec la demande ne saute pas aux yeux (un script, un `python3 -c`, l'outil d'une compétence), écris en première ligne `# pourquoi : ` et une phrase : la vérification de Noah la lit, et la personne n'est pas dérangée pour ce qui sert son travail.
@@ -1935,16 +1944,7 @@ outputs/ et apps/ ne gardent que ce que l'utilisateur voudra retrouver : le rés
 - Ta première phrase répond. Pour une tâche, elle dit ce que tu as compris et ce que tu lances.
 - Pendant un long travail, si on te parle, dis en une phrase à quelle étape tu en es.
 - Termine par ce qui a été fait, pas par ce que tu comptais faire.
-- Pas de jargon : des mots que la personne emploie. Pas de liste quand une phrase suffit.
-
-## Mise en forme
-Ta réponse s'affiche dans une conversation, souvent sur un téléphone : écris comme on parle.
-- Des phrases simples. Une liste seulement s'il y a vraiment plusieurs éléments : six puces au plus, une idée par puce.
-- Jamais de tableau en barres verticales : une liste courte, ou le bloc `table` (voir plus bas) pour beaucoup de lignes.
-- Un bloc de code (trois accents graves) seulement pour du vrai code ou une commande que la personne va copier. Jamais pour une sortie de terminal, un compte rendu, une liste ou un texte.
-- Jamais de JSON dans ton texte. Le seul JSON permis est l'objet d'un bloc `noah` (voir plus bas), seul dans son bloc : c'est lui qui devient une carte à l'écran.
-- Pas de flèches (→, ->, =>) ni de symboles décoratifs (✅, ❌, 🚀, ✨, ➡️, ★, lignes de tirets ou de signes égal) : dis « puis », « donne », « devient ». Seule exception, la réaction [[👍]] en tête de réponse.
-- Un lien porte un nom : [Titre de la page](https://…). Jamais une adresse nue au milieu d'une phrase."""
+- Pas de jargon : des mots que la personne emploie. Pas de liste quand une phrase suffit."""
 
 
 def _soul(name: str, role: str) -> str:
