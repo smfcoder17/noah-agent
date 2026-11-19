@@ -36,14 +36,18 @@ def conversations(agent_id: str, user: int = Depends(auth.current_user)):
 
 
 def conversations_of(agent_id: str, user: int) -> list[dict]:
-    """La liste, une fois le droit vérifié (route …/conversations et ouverture)."""
+    """La liste, une fois le droit vérifié (route …/conversations et ouverture). Depuis la 0.4.0, un seul fil par agent et par compte : les
+    sous-conversations propres devenues tâches (table `taches`) n'y sont plus, elles se lisent par `taches.du_fil` et `GET /api/taches`.
+    Restent le fil, et les conversations que d'autres comptes ont rendues visibles."""
     with db.connect() as c:
         rows = c.execute(
             "SELECT v.id, v.title, v.updated_at, v.main, v.archived, v.origin, v.shared, v.user_id, u.username, "
             f"v.updated_at < datetime('now', '-{THREAD_STALE_DAYS} days') AS stale "
             "FROM conversations v JOIN users u ON u.id = v.user_id "
-            "WHERE v.agent_id = ? AND (v.user_id = ? OR v.shared = 1) ORDER BY v.updated_at DESC LIMIT 200",
-            (agent_id, user),
+            "WHERE v.agent_id = ? AND (v.user_id = ? OR v.shared = 1) "
+            "AND NOT (v.user_id = ? AND v.main = 0 AND EXISTS (SELECT 1 FROM taches t WHERE t.conversation_id = v.id)) "
+            "ORDER BY v.updated_at DESC LIMIT 200",
+            (agent_id, user, user),
         ).fetchall()
         answered = {r["conversation_id"] for r in c.execute("SELECT conversation_id FROM delegations WHERE vers = ? AND etat != 'en_cours'", (agent_id,))}
     out = []
@@ -99,6 +103,14 @@ def ouverture(agent_id: str, limit: int = OUVERTURE_PAGE, suivi: bool = True, us
             "taches_confiees": desktop.delegated_tasks(agent_id) if owner else [],
             "routines": {"actives": machine.routines_connues(agent_id) if access.allowed(user, agent_id, "admin") else [], "non_vues": 0},
             "conversations": conversations_of(agent_id, user)}
+
+
+@router.get("/api/taches")
+def liste_taches(agent_id: str, etat: str | None = None, limite: int = taches.LISTE_MAX, user: int = Depends(auth.current_user)):
+    """Les tâches d'un agent pour ce compte (onglet Tâches d'Activité), sous la même forme que celles du fil dans `ouverture` :
+    une tâche se lit pareil des deux endroits. Mêmes droits que `ouverture`."""
+    access.access(user, agent_id, "lecture")
+    return {"taches": taches.liste(user, agent_id, etat if etat in ("encours", "attend", "fini", "echec") else None, limite)}
 
 
 class ArchiveBody(BaseModel):

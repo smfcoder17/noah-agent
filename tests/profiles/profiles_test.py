@@ -285,6 +285,7 @@ ROUTES = {
     ("PATCH", "/api/agents/{agent_id}"): "admin",
     ("DELETE", "/api/agents/{agent_id}"): "proprietaire",
     ("GET", "/api/agents/{agent_id}/ouverture"): "lecture",
+    ("GET", "/api/taches"): "lecture",
     ("GET", "/api/agents/{agent_id}/conversations"): "lecture",
     ("POST", "/api/agents/{agent_id}/conversations"): "usage",
     ("POST", "/api/conversations/{conv_id}/archive"): "auteur",
@@ -423,7 +424,8 @@ BODIES = {
     "/api/agents/{agent_id}/appel/{call_id}": lambda: {"reponse": "impossible"},
     "/api/agents/{agent_id}/shares": lambda: {"utilisateur": "zed", "droit": "lecture", "compris": True},
 }
-QUERIES = {"/api/agents/{agent_id}/media": {"path": "/x.png"}, "/api/agents/{agent_id}/upload": {"name": "x.txt"}, "/api/voice/transcribe": {"agent_id": A}}
+QUERIES = {"/api/agents/{agent_id}/media": {"path": "/x.png"}, "/api/agents/{agent_id}/upload": {"name": "x.txt"}, "/api/voice/transcribe": {"agent_id": A},
+           "/api/taches": {"agent_id": A}}
 
 # Routes avec un identifiant qui n'appartient à aucun agent. Chacune a sa raison et, quand c'est possible, sa vérification.
 WHITELIST = {

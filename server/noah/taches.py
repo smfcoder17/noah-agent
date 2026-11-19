@@ -1,17 +1,22 @@
 """0.4.0 : les tâches. Un travail qu'un agent fait pour la personne, pour un autre agent, de lui-même ou pour une routine.
 
-Au pas S5 du socle (docs/epics/0.4.0/socle.md, sections 3 et 4), ce fichier ne fait qu'écrire : aucune route ne change de réponse.
-Au pas S6, la route d'ouverture d'un agent (section 5.1) les lit par `du_fil`, et l'interface ne s'en sert pas encore pour dessiner.
+Au pas S5 du socle (docs/epics/0.4.0/socle.md, sections 3 et 4), ce fichier ne faisait qu'écrire. Au pas S6, la route d'ouverture d'un
+agent (section 5.1) les lit par `du_fil`. Au lot L1 (a, c, d), les tâches sont la source de vérité de ce que l'écran montre d'un travail :
+le fil les lit, Activité les lit par `liste`, un titre vient du modèle rapide, et un redémarrage ferme celles qu'il a coupées.
 Il est le seul à lire la table `taches`, avec ses tests.
 
-- `creer` : la double écriture. Chaque endroit où naît une sous-conversation y crée aussi sa tâche.
+- `creer` : la double écriture. Chaque endroit où naît une sous-conversation y crée aussi sa tâche (et lui fait écrire un titre).
 - `lier_trace` : relie la tâche à la ligne de trace du fil, une fois écrite.
 - `finir` : ferme la tâche là où le travail se termine.
+- `redemarrage` : au démarrage, ferme en échec celles qu'aucun travail ne fait plus tourner.
+- `titrer`, `premier_message` : le titre écrit par le modèle rapide, ou la règle de `titre_auto` quand il manque.
+- `trois_lignes` : le compte rendu d'une demande, tel qu'il arrive dans le fil du demandeur.
 - `migrer` : reprend les anciennes sous-conversations, rejouable à chaque démarrage.
-- `du_fil` : les tâches d'une page du fil, pour la route d'ouverture.
+- `du_fil`, `liste` : les tâches d'une page du fil, et celles d'un agent (Activité).
 
 Une erreur d'écriture est journalisée et ne remonte jamais : une tâche perdue ne doit pas abîmer le travail qu'elle signale.
 """
+import asyncio
 import calendar
 import hashlib
 import json
@@ -28,6 +33,9 @@ RESUME_MAX = 280  # caractères d'un résumé : sa première phrase
 GENERIQUES = {"nouvelle discussion", "sous-tâche", "conversation"}  # titres d'avant : ils ne disent rien du travail
 MOIS = ("janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre")
 INSTALLEE = "migr_040_taches"  # settings : le compte rendu du dernier passage de la migration
+INTERROMPUE = "Noah a redémarré pendant le travail"  # le résumé d'une tâche coupée par un redémarrage
+LIGNES_MAX = 3  # lignes d'un compte rendu dans le fil du demandeur
+LIGNE_MAX = 160  # caractères d'une de ces lignes
 
 
 def _log(message: str) -> None:
@@ -78,15 +86,43 @@ def _resume(texte: str | None) -> str:
     return notifications.first_sentence(texte, RESUME_MAX) if texte and texte.strip() else ""
 
 
+def trois_lignes(texte: str | None, lignes: int = LIGNES_MAX) -> list[str]:
+    """Le début d'un compte rendu en `lignes` lignes au plus de 160 caractères (X32) : la suite, coupée, est marquée « … ». Sans blocs de code,
+    fichiers joints ni marques de Markdown. Le texte entier reste dans la tâche, qu'on déplie ou qu'on ouvre. Vide : rien à lire."""
+    plain = re.sub(r"```.*?(```|$)", "\n", texte or "", flags=re.S)
+    plain = re.sub(r"MEDIA:\S+", " ", plain)
+    plain = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", plain)
+    plain = re.sub(r"^[ \t]*(?:[-*+•]|\d+[.)])[ \t]+", "", plain, flags=re.M)
+    plain = re.sub(r"[*`#>|]+|(?<!\w)_+|_+(?!\w)", " ", plain)
+    chunks: list[str] = []
+    for line in (" ".join(raw.split()) for raw in plain.splitlines()):
+        while len(line) > LIGNE_MAX:  # un long paragraphe se coupe sur un mot
+            cut = line.rfind(" ", 0, LIGNE_MAX)
+            cut = cut if cut > LIGNE_MAX // 4 else LIGNE_MAX
+            chunks.append(line[:cut].rstrip())
+            line = line[cut:].lstrip()
+        if line:
+            chunks.append(line)
+        if len(chunks) > lignes:
+            break
+    if not chunks or lignes < 1:
+        return []
+    out = chunks[:lignes]
+    if len(chunks) > lignes:
+        out[-1] = out[-1].rstrip(" .,:;…") + "…"
+    return out
+
+
 def _sans_marque(titre: str) -> str:
     """Le titre d'une ancienne conversation sans les marques que la 0.4.0 retire : « Demande de X : », « De lui-même : »."""
     return re.sub(r"^\s*(?:De lui-même\s*:|Demande de [^:]{1,100}:)\s*", "", titre or "")
 
 
-def _titre_unique(c, fil_id: str, titre: str, quand: float) -> str:
-    """Deux tâches du même fil au même titre : la seconde reçoit l'heure entre parenthèses (puis un numéro, à la même minute)."""
+def _titre_unique(c, fil_id: str, titre: str, quand: float, sauf: str | None = None) -> str:
+    """Deux tâches du même fil au même titre : la seconde reçoit l'heure entre parenthèses (puis un numéro, à la même minute).
+    `sauf` : la tâche qu'on retitre, qui ne compte pas contre elle-même."""
     def pris(candidat: str) -> bool:
-        return bool(c.execute("SELECT 1 FROM taches WHERE fil_id = ? AND titre = ?", (fil_id, candidat)).fetchone())
+        return bool(c.execute("SELECT 1 FROM taches WHERE fil_id = ? AND titre = ? AND id != ?", (fil_id, candidat, sauf or "")).fetchone())
 
     if not pris(titre):
         return titre
@@ -96,6 +132,79 @@ def _titre_unique(c, fil_id: str, titre: str, quand: float) -> str:
         n += 1
         candidat = f"{titre} ({heure}, {n})"
     return candidat
+
+
+# --- Un titre qui dit ce que la tâche fait (X3, lot L1 d) --------------------------------------------
+
+TITRE_SYSTEME = ("Tu écris le titre d'une tâche confiée à un agent. Titre de la tâche : 3 à 7 mots qui disent ce qu'elle fait, à l'infinitif "
+                 "ou en groupe nominal, sans guillemets, sans point final, sans nom d'agent, sans le mot « demande ». "
+                 "Réponds seulement par le titre. Exemple : Rédiger la newsletter de jeudi")
+PAR_MODELE = ("demande", "sous_tache")  # les genres dont le titre se tire d'une consigne longue : le modèle rapide l'écrit. Les autres
+#                                          ont déjà un titre choisi (fil ouvert par l'agent, initiative, routine) ou le prennent du premier message
+_en_vol: set[asyncio.Task] = set()  # gardées ici pour ne pas être ramassées en cours de route
+
+
+def _titre_propre(texte: str | None) -> str:
+    """Ce que le modèle a écrit, ramené à un titre : première ligne, sans marques ni guillemets ni point final, 60 caractères au plus.
+    Vide si ce n'est pas un titre (« Demande de … » est le défaut que la 0.4.0 retire)."""
+    ligne = next((l for l in (texte or "").splitlines() if l.strip()), "")
+    ligne = re.sub(r"^\s*(?:titre(?: de la tâche)?\s*:\s*)", "", ligne, flags=re.I)
+    ligne = re.sub(r"[*`#_]+", "", ligne).strip().strip("\"'«»“”‘’ ").rstrip(" .,:;…")
+    if not ligne or re.match(r"demande de\b", ligne, re.I):
+        return ""
+    return titre_auto(ligne)
+
+
+async def titrer(tache_id: str, texte: str) -> bool:
+    """Le modèle rapide écrit le titre d'une tâche neuve, depuis sa consigne. Rien ne change s'il manque, échoue ou rend autre chose
+    qu'un titre : la tâche garde celui de la règle (`titre_auto`). Une tâche déjà retitrée (par lui ou par la personne) ne bouge plus.
+    Rend vrai si le titre vient de changer."""
+    from . import rapide  # à la demande : rapide lit decision et relay, que ce module n'a pas à connaître au démarrage
+    with db.connect() as c:
+        row = c.execute("SELECT agent_id, fil_id, titre_source, cree FROM taches WHERE id = ?", (tache_id,)).fetchone()
+    if not row or row["titre_source"] != "auto":
+        return False
+    ecrit = _titre_propre(await rapide.ecrire(row["agent_id"], TITRE_SYSTEME, (texte or "")[:1500]))
+    if not ecrit:
+        return False
+    with db.connect() as c:
+        titre = _titre_unique(c, row["fil_id"], ecrit, row["cree"], sauf=tache_id)
+        done = c.execute("UPDATE taches SET titre = ?, titre_source = 'modele', maj = ? WHERE id = ? AND titre_source = 'auto'", (titre, time.time(), tache_id))
+    return done.rowcount > 0
+
+
+def _programmer_titre(tache_id: str, texte: str) -> None:
+    """Le titre s'écrit à côté : ni la demande ni la réponse de la route n'attendent le modèle. Sans boucle d'événements (appel depuis une
+    route synchrone, ou un test), la règle suffit."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+
+    async def go() -> None:
+        try:
+            await titrer(tache_id, texte)
+        except Exception as e:  # noqa: BLE001 - un titre perdu ne vaut pas une erreur
+            _log(f"{tache_id} : titre non écrit ({type(e).__name__} : {e})")
+
+    task = loop.create_task(go())
+    _en_vol.add(task)
+    task.add_done_callback(_en_vol.discard)
+
+
+def premier_message(conversation_id: str, texte: str) -> None:
+    """Une discussion ouverte par la personne naît sans rien dire : « Nouvelle discussion ». À son premier message, elle prend le titre de
+    ce qu'on y demande (la règle d'abord, le modèle rapide ensuite). Une tâche d'une autre origine, ou déjà titrée, ne bouge pas."""
+    try:
+        with db.connect() as c:
+            row = c.execute("SELECT id, fil_id, titre, titre_source, cree FROM taches WHERE conversation_id = ? AND genre = 'discussion'", (conversation_id,)).fetchone()
+            if not row or row["titre_source"] != "auto" or re.sub(r"\s*\([^)]*\)$", "", row["titre"]).casefold() not in GENERIQUES:
+                return
+            now = time.time()
+            c.execute("UPDATE taches SET titre = ?, maj = ? WHERE id = ?", (_titre_unique(c, row["fil_id"], titre_auto(texte, now), now, sauf=row["id"]), now, row["id"]))
+        _programmer_titre(row["id"], texte)
+    except Exception as e:  # noqa: BLE001
+        _log(f"{conversation_id} : discussion non titrée ({type(e).__name__} : {e})")
 
 
 # --- Double écriture --------------------------------------------------------------------------------
@@ -122,12 +231,15 @@ def creer(conversation_id: str, genre: str, *, titre: str = "", consigne: str = 
                 return None
             ancre = c.execute("SELECT COALESCE(MAX(id), 0) AS n FROM messages WHERE conversation_id = ?", (fil,)).fetchone()["n"]
             tache = uuid.uuid4().hex[:12]
-            c.execute("INSERT OR IGNORE INTO taches (id, owner_id, agent_id, fil_id, conversation_id, genre, demandeur, titre, consigne, etat, "
-                      "ancre, source_id, cree, fini_a, maj, migree) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)",
-                      (tache, conv["user_id"], conv["agent_id"], fil, conversation_id, genre, demandeur,
-                       _titre_unique(c, fil, titre_auto(titre or consigne, now), now), consigne, etat, ancre, source_id, now,
-                       now if etat in ("fini", "echec") else None, now))
-            return c.execute("SELECT id FROM taches WHERE conversation_id = ?", (conversation_id,)).fetchone()["id"]
+            neuve = c.execute("INSERT OR IGNORE INTO taches (id, owner_id, agent_id, fil_id, conversation_id, genre, demandeur, titre, consigne, etat, "
+                              "ancre, source_id, cree, fini_a, maj, migree) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)",
+                              (tache, conv["user_id"], conv["agent_id"], fil, conversation_id, genre, demandeur,
+                               _titre_unique(c, fil, titre_auto(titre or consigne, now), now), consigne, etat, ancre, source_id, now,
+                               now if etat in ("fini", "echec") else None, now)).rowcount
+            ident = c.execute("SELECT id FROM taches WHERE conversation_id = ?", (conversation_id,)).fetchone()["id"]
+        if neuve and genre in PAR_MODELE and (consigne or titre):
+            _programmer_titre(ident, consigne or titre)  # les anciennes tâches (migrer) ne passent jamais ici : aucun appel pour elles
+        return ident
     except Exception as e:  # noqa: BLE001
         _log(f"{conversation_id} : tâche non écrite ({type(e).__name__} : {e})")
         return None
@@ -171,6 +283,32 @@ def finir(conversation_id: str, etat: str, resume: str | None = None) -> bool:
 # --- Lecture pour la route d'ouverture ---------------------------------------------------------------------
 
 DU_FIL_MAX = 200  # tâches rendues au plus : les plus récentes
+LISTE_MAX = 100  # tâches d'un agent rendues à Activité, par défaut
+# Une « Nouvelle discussion » restée sans aucun message n'est pas un travail : elle ne s'affiche pas comme tâche (décision laissée par S5).
+SAUF_VIDES = ("NOT (t.genre = 'discussion' AND NOT EXISTS "
+              "(SELECT 1 FROM messages m WHERE m.conversation_id = t.conversation_id AND m.role != 'trace'))")
+CHAMPS = ("t.id, t.titre, t.genre, t.demandeur, a.name AS demandeur_nom, t.etat, t.resume, t.fichiers, t.ancre, t.cree, t.fini_a, "
+          "t.conversation_id, t.agent_id, t.maj")
+
+
+def _etat(r) -> str:
+    """L'état à lire : une tâche « encours » dont le travail attend un accord de la personne attend (c'est ce que la liste des conversations
+    disait avant : l'état vivant du travail). La base ne le sait pas : elle ne change qu'au début et à la fin du travail."""
+    if r["etat"] != "encours":
+        return r["etat"]
+    from . import main  # à la demande : main importe ce module
+    return "attend" if main.task_state.get(r["conversation_id"]) == "approve" else "encours"
+
+
+def _forme(r) -> dict:
+    try:
+        fichiers = json.loads(r["fichiers"] or "[]")
+    except ValueError:
+        fichiers = []
+    return {"id": r["id"], "titre": r["titre"], "genre": r["genre"],
+            "demandeur": {"id": r["demandeur"], "nom": r["demandeur_nom"]} if r["demandeur"] else None,
+            "etat": _etat(r), "resume": r["resume"], "fichiers": fichiers if isinstance(fichiers, list) else [],
+            "ancre": r["ancre"], "cree": r["cree"], "fini_a": r["fini_a"], "conversation_id": r["conversation_id"], "question": None}
 
 
 def du_fil(fil_id: str, owner_id: int, depuis_ancre: int | None) -> list[dict]:
@@ -179,21 +317,45 @@ def du_fil(fil_id: str, owner_id: int, depuis_ancre: int | None) -> list[dict]:
     porte aussi celles d'avant. La page rendue est toujours la plus récente : aucune borne haute. Le compte qui lit est celui de la tâche."""
     with db.connect() as c:
         rows = c.execute(
-            "SELECT * FROM (SELECT t.id, t.titre, t.genre, t.demandeur, a.name AS demandeur_nom, t.etat, t.resume, t.fichiers, t.ancre, t.cree, t.fini_a "
-            "FROM taches t LEFT JOIN agents a ON a.id = t.demandeur WHERE t.fil_id = ? AND t.owner_id = ? AND (? IS NULL OR t.ancre >= ?) "
+            f"SELECT * FROM (SELECT {CHAMPS} FROM taches t LEFT JOIN agents a ON a.id = t.demandeur "
+            f"WHERE t.fil_id = ? AND t.owner_id = ? AND (? IS NULL OR t.ancre >= ?) AND {SAUF_VIDES} "
             "ORDER BY t.ancre DESC, t.cree DESC LIMIT ?) ORDER BY ancre, cree",
             (fil_id, owner_id, depuis_ancre, depuis_ancre, DU_FIL_MAX)).fetchall()
-    out = []
-    for r in rows:
-        try:
-            fichiers = json.loads(r["fichiers"] or "[]")
-        except ValueError:
-            fichiers = []
-        out.append({"id": r["id"], "titre": r["titre"], "genre": r["genre"],
-                    "demandeur": {"id": r["demandeur"], "nom": r["demandeur_nom"]} if r["demandeur"] else None,
-                    "etat": r["etat"], "resume": r["resume"], "fichiers": fichiers if isinstance(fichiers, list) else [],
-                    "ancre": r["ancre"], "cree": r["cree"], "fini_a": r["fini_a"], "question": None})
-    return out
+    return [_forme(r) for r in rows]
+
+
+def liste(owner_id: int, agent_id: str, etat: str | None = None, limite: int = LISTE_MAX) -> list[dict]:
+    """Les tâches d'un agent pour ce compte, la plus récemment active d'abord : ce que lit l'onglet Tâches d'Activité. Les mêmes lignes,
+    sous la même forme, que celles du fil (`du_fil`) : une tâche se lit pareil des deux endroits."""
+    limite = max(1, min(int(limite), 500))
+    with db.connect() as c:
+        rows = c.execute(
+            f"SELECT {CHAMPS} FROM taches t LEFT JOIN agents a ON a.id = t.demandeur WHERE t.owner_id = ? AND t.agent_id = ? "
+            f"AND (? IS NULL OR t.etat = ?) AND {SAUF_VIDES} ORDER BY t.maj DESC, t.cree DESC LIMIT ?",
+            (owner_id, agent_id, etat, etat, limite)).fetchall()
+    return [_forme(r) for r in rows]
+
+
+# --- Au démarrage ---------------------------------------------------------------------------------------
+
+GENRES_BALAYES = ("fil", "sous_tache", "routine")  # les demandes ferment par coordination.recover, les initiatives par proactif.recover
+
+
+def redemarrage() -> int:
+    """Au démarrage, plus aucun travail ne tourne : une tâche encore `encours` dont le genre n'a pas d'autre rattrapage passe en `echec`
+    avec le résumé « Noah a redémarré pendant le travail » (décision laissée ouverte par S5). Rend le nombre de tâches fermées."""
+    try:
+        now = time.time()
+        marques = ",".join("?" for _ in GENRES_BALAYES)
+        with db.connect() as c:
+            done = c.execute(f"UPDATE taches SET etat = 'echec', resume = ?, fini_a = ?, maj = ? WHERE etat = 'encours' AND genre IN ({marques})",
+                             (INTERROMPUE, now, now, *GENRES_BALAYES))
+        if done.rowcount:
+            _log(f"redémarrage : {done.rowcount} tâches coupées par l'arrêt, passées en échec")
+        return done.rowcount
+    except Exception as e:  # noqa: BLE001
+        _log(f"redémarrage : tâches non fermées ({type(e).__name__} : {e})")
+        return 0
 
 
 # --- Migration des anciennes sous-conversations ----------------------------------------------------------

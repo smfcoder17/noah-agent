@@ -90,6 +90,21 @@ async def _first_word(provider: str, key: str | None, base: str, name: str) -> d
     return row
 
 
+async def ecrire(agent_id: str, system: str, user: str, *, max_tokens: int = 40, timeout: float = 8) -> str:
+    """Un texte court écrit par le modèle rapide (le titre d'une tâche, 0.4.0), compté dans le suivi et soumis aux plafonds de cet agent.
+    Rien (chaîne vide) s'il n'y a pas de modèle mesuré, si un plafond est atteint ou si l'appel échoue : l'appelant garde alors sa règle.
+    Jamais le cerveau en secours : un titre ne vaut pas de réveiller un grand modèle."""
+    name = model()
+    if not name or relay.spending_refusal(agent_id):
+        return ""
+    try:
+        answer = await decision._complete(agent_id, name, system, user, max_tokens, timeout, False)
+    except (httpx.HTTPError, decision.DecisionError) as e:
+        diagnostics.record("modèle rapide", f"écriture : {type(e).__name__}")
+        return ""
+    return (answer.text or "").strip()
+
+
 _lock = asyncio.Lock()
 
 

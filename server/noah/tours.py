@@ -145,6 +145,8 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
     coordination.start_actions(conv_id)
     apprentissage.note_turn(conv_id, author)
     main._save_message(conv_id, author, prompt)
+    if author == "user":
+        taches.premier_message(conv_id, prompt)  # 0.4.0 : une nouvelle discussion prend le titre de ce qu'on y demande
     # Configuration qui sert à cette exécution (preuve de l'essai de l'assistant) : celle que l'agent a vraiment reçue.
     rev = main._config_rev(agent.id)
     if db.get_setting(f"applied:{agent.id}") != rev:

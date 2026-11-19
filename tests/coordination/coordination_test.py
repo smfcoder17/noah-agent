@@ -443,6 +443,12 @@ async def thread_list(agent: str, session: str) -> dict:
         return {t["id"]: t for t in (await h.get(f"/api/agents/{agent}/conversations")).json()}
 
 
+async def task_list(agent: str, session: str) -> dict:
+    """Les tâches de l'agent, par conversation : depuis la 0.4.0, un travail se lit là, plus dans la liste des conversations."""
+    async with client(session) as h:
+        return {t["conversation_id"]: t for t in (await h.get("/api/taches", params={"agent_id": agent})).json()["taches"]}
+
+
 async def test_trace():
     """Le fil laisse une ligne dans la conversation principale de l'agent sollicité, pour la personne et elle seule."""
     clear_demands()
@@ -467,12 +473,13 @@ async def test_trace():
     print("7. trace au départ : dans la principale, sans relance, sans contexte, sans notification")
 
     # État réel du fil : il compte tant qu'il travaille ou attend un accord.
-    listed = await thread_list("d", session)
-    assert listed[fil]["en_cours"] is True and listed[fil]["state"] == "work", listed[fil]
+    assert fil not in await thread_list("d", session), "une demande entre agents n'ouvre aucune conversation dans la liste (0.4.0, L1)"
+    listed = await task_list("d", session)
+    assert listed[fil]["etat"] == "encours", listed[fil]
     worker["events"].put_nowait(("approval.request", {"request_id": "r1", "generation": 1, "summary": "Écrire un fichier"}))
     await settle()
-    listed = await thread_list("d", session)
-    assert listed[fil]["state"] == "approve" and listed[fil]["en_cours"] is True, f"un accord attendu reste en cours : {listed[fil]}"
+    listed = await task_list("d", session)
+    assert listed[fil]["etat"] == "attend", f"un accord attendu : la tâche attend la personne : {listed[fil]}"
     worker["events"].put_nowait(("tool.started", {"tool": "terminal"}))
     await settle()
     rings.clear()  # l'accord a sa notification, sans rapport avec la trace
@@ -500,8 +507,8 @@ async def test_trace():
     shown = traces("d")[known:]
     assert len(shown) == 1 and shown[0]["etat"] == "fini" and shown[0]["issue"].startswith("Les ventes montent de 12 %."), shown
     assert "print" not in shown[0]["issue"] and "Fini : Les ventes" in shown[0]["text"], shown
-    listed = await thread_list("d", session)
-    assert listed[fil]["en_cours"] is False and listed[fil]["state"] == "done", f"un fil fini ne ment pas : {listed[fil]}"
+    listed = await task_list("d", session)
+    assert listed[fil]["etat"] == "fini", f"un fil fini ne ment pas : {listed[fil]}"
     assert not machine.pop_context(MAINS["d"]) and len(messages(MAINS["d"])) == said + 1
     finish(run_for("a"))
     await settle()
@@ -517,7 +524,7 @@ async def test_trace():
     finish(run_for("a"))
     await settle()
     assert main.task_state[choisi] == "choice"
-    assert (await thread_list("d", session))[choisi]["en_cours"] is False
+    assert (await task_list("d", session))[choisi]["etat"] == "fini"
     # Une conversation de la personne qui attend son choix, elle, reste en cours.
     ouverte = main._new_conversation(owner, "d", "À choisir", origin="agent")
     main.task_state[ouverte] = "choice"

@@ -38,7 +38,7 @@ A, B = web(alice), web(bruno)
 CLES = ["appel", "attentes", "conversations", "en_cours", "fil", "revision", "routines", "taches_confiees", "version"]
 CLES_FIL = ["id", "lecture_seule", "messages", "plus", "taches", "updated_at"]
 CLES_MESSAGE = {"id", "role", "text", "detail", "model", "created_at"}
-CLES_TACHE = ["ancre", "cree", "demandeur", "etat", "fichiers", "fini_a", "genre", "id", "question", "resume", "titre"]
+CLES_TACHE = ["ancre", "conversation_id", "cree", "demandeur", "etat", "fichiers", "fini_a", "genre", "id", "question", "resume", "titre"]
 
 
 def ouvre(client: TestClient, agent: str, query: str = "?limit=60"):
@@ -65,6 +65,7 @@ taches.finir(sub_demande, "fini", "Le plan est prêt.")
 # Une tâche ancienne, ancrée avant la première page, et une discussion récente.
 sub_vieille = main._new_conversation(alice, "a", "Nouvelle discussion")
 t_vieille = taches.creer(sub_vieille, "discussion", titre="Nouvelle discussion", etat="fini")
+main._save_message(sub_vieille, "user", "Une vieille question")  # une discussion sans message n'est pas une tâche (0.4.0, L1)
 with db.connect() as c:
     c.execute("UPDATE taches SET ancre = ? WHERE id = ?", (ids[0], t_vieille))
 sub_fil = main._new_conversation(alice, "a", "Un fil de l'agent", origin="agent")
@@ -195,9 +196,12 @@ sub_b = main._new_conversation(bruno, "a", "Une discussion de Bruno")
 t_b = taches.creer(sub_b, "discussion", titre="Une discussion de Bruno", etat="fini")
 ob = ouvre(B, "a").json()
 assert ob["fil"]["id"] == fil_b and [m["text"] for m in ob["fil"]["messages"]] == ["bonjour de Bruno"], ob["fil"]
+assert ob["fil"]["taches"] == [], "une « Nouvelle discussion » sans aucun message n'est pas une tâche (0.4.0, L1)"
+main._save_message(sub_b, "user", "Une question de Bruno")
+ob = ouvre(B, "a").json()
 assert [t["id"] for t in ob["fil"]["taches"]] == [t_b], "ses tâches à lui, jamais celles d'Alice"
 assert ob["fil"]["plus"] is False and ob["fil"]["lecture_seule"] is False
-assert {c["id"] for c in ob["conversations"]} == {fil_b, sub_b}, "les conversations d'Alice ne sont pas partagées : l'invité ne les voit pas"
+assert {c["id"] for c in ob["conversations"]} == {fil_b}, "le fil seul : une discussion devenue tâche n'est plus listée (0.4.0, L1) ; celles d'Alice ne sont pas partagées"
 assert all(m["role"] != "trace" for m in ob["fil"]["messages"])
 # Alice partage sa conversation : elle apparaît dans la liste de l'invité, mais son fil à lui reste le sien, et sa trace ne se lit pas.
 assert A.post(f"/api/conversations/{sub_demande}/partage", json={"partagee": True}).status_code == 200
