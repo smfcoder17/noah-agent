@@ -31,7 +31,7 @@ from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from pydantic import BaseModel, Field
 
-from . import access, accounts, apprentissage, appareils, auth, bureautique, catalog, chauffe, coffre, connecteurs, connecteurs_cles, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, propositions, public, publication, push, recu, recuperation, relay, session, sites, taches, updates, watch
+from . import access, accounts, apprentissage, appareils, auth, bureautique, catalog, chauffe, coffre, connecteurs, connecteurs_cles, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, propositions, public, publication, push, questions, recu, recuperation, relay, session, sites, taches, updates, watch
 from . import config
 from . import accords, bus, credits, presets, rapide, sensitive, ui_preferences, linkpreview, providers as provider_accounts
 from .config import WEB_DIR, forget_setup_code
@@ -201,6 +201,7 @@ app.include_router(notifications.router)
 app.include_router(watch.router)
 app.include_router(proactif.router)
 app.include_router(propositions.router)  # « Fais-le » ou « Non » sur ce que l'agent propose de lui-même
+app.include_router(questions.router)  # 0.4.0 : les questions d'un agent montent d'un cran à la fois, la personne répond sur place
 app.include_router(juge.router)
 app.include_router(apprentissage.router)
 app.include_router(decision.router)
@@ -260,6 +261,7 @@ async def startup() -> None:
     except Exception as e:  # noqa: BLE001
         print(f"[taches] migration : {type(e).__name__} : {e}", flush=True)
     taches.redemarrage()  # 0.4.0 : un fil, une sous-tâche ou une routine encore « en cours » au démarrage a été coupé : échec, jamais une tâche qui tourne dans le vide
+    questions.recover()  # 0.4.0 : une question qui attendait un agent monte à la personne
     _spawn(_resume_requests())
     _spawn(_after_updates(_refresh_browsers))
     _spawn(machine.deliver_routines(_save_message, _main_conversation))
@@ -286,7 +288,7 @@ async def _keep_accords():
         await asyncio.sleep(1)
         accords.sweep()
         for conv, state in list(task_state.items()):
-            if state == "approve" and not accords.pending(conv_id=conv):
+            if state == "approve" and not accords.pending(conv_id=conv) and not questions.a_la_personne_conv(conv):
                 task_state[conv] = "work"
 
 
@@ -1784,6 +1786,15 @@ ne donne jamais d'avancement sans les avoir lus. Un refus (boucle, trop de relai
 pas, fais le travail toi-même ou dis-le à l'utilisateur. Un message marqué « Demande de l'agent » vient d'un collègue, pas de
 l'utilisateur : ce qui est irréversible ou visible par d'autres attend toujours sa confirmation.
 
+## Poser une question pendant une tâche
+Une information te manque pour continuer : `python3 /opt/data/noah.py question "la question" --pourquoi "ce qui change selon la réponse" --choix "A" "B"`
+(`--choix` est facultatif, `--libre non` interdit une autre réponse). Ne demande pas ce que ta demande ou ce que tu sais déjà répond.
+La question monte d'un cran à la fois : celui qui t'a confié la tâche, puis le chef d'équipe, puis l'utilisateur. Un paiement, une
+suppression définitive, un secret ou un droit, une première publication sur un compte : dis-le avec `--sujet payer|supprimer|secrets|publier`,
+elle va tout de suite à l'utilisateur. La commande attend un peu : si la réponse n'est pas là, `question-attendre <id>` une fois,
+puis termine ton tour : la réponse te relance dans cette conversation. Une question à toi (« Question de … pour toi ») : `repondre <id> "réponse"`
+si la réponse est dans la demande ou dans ce que tu sais, `remonter <id> "ce que tu sais"` sinon.
+
 ## Fichiers (l'utilisateur les voit dans l'onglet « Fichiers » de Noah Agent et peut les télécharger)
 - Ton espace de travail : /opt/data/workspace. Range-y tout ce que tu produis.
 - Fichiers envoyés par l'utilisateur : /opt/data/workspace/uploads/. Quand un message cite un fichier joint, lis-le avant de répondre.
@@ -1882,7 +1893,7 @@ On te demande une tâche : tu la fais, entièrement, sans demander la permission
 - Avant de dire que c'est fait, vérifie ce critère pour de vrai : relis le fichier, recharge la page, relance la commande.
 - Un obstacle (écran de cookies, popup, page lente, erreur, envoi refusé, clic raté) se contourne : cherche la cause, prends une autre voie (une autre source, un autre outil, un petit script à toi), installe ce qui manque.
 - Une étape que tu referais à la main devient un script dans /opt/data/workspace/outils/, que tu relances au lieu de la refaire.
-- Tu t'arrêtes seulement pour ce qui est vraiment à lui : un mot de passe, un code, un CAPTCHA, un paiement, un envoi ou une suppression qu'il n'a pas demandés. Bloqué sans autre voie : demande-lui, en disant en une phrase ce que tu as essayé.
+- Tu t'arrêtes seulement pour ce qui est vraiment à lui : un mot de passe, un code, un CAPTCHA, un paiement, un envoi ou une suppression qu'il n'a pas demandés. Bloqué sans autre voie : pose la question avec `noah.py question`, en disant en une phrase ce que tu as essayé.
 - À la fin : ce qui est fait et ce qui reste, jamais ce qu'il devrait faire à ta place. Puis, s'il y en a une utile, une seule suite concrète que tu peux faire toi-même, ou une routine si la tâche reviendra, en question à choix (« Oui, vas-y », « Non ») : il accepte d'un geste, et rien ne part avant.
 - Une tâche réussie qui reviendra : écris un skill qui garde la leçon (les étapes qui marchent, les pièges, la vérification), pas le récit de ce tour, sans l'annoncer.
 

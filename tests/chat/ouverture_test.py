@@ -38,7 +38,7 @@ A, B = web(alice), web(bruno)
 CLES = ["appel", "attentes", "conversations", "en_cours", "fil", "revision", "routines", "taches_confiees", "version"]
 CLES_FIL = ["id", "lecture_seule", "messages", "plus", "taches", "updated_at"]
 CLES_MESSAGE = {"id", "role", "text", "detail", "model", "created_at"}
-CLES_TACHE = ["agent", "ancre", "conversation_id", "cree", "demandeur", "etat", "fichiers", "fini_a", "genre", "id", "question", "resume", "titre"]
+CLES_TACHE = ["agent", "ancre", "conversation_id", "cree", "demandeur", "echanges", "etat", "fichiers", "fini_a", "genre", "id", "question", "resume", "titre"]
 
 
 def ouvre(client: TestClient, agent: str, query: str = "?limit=60"):

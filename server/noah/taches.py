@@ -26,7 +26,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 
-from . import db, notifications
+from . import db, notifications, questions
 
 TITRE_MAX = 60  # caractères d'un titre, points de suspension compris
 RESUME_MAX = 280  # caractères d'un résumé : sa première phrase
@@ -309,7 +309,8 @@ def _forme(r) -> dict:
             "demandeur": {"id": r["demandeur"], "nom": r["demandeur_nom"]} if r["demandeur"] else None,
             "agent": {"id": r["agent_id"], "nom": r["agent_nom"]},  # celui qui fait le travail : la ligne le nomme, pas le demandeur
             "etat": _etat(r), "resume": r["resume"], "fichiers": fichiers if isinstance(fichiers, list) else [],
-            "ancre": r["ancre"], "cree": r["cree"], "fini_a": r["fini_a"], "conversation_id": r["conversation_id"], "question": None}
+            "ancre": r["ancre"], "cree": r["cree"], "fini_a": r["fini_a"], "conversation_id": r["conversation_id"],
+            "question": questions.question_tache(r["id"]), "echanges": questions.echanges_tache(r["id"])}
 
 
 def du_fil(fil_id: str, owner_id: int, depuis_ancre: int | None) -> list[dict]:

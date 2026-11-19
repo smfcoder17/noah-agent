@@ -811,7 +811,7 @@ PLAIN_READERS = {"ls", "cat", "head", "tail", "less", "more", "grep", "egrep", "
                  "true", "false", "test", "[", "nl", "tac", "md5sum", "sha256sum", "hostname", "uptime", "free", "nproc", "column", "seq", "cd", "ffprobe", "pdfinfo"}
 GIT_READS = {"status", "log", "diff", "show", "rev-parse", "ls-files", "blame", "describe"}
 NOAH_NO_EFFECT = {"etat", "reglages", "appareils", "fil", "fil-etat", "image", "video", "musique", "voix", "notifier", "rappeler", "appeler", "attendre", "agents",
-                  "demandes", "demande-etat", "routines", "veilles", "recette", "memoire-juger", "coffre", "coffre-attendre", "coffre-annuler"}
+                  "demandes", "demande-etat", "question", "question-attendre", "repondre", "remonter", "routines", "veilles", "recette", "memoire-juger", "coffre", "coffre-attendre", "coffre-annuler"}
 NOAH_BROWSER = {"reveiller", "redemarrer", "telecharger"}
 BLIND_TOOLS = {"browser_click"}  # le juge ne voit pas la page : il ne saurait pas juger ce clic. Hors lien de navigation reconnu, il demande l'accord.
 # Navigateur en Auto, liste FERMÉE de ce qui passe sans accord : ouvrir une adresse, défiler, lire, capturer, revenir, suivre un lien de

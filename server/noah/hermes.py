@@ -451,6 +451,12 @@ AIDE = """Utilisation : python3 /opt/data/noah.py <commande>
                                          conversation principale ; avec --rappeler, l'utilisateur est aussi rappelé
   demande-etat <id>                      état et dernière réponse d'une demande
   demandes                               tes demandes envoyées et reçues
+  question "la question" [--pourquoi "…"] [--choix "A" "B"…] [--libre non] [--sujet payer|supprimer|secrets|publier]
+                                         pose une question pendant une tâche : elle monte d'un cran à la fois (qui t'a confié la
+                                         tâche, le chef d'équipe, puis l'utilisateur) ; attend un peu la réponse
+  question-attendre <id>                 reprend l'attente de la réponse ; si elle n'est pas là, termine ton tour : elle te relancera
+  repondre <id> "réponse"                tu réponds à la question d'un collègue (la réponse est dans la demande ou dans ce que tu sais)
+  remonter <id> ["ce que tu sais"]       tu ne sais pas : la question passe au cran suivant
   recette <service>                      étapes pour connecter un service à sa place (google, instagram, x)
   reseau-instagram                       branche Instagram : Noah lit lui-même le jeton affiché dans ta page Meta
   publication-etat                       les réseaux branchés pour publier (instagram, x)
@@ -880,6 +886,26 @@ elif a[:1] == ["demande-etat"] and len(a) == 2:
     out = call("GET", "/demander/" + a[1])
 elif a[:1] == ["demandes"]:
     out = call("GET", "/demandes")
+elif a[:1] == ["question"] and len(a) >= 2:
+    rest = a[1:]
+    why = option(rest, "--pourquoi")
+    free = option(rest, "--libre")
+    subject = option(rest, "--sujet")
+    choices = []
+    if "--choix" in rest:
+        i = rest.index("--choix")
+        j = i + 1
+        while j < len(rest) and not rest[j].startswith("--"):
+            choices.append(rest[j])
+            j += 1
+        del rest[i:j]
+    out = call("POST", "/question", {"question": " ".join(rest), "pourquoi": why, "choix": choices, "libre": free.lower() not in ("non", "false", "0"), "sujet": subject})
+elif a[:1] == ["question-attendre"] and len(a) == 2:
+    out = call("GET", "/question/" + a[1])
+elif a[:1] == ["repondre"] and len(a) >= 3:
+    out = call("POST", "/question/" + a[1] + "/repondre", {"reponse": " ".join(a[2:])})
+elif a[:1] == ["remonter"] and len(a) >= 2:
+    out = call("POST", "/question/" + a[1] + "/remonter", {"savoir": " ".join(a[2:])})
 elif a[:1] == ["reseau-instagram"]:
     out = call("POST", "/publication/instagram", {})
 elif a[:1] == ["publication-etat"]:

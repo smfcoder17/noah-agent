@@ -13,7 +13,7 @@ import uuid
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from . import access, db, machine, precall, relay, taches
+from . import access, db, machine, precall, questions, relay, taches
 
 router = APIRouter()
 
@@ -305,6 +305,9 @@ async def _finish(did: str, stream) -> None:
         await _h["stop_conversation"](conv)
     except Exception:  # noqa: BLE001 - le fil s'est coupé : c'est un échec à rapporter, pas une exception à laisser filer
         pass
+    with db.connect() as c:
+        conv_wait = c.execute("SELECT conversation_id FROM delegations WHERE id = ?", (did,)).fetchone()["conversation_id"]
+    await questions.attendre_reponses(conv_wait)  # une question posée n'est pas une fin : on attend sa réponse, puis le tour qu'elle relance
     with db.connect() as c:
         d = c.execute("SELECT * FROM delegations WHERE id = ?", (did,)).fetchone()
         requester_exists = c.execute("SELECT 1 FROM agents WHERE id = ?", (d["de"],)).fetchone()
