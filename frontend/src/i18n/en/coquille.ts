@@ -195,8 +195,6 @@ export default {
   "en cours": "in progress",
   "{n} en attente": "{n} waiting",
   "Page de {nom}": "{nom}'s page",
-  "Historique de {nom}": "{nom}'s history",
-  "Archivés ({n})": "Archived ({n})",
 
   // components/ConnectorScope.tsx
   "Tes agents cochés s'en servent aussitôt.": "Your checked agents can use it right away.",
@@ -265,12 +263,9 @@ export default {
   "Retirer {onglet}": "Remove {onglet}",
   "Menu": "Menu",
   "Rechercher": "Search",
-  "Fils trouvés": "Threads found",
-  "Aucun fil.": "No threads.",
   "Personnaliser les onglets": "Customize tabs",
   "Me déconnecter": "Sign out",
   "Page de l'agent": "Agent page",
-  "Nouvelle discussion": "New chat",
   "Aperçu": "Preview",
   "Fermer l'aperçu": "Close preview",
   "Navigation ordinateur": "Desktop navigation",

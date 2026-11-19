@@ -35,6 +35,8 @@ export type TacheDuFil = {
   ancre: number;
   cree: number;
   fini_a: number | null;
+  /** La conversation de la tâche : on y entre par elle (…/conversations/{id}/messages). */
+  conversation_id: string;
   question: unknown;
 };
 export type Ouverture = {
@@ -47,7 +49,8 @@ export type Ouverture = {
   appel: AppelAide | null;
   taches_confiees: DelegatedTask[];
   routines: { actives: { id: string; nom: string }[]; non_vues: number };
-  /** Champ de transition : l'interface d'aujourd'hui en a besoin, le lot L1 le retire. */
+  /** Le fil, et les conversations que d'autres comptes ont rendues visibles : les tâches n'y sont plus (0.4.0). Gardé pour les
+   * applications installées, qui le lisent encore. */
   conversations: Conversation[];
 };
 

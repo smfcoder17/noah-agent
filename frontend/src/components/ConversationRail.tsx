@@ -17,10 +17,12 @@ export const AWAY = 3; // messages au-dessus du bas avant de proposer « Revenir
 
 type Mark = { id: string; label: string; when: string };
 
-/** Ce qu'un message mérite d'afficher comme repère : chaque demande, et le résultat d'une routine, qui arrive seul. */
-export function markOf(message: { id: string; role: string; content: readonly { type: string; text?: string }[]; createdAt?: Date }): Mark | null {
+/** Ce qu'un message mérite d'afficher comme repère : chaque demande, une tâche (sa ligne dans le fil), et le résultat d'une routine, qui arrive seul. */
+export function markOf(message: { id: string; role: string; content: readonly { type: string; text?: string; toolName?: string; args?: unknown }[]; createdAt?: Date }): Mark | null {
   const text = message.content.find((p) => p.type === "text")?.text ?? "";
   const when = message.createdAt ? messageMoment(message.createdAt) : "";
+  const tache = message.content.find((p) => p.type === "tool-call" && p.toolName === "tache")?.args as { tache?: { titre?: string } } | undefined;
+  if (tache?.tache?.titre) return { id: message.id, label: tache.tache.titre.slice(0, 70), when };
   if (message.role === "user") {
     const line = splitQuotes(text).rest.split("\n")[0].replace(/\s*\(ta demande : .*$/, "").trim();
     return line ? { id: message.id, label: line.slice(0, 70), when } : null;

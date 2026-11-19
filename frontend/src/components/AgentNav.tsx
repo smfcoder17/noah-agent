@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useState } from "react";
-import { ChevronDown, History } from "lucide-react";
-import { type Agent, type Conversation, canAdmin } from "@/lib/api";
+import { ChevronDown } from "lucide-react";
+import { type Agent, canAdmin } from "@/lib/api";
 import { TAB_NAMES, type NavTab } from "@/lib/navPrefs";
 import { cn } from "@/lib/utils";
 import { TAB_ICONS } from "./mobile/BottomTabs";
@@ -12,33 +12,22 @@ import { t } from "@/i18n";
 /** Ce que l'agent attend de la personne : ses accords et ses choix. */
 export const pendingOf = (a: Agent) => (a.tasks?.approve ?? 0) + (a.tasks?.choice ?? 0);
 
-/** L'historique d'un agent : ses fils hors conversation principale. Les ouverts d'abord, les archivés à part. */
-export function historyOf(conversations: Conversation[]) {
-  const others = conversations.filter((c) => !c.main);
-  return { open: others.filter((c) => !c.archived), archived: others.filter((c) => c.archived) };
-}
-
 /**
  * Les agents, alignés en haut de la barre, comme une liste de contacts : une ligne par agent, avec son état.
- * Seul l'agent ouvert déplie dessous son historique, et sur le téléphone ses options (Discussion par défaut, puis les onglets
- * choisis) : une seule discussion par agent dans la barre, les autres fils restent à un clic. Sur l'ordinateur, les options
+ * Seul l'agent ouvert déplie dessous, sur le téléphone, ses options (Discussion par défaut, puis les onglets choisis). Il n'y a plus
+ * d'historique (0.4.0) : un agent a un seul fil, et ses tâches s'y lisent. Sur l'ordinateur, les options
  * sont en haut à droite de la conversation (`showTabs={false}`) et l'agent ouvert montre son grand visage, sans tuile.
  * Chaque ligne a trois petits points, cachés jusqu'au survol, qui ouvrent le menu de l'agent ; un clic droit sur la ligne l'ouvre aussi,
  * ce qui sert barre repliée, où seuls les visages restent.
  */
-export const AgentNav = memo(function AgentNav({ agents, agentId, tabs, active, conversations, activeThread = null, onPick, onTab, onThread, onAgentPage, onCustomize, variant = "rail", showTabs = true }: {
+export const AgentNav = memo(function AgentNav({ agents, agentId, tabs, active, onPick, onTab, onAgentPage, onCustomize, variant = "rail", showTabs = true }: {
   agents: Agent[];
   agentId: string | null;
   tabs: NavTab[];
   /** L'option ouverte de l'agent sélectionné. */
   active: NavTab;
-  /** Les fils de l'agent sélectionné. */
-  conversations: Conversation[];
-  /** Le fil ouvert à la place de la conversation principale. */
-  activeThread?: string | null;
   onPick: (id: string) => void;
   onTab: (t: NavTab) => void;
-  onThread: (id: string | null) => void;
   /** La page de l'agent donné : cerveau, autonomie, apparence. */
   onAgentPage: (id: string) => void;
   /** La fenêtre de personnalisation de l'agent donné ; seulement pour ceux qu'on peut administrer. */
@@ -48,36 +37,20 @@ export const AgentNav = memo(function AgentNav({ agents, agentId, tabs, active, 
   showTabs?: boolean;
 }) {
   const [folded, setFolded] = useState(false);
-  const [historyAsked, setHistoryAsked] = useState<boolean | null>(null);
-  const [archivedOpen, setArchivedOpen] = useState(false);
   /** Le menu ouvert : l'agent, et le pointeur si c'est un clic droit ou la barre (sinon il reste sous la ligne). */
   const [menu, setMenu] = useState<{ id: string; at?: { x: number; y: number } } | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
   const dotsOf = (id: string) => document.querySelector<HTMLElement>(`[data-agent-more="${id}"]`);
-  // Un autre agent s'ouvre déplié, l'historique replié.
-  useEffect(() => { setFolded(false); setHistoryAsked(null); setArchivedOpen(false); }, [agentId]);
-  const { open: history, archived } = historyOf(conversations);
-  const inHistory = !!activeThread && conversations.some((c) => c.id === activeThread && !c.main);
-  // L'historique s'ouvre seul quand on y lit un fil, et signale ceux qui travaillent ou attendent.
-  const historyOpen = historyAsked ?? inHistory;
-  const busy = history.filter((c) => c.en_cours).length;
+  // Un autre agent s'ouvre déplié.
+  useEffect(() => { setFolded(false); }, [agentId]);
   const options = !showTabs ? [] : tabs.includes("chat") ? tabs : (["chat", ...tabs] as NavTab[]);
-  const hasHistory = history.length > 0 || archived.length > 0;
-
-  const thread = (c: Conversation) => (
-    <button key={c.id} type="button" className="agent-nav-thread" title={c.title}
-      aria-current={c.id === activeThread ? "page" : undefined}
-      onClick={() => onThread(c.id)}>
-      <span className="truncate">{c.title}</span>{c.en_cours && <span className="rail-dot" aria-label={t("en cours")} />}
-    </button>
-  );
 
   return (
     <ul className={cn("agent-nav", variant === "drawer" && "agent-nav-drawer")} aria-label={t("Agents")}>
       {agents.map((a) => {
         const selected = a.id === agentId;
         const hero = selected && variant === "rail";
-        const foldable = selected && (options.length > 0 || hasHistory);
+        const foldable = selected && options.length > 0;
         const expanded = foldable && !folded;
         const s = agentSummary(a);
         const pending = pendingOf(a);
@@ -119,34 +92,13 @@ export const AgentNav = memo(function AgentNav({ agents, agentId, tabs, active, 
               <div id={panelId} role="group" aria-label={t("Options de {nom}", { nom: a.name })} className="agent-nav-options">
                 {options.map((tab) => {
                   const Icon = TAB_ICONS[tab];
-                  const current = active === tab && (tab !== "chat" || !activeThread);
+                  const current = active === tab;
                   return (
                     <button key={tab} type="button" className="agent-nav-option" aria-current={current ? "page" : undefined} onClick={() => onTab(tab)}>
                       <Icon size={16} aria-hidden /><span>{TAB_NAMES[tab]}</span>
                     </button>
                   );
                 })}
-                {hasHistory && <>
-                  <button type="button" className="agent-nav-option" aria-expanded={historyOpen} aria-controls={`${panelId}-historique`} onClick={() => setHistoryAsked(!historyOpen)}>
-                    <History size={16} aria-hidden /><span>{t("Historique")}</span>
-                    <span className="ml-auto flex items-center gap-1.5 text-xs tabular-nums">
-                      {busy > 0 && !historyOpen && <span className="rail-dot" aria-label={t("{n} en cours", { n: busy })} />}
-                      {history.length + archived.length}
-                      <ChevronDown size={13} aria-hidden className={cn("transition-transform", !historyOpen && "-rotate-90")} />
-                    </span>
-                  </button>
-                  {historyOpen && (
-                    <div id={`${panelId}-historique`} role="group" aria-label={t("Historique de {nom}", { nom: a.name })} className="agent-nav-history">
-                      {history.map(thread)}
-                      {archived.length > 0 && <>
-                        <button type="button" className="agent-nav-thread agent-nav-archived" aria-expanded={archivedOpen || archived.some((c) => c.id === activeThread)} onClick={() => setArchivedOpen(!archivedOpen)}>
-                          {t("Archivés ({n})", { n: archived.length })}
-                        </button>
-                        {(archivedOpen || archived.some((c) => c.id === activeThread)) && archived.map(thread)}
-                      </>}
-                    </div>
-                  )}
-                </>}
               </div>
             )}
           </li>

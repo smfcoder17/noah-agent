@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { Inbox, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings, Target } from "lucide-react";
-import type { Agent, Conversation } from "@/lib/api";
+import type { Agent } from "@/lib/api";
 import type { NavTab } from "@/lib/navPrefs";
 import { useRailFolded } from "@/lib/workPanel";
 import { cn } from "@/lib/utils";
@@ -12,16 +12,12 @@ import { t } from "@/i18n";
  * son nom et son état ; les trois petits points de chaque agent (au survol) ouvrent son menu. Ses contenus (Activité, Tâches, Fichiers…) sont en haut à droite de la
  * conversation. Repliée, elle ne garde que les icônes et les visages ; ce choix est retenu sur cet appareil.
  */
-export const SideRail = memo(function SideRail({ waiting = 0, onInbox, agent, agents = [], conversations, activeThread = null, onAgent, onPickAgent, onMenu, onThread, onSettings, onGoals, onNewAgent, onAgentPage, onCustomize }: {
+export const SideRail = memo(function SideRail({ waiting = 0, onInbox, agent, agents = [], onAgent, onPickAgent, onMenu, onSettings, onGoals, onNewAgent, onAgentPage, onCustomize }: {
   waiting?: number; onInbox?: () => void; agent: Agent | null;
   /** Tous les agents, dans l'ordre du serveur (épinglés d'abord). */
   agents?: Agent[];
   /** Gardés pour le tiroir du téléphone, qui les montre encore sous l'agent ; la barre de l'ordinateur ne les affiche plus. */
   tabs?: NavTab[]; active?: NavTab;
-  /** Les fils de l'agent ouvert : sa discussion, et son historique. */
-  conversations: Conversation[];
-  /** Le fil ouvert, pour le marquer dans l'historique. */
-  activeThread?: string | null;
   onTab?: (t: NavTab) => void;
   /** Ouvre la page de l'agent ouvert. */
   onAgent: () => void;
@@ -30,9 +26,8 @@ export const SideRail = memo(function SideRail({ waiting = 0, onInbox, agent, ag
   onCustomize?: (id: string) => void;
   /** Ouvre l'agent donné, depuis sa ligne. */
   onPickAgent?: (id: string) => void;
-  /** Recherche : agents et fils. */
+  /** Recherche : les agents. */
   onMenu: () => void;
-  onThread: (id: string | null) => void;
   onSettings: () => void; onGoals: () => void;
   onNewAgent?: () => void;
 }) {
@@ -45,8 +40,8 @@ export const SideRail = memo(function SideRail({ waiting = 0, onInbox, agent, ag
     <button className="rail-row" onClick={onInbox} aria-label={folded ? t("À toi") : undefined} title={folded ? t("À toi") : undefined}><Inbox size={18} aria-hidden /><span className="rail-label">{t("À toi")}</span>{waiting > 0 ? <span className="rail-count ml-auto" aria-label={t("{n} en attente", { n: waiting })}>{waiting}</span> : <span className="sr-only">{t("{n} en attente", { n: 0 })}</span>}</button>
     <h2 className="section-label rail-agents-label">{t("Agents")}</h2>
     <nav aria-label={t("Navigation")} className="rail-agents-scroll">
-      <AgentNav agents={list} agentId={agent?.id ?? null} tabs={[]} active="chat" showTabs={false} conversations={conversations} activeThread={activeThread}
-        onPick={(id) => (onPickAgent ? onPickAgent(id) : onAgent())} onTab={() => {}} onThread={onThread} onCustomize={onCustomize}
+      <AgentNav agents={list} agentId={agent?.id ?? null} tabs={[]} active="chat" showTabs={false}
+        onPick={(id) => (onPickAgent ? onPickAgent(id) : onAgent())} onTab={() => {}} onCustomize={onCustomize}
         onAgentPage={(id) => { if (onAgentPage) return onAgentPage(id); if (id !== agent?.id) onPickAgent?.(id); onAgent(); }} />
     </nav>
     <div className="rail-bottom">

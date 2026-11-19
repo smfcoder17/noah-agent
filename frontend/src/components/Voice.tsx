@@ -554,7 +554,7 @@ export function VoiceMode({ onClose, report, onReportRead, link }: {
   const { agentId, agentName, agentColor, agentShape, agentDetail, conversationId, say } = useContext(AgentContext);
   const running = useAuiState((s) => s.thread.isRunning);
   const allMessages = useAuiState((s) => s.thread.messages);
-  const messages = useMemo(() => allMessages.filter((m) => !m.content.some((p) => p.type === "tool-call" && p.toolName === "trace")), [allMessages]);
+  const messages = useMemo(() => allMessages.filter((m) => !m.content.some((p) => p.type === "tool-call" && (p.toolName === "trace" || p.toolName === "tache"))), [allMessages]);
   const mic = useMic();
   const [speaking, setSpeaking] = useState(false);
   const [muted, setMuted] = useState(false);

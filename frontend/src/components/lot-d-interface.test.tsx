@@ -288,7 +288,7 @@ it("D5 — repliée en icônes seules, et toujours repliée après rechargement"
 it("E1 — téléphone : les mêmes entrées dans un menu « … » en haut à droite, au clavier aussi", async () => {
   wide = false;
   const open = vi.fn();
-  await act(async () => root.render(<MobileHeader agent={agent()} status="En ligne" onMenu={vi.fn()} onAgent={vi.fn()} onNew={vi.fn()}
+  await act(async () => root.render(<MobileHeader agent={agent()} status="En ligne" onMenu={vi.fn()} onAgent={vi.fn()}
     menu={<WorkMenu agent={agent()} active={null} onOpen={open} details={false} onDetails={vi.fn()} />} />));
   const more = byLabel("Contenus de l'agent")!;
   expect(host.querySelector("header")!.lastElementChild!.contains(more)).toBe(true); // tout à droite

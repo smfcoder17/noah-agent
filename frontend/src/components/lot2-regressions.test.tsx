@@ -37,12 +37,12 @@ const agent = { id: "a", name: "Noah", online: true, state: "approve", tasks: { 
 
 it("09 — À toi et son compteur ouvrent la liste depuis le rail et le tiroir", async () => {
   const open = vi.fn();
-  await act(async () => root.render(<SideRail agent={agent} waiting={3} onInbox={open} tabs={["chat"]} active="chat" conversations={[]} onTab={noOp} onAgent={noOp} onMenu={noOp} onThread={noOp} onSettings={noOp} onGoals={noOp} />));
+  await act(async () => root.render(<SideRail agent={agent} waiting={3} onInbox={open} tabs={["chat"]} active="chat" onTab={noOp} onAgent={noOp} onMenu={noOp} onSettings={noOp} onGoals={noOp} />));
   const rail = host.querySelector('[aria-label="3 en attente"]')!.closest("button")!;
   expect(rail.textContent).toContain("À toi");
   await act(async () => rail.click());
   expect(open).toHaveBeenCalledTimes(1);
-  await act(async () => root.render(<Drawer agents={[agent]} waiting={3} onInbox={open} agentId="a" conversations={[]} tabs={["chat"]} onAgent={noOp} onThread={noOp} onNewAgent={noOp} onTab={noOp} onCustomize={noOp} onSettings={noOp} onGoals={noOp} onClose={noOp} onLogout={noOp} />));
+  await act(async () => root.render(<Drawer agents={[agent]} waiting={3} onInbox={open} agentId="a" tabs={["chat"]} onAgent={noOp} onNewAgent={noOp} onTab={noOp} onCustomize={noOp} onSettings={noOp} onGoals={noOp} onClose={noOp} onLogout={noOp} />));
   const drawer = document.querySelector('[aria-label="3 en attente"]')!.closest("button")!;
   expect(drawer.textContent).toContain("À toi");
   await act(async () => drawer.click());
@@ -217,9 +217,9 @@ it("18 — Mammouth utilise le SVG officiel local", async () => {
 });
 
 it("19 — le badge d'état montre les accords dans le rail et l'en-tête mobile", async () => {
-  await act(async () => root.render(<MobileHeader agent={agent} status="En ligne" onMenu={noOp} onAgent={noOp} onNew={noOp} />));
+  await act(async () => root.render(<MobileHeader agent={agent} status="En ligne" onMenu={noOp} onAgent={noOp} />));
   expect(host.querySelector("small")?.textContent).toContain("2 accords");
   expect(host.querySelector("small span")?.className).toContain("bg-warn");
-  await act(async () => root.render(<SideRail agent={agent} tabs={[]} active="chat" conversations={[]} onTab={noOp} onAgent={noOp} onMenu={noOp} onThread={noOp} onSettings={noOp} onGoals={noOp} />));
+  await act(async () => root.render(<SideRail agent={agent} tabs={[]} active="chat" onTab={noOp} onAgent={noOp} onMenu={noOp} onSettings={noOp} onGoals={noOp} />));
   expect(host.querySelector("small")?.textContent).toContain("2 accords");
 });

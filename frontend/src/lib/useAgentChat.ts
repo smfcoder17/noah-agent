@@ -12,6 +12,7 @@ import { onForget, SeenActive, seenGeneration } from "./seen";
 import { ApiError, type ChatEvent, get, type LoginAsked, send, type Reactions, type Recu, type StoredMessage, request, StreamLost, streamChat, uploadFile } from "./api";
 import { accordLabel, refreshAccords, useAccords } from "./events";
 import { enMemoire, type EnCours, type Ouverture, useOuverture, verifier } from "./ouverture";
+import { avecTaches } from "./tachesFil";
 import { t, tServeur } from "@/i18n";
 import { pcNote } from "./lignesServeur";
 
@@ -792,7 +793,8 @@ export function useAgentChat(opts: {
     return () => window.removeEventListener("noah:connexion-repondue", answered);
   }, []);
   const shown = useMemo<ChatMessage[]>(() => {
-    const base = visibleMessages(messages);
+    // Son fil : les tâches de l'ouverture de l'agent s'y placent (0.4.0). Une autre conversation (celle d'une tâche) n'en porte pas.
+    const base = avecTaches(visibleMessages(messages), duFil(agentId, conversationId) ? ouverture?.fil?.taches : undefined);
     const storedClosed = new Set(messages.map((m) => m.id));
     for (const closed of closedAccords.filter((a) => a.conv_id === conversationId)) {
       const label = accordLabel(closed);
@@ -804,7 +806,7 @@ export function useAgentChat(opts: {
     if (!login) return base;
     const { result, ...asked } = login;
     return [...base, { id: `connexion-${login.id}`, role: "assistant", content: [{ type: "tool-call", toolCallId: `c-${login.id}`, toolName: "connexion", args: asked, ...(result ? { result } : {}) }] }];
-  }, [messages, pendingAccords, closedAccords, conversationId, login]);
+  }, [messages, pendingAccords, closedAccords, conversationId, login, ouverture, agentId]);
 
   const runtime = useExternalStoreRuntime<ChatMessage>({
     messages: shown,

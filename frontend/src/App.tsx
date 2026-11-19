@@ -1,6 +1,7 @@
 import { SensitiveProvider } from "@/components/SensitiveText";
 import { Shell as LayoutShell } from "@/components/Shell";
-import { ChatPane } from "@/components/ChatPane";
+import { ChatPane, retourAu } from "@/components/ChatPane";
+import { etatDit } from "@/components/thread/TacheLigne";
 import { KeepAlive } from "@/components/KeepAlive";
 import { BottomTabs } from "@/components/mobile/BottomTabs";
 import { MobileHeader } from "@/components/mobile/MobileHeader";
@@ -334,8 +335,6 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
   const togglePanel = (tab: PanelTab) => setPanel(panel === tab ? null : tab);
   /** L'onglet marqué dans la barre du bas et le tiroir : la session n'y a pas d'onglet, la discussion reste marquée. */
   const navActive: NavTab = panel === "routines" ? "tasks" : panel === "session" || !panel ? "chat" : panel;
-  const [newBusy, setNewBusy] = useState(false);
-  const [navigationError, setNavigationError] = useState("");
   const [liveStatus, setLiveStatus] = useState<string | null>(null);
   const [agentDialog, setAgentDialog] = useState<{ open: boolean; agent: Agent | null }>({ open: false, agent: null });
   const [modelDialog, setModelDialog] = useState(false);
@@ -388,7 +387,13 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
   useEffect(() => {
     if (threadId && threadId === main?.id) setThreadId(null);
   }, [threadId, main?.id]);
-  const thread = conversations?.find((c) => c.id === threadId) ?? null;
+  // Une tâche ouverte (0.4.0) : sa conversation n'est plus dans la liste, la tâche en est la lecture. Sans elle (une page ancienne du fil,
+  // un lien de notification), la conversation s'ouvre quand même : le serveur la rend par son identifiant.
+  const tacheOuverte = threadId ? ouverture?.fil?.taches.find((x) => x.conversation_id === threadId) ?? null : null;
+  const thread: Conversation | null = threadId && conversations
+    ? conversations.find((c) => c.id === threadId)
+      ?? { id: threadId, title: tacheOuverte?.titre ?? "", updated_at: ouverture?.fil?.updated_at ?? "", state: "idle", en_cours: false, main: false, archived: false, origin: "agent", partagee: false, de: null }
+    : null;
   const shown = thread ?? main;
   // L'écran passe derrière : un flux peut rester ouvert longtemps sans lecteur sur un téléphone. Le serveur notifiera la fin de la tâche.
   const shownId = shown?.id;
@@ -433,14 +438,6 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
   /** Menu d'un agent de la barre : sa page, ou sa fenêtre de personnalisation, sans quitter ce qu'on lit si c'est un autre agent. */
   const openAgentPage = (id: string) => { if (id !== agentId) selectAgent(id); navigation.dispatch({ type: "push", route: { kind: "agent" } }); };
   const customizeAgent = (id: string) => { const target = agents.find((a) => a.id === id); if (target) setAgentDialog({ open: true, agent: target }); };
-
-  const newDiscussion = async () => {
-    if (!agent) { setAgentDialog({ open: true, agent: null }); return; }
-    if (!canTalk(agent) || newBusy) return;
-    setNewBusy(true); setNavigationError("");
-    try { const result = await send<{ id: string }>(`/api/agents/${agent.id}/conversations`, {}); await refreshConversations(); goTab("chat"); setThreadId(result.id); }
-    catch (e) { setNavigationError((e as Error).message); } finally { setNewBusy(false); }
-  };
 
   useEffect(() => {
     const answered = () => {
@@ -507,14 +504,22 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
         }}
       />
       <LayoutShell>
-        <SideRail waiting={waiting} onInbox={() => setInbox(true)} agent={agent} agents={agents} tabs={tabs} active={navActive} conversations={conversations ?? []} activeThread={threadId} onTab={goTab} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} onPickAgent={selectAgent} onMenu={() => setSidebarOpen(true)} onThread={(id) => { goTab("chat"); setThreadId(id); }} onSettings={() => setSettings("home")} onGoals={() => setGoals(true)} onNewAgent={() => setAgentDialog({ open: true, agent: null })} onAgentPage={openAgentPage} onCustomize={customizeAgent} />
+        <SideRail waiting={waiting} onInbox={() => setInbox(true)} agent={agent} agents={agents} tabs={tabs} active={navActive} onTab={goTab} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} onPickAgent={selectAgent} onMenu={() => setSidebarOpen(true)} onSettings={() => setSettings("home")} onGoals={() => setGoals(true)} onNewAgent={() => setAgentDialog({ open: true, agent: null })} onAgentPage={openAgentPage} onCustomize={customizeAgent} />
         <div className="work-area">
         <div className="work-main">
-          <MobileHeader agent={agent} status={agent?.step || liveStatus || (agent?.online ? t("En ligne") : t("Hors ligne"))} onMenu={() => setSidebarOpen(true)} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} busy={newBusy} onNew={() => void newDiscussion()}
+          <MobileHeader agent={agent} status={agent?.step || liveStatus || (agent?.online ? t("En ligne") : t("Hors ligne"))} onMenu={() => setSidebarOpen(true)} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })}
             menu={<WorkMenu agent={agent} active={panel} onOpen={(tab) => setPanel(tab)} details={details} onDetails={setDetails} />} />
-          {navigationError && <p role="alert" className="offline-banner">{navigationError}<button onClick={() => void newDiscussion()}>{t("Réessayer")}</button></p>}
           <KeepAlive active={!panel || (wide && !expanded)} className="min-h-0 flex-1">
-          <ChatPane title={thread?.title || agent?.name || "Noah"} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} actions={<WorkBar agent={agent} active={panel} onOpen={togglePanel} details={details} onDetails={setDetails} />}>
+          <ChatPane
+            title={thread?.title || agent?.name || "Noah"}
+            tache={threadId && agent ? {
+              titre: tacheOuverte?.titre || thread?.title || t("Tâche"),
+              sous: tacheOuverte?.demandeur?.nom ? t("Confiée par {de} à {a}", { de: tacheOuverte.demandeur.nom, a: agent.name }) : t("Tâche de {nom}", { nom: agent.name }),
+              etat: tacheOuverte ? etatDit(tacheOuverte.etat) : "",
+              retour: retourAu(agent.name),
+              onRetour: () => setThreadId(null),
+            } : null}
+            onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} actions={<WorkBar agent={agent} active={panel} onOpen={togglePanel} details={details} onDetails={setDetails} />}>
           <AppUpdate /><div id={CALL_SLOT} />
           {agent && canAdmin(agent) && <HandoffBanner agentId={agent.id} onOpenScreen={() => setPanel("computer")} />}
           {agent && canAdmin(agent) && <DelegatedTasks agentId={agent.id} />}
@@ -584,7 +589,7 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
             </WorkPanel>
           </KeepAlive>}
         </div>
-        {sidebarOpen && <Drawer waiting={waiting} onInbox={() => { setSidebarOpen(false); setInbox(true); }} agents={agents} agentId={agentId} conversations={conversations ?? []} tabs={tabs} active={navActive} activeThread={threadId} onAgent={selectAgent} onAgentPage={openAgentPage} onCustomizeAgent={customizeAgent} onThread={(id) => { goTab("chat"); setThreadId(id); }} onTab={goTab} onNewAgent={() => { setSidebarOpen(false); setAgentDialog({ open: true, agent: null }); }} onCustomize={() => { setSidebarOpen(false); navigation.dispatch({ type: "push", route: { kind: "customize" } }); }} onSettings={() => { setSidebarOpen(false); setSettings("home"); }} onGoals={() => { setSidebarOpen(false); setGoals(true); }} onClose={() => setSidebarOpen(false)} onLogout={logout} />}
+        {sidebarOpen && <Drawer waiting={waiting} onInbox={() => { setSidebarOpen(false); setInbox(true); }} agents={agents} agentId={agentId} tabs={tabs} active={navActive} onAgent={selectAgent} onAgentPage={openAgentPage} onCustomizeAgent={customizeAgent} onTab={goTab} onNewAgent={() => { setSidebarOpen(false); setAgentDialog({ open: true, agent: null }); }} onCustomize={() => { setSidebarOpen(false); navigation.dispatch({ type: "push", route: { kind: "customize" } }); }} onSettings={() => { setSidebarOpen(false); setSettings("home"); }} onGoals={() => { setSidebarOpen(false); setGoals(true); }} onClose={() => setSidebarOpen(false)} onLogout={logout} />}
         {latest("customize") && <CustomizeTabs tabs={tabs} save={saveTabs} error={tabsError} onClose={() => navigation.dispatch({ type: "close", kind: "customize" })} />}
         {latest("agent") && agent && <AgentPage agent={agent} onClose={() => navigation.dispatch({ type: "close", kind: "agent" })} onPanel={(tab) => { navigation.dispatch({ type: "close", kind: "agent" }); setPanel(tab); }} onBrain={() => setModelDialog(true)} onEdit={() => setAgentDialog({ open: true, agent })} onNotifications={() => setSettings("notifications")} onAutonomy={() => setSettings("privacy")} />}
         <Suspense fallback={null}>

@@ -1,11 +1,11 @@
 import { type ToolCallMessagePartProps, useAui, useAuiState } from "@assistant-ui/react";
-import { Check, ChevronRight, ChevronUp, TriangleAlert, X } from "lucide-react";
+import { Check, ChevronUp, TriangleAlert, X } from "lucide-react";
 import { type ReactNode, useContext, useEffect, useState } from "react";
 import { WhileBusyContext, AgentContext } from "@/lib/agentContext";
-import { type LoginAsked, send, type TraceDetail } from "@/lib/api";
+import { type LoginAsked, send } from "@/lib/api";
 import { LoginCard, LoginDone, type LoginResult } from "../LoginCard";
 import { Recu } from "../Recu";
-import { StateShape } from "../Sidebar";
+import { TacheOutil, TraceOutil } from "./TacheLigne";
 import { cn } from "@/lib/utils";
 import { Button } from "../ui";
 import { refreshAccords } from "@/lib/events";
@@ -125,28 +125,6 @@ function LoginPart({ args, result, addResult }: ToolCallMessagePartProps) {
   );
 }
 
-/** Dans la conversation principale : un fil en cours ou fini. Une ligne discrète, qui l'ouvre ; rien pour l'agent. */
-function TraceLine({ args }: ToolCallMessagePartProps) {
-  const { agentId } = useContext(AgentContext);
-  const trace = args as unknown as TraceDetail;
-  const end = trace.etat === "fini" ? t("Fini") : t("Pas terminé");
-  const issue = trace.etat === "en_cours" ? t("En cours") : trace.issue ? t("{nom} : {texte}", { nom: end, texte: trace.issue }) : end;
-  return (
-    <a
-      href={`#agent=${agentId}&conversation=${trace.fil}`}
-      title={t("Ouvrir ce fil")}
-      className="-mx-2 flex w-fit max-w-full items-center gap-2.5 rounded-lg px-2 py-1 text-[13px] text-muted-foreground hover:bg-muted hover:text-foreground"
-    >
-      <StateShape state={trace.etat === "fini" ? "done" : trace.etat === "echec" ? "error" : "work"} />
-      <span className="min-w-0">
-        <span className="block truncate">{t("{nom} : {texte}", { nom: trace.entete, texte: trace.consigne })}</span>
-        <span className="block truncate text-xs">{issue}</span>
-      </span>
-      <ChevronRight className="size-3.5 shrink-0" />
-    </a>
-  );
-}
-
 /** Une erreur : la phrase d'abord. Les détails à côté, à copier ou à donner à l'agent pour qu'il la diagnostique. */
 function ErrorPart({ args }: ToolCallMessagePartProps) {
   const aui = useAui();
@@ -246,4 +224,4 @@ function Steps({ args }: ToolCallMessagePartProps) {
   );
 }
 
-export const TOOLS = { by_name: { activity: Activity, approval: Approval, connexion: LoginPart, error: ErrorPart, detail: Detail, steps: Steps, recu: Recu, send_aside: SendAside, trace: TraceLine } };
+export const TOOLS = { by_name: { activity: Activity, approval: Approval, connexion: LoginPart, error: ErrorPart, detail: Detail, steps: Steps, recu: Recu, send_aside: SendAside, trace: TraceOutil, tache: TacheOutil } };

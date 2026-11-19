@@ -304,7 +304,7 @@ export const AssistantMessage = memo(function AssistantMessage() {
   const isLast = useAuiState((s) => s.thread.messages[s.thread.messages.length - 1]?.id === s.message.id);
   const [copyWarning, setCopyWarning] = useState(false);
   const id = useAuiState((s) => s.message.id);
-  const isTrace = useAuiState((s) => s.message.content.some((p) => p.type === "tool-call" && p.toolName === "trace"));
+  const isTrace = useAuiState((s) => s.message.content.some((p) => p.type === "tool-call" && (p.toolName === "trace" || p.toolName === "tache")));
   // Seul le dernier message peut vivre : les autres ne recalculent rien.
   const base = useAuiState((s) => (s.thread.messages[s.thread.messages.length - 1]?.id === s.message.id ? moodOf(s.message) : "rest"));
   const mood = useMood(base, isLast, !!busyActivity);
