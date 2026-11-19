@@ -1,7 +1,7 @@
 // Les routines dans Activité (0.4.0, X6) : leurs passages ne s'écrivent plus dans le fil. Un voyant dit ce qui est passé depuis ta dernière
 // visite ; un clic ouvre le bilan et les rendus, un clic de plus le détail d'un passage, et « Amener dans le fil » le pose dans la conversation.
 import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
-import { useContext, useEffect, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { t } from "@/i18n";
 import { get, send } from "@/lib/api";
 import { SeenActive, seenGeneration } from "@/lib/seen";
@@ -72,6 +72,8 @@ function Bilan({ agentId, routine, onBack, onBrought }: { agentId: string; routi
   const [details, setDetails] = useState<Record<number, Detail>>({});
   const [ouvert, setOuvert] = useState<number | null>(null);
   const [brought, setBrought] = useState<Record<number, boolean>>({});
+  const haut = useRef<HTMLElement>(null);
+  useEffect(() => { haut.current?.scrollIntoView?.({ block: "start" }); }, []); // le bilan s ouvre en haut du panneau, pas au milieu des tâches
   const charger = (avant?: number) => {
     setLoading(true);
     get<{ passages: Passage[]; plus: boolean }>(`${base}/routines-passages?routine=${encodeURIComponent(routine.id)}&limite=${PAGE}${avant ? `&avant=${avant}` : ""}`)
@@ -90,7 +92,7 @@ function Bilan({ agentId, routine, onBack, onBrought }: { agentId: string; routi
     onBrought();
   };
   return (
-    <section aria-label={routine.nom} className="flex flex-col gap-2" data-routine-bilan={routine.id}>
+    <section ref={haut} aria-label={routine.nom} className="flex scroll-mt-2 flex-col gap-2" data-routine-bilan={routine.id}>
       <button type="button" className="flex w-fit items-center gap-1 text-sm text-muted-foreground" onClick={onBack}><ChevronLeft className="size-4" aria-hidden />{t("Activité")}</button>
       <h3 className="text-base font-semibold">{routine.nom}</h3>
       <p className="text-xs text-muted-foreground">{[routine.quand, t("{n} passages", { n: routine.passages }), routine.echecs ? t("{n} échecs", { n: routine.echecs }) : ""].filter(Boolean).join(" · ")}</p>
