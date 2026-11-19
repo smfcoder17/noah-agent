@@ -192,7 +192,7 @@
 
 /* ---------- Questions et « Pour toi » (0.4.0, lot L2) : la carte, les boutons de choix, la page ---------- */
 .stack { display:flex; flex-direction:column; } .line { display:flex; align-items:center; } .wrap { flex-wrap:wrap; }
-.g4 { gap:4px; } .g8 { gap:8px; } .g12 { gap:12px; } .g16 { gap:16px; } .g32 { gap:32px; }
+.g4 { gap:4px; } .g8 { gap:8px; } .g12 { gap:12px; } .g16 { gap:16px; } .g24 { gap:24px; } .g32 { gap:32px; }
 .col.narrow { max-width:680px; padding:36px 24px 48px; }
 .title { font-size:26px; font-weight:700; letter-spacing:-.02em; line-height:1.2; }
 .h2 { font-size:15px; font-weight:600; }
