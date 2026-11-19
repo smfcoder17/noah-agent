@@ -281,9 +281,13 @@ async def scenario():
     assert r.status_code == 200 and approved[-1] == ("run-a", False) and len(reviews) == 1 and "Publier sur Instagram" in reviews[0]["text"] and "pas maintenant" in reviews[0]["text"]
     main._runs.pop("run-a")
     reset()
+    main._save_message(conv, "agent", "**Du nouveau**\n\nBrouillon de réponse à Paul.", json.dumps({"etapes": [], "marque": "initiative"}))
+    await chat(conv, "change le titre du brouillon")
+    assert len(reviews) == 1 and "préparé de toi-même" in reviews[0]["text"], "modifier ce qu'il a préparé seul suffit (la marque est dans detail)"
+    reset()
     main._save_message(conv, "agent", "**De lui-même : Du nouveau**\n\nBrouillon de réponse à Paul.")
     await chat(conv, "change le titre du brouillon")
-    assert len(reviews) == 1 and "préparé de toi-même" in reviews[0]["text"], "modifier ce qu'il a préparé seul suffit"
+    assert len(reviews) == 1 and "préparé de toi-même" in reviews[0]["text"], "un message d'avant la 0.4.0 porte sa marque dans le texte : même effet"
     reset()
     await chat(conv, "change le titre du fichier")
     assert not reviews, "la même phrase après une réponse ordinaire ne dit rien de durable"

@@ -353,7 +353,8 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
         with contextlib.suppress(Exception):  # le journal ne doit jamais abîmer une tâche finie
             with db.connect() as c:
                 asked_row = c.execute("SELECT text FROM messages WHERE id = ?", (answered,)).fetchone()
-            main._journal(agent.id, conv_id, "tache", main._first_line(asked_row["text"]) if asked_row else "Tâche", main._first_line(text),
+            own = proactif.turn_title(conv_id)  # un tour de lui-même : son titre, pas la consigne que Noah lui a donnée
+            main._journal(agent.id, conv_id, "proactif" if own else "tache", own or (main._first_line(asked_row["text"]) if asked_row else "Tâche"), main._first_line(text),
                      ("a_verifier" if recu.needs_attention(receipt) else "fait") if succeeded else "erreur" if final and final.get("status") == "failed" else "arrete")
         with contextlib.suppress(Exception):  # une notification perdue ne doit pas abîmer une tâche finie
             _tell_turn_end(agent.id, conv_id, launched_by, final, recu.notice(receipt) + text, time.time() - began, tell_after,

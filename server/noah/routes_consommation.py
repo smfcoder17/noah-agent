@@ -123,7 +123,7 @@ def activity(agent_id: str, user: int = Depends(auth.current_user)):
         rows = c.execute("SELECT j.kind, j.titre, j.resultat, j.etat, j.at, j.conversation_id, v.main FROM journal j JOIN conversations v ON v.id = j.conversation_id "
                          "WHERE j.agent_id = ? AND (v.user_id = ? OR v.shared) AND j.at >= ? ORDER BY j.id DESC LIMIT 500",
                          (agent_id, user, time.time() - JOURNAL_SECONDS)).fetchall()
-    return [{**dict(r), "main": bool(r["main"]), "de_lui_meme": r["titre"].startswith(proactif.MARK)} for r in rows]
+    return [{**dict(r), "main": bool(r["main"]), "de_lui_meme": r["kind"] == "proactif" or r["titre"].startswith(proactif.ANCIENNE_MARQUE)} for r in rows]
 
 
 @router.get("/api/agents/{agent_id}/session")

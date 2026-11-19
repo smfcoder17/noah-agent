@@ -178,8 +178,9 @@ def _own_turn(conv_id: str, message_id: int | None) -> bool:
     if proactif.turn_mode(conv_id):
         return True
     with db.connect() as c:
-        before = c.execute("SELECT role, text FROM messages WHERE conversation_id = ? AND id < ? ORDER BY id DESC LIMIT 1", (conv_id, message_id or 0)).fetchone()
-    return bool(before) and before["role"] == "agent" and before["text"].startswith(f"**{proactif.MARK}")
+        before = c.execute("SELECT role, text, detail FROM messages WHERE conversation_id = ? AND id < ? ORDER BY id DESC LIMIT 1", (conv_id, message_id or 0)).fetchone()
+    # La marque est dans `detail` depuis la 0.4.0 ; les messages d'avant la portaient en tête du texte.
+    return bool(before) and before["role"] == "agent" and ('"marque": "initiative"' in (before["detail"] or "") or before["text"].startswith(f"**{proactif.ANCIENNE_MARQUE}"))
 
 
 def note_turn(conv_id: str, author: str) -> None:
