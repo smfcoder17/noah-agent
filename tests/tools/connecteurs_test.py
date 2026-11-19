@@ -138,6 +138,8 @@ def home(agent_id: str) -> Path:
 
 
 async def real_admin(agent_id: str, action: str, body: dict | None = None, timeout: float = 90) -> dict:
+    if action.startswith(machine.ECRITURES) and action != "skill_lire":  # comme le vrai admin : une écriture vide les lectures gardées (S7)
+        machine.oublier(agent_id)
     if agent_id in down:
         raise machine.HTTPException(502, "L'agent ne répond pas")
     source = ADMIN_SOURCE.replace('sys.path.insert(0, "/opt/hermes")', f'sys.path.insert(0, {str(STUB)!r})', 1)

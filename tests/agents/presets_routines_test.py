@@ -39,6 +39,8 @@ down: set[str] = set()
 
 async def fake_admin(agent_id, action, body=None, timeout=90):
     calls.append((agent_id, action, body or {}))
+    if action.startswith(machine.ECRITURES) and action != "skill_lire":  # comme le vrai admin : une écriture vide les lectures gardées (S7)
+        machine.oublier(agent_id)
     if agent_id in down:
         raise HTTPException(502, "L'agent ne répond pas")
     jobs = crons.setdefault(agent_id, [])

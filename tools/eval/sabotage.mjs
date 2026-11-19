@@ -127,7 +127,7 @@ const SABOTAGES = [
   ["Réaction : emoji hors du sélecteur affiché dans le texte", "noah/events.py", 'if found and _is_emoji(found.group(1)) else', 'if found and found.group(1) in REACTIONS else', VIVANT],
   ["Accord : second clic en erreur", "noah/tours.py", 'if e.response.status_code != 409:', 'if True:', MCP],
   ["Carte d'accord : réglage technique dans l'aperçu", "noah/mcp.py", '"_urls", "_mode"))', '"_urls"))', MCP],
-  ["Activité : journal gardé sans limite de durée", "noah/routes_consommation.py", 'AND j.at >= ? ORDER BY', 'AND j.at >= ? - 99999999 ORDER BY', VIVANT],
+  ["Activité : journal gardé sans limite de durée", "noah/routes_consommation.py", 'AND j.at >= ? AND j.id < ? ORDER BY', 'AND j.at >= ? - 99999999 AND j.id < ? ORDER BY', VIVANT],
   ["Publication : X cite une image encore en traitement", "noah/publication.py", "await _x_media_ready(c, media, _x_answer(await c.post(f\"{X_API}/media/upload/{media}/finalize\", headers=headers)), headers, video)", "_x_answer(await c.post(f\"{X_API}/media/upload/{media}/finalize\", headers=headers))", PUBLICATION],
   ["Publication : X publie sur un compte remplacé", "noah/publication.py", 'if stored.get("id") != creds.get("id"):\n                raise TokenRefused()\n            creds.update(stored)\n        if time.time() < creds.get("expire"', 'if False:\n                raise TokenRefused()\n            creds.update(stored)\n        if time.time() < creds.get("expire"', PUBLICATION],
   ["Images : deux générations ensemble dépassent le plafond", "noah/media.py", 'async with _image_locks.setdefault(agent_id, asyncio.Lock()):', 'if True:', PIP + "python /tests/agents/reglages_test.py"],

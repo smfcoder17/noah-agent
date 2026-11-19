@@ -136,6 +136,15 @@ const say = async (text, seconds = 240) => {
   const final = events.find((e) => e.type === "done");
   return { status: r.status, events, final, output: messages || final?.output || "", conversation: events.find((e) => e.conversation_id)?.conversation_id };
 };
+/** Le passage d'Activité (0.4.0, X6) dont le rendu contient ce mot : les routines n'écrivent plus dans le fil. */
+const passageDe = async (mot) => {
+  const lot = (await api("GET", `/api/agents/${agent}/routines-passages?limite=20`)).json?.passages || [];
+  for (const p of lot) {
+    const un = (await api("GET", `/api/agents/${agent}/routines-passages/${p.id}`)).json;
+    if (un?.rendu?.includes(mot)) return un;
+  }
+  return null;
+};
 
 const messagesOf = (conv) => JSON.parse(inServer(`import json
 from noah import db
@@ -221,8 +230,8 @@ async function withFake(pageUrl) {
     return r?.last_run_at ? r : null;
   }, 200);
   check("   elle tourne toute seule à l'heure", ran?.last_status === "ok", JSON.stringify(ran).slice(0, 300));
-  const arrived = await waitFor("résultat dans la conversation", () => messagesOf(conv).find((m) => m.text.includes("BRIEF-ROUTINE-OK") && m.role === "agent" && m.text.includes("Routine « Brief essai »")), 150);
-  check("   son résultat arrive dans la conversation", arrived);
+  const arrived = await waitFor("résultat dans Activité", () => passageDe("BRIEF-ROUTINE-OK"), 150);
+  check("   son résultat arrive dans Activité (passages), pas dans la conversation (0.4.0, X6)", arrived && !messagesOf(conv).some((m) => m.role === "agent" && m.text.startsWith("**Routine « Brief essai »")), JSON.stringify(arrived).slice(0, 300));
   const pushed = await waitFor("notification", async () => (await faux("GET", "/_journal")).push.find((p) => JSON.stringify(p).includes("Brief essai")), 60);
   check("   et en notification sur le téléphone (déchiffrée)", pushed, JSON.stringify(pushed).slice(0, 300));
   for (const x of (await api("GET", `/api/agents/${agent}/routines`)).json.routines) await api("POST", `/api/agents/${agent}/routines/${x.id}/supprimer`, {});
@@ -278,16 +287,16 @@ with db.connect() as c:
   const junk = await say(`OUTIL memory ${JSON.stringify({ action: "add", target: "memory", content: "Détail d'installation : le client OAuth est dans noah-agent-513216" })}`);
   check("4. note d'installation refusée avant d'entrer", junk.output.includes("n'a pas gardé"), junk.output.slice(0, 400));
   const good = await say(`OUTIL memory ${JSON.stringify({ action: "add", target: "user", content: "Préfère des réponses courtes" })}`);
-  const files = (await api("GET", `/api/agents/${agent}/memory`)).json;
+  const files = (await api("GET", `/api/agents/${agent}/memory?frais=1`)).json;
   check("   préférence gardée, note refusée absente", files.user.includes("Préfère des réponses courtes") && !JSON.stringify(files).includes("513216"), `${good.output.slice(0, 200)} ${JSON.stringify(files).slice(0, 300)}`);
   journal = await faux("GET", "/_journal");
   check("   jugées par le petit modèle", journal.appels.filter((a) => a.modele === "faux-petit" && a.systeme.startsWith("Une note de mémoire")).length === 2, journal.appels.map((a) => a.modele).join(","));
   journal = await faux("GET", "/_journal");
   check("   la relecture d'Hermes ne part pas au petit modèle quand le cerveau est peu cher", !journal.appels.some((a) => a.outils.length && a.modele === "faux-petit"), journal.appels.map((a) => a.modele).join(","));
   const asked2 = await say(`OUTIL memory ${JSON.stringify({ action: "add", target: "memory", content: "Demandé : Détail d'installation que je veux garder" })}`);
-  check("   une note demandée par l'utilisateur passe sans jugement", (await api("GET", `/api/agents/${agent}/memory`)).json.memory.some((n) => n.includes("que je veux garder")), asked2.output.slice(0, 200));
+  check("   une note demandée par l'utilisateur passe sans jugement", (await api("GET", `/api/agents/${agent}/memory?frais=1`)).json.memory.some((n) => n.includes("que je veux garder")), asked2.output.slice(0, 200));
   const review = await api("POST", `/api/agents/${agent}/memory/relire`, {});
-  check("   la relecture répond et ne retire rien toute seule", review.status === 200 && (await api("GET", `/api/agents/${agent}/memory`)).json.memory.length === 1, review.text.slice(0, 300));
+  check("   la relecture répond et ne retire rien toute seule", review.status === 200 && (await api("GET", `/api/agents/${agent}/memory?frais=1`)).json.memory.length === 1, review.text.slice(0, 300));
   const flows = (await api("GET", "/api/flux")).json?.flux || [];
   check("5. /api/flux déclare le modèle de décision", flows.some((f) => f.quoi === "Modèle de décision" && f.detail === "faux-petit"));
 
@@ -366,8 +375,8 @@ async function withReal(pageUrl) {
       return r?.last_run_at ? r : null;
     }, 200);
     check("   elle tourne à l'heure", passed && passed.last_status !== "error", JSON.stringify(passed).slice(0, 300));
-    const line = await waitFor("résultat dans la conversation", () => messagesOf(conv).find((m) => m.role === "agent" && m.text.startsWith("**Routine «") && /TOPAZE/i.test(m.text)), 200);
-    check("   son résultat arrive dans la conversation", line, JSON.stringify(messagesOf(conv).slice(-3)).slice(0, 500));
+    const line = await waitFor("résultat dans Activité", () => passageDe("TOPAZE"), 200);
+    check("   son résultat arrive dans Activité (passages), pas dans la conversation (0.4.0, X6)", line && !messagesOf(conv).some((m) => m.role === "agent" && m.text.startsWith("**Routine «") && /TOPAZE/i.test(m.text)), JSON.stringify(messagesOf(conv).slice(-3)).slice(0, 500));
     const push = await waitFor("notification", async () => (await faux("GET", "/_journal")).push.find((p) => /Topaze|TOPAZE/i.test(JSON.stringify(p))), 90);
     check("   et en notification", push);
     await api("POST", `/api/agents/${agent}/routines/${job.id}/supprimer`, {});
