@@ -10,6 +10,9 @@ import remarkGfm from "remark-gfm";
 import { AgentContext } from "@/lib/agentContext";
 import { rawFileUrl } from "@/lib/api";
 import { linkMessage } from "@/lib/chatMedia";
+import { normaliserBlocs } from "@/lib/blocsNus";
+import { aUneCleMasquee, lecture, masquerCles } from "@/lib/nettoyage";
+import { OffreCle } from "../OffreCle";
 import { imageQuote, useQuotes } from "@/lib/quotes";
 import { safeMedia } from "@/lib/utils";
 import { Button } from "../ui";
@@ -42,10 +45,12 @@ export function MarkdownText() {
   // pas quand seule la dernière partie grandit : l'analyse des précédentes n'est pas refaite.
   const around = useAuiState((s) => partsAround(s.message.parts, s.part));
   const streaming = useAuiState((s) => s.message.status?.type === "running");
+  // Le texte de cette partie, seulement s'il porte une clé masquée : l'offre de la ranger au coffre. Une chaîne vide ne redessine rien.
+  const avecCle = useAuiState((s) => { const masque = s.part.type === "text" ? masquerCles(lecture(s.part.text)) : ""; return aUneCleMasquee(masque) ? masque : ""; });
   const preprocess = useCallback(
     (text: string) => {
       const [before, after] = around.split(PART_EDGE);
-      return linkMessage(text, { fileUrl: (path) => rawFileUrl(agentId, path), before, after, streaming });
+      return linkMessage(normaliserBlocs(lecture(text), streaming), { fileUrl: (path) => rawFileUrl(agentId, path), before, after, streaming });
     },
     [agentId, around, streaming],
   );
@@ -94,6 +99,7 @@ export function MarkdownText() {
     [view, download, addQuote, hidden],
   );
   return (
+    <>
     <MarkdownTextPrimitive
       className="prose-chat"
       remarkPlugins={PLUGINS}
@@ -103,5 +109,7 @@ export function MarkdownText() {
       // Révélation douce courte : 250 ms par défaut retardait le texte et ré-analysait le Markdown à chaque image.
       smooth={SMOOTH}
     />
+    <OffreCle text={avecCle} />
+    </>
   );
 }

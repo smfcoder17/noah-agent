@@ -349,4 +349,22 @@ export default {
   "{m} min {s}": "{m}m {s}s",
   "Copier mon message": "Copy my message",
   "Reprendre ce message": "Edit and resend",
+  // components/Widgets.tsx : un bloc que l'écran ne sait pas montrer reste replié (0.4.0, X10)
+  "Contenu que Noah n'a pas pu afficher": "Content Noah could not display",
+  "Élément « {type} » que Noah ne sait pas encore afficher": "“{type}” element Noah cannot display yet",
+  "Élément « {type} » incomplet, non affiché": "“{type}” element is incomplete, not displayed",
+  // lib/nettoyage.ts : les lignes qui remplacent la consigne interne de Noah (X31)
+  "Noah a relevé : {titre}.": "Noah picked up: {titre}.",
+  "Noah a relevé quelque chose à traiter.": "Noah picked up something to handle.",
+  "Noah reprend ce travail là où il s'est arrêté.": "Noah is resuming this work where it stopped.",
+  // components/OffreCle.tsx : une clé collée dans une discussion est masquée, et se range au coffre (X17)
+  "Une clé est masquée : l'agent ne la voit pas.": "A key is hidden: the agent cannot see it.",
+  "Une clé est masquée ({n}) : l'agent ne la voit pas.": "A key is hidden ({n}): the agent cannot see it.",
+  "Ranger au coffre": "Save to the vault",
+  "Rangée au coffre.": "Saved to the vault.",
+  "Clé d'API": "API key",
+  "clé d'API": "API key",
+  "Ranger cette clé au coffre": "Save this key to the vault",
+  "La clé est dans le champ « Mot de passe ». Chiffrée sur ton serveur, tes agents s'en servent sans jamais la lire.": "The key is in the “Password” field. Encrypted on your server, your agents use it without ever reading it.",
+  "Colle ta clé dans le champ « Mot de passe » : elle n'est plus dans ce message. Chiffrée sur ton serveur, tes agents s'en servent sans jamais la lire.": "Paste your key in the “Password” field: it is no longer in this message. Encrypted on your server, your agents use it without ever reading it.",
 } satisfies Record<string, string>;

@@ -15,6 +15,7 @@ import { enMemoire, type EnCours, type Ouverture, useOuverture, verifier } from 
 import { avecTaches } from "./tachesFil";
 import { t, tServeur } from "@/i18n";
 import { pcNote } from "./lignesServeur";
+import { ancienMessage, ligneInterne, retenirCles } from "./nettoyage";
 
 type TextPart = { type: "text"; text: string };
 type ToolPart = { type: "tool-call"; toolCallId: string; toolName: string; args: Record<string, unknown>; result?: unknown };
@@ -82,7 +83,10 @@ function fromStored(stored: StoredMessage, i: number): ChatMessage {
 
 const isInitiative = (m: StoredMessage) => stored(m.detail).marque === "initiative" || ANCIENNE_MARQUE.test(m.text);
 
-function fromStoredContent(m: StoredMessage, i: number): ChatMessage {
+function fromStoredContent(brut: StoredMessage, i: number): ChatMessage {
+  // 0.4.0 (X31, X17) : le filet de l'écran. Le serveur rend déjà les messages propres ; un message en base lu par un serveur plus ancien se nettoie ici.
+  const lu = ancienMessage(brut);
+  const m: StoredMessage = lu ? (lu.role === "agent" ? { ...lu, text: ligneInterne(lu.text) } : lu) : { ...brut, text: "" };
   if (m.role === "accord") {
     const accord = traceArgs(m) as { id?: string };
     return { id: accord.id ? `clos-${accord.id}` : `h${i}`, role: "assistant", content: [{ type: "text", text: m.text }] };
@@ -638,6 +642,7 @@ export function useAgentChat(opts: {
       const attachments = (message.attachments ?? []).map((a) => a.id).filter((id) => id.startsWith("/opt/data/"));
       if (!typed) return;
       const text = (takeQuotes.current?.() ?? "") + typed;
+      retenirCles(text); // 0.4.0 (X17) : la clé qu'on vient de taper reste en mémoire vive, pour l'offre de la ranger au coffre ; elle ne va nulle part ailleurs
       const clientId = message.metadata?.custom?.clientId as string | undefined; // l'appel renvoie un tour sous le même identifiant
       if (running.current || serverBusy.current) return sendWhileBusy(text, clientId, attachments); // un message demandé par l'interface en plein travail
       const userMsg: ChatMessage = {

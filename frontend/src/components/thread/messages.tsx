@@ -12,6 +12,8 @@ import { Button } from "../ui";
 import { readableModel } from "@/lib/modes";
 import { langue, locale, t } from "@/i18n";
 import { MarkdownText } from "./Markdown";
+import { OffreCle } from "../OffreCle";
+import { masquerCles } from "@/lib/nettoyage";
 import { LiveStatus, TOOLS } from "./parts";
 
 // --- Messages ------------------------------------------------------------------------
@@ -30,15 +32,17 @@ export function AttachmentChip() {
 
 /** Texte de l'utilisateur : les passages cités en tête s'affichent en citations, au-dessus de sa question. */
 function UserText({ text }: TextMessagePartProps) {
-  const { quotes, rest } = splitQuotes(text);
+  const { quotes, rest: brut } = splitQuotes(text);
+  const rest = masquerCles(brut); // 0.4.0 (X17) : une clé tapée à l'instant se masque tout de suite, comme le serveur la masquera
   return (
     <>
       {quotes.map((q, i) => (
         <span key={i} className="mb-2 block max-h-28 overflow-hidden border-l-2 border-accent/60 pl-2.5 text-[13px] text-muted-foreground [mask-image:linear-gradient(to_bottom,black_75%,transparent)]">
-          <SensitiveText text={q} />
+          <SensitiveText text={masquerCles(q)} />
         </span>
       ))}
       <SensitiveText text={rest} />
+      <OffreCle text={rest} />
     </>
   );
 }

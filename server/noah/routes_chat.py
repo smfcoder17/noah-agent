@@ -12,7 +12,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import Field, BaseModel
 
 from .hermes import Agent
-from . import hermes, coordination, machine, coffre, updates, auth, db, notifications, pendant, diagnostics, handoff, access, media, accords, sensitive, bus, main
+from . import hermes, coordination, machine, coffre, updates, auth, db, notifications, pendant, diagnostics, handoff, access, media, accords, nettoyage, sensitive, bus, main
 
 router = APIRouter()
 
@@ -25,6 +25,10 @@ def _conversation_owner(conv_id: str) -> int | None:
 
 
 def _save_message(conv_id: str, role: str, text: str, detail: str | None = None, model: str | None = None) -> None:
+    posed = nettoyage.pose(role, text)  # 0.4.0 (X31) : rien d'interne dans un fil ; `[SILENT]` et la consigne de Noah ne se posent pas
+    if posed is None:
+        return
+    text = posed
     with db.connect() as c:
         c.execute("INSERT INTO messages (conversation_id, role, text, detail, model) VALUES (?, ?, ?, ?, ?)", (conv_id, role, text, detail, model))
         c.execute("UPDATE conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (conv_id,))

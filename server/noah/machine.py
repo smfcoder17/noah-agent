@@ -15,7 +15,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from . import access, auth, db, desktop, hermes, modes, notifications, presets, relay
+from . import access, auth, db, desktop, hermes, modes, nettoyage, notifications, presets, relay
 from .config import LAUNCHER_URL
 from .hermes import LAUNCHER
 
@@ -465,18 +465,19 @@ async def deliver_routines_once(save_message, main_conversation, only_due: bool 
                 db.set_setting(key, r["quand"])
                 continue
             owner = db.agent_owner(agent_id)  # son résultat est à lui : pas chez le profil en train de parler à l'agent
+            silent = nettoyage.silence(r["texte"])  # 0.4.0 (X31) : « [SILENT] » veut dire « ne rien écrire » : ni message, ni notification
             if once:  # un rappel est fait pour arriver dans le fil, à l'heure
-                if conv:
-                    text = f"**{title}**\n\n{r['texte'].strip()}"
+                if conv and not silent:
+                    text = f"**{title}**\n\n{nettoyage.interne(r['texte'])}"
                     save_message(conv, "agent", text)
                     add_context(conv, text)
                     if owner is not None:
-                        _push_reminder(owner, title, notifications.first_sentence(r["texte"]), notifications.conversation_url(agent_id, conv))
+                        _push_reminder(owner, title, notifications.first_sentence(nettoyage.interne(r["texte"])), notifications.conversation_url(agent_id, conv))
             elif new:
                 if _routine_back(agent_id, r) and conv:  # la panne signalée est finie : le fil le sait, en une phrase
                     _say_back(save_message, agent_id, conv, name, owner)
-                if owner is not None:
-                    desktop.notify_user(owner, title, notifications.first_sentence(r["texte"]), "routines", notifications.conversation_url(agent_id))
+                if owner is not None and not silent:
+                    desktop.notify_user(owner, title, notifications.first_sentence(nettoyage.interne(r["texte"])), "routines", notifications.conversation_url(agent_id))
             db.set_setting(key, r["quand"])
         if news:  # le voyant d'Activité s'allume, sans attendre que quelqu'un relise l'agent
             owner = db.agent_owner(agent_id)
@@ -527,8 +528,8 @@ def record_passage(agent_id: str, r: dict, error: str | None, now: float) -> int
         last = next((line.strip() for line in reversed(error.strip().splitlines()) if line.strip()), "")
         resume, rendu, erreur = events.friendly_error(last or error), "", diagnostics.mask(error)[:4000]
     else:
-        rendu = str(r.get("texte") or "").strip()[:PASSAGE_RENDU_MAX]
-        resume, erreur = notifications.first_sentence(rendu, 200), ""
+        rendu = nettoyage.interne(str(r.get("texte") or "")).strip()[:PASSAGE_RENDU_MAX]  # 0.4.0 (X31) : sans `[SILENT]` ni réaction
+        resume, erreur = (notifications.first_sentence(rendu, 200) if rendu else "Rien à signaler."), ""
     with db.connect() as c:
         done = c.execute("INSERT OR IGNORE INTO routine_passages (agent_id, routine_id, nom, fichier, etat, resume, rendu, erreur, passe_a) "
                          "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -547,7 +548,7 @@ def non_vues(user: int, agent_id: str) -> int:
 
 def _passage(row) -> dict:
     return {"id": row["id"], "routine_id": row["routine_id"], "nom": row["nom"], "etat": row["etat"], "passe_a": row["passe_a"],
-            "duree": row["duree"], "resume": row["resume"], "amene": bool(row["amene"])}
+            "duree": row["duree"], "resume": nettoyage.ligne(row["resume"]), "amene": bool(row["amene"])}
 
 
 @router.get("/api/agents/{agent_id}/routines-activite")
@@ -572,10 +573,10 @@ def routines_de(user: int, agent_id: str) -> dict:
     out = []
     for r in rows:
         last, job = lasts.get(r["routine_id"], {}), live.get(r["routine_id"]) or {}
-        out.append({"id": r["routine_id"], "nom": last.get("nom") or job.get("name") or r["routine_id"], "quand": job.get("schedule_display") or "",
+        out.append({"id": r["routine_id"], "nom": nettoyage.ligne(last.get("nom") or job.get("name") or r["routine_id"]), "quand": job.get("schedule_display") or "",
                     "en_pause": bool(job) and not job.get("enabled", True), "supprimee": bool(known) and not job,
                     "passages": r["n"], "echecs": r["echecs"] or 0, "vient": (r["neufs"] or 0) > 0, "dernier_a": r["dernier"],
-                    "bilan": last.get("resume") or "", "dernier_etat": last.get("etat") or "ok"})
+                    "bilan": nettoyage.ligne(last.get("resume")), "dernier_etat": last.get("etat") or "ok"})
     for job_id, job in live.items():  # une routine qui n'a pas encore passé se voit aussi, à zéro passage
         if job_id not in {o["id"] for o in out} and job.get("enabled", True) and job.get("name"):
             out.append({"id": job_id, "nom": job["name"], "quand": job.get("schedule_display") or "", "en_pause": False, "supprimee": False,
@@ -608,7 +609,7 @@ def routine_passage(agent_id: str, passage_id: int, user: int = Depends(auth.cur
     """Un passage en entier : le rendu de la routine, ou l'erreur masquée d'un échec."""
     _check(agent_id, user)
     row = _passage_row(agent_id, passage_id)
-    return {**_passage(row), "rendu": row["rendu"], "erreur": row["erreur"]}
+    return {**_passage(row), "rendu": nettoyage.lecture(row["rendu"]), "erreur": nettoyage.lecture(row["erreur"])}
 
 
 @router.post("/api/agents/{agent_id}/routines-passages/{passage_id}/amener")
@@ -621,7 +622,7 @@ def routine_passage_bring(agent_id: str, passage_id: int, user: int = Depends(au
     row = _passage_row(agent_id, passage_id)
     conv = main._main_conversation(agent_id, user) or main._new_conversation(user, agent_id, "Conversation", main=True)
     if not row["amene"]:
-        body = row["rendu"] if row["etat"] == "ok" else f"{row['resume']} (le passage a échoué)"
+        body = nettoyage.lecture(row["rendu"]) if row["etat"] == "ok" else f"{nettoyage.ligne(row['resume'])} (le passage a échoué)"
         text = f"**Routine « {row['nom']} »** ({datetime.fromtimestamp(row['passe_a']).strftime('%d/%m %H:%M')})\n\n{body.strip()}"
         main._save_message(conv, "agent", text)
         add_context(conv, text)

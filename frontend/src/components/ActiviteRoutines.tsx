@@ -3,6 +3,7 @@
 import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { t } from "@/i18n";
+import { lecture, ligne } from "@/lib/nettoyage";
 import { get, send } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui";
@@ -49,7 +50,7 @@ export function Bilan({ agentId, routine, onBack, onBrought }: { agentId: string
         <h1 className="title">{routine.nom}</h1>
         <p className="soft">{[routine.agent?.nom, routine.quand, t("{n} passages", { n: routine.passages }), routine.echecs ? t("{n} échecs", { n: routine.echecs }) : ""].filter(Boolean).join(" · ")}</p>
       </div>
-      <section className="stack g8"><h2 className="h2">{t("Bilan")}</h2><p>{routine.bilan || t("Pas encore passée.")}</p></section>
+      <section className="stack g8"><h2 className="h2">{t("Bilan")}</h2><p>{ligne(routine.bilan) || t("Pas encore passée.")}</p></section>
       <section className="stack g8">
       <h2 className="h2">{t("Passages")}</h2>
       <div className="list">
@@ -59,14 +60,14 @@ export function Bilan({ agentId, routine, onBack, onBrought }: { agentId: string
             <div key={p.id} data-passage={p.id} className="flex flex-col">
               <button type="button" className="row text-left" aria-expanded={ouvert === p.id} onClick={() => ouvrir(p)}>
                 <span className="grow flex min-w-0 flex-col">
-                  <span className={cn("row-title truncate", p.etat === "err" && "text-destructive")}>{p.resume || t("Passage")}</span>
+                  <span className={cn("row-title truncate", p.etat === "err" && "text-destructive")}>{ligne(p.resume) || t("Passage")}</span>
                   <span className="row-sub">{quand(p.passe_a)}{p.etat === "err" ? ` · ${t("a échoué")}` : ""}</span>
                 </span>
                 <ChevronRight className={cn("size-4 text-muted-foreground transition-transform", ouvert === p.id && "rotate-90")} aria-hidden />
               </button>
               {ouvert === p.id && (
                 <div className="flex flex-col gap-2 px-3 pb-3">
-                  <div className="text-sm whitespace-pre-wrap">{d ? (d.etat === "ok" ? d.rendu : d.erreur || d.resume) : <Loader2 className="size-4 animate-spin" aria-label={t("Chargement")} />}</div>
+                  <div className="text-sm whitespace-pre-wrap">{d ? lecture(d.etat === "ok" ? d.rendu : d.erreur || d.resume) : <Loader2 className="size-4 animate-spin" aria-label={t("Chargement")} />}</div>
                   <Button size="sm" variant="outline" className="w-fit" disabled={brought[p.id] || p.amene} onClick={() => amener(p)}>{brought[p.id] || p.amene ? t("Déjà dans le fil") : t("Amener dans le fil")}</Button>
                 </div>
               )}

@@ -20,8 +20,8 @@ const genres = (): [VaultGenre, string][] => [["login", t("Identifiant")], ["car
 
 type WithProof = ReturnType<typeof useProof>["withProof"];
 
-function ItemForm({ genre, element, withProof, onSaved, onCancel }: { genre: VaultGenre; element?: VaultElement; withProof: WithProof; onSaved: () => void; onCancel: () => void }) {
-  const [values, setValues] = useState<Record<string, string>>({ nom: element?.nom ?? "", origine: element?.origine ?? "" });
+function ItemForm({ genre, element, initial, withProof, onSaved, onCancel }: { genre: VaultGenre; element?: VaultElement; /** Des champs déjà remplis à l'ajout (une clé collée dans une discussion). */ initial?: Record<string, string>; withProof: WithProof; onSaved: () => void; onCancel: () => void }) {
+  const [values, setValues] = useState<Record<string, string>>({ nom: element?.nom ?? "", origine: element?.origine ?? "", ...initial });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const ids = useId();
@@ -141,6 +141,20 @@ function VaultImport({ onDone }: { onDone: () => void }) {
       )}
       <ErrorText>{error}</ErrorText>
     </div>
+  );
+}
+
+/** L'ajout d'un identifiant au coffre dans une fenêtre, champs déjà remplis : la carte « Ranger au coffre » d'une clé collée dans une discussion (X17).
+ *  La valeur ne passe que par ce formulaire et la même route que le reste du coffre : nulle part ailleurs. */
+export function VaultAddDialog({ initial, description, onClose, onSaved }: { initial: Record<string, string>; description: string; onClose: () => void; onSaved: () => void }) {
+  const { withProof, proofDialog } = useProof();
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent title={t("Ranger cette clé au coffre")} description={description}>
+        <ItemForm genre="login" initial={initial} withProof={withProof} onCancel={onClose} onSaved={() => { onSaved(); onClose(); }} />
+        {proofDialog}
+      </DialogContent>
+    </Dialog>
   );
 }
 

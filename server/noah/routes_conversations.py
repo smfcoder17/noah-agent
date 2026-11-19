@@ -7,7 +7,7 @@ import re
 from fastapi import HTTPException, Depends, APIRouter
 from pydantic import BaseModel
 
-from . import media, access, events, apprentissage, auth, bus, db, desktop, handoff, machine, notifications, taches, main
+from . import media, access, events, apprentissage, auth, bus, db, desktop, handoff, machine, nettoyage, notifications, taches, main
 from . import main as main_module  # dans conversations(), `main` est une variable locale : le module s'y lit par ce nom
 
 router = APIRouter()
@@ -59,7 +59,7 @@ def conversations_of(agent_id: str, user: int) -> list[dict]:
         running = state in ("work", "approve") or (state == "choice" and r["id"] not in answered)
         archived = bool(r["archived"]) or (bool(r["stale"]) and not running)
         out.append({
-            "id": r["id"], "title": r["title"], "updated_at": r["updated_at"], "state": state, "en_cours": running,
+            "id": r["id"], "title": nettoyage.ligne(r["title"]), "updated_at": r["updated_at"], "state": state, "en_cours": running,
             "main": main, "archived": archived and not main, "origin": r["origin"],
             "partagee": bool(r["shared"]), "de": None if own else r["username"],
         })
@@ -176,7 +176,7 @@ def messages_page(conv, conv_id: str, user: int, limit: int | None = None, avant
     for row in rows:
         if row["id"] in given:
             row["reactions"] = given[row["id"]]
-    return rows
+    return [shown for shown in (nettoyage.message_lu(row) for row in rows) if shown]  # 0.4.0 (X31, X17) : un ancien message sort propre, sa clé masquée ; un `[SILENT]` ne sort pas
 
 
 class Reaction(BaseModel):

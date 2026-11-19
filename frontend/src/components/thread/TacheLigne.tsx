@@ -8,6 +8,7 @@ import type { TacheDuFil } from "@/lib/ouverture";
 import { cn } from "@/lib/utils";
 import { StateShape } from "../Sidebar";
 import { t } from "@/i18n";
+import { lecture, ligne } from "@/lib/nettoyage";
 import type { ACorriger } from "../Corriger";
 
 // Chargés à la demande (budget B2) : seul le fil qui a une question ou une correction les télécharge.
@@ -106,7 +107,7 @@ export function TacheLigne({ tache, agentId, agentName, defaultOpen = false, onO
       <button type="button" aria-expanded={open} aria-controls={`${id}-detail`} onClick={() => setAsked(!open)} className="task">
         <span className="task-state">{tache.etat === "fini" ? <Check className="size-[18px] text-ok" aria-hidden /> : <StateShape state={tache.etat === "attend" ? "approve" : tache.etat === "echec" ? "error" : "work"} />}</span>
         <span className="grow flex min-w-0 flex-col">
-          <span className="row-title">{tache.titre}</span>
+          <span className="row-title">{ligne(tache.titre)}</span>
           <span className={cn("task-meta md:hidden", attend && "task-meta-wait")}>{meta}</span>
         </span>
         {attend ? <span className="pill wait max-md:hidden">{[qui, etatDit(tache.etat)].join(" · ")}</span> : <span className="task-meta max-md:hidden">{meta}</span>}
@@ -114,7 +115,7 @@ export function TacheLigne({ tache, agentId, agentName, defaultOpen = false, onO
       </button>
       {open && (
         <div id={`${id}-detail`} className="sub">
-          {etapes.length > 0 && <p className="text-[13px] text-muted-foreground">{etapes.join(" · ")}</p>}
+          {etapes.length > 0 && <p className="text-[13px] text-muted-foreground">{etapes.map(ligne).join(" · ")}</p>}
           {(tache.echanges ?? []).map((x, i) => {
             const corrigee = x.id ? corrigees[x.id] : undefined;
             return (
@@ -131,7 +132,7 @@ export function TacheLigne({ tache, agentId, agentName, defaultOpen = false, onO
             );
           })}
           {tache.question && !repondue && <Suspense fallback={null}><QuestionCard q={tache.question} dansTache onTache={tache.conversation_id ? () => (onOpen ? onOpen(tache.conversation_id) : (window.location.hash = adresseDe(agentId, tache.conversation_id))) : undefined} /></Suspense>}
-          {!(tache.question && !repondue && !tache.resume) && <p className="whitespace-pre-wrap break-words">{tache.resume || (tache.etat === "encours" ? t("Le travail est en cours.") : tache.etat === "attend" ? t("Le travail attend ta réponse.") : t("Pas de compte rendu."))}</p>}
+          {!(tache.question && !repondue && !tache.resume) && <p className="whitespace-pre-wrap break-words">{lecture(tache.resume) || (tache.etat === "encours" ? t("Le travail est en cours.") : tache.etat === "attend" ? t("Le travail attend ta réponse.") : t("Pas de compte rendu."))}</p>}
           {files.length > 0 && <div className="flex flex-wrap items-center gap-2">{files.map((f) => <span key={f} className="file">{/\.(png|jpe?g|gif|webp)$/i.test(f) ? <ImageIcon className="size-[18px]" aria-hidden /> : <FileIcon className="size-[18px]" aria-hidden />}<span className="cut">{f}</span></span>)}</div>}
           {entrer && <div>{entrer}</div>}
         </div>

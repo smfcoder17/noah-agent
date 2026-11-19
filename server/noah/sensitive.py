@@ -12,14 +12,33 @@ KEYS = re.compile(
     r"|(xox[abposr]-)[A-Za-z0-9-]{10,}"
     r"|(AKIA)[0-9A-Z]{16}(?![0-9A-Za-z])"
     r"|(AIza)[0-9A-Za-z_-]{30,}"
+    r"|(gsk_|xai-|hf_|r8_|pplx-|nvapi-|tvly-|fc-)[A-Za-z0-9_-]{20,}"  # Groq, xAI, Hugging Face, Replicate, Perplexity, NVIDIA, Tavily, Firecrawl
     r"|(eyJ)[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"
     r")")
+# Une clé longue d'un fournisseur sans préfixe connu : seulement quand la phrase la nomme (« clé d'API : … », « token = … », « Bearer … »).
+CONTEXT = re.compile(r"(?i)\b((?:api[ _-]?key|apikey|secret(?:[ _-]?key)?|access[ _-]?token|auth[ _-]?token|token|bearer|cl[ée](?: d'api| secr[èe]te)?)(?:\s*[:=]\s*|\s+(?:est\s+)?)[\"'`]?)([A-Za-z0-9][A-Za-z0-9_\-./+=]{23,})")
 KEY_SHOWN = "•••• (clé masquée)"
 
 
+def _long_key(m: re.Match) -> str:
+    """Seulement une suite qui ressemble à une clé : des lettres et des chiffres mêlés (ni un mot, ni un nombre, ni une adresse)."""
+    value = m.group(2)
+    if not (re.search(r"[A-Za-z]", value) and re.search(r"\d", value)) or re.match(r"https?:|/", value):
+        return m.group(0)
+    return m.group(1) + KEY_SHOWN
+
+
 def mask_keys(value: str) -> str:
-    """Une clé collée devient « sk-•••• (clé masquée) » : ni le modèle, ni les titres, ni les journaux ne la gardent."""
-    return KEYS.sub(lambda m: next(g for g in m.groups() if g) + KEY_SHOWN, str(value))
+    """Une clé collée devient « sk-•••• (clé masquée) » : ni le modèle, ni les titres, ni les journaux, ni une route de lecture ne la gardent."""
+    value = KEYS.sub(lambda m: next(g for g in m.groups() if g) + KEY_SHOWN, str(value))
+    return CONTEXT.sub(_long_key, value)
+
+
+def keys_in(value: str) -> list[str]:
+    """Les clés que contient ce texte, en clair : pour les ranger au coffre depuis le serveur, jamais pour les rendre."""
+    found = [m.group(0) for m in KEYS.finditer(str(value))]
+    found += [m.group(2) for m in CONTEXT.finditer(str(value)) if _long_key(m) != m.group(0)]
+    return list(dict.fromkeys(found))
 
 
 def luhn(value: str) -> bool:

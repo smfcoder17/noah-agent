@@ -8,7 +8,7 @@ import time
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import Field, BaseModel
-from . import taches, questions, machine, updates, coffre, handoff, desktop, access, session, db, auth, relay, propositions, proactif, coordination, sensitive, accords, main
+from . import taches, questions, machine, updates, coffre, handoff, desktop, access, session, db, auth, relay, propositions, proactif, coordination, nettoyage, sensitive, accords, main
 
 router = APIRouter()
 
@@ -65,7 +65,7 @@ def inbox(user: int = Depends(auth.current_user)):
                     "demande": "Une question attend ta réponse.", "apercu": [], "created": row["created"]})
     out += [_question_item(q) for q in asked]
     out += _calls_waiting(user)
-    return out + propositions.inbox(user)  # ce que ses agents proposent de lui-même
+    return nettoyage.dans(out + propositions.inbox(user))  # ce que ses agents proposent de lui-même ; 0.4.0 (X31, X17) : sans marque interne ni clé en clair
 
 
 def _question_item(q: dict) -> dict:

@@ -202,6 +202,9 @@ jobs:
       - name: "Le reçu : ce que l'agent dit est comparé à ce que ses outils ont fait, dans les deux sens, sans fausse alerte sur un doute"
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/agents/recu_test.py"
+      - name: Rien d'interne dans un fil, aucune clé d'API en clair à l'écriture comme à la relecture
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/agents/nettoyage_test.py"
       - name: Veilles sans appel au modèle quand la page ne bouge pas
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \

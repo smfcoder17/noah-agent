@@ -15,7 +15,7 @@ from fastapi import Request, Depends, HTTPException, APIRouter
 from pydantic import BaseModel
 
 from .hermes import Agent
-from . import desktop, mcp, session, diagnostics, updates, notifications, machine, access, chauffe, auth, db, proactif, push, apprentissage, pendant, handoff, coordination, relay, recu, hermes, events, accords, bus, taches, questions, main
+from . import desktop, mcp, session, diagnostics, updates, notifications, machine, access, chauffe, auth, db, proactif, push, apprentissage, pendant, handoff, coordination, relay, recu, hermes, events, accords, bus, nettoyage, taches, questions, main
 
 router = APIRouter()
 
@@ -65,7 +65,7 @@ def _new_conversation(user: int, agent_id: str, title: str, main: bool = False, 
     with db.connect() as c:
         c.execute(
             "INSERT INTO conversations (id, user_id, agent_id, title, main, origin) VALUES (?, ?, ?, ?, ?, ?)",
-            (conv_id, user, agent_id, title[:80], int(main), origin),
+            (conv_id, user, agent_id, nettoyage.ligne(title)[:80], int(main), origin),  # 0.4.0 (X31, X17) : ni marque interne ni clé dans un titre
         )
     return conv_id
 

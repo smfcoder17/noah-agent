@@ -4,6 +4,7 @@
 import { Check, ChevronRight, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { t } from "@/i18n";
+import { ligne } from "@/lib/nettoyage";
 import { get, send } from "@/lib/api";
 import { useOuverture, type TacheDuFil } from "@/lib/ouverture";
 import { Bilan, type Routine, Voyant } from "./ActiviteRoutines";
@@ -78,7 +79,7 @@ export function ActivitePage({ agentId, onOpenTache, onOpenAgent }: {
               {data.taches.map((x) => (
                 <button key={x.id} type="button" className="row text-left" data-tache={x.id} data-etat={x.etat} onClick={() => onOpenTache(x.agent.id, x.conversation_id)}>
                   <span className="task-state">{x.etat === "fini" ? <Check className="size-[18px] text-ok" aria-hidden /> : <StateShape state={x.etat === "attend" ? "approve" : x.etat === "echec" ? "error" : "work"} />}</span>
-                  <span className="grow stack min-w-0"><span className="row-title">{x.titre}</span><span className="row-sub">{sousTitre(x)}</span></span>
+                  <span className="grow stack min-w-0"><span className="row-title">{ligne(x.titre)}</span><span className="row-sub">{sousTitre(x)}</span></span>
                   <ChevronRight className="chev" aria-hidden />
                 </button>
               ))}
@@ -97,7 +98,7 @@ export function ActivitePage({ agentId, onOpenTache, onOpenAgent }: {
                   {r.vient ? <Voyant /> : <span className="dot" aria-hidden />}
                   <span className="grow stack min-w-0">
                     <span className="row-title">{r.nom}</span>
-                    <span className="row-sub">{[r.agent?.nom, r.quand, r.bilan].filter(Boolean).join(" · ")}</span>
+                    <span className="row-sub">{[r.agent?.nom, r.quand, ligne(r.bilan)].filter(Boolean).join(" · ")}</span>
                   </span>
                   <span className="task-meta">{t("{n} passages", { n: r.passages })}</span>
                   <ChevronRight className="chev" aria-hidden />

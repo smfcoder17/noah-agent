@@ -26,7 +26,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 
-from . import db, notifications, questions
+from . import db, nettoyage, notifications, questions
 
 TITRE_MAX = 60  # caractères d'un titre, points de suspension compris
 RESUME_MAX = 280  # caractères d'un résumé : sa première phrase
@@ -65,7 +65,7 @@ def _heure(quand: float) -> str:
 def titre_auto(texte: str, quand: float | None = None) -> str:
     """Un titre tiré d'un texte, sans modèle : on enlève un préfixe entre crochets (`[Demande de l'agent … ]`, coordination.py) et
     le Markdown, on garde la première phrase, on coupe à 60 caractères sur un mot. Sans rien à garder : « Tâche du 12 novembre »."""
-    plain = re.sub(r"^\s*\[[^\]]*\](?!\()\s*", "", texte or "")
+    plain = re.sub(r"^\s*\[[^\]]*\](?!\()\s*", "", nettoyage.lecture(texte))  # 0.4.0 (X31, X17) : ni marque interne ni clé dans un titre
     plain = re.sub(r"```.*?(```|$)", " ", plain, flags=re.S)
     plain = re.sub(r"MEDIA:\S+", " ", plain)
     plain = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", plain)
@@ -83,7 +83,8 @@ def titre_auto(texte: str, quand: float | None = None) -> str:
 
 def _resume(texte: str | None) -> str:
     """La première phrase de la réponse, avec la fonction qui sert déjà aux notifications. Vide : rien à dire."""
-    return notifications.first_sentence(texte, RESUME_MAX) if texte and texte.strip() else ""
+    texte = nettoyage.lecture(texte)
+    return notifications.first_sentence(texte, RESUME_MAX) if texte.strip() else ""
 
 
 def trois_lignes(texte: str | None, lignes: int = LIGNES_MAX) -> list[str]:
@@ -350,13 +351,13 @@ def _forme(r, etapes: dict[str, list[str]] | None = None) -> dict:
         fichiers = json.loads(r["fichiers"] or "[]")
     except ValueError:
         fichiers = []
-    return {"id": r["id"], "titre": r["titre"], "genre": r["genre"],
+    return {"id": r["id"], "titre": nettoyage.ligne(r["titre"]), "genre": r["genre"],
             "demandeur": {"id": r["demandeur"], "nom": r["demandeur_nom"]} if r["demandeur"] else None,
             "agent": {"id": r["agent_id"], "nom": r["agent_nom"]},  # celui qui fait le travail : la ligne le nomme, pas le demandeur
-            "etat": _etat(r), "resume": r["resume"], "fichiers": fichiers if isinstance(fichiers, list) else [],
+            "etat": _etat(r), "resume": nettoyage.ligne(r["resume"]), "fichiers": fichiers if isinstance(fichiers, list) else [],
             "ancre": r["ancre"], "cree": r["cree"], "fini_a": r["fini_a"], "conversation_id": r["conversation_id"],
-            "question": questions.question_tache(r["id"]), "echanges": questions.echanges_tache(r["id"]),
-            "etapes": (etapes or {}).get(r["conversation_id"], [])}
+            "question": nettoyage.dans(questions.question_tache(r["id"])), "echanges": nettoyage.dans(questions.echanges_tache(r["id"])),
+            "etapes": [nettoyage.ligne(e) for e in (etapes or {}).get(r["conversation_id"], [])]}
 
 
 def du_fil(fil_id: str, owner_id: int, depuis_ancre: int | None) -> list[dict]:
@@ -413,7 +414,7 @@ def travail_des_agents(owner_id: int, agent_ids: list[str]) -> dict[str, dict]:
         if attend:
             a["attend"] = True
         elif a["titre"] is None:
-            a["titre"] = r["titre"]
+            a["titre"] = nettoyage.ligne(r["titre"])
     suit = len(ouvertes)
     for a in out.values():
         a["suit"] = suit
