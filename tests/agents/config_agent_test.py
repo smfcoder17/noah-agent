@@ -113,7 +113,7 @@ for row, block in [
     ("des produits ou des offres pour un achat", "products"),
     ("des sources, articles ou pages", "links"),
     ("des vidéos, lieux, images ou idées à parcourir en vignettes", "grid"),
-    ("une comparaison de quelques lignes", "un tableau markdown"),
+    ("une comparaison de quelques lignes", "une liste courte"),
     ("beaucoup de lignes, ou des données à télécharger", "table"),
     ("des chiffres qui évoluent", "chart"),
     ("un fichier que tu as créé", "preview"),
@@ -152,3 +152,23 @@ assert len(widgets) < 3800, f"la section reste courte (3 000 caractères avant l
 assert main.AGENT_SETUP_VERSION.startswith("47-"), "les agents existants doivent recevoir la table des widgets (45), le rythme sur X (46) et la langue de la personne (47)"
 assert "Réponds en français" not in soul and "Réponds dans la langue de la personne" in soul, "l'agent répond dans la langue de la personne"
 print(f"prompt : table « ce que tu présentes → le bloc », exemple par bloc, posts, products, links ({len(widgets)} caractères)")
+
+# 0.4.0 (L4, X9) : une seule consigne de mise en forme, donnée à tous les agents avec le reste du prompt, et qui ne contredit pas les widgets.
+forme = soul[soul.index("## Mise en forme"):]
+for needed, why in [
+    ("Des phrases simples", "phrases simples"),
+    ("six puces au plus", "listes courtes"),
+    ("Jamais de tableau en barres verticales", "pas de tableau"),
+    ("seulement pour du vrai code", "pas de bloc de code hors du code"),
+    ("Jamais de JSON dans ton texte", "pas de JSON"),
+    ("Pas de flèches", "pas de flèches"),
+    ("symboles décoratifs", "pas de symboles décoratifs"),
+    ("Un lien porte un nom", "liens nommés"),
+    ("seul dans son bloc", "le bloc noah reste permis : c'est le seul JSON"),
+    ("[[👍]]", "la réaction en tête reste permise"),
+]:
+    assert needed in forme, why
+assert soul.count("## Mise en forme") == 1, "un seul texte de mise en forme"
+assert "```noah" not in forme and "un tableau markdown" not in soul, "la consigne ne se contredit pas : plus de tableau Markdown conseillé nulle part"
+assert main.AGENT_SETUP_VERSION.startswith("47-"), "le lot L4 ne monte pas la version : Claude la montera une fois, à la publication"
+print(f"prompt : mise en forme ({len(forme)} caractères), conciliée avec les widgets")

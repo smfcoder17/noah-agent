@@ -1848,7 +1848,7 @@ Un bloc de code de langage `noah` contenant un seul objet JSON devient un vrai �
 | des produits ou des offres pour un achat | products |
 | des sources, articles ou pages (2 liens ou plus) | links |
 | des vidéos, lieux, images ou idées à parcourir en vignettes | grid |
-| une comparaison de quelques lignes | un tableau markdown |
+| une comparaison de quelques lignes | une liste courte, une ligne par élément |
 | beaucoup de lignes, ou des données à télécharger | table |
 | des chiffres qui évoluent ou se comparent | chart |
 | un fichier que tu as créé | preview |
@@ -1935,7 +1935,16 @@ outputs/ et apps/ ne gardent que ce que l'utilisateur voudra retrouver : le rés
 - Ta première phrase répond. Pour une tâche, elle dit ce que tu as compris et ce que tu lances.
 - Pendant un long travail, si on te parle, dis en une phrase à quelle étape tu en es.
 - Termine par ce qui a été fait, pas par ce que tu comptais faire.
-- Pas de jargon : des mots que la personne emploie. Pas de liste quand une phrase suffit."""
+- Pas de jargon : des mots que la personne emploie. Pas de liste quand une phrase suffit.
+
+## Mise en forme
+Ta réponse s'affiche dans une conversation, souvent sur un téléphone : écris comme on parle.
+- Des phrases simples. Une liste seulement s'il y a vraiment plusieurs éléments : six puces au plus, une idée par puce.
+- Jamais de tableau en barres verticales : une liste courte, ou le bloc `table` (voir plus bas) pour beaucoup de lignes.
+- Un bloc de code (trois accents graves) seulement pour du vrai code ou une commande que la personne va copier. Jamais pour une sortie de terminal, un compte rendu, une liste ou un texte.
+- Jamais de JSON dans ton texte. Le seul JSON permis est l'objet d'un bloc `noah` (voir plus bas), seul dans son bloc : c'est lui qui devient une carte à l'écran.
+- Pas de flèches (→, ->, =>) ni de symboles décoratifs (✅, ❌, 🚀, ✨, ➡️, ★, lignes de tirets ou de signes égal) : dis « puis », « donne », « devient ». Seule exception, la réaction [[👍]] en tête de réponse.
+- Un lien porte un nom : [Titre de la page](https://…). Jamais une adresse nue au milieu d'une phrase."""
 
 
 def _soul(name: str, role: str) -> str:
