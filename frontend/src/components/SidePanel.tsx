@@ -2,7 +2,7 @@ import { Approvals } from "./mobile/Approvals";
 import { subscribeUpdates } from "@/lib/events";
 // Panneau de l'agent : ce qu'il fait, à quoi il a accès, son ordinateur, ses routines, sa mémoire.
 import { Archive, ArchiveRestore, Brain, ChevronDown, ChevronRight, Clock, ExternalLink, FolderOpen, Hand, History, Loader2, LogIn, Monitor, MonitorPlay, Pencil, Plug, Power, RefreshCw, Sparkles, Sunrise, Users, X } from "lucide-react";
-import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { ApiError, type Agent, canAdmin, canTalk, type Conversation, get, request, send, type Usage } from "@/lib/api";
 import { peekScreenUrl, refuseScreenUrl, screenControl, screenUrl, screenViewOnly, watchScreenConnection } from "@/lib/screenCache";
 import { SEEN, SeenActive, seenGeneration } from "@/lib/seen";
@@ -26,7 +26,8 @@ import { langue, locale, t, tr } from "@/i18n";
 import { activityResult, activityTitle } from "@/lib/lignesServeur";
 import { type TacheDuFil, useOuverture } from "@/lib/ouverture";
 import { TacheLigne } from "./thread/TacheLigne";
-import { Decisions } from "./Decisions";
+
+const Decisions = lazy(() => import("./Decisions").then((m) => ({ default: m.Decisions })));
 
 /** Dates et nombres : le français garde la forme canadienne d'origine, les autres langues suivent leur usage. */
 const FORMAT = langue() === "fr" ? "fr-CA" : locale();
@@ -108,7 +109,7 @@ export function SidePanel({
       <KeptTab value="activity" shown={tab === "activity"} className="min-h-0 flex-1 overflow-y-auto">
         <Approvals agentId={agent.id} />
         <TachesPanel agent={agent} refreshKey={refreshKey} onOpen={(id) => { onOpenThread(id); onClose(); }} />
-        <Decisions agentId={agent.id} refreshKey={refreshKey} />
+        <Suspense fallback={null}><Decisions agentId={agent.id} refreshKey={refreshKey} /></Suspense>
         <ActivityLog agentId={agent.id} refreshKey={refreshKey} onOpen={(id, isMain) => { onOpenThread(isMain && id === main?.id ? null : id); onClose(); }} />
         <details className="mt-2"><summary className="text-sm text-muted-foreground cursor-pointer">{t("Fils et réglages")}</summary><Details agent={agent} onEdit={onEditAgent} refreshKey={refreshKey} onAgentChanged={onAgentChanged} onTab={onTab} onGoals={onGoals}>
           <Threads threads={threads} threadId={threadId} onOpen={onOpenThread} onArchive={onArchiveThread} />

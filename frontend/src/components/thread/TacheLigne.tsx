@@ -1,15 +1,20 @@
 import type { ToolCallMessagePartProps } from "@assistant-ui/react";
 import { useAuiState } from "@assistant-ui/react";
 import { Check, ChevronRight, File as FileIcon, Image as ImageIcon } from "lucide-react";
-import { useContext, useEffect, useId, useMemo, useState } from "react";
+import { lazy, Suspense, useContext, useEffect, useId, useMemo, useState } from "react";
 import { AgentContext } from "@/lib/agentContext";
 import type { TraceDetail } from "@/lib/api";
 import type { TacheDuFil } from "@/lib/ouverture";
 import { cn } from "@/lib/utils";
 import { StateShape } from "../Sidebar";
 import { t } from "@/i18n";
-import { type ACorriger, CorrigerDialog, DECISION_CORRIGEE } from "../Corriger";
-import { QUESTION_REPONDUE, QuestionCard } from "../QuestionCard";
+import type { ACorriger } from "../Corriger";
+
+// Chargés à la demande (budget B2) : seul le fil qui a une question ou une correction les télécharge.
+const CorrigerDialog = lazy(() => import("../Corriger").then((m) => ({ default: m.CorrigerDialog })));
+const QuestionCard = lazy(() => import("../QuestionCard").then((m) => ({ default: m.QuestionCard })));
+const QUESTION_REPONDUE = "noah:question-repondue";
+const DECISION_CORRIGEE = "noah:decision-corrigee";
 
 // Une tâche dans le fil (0.4.0, prototype « Fil calme ») : une ligne repliée (le titre, qui travaille, où elle en est) qu'on déplie sur place,
 // et dans laquelle on entre. C'est la même ligne dans le fil et dans l'onglet Tâches d'Activité : les deux lisent la même tâche
@@ -125,14 +130,14 @@ export function TacheLigne({ tache, agentId, agentName, defaultOpen = false, onO
               </div>
             );
           })}
-          {tache.question && !repondue && <QuestionCard q={tache.question} dansTache />}
+          {tache.question && !repondue && <Suspense fallback={null}><QuestionCard q={tache.question} dansTache /></Suspense>}
           {tache.demandeur?.nom && <p className="text-[13px] text-muted-foreground">{t("Confiée par {nom}", { nom: tache.demandeur.nom })}</p>}
           {!(tache.question && !repondue && !tache.resume) && <p className="whitespace-pre-wrap break-words">{tache.resume || (tache.etat === "encours" ? t("Le travail est en cours.") : tache.etat === "attend" ? t("Le travail attend ta réponse.") : t("Pas de compte rendu."))}</p>}
           {files.length > 0 && <div className="flex flex-wrap items-center gap-2">{files.map((f) => <span key={f} className="file">{/\.(png|jpe?g|gif|webp)$/i.test(f) ? <ImageIcon className="size-[18px]" aria-hidden /> : <FileIcon className="size-[18px]" aria-hidden />}<span className="cut">{f}</span></span>)}</div>}
           {entrer && <div>{entrer}</div>}
         </div>
       )}
-      <CorrigerDialog cible={corriger} onClose={() => setCorriger(null)} />
+      {corriger && <Suspense fallback={null}><CorrigerDialog cible={corriger} onClose={() => setCorriger(null)} /></Suspense>}
     </div>
   );
 }
