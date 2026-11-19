@@ -73,18 +73,21 @@ try {
       await page.getByRole("tab", { name: onglet, exact: true }).filter({ visible: true }).first().click({ timeout: 5000 });
       await stable();
     };
-    const reglages = (section) => async () => { await menu(); await toucher("Réglages"); await toucher(section); };
+    const reglages = (section) => async () => { await menu(); await toucher("Réglages"); await page.locator(".set-link", { hasText: section }).filter({ visible: true }).first().click({ timeout: 5000 }); await stable(); };
+    // Activité en page entière (L9b) : un bouton de la barre de gauche (ou du tiroir), comme « Pour toi ».
+    const activitePage = async () => { await menu(); await page.getByRole("button", { name: /^Activité/ }).filter({ visible: true }).first().click({ timeout: 5000 }); await stable(); };
     const pageAgent = async () => { if (telephone) await toucher("Page de l'agent"); else { await toucher("Menu de Noah"); await toucher("Page de Noah"); } };
     // [nom, aller, texte qui prouve qu'on y est]
     const ECRANS = [
       ["fil", async () => {}, /Écris à ton agent|Demande numéro/],
       ["taches", async () => panneau("Tâches"), /Routines/i],
-      ["activite", async () => panneau("Activité"), /Ce qu'il a fait/i],
+      ["travail", async () => panneau("Travail"), /Ce qu'il a fait|Tâches/i],
+      ["activite", activitePage, /Activité/],
       ["fichiers", async () => panneau("Fichiers"), /Livrables/],
       ["ordinateur", async () => panneau("Ordinateur"), /Écran/],
       ["objectifs", async () => { if (telephone) await menu(); else await page.locator(".rail-account").click(); await toucher("Objectifs"); }, /Ce que tu veux atteindre/],
       ["nouvel-agent", async () => { await menu(); await toucher(/Nouvel agent/); }, /Nouvel agent/],
-      ...["Apparence", "Compte", "Coffre", "Appareils", "Notifications", "Modèles et budget", "Personnes", "Serveur"].map((s) => [`reglages-${s.split(" ")[0].toLowerCase()}`, reglages(s), new RegExp(s)]),
+      ...["Apparence", "Compte", "Coffre", "Appareils", "Notifications", "Équipe", "Modèles et budget", "Personnes", "Serveur"].map((s) => [`reglages-${s.split(" ")[0].toLowerCase()}`, reglages(s), new RegExp(s === "Serveur" ? "Mises à jour" : s)]),
       ["agent", pageAgent, /Quand tu ne lui parles pas/],
       ...["Cerveau", "Autonomie", "Connexions", "Compétences", "Mémoire"].map((s) => [`agent-${s.toLowerCase()}`, async () => { await pageAgent(); await toucher(s); }, new RegExp(s)]),
       ...(telephone ? [["menu", menu, /Nouvel agent/]] : [["session", async () => panneau("Session"), /Derniers fichiers/i]]),
