@@ -50,10 +50,3 @@ export function usePresets(): Presets | null {
   }, []);
   return data;
 }
-
-/** Les 4 demandes à toucher sur l'écran vide : celles du modèle de l'agent, sinon les générales. */
-export function demandesFor(data: Presets | null, agentId: string): string[] {
-  if (!data) return [];
-  const preset = data.presets.find((p) => p.id === data.agents[agentId]);
-  return (preset?.demandes ?? data.defaut.demandes).slice(0, 4);
-}

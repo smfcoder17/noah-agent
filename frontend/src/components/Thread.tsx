@@ -16,9 +16,9 @@ import { VoiceMode } from "./Voice";
 import { t } from "@/i18n";
 import { OlderMessages, UserMessage, SelectionReply, AssistantMessage } from "./thread/messages";
 import { Composer } from "./thread/Composer";
-import { ReturnCards, EmptySuggestions, EmptyNoah, OssatureFil } from "./thread/panneaux";
+import { EmptyNoah, OssatureFil } from "./thread/panneaux";
 
-export { AgentContext, EmptySuggestions };
+export { AgentContext };
 
 export const Thread = memo(function Thread({ report, onReportRead, onCall }: { report: { id: string; text: string } | null; onReportRead: () => void; onCall: (on: boolean) => void }) {
   const { agentId, agentName, hint, readOnly } = useContext(AgentContext);
@@ -71,7 +71,6 @@ export const Thread = memo(function Thread({ report, onReportRead, onCall }: { r
                 <EmptyNoah />
                 <p className="text-xl font-semibold">{t("Que doit faire {nom} ?", { nom: agentName })}</p>
                 <p className="text-sm text-muted-foreground">{hint}</p>
-                {!readOnly && <EmptySuggestions agentId={agentId} />}
               </div>
               )}
             </ThreadPrimitive.Empty>
@@ -86,7 +85,6 @@ export const Thread = memo(function Thread({ report, onReportRead, onCall }: { r
             ) : (
               <>
                 {voice && <VoiceMode onClose={() => setVoice(false)} report={report} onReportRead={onReportRead} link={link} />}
-                {!voice && <ReturnCards agentId={agentId} />}
                 <Composer inCall={voice} />
               </>
             )}

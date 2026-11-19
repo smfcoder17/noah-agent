@@ -348,11 +348,6 @@ export default {
   "Tu as la main : clique et tape directement dans l'écran. Ctrl+V y colle ton presse-papiers, Ctrl+C copie la sélection chez toi. Quand tu as fini, rends la main.": "You're in control: click and type right on the screen. Ctrl+V pastes your clipboard there, Ctrl+C copies the selection back to you. When you're done, hand control back.",
   "Lecture seule : l'agent garde la main. Prends le contrôle pour te connecter à un site ou résoudre un CAPTCHA, puis dis-lui de continuer.": "View only: the agent stays in control. Take control to sign in to a site or solve a CAPTCHA, then tell it to continue.",
   "{m} min {s}": "{m}m {s}s",
-  "Montre-moi tout ce que tu as fait depuis hier": "Show me everything you did since yesterday",
-  "Montre-moi ce que tu as fait depuis mon dernier message": "Show me what you did since my last message",
-  "Lance « {nom} » maintenant": "Run \"{nom}\" now",
-  "Qu'est-ce qui attend ma réponse ?": "What is waiting on me?",
-  "Que me proposes-tu pour la suite ?": "What do you suggest next?",
   "Copier mon message": "Copy my message",
   "Reprendre ce message": "Edit and resend",
 } satisfies Record<string, string>;

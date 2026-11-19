@@ -31,7 +31,6 @@ vi.mock("./ui", () => ({
 }));
 
 import { del, send } from "@/lib/api";
-import { demandesFor } from "@/lib/presets";
 import type { Agent } from "@/lib/api";
 import { AgentDialog } from "./AgentDialog";
 
@@ -89,12 +88,6 @@ it("une suppression qui échoue le dit et rend la main", async () => {
   expect(onDeleted).not.toHaveBeenCalled();
   expect(button(host, "Supprimer").disabled).toBe(false);
   await act(async () => root.unmount());
-});
-
-it("l'écran vide propose les demandes du modèle de l'agent, sinon les générales", () => {
-  expect(demandesFor(PRESETS, "veille-ab12")).toEqual(["V1", "V2", "V3", "V4"]);
-  expect(demandesFor(PRESETS, "autre")).toEqual(["Général 1", "Général 2", "Général 3", "Général 4"]);
-  expect(demandesFor(null, "autre")).toEqual([]);
 });
 
 // ─── Lot barre : la forme choisie est celle de l'agent ───────────────────────────────────────────────────────────────────

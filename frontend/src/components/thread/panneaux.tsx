@@ -1,11 +1,7 @@
-import { useAui, useAuiState } from "@assistant-ui/react";
-import { useContext, useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef } from "react";
 import { WhileBusyContext, AgentContext } from "@/lib/agentContext";
 import { usePanelEnd } from "@/lib/chatMood";
-import { useOuverture } from "@/lib/ouverture";
 import { NoahTile, type NoahHandle } from "../Noah";
-import { demandesFor, usePresets } from "@/lib/presets";
-import { returnMoment } from "@/lib/retour";
 import { t } from "@/i18n";
 import { LiveStatus } from "./parts";
 
@@ -42,66 +38,6 @@ export function WhileBusyPanel() {
             {t("Retirer")}
           </button>
         </div>
-      ))}
-    </div>
-  );
-}
-
-/** Au retour : 3 ou 4 demandes à toucher, au-dessus de la saisie. Un toucher remplit la saisie, rien ne part seul. */
-export function ReturnCards({ agentId }: { agentId: string }) {
-  const aui = useAui();
-  const running = useAuiState((s) => s.thread.isRunning);
-  const empty = useAuiState((s) => s.composer.isEmpty);
-  const lastUser = useAuiState((s) => {
-    for (let i = s.thread.messages.length - 1; i >= 0; i--) if (s.thread.messages[i].role === "user") return s.thread.messages[i].createdAt?.getTime() ?? null;
-    return null;
-  });
-  const lastAgent = useAuiState((s) => {
-    const m = s.thread.messages[s.thread.messages.length - 1];
-    return m?.role === "assistant" ? m.createdAt?.getTime() ?? null : null;
-  });
-  // Les routines actives viennent de l'ouverture de l'agent (lib/ouverture.ts), sans question à sa machine.
-  const routines = (useOuverture(agentId)?.routines.actives ?? []).map((r) => r.nom);
-  const [hidden, setHidden] = useState(false);
-  useEffect(() => {
-    setHidden(false);
-  }, [agentId]);
-  const moment = returnMoment(lastUser, lastAgent, Date.now());
-  if (!moment || running || !empty || hidden) return null;
-  const cards = [
-    moment === "hier" ? t("Montre-moi tout ce que tu as fait depuis hier") : t("Montre-moi ce que tu as fait depuis mon dernier message"),
-    ...routines.slice(0, 2).map((name) => t("Lance « {nom} » maintenant", { nom: name })),
-    t("Qu'est-ce qui attend ma réponse ?"),
-    t("Que me proposes-tu pour la suite ?"),
-  ].slice(0, 4);
-  return (
-    <div data-return-cards className="flex w-full gap-2 overflow-x-auto pb-1 [scrollbar-width:none] max-md:-mx-1 max-md:px-1 md:grid md:grid-cols-2">
-      {cards.map((d) => (
-        <button key={d} type="button" onClick={() => { aui.thread().composer().setText(d); setHidden(true); }}
-          className="min-h-11 shrink-0 cursor-pointer rounded-xl border border-border bg-surface px-3 py-2 text-left text-sm transition-colors hover:bg-muted max-md:max-w-[70%]">
-          {d}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-/** Écran vide : 4 demandes à toucher, celles du modèle de l'agent ou des générales. Un toucher remplit la saisie, rien ne part seul. */
-export function EmptySuggestions({ agentId }: { agentId: string }) {
-  const aui = useAui();
-  const demandes = demandesFor(usePresets(), agentId);
-  if (!demandes.length) return null;
-  return (
-    <div className="mt-3 grid w-full grid-cols-1 gap-2 sm:grid-cols-2">
-      {demandes.map((d) => (
-        <button
-          key={d}
-          type="button"
-          onClick={() => aui.thread().composer().setText(d)}
-          className="min-h-11 cursor-pointer rounded-xl border border-border bg-surface px-3 py-2 text-left text-sm transition-colors hover:bg-muted"
-        >
-          {d}
-        </button>
       ))}
     </div>
   );
