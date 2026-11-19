@@ -284,6 +284,7 @@ ROUTES = {
     ("POST", "/api/agents/{agent_id}/repair"): "admin",
     ("PATCH", "/api/agents/{agent_id}"): "admin",
     ("DELETE", "/api/agents/{agent_id}"): "proprietaire",
+    ("GET", "/api/agents/{agent_id}/ouverture"): "lecture",
     ("GET", "/api/agents/{agent_id}/conversations"): "lecture",
     ("POST", "/api/agents/{agent_id}/conversations"): "usage",
     ("POST", "/api/conversations/{conv_id}/archive"): "auteur",
