@@ -321,6 +321,15 @@ it("E1 — téléphone : Pour toi (avec son nombre), appeler et le panneau, tout
   expect(host.querySelector(".pour-toi-pill")).toBeNull();
 });
 
+it("L9b — téléphone : sur une page (Activité, Réglages, Pour toi), l’en-tête porte le titre de la page, pas l’agent", async () => {
+  wide = false;
+  await act(async () => root.render(<MobileHeader titre="Activité" agent={agent()} status="En ligne" onMenu={vi.fn()} onAgent={vi.fn()} menu={<WorkMenu agent={agent()} active={null} onOpen={vi.fn()} waiting={2} onInbox={vi.fn()} />} />));
+  expect(host.querySelector("header h1")?.textContent).toBe("Activité");
+  expect(byLabel("Menu")).not.toBeNull();
+  expect(host.querySelector(".mobile-agent")).toBeNull();
+  expect(host.querySelector(".pour-toi-pill")).toBeNull();
+});
+
 it("E2 — cibles tactiles du téléphone : 44 px au moins", () => {
   const shell = readFileSync("src/styles/shell.css", "utf8");
   expect(readFileSync("src/styles/fil-calme.css", "utf8")).toMatch(/\.mobile-header \.shell-icon, \.mobile-header \.icon-btn \{ width:44px; height:44px; min-width:44px; \}/);
