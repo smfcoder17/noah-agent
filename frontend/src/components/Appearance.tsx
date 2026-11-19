@@ -5,7 +5,7 @@ import { LANGUES, type Langue, choisirLangue, langueChoisie, t } from "@/i18n";
 
 /** Une ligne de réglage du prototype : le titre, son aide, et le contrôle à droite. */
 export function ReglageLigne({ titre, aide, children }: { titre: string; aide?: string; children: React.ReactNode }) {
-  return <div className="set-row wrap"><div className="grow" style={{ minWidth: 180 }}><b>{titre}</b>{aide && <span className="help block">{aide}</span>}</div>{children}</div>;
+  return <div className="set-row"><div className="grow" style={{ minWidth: 0 }}><b>{titre}</b>{aide && <span className="help block">{aide}</span>}</div>{children}</div>;
 }
 
 /** Un interrupteur (role switch) : la même case à cocher qu'avant, dessinée comme celle du prototype. */
