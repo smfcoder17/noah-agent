@@ -40,7 +40,7 @@ export type TacheDuFil = {
   /** La conversation de la tâche : on y entre par elle (…/conversations/{id}/messages). */
   conversation_id: string;
   question: QuestionCarte | null;
-  /** Pas encore envoyés par le serveur : lus quand ils viennent (prototype : « Brief lu · Trois pistes générées »). */
+  /** Le récit du travail, tiré des vrais messages du sous-fil par le serveur (12 au plus, vide sans messages). */
   etapes?: string[];
   echanges?: { id?: string; de: string; a: string; question: string; reponse: string; corrigee?: boolean; regle?: boolean }[];
 };

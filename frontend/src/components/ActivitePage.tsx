@@ -116,7 +116,7 @@ export function ActivitePage({ agentId, onOpenTache, onOpenAgent }: {
       <div ref={haut} className="min-h-0 flex-1 overflow-y-auto">
         <div className="col narrow stack g16">
           {corps}
-          {data && erreur && <p role="alert" className="text-sm text-muted-foreground"><Loader2 className="mr-1 inline size-4" aria-hidden />{t("La lecture a échoué : la liste n'est peut-être pas à jour.")}</p>}
+          {data && erreur && <p role="alert" className="text-sm text-muted-foreground"><Loader2 className="mr-1 inline size-4" aria-hidden />{t("Ça n'a pas chargé")}</p>}
         </div>
       </div>
     </main>

@@ -364,5 +364,4 @@ export default {
   "Les tâches confiées, les routines et ce que tes agents décident à ta place apparaîtront ici.": "Delegated tasks, routines and what your agents decide for you will show up here.",
   "Ça n'a pas chargé": "That did not load",
   "Noah n'a pas pu lire cette page. Tes données ne sont pas touchées.": "Noah could not read this page. Your data is untouched.",
-  "La lecture a échoué : la liste n'est peut-être pas à jour.": "Reading failed: the list may be out of date.",
 } satisfies Record<string, string>;

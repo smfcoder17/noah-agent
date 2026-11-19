@@ -62,6 +62,8 @@ const Inbox = lazy(() => import("@/components/Inbox").then((m) => ({ default: m.
 const QuestionCard = lazy(() => import("@/components/QuestionCard").then((m) => ({ default: m.QuestionCard })));
 const SidePanel = lazy(() => import("@/components/SidePanel").then((m) => ({ default: m.SidePanel })));
 const ActivitePage = lazy(() => import("@/components/ActivitePage").then((m) => ({ default: m.ActivitePage })));
+// Le bloc « Étapes » : seule une tâche ouverte le charge (budget B2).
+const EtapesTache = lazy(() => import("@/components/thread/Etapes").then((m) => ({ default: m.EtapesTache })));
 const SettingsDialog = lazy(() => import("@/components/Settings").then((m) => ({ default: m.SettingsDialog })));
 const Goals = lazy(() => import("@/components/Goals").then((m) => ({ default: m.Goals })));
 
@@ -566,6 +568,7 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
                   onReportRead={reportRead}
                   onStatus={setLiveStatus}
                   tache={threadId ? (tacheOuverte ? travailleur(tacheOuverte, agent.name) : agent.name) : null}
+                  etapes={threadId && tacheOuverte?.etapes?.length ? <Suspense fallback={null}><EtapesTache etapes={tacheOuverte.etapes} etat={tacheOuverte.etat} /></Suspense> : null}
                   carte={threadId && tacheOuverte?.question ? <Suspense fallback={null}><QuestionCard key={tacheOuverte.question.id} q={tacheOuverte.question} onTache={() => setThreadId(tacheOuverte.conversation_id)} /></Suspense> : null}
                 />
                 </Boundary>
@@ -680,6 +683,8 @@ type ChatProps = {
   tache: string | null;
   /** La carte de la question en attente de cette tâche : elle se pose dans le fil, après la consigne. */
   carte?: React.ReactNode;
+  /** Le bloc « Étapes » de cette tâche, posé après la consigne. */
+  etapes?: React.ReactNode;
 };
 
 function AgentChat(props: ChatProps) {
@@ -764,9 +769,10 @@ function AgentChat(props: ChatProps) {
       canWatch: canAdmin(props.agent),
       tache: props.tache,
       carte: props.carte,
+      etapes: props.etapes,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [say, id, name, color, shape, detail, model, props.details, readOnly, props.conversationId, canAdmin(props.agent), props.tache, props.carte],
+    [say, id, name, color, shape, detail, model, props.details, readOnly, props.conversationId, canAdmin(props.agent), props.tache, props.carte, props.etapes],
   );
   return (
     <AssistantRuntimeProvider runtime={runtime}>

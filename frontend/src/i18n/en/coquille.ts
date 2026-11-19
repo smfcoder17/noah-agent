@@ -299,6 +299,10 @@ export default {
   "Réfléchit…": "Thinking…",
   "Travaille…": "Working…",
   "Attend ta réponse": "Waiting for your reply",
+  // components/AgentNav.tsx : la ligne d'état d'un agent
+  "Suit {n} tâche{s}": "Following {n} task{s}",
+  "Aucun message": "No messages",
+  "Chef d'équipe · {ligne}": "Team lead · {ligne}",
   "Ça n'a pas abouti": "That didn't work",
   "Attend que tu te connectes": "Waiting for you to sign in",
 

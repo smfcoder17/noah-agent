@@ -179,3 +179,31 @@ it("point 3 : barre repliée, un clic droit sur un agent ouvre le même menu, su
   await act(async () => menuItems()[0].click());
   expect(custom).toHaveBeenCalledWith("b");
 });
+
+const avec = (a: Agent, extra: Partial<Agent>) => ({ ...a, ...extra }) as Agent;
+const lignes = async (liste: Agent[]) => { await render(base({ agent: liste[0], agents: liste })); return rows().map((r) => r.querySelector("small")?.textContent); };
+
+it("0.4.0 : la ligne d'état dit ce que fait l'agent (attend, titre de la tâche, chef et tâches suivies, aucun message, repli)", async () => {
+  const noah = avec(agent("n", "Noah"), { chef: true, travail: { titre: null, attend: false, suit: 3 } });
+  const lea = avec(agent("l", "Léa", { work: 1 }), { travail: { titre: "Crée le visuel d'en-tête", attend: false, suit: 0 } });
+  const hugo = avec(agent("h", "Hugo"), { travail: { titre: "Programme l'envoi", attend: true, suit: 0 } });
+  const sam = avec(agent("s", "Sam"), { sans_message: true, travail: { titre: null, attend: false, suit: 0 } });
+  const ines = agent("i", "Inès");
+  expect(await lignes([noah, lea, hugo, sam, ines])).toEqual(["Chef d'équipe · Suit 3 tâches", "Crée le visuel d'en-tête", "Attend ta réponse", "Aucun message", "Disponible"]);
+  expect(rows()[1].getAttribute("aria-label")).toBe("Léa, Crée le visuel d'en-tête");
+  expect(rows()[1].getAttribute("title")).toBe("Léa · Crée le visuel d'en-tête");
+});
+
+it("0.4.0 : un chef qui suit une tâche dit « Suit 1 tâche » ; avec une tâche propre en cours, son titre ; sans rien, l'état d'avant", async () => {
+  const un = avec(agent("n", "Noah"), { chef: true, travail: { titre: null, attend: false, suit: 1 } });
+  const propre = avec(agent("m", "Max"), { chef: true, travail: { titre: "Rédige le point", attend: false, suit: 2 } });
+  const rien = avec(agent("r", "Rémi"), { chef: true, travail: { titre: null, attend: false, suit: 0 } });
+  expect(await lignes([un, propre, rien])).toEqual(["Chef d'équipe · Suit 1 tâche", "Chef d'équipe · Rédige le point", "Chef d'équipe · Disponible"]);
+});
+
+it("0.4.0 : un titre long est coupé par l'ellipse, sur une seule ligne", async () => {
+  const long = avec(agent("l", "Léa"), { travail: { titre: "Un titre de tâche très très long qui ne doit jamais déborder de la barre de gauche", attend: false, suit: 0 } });
+  await render(base({ agent: long, agents: [long] }));
+  const css = readFileSync("src/styles/fil-calme.css", "utf8");
+  expect(css).toMatch(/\.agent-nav-text small\s*\{[^}]*text-overflow:\s*ellipsis/);
+});

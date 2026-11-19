@@ -8,6 +8,21 @@ import { agentSummary, StateShape } from "./Sidebar";
 import { AgentMenu } from "./AgentMenu";
 import { t } from "@/i18n";
 
+/** La ligne d'état d'un agent (0.4.0) : ce qu'il fait. Attend ta réponse, le titre de sa tâche en cours, « Suit N tâches » pour le chef d'équipe,
+ * « Aucun message » pour un agent neuf ; sinon l'état d'avant. Le chef d'équipe garde son préfixe. */
+export function ligneAgent(a: Agent): string {
+  const s = agentSummary(a);
+  const w = a.travail;
+  const attend = s.state === "approve" || s.state === "choice" || !!w?.attend;
+  const core = s.state === "starting" || s.state === "offline" ? s.text
+    : attend ? t("Attend ta réponse")
+    : w?.titre ? w.titre
+    : a.chef && (w?.suit ?? 0) > 0 ? t("Suit {n} tâche{s}", { n: w?.suit ?? 0, s: (w?.suit ?? 0) > 1 ? "s" : "" })
+    : a.sans_message ? t("Aucun message")
+    : s.text;
+  return a.chef ? t("Chef d'équipe · {ligne}", { ligne: core }) : core;
+}
+
 /** Ce que l'agent attend de la personne : ses accords et ses choix. */
 export const pendingOf = (a: Agent) => (a.tasks?.approve ?? 0) + (a.tasks?.choice ?? 0);
 
@@ -52,8 +67,9 @@ export const AgentNav = memo(function AgentNav({ agents, agentId, tabs, active, 
         const foldable = selected && options.length > 0;
         const expanded = foldable && !folded;
         const s = agentSummary(a);
+        void s;
         const pending = pendingOf(a);
-        const line = s.state === "approve" || s.state === "choice" ? t("Attend ta réponse") : s.text;
+        const line = ligneAgent(a);
         const panelId = `agent-nav-options-${a.id}`;
         return (
           <li key={a.id} className={cn("agent-nav-item", selected && "is-selected")} onContextMenu={(e) => { e.preventDefault(); setMenu({ id: a.id, at: { x: e.clientX, y: e.clientY } }); }}>
@@ -63,7 +79,7 @@ export const AgentNav = memo(function AgentNav({ agents, agentId, tabs, active, 
                 aria-expanded={foldable ? expanded : selected ? undefined : false}
                 aria-controls={expanded ? panelId : undefined}
                 aria-label={`${a.name}, ${line}${!selected && pending ? ` · ${t("{n} en attente", { n: pending })}` : ""}`}
-                title={a.name}
+                title={`${a.name} · ${line}`}
                 onClick={() => (selected ? foldable && setFolded(!folded) : onPick(a.id))}>
                 <span className="avatar" aria-hidden>{a.name.charAt(0).toUpperCase()}</span>
                 <span className="agent-nav-text">

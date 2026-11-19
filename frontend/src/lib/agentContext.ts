@@ -7,7 +7,7 @@ export const HistoryContext = createContext<History>({ skeleton: false, hasOlder
 export const WhileBusyContext = createContext<WhileBusyApi>({ active: false, activity: null, waiting: [], sending: [], send: () => {}, now: async () => "", cancel: () => {}, giveUp: () => {} });
 
 // Ce que les composants du fil savent de l'agent affiché. `say` envoie un message comme si l'utilisateur l'avait tapé.
-export const AgentContext = createContext<{ agentId: string; agentName: string; agentColor: string; agentShape: string; agentDetail: string; agentModel: string; details: boolean; hint: string; conversationId: string | null; say: (text: string, clientId?: string) => void; readOnly: boolean; canWatch: boolean; /** Dans une tâche : celui qui y travaille. La saisie lui écrit « dans cette tâche ». */ tache?: string | null; /** Dans une tâche qui attend une réponse : la carte de la question, posée après la consigne. */ carte?: ReactNode }>({
+export const AgentContext = createContext<{ agentId: string; agentName: string; agentColor: string; agentShape: string; agentDetail: string; agentModel: string; details: boolean; hint: string; conversationId: string | null; say: (text: string, clientId?: string) => void; readOnly: boolean; canWatch: boolean; /** Dans une tâche : celui qui y travaille. La saisie lui écrit « dans cette tâche ». */ tache?: string | null; /** Dans une tâche qui attend une réponse : la carte de la question, posée après la consigne. */ carte?: ReactNode; /** Le bloc « Étapes » de la tâche ouverte, posé après la consigne et avant la carte. */ etapes?: ReactNode }>({
   agentId: "",
   agentName: "",
   agentColor: "",
@@ -21,4 +21,5 @@ export const AgentContext = createContext<{ agentId: string; agentName: string; 
   canWatch: false,
   tache: null,
   carte: null,
+  etapes: null,
 });

@@ -179,15 +179,16 @@ const DEMANDE = /^\[Demande de l'agent ([^(\]]+?) \([^)]*\)[^\]]*\]\s*/;
 
 /** Le fil d'une tâche commence par la consigne du demandeur : la carte de la question se pose après elle. Sans consigne, elle ouvre le fil. */
 export function CarteSansConsigne() {
-  const { tache, carte } = useContext(AgentContext);
+  const { tache, carte, etapes } = useContext(AgentContext);
   const consigne = useAuiState((s) => s.thread.messages.some((m) => m.role === "user" && DEMANDE.test(m.content.map((p) => (p.type === "text" ? p.text : "")).join(""))));
-  return carte && !(tache && consigne) ? <div data-carte-question className="my-3">{carte}</div> : null;
+  if (tache && consigne) return null;
+  return carte || etapes ? <>{etapes && <div data-etapes-tache className="my-3">{etapes}</div>}{carte && <div data-carte-question className="my-3">{carte}</div>}</> : null;
 }
 
 export const UserMessage = memo(function UserMessage() {
   const id = useAuiState((s) => s.message.id);
   const text = useAuiState((s) => s.message.content.map((p) => (p.type === "text" ? p.text : "")).join(""));
-  const { tache, carte } = useContext(AgentContext);
+  const { tache, carte, etapes } = useContext(AgentContext);
   const premiere = useAuiState((s) => s.thread.messages.findIndex((m) => m.role === "user" && DEMANDE.test(m.content.map((p) => (p.type === "text" ? p.text : "")).join(""))) === s.message.index);
   const demande = tache ? DEMANDE.exec(text) : null;
   if (demande && tache) {
@@ -198,6 +199,7 @@ export const UserMessage = memo(function UserMessage() {
         <span className="msg-who">{t("{de} à {a}", { de: demande[1], a: tache })}</span>
         <p className="whitespace-pre-wrap">{text.slice(demande[0].length)}</p>
       </MessagePrimitive.Root>
+      {etapes && premiere && <div data-etapes-tache className="my-3">{etapes}</div>}
       {carte && premiere && <div data-carte-question className="my-3">{carte}</div>}
       </>
     );

@@ -169,6 +169,10 @@ export type Agent = {
   /** Partagé avec d'autres, ou par quelqu'un d'autre. */
   partage: boolean;
   partage_par?: string | null;
+  /** Ce que l'agent fait pour ce compte : titre de sa tâche en cours, s'il attend une réponse, tâches suivies (chef d'équipe). */
+  travail?: { titre: string | null; attend: boolean; suit: number };
+  chef?: boolean;
+  sans_message?: boolean;
 };
 export const canAdmin = (a: Agent) => a.droit === "admin" || a.droit === "proprietaire";
 export const canTalk = (a: Agent) => a.droit !== "lecture";
