@@ -101,7 +101,7 @@ def ouverture(agent_id: str, limit: int = OUVERTURE_PAGE, suivi: bool = True, us
     return {"version": OUVERTURE_VERSION, "revision": str(revision), "fil": fil, "en_cours": en_cours, "attentes": attentes,
             "appel": handoff.call_for(user, agent_id),
             "taches_confiees": desktop.delegated_tasks(agent_id) if owner else [],
-            "routines": {"actives": machine.routines_connues(agent_id) if access.allowed(user, agent_id, "admin") else [], "non_vues": 0},
+            "routines": {"actives": machine.routines_connues(agent_id) if access.allowed(user, agent_id, "admin") else [], "non_vues": machine.non_vues(user, agent_id) if access.allowed(user, agent_id, "admin") else 0},
             "conversations": conversations_of(agent_id, user)}
 
 

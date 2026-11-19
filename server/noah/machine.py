@@ -29,9 +29,83 @@ def _check(agent_id: str, user: int) -> str:
 
 
 # Les routines actives de chaque agent, telles que la dernière lecture complète les a vues : de quoi nourrir l'ouverture d'un agent
-# (cartes de retour) sans lancer le moindre `docker exec`. Rempli par _shown_routines, vidé par toute écriture de routine.
-# Le pas S7 du socle le remplira aussi par la relève de chaque minute.
+# sans lancer le moindre `docker exec`. Rempli par _garder (relève de chaque minute, lecture à l'écran), vidé par toute écriture de routine.
 _routines_connues: dict[str, list[dict]] = {}
+
+# --- Ce que la machine a dit, gardé (0.4.0, S7, X23) ---------------------------------------------------------------------------------
+# Lire la liste des routines, l'ordinateur, la mémoire ou les compétences d'un agent lance un Python neuf dans son conteneur (`docker
+# exec`) : 1 à 4 s. La dernière lecture est donc gardée, par agent. Elle est servie tout de suite ; passé son délai, une relecture part en
+# fond pour la suivante. Remplie par la relève de chaque minute (routines, sans coût de plus : la même lecture que les sorties) et par
+# `keep_machine_warm` (le reste) ; vidée par toute écriture ; forcée par `?frais=1`, comme les connexions plus bas.
+LECTURES_GARDEES = {"routines": 180, "ordinateur": 60, "memoire": 60, "competences": 60}  # secondes avant la relecture en fond ; ordinateur : la taille du dossier de travail
+ECRITURES = ("routine_", "competence_", "memoire_", "skill_")  # une action de ce début écrit : ce qui était su n'est plus sûr
+WARM_MAX = 300  # la relève relit en avance ce qui a plus de cinq minutes
+_lus: dict[tuple[str, str], tuple[float, dict]] = {}
+_lus_version: dict[str, int] = {}
+_lectures: dict[tuple[str, str, int], asyncio.Task] = {}
+
+
+def oublier(agent_id: str) -> None:
+    """Une écriture : plus rien de ce qui était su de cet agent n'est servi, et une lecture partie avant elle ne le remplit pas."""
+    _lus_version[agent_id] = _lus_version.get(agent_id, 0) + 1
+    for key in [k for k in _lus if k[0] == agent_id]:
+        del _lus[key]
+    _routines_connues.pop(agent_id, None)
+
+
+def _garder(agent_id: str, action: str, value: dict, version: int) -> None:
+    if _lus_version.get(agent_id, 0) != version:  # une écriture a eu lieu pendant la lecture : elle est déjà vieille
+        return
+    _lus[(agent_id, action)] = (time.time(), value)
+    if action == "routines":
+        _routines_connues[agent_id] = [{"id": r.get("id"), "nom": r["name"]} for r in value.get("routines") or [] if r.get("enabled") and r.get("name")]
+
+
+def _sans_bruit(task: asyncio.Future) -> None:
+    task.cancelled() or task.exception()  # une lecture en fond qui échoue ne fait pas de bruit : l'écran relira à la demande
+
+
+async def _lire(agent_id: str, action: str) -> dict:
+    """Une lecture à la fois par agent et par action : deux écrans qui demandent ensemble font un seul `docker exec`."""
+    version = _lus_version.get(agent_id, 0)
+    key = (agent_id, action, version)
+    task = _lectures.get(key)
+    if task is None:
+        async def once() -> dict:
+            value = await admin(agent_id, action)
+            _garder(agent_id, action, value, version)
+            return value
+
+        task = asyncio.create_task(once())
+        _lectures[key] = task
+        task.add_done_callback(lambda t, k=key: (_lectures.pop(k, None), _sans_bruit(t)))
+    return await asyncio.shield(task)
+
+
+async def lire(agent_id: str, action: str, frais: bool = False) -> dict:
+    """Ce que la machine dit pour `action` : le gardé tout de suite, relu en fond s'il vieillit ; `frais` : une lecture neuve."""
+    known = _lus.get((agent_id, action))
+    if known and not frais:
+        if time.time() - known[0] > LECTURES_GARDEES[action]:
+            asyncio.ensure_future(_lire(agent_id, action)).add_done_callback(_sans_bruit)
+        return known[1]
+    return await _lire(agent_id, action)
+
+
+async def keep_machine_warm(agents, ready) -> None:
+    """Chaque minute, pour les agents au repos : ce qui manque ou a plus de cinq minutes est relu, un agent après l'autre, une lecture à la
+    fois. Le premier écran de chaque agent est servi sans attendre sa machine."""
+    while True:
+        for agent_id in agents():
+            if not ready(agent_id):
+                continue
+            for action in LECTURES_GARDEES:
+                known = _lus.get((agent_id, action))
+                if known and time.time() - known[0] < WARM_MAX:
+                    continue
+                with contextlib.suppress(Exception):  # agent arrêté ou machine en panne : l'écran relira à la demande
+                    await _lire(agent_id, action)
+        await asyncio.sleep(FULL_SECONDS)
 
 
 def routines_connues(agent_id: str) -> list[dict]:
@@ -40,8 +114,8 @@ def routines_connues(agent_id: str) -> list[dict]:
 
 
 async def admin(agent_id: str, action: str, body: dict | None = None, timeout: float = 90) -> dict:
-    if action in ("routine_creer", "routine_action"):
-        _routines_connues.pop(agent_id, None)  # une écriture : ce qui était su n'est plus sûr
+    if action.startswith(ECRITURES) and action != "skill_lire":
+        oublier(agent_id)
     async with httpx.AsyncClient(timeout=timeout) as c:
         r = await c.post(f"{LAUNCHER_URL}/agents/{agent_id}/admin/{action}", headers=LAUNCHER,
                          content=json.dumps(body or {}, ensure_ascii=False).encode())
@@ -69,18 +143,23 @@ class Install(BaseModel):
 
 
 @router.get("/api/agents/{agent_id}/computer")
-async def computer(agent_id: str, user: int = Depends(auth.current_user)):
-    return await admin(_check(agent_id, user), "ordinateur")
+async def computer(agent_id: str, frais: bool = False, user: int = Depends(auth.current_user)):
+    return await lire(_check(agent_id, user), "ordinateur", frais)
 
 
 @router.post("/api/agents/{agent_id}/install")
 async def computer_install(agent_id: str, body: Install, user: int = Depends(auth.current_user)):
-    return await install(_check(agent_id, user), body.paquets)
+    out = await install(_check(agent_id, user), body.paquets)
+    oublier(agent_id)
+    return out
 
 
 @router.post("/agent-api/installer")
 async def agent_install(body: Install, request: Request):
-    return await install(relay._agent_from(request), body.paquets)
+    agent_id = relay._agent_from(request)
+    out = await install(agent_id, body.paquets)
+    oublier(agent_id)
+    return out
 
 
 # --- Mémoire --------------------------------------------------------------------------------
@@ -91,8 +170,8 @@ class MemoryWrite(BaseModel):
 
 
 @router.get("/api/agents/{agent_id}/memory")
-async def memory(agent_id: str, user: int = Depends(auth.current_user)):
-    return await admin(_check(agent_id, user), "memoire")
+async def memory(agent_id: str, frais: bool = False, user: int = Depends(auth.current_user)):
+    return await lire(_check(agent_id, user), "memoire", frais)
 
 
 @router.put("/api/agents/{agent_id}/memory")
@@ -118,8 +197,8 @@ def _tell_taught(agent_id: str, name: str, titre: str) -> None:
 
 
 @router.get("/api/agents/{agent_id}/competences")
-async def competences(agent_id: str, user: int = Depends(auth.current_user)):
-    return await admin(_check(agent_id, user), "competences")
+async def competences(agent_id: str, frais: bool = False, user: int = Depends(auth.current_user)):
+    return await lire(_check(agent_id, user), "competences", frais)
 
 
 @router.post("/api/agents/{agent_id}/competences")
@@ -264,7 +343,7 @@ def _reminder_due(agent_id: str, now: float) -> bool:
 async def _edit_routine(agent_id: str, routine_id: str, body: RoutineEdit) -> dict:
     payload = {"id": routine_id, "action": "modifier", **({"nom": body.nom} if body.nom is not None else {}), **await _routine_settings(agent_id, body)}
     if body.consigne is not None or body.image is not None:  # la note du modèle d'image fait partie de la consigne : on garde l'autre moitié
-        current = next((r for r in (await _shown_routines(agent_id))["routines"] if r["id"] == routine_id), None)
+        current = next((r for r in (await _shown_routines(agent_id, frais=True))["routines"] if r["id"] == routine_id), None)
         if not current:
             raise HTTPException(404, "Routine introuvable")
         payload["consigne"] = modes.with_image_note(body.consigne if body.consigne is not None else current["prompt"],
@@ -272,17 +351,16 @@ async def _edit_routine(agent_id: str, routine_id: str, body: RoutineEdit) -> di
     return modes.shown_routine(agent_id, await admin(agent_id, "routine_action", payload))
 
 
-async def _shown_routines(agent_id: str) -> dict:
-    found = await admin(agent_id, "routines")
+async def _shown_routines(agent_id: str, frais: bool = False) -> dict:
+    found = await lire(agent_id, "routines", frais)
     # `suggerees` : celles du modèle d'agent, en pause dans Noah (presets.py). Hors de `routines` : Hermes ne les connaît pas encore.
     shown = [modes.shown_routine(agent_id, r) for r in found.get("routines") or []]
-    _routines_connues[agent_id] = [{"id": r.get("id"), "nom": r["name"]} for r in shown if r.get("enabled") and r.get("name")]
     return {**found, "routines": shown, "suggerees": presets.suggested(agent_id)}
 
 
 @router.get("/api/agents/{agent_id}/routines")
-async def routines(agent_id: str, user: int = Depends(auth.current_user)):
-    return await _shown_routines(_check(agent_id, user))
+async def routines(agent_id: str, frais: bool = False, user: int = Depends(auth.current_user)):
+    return await _shown_routines(_check(agent_id, user), frais)
 
 
 @router.post("/api/agents/{agent_id}/routines")
@@ -340,8 +418,8 @@ async def agent_routine_action(body: AgentRoutineAction, request: Request):
 
 
 async def deliver_routines(save_message, main_conversation) -> None:
-    """Toutes les minutes, et toutes les 10 s autour de l'heure d'un rappel : les résultats des routines arrivent dans la conversation
-    de l'agent, comme un message de Noah, et en notification. C'est ce qui rend l'initiative visible."""
+    """Toutes les minutes, et toutes les 10 s autour de l'heure d'un rappel : les résultats des routines sont relevés, gardés dans
+    Activité (`routine_passages`) et notifiés ; le fil ne reçoit que les échecs et les rappels."""
     last_full = 0.0  # la première relève est complète
     while True:
         await asyncio.sleep(FAST_SECONDS)
@@ -354,6 +432,8 @@ async def deliver_routines(save_message, main_conversation) -> None:
 
 
 async def deliver_routines_once(save_message, main_conversation, only_due: bool = False) -> None:
+    """Relève les sorties des routines. 0.4.0 (X6) : chaque passage est gardé dans `routine_passages` (Activité le montre), sans rien
+    écrire dans le fil. Le fil ne reçoit que ce qui le demande : l'échec d'une routine, sa reprise, et un rappel (qui est fait pour ça)."""
     with db.connect() as c:
         ids = [r["id"] for r in c.execute("SELECT id FROM agents")]
     now = time.time()
@@ -361,48 +441,205 @@ async def deliver_routines_once(save_message, main_conversation, only_due: bool 
         if only_due and not _reminder_due(agent_id, now):
             continue
         key = f"routines_vues_{agent_id}"
+        version = _lus_version.get(agent_id, 0)
         try:
             read = await admin(agent_id, "routines_sorties", {"depuis": db.get_setting(key) or ""}, 30)
             found = read["sorties"]
         except Exception:
             continue  # agent arrêté ou en cours de création
+        if isinstance(read.get("routines"), list):  # la même lecture rend la liste des routines : la garder ne coûte rien de plus
+            _garder(agent_id, "routines", {"routines": read["routines"]}, version)
         conv = main_conversation(agent_id)
         reminders = _reminders(agent_id)
+        news = 0
         for r in found:
-            if conv:
-                once = reminders.get(str(r.get("routine") or ""))
-                name = (once or {}).get("nom") or r["nom"]
-                title = f"Rappel : {re.sub(r'^\s*rappel\s*:\s*', '', name, flags=re.I)}" if once else f"Routine « {name} »"  # l'agent nomme souvent la sienne « Rappel : … »
-                error = _routine_error(r)
-                if error is not None:
+            once = reminders.get(str(r.get("routine") or ""))
+            name = (once or {}).get("nom") or r["nom"]
+            title = f"Rappel : {re.sub(r'^\s*rappel\s*:\s*', '', name, flags=re.I)}" if once else f"Routine « {name} »"  # l'agent nomme souvent la sienne « Rappel : … »
+            error = _routine_error(r)
+            new = False if once else record_passage(agent_id, r, error, now)
+            news += new
+            if error is not None:
+                if conv:
                     _routine_failed(save_message, agent_id, conv, r, title, error, now)
-                    db.set_setting(key, r["quand"])
-                    continue
-                text = f"**{title}**\n\n{r['texte'].strip()}"
-                if _routine_back(agent_id, r):
-                    text = f"**{title}**\n\n_De nouveau en marche après la panne signalée plus tôt._\n\n{r['texte'].strip()}"
-                save_message(conv, "agent", text)
-                add_context(conv, text)
-                owner = db.agent_owner(agent_id)  # son résultat est écrit chez lui : pas chez le profil en train de parler à l'agent
-                if owner is not None and once:
-                    _push_reminder(owner, title, notifications.first_sentence(r["texte"]), notifications.conversation_url(agent_id, conv))
-                elif owner is not None:
-                    desktop.notify_user(owner, title, notifications.first_sentence(r["texte"]), "routines",
-                                        notifications.conversation_url(agent_id, conv))
+                db.set_setting(key, r["quand"])
+                continue
+            owner = db.agent_owner(agent_id)  # son résultat est à lui : pas chez le profil en train de parler à l'agent
+            if once:  # un rappel est fait pour arriver dans le fil, à l'heure
+                if conv:
+                    text = f"**{title}**\n\n{r['texte'].strip()}"
+                    save_message(conv, "agent", text)
+                    add_context(conv, text)
+                    if owner is not None:
+                        _push_reminder(owner, title, notifications.first_sentence(r["texte"]), notifications.conversation_url(agent_id, conv))
+            elif new:
+                if _routine_back(agent_id, r) and conv:  # la panne signalée est finie : le fil le sait, en une phrase
+                    _say_back(save_message, agent_id, conv, name, owner)
+                if owner is not None:
+                    desktop.notify_user(owner, title, notifications.first_sentence(r["texte"]), "routines", notifications.conversation_url(agent_id))
             db.set_setting(key, r["quand"])
+        if news:  # le voyant d'Activité s'allume, sans attendre que quelqu'un relise l'agent
+            owner = db.agent_owner(agent_id)
+            if owner is not None:
+                from . import bus
+
+                with contextlib.suppress(Exception):
+                    bus.invalidate(owner)
         if conv:  # repassée sans rien écrire ([SILENT]) : Hermes note « ok » ; la panne signalée est finie, on le dit
             for routine, state in (read.get("etats") or {}).items():
                 name = _failed_name(agent_id, routine)  # avant que la reprise n'efface la panne
                 if state == "ok" and _routine_back(agent_id, {"routine": routine}):
                     once = reminders.get(str(routine))
                     name = (once or {}).get("nom") or name
-                    title = f"Routine « {name} » repasse"
-                    text = f"**{title}**\n\nLe dernier passage a réussi : la panne signalée plus tôt est finie."
-                    save_message(conv, "agent", text)
-                    add_context(conv, text)
-                    owner = db.agent_owner(agent_id)
-                    if owner is not None:
-                        desktop.notify_user(owner, title, "Le dernier passage a réussi.", "routines", notifications.conversation_url(agent_id, conv))
+                    _say_back(save_message, agent_id, conv, name, db.agent_owner(agent_id))
+
+
+def _say_back(save_message, agent_id: str, conv: str, name: str, owner: int | None) -> None:
+    title = f"Routine « {name} » repasse"
+    text = f"**{title}**\n\nLe dernier passage a réussi : la panne signalée plus tôt est finie."
+    save_message(conv, "agent", text)
+    add_context(conv, text)
+    if owner is not None:
+        desktop.notify_user(owner, title, "Le dernier passage a réussi.", "routines", notifications.conversation_url(agent_id, conv))
+
+
+# --- Les passages des routines, hors du fil (0.4.0, X6) ---------------------------------------------------------------------------
+
+PASSAGE_RENDU_MAX = 20000
+
+
+def _passe_a(fichier: str, now: float) -> float:
+    """L'horodatage du fichier de sortie d'Hermes (`2026-11-12_05-00-26`), à l'heure de la personne ; à défaut, maintenant."""
+    from . import updates
+
+    try:
+        return datetime.strptime(fichier, "%Y-%m-%d_%H-%M-%S").replace(tzinfo=updates.local_zone()).timestamp()
+    except (ValueError, TypeError):
+        return now
+
+
+def record_passage(agent_id: str, r: dict, error: str | None, now: float) -> int:
+    """Garde un passage, une seule fois : un relevé rejoué ne double rien (UNIQUE agent, routine, fichier). Rend 1 s'il est neuf."""
+    from . import diagnostics, events
+
+    routine = str(r.get("routine") or "")
+    if error is not None:
+        last = next((line.strip() for line in reversed(error.strip().splitlines()) if line.strip()), "")
+        resume, rendu, erreur = events.friendly_error(last or error), "", diagnostics.mask(error)[:4000]
+    else:
+        rendu = str(r.get("texte") or "").strip()[:PASSAGE_RENDU_MAX]
+        resume, erreur = notifications.first_sentence(rendu, 200), ""
+    with db.connect() as c:
+        done = c.execute("INSERT OR IGNORE INTO routine_passages (agent_id, routine_id, nom, fichier, etat, resume, rendu, erreur, passe_a) "
+                         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                         (agent_id, routine, str(r.get("nom") or routine)[:120], str(r.get("quand") or ""), "err" if error is not None else "ok",
+                          resume, rendu, erreur, _passe_a(str(r.get("quand") or ""), now)))
+    return int(done.rowcount == 1)
+
+
+def non_vues(user: int, agent_id: str) -> int:
+    """Les passages arrivés depuis la dernière visite de cette personne dans Activité : le voyant s'allume s'il y en a."""
+    with db.connect() as c:
+        row = c.execute("SELECT COUNT(*) AS n FROM routine_passages p WHERE p.agent_id = ? AND p.passe_a > "
+                        "COALESCE((SELECT vu_a FROM routine_vues WHERE user_id = ? AND agent_id = ?), 0)", (agent_id, user, agent_id)).fetchone()
+    return int(row["n"])
+
+
+def _passage(row) -> dict:
+    return {"id": row["id"], "routine_id": row["routine_id"], "nom": row["nom"], "etat": row["etat"], "passe_a": row["passe_a"],
+            "duree": row["duree"], "resume": row["resume"], "amene": bool(row["amene"])}
+
+
+@router.get("/api/agents/{agent_id}/routines-activite")
+def routines_activity(agent_id: str, user: int = Depends(auth.current_user)):
+    """Activité : les routines de l'agent avec leurs passages comptés, le bilan du dernier, et celles qui sont passées depuis la dernière
+    visite de cette personne. Rien ne passe par sa machine : la base, et la dernière liste de routines gardée."""
+    _check(agent_id, user)
+    known = _lus.get((agent_id, "routines"))
+    live = {r.get("id"): r for r in (known[1].get("routines") if known else None) or []}
+    with db.connect() as c:
+        seen = (c.execute("SELECT vu_a FROM routine_vues WHERE user_id = ? AND agent_id = ?", (user, agent_id)).fetchone() or {"vu_a": 0})["vu_a"]
+        rows = c.execute("SELECT routine_id, COUNT(*) AS n, SUM(etat = 'err') AS echecs, SUM(passe_a > ?) AS neufs, MAX(passe_a) AS dernier "
+                         "FROM routine_passages WHERE agent_id = ? GROUP BY routine_id", (seen, agent_id)).fetchall()
+        lasts = {r["routine_id"]: dict(r) for r in c.execute(
+            "SELECT p.routine_id, p.nom, p.etat, p.resume, p.passe_a FROM routine_passages p WHERE p.agent_id = ? AND p.id = "
+            "(SELECT MAX(q.id) FROM routine_passages q WHERE q.agent_id = p.agent_id AND q.routine_id = p.routine_id)", (agent_id,))}
+    out = []
+    for r in rows:
+        last, job = lasts.get(r["routine_id"], {}), live.get(r["routine_id"]) or {}
+        out.append({"id": r["routine_id"], "nom": last.get("nom") or job.get("name") or r["routine_id"], "quand": job.get("schedule_display") or "",
+                    "en_pause": bool(job) and not job.get("enabled", True), "supprimee": bool(known) and not job,
+                    "passages": r["n"], "echecs": r["echecs"] or 0, "vient": (r["neufs"] or 0) > 0, "dernier_a": r["dernier"],
+                    "bilan": last.get("resume") or "", "dernier_etat": last.get("etat") or "ok"})
+    for job_id, job in live.items():  # une routine qui n'a pas encore passé se voit aussi, à zéro passage
+        if job_id not in {o["id"] for o in out} and job.get("enabled", True) and job.get("name"):
+            out.append({"id": job_id, "nom": job["name"], "quand": job.get("schedule_display") or "", "en_pause": False, "supprimee": False,
+                        "passages": 0, "echecs": 0, "vient": False, "dernier_a": None, "bilan": "", "dernier_etat": "ok"})
+    out.sort(key=lambda o: (not o["vient"], -(o["dernier_a"] or 0)))
+    return {"routines": out, "non_vues": non_vues(user, agent_id)}
+
+
+@router.get("/api/agents/{agent_id}/routines-passages")
+def routine_passages_list(agent_id: str, routine: str = "", avant: int | None = None, limite: int = 50, user: int = Depends(auth.current_user)):
+    """Les passages d'une routine (sans `routine` : de toutes), le plus récent d'abord, 50 à la fois : `avant` reprend après le dernier reçu."""
+    _check(agent_id, user)
+    limite = max(1, min(limite, 100))
+    with db.connect() as c:
+        rows = c.execute("SELECT * FROM routine_passages WHERE agent_id = ? AND (routine_id = ? OR ? = '') AND id < ? ORDER BY id DESC LIMIT ?",
+                         (agent_id, routine, routine, avant if avant is not None else 2**62, limite + 1)).fetchall()
+    return {"passages": [_passage(r) for r in rows[:limite]], "plus": len(rows) > limite}
+
+
+def _passage_row(agent_id: str, passage_id: int):
+    with db.connect() as c:
+        row = c.execute("SELECT * FROM routine_passages WHERE id = ? AND agent_id = ?", (passage_id, agent_id)).fetchone()
+    if not row:
+        raise HTTPException(404, "Passage introuvable")
+    return row
+
+
+@router.get("/api/agents/{agent_id}/routines-passages/{passage_id}")
+def routine_passage(agent_id: str, passage_id: int, user: int = Depends(auth.current_user)):
+    """Un passage en entier : le rendu de la routine, ou l'erreur masquée d'un échec."""
+    _check(agent_id, user)
+    row = _passage_row(agent_id, passage_id)
+    return {**_passage(row), "rendu": row["rendu"], "erreur": row["erreur"]}
+
+
+@router.post("/api/agents/{agent_id}/routines-passages/{passage_id}/amener")
+def routine_passage_bring(agent_id: str, passage_id: int, user: int = Depends(auth.current_user)):
+    """« Amener dans le fil » : le résultat est posé dans le fil de cette personne, comme il l'était avant la 0.4.0, et l'agent l'a dans
+    son contexte : elle peut lui répondre dessus. Une seule fois par passage."""
+    from . import main
+
+    _check(agent_id, user)
+    row = _passage_row(agent_id, passage_id)
+    conv = main._main_conversation(agent_id, user) or main._new_conversation(user, agent_id, "Conversation", main=True)
+    if not row["amene"]:
+        body = row["rendu"] if row["etat"] == "ok" else f"{row['resume']} (le passage a échoué)"
+        text = f"**Routine « {row['nom']} »** ({datetime.fromtimestamp(row['passe_a']).strftime('%d/%m %H:%M')})\n\n{body.strip()}"
+        main._save_message(conv, "agent", text)
+        add_context(conv, text)
+        with db.connect() as c:
+            c.execute("UPDATE routine_passages SET amene = 1 WHERE id = ?", (passage_id,))
+        from . import bus
+
+        bus.invalidate(user)
+    return {"conversation_id": conv}
+
+
+@router.post("/api/agents/{agent_id}/routines-vues")
+def routines_seen(agent_id: str, user: int = Depends(auth.current_user)):
+    """Cette personne vient de lire les passages : le voyant s'éteint. « Vu » est le dernier passage connu, pas l'heure de la visite : un
+    passage dont l'heure précède la visite mais que la relève n'a gardé qu'ensuite (au plus une minute) ne passe pas inaperçu."""
+    _check(agent_id, user)
+    with db.connect() as c:
+        c.execute("INSERT INTO routine_vues (user_id, agent_id, vu_a) VALUES (?, ?, COALESCE((SELECT MAX(passe_a) FROM routine_passages WHERE agent_id = ?), 0)) "
+                  "ON CONFLICT(user_id, agent_id) DO UPDATE SET vu_a = excluded.vu_a", (user, agent_id, agent_id))
+    from . import bus
+
+    bus.invalidate(user)
+    return {"non_vues": 0}
 
 
 # Une routine en panne écrit à chaque passage (toutes les heures, parfois) : la personne est prévenue une fois par cause, puis au

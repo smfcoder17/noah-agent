@@ -255,6 +255,7 @@ async def startup() -> None:
     _spawn(push.run_queue())
     _spawn(desktop.keep_clean())
     _spawn(_after_updates(lambda: machine.keep_connections_warm(lambda: [a["id"] for a in _agents()], _warmable)))
+    _spawn(_after_updates(lambda: machine.keep_machine_warm(lambda: [a["id"] for a in _agents()], _warmable)))  # 0.4.0 S7 : routines, ordinateur, mémoire, compétences
     _migrate_threads()
     try:
         taches.migrer()  # 0.4.0 : une tâche par ancienne sous-conversation ; rejouée à chaque démarrage, jamais bloquante

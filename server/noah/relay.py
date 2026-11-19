@@ -254,11 +254,14 @@ def _task_of(agent_id: str) -> str | None:
     return runs[0] if len(set(runs)) == 1 else None
 
 
-def local_day(created_at: str) -> str:
-    """Jour chez l'utilisateur d'un horodatage UTC de SQLite, avec le décalage de cette date-là (heure d'été comprise)."""
-    from . import updates
-    utc = datetime.strptime(created_at[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
-    return utc.astimezone(updates.local_zone()).strftime("%Y-%m-%d")
+def local_day(created_at: str, zone=None) -> str:
+    """Jour chez l'utilisateur d'un horodatage UTC de SQLite, avec le décalage de cette date-là (heure d'été comprise). `zone` : celle
+    de la personne, déjà lue, pour qui convertit beaucoup d'horodatages d'un coup (lire le fuseau ouvre un fichier)."""
+    if zone is None:
+        from . import updates
+        zone = updates.local_zone()
+    utc = datetime.fromisoformat(created_at[:19]).replace(tzinfo=timezone.utc)
+    return utc.astimezone(zone).strftime("%Y-%m-%d")
 
 
 def month_start() -> str:

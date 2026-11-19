@@ -5,7 +5,8 @@ d'`usage` sur 15 jours, 200 tâches confiées. Le lanceur est un petit serveur H
 l'attend pas tient le budget. La durée lue est l'en-tête `Server-Timing: app;dur=<ms>` de la réponse (main.server_timing), pas
 l'horloge du test. 20 appels par route, l'un après l'autre.
 
-Seuils (X23) : 95e centile sous 300 ms à chaud, maximum sous 1 000 ms. La route d'ouverture (X22, pas S6) : sous 150 ms.
+À chaud, c'est-à-dire après un passage de la relève de chaque minute : les lectures de la machine d'un agent (routines, ordinateur, mémoire,
+compétences) sont alors gardées (0.4.0, S7). Seuils (X23) : 95e centile sous 300 ms à chaud, maximum sous 1 000 ms. La route d'ouverture (X22, pas S6) : sous 150 ms.
 Cliquet (tools/eval/budgets.json) : un budget non bloquant dont le seuil n'est pas atteint réussit en « ROUGE attendu », sauf si
 la mesure est pire que celle gardée (plus la tolérance du budget, pour les millisecondes). Même logique que tools/eval/cliquet.mjs.
 
@@ -174,6 +175,13 @@ async def main_test():
         budgets = json.load(f)
     jeton = auth.new_session(alice, "Banc des routes")
     ok, lignes, mesures = True, [], {}
+    # À chaud (X23) : la relève de chaque minute (machine.keep_machine_warm, machine.deliver_routines_once) a déjà rempli, pour cet agent, ce que
+    # sa machine dit des routines, de l'ordinateur, de la mémoire et des compétences. Le lanceur reste lent de 1,5 s : une route qui le
+    # rattend à chaque appel ne tient pas le budget, une route servie du cache oui. Ce temps-là n'est pas mesuré.
+    from noah import machine
+
+    for action in machine.LECTURES_GARDEES:
+        await machine._lire(A, action)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=main.app, raise_app_exceptions=False), base_url="http://test", headers={"authorization": f"Bearer {jeton}"}, timeout=60) as client:
         for chemin in ROUTES:
             mesures[chemin] = await mesurer(client, chemin)

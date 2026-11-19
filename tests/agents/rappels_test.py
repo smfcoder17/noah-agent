@@ -103,8 +103,11 @@ async def everything():
     await machine.deliver_routines_once(main._save_message, main._main_conversation)
     await real_sleep(0.02)
     said = messages()
-    assert said[-2].startswith("**Rappel : Sortir le linge**\n\nC'est l'heure") and "Routine" not in said[-2], said[-2:]
-    assert said[-1].startswith("**Routine « Brief »**"), "une routine qui revient garde son titre"
+    assert said[-1].startswith("**Rappel : Sortir le linge**\n\nC'est l'heure") and "Routine" not in said[-1], said[-2:]
+    assert not any("Brief" in m or "rendez-vous" in m for m in said), "0.4.0 : une routine qui passe n'écrit rien dans le fil, un rappel si"
+    with db.connect() as c:
+        kept = [dict(r) for r in c.execute("SELECT routine_id, nom, etat, resume FROM routine_passages WHERE agent_id = 'a1'")]
+    assert kept == [{"routine_id": "j-brief", "nom": "Brief", "etat": "ok", "resume": "Trois rendez-vous aujourd'hui."}], kept  # elle est dans ses passages ; le rappel n'y est pas
     reminder = next(s for s in sent if s["title"] == "Rappel : Sortir le linge")
     assert reminder["urgent"] and reminder["extra"]["type"] == "rappel" and reminder["user"] == alice and reminder["text"] == "C'est l'heure de sortir le linge.", reminder
     routine = next(s for s in sent if s["title"] == "Routine « Brief »")

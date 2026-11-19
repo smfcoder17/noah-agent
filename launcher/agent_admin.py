@@ -184,16 +184,16 @@ def routine_outputs(body):
     passage de chacune (`etats`) : une routine qui repasse sans rien écrire ([SILENT]) se voit quand même."""
     since = body.get("depuis", "")
     root = DATA / "cron" / "output"
-    found, states = [], {}
+    found, states, names, routines_now = [], {}, {}, None
+    try:
+        from cron import jobs
+        listed = jobs.list_jobs(include_disabled=True)
+        names = {j["id"]: j.get("name") or j.get("prompt", "")[:40] for j in listed}
+        states = {j["id"]: j.get("last_status") for j in listed if j.get("last_status")}
+        routines_now = [_routine(j) for j in listed]  # la même lecture que `routines` : Noah la garde, la liste n'attend plus un `docker exec` de plus
+    except Exception:
+        pass
     if root.exists():
-        names = {}
-        try:
-            from cron import jobs
-            listed = jobs.list_jobs(include_disabled=True)
-            names = {j["id"]: j.get("name") or j.get("prompt", "")[:40] for j in listed}
-            states = {j["id"]: j.get("last_status") for j in listed if j.get("last_status")}
-        except Exception:
-            pass
         for d in root.iterdir():
             if not d.is_dir():
                 continue
@@ -208,7 +208,7 @@ def routine_outputs(body):
                 elif text and text != "[SILENT]":
                     found.append({**entry, "texte": text[:20000]})
     found.sort(key=lambda r: r["quand"])
-    return {"sorties": found[-20:], "etats": states}
+    return {"sorties": found[-20:], "etats": states, **({"routines": routines_now} if routines_now is not None else {})}
 
 
 # --- Google (Gmail, Agenda, Drive) via la compétence google-workspace d'Hermes --------------------

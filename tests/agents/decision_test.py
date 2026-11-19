@@ -514,9 +514,11 @@ desktop_notes.clear()
 agent_owner, db.agent_owner = db.agent_owner, lambda agent: 1  # la notification va à son propriétaire
 asyncio.run(machine.deliver_routines_once(lambda conv, role, text: saved.append(text), lambda agent: "conv"))
 db.agent_owner = agent_owner
-assert saved and "Trois rendez-vous" in saved[0] and len(desktop_notes) == 1 and desktop_notes[0][0] == "Routine « Brief »" and desktop_notes[0][3] == "routines", (saved, desktop_notes)
+assert not saved and len(desktop_notes) == 1 and desktop_notes[0][0] == "Routine « Brief »" and desktop_notes[0][3] == "routines", (saved, desktop_notes)
+with db.connect() as c:
+    assert [r["rendu"] for r in c.execute("SELECT rendu FROM routine_passages WHERE routine_id = 'r1'")] == ["Trois rendez-vous aujourd'hui."], "0.4.0 : le résultat est dans Activité, pas dans le fil"
 machine.admin = fake_admin
-print("17. Routine sans condition : résultat dans la conversation et en notification")
+print("17. Routine sans condition : résultat gardé dans ses passages (rien dans le fil) et en notification")
 
 # --- 4. Relevé Gmail et Agenda, dans la machine de l'agent -------------------------------------------------------------------
 spec = importlib.util.spec_from_file_location("agent_admin", "/l/agent_admin.py")

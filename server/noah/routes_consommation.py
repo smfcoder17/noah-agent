@@ -8,7 +8,7 @@ import time
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import Field, BaseModel
-from . import questions, machine, coffre, handoff, desktop, access, session, db, auth, relay, propositions, proactif, coordination, sensitive, accords, main
+from . import taches, questions, machine, updates, coffre, handoff, desktop, access, session, db, auth, relay, propositions, proactif, coordination, sensitive, accords, main
 
 router = APIRouter()
 
@@ -115,15 +115,21 @@ def _first_line(text: str) -> str:
     return next((line.strip() for line in plain.splitlines() if line.strip() and not line.startswith("MEDIA:")), "")
 
 
+ACTIVITE_PAGE = 50  # lignes par lecture ; plus ancien, `avant` reprend après la dernière reçue
+
+
 @router.get("/api/agents/{agent_id}/activite")
-def activity(agent_id: str, user: int = Depends(auth.current_user)):
-    """Ce qu'a fait l'agent, le plus récent d'abord. Comme la conversation : une conversation privée reste à son auteur."""
+def activity(agent_id: str, avant: int | None = None, limite: int = ACTIVITE_PAGE, user: int = Depends(auth.current_user)):
+    """Ce qu'a fait l'agent, le plus récent d'abord, 50 lignes à la fois (0.4.0, S7) : `avant` (l'`id` de la dernière ligne reçue) rend la
+    suite. Comme la conversation : une conversation privée reste à son auteur. Une page pleine veut dire qu'il peut y en avoir une autre."""
     access.access(user, agent_id, "lecture")
+    limite = max(1, min(limite, 200))
     with db.connect() as c:
-        rows = c.execute("SELECT j.kind, j.titre, j.resultat, j.etat, j.at, j.conversation_id, v.main FROM journal j JOIN conversations v ON v.id = j.conversation_id "
-                         "WHERE j.agent_id = ? AND (v.user_id = ? OR v.shared) AND j.at >= ? ORDER BY j.id DESC LIMIT 500",
-                         (agent_id, user, time.time() - JOURNAL_SECONDS)).fetchall()
-    return [{**dict(r), "main": bool(r["main"]), "de_lui_meme": r["kind"] == "proactif" or r["titre"].startswith(proactif.ANCIENNE_MARQUE)} for r in rows]
+        rows = c.execute("SELECT j.id, j.kind, j.titre, j.resultat, j.etat, j.at, j.conversation_id, v.main FROM journal j JOIN conversations v ON v.id = j.conversation_id "
+                         "WHERE j.agent_id = ? AND (v.user_id = ? OR v.shared) AND j.at >= ? AND j.id < ? ORDER BY j.id DESC LIMIT ?",
+                         (agent_id, user, time.time() - JOURNAL_SECONDS, avant if avant is not None else 2**62, limite)).fetchall()
+    return [{**dict(r), "titre": taches._sans_marque(r["titre"]), "main": bool(r["main"]),
+             "de_lui_meme": r["kind"] == "proactif" or r["titre"].startswith(proactif.ANCIENNE_MARQUE)} for r in rows]
 
 
 @router.get("/api/agents/{agent_id}/session")
@@ -222,8 +228,12 @@ def usage(user: int = Depends(auth.current_user)):
             f"WHERE u.created_at >= datetime('now', '-15 days') AND {seen} GROUP BY u.agent_id, slice", {"me": user},
         ).fetchall()
     by_day: dict[tuple[str, str], dict] = {}
+    day_of: dict[str, str] = {}  # le jour chez la personne de chaque tranche, calculé une fois (S7 : 6 000 lectures du fuseau par appel, avant)
+    zone = updates.local_zone()
     for r in slices:
-        d = by_day.setdefault((r["agent_id"], relay.local_day(r["slice"])), {"cost": 0.0, "tokens": 0, "calls": 0, "sans_prix": 0})
+        if r["slice"] not in day_of:
+            day_of[r["slice"]] = relay.local_day(r["slice"], zone)
+        d = by_day.setdefault((r["agent_id"], day_of[r["slice"]]), {"cost": 0.0, "tokens": 0, "calls": 0, "sans_prix": 0})
         d["sans_prix"] += r["sans_prix"]
         d["cost"] += r["cost"]
         d["tokens"] += r["tokens"]

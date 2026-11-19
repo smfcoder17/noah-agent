@@ -160,12 +160,15 @@ async def everything():
     await tick()
     said = rows()
     assert len(said) == 4 and said[3]["role"] == "agent", said
-    assert said[3]["text"].startswith(f"**Routine « {NAME} »**\n\n_De nouveau en marche") and "Post publié" in said[3]["text"], said[3]
-    assert "IMPORTANT" not in said[3]["text"]
+    assert said[3]["text"].startswith(f"**Routine « {NAME} » repasse**") and "Post publié" not in said[3]["text"], said[3]
     succeeded("2026-11-13_08-00-26", "Post publié : « Le montage en une heure ».")
     await tick()
-    assert "De nouveau" not in rows()[-1]["text"]
-    print("6. reprise dite une fois, dans le compte rendu")
+    assert len(rows()) == 4, "un passage réussi n'écrit rien dans le fil (0.4.0) : son compte rendu est dans Activité"
+    with db.connect() as c:
+        ok = [dict(r) for r in c.execute("SELECT * FROM routine_passages WHERE agent_id = 'a1' AND etat = 'ok' ORDER BY fichier")]
+    assert [p["fichier"] for p in ok] == ["2026-11-13_07-00-26", "2026-11-13_08-00-26"] and "Trois outils" in ok[0]["rendu"] and ok[0]["resume"].startswith("Post publié"), ok
+    assert "IMPORTANT" not in json.dumps(ok), "ni la consigne de la routine ni celle d'Hermes"
+    print("6. reprise dite une fois en une phrase ; les comptes rendus sont dans les passages, pas dans le fil")
 
     # 7. Nouvelle panne, puis reprise muette ([SILENT]) : l'état « ok » d'Hermes suffit pour le dire ; un passage muet ne s'écrit pas.
     status["last_status"] = "error"
@@ -195,9 +198,20 @@ async def everything():
     assert said[-1]["role"] == "error" and "IMPORTANT" not in said[-1]["text"] and "20.78 $" in said[-1]["text"], said[-1]
     print("8. lanceur d'avant : même message court")
 
-    # 9. Le masque attrape l'adresse de gestion de la clé, où qu'elle apparaisse.
+    # 9. Chaque passage est gardé une fois : douze échecs et deux réussites, sans doublon, l'erreur masquée, la clé jamais en clair.
+    with db.connect() as c:
+        passages = [dict(r) for r in c.execute("SELECT * FROM routine_passages WHERE agent_id = 'a1' ORDER BY fichier")]
+    assert len(passages) == 14 and sum(p["etat"] == "err" for p in passages) == 12 and len({p["fichier"] for p in passages}) == 14, [(p["fichier"], p["etat"]) for p in passages]
+    assert all(KEY_ID not in p["erreur"] and KEY_ID not in p["resume"] for p in passages) and all(p["rendu"] == "" for p in passages if p["etat"] == "err")
+    assert all(p["routine_id"] == JOB and p["nom"] == NAME and p["passe_a"] > 0 for p in passages)
+    assert machine.record_passage("a1", {"routine": JOB, "nom": NAME, "quand": "2026-11-13_08-00-26", "texte": "Rejoué."}, None, time.time()) == 0, "un relevé rejoué ne double rien"
+    with db.connect() as c:
+        assert c.execute("SELECT COUNT(*) FROM routine_passages").fetchone()[0] == 14
+    print("9. 14 passages gardés, sans doublon, même rejoués")
+
+    # 10. Le masque attrape l'adresse de gestion de la clé, où qu'elle apparaisse.
     assert KEY_ID not in diagnostics.mask(KEY_LIMIT) and "$20.78 of $20.00" in diagnostics.mask(KEY_LIMIT)
-    print("9. masque : adresse de gestion de la clé")
+    print("10. masque : adresse de gestion de la clé")
     print("OK")
 
 
