@@ -1,6 +1,6 @@
 import { memo, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { ActionBarPrimitive, AttachmentPrimitive, MessagePrimitive, type TextMessagePartProps, useAui, useAuiState } from "@assistant-ui/react";
-import { Check, ChevronUp, Copy, FileText, Loader2, Pencil, Reply, SmilePlus, X } from "lucide-react";
+import { Check, ChevronUp, Copy, FileText, Loader2, Pencil, Reply, SmilePlus, X, Zap } from "lucide-react";
 import { SensitiveText } from "../SensitiveText";
 import { WhileBusyContext, AgentContext, HistoryContext } from "@/lib/agentContext";
 import { MOOD_FACE, moodLabel, moodOf, useMood, useWide } from "@/lib/chatMood";
@@ -323,6 +323,7 @@ export const AssistantMessage = memo(function AssistantMessage() {
   const mood = useMood(base, isLast, !!busyActivity);
   const label = useAuiState((s) => (isLast ? moodLabel(s.message, mood) : ""));
   const wide = useWide();
+  const initiative = useAuiState((s) => !!s.message.metadata?.custom?.initiative);
   if (isTrace) {
     return (
       <>
@@ -340,7 +341,15 @@ export const AssistantMessage = memo(function AssistantMessage() {
     <DayDivider />
     <ModelDivider />
     <MessagePrimitive.Root data-noah-msg={id} data-reply-source className="group msg relative flex scroll-mt-4 flex-col gap-1">
-      <span className="msg-who">{tache || agentName}</span>
+      <span className="msg-who">
+        {tache || agentName}
+        {initiative && (
+          <span data-marque-initiative title={t("Message envoyé de sa propre initiative")} className="ml-1.5 inline-flex align-middle text-accent">
+            <Zap className="size-3.5" aria-hidden />
+            <span className="sr-only">{t("de sa propre initiative")}</span>
+          </span>
+        )}
+      </span>
       {!(empty && running) && (
         <div data-noah-answer className="min-w-0">
           <MessagePrimitive.Parts components={{ Text: MarkdownText, tools: TOOLS }} />

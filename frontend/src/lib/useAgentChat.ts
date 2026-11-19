@@ -30,6 +30,8 @@ export type ChatMessage = {
   reactions?: Reactions;
   /** Le modèle qui a écrit cette réponse : l'écran marque un changement de modèle (Thread.tsx, ModelDivider). */
   model?: string;
+  /** Dit de sa propre initiative, sans qu'on le lui ait demandé : l'écran le marque en petit (X5). */
+  initiative?: boolean;
   /** Détail tel que stocké d'une trace de fil : sa ligne change à la fin du fil, sans changer le nombre de messages. */
   trace?: string;
 };
@@ -47,6 +49,9 @@ const traceMoved = (rows: StoredMessage[], cur: ChatMessage[]) => rows.some((r, 
 
 let seq = 0;
 const uid = (p: string) => `${p}-${Date.now().toString(36)}-${(seq++).toString(36)}`;
+
+/** Avant la 0.4.0, le titre d'un message de lui-même s'écrivait dans le texte : « **De lui-même : titre** ». Il n'est plus montré. */
+const ANCIENNE_MARQUE = /^\*\*De lui-même\s*:\s*([^*\n]+)\*\*/;
 
 const ATTACHED_RE = /\n\nFichiers joints par l'utilisateur :\n((?:- .+\n?)+)$/;
 
@@ -72,8 +77,10 @@ const storedDate = (at: string | undefined) => (at ? new Date(`${at.replace(" ",
 
 function fromStored(stored: StoredMessage, i: number): ChatMessage {
   const m = stored;
-  return { ...fromStoredContent(m, m.id ?? i), createdAt: storedDate(m.created_at), storedId: m.id, reactions: m.reactions, ...(m.role === "agent" && m.model ? { model: m.model } : {}) };
+  return { ...fromStoredContent(m, m.id ?? i), createdAt: storedDate(m.created_at), storedId: m.id, reactions: m.reactions, ...(m.role === "agent" && m.model ? { model: m.model } : {}), ...(m.role === "agent" && isInitiative(m) ? { initiative: true } : {}) };
 }
+
+const isInitiative = (m: StoredMessage) => stored(m.detail).marque === "initiative" || ANCIENNE_MARQUE.test(m.text);
 
 function fromStoredContent(m: StoredMessage, i: number): ChatMessage {
   if (m.role === "accord") {
@@ -92,16 +99,16 @@ function fromStoredContent(m: StoredMessage, i: number): ChatMessage {
     return { id: `h${i}`, role: "assistant", trace: m.detail ?? "", content: [{ type: "tool-call", toolCallId: `t${i}`, toolName: "trace", args: traceArgs(m), result: true }] };
   }
   const { steps, recu } = stored(m.detail);
-  return { id: `h${i}`, role: "assistant", content: [{ type: "text", text: m.role === "agent" ? pcNote(m.text) : m.text }, ...recuParts(recu), ...(steps.length ? [stepsPart(steps)] : [])] };
+  return { id: `h${i}`, role: "assistant", content: [{ type: "text", text: m.role === "agent" ? pcNote(m.text.replace(ANCIENNE_MARQUE, "**$1**")) : m.text }, ...recuParts(recu), ...(steps.length ? [stepsPart(steps)] : [])] };
 }
 
 const stepsPart = (steps: string[]): Part => ({ type: "tool-call", toolCallId: "steps", toolName: "steps", args: { steps } as never, result: true });
 const recuParts = (recu?: Recu | null): Part[] => (recu ? [{ type: "tool-call", toolCallId: "recu", toolName: "recu", args: { recu } as never, result: true }] : []);
-function stored(detail: unknown): { steps: string[]; recu?: Recu } {
+function stored(detail: unknown): { steps: string[]; recu?: Recu; marque?: string } {
   if (typeof detail !== "string" || !detail.startsWith('{"etapes"')) return { steps: [] };
   try {
     const data = JSON.parse(detail);
-    return { steps: data.etapes ?? [], recu: data.recu };
+    return { steps: data.etapes ?? [], recu: data.recu, marque: data.marque };
   } catch {
     return { steps: [] };
   }
@@ -309,7 +316,7 @@ const convertMessage = (m: ChatMessage): ThreadMessageLike => ({
   role: m.role,
   content: m.content as ThreadMessageLike["content"],
   createdAt: m.createdAt,
-  metadata: { custom: { storedId: m.storedId, reactions: m.reactions, model: m.model } },
+  metadata: { custom: { storedId: m.storedId, reactions: m.reactions, model: m.model, initiative: m.initiative } },
   status: m.role === "assistant" ? (m.running ? { type: "running" } : { type: "complete", reason: "stop" }) : undefined,
   attachments: (m.attachments ?? []).map((name, i) => ({
     id: `${m.id}-att-${i}`,
