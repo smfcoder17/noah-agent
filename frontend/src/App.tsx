@@ -21,7 +21,6 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { AuthScreen, TemporaryPassword } from "@/components/AuthScreen";
 import { CallScreen, type CallReport } from "@/components/Call";
 import { CALL_SLOT } from "@/components/CallStage";
-import { Onboarding } from "@/components/Onboarding";
 import { ConnectedBanner } from "@/components/ConnectedBanner";
 import { DeviceApproval, keepApprovalRequest } from "@/components/DeviceApproval";
 import { NewDeviceAlert } from "@/components/NewDeviceAlert";
@@ -53,7 +52,8 @@ import { loadPresets } from "@/lib/presets";
 import { OssatureFil } from "@/components/thread/panneaux";
 import { t, tr } from "@/i18n";
 
-// Chargés à la première ouverture : le premier écran n'attend que le chat.
+// Chargés à la première ouverture : le premier écran n'attend que le chat. L'assistant de première installation ne sert qu'une fois.
+const Onboarding = lazy(() => import("@/components/Onboarding").then((m) => ({ default: m.Onboarding })));
 const AgentBrain = lazy(() => import("@/components/AgentBrain").then((m) => ({ default: m.AgentBrain })));
 const AgentDialog = lazy(() => import("@/components/AgentDialog").then((m) => ({ default: m.AgentDialog })));
 const CustomizeTabs = lazy(() => import("@/components/mobile/CustomizeTabs").then((m) => ({ default: m.CustomizeTabs })));
@@ -287,7 +287,7 @@ export default function App() {
   if (screen === "onboarding" && status)
     return (
       <>
-        <Onboarding status={status} onDone={() => setScreen("app")} />
+        <Suspense fallback={null}><Onboarding status={status} onDone={() => setScreen("app")} /></Suspense>
         {/* Un appareil qui attend son accord (bureau, téléphone) n'a pas à attendre la fin de l'assistant. */}
         {status.has_account && <div className="mx-auto max-w-4xl px-4 pb-10"><DeviceApproval /></div>}
       </>
