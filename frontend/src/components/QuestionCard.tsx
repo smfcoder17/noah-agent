@@ -14,12 +14,14 @@ const reserveDite = (r: string): string => (r === "payer" ? t("Paiement") : r ==
 export function CheminQuestion({ q, onTache }: { q: QuestionCarte; onTache?: () => void }) {
   const [premier, second] = q.chemin;
   const qui = second ? t("{a}, transmis par {b}", { a: premier?.nom ?? q.de_nom, b: second.nom }) : (premier?.nom ?? q.de_nom);
+  const lien = q.tache ? t("tâche « {titre} »", { titre: q.tache }) : "";
+  // Une seule ligne : « Hugo, transmis par Noah · tâche « … » », la tâche en lien bleu qui l'ouvre.
   return (
-    <div className="line wrap g8 small soft text-[13px] text-muted-foreground">
-      <span>{qui}</span>
-      {q.tache && <><span aria-hidden>·</span>{onTache ? <button type="button" className="btn-ghost p-0" onClick={onTache}>{t("tâche « {titre} »", { titre: q.tache })}</button> : <span>{t("tâche « {titre} »", { titre: q.tache })}</span>}</>}
-      {q.reserve && <span className="pill wait">{reserveDite(q.reserve)}</span>}
-    </div>
+    <p data-chemin className="flex min-w-0 items-baseline gap-1.5 whitespace-nowrap text-[13px] text-muted-foreground">
+      <span className="shrink-0">{qui}</span>
+      {lien && <><span aria-hidden className="shrink-0">·</span>{onTache ? <button type="button" className="min-w-0 cursor-pointer truncate text-[var(--accent)] hover:underline" onClick={onTache}>{lien}</button> : <span className="min-w-0 truncate">{lien}</span>}</>}
+      {q.reserve && <span className="pill wait shrink-0">{reserveDite(q.reserve)}</span>}
+    </p>
   );
 }
 
@@ -80,7 +82,8 @@ export function QuestionCard({ q, onTache, dansTache = false }: { q: QuestionCar
   if (dansTache) {
     return (
       <div className="stack g8" data-question={q.id}>
-        <p className="small soft text-[13px] text-muted-foreground">{q.chemin[0]?.nom ?? q.de_nom}{q.chemin[1] ? t(" a demandé à {nom}. ", { nom: q.chemin[q.chemin.length - 1].nom }) : ". "}{q.pourquoi}</p>
+        <CheminQuestion q={q} onTache={onTache} />
+        {q.pourquoi && <p className="small soft text-[13px] text-muted-foreground">{q.pourquoi}</p>}
         <p><b>{q.titre}</b></p>
         <ChoixQuestion q={q} onDone={setReponse} />
       </div>

@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { t } from "@/i18n";
 import { type Agent, get, type InboxItem, isProposition, type Proposition, send } from "@/lib/api";
 import { refreshAccords, useAccords } from "@/lib/events";
-import { refreshPropositions, setPropositionCount } from "@/lib/propositions";
+import { refreshPropositions, setAutresCount, setPropositionCount } from "@/lib/propositions";
 import { LoginCard } from "./LoginCard";
 import { QUESTION_REPONDUE, QuestionCard } from "./QuestionCard";
 import { AgentFace } from "./Noah";
@@ -46,6 +46,7 @@ export function Inbox({ open, page = false, agents, onOpenChange, onOpenConversa
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const { items: accords } = useAccords();
+  useEffect(() => { if (items) setAutresCount(items.length); }, [items]); // la barre et l'en-tête du téléphone comptent ce que cette page liste
   useEffect(() => {  // une question répondue (ici, dans la tâche ou dans le fil) quitte la liste sans attendre la relève
     const on = (e: Event) => { const id = (e as CustomEvent<{ id: string }>).detail?.id; setItems((cur) => cur?.filter((i) => i.question?.id !== id) ?? null); };
     window.addEventListener(QUESTION_REPONDUE, on);
@@ -58,8 +59,9 @@ export function Inbox({ open, page = false, agents, onOpenChange, onOpenConversa
     const load = () => get<(InboxItem | Proposition)[]>("/api/a-toi").then((rows) => {
       const ideas = rows.filter((r): r is Proposition => isProposition(r as { type?: string }));
       setPropositions(ideas.filter((p) => !answered.current.has(p.id)).sort((a, b) => a.cree - b.cree));
-      setItems(rows.filter((r): r is InboxItem => !isProposition(r as { type?: string }) && !(r as InboxItem).request_id));
-    }).catch((e) => setError((e as Error).message));
+      const autres = rows.filter((r): r is InboxItem => !isProposition(r as { type?: string }) && !(r as InboxItem).request_id);
+      setItems(autres);
+      setPropositionCount(ideas.filter((p) => !answered.current.has(p.id)).length);    }).catch((e) => setError((e as Error).message));
     void load();
     // Connexions et choix gardent leur relève existante ; les accords viennent exclusivement du bus et de /api/accords (secours 60 s).
     const timer = subscribeUpdates(load);

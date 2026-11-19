@@ -39,7 +39,7 @@ it("dépliée sur place : le compte rendu, qui l'a confiée, et un lien qui ouvr
   await act(async () => row().click());
   expect(row().getAttribute("aria-expanded")).toBe("true");
   expect(host.textContent).toContain("Le texte est prêt.");
-  expect(host.textContent).toContain("Confiée par Alma");
+  expect(host.textContent).not.toContain("Confiée par"); // la page de la tâche le dit dans son en-tête, la ligne ne le répète pas
   expect(host.querySelector("a")!.getAttribute("href")).toBe("#agent=b&conversation=c1");
   await act(async () => row().click());
   expect(host.querySelector("a")).toBeNull();
@@ -106,5 +106,5 @@ it("la ligne nomme celui qui fait le travail, pas celui dont on lit le fil ni ce
   await render(<TacheLigne tache={tache({ demandeur: { id: "n", nom: "Noah" }, agent: { id: "h", nom: "Hugo" }, etat: "attend" })} agentId="n" agentName="Noah" />);
   expect(host.textContent).toContain("Hugo · attend ta réponse");
   expect(host.textContent).not.toContain("Noah · attend");
-  expect(host.textContent).toContain("Confiée par Noah");
+  expect(host.textContent).not.toContain("Confiée par");
 });

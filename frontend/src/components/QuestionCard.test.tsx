@@ -77,6 +77,18 @@ it("déjà répondue ailleurs (409) : la carte se règle sans erreur ; réseau e
 it("dans une ligne de tâche : sans cadre, le pourquoi, la question et les choix", async () => {
   await show({ dansTache: true });
   expect(host.querySelector(".card")).toBeNull();
-  expect(host.textContent).toContain("Hugo a demandé à Noah. Deux créneaux sont libres.");
+  expect(host.querySelector("[data-chemin]")?.textContent).toBe("Hugo, transmis par Noah·tâche « Envoi de la newsletter »"); // une seule ligne, la tâche en lien
+  expect(host.textContent).toContain("Deux créneaux sont libres.");
   expect(host.querySelector("b")?.textContent).toBe("Quelle heure pour l'envoi ?");
+});
+
+it("la tâche est un lien sur la ligne du chemin, et il ouvre la tâche où que la carte soit montrée (page, ligne de tâche)", async () => {
+  for (const dansTache of [false, true]) {
+    const ouvrir = vi.fn();
+    await show({ onTache: ouvrir, dansTache });
+    const chemin = host.querySelector("[data-chemin]") as HTMLElement;
+    expect(chemin.tagName).toBe("P"); // une seule ligne
+    await act(async () => (chemin.querySelector("button") as HTMLButtonElement).click());
+    expect(ouvrir).toHaveBeenCalledOnce();
+  }
 });

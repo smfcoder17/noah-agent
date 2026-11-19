@@ -337,7 +337,6 @@ export default {
   "Autre réponse": "Other answer",
   "Tu as répondu : ": "You answered: ",
   "Cette question est réglée.": "This question is settled.",
-  " a demandé à {nom}. ": " asked {nom}. ",
   "Une décision te revient. Le reste se règle entre agents.": "One decision is yours. The rest is settled between agents.",
   "{n} décisions te reviennent. Le reste se règle entre agents.": "{n} decisions are yours. The rest is settled between agents.",
   "Écris ta réponse avant d'enregistrer.": "Write your answer before saving.",

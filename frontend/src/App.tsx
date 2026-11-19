@@ -12,7 +12,7 @@ import { PANEL_NAMES, useWide, workTabsFor } from "@/lib/workPanel";
 import { WorkBar, WorkMenu } from "@/components/WorkBar";
 import { WorkPanel } from "@/components/WorkPanel";
 import { useNavigation } from "@/lib/navigation";
-import { subscribeUpdates } from "@/lib/events";
+import { subscribeUpdates, useAccords } from "@/lib/events";
 import { useNoahRetour } from "@/lib/useNoahRetour";
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import { QuoteContext, useQuoteState } from "@/lib/quotes";
@@ -353,7 +353,9 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
   const [inCall, setInCall] = useState<ChatProps | null>(null);
 
   const propositions = usePropositionCount(agents.length > 0);
-  const waiting = propositions + agents.reduce((total, a) => total + (a.tasks?.approve ?? 0) + (a.tasks?.choice ?? 0), 0);
+  // Le même nombre que la page « Pour toi » : ses lignes (propositions, questions, choix, connexions, appels) et les accords, aucun autre compte.
+  const { items: accordsEnAttente } = useAccords();
+  const waiting = propositions + accordsEnAttente.length;
   const agent = agents.find((a) => a.id === agentId) ?? null;
   // Le panneau de l'agent se charge d'avance, une fois l'écran calme. Ses onglets lisent la machine de l'agent à leur ouverture : ils ne
   // sont plus lus d'avance à chaque changement d'agent (routines, veilles, connexions : trois requêtes de plus à chaque ouverture).
@@ -538,7 +540,6 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
           <AppUpdate /><div id={CALL_SLOT} />
           {agent && canAdmin(agent) && <HandoffBanner agentId={agent.id} onOpenScreen={() => setPanel("computer")} />}
           {agent && canAdmin(agent) && <DelegatedTasks agentId={agent.id} />}
-          {threadId && tacheOuverte?.question && <div className="px-4 pt-3"><div className="mx-auto w-full max-w-3xl"><Suspense fallback={null}><QuestionCard key={tacheOuverte.question.id} q={tacheOuverte.question} /></Suspense></div></div>}
           <div className="min-h-0 flex-1">
             {inCall && (inCall.chatKey !== liveKey || !conversations) && <div key={inCall.chatKey} hidden><AgentChat {...inCall} /></div>}
             {agent && conversations ? (
@@ -559,6 +560,7 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
                   onReportRead={reportRead}
                   onStatus={setLiveStatus}
                   tache={threadId ? (tacheOuverte ? travailleur(tacheOuverte, agent.name) : agent.name) : null}
+                  carte={threadId && tacheOuverte?.question ? <Suspense fallback={null}><QuestionCard key={tacheOuverte.question.id} q={tacheOuverte.question} onTache={() => setThreadId(tacheOuverte.conversation_id)} /></Suspense> : null}
                 />
                 </Boundary>
               </div>
@@ -670,6 +672,8 @@ type ChatProps = {
   onStatus?: (status: string | null) => void;
   /** Celui qui travaille dans la tâche ouverte ; absent : le fil. */
   tache: string | null;
+  /** La carte de la question en attente de cette tâche : elle se pose dans le fil, après la consigne. */
+  carte?: React.ReactNode;
 };
 
 function AgentChat(props: ChatProps) {
@@ -753,9 +757,10 @@ function AgentChat(props: ChatProps) {
       readOnly,
       canWatch: canAdmin(props.agent),
       tache: props.tache,
+      carte: props.carte,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [say, id, name, color, shape, detail, model, props.details, readOnly, props.conversationId, canAdmin(props.agent), props.tache],
+    [say, id, name, color, shape, detail, model, props.details, readOnly, props.conversationId, canAdmin(props.agent), props.tache, props.carte],
   );
   return (
     <AssistantRuntimeProvider runtime={runtime}>

@@ -203,7 +203,6 @@ export default {
   "En cours": "In progress",
   "en cours": "in progress",
   "attend ta réponse": "waiting for you",
-  "Confiée par {nom}": "Handed over by {nom}",
   "Confiée par {de} à {a}": "Handed over by {de} to {a}",
   "Tâche de {nom}": "{nom}'s task",
   "Tâche": "Task",

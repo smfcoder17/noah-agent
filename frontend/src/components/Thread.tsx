@@ -14,7 +14,7 @@ import { ConversationRail } from "./ConversationRail";
 import { giveFilesEvent } from "./Files";
 import { VoiceMode } from "./Voice";
 import { t } from "@/i18n";
-import { OlderMessages, UserMessage, SelectionReply, AssistantMessage } from "./thread/messages";
+import { CarteSansConsigne, OlderMessages, UserMessage, SelectionReply, AssistantMessage } from "./thread/messages";
 import { Composer } from "./thread/Composer";
 import { EmptyNoah, OssatureFil } from "./thread/panneaux";
 
@@ -74,6 +74,7 @@ export const Thread = memo(function Thread({ report, onReportRead, onCall }: { r
               </div>
               )}
             </ThreadPrimitive.Empty>
+            <CarteSansConsigne />
             <ThreadPrimitive.Messages components={{ UserMessage, AssistantMessage }} />
           </div>
         </ThreadPrimitive.Viewport>
