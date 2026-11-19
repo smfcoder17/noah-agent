@@ -113,6 +113,24 @@ def liste_taches(agent_id: str, etat: str | None = None, limite: int = taches.LI
     return {"taches": taches.liste(user, agent_id, etat if etat in ("encours", "attend", "fini", "echec") else None, limite)}
 
 
+@router.get("/api/activite")
+def activite(user: int = Depends(auth.current_user)):
+    """La page Activité de tous les agents que ce compte peut lire (0.4.0, L9b) : leurs tâches (même forme que `GET /api/taches`, 100 au plus),
+    et, pour ceux qu'il administre, leurs routines (même forme que `…/routines-activite`, avec `agent`) ; `non_vues` est la somme des
+    passages pas encore vus. Rien ne passe par la machine d'un agent : la base et ce que le serveur a gardé. Un invité ne voit que ses agents."""
+    agents, rights, *_ = main._agents_listing(user)
+    nom = {a["id"]: a["name"] for a in agents}
+    routines, non_vues = [], 0
+    for a in agents:
+        if rights[a["id"]] not in ("proprietaire", "admin"):
+            continue
+        lues = machine.routines_de(user, a["id"])
+        non_vues += lues["non_vues"]
+        routines += [{**r, "agent": {"id": a["id"], "nom": a["name"]}} for r in lues["routines"]]
+    routines.sort(key=lambda o: (not o["vient"], -(o["dernier_a"] or 0)))
+    return {"taches": taches.liste_agents(user, list(nom)), "routines": routines, "non_vues": non_vues}
+
+
 class ArchiveBody(BaseModel):
     archived: bool
 

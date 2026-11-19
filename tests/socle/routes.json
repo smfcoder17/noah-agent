@@ -1758,6 +1758,13 @@
 "liste_taches"
 ],
 [
+"/api/activite",
+[
+"GET"
+],
+"activite"
+],
+[
 "/api/conversations/{conv_id}/archive",
 [
 "POST"

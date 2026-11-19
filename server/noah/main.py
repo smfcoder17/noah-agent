@@ -2000,6 +2000,8 @@ async def list_agents(user: int = Depends(auth.current_user)):
     """Les agents de ce profil et ceux qui lui sont partagés, rien d'autre. Leur état ne compte que ses conversations."""
     agents, rights, owners, convs, shared, names, own_models, reasonings = await asyncio.to_thread(_agents_listing, user)
     online = await asyncio.gather(*(_health(a) for a in agents))
+    travail = await asyncio.to_thread(taches.travail_des_agents, user, [a["id"] for a in agents])  # 0.4.0 : ce que chaque agent fait, pour la barre de gauche
+    chef = questions._chef(user)
     by_agent: dict[str, list[str]] = {}
     mains: dict[str, str] = {}
     for r in convs:
@@ -2025,6 +2027,9 @@ async def list_agents(user: int = Depends(auth.current_user)):
             "droit": rights[a["id"]],
             "partage": rights[a["id"]] != "proprietaire" or a["id"] in shared,
             "partage_par": names.get(owners[a["id"]]) if rights[a["id"]] != "proprietaire" else None,
+            "chef": a["id"] == chef and rights[a["id"]] == "proprietaire",
+            "travail": {"titre": travail[a["id"]]["titre"], "attend": travail[a["id"]]["attend"], "suit": travail[a["id"]]["suit"] if a["id"] == chef and rights[a["id"]] == "proprietaire" else 0},
+            "sans_message": travail[a["id"]]["sans_message"],
         }
         for a, ok in zip(agents, online)
     ]

@@ -555,6 +555,11 @@ def routines_activity(agent_id: str, user: int = Depends(auth.current_user)):
     """Activité : les routines de l'agent avec leurs passages comptés, le bilan du dernier, et celles qui sont passées depuis la dernière
     visite de cette personne. Rien ne passe par sa machine : la base, et la dernière liste de routines gardée."""
     _check(agent_id, user)
+    return routines_de(user, agent_id)
+
+
+def routines_de(user: int, agent_id: str) -> dict:
+    """Les routines d'un agent comme Activité les lit (les droits sont déjà vérifiés par l'appelant) : la route de l'agent et la page Activité de tous."""
     known = _lus.get((agent_id, "routines"))
     live = {r.get("id"): r for r in (known[1].get("routines") if known else None) or []}
     with db.connect() as c:

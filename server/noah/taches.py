@@ -300,7 +300,52 @@ def _etat(r) -> str:
     return "attend" if main.task_state.get(r["conversation_id"]) == "approve" else "encours"
 
 
-def _forme(r) -> dict:
+ETAPES_MAX = 12  # étapes rendues au plus : les dernières
+ETAPE_MAX = 120  # caractères d'une étape : sa première phrase
+
+
+def _etape(texte: str) -> str:
+    """Une étape : la première phrase de ce que l'agent a écrit avant un outil, sans Markdown, 120 caractères au plus. Vide : rien."""
+    plain = re.sub(r"```.*?(```|$)", " ", texte or "", flags=re.S)
+    plain = re.sub(r"MEDIA:\S+", " ", plain)
+    plain = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", plain)
+    plain = re.sub(r"^[ \t]*(?:[-*+•]|\d+[.)])[ \t]+", "", plain, flags=re.M)
+    plain = re.sub(r"[*`#>|]+|(?<!\w)_+|_+(?!\w)", " ", plain)
+    plain = " ".join(plain.split())
+    if not plain:
+        return ""
+    match = re.match(r".+?[.!?…](?=\s|$)", plain)
+    phrase = match.group(0) if match else plain
+    if len(phrase) > ETAPE_MAX:
+        cut = phrase.rfind(" ", 0, ETAPE_MAX - 1)
+        phrase = phrase[:cut if cut > ETAPE_MAX // 4 else ETAPE_MAX - 1].rstrip(" .,:;") + "…"
+    return phrase
+
+
+def etapes_de(c, conversations: list[str]) -> dict[str, list[str]]:
+    """Les étapes de chaque tâche, lues dans les vrais messages de son sous-fil (socle 3.1) : celles que l'agent a rangées dans le détail de
+    ses réponses (clé `etapes`), dans l'ordre des messages. Une seule requête pour toutes les tâches de la page, aucun appel au modèle.
+    Une tâche sans message, ou sans étape, n'a rien : aucune étape inventée."""
+    ids = [i for i in dict.fromkeys(conversations) if i]
+    out: dict[str, list[str]] = {}
+    for debut in range(0, len(ids), 500):
+        lot = ids[debut:debut + 500]
+        rows = c.execute("SELECT conversation_id, detail FROM messages WHERE role = 'agent' AND detail LIKE '{\"etapes\"%' AND conversation_id IN ("
+                         + ",".join("?" * len(lot)) + ") ORDER BY id", lot).fetchall()
+        for r in rows:
+            try:
+                data = json.loads(r["detail"])
+            except ValueError:
+                continue
+            for brut in (data.get("etapes") if isinstance(data, dict) else None) or []:
+                etape = _etape(brut) if isinstance(brut, str) else ""
+                vues = out.setdefault(r["conversation_id"], [])
+                if etape and (not vues or vues[-1] != etape):
+                    vues.append(etape)
+    return {k: v[-ETAPES_MAX:] for k, v in out.items()}
+
+
+def _forme(r, etapes: dict[str, list[str]] | None = None) -> dict:
     try:
         fichiers = json.loads(r["fichiers"] or "[]")
     except ValueError:
@@ -310,7 +355,8 @@ def _forme(r) -> dict:
             "agent": {"id": r["agent_id"], "nom": r["agent_nom"]},  # celui qui fait le travail : la ligne le nomme, pas le demandeur
             "etat": _etat(r), "resume": r["resume"], "fichiers": fichiers if isinstance(fichiers, list) else [],
             "ancre": r["ancre"], "cree": r["cree"], "fini_a": r["fini_a"], "conversation_id": r["conversation_id"],
-            "question": questions.question_tache(r["id"]), "echanges": questions.echanges_tache(r["id"])}
+            "question": questions.question_tache(r["id"]), "echanges": questions.echanges_tache(r["id"]),
+            "etapes": (etapes or {}).get(r["conversation_id"], [])}
 
 
 def du_fil(fil_id: str, owner_id: int, depuis_ancre: int | None) -> list[dict]:
@@ -323,7 +369,8 @@ def du_fil(fil_id: str, owner_id: int, depuis_ancre: int | None) -> list[dict]:
             f"WHERE t.fil_id = ? AND t.owner_id = ? AND (? IS NULL OR t.ancre >= ?) AND {SAUF_VIDES} "
             "ORDER BY t.ancre DESC, t.cree DESC LIMIT ?) ORDER BY ancre, cree",
             (fil_id, owner_id, depuis_ancre, depuis_ancre, DU_FIL_MAX)).fetchall()
-    return [_forme(r) for r in rows]
+        etapes = etapes_de(c, [r["conversation_id"] for r in rows])
+    return [_forme(r, etapes) for r in rows]
 
 
 def liste(owner_id: int, agent_id: str, etat: str | None = None, limite: int = LISTE_MAX) -> list[dict]:
@@ -335,7 +382,61 @@ def liste(owner_id: int, agent_id: str, etat: str | None = None, limite: int = L
             f"SELECT {CHAMPS} FROM taches t LEFT JOIN agents a ON a.id = t.demandeur LEFT JOIN agents w ON w.id = t.agent_id WHERE t.owner_id = ? AND t.agent_id = ? "
             f"AND (? IS NULL OR t.etat = ?) AND {SAUF_VIDES} ORDER BY t.maj DESC, t.cree DESC LIMIT ?",
             (owner_id, agent_id, etat, etat, limite)).fetchall()
-    return [_forme(r) for r in rows]
+        etapes = etapes_de(c, [r["conversation_id"] for r in rows])
+    return [_forme(r, etapes) for r in rows]
+
+
+def travail_des_agents(owner_id: int, agent_ids: list[str]) -> dict[str, dict]:
+    """Ce que chaque agent fait, pour ce compte, de quoi écrire la ligne d'état de la barre de gauche (0.4.0, L9b). Une lecture groupée : la
+    liste des agents est relue toutes les 4 s par chaque fenêtre. Le serveur ne donne que des données, le texte se compose à l'écran.
+    `titre` : sa tâche en cours la plus récente (null sans). `attend` : une de ses tâches attend la personne (un accord, ou une question
+    qui lui est posée), ou une question qui lui revient est en attente. `suit` : les tâches ouvertes (en cours ou en attente) de toute
+    l'équipe de ce compte, à ne rendre qu'au chef d'équipe (la route des agents met 0 aux autres). `sans_message` : son fil n'a aucun message."""
+    from . import main  # à la demande : main importe ce module
+
+    out = {a: {"titre": None, "attend": False, "suit": 0, "sans_message": True} for a in agent_ids}
+    if not agent_ids:
+        return out
+    marques = ",".join("?" * len(agent_ids))
+    with db.connect() as c:
+        ouvertes = c.execute("SELECT agent_id, titre, etat, conversation_id FROM taches WHERE owner_id = ? AND etat IN ('encours', 'attend') AND genre != 'discussion' "
+                             "ORDER BY maj DESC, cree DESC", (owner_id,)).fetchall()
+        attendues = {r["a"] for r in c.execute(f"SELECT DISTINCT a FROM questions WHERE owner_id = ? AND etat = 'attend' AND a IN ({marques})", (owner_id, *agent_ids))}
+        avec_messages = {r["agent_id"] for r in c.execute(
+            "SELECT c.agent_id FROM conversations c WHERE c.user_id = ? AND c.main = 1 AND EXISTS "
+            "(SELECT 1 FROM messages m WHERE m.conversation_id = c.id AND m.role != 'trace')", (owner_id,))}
+    for r in ouvertes:
+        attend = r["etat"] == "attend" or main.task_state.get(r["conversation_id"]) == "approve"
+        a = out.get(r["agent_id"])
+        if a is None:
+            continue
+        if attend:
+            a["attend"] = True
+        elif a["titre"] is None:
+            a["titre"] = r["titre"]
+    suit = len(ouvertes)
+    for a in out.values():
+        a["suit"] = suit
+    for agent_id in attendues:
+        out[agent_id]["attend"] = True
+    for agent_id, a in out.items():
+        a["sans_message"] = agent_id not in avec_messages
+    return out
+
+
+def liste_agents(owner_id: int, agent_ids: list[str], limite: int = LISTE_MAX) -> list[dict]:
+    """Les tâches de plusieurs agents pour ce compte, d'un seul coup, la plus récemment active d'abord : la page Activité de tous les agents.
+    Même forme que `liste` ; jamais la tâche d'un autre compte (owner_id)."""
+    limite = max(1, min(int(limite), 500))
+    if not agent_ids:
+        return []
+    with db.connect() as c:
+        rows = c.execute(
+            f"SELECT {CHAMPS} FROM taches t LEFT JOIN agents a ON a.id = t.demandeur LEFT JOIN agents w ON w.id = t.agent_id WHERE t.owner_id = ? "
+            f"AND t.agent_id IN ({','.join('?' * len(agent_ids))}) AND {SAUF_VIDES} ORDER BY t.maj DESC, t.cree DESC LIMIT ?",
+            (owner_id, *agent_ids, limite)).fetchall()
+        etapes = etapes_de(c, [r["conversation_id"] for r in rows])
+    return [_forme(r, etapes) for r in rows]
 
 
 # --- Au démarrage ---------------------------------------------------------------------------------------
