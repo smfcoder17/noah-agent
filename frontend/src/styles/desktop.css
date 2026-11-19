@@ -1,5 +1,5 @@
 /* Agents alignés : une ligne par agent ; l'agent ouvert déplie ses options. */
-.agent-nav { display:grid; gap:2px; list-style:none; margin:0; padding:0; }
+.agent-nav { display:grid; grid-template-columns:minmax(0,1fr); gap:2px; list-style:none; margin:0; padding:0; }
 .agent-nav-head { position:relative; display:flex; align-items:center; }
 .agent-nav-row { flex:1; min-width:0; display:flex; align-items:center; gap:10px; padding:7px 8px; border-radius:var(--radius-12); text-align:left; color:var(--ink); cursor:pointer; }
 .is-selected .agent-nav-row:hover { background:transparent; }
