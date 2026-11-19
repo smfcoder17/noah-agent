@@ -2,7 +2,7 @@ import { Approvals } from "./mobile/Approvals";
 import { subscribeUpdates } from "@/lib/events";
 // Panneau de l'agent : ce qu'il fait, à quoi il a accès, son ordinateur, ses routines, sa mémoire.
 import { Archive, ArchiveRestore, Brain, ChevronDown, ChevronRight, Clock, ExternalLink, FolderOpen, Hand, History, Loader2, LogIn, Monitor, MonitorPlay, Pencil, Plug, Power, RefreshCw, Sparkles, Sunrise, Users, X } from "lucide-react";
-import { lazy, Suspense, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { ApiError, type Agent, canAdmin, canTalk, type Conversation, get, request, send, type Usage } from "@/lib/api";
 import { peekScreenUrl, refuseScreenUrl, screenControl, screenUrl, screenViewOnly, watchScreenConnection } from "@/lib/screenCache";
 import { SEEN, SeenActive, seenGeneration } from "@/lib/seen";
@@ -27,8 +27,6 @@ import { activityResult, activityTitle } from "@/lib/lignesServeur";
 import { type TacheDuFil, useOuverture } from "@/lib/ouverture";
 import { TacheLigne } from "./thread/TacheLigne";
 
-const ActiviteRoutines = lazy(() => import("./ActiviteRoutines").then((m) => ({ default: m.ActiviteRoutines })));
-const Decisions = lazy(() => import("./Decisions").then((m) => ({ default: m.Decisions })));
 
 /** Dates et nombres : le français garde la forme canadienne d'origine, les autres langues suivent leur usage. */
 const FORMAT = langue() === "fr" ? "fr-CA" : locale();
@@ -88,13 +86,12 @@ export function SidePanel({
   onTechnical: (on: boolean) => void;
 }) {
   const admin = canAdmin(agent);
-  const routinesNonVues = (useOuverture(agent.id)?.routines.non_vues ?? 0) > 0 && admin ? 1 : 0;
   return (
     <Tabs value={tab} onValueChange={(v) => onTab(v as PanelTab)} className="flex h-full min-h-0 flex-col gap-3 p-3 pt-[max(12px,env(safe-area-inset-top))]">
       <div data-shell-tabs className="flex items-center justify-between gap-2">
         <TabsList className="max-w-full overflow-x-auto max-sm:grid max-sm:flex-1 max-sm:auto-cols-fr max-sm:grid-flow-col max-sm:overflow-visible max-sm:[&>button]:flex max-sm:[&>button]:flex-col max-sm:[&>button]:items-center max-sm:[&>button]:gap-0.5 max-sm:[&>button]:px-0.5 max-sm:[&>button]:text-[10.5px] [&_svg]:size-4 sm:[&_svg]:hidden">
           {([
-            ["activity", t("Activité"), History, true],
+            ["activity", t("Travail"), History, true],
             ["files", t("Fichiers"), FolderOpen, canTalk(agent)],
             ["routines", t("Routines"), Clock, admin],
             ["connections", t("Connexions"), Plug, admin],
@@ -102,7 +99,7 @@ export function SidePanel({
             ["computer", t("Ordinateur"), Monitor, canTalk(agent)],
             ["memory", t("Mémoire"), Brain, admin],
           ] as const).filter((t) => t[3]).map(([value, label, Icon]) => (
-            <TabsTrigger key={value} value={value} aria-label={label} className={value === "competences" || value === "memory" ? "max-sm:hidden!" : undefined}><Icon aria-hidden /><span className="max-sm:max-w-full max-sm:truncate">{label}</span>{value === "activity" && routinesNonVues > 0 && <span data-voyant-onglet aria-label={t("Des routines sont passées")} className="ml-1 inline-block size-1.5 rounded-full bg-[var(--accent)] shadow-[0_0_5px_var(--accent)]" />}</TabsTrigger>
+            <TabsTrigger key={value} value={value} aria-label={label} className={value === "competences" || value === "memory" ? "max-sm:hidden!" : undefined}><Icon aria-hidden /><span className="max-sm:max-w-full max-sm:truncate">{label}</span></TabsTrigger>
           ))}
         </TabsList>
         <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label={t("Fermer le panneau")}><X /></Button>
@@ -111,8 +108,6 @@ export function SidePanel({
       <KeptTab value="activity" shown={tab === "activity"} className="min-h-0 flex-1 overflow-y-auto">
         <Approvals agentId={agent.id} />
         <TachesPanel agent={agent} refreshKey={refreshKey} onOpen={(id) => { onOpenThread(id); onClose(); }} />
-        <Suspense fallback={null}>{admin && <ActiviteRoutines agentId={agent.id} refreshKey={refreshKey} onBrought={() => { onOpenThread(null); onClose(); }} />}</Suspense>
-        <Suspense fallback={null}><Decisions agentId={agent.id} refreshKey={refreshKey} /></Suspense>
         <ActivityLog agentId={agent.id} refreshKey={refreshKey} onOpen={(id, isMain) => { onOpenThread(isMain && id === main?.id ? null : id); onClose(); }} />
         <details className="mt-2"><summary className="text-sm text-muted-foreground cursor-pointer">{t("Fils et réglages")}</summary><Details agent={agent} onEdit={onEditAgent} refreshKey={refreshKey} onAgentChanged={onAgentChanged} onTab={onTab} onGoals={onGoals}>
           <Threads threads={threads} threadId={threadId} onOpen={onOpenThread} onArchive={onArchiveThread} />

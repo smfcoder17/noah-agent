@@ -30,8 +30,8 @@ export function Decisions({ agentId, refreshKey }: { agentId: string; refreshKey
   }, []);
   if (!decisions?.length) return null;
   return (
-    <section aria-label={t("Décidé pour toi")} className="flex flex-col gap-1.5">
-      <h3 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{t("Décidé pour toi")}</h3>
+    <section aria-label={t("Décidé pour toi")} className="stack g8">
+      <h2 className="h2">{t("Décidé pour toi")}</h2>
       <div className="list">
         {decisions.slice(0, shown).map((d) => {
           const corrigee = corrections[d.id] ?? (d.corrigee ? d.correction : "");

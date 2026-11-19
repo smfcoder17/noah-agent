@@ -61,6 +61,7 @@ const AgentPage = lazy(() => import("@/components/mobile/AgentPage").then((m) =>
 const Inbox = lazy(() => import("@/components/Inbox").then((m) => ({ default: m.Inbox })));
 const QuestionCard = lazy(() => import("@/components/QuestionCard").then((m) => ({ default: m.QuestionCard })));
 const SidePanel = lazy(() => import("@/components/SidePanel").then((m) => ({ default: m.SidePanel })));
+const ActivitePage = lazy(() => import("@/components/ActivitePage").then((m) => ({ default: m.ActivitePage })));
 const SettingsDialog = lazy(() => import("@/components/Settings").then((m) => ({ default: m.SettingsDialog })));
 const Goals = lazy(() => import("@/components/Goals").then((m) => ({ default: m.Goals })));
 
@@ -345,6 +346,7 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
   const setSettings = (tab: SettingsTab | null) => navigation.dispatch(tab ? { type: "push", route: { kind: "settings", tab } } : { type: "close", kind: "settings" });
   const [details, setDetails] = useState(false);
   const [inbox, setInbox] = useState(false);
+  const [activite, setActivite] = useState(false); // « Activité » : une page de la zone de travail, comme « Pour toi »
   const [goals, setGoals] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [report, setReport] = useState<CallReport | null>(null); // rappel pris : lu dans le mode vocal de cet agent
@@ -497,7 +499,10 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
     window.addEventListener("noah:ouvrir-panneau", tab);
     return () => { window.removeEventListener("noah:choisir-modele", open); window.removeEventListener("noah:ouvrir-panneau", tab); };
   }, []);
-  useEffect(() => { setInbox(false); }, [agent?.id, threadId, panel, navActive]); // « Pour toi » est une page : un autre agent, une tâche ou un onglet la ferme
+  useEffect(() => { setInbox(false); setActivite(false); }, [agent?.id, threadId, panel, navActive]); // « Pour toi » et « Activité » sont des pages : un autre agent, une tâche ou un onglet les ferme
+  const openInbox = () => { setActivite(false); setInbox(true); };
+  const openActivite = () => { setInbox(false); setActivite(true); };
+  const openFromActivite = (agent: string, conversation: string | null) => { setActivite(false); setAgentId(agent); setThreadId(conversation); setSidebarOpen(false); setPanel(null); };
   const openFromInbox = (item: InboxItem) => {
     setInbox(false);
     setAgentId(item.agent_id);
@@ -518,13 +523,14 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
         }}
       />
       <LayoutShell>
-        <SideRail waiting={waiting} onInbox={() => setInbox(true)} onActivity={() => setPanel("activity")} activityDot={(ouverture?.routines.non_vues ?? 0) > 0} me={me} onLogout={logout} agent={agent} agents={agents} tabs={tabs} active={navActive} onTab={goTab} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} onPickAgent={selectAgent} onMenu={() => setSidebarOpen(true)} onSettings={() => setSettings("home")} onGoals={() => setGoals(true)} onNewAgent={() => setAgentDialog({ open: true, agent: null })} onAgentPage={openAgentPage} onCustomize={customizeAgent} />
+        <SideRail waiting={waiting} onInbox={openInbox} onActivity={openActivite} activityDot={(ouverture?.routines.non_vues ?? 0) > 0} me={me} onLogout={logout} agent={agent} agents={agents} tabs={tabs} active={navActive} onTab={goTab} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} onPickAgent={selectAgent} onMenu={() => setSidebarOpen(true)} onSettings={() => setSettings("home")} onGoals={() => setGoals(true)} onNewAgent={() => setAgentDialog({ open: true, agent: null })} onAgentPage={openAgentPage} onCustomize={customizeAgent} />
         <div className="work-area">
         <div className="work-main">
           <MobileHeader agent={agent} status={agent?.step || liveStatus || (agent?.online ? t("En ligne") : t("Hors ligne"))} onMenu={() => setSidebarOpen(true)} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })}
-            menu={<WorkMenu agent={agent} active={panel} onOpen={togglePanelOpen} waiting={waiting} onInbox={() => setInbox(true)} />} />
+            menu={<WorkMenu agent={agent} active={panel} onOpen={togglePanelOpen} waiting={waiting} onInbox={openInbox} />} />
           {inbox && <div className="flex min-h-0 flex-1 flex-col"><Suspense fallback={null}><Inbox open page agents={agents} onOpenChange={setInbox} onOpenConversation={openFromInbox} onOpenAgent={(id) => { setInbox(false); selectAgent(id); }} /></Suspense></div>}
-          <KeepAlive active={!inbox && (!panel || (wide && !expanded))} className="min-h-0 flex-1">
+          {activite && <div className="flex min-h-0 flex-1 flex-col"><Suspense fallback={null}><ActivitePage agentId={agentId} onOpenTache={openFromActivite} onOpenAgent={(id) => openFromActivite(id, null)} /></Suspense></div>}
+          <KeepAlive active={!inbox && !activite && (!panel || (wide && !expanded))} className="min-h-0 flex-1">
           <ChatPane onMenu={() => setSidebarOpen(true)}
             title={thread?.title || agent?.name || "Noah"}
             entete={agent ? { role: agent.role, ...etatMot(agent) } : null}
@@ -608,7 +614,7 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
             </WorkPanel>
           </KeepAlive>}
         </div>
-        {sidebarOpen && <Drawer waiting={waiting} onInbox={() => { setSidebarOpen(false); setInbox(true); }} onActivity={() => { setSidebarOpen(false); setPanel("activity"); }} activityDot={(ouverture?.routines.non_vues ?? 0) > 0} me={me} agents={agents} agentId={agentId} tabs={tabs} active={navActive} onAgent={selectAgent} onAgentPage={openAgentPage} onCustomizeAgent={customizeAgent} onTab={goTab} onNewAgent={() => { setSidebarOpen(false); setAgentDialog({ open: true, agent: null }); }} onCustomize={() => { setSidebarOpen(false); navigation.dispatch({ type: "push", route: { kind: "customize" } }); }} onSettings={() => { setSidebarOpen(false); setSettings("home"); }} onGoals={() => { setSidebarOpen(false); setGoals(true); }} onClose={() => setSidebarOpen(false)} onLogout={logout} />}
+        {sidebarOpen && <Drawer waiting={waiting} onInbox={() => { setSidebarOpen(false); openInbox(); }} onActivity={() => { setSidebarOpen(false); openActivite(); }} activityDot={(ouverture?.routines.non_vues ?? 0) > 0} me={me} agents={agents} agentId={agentId} tabs={tabs} active={navActive} onAgent={selectAgent} onAgentPage={openAgentPage} onCustomizeAgent={customizeAgent} onTab={goTab} onNewAgent={() => { setSidebarOpen(false); setAgentDialog({ open: true, agent: null }); }} onCustomize={() => { setSidebarOpen(false); navigation.dispatch({ type: "push", route: { kind: "customize" } }); }} onSettings={() => { setSidebarOpen(false); setSettings("home"); }} onGoals={() => { setSidebarOpen(false); setGoals(true); }} onClose={() => setSidebarOpen(false)} onLogout={logout} />}
         <Suspense fallback={null}>
         {latest("customize") && <CustomizeTabs tabs={tabs} save={saveTabs} error={tabsError} onClose={() => navigation.dispatch({ type: "close", kind: "customize" })} />}
         {latest("agent") && agent && <AgentPage agent={agent} onClose={() => navigation.dispatch({ type: "close", kind: "agent" })} onPanel={(tab) => { navigation.dispatch({ type: "close", kind: "agent" }); setPanel(tab); }} onBrain={() => setModelDialog(true)} onEdit={() => setAgentDialog({ open: true, agent })} onNotifications={() => setSettings("notifications")} onAutonomy={() => setSettings("privacy")} />}

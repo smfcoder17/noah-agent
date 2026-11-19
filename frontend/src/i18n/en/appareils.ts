@@ -356,4 +356,13 @@ export default {
   "Décidé pour toi": "Decided for you",
   "Corrigé par toi : {texte}": "Corrected by you: {texte}",
   "{qui} a répondu : {reponse}": "{qui} answered: {reponse}",
+
+  // ActivitePage.tsx : Activité en page entière
+  "Travail": "Work",
+  "{de} l'a confiée à {a}": "{de} handed it to {a}",
+  "Rien pour l'instant": "Nothing yet",
+  "Les tâches confiées, les routines et ce que tes agents décident à ta place apparaîtront ici.": "Delegated tasks, routines and what your agents decide for you will show up here.",
+  "Ça n'a pas chargé": "That did not load",
+  "Noah n'a pas pu lire cette page. Tes données ne sont pas touchées.": "Noah could not read this page. Your data is untouched.",
+  "La lecture a échoué : la liste n'est peut-être pas à jour.": "Reading failed: the list may be out of date.",
 } satisfies Record<string, string>;

@@ -86,10 +86,10 @@ it("D1 — en haut à droite, les deux icônes du prototype : appeler l'agent, o
 it("D1 — les contenus de l'agent sont les onglets du panneau, dans l'ordre ; les détails techniques y ont leur interrupteur", async () => {
   const onTab = vi.fn(), onDetails = vi.fn();
   const tabs = workTabsFor(agent());
-  expect(tabs.map((t) => t.label)).toEqual(["Activité", "Tâches", "Fichiers", "Ordinateur", "Session"]);
+  expect(tabs.map((t) => t.label)).toEqual(["Travail", "Tâches", "Fichiers", "Ordinateur", "Session"]);
   await act(async () => root.render(<WorkPanel open tab="files" title="Fichiers" tabs={tabs} onTab={onTab} details={false} onDetails={onDetails} expanded={false} onExpand={vi.fn()} onClose={vi.fn()}><p>contenu</p></WorkPanel>));
   const seg = [...host.querySelectorAll<HTMLButtonElement>('.panel-tabs [role="tab"]')];
-  expect(seg.map((b) => b.textContent)).toEqual(["Activité", "Tâches", "Fichiers", "Ordinateur", "Session"]);
+  expect(seg.map((b) => b.textContent)).toEqual(["Travail", "Tâches", "Fichiers", "Ordinateur", "Session"]);
   expect(seg[2].getAttribute("aria-selected")).toBe("true");
   const expected: PanelTab[] = ["activity", "routines", "files", "computer", "session"];
   for (const [i, tab] of expected.entries()) { await act(async () => seg[i].click()); expect(onTab).toHaveBeenLastCalledWith(tab); }
@@ -98,7 +98,7 @@ it("D1 — les contenus de l'agent sont les onglets du panneau, dans l'ordre ; l
 });
 
 it("D1 — un profil partagé en simple lecture ne voit que les onglets qu'il peut ouvrir", () => {
-  expect(workTabsFor(agent({ droit: "lecture" })).map((t) => t.label)).toEqual(["Activité", "Session"]);
+  expect(workTabsFor(agent({ droit: "lecture" })).map((t) => t.label)).toEqual(["Travail", "Session"]);
 });
 
 function Panel({ onClose = vi.fn(), tab = "files" as PanelTab }) {

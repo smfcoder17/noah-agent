@@ -309,7 +309,6 @@ export default {
   "Déjà dans le fil": "Already in the thread",
   "Amener dans le fil": "Bring into the thread",
   "Voir plus": "Show more",
-  "Des routines sont passées": "Routines have run",
   "Message envoyé de sa propre initiative": "Message sent on its own initiative",
   "de sa propre initiative": "on its own initiative",
 } satisfies Record<string, string>;

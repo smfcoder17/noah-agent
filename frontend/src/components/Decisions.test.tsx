@@ -35,7 +35,7 @@ const ecrire = async (champ: HTMLInputElement, valeur: string) => act(async () =
 
 it("liste ce que les agents ont décidé : la question, qui a répondu, quoi", () => {
   expect(get).toHaveBeenCalledWith("/api/decisions");
-  expect(host.querySelector("h3")?.textContent).toBe("Décidé pour toi");
+  expect(host.querySelector("h2")?.textContent).toBe("Décidé pour toi");
   expect(host.querySelector(".row-title")?.textContent).toBe("Quelle longueur pour l'objet ?");
   expect(host.querySelector(".row-sub")?.textContent).toBe("Noah a répondu : Court et direct");
 });

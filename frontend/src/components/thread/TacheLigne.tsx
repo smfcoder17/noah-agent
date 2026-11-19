@@ -34,7 +34,7 @@ export const adresseDe = (agentId: string, conversationId: string) => `#agent=${
 export const travailleur = (tache: TacheDuFil, repli: string): string => tache.agent?.nom || repli;
 
 /** « en cours depuis 2 min » ou « terminée en 4 min » : la durée, quand elle se lit. */
-function duree(tache: TacheDuFil): string {
+export function duree(tache: TacheDuFil): string {
   const fin = tache.etat === "encours" || tache.etat === "attend" ? Date.now() / 1000 : tache.fini_a;
   const minutes = fin && tache.cree ? Math.max(0, Math.round((fin - tache.cree) / 60)) : 0;
   if (!minutes || minutes > 600) return etatDit(tache.etat);

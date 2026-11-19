@@ -6,7 +6,7 @@ import { t } from "@/i18n";
 
 /** Les icônes du haut de la conversation, dans l'ordre : chacune ouvre son contenu dans le panneau de droite. */
 export const WORK_TABS = [
-  { tab: "activity", label: t("Activité"), Icon: Activity },
+  { tab: "activity", label: t("Travail"), Icon: Activity },
   { tab: "routines", label: t("Tâches"), Icon: CheckSquare },
   { tab: "files", label: t("Fichiers"), Icon: FolderOpen },
   { tab: "computer", label: t("Ordinateur"), Icon: Monitor },
@@ -23,7 +23,7 @@ export function workTabsFor(agent: Agent | null) {
 export const MODE_VOCAL = "noah:mode-vocal";
 
 export const PANEL_NAMES: Record<PanelTab, string> = {
-  activity: t("Activité"), routines: t("Tâches"), files: t("Fichiers"), computer: t("Ordinateur"), session: t("Session"),
+  activity: t("Travail"), routines: t("Tâches"), files: t("Fichiers"), computer: t("Ordinateur"), session: t("Session"),
   connections: t("Connexions"), competences: t("Compétences"), memory: t("Mémoire"),
 };
 

@@ -15,10 +15,10 @@ vi.mock("@/lib/api", () => ({
 }));
 vi.mock("./ui", () => ({ Button: ({ children, ...p }: React.ButtonHTMLAttributes<HTMLButtonElement>) => <button type="button" {...p}>{children}</button> }));
 import { get, send } from "@/lib/api";
-import { ActiviteRoutines } from "./ActiviteRoutines";
+import { Bilan } from "./ActiviteRoutines";
 
 let host: HTMLDivElement, root: ReturnType<typeof createRoot>;
-const onBrought = vi.fn();
+const onBrought = vi.fn(), onBack = vi.fn();
 beforeEach(async () => {
   vi.mocked(send).mockClear();
   vi.mocked(get).mockClear();
@@ -26,22 +26,19 @@ beforeEach(async () => {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  await act(async () => root.render(<ActiviteRoutines agentId="rita" refreshKey={0} onBrought={onBrought} />));
+  await act(async () => root.render(<Bilan agentId="rita" routine={routine} onBack={onBack} onBrought={onBrought} />));
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 const bouton = (texte: string) => [...host.querySelectorAll("button")].find((b) => b.textContent?.includes(texte))!;
 
-it("la routine s'affiche avec son voyant, son compte et son bilan, sans rien dans le fil", () => {
-  expect(host.querySelector("[data-voyant]")).not.toBeNull();
-  expect(host.textContent).toContain("24 passées depuis ta dernière visite");
-  expect(host.querySelector(".row-title")?.textContent).toBe("Veille des concurrents");
-  expect(host.querySelector(".row-sub")?.textContent).toBe("every 60m · Rien de neuf.");
-  expect(host.textContent).toContain("24 passages");
+it("le bilan dit la routine, son compte et son dernier résultat, sans rien dans le fil", () => {
+  expect(host.querySelector("h1")?.textContent).toBe("Veille des concurrents");
+  expect(host.textContent).toContain("every 60m · 24 passages");
+  expect(host.textContent).toContain("Rien de neuf.");
+  expect(bouton("Activité")).toBeDefined();
 });
 
-it("un clic ouvre le bilan et éteint le voyant ; les passages se lisent 50 par 50", async () => {
-  await act(async () => bouton("Veille des concurrents").click());
-  expect(send).toHaveBeenCalledWith("/api/agents/rita/routines-vues", {});
+it("les passages se lisent 50 par 50", async () => {
   expect(host.querySelector("[data-routine-bilan]")).not.toBeNull();
   expect(host.textContent).toContain("Rien de neuf.");
   expect(host.querySelectorAll("[data-passage]")).toHaveLength(50);
@@ -52,7 +49,6 @@ it("un clic ouvre le bilan et éteint le voyant ; les passages se lisent 50 par 
 });
 
 it("un clic de plus ouvre le détail d'un passage, et « Amener dans le fil » le pose dans la conversation", async () => {
-  await act(async () => bouton("Veille des concurrents").click());
   await act(async () => (host.querySelector("[data-passage] button") as HTMLButtonElement).click());
   expect(host.textContent).toContain("Rendu complet du passage 74.");
   await act(async () => bouton("Amener dans le fil").click());
