@@ -342,8 +342,10 @@ def repondre(qid: str, par: str, texte: str) -> dict:
 def _apaiser(q: dict) -> None:
     """La question a trouvé sa réponse : la conversation ne « demande » plus rien à la personne."""
     from . import main
-    if main.task_state.get(q["conversation_id"]) == "approve" and not en_attente_conv(q["conversation_id"]):
-        main.task_state[q["conversation_id"]] = "work"
+    conv = q["conversation_id"]
+    if main.task_state.get(conv) == "approve" and not a_la_personne_conv(conv):
+        # Le tour qui a posé la question est fini : l'agent attend sa réponse, il ne travaille pas. Un tour encore actif reste « work ».
+        main.task_state[conv] = "work" if conv in relay.active.get(q["de"], []) else "done"
 
 
 async def _livrer(qid: str) -> None:

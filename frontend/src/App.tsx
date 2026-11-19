@@ -59,6 +59,7 @@ const AgentDialog = lazy(() => import("@/components/AgentDialog").then((m) => ({
 const CustomizeTabs = lazy(() => import("@/components/mobile/CustomizeTabs").then((m) => ({ default: m.CustomizeTabs })));
 const AgentPage = lazy(() => import("@/components/mobile/AgentPage").then((m) => ({ default: m.AgentPage })));
 const Inbox = lazy(() => import("@/components/Inbox").then((m) => ({ default: m.Inbox })));
+const QuestionCard = lazy(() => import("@/components/QuestionCard").then((m) => ({ default: m.QuestionCard })));
 const SidePanel = lazy(() => import("@/components/SidePanel").then((m) => ({ default: m.SidePanel })));
 const SettingsDialog = lazy(() => import("@/components/Settings").then((m) => ({ default: m.SettingsDialog })));
 const Goals = lazy(() => import("@/components/Goals").then((m) => ({ default: m.Goals })));
@@ -535,6 +536,7 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
           <AppUpdate /><div id={CALL_SLOT} />
           {agent && canAdmin(agent) && <HandoffBanner agentId={agent.id} onOpenScreen={() => setPanel("computer")} />}
           {agent && canAdmin(agent) && <DelegatedTasks agentId={agent.id} />}
+          {threadId && tacheOuverte?.question && <div className="px-4 pt-3"><div className="mx-auto w-full max-w-3xl"><Suspense fallback={null}><QuestionCard key={tacheOuverte.question.id} q={tacheOuverte.question} /></Suspense></div></div>}
           <div className="min-h-0 flex-1">
             {inCall && (inCall.chatKey !== liveKey || !conversations) && <div key={inCall.chatKey} hidden><AgentChat {...inCall} /></div>}
             {agent && conversations ? (

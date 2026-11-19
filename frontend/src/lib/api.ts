@@ -220,7 +220,14 @@ export type AgentUsage = {
 /** `comptes` : les identifiants retenus pour ce site, la personne choisit lequel (nom, deux premiers caractères, et l'adresse où il a
  * été retenu : un autre hôte du même site n'est jamais rempli d'office). */
 export type LoginAsked = { id: string; type: "connexion" | "code"; site: string; origine: string; chiffre: boolean; identifiant_requis: boolean; comptes?: { id: string; nom: string; compte: string; origine?: string }[] };
-export type InboxItem = { id?: string; bureau?: boolean; created: number; agent_id: string; agent: string; conversation_id: string; titre: string; main: boolean; a_moi: boolean; etat: "approve" | "choice"; demande: string; pourquoi?: string; apercu: string[]; request_id?: string; generation?: number; run_id?: string; connexion?: LoginAsked | null; appel?: { id: string; message: string; depuis: number; origine: string } };
+/** Une question qu'un agent pose pendant un travail (server/noah/questions.py) : qui demande, pour quelle tâche, le pourquoi, les choix. */
+export type QuestionCarte = {
+  id: string; genre: "question" | "choix"; de: string; de_nom: string; tache_id: string | null; tache: string; conversation_id: string;
+  titre: string; pourquoi: string; choix: string[]; libre: boolean; reserve: "" | "payer" | "supprimer" | "secrets" | "publier"; chemin: { id: string; nom: string }[]; cree: number;
+};
+/** Une question réglée par un agent ou par une règle à la place de la personne : « Décidé pour toi ». */
+export type Decision = QuestionCarte & { reponse: string; par: string; par_id: string; le: number; correction: string; corrigee: boolean; regle_id: string | null };
+export type InboxItem = { type?: "question"; question?: QuestionCarte; id?: string; bureau?: boolean; created: number; agent_id: string; agent: string; conversation_id: string; titre: string; main: boolean; a_moi: boolean; etat: "approve" | "choice"; demande: string; pourquoi?: string; apercu: string[]; request_id?: string; generation?: number; run_id?: string; connexion?: LoginAsked | null; appel?: { id: string; message: string; depuis: number; origine: string } };
 /** Une idée que l'agent a préparée de lui-même : « faire » la lance dans sa conversation principale (server/noah/propositions.py). */
 export type Proposition = { type: "proposition"; id: string; agent_id: string; agent: string; texte: string; cree: number };
 export const isProposition = (row: { type?: string }): row is Proposition => row.type === "proposition";

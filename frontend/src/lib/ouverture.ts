@@ -11,7 +11,7 @@
 //  - un seul abonné au flux : sur `donnees.changees`, l'ouverture de l'agent affiché est relue, une fois ;
 //  - vingt agents au plus : au-delà, le plus ancien sort.
 import { useEffect, useSyncExternalStore } from "react";
-import { ApiError, currentAuthEpoch, get, type Conversation, type LoginAsked, type StoredMessage } from "./api";
+import { ApiError, currentAuthEpoch, get, type Conversation, type LoginAsked, type QuestionCarte, type StoredMessage } from "./api";
 import { eventRevision, subscribeUpdates } from "./events";
 import { onForget, seenGeneration } from "./seen";
 import type { DelegatedTask } from "@/components/DelegatedTasks";
@@ -39,10 +39,10 @@ export type TacheDuFil = {
   fini_a: number | null;
   /** La conversation de la tâche : on y entre par elle (…/conversations/{id}/messages). */
   conversation_id: string;
-  question: unknown;
+  question: QuestionCarte | null;
   /** Pas encore envoyés par le serveur : lus quand ils viennent (prototype : « Brief lu · Trois pistes générées »). */
   etapes?: string[];
-  echanges?: { de: string; a: string; question: string; reponse: string }[];
+  echanges?: { id?: string; de: string; a: string; question: string; reponse: string; corrigee?: boolean; regle?: boolean }[];
 };
 export type Ouverture = {
   version: number;

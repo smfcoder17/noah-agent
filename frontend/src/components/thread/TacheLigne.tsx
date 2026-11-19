@@ -1,13 +1,15 @@
 import type { ToolCallMessagePartProps } from "@assistant-ui/react";
 import { useAuiState } from "@assistant-ui/react";
 import { Check, ChevronRight, File as FileIcon, Image as ImageIcon } from "lucide-react";
-import { useContext, useId, useMemo, useState } from "react";
+import { useContext, useEffect, useId, useMemo, useState } from "react";
 import { AgentContext } from "@/lib/agentContext";
 import type { TraceDetail } from "@/lib/api";
 import type { TacheDuFil } from "@/lib/ouverture";
 import { cn } from "@/lib/utils";
 import { StateShape } from "../Sidebar";
 import { t } from "@/i18n";
+import { type ACorriger, CorrigerDialog, DECISION_CORRIGEE } from "../Corriger";
+import { QUESTION_REPONDUE, QuestionCard } from "../QuestionCard";
 
 // Une tâche dans le fil (0.4.0, prototype « Fil calme ») : une ligne repliée (le titre, qui travaille, où elle en est) qu'on déplie sur place,
 // et dans laquelle on entre. C'est la même ligne dans le fil et dans l'onglet Tâches d'Activité : les deux lisent la même tâche
@@ -59,6 +61,19 @@ export function TacheLigne({ tache, agentId, agentName, defaultOpen = false, onO
   groupe?: GroupeTaches;
 }) {
   const [asked, setAsked] = useState<boolean | null>(null);
+  const [corriger, setCorriger] = useState<ACorriger | null>(null);
+  const [corrigees, setCorrigees] = useState<Record<string, string>>({});
+  const [repondue, setRepondue] = useState(false);
+  useEffect(() => {  // la même question répondue ailleurs (« Pour toi », la page de la tâche) disparaît d'ici aussi
+    const on = (e: Event) => { if ((e as CustomEvent<{ id: string }>).detail?.id === tache.question?.id) setRepondue(true); };
+    window.addEventListener(QUESTION_REPONDUE, on);
+    return () => window.removeEventListener(QUESTION_REPONDUE, on);
+  }, [tache.question?.id]);
+  useEffect(() => {  // une décision corrigée (ici ou dans Activité) montre la réponse de la personne
+    const on = (e: Event) => { const d = (e as CustomEvent<{ id: string; correction: string }>).detail; if (d?.id) setCorrigees((cur) => ({ ...cur, [d.id]: d.correction })); };
+    window.addEventListener(DECISION_CORRIGEE, on);
+    return () => window.removeEventListener(DECISION_CORRIGEE, on);
+  }, []);
   const open = asked ?? (defaultOpen || tache.etat === "attend");
   const id = useId();
   const qui = travailleur(tache, agentName);
@@ -95,18 +110,29 @@ export function TacheLigne({ tache, agentId, agentName, defaultOpen = false, onO
       {open && (
         <div id={`${id}-detail`} className="sub">
           {etapes.length > 0 && <p className="text-[13px] text-muted-foreground">{etapes.join(" · ")}</p>}
-          {(tache.echanges ?? []).map((x, i) => (
-            <div key={i} className="xchg">
-              <div className="xchg-line"><b>{x.de} {t("à")} {x.a}</b><span>{x.question}</span></div>
-              <div className="xchg-line"><b>{x.a} {t("à")} {x.de}</b><span>{x.reponse}</span></div>
-            </div>
-          ))}
+          {(tache.echanges ?? []).map((x, i) => {
+            const corrigee = x.id ? corrigees[x.id] : undefined;
+            return (
+              <div key={x.id ?? i} className="xchg">
+                <div className="xchg-line"><b>{x.de} {t("à")} {x.a}</b><span>{x.question}</span></div>
+                <div className="xchg-line"><b>{x.a} {t("à")} {x.de}</b><span>{corrigee ?? x.reponse}</span></div>
+                {x.id && (
+                  <div className="line wrap g8 small soft text-[13px] text-muted-foreground">
+                    <span className="grow" style={{ minWidth: 180 }}>{corrigee || x.corrigee ? t("Corrigé par toi. Règle retenue.") : t("Réglé entre agents, sans te déranger.")}</span>
+                    <button type="button" className="btn btn-sm" onClick={() => setCorriger({ id: x.id as string, question: x.question, reponse: corrigee ?? x.reponse, qui: t("{a} a répondu à {de}", { a: x.a, de: x.de }) })}>{t("Corriger")}</button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {tache.question && !repondue && <QuestionCard q={tache.question} dansTache />}
           {tache.demandeur?.nom && <p className="text-[13px] text-muted-foreground">{t("Confiée par {nom}", { nom: tache.demandeur.nom })}</p>}
           <p className="whitespace-pre-wrap break-words">{tache.resume || (tache.etat === "encours" ? t("Le travail est en cours.") : tache.etat === "attend" ? t("Le travail attend ta réponse.") : t("Pas de compte rendu."))}</p>
           {files.length > 0 && <div className="flex flex-wrap items-center gap-2">{files.map((f) => <span key={f} className="file">{/\.(png|jpe?g|gif|webp)$/i.test(f) ? <ImageIcon className="size-[18px]" aria-hidden /> : <FileIcon className="size-[18px]" aria-hidden />}<span className="cut">{f}</span></span>)}</div>}
           {entrer && <div>{entrer}</div>}
         </div>
       )}
+      <CorrigerDialog cible={corriger} onClose={() => setCorriger(null)} />
     </div>
   );
 }

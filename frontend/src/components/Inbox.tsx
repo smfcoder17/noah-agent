@@ -7,6 +7,7 @@ import { type Agent, get, type InboxItem, isProposition, type Proposition, send 
 import { refreshAccords, useAccords } from "@/lib/events";
 import { refreshPropositions, setPropositionCount } from "@/lib/propositions";
 import { LoginCard } from "./LoginCard";
+import { QUESTION_REPONDUE, QuestionCard } from "./QuestionCard";
 import { AgentFace } from "./Noah";
 import { StateShape } from "./Sidebar";
 import { Button, Dialog, DialogContent, ErrorText } from "./ui";
@@ -14,7 +15,7 @@ import { Button, Dialog, DialogContent, ErrorText } from "./ui";
 /** Une idée de l'agent : « Fais-le » la lance dans sa conversation principale, « Non » la range (et il s'en souvient). */
 export function PropositionCard({ item, agent, onAnswer }: { item: Proposition; agent?: Agent; onAnswer: (choix: "faire" | "non") => void }) {
   return (
-    <li className="flex flex-col gap-2 rounded-xl border border-border p-2.5">
+    <li className="card">
       <div className="flex items-start gap-3">
         {agent && <AgentFace agent={agent} className="size-9 shrink-0" />}
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -44,6 +45,11 @@ export function Inbox({ open, agents, onOpenChange, onOpenConversation, onOpenAg
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const { items: accords } = useAccords();
+  useEffect(() => {  // une question répondue (ici, dans la tâche ou dans le fil) quitte la liste sans attendre la relève
+    const on = (e: Event) => { const id = (e as CustomEvent<{ id: string }>).detail?.id; setItems((cur) => cur?.filter((i) => i.question?.id !== id) ?? null); };
+    window.addEventListener(QUESTION_REPONDUE, on);
+    return () => window.removeEventListener(QUESTION_REPONDUE, on);
+  }, []);
   useEffect(() => {
     if (!open) return;
     setItems(null);
@@ -109,18 +115,21 @@ export function Inbox({ open, agents, onOpenChange, onOpenConversation, onOpenAg
       void refreshPropositions().catch(() => {});
     }
   };
+  const decisions = (items?.length ?? 0) + accords.length + propositions.length;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {open && (
-        <DialogContent title={t("Pour toi")} description={t("Ce que tes agents attendent de toi.")} className="max-w-lg">
+        <DialogContent title={t("Pour toi")} description={t("Ce que tes agents attendent de toi.")} className="max-w-2xl">
           <ErrorText>{error}</ErrorText>
+          {(items?.length || accords.length || propositions.length) ? <p className="soft text-muted-foreground">{decisions === 1 ? t("Une décision te revient. Le reste se règle entre agents.") : t("{n} décisions te reviennent. Le reste se règle entre agents.", { n: decisions })}</p> : null}
           {!items && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("Lecture…")}</p>}
           {items?.length === 0 && !accords.length && !propositions.length && <p className="py-4 text-sm text-muted-foreground">{t("Rien ne t'attend pour le moment.")}</p>}
-          <ul className="flex max-h-[60vh] flex-col gap-2 overflow-y-auto max-md:max-h-none max-md:overflow-visible">
+          <ul className="flex max-h-[70vh] flex-col gap-4 overflow-y-auto max-md:max-h-none max-md:overflow-visible">
             {[...accords, ...(items ?? [])].sort((a, b) => a.created - b.created).map((item) => {
               const agent = agents.find((a) => a.id === item.agent_id);
+              if (item.question) return <li key={item.id ?? item.conversation_id}><QuestionCard q={item.question} onTache={() => onOpenConversation(item)} /></li>;
               return (
-                <li key={item.id ?? item.conversation_id} className="flex flex-col gap-2 rounded-xl border border-border p-2.5">
+                <li key={item.id ?? item.conversation_id} className="card">
                   <button type="button" onClick={() => onOpenConversation(item)} className="flex w-full cursor-pointer items-start gap-3 text-left" aria-label={t("Ouvrir la conversation : {demande}", { demande: item.demande })}>
                     {agent && <AgentFace agent={agent} className="size-9 shrink-0" />}
                     <span className="flex min-w-0 flex-1 flex-col gap-0.5">

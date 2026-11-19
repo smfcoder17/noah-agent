@@ -8,7 +8,7 @@ import time
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import Field, BaseModel
-from . import machine, coffre, handoff, desktop, access, session, db, auth, relay, propositions, proactif, coordination, sensitive, accords, main
+from . import questions, machine, coffre, handoff, desktop, access, session, db, auth, relay, propositions, proactif, coordination, sensitive, accords, main
 
 router = APIRouter()
 
@@ -41,9 +41,10 @@ def inbox(user: int = Depends(auth.current_user)):
     """Accords du compte qui a lancé le travail, connexions et choix. Une conversation privée reste à son auteur. Une tâche finie
     sur l'offre d'une suite n'attend rien : elle n'y est pas (follow_up_offer)."""
     out = accords.list_accords(user)
+    asked = questions.a_la_personne(user)  # 0.4.0 : les questions des agents et leurs choix, une ligne chacune
     for conv_id, state in list(main.task_state.items()):
         login = coffre.pending(conv_id)  # l'état peut être passé à « work » sur un événement de l'agent : la demande, elle, attend toujours
-        if (state != "choice" or follow_up_offer(conv_id)) and not login:
+        if (state != "choice" or follow_up_offer(conv_id) or any(q["conversation_id"] == conv_id for q in asked)) and not login:
             continue
         with db.connect() as c:
             row = c.execute("SELECT v.id, v.title, v.main, v.agent_id, v.user_id, a.name, "
@@ -62,8 +63,18 @@ def inbox(user: int = Depends(auth.current_user)):
             continue
         out.append({"agent_id": row["agent_id"], "agent": row["name"], "conversation_id": conv_id, "titre": row["title"], "main": bool(row["main"]), "a_moi": row["user_id"] == user, "etat": state,
                     "demande": "Une question attend ta réponse.", "apercu": [], "created": row["created"]})
+    out += [_question_item(q) for q in asked]
     out += _calls_waiting(user)
     return out + propositions.inbox(user)  # ce que ses agents proposent de lui-même
+
+
+def _question_item(q: dict) -> dict:
+    """Une question qui attend la personne : qui demande, pour quelle tâche, le pourquoi, les choix. Elle se répond sur place."""
+    conv = q["conversation_id"]
+    with db.connect() as c:
+        row = c.execute("SELECT title, main, agent_id FROM conversations WHERE id = ?", (conv,)).fetchone()
+    return {"type": "question", "id": q["id"], "agent_id": q["de"], "agent": q["de_nom"], "conversation_id": conv, "titre": row["title"] if row else "",
+            "main": bool(row["main"]) if row else False, "a_moi": True, "etat": "approve", "demande": q["titre"], "apercu": [], "created": q["cree"], "question": q}
 
 
 def _calls_waiting(user: int) -> list[dict]:

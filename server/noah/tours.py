@@ -15,7 +15,7 @@ from fastapi import Request, Depends, HTTPException, APIRouter
 from pydantic import BaseModel
 
 from .hermes import Agent
-from . import desktop, mcp, session, diagnostics, updates, notifications, machine, access, chauffe, auth, db, proactif, push, apprentissage, pendant, handoff, coordination, relay, recu, hermes, events, accords, bus, taches, main
+from . import desktop, mcp, session, diagnostics, updates, notifications, machine, access, chauffe, auth, db, proactif, push, apprentissage, pendant, handoff, coordination, relay, recu, hermes, events, accords, bus, taches, questions, main
 
 router = APIRouter()
 
@@ -146,6 +146,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
     apprentissage.note_turn(conv_id, author)
     main._save_message(conv_id, author, prompt)
     if author == "user":
+        questions.fermer_choix(conv_id)  # 0.4.0 : la personne a écrit dans la conversation, les choix qui attendaient sont réglés
         taches.premier_message(conv_id, prompt)  # 0.4.0 : une nouvelle discussion prend le titre de ce qu'on y demande
     # Configuration qui sert à cette exécution (preuve de l'essai de l'assistant) : celle que l'agent a vraiment reçue.
     rev = main._config_rev(agent.id)
@@ -338,6 +339,11 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
         pc_note = relay.turn_notes.pop(conv_id, None)  # le secours a répondu à la place de l'ordinateur : la conversation garde la ligne
         if text:
             main._save_message(conv_id, "agent", f"_{pc_note}_\n\n{text}" if pc_note else text, recu.detail_of(steps, receipt), relay.turn_model.pop(conv_id, None))
+            if main.task_state.get(conv_id) == "choice":  # 0.4.0 : un choix proposé à la personne devient une ligne de `questions`
+                with contextlib.suppress(Exception):
+                    with db.connect() as c:
+                        last_id = c.execute("SELECT MAX(id) AS n FROM messages WHERE conversation_id = ? AND role = 'agent'", (conv_id,)).fetchone()["n"]
+                    questions.ouvrir_choix(conv_id, text, last_id)
             note = recu.note_for_agent(receipt)
             if note:
                 machine.add_context(conv_id, note)
