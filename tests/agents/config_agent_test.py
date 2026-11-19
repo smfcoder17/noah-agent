@@ -149,7 +149,7 @@ for needed, why in [
     assert needed in soul, why
 assert "liste compacte" not in soul and "Quand une structure aide plus qu'un paragraphe" not in soul, "l'ancienne consigne vague est retirée"
 assert len(widgets) < 3800, f"la section reste courte (3 000 caractères avant la table et les trois blocs) : {len(widgets)} caractères"
-assert main.AGENT_SETUP_VERSION.startswith("47-"), "les agents existants doivent recevoir la table des widgets (45), le rythme sur X (46) et la langue de la personne (47)"
+assert main.AGENT_SETUP_VERSION.startswith("48-"), "les agents existants doivent recevoir la table des widgets (45), le rythme sur X (46), la langue de la personne (47) et les consignes de la 0.4.0 (48)"
 assert "Réponds en français" not in soul and "Réponds dans la langue de la personne" in soul, "l'agent répond dans la langue de la personne"
 print(f"prompt : table « ce que tu présentes → le bloc », exemple par bloc, posts, products, links ({len(widgets)} caractères)")
 
@@ -170,5 +170,5 @@ for needed, why in [
     assert needed in forme, why
 assert soul.count("## Mise en forme") == 1, "un seul texte de mise en forme"
 assert forme.count("```noah") == 1 and "entre ```noah et ```" in forme and "un tableau markdown" not in soul, "la consigne ne se contredit pas : plus de tableau Markdown conseillé nulle part"
-assert main.AGENT_SETUP_VERSION.startswith("47-"), "le lot L4 ne monte pas la version : Claude la montera une fois, à la publication"
+assert main.AGENT_SETUP_VERSION.startswith("48-"), "la version monte une seule fois pour la 0.4.0 (48), qui porte les consignes de L2, L3 et L4"
 print(f"prompt : mise en forme ({len(forme)} caractères), conciliée avec les widgets")

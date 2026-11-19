@@ -741,7 +741,7 @@ def test_everywhere() -> None:
     db.set_setting("onboarded", "1")
     r = alice.post("/api/chat", json={"agent_id": A, "text": "note ceci"})
     assert r.status_code == 200 and started and started[0]["agent"] == A, r.text
-    voice = Path("/front/Voice.tsx")
+    voice = Path("/front/VoiceMode.tsx")  # 0.4.0 : le mode vocal a son fichier, chargé à la demande
     if voice.exists():
         assert "say(text" in voice.read_text(encoding="utf-8"), "la voix doit passer par le fil de la conversation"
     # Le même relais quel que soit l'appelant : la requête ne dit pas d'où elle vient, et une demande de routine passe pareil.

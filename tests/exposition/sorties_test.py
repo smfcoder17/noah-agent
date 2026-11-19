@@ -98,7 +98,7 @@ KNOWN = {
     # 0.2.0 : adresses écrites dans les tests de l'interface (blocs, masquage), jamais appelées
     "boutique.example": "exemple", "shop.example.com": "exemple", "www.lemonde.fr": "exemple", "youtu.be": "exemple", "wa.me": "exemple",
     "noah.exemple.com.evil.net": "exemple", "docs.docker.com": "lien montré", "host.docker.internal": "machine elle-même",
-    "ailleurs.exemple.net": "exemple", "example.test": "exemple", "pirate.free.fr": "exemple", "adsl.free.fr": "exemple",  # tests du coffre (relecture 0.3.0, B-1)
+    "ailleurs.exemple.net": "exemple", "example.test": "exemple", "x.org": "exemple", "pirate.free.fr": "exemple", "adsl.free.fr": "exemple",  # tests du coffre (relecture 0.3.0, B-1)
     # 0.4.0 (X17) : site d'origine écrit dans l'entrée du coffre quand une clé collée y est rangée (OffreCle.tsx), jamais appelé
     "aistudio.google.com": "origine du coffre", "app.tavily.com": "origine du coffre", "aws.amazon.com": "origine du coffre",
     "build.nvidia.com": "origine du coffre", "console.anthropic.com": "origine du coffre", "console.groq.com": "origine du coffre",
