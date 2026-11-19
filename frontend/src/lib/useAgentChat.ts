@@ -76,6 +76,9 @@ function current(conv: string, asked: number | undefined, rows: StoredMessage[])
 // Le serveur écrit en UTC, sans le dire.
 const storedDate = (at: string | undefined) => (at ? new Date(`${at.replace(" ", "T")}Z`) : undefined);
 
+/** Les messages que l'écran montre : un `[SILENT]` déjà en base ne s'affiche pas (0.4.0, X31). */
+const visibles = (rows: StoredMessage[]): StoredMessage[] => rows.filter((m) => ancienMessage(m) !== null);
+
 function fromStored(stored: StoredMessage, i: number): ChatMessage {
   const m = stored;
   return { ...fromStoredContent(m, m.id ?? i), createdAt: storedDate(m.created_at), storedId: m.id, reactions: m.reactions, ...(m.role === "agent" && m.model ? { model: m.model } : {}), ...(m.role === "agent" && isInitiative(m) ? { initiative: true } : {}) };
@@ -220,12 +223,13 @@ function memoire(conv: string | null, agent: string): ChatMessage[] | null {
   const fil = enMemoire(agent)?.fil;
   if (!fil || fil.id !== conv) return null;
   current(conv, undefined, fil.messages); // la fenêtre est la page rendue
-  return fil.messages.map(fromStored);
+  return visibles(fil.messages).map(fromStored);
 }
 /** La conversation est celle dont l'ouverture de l'agent donne les messages et l'état : son fil. */
 const duFil = (agent: string, conv: string | null | undefined) => !!conv && enMemoire(agent)?.fil?.id === conv;
 /** Ce qu'il faut changer à l'écran pour passer de `cur` aux messages `rows` du serveur : rien si c'est déjà ce qu'on voit. */
-function reconcile(cur: ChatMessage[], rows: StoredMessage[]): ChatMessage[] {
+function reconcile(cur: ChatMessage[], brutes: StoredMessage[]): ChatMessage[] {
+  const rows = visibles(brutes);
   if (rows.length !== cur.length || traceMoved(rows, cur)) return rows.map(fromStored);
   // Même nombre : on garde l'affichage, en apprenant le numéro des messages écrits ici (pour pouvoir y réagir) et leurs réactions.
   const modelOf = (r: StoredMessage) => (r.role === "agent" && r.model) || undefined;
@@ -392,7 +396,7 @@ export function useAgentChat(opts: {
         setKnown(conversationId);
         if (!current(conversationId, asked, rows)) return setMore(windows.get(conversationId)?.more ?? false);
         setMore(windows.get(conversationId)?.more ?? false);
-        setMessages(rows.map(fromStored));
+        setMessages(visibles(rows).map(fromStored));
       })
       .catch((e) => {
         if (!cancelled) setKnown(conversationId); // pas de réponse : l'écran vide plutôt qu'une ossature qui ne finit pas
@@ -422,7 +426,7 @@ export function useAgentChat(opts: {
         if (!current(conversationId, asked, rows)) return;
         if (!cancelled) setMore(windows.get(conversationId)?.more ?? false);
         // Seulement s'il y a du nouveau, pour ne pas redessiner la conversation pour rien.
-        if (!cancelled && !running.current) setMessages((cur) => (rows.length > cur.length || (rows.length === cur.length && traceMoved(rows, cur)) ? rows.map(fromStored) : cur));
+        if (!cancelled && !running.current) setMessages((cur) => { const vus = visibles(rows); return vus.length > cur.length || (vus.length === cur.length && traceMoved(vus, cur)) ? vus.map(fromStored) : cur; });
       })
       .catch(() => {});
     return () => {
@@ -444,7 +448,7 @@ export function useAgentChat(opts: {
         ).json()) as StoredMessage[];
         if (!current(conv, asked, rows)) continue;
         if (ownConversation.current === conv) setMore(windows.get(conv)?.more ?? false);
-        if (ownConversation.current === conv && !running.current) setMessages(rows.map(fromStored));
+        if (ownConversation.current === conv && !running.current) setMessages(visibles(rows).map(fromStored));
         // Réponse encore en cours côté serveur : on recharge encore jusqu'à la voir arrivée. La trace d'un fil n'en est pas une.
         if (rows.filter((r) => r.role !== "trace").pop()?.role !== "user") return;
       } catch {
@@ -489,7 +493,7 @@ export function useAgentChat(opts: {
     }
     if (!current(conv, anchorOf(conv), fil.messages)) return;
     setMore(windows.get(conv)?.more ?? false);
-    setMessages((cur) => (cur.length ? reconcile(cur, fil.messages) : fil.messages.map(fromStored)));
+    setMessages((cur) => (cur.length ? reconcile(cur, fil.messages) : visibles(fil.messages).map(fromStored)));
   }, [reload]);
   useEffect(() => applyOuverture(ouverture), [ouverture, applyOuverture]);
 
@@ -782,7 +786,7 @@ export function useAgentChat(opts: {
       tasks.push(readMessages(windowUrl(conv)).then((rows) => {
         if (!current(conv, asked, rows)) return;
         // Réponse en cours d'écriture : elle n'est pas encore enregistrée, la relecture l'effacerait. Elle se relit à la fin du tour.
-        if (ownConversation.current === conv && !running.current) setMessages(rows.map(fromStored));
+        if (ownConversation.current === conv && !running.current) setMessages(visibles(rows).map(fromStored));
       }));
     };
     window.addEventListener("noah:resync", resyncAll);
@@ -848,7 +852,7 @@ export function useAgentChat(opts: {
           const next = { from: rows[0]?.id ?? open.from, more: rows.length >= PAGE };
           windows.set(conv, next);
           setMore(next.more);
-          setMessages((cur) => [...rows.map(fromStored), ...cur]);
+          setMessages((cur) => [...visibles(rows).map(fromStored), ...cur]);
         } finally {
           setLoadingOlder(false);
         }
