@@ -137,6 +137,7 @@
 .model-chip svg { width:18px; height:18px; flex:none; }
 .send { width:36px; height:36px; flex:none; margin-left:6px; border-radius:12px; background:var(--accent); color:var(--accent-ink); display:inline-flex; align-items:center; justify-content:center; cursor:pointer; }
 .send:active { transform:scale(.95); }
+.send:disabled { opacity:1; }
 .send-stop { width:36px; height:36px; flex:none; margin-left:6px; border-radius:12px; }
 
 /* ---------- Téléphone ---------- */
