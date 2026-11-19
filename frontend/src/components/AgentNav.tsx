@@ -5,7 +5,6 @@ import { TAB_NAMES, type NavTab } from "@/lib/navPrefs";
 import { cn } from "@/lib/utils";
 import { TAB_ICONS } from "./mobile/BottomTabs";
 import { agentSummary, StateShape } from "./Sidebar";
-import { AgentFace } from "./Noah";
 import { AgentMenu } from "./AgentMenu";
 import { t } from "@/i18n";
 
@@ -16,7 +15,8 @@ export const pendingOf = (a: Agent) => (a.tasks?.approve ?? 0) + (a.tasks?.choic
  * Les agents, alignés en haut de la barre, comme une liste de contacts : une ligne par agent, avec son état.
  * Seul l'agent ouvert déplie dessous, sur le téléphone, ses options (Discussion par défaut, puis les onglets choisis). Il n'y a plus
  * d'historique (0.4.0) : un agent a un seul fil, et ses tâches s'y lisent. Sur l'ordinateur, les options
- * sont en haut à droite de la conversation (`showTabs={false}`) et l'agent ouvert montre son grand visage, sans tuile.
+ * sont dans le panneau de droite (`showTabs={false}`). Comme dans le prototype « Fil calme », chaque ligne a une pastille de lettre, le nom, une
+ * ligne d'état et la pastille d'état à droite ; l'agent ouvert est sur fond de sélection.
  * Chaque ligne a trois petits points, cachés jusqu'au survol, qui ouvrent le menu de l'agent ; un clic droit sur la ligne l'ouvre aussi,
  * ce qui sert barre repliée, où seuls les visages restent.
  */
@@ -49,28 +49,28 @@ export const AgentNav = memo(function AgentNav({ agents, agentId, tabs, active, 
     <ul className={cn("agent-nav", variant === "drawer" && "agent-nav-drawer")} aria-label={t("Agents")}>
       {agents.map((a) => {
         const selected = a.id === agentId;
-        const hero = selected && variant === "rail";
         const foldable = selected && options.length > 0;
         const expanded = foldable && !folded;
         const s = agentSummary(a);
         const pending = pendingOf(a);
+        const line = s.state === "approve" || s.state === "choice" ? t("Attend ta réponse") : s.text;
         const panelId = `agent-nav-options-${a.id}`;
         return (
-          <li key={a.id} className={cn("agent-nav-item", selected && "is-selected", hero && "is-hero")} onContextMenu={(e) => { e.preventDefault(); setMenu({ id: a.id, at: { x: e.clientX, y: e.clientY } }); }}>
+          <li key={a.id} className={cn("agent-nav-item", selected && "is-selected")} onContextMenu={(e) => { e.preventDefault(); setMenu({ id: a.id, at: { x: e.clientX, y: e.clientY } }); }}>
             <div className="agent-nav-head">
               <button type="button" className="agent-nav-row"
                 aria-current={selected ? "true" : undefined}
                 aria-expanded={foldable ? expanded : selected ? undefined : false}
                 aria-controls={expanded ? panelId : undefined}
-                aria-label={`${a.name}, ${s.text}${!selected && pending ? ` · ${t("{n} en attente", { n: pending })}` : ""}`}
+                aria-label={`${a.name}, ${line}${!selected && pending ? ` · ${t("{n} en attente", { n: pending })}` : ""}`}
                 title={a.name}
                 onClick={() => (selected ? foldable && setFolded(!folded) : onPick(a.id))}>
-                <AgentFace agent={a} bare={hero} className={cn("shrink-0", hero ? "agent-nav-hero-face" : variant === "drawer" ? "size-10" : "size-8")} />
+                <span className="avatar" aria-hidden>{a.name.charAt(0).toUpperCase()}</span>
                 <span className="agent-nav-text">
                   <b>{a.name}</b>
-                  <small className={s.tone}><StateShape state={s.state} />{s.text}</small>
+                  <small>{line}</small>
                 </span>
-                {!selected && pending > 0 && <span className="rail-count" aria-hidden>{pending}</span>}
+                <StateShape state={s.state} className="agent-nav-dot" />
                 {foldable && <ChevronDown size={15} aria-hidden className={cn("agent-nav-chevron", !expanded && "-rotate-90")} />}
               </button>
               <button type="button" className="agent-nav-more" data-agent-more={a.id} aria-label={t("Menu de {nom}", { nom: a.name })} title={t("Menu de {nom}", { nom: a.name })}

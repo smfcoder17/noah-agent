@@ -29,11 +29,11 @@ const agents = [agent("a", "Noah"), agent("b", "Veille", { work: 1 }), agent("c"
 it("aligne tous les agents en haut, avec leur état ; l'agent ouvert est sélectionné", async () => {
   const picked = vi.fn();
   await render(base({ agent: agents[0], agents, onPickAgent: picked }));
-  expect(rows().map((r) => r.textContent)).toEqual(["NoahDisponible", "VeilleTravaille", "BMDÀ toi · 2 accords2", "QuatreDisponible", "CinqDisponible"]);
+  expect(rows().map((r) => r.textContent)).toEqual(["NNoahDisponible", "VVeilleTravaille", "BBMDAttend ta réponse", "QQuatreDisponible", "CCinqDisponible"]);
   expect(rows()[0].getAttribute("aria-current")).toBe("true");
   expect(rows()[0].getAttribute("aria-expanded")).toBeNull(); // rien à déplier : ni options (en haut à droite), ni historique
   expect(rows().slice(1).every((r) => r.getAttribute("aria-current") === null && r.getAttribute("aria-expanded") === "false")).toBe(true);
-  expect(rows()[2].getAttribute("aria-label")).toBe("BMD, À toi · 2 accords · 2 en attente");
+  expect(rows()[2].getAttribute("aria-label")).toBe("BMD, Attend ta réponse · 2 en attente");
   // Plus de section « Discussions » ni de bouton de nouvelle discussion : une seule discussion par agent.
   expect(host.textContent).not.toMatch(/Discussions/i);
   expect(host.querySelector('[aria-label="Nouvelle discussion"]')).toBeNull();
@@ -45,7 +45,7 @@ it("0.4.0 : la barre ne montre que les agents, sans historique ni liste de fils 
   const picked = vi.fn();
   await render(base({ agent: agents[1], agents, onPickAgent: picked }));
   expect(host.querySelector('[role="group"]')).toBeNull();
-  for (const label of ["Historique", "Discussion", "Activité", "Tâches", "Fichiers", "Ordinateur", "Archivés"]) expect(button(label)).toBeUndefined();
+  for (const label of ["Historique", "Discussion", "Tâches", "Fichiers", "Ordinateur", "Archivés"]) expect(button(label)).toBeUndefined();
   expect(host.textContent).not.toMatch(/Historique|Archivés/);
   expect(host.querySelector(".agent-nav-thread")).toBeNull();
   expect(rows()[1].getAttribute("aria-expanded")).toBeNull(); // rien à déplier sous l'agent ouvert
@@ -53,15 +53,20 @@ it("0.4.0 : la barre ne montre que les agents, sans historique ni liste de fils 
   expect(picked).toHaveBeenCalledWith("c");
 });
 
-it("met À toi tout en haut avec son compteur, et peu d'entrées en bas", async () => {
+it("met Pour toi tout en haut avec son compteur, puis Activité et Rechercher ; Nouvel agent, Réglages et le compte en bas", async () => {
   const inbox = vi.fn(), newAgent = vi.fn();
   await render(base({ agent: agents[0], agents, waiting: 3, onInbox: inbox, onNewAgent: newAgent }));
-  const first = host.querySelector("aside")!.firstElementChild as HTMLButtonElement;
-  expect(first.textContent).toBe("À toi3");
+  const first = button("Pour toi")!;
+  expect(first.textContent).toBe("Pour toi3");
+  expect([...host.querySelectorAll("aside > button")].map((b) => b.textContent)).toEqual(["Pour toi3", "Activité", "RechercherCtrl K"]);
   expect(first.querySelector('[aria-label="3 en attente"]')).not.toBeNull();
   await act(async () => first.click());
   expect(inbox).toHaveBeenCalledTimes(1);
-  expect([...host.querySelectorAll(".rail-bottom button")].map((b) => b.textContent)).toEqual(["Nouvel agent", "Objectifs", "Rechercher", "Réglages", "Replier la barre"]);
+  const bottom = [...host.querySelectorAll(".rail-bottom > button")];
+  expect(bottom[0].textContent).toBe("Réglages");
+  expect(bottom).toHaveLength(2); // Réglages, puis le compte
+  expect(host.querySelector(".rail-new")!.textContent).toBe("Nouvel agent");
+  expect(host.querySelector(".rail-top .rail-fold")!.getAttribute("aria-label")).toBe("Replier la barre");
   await act(async () => button("Nouvel agent")!.click());
   expect(newAgent).toHaveBeenCalledTimes(1);
 });
@@ -74,7 +79,7 @@ it("le tiroir du téléphone suit la même logique : agent ouvert déplié, aucu
   expect(document.body.textContent).not.toMatch(/Discussions|Historique|Archivés/);
   const search = document.querySelector<HTMLInputElement>("#drawer-search")!;
   await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(search, "Quatre"); search.dispatchEvent(new Event("input", { bubbles: true })); });
-  expect(rows().map((r) => r.textContent)).toEqual(["QuatreDisponible"]);
+  expect(rows().map((r) => r.textContent)).toEqual(["QQuatreDisponible"]);
   expect(document.body.textContent).not.toMatch(/Fils trouvés/);
   await act(async () => rows()[0].click());
   expect(pick).toHaveBeenCalledWith("d");

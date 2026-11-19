@@ -1,0 +1,184 @@
+/* Le look du prototype « Fil calme » (0.4.0, lot L9a) : la coquille, la barre de gauche, le fil, la ligne de tâche, la saisie.
+   Les valeurs viennent de docs/epics/0.4.0/prototype/app/proto.css ; les jetons, de styles/tokens.css. Chargé après shell.css et desktop.css. */
+
+.lucide { stroke-width:1.75; }
+.cut { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+
+/* ---------- Pastilles, étiquettes, boutons-icônes ---------- */
+.dot { display:inline-block; width:9px; height:9px; flex:none; border-radius:999px; border:2px solid var(--hollow); }
+.dot.work { background:var(--accent); border-color:var(--accent); animation:lueur 2s ease-out infinite; }
+.dot.wait { background:var(--warn); border-color:var(--warn); border-radius:3px; }
+.dot.ok { background:var(--ok); border-color:var(--ok); }
+.dot.err { background:var(--danger); border-color:var(--danger); }
+.dot.glow { width:8px; height:8px; background:var(--accent); border-color:var(--accent); animation:lueur 2s ease-out infinite; }
+@keyframes lueur { 0% { box-shadow:0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent); } 70% { box-shadow:0 0 0 7px transparent; } 100% { box-shadow:0 0 0 0 transparent; } }
+.badge { min-width:22px; padding:0 6px; border-radius:999px; background:var(--warn); color:var(--accent-ink); font-size:12.5px; font-weight:700; line-height:22px; text-align:center; }
+.pill { display:inline-flex; align-items:center; gap:6px; padding:2px 10px; border-radius:999px; font-size:12.5px; font-weight:600; white-space:nowrap; background:var(--muted); color:var(--soft); }
+.pill.work { background:var(--accent-soft); color:var(--accent); }
+.pill.wait { background:var(--warn-soft); color:var(--warn-ink); }
+.pill.ok { background:var(--ok-soft); color:var(--ok); }
+.pill.err { background:var(--danger-soft); color:var(--danger); }
+.avatar { width:32px; height:32px; flex:none; border-radius:999px; background:var(--accent-soft); color:var(--accent); font-weight:700; display:flex; align-items:center; justify-content:center; }
+.avatar.plain { background:var(--muted); color:var(--ink); }
+.kbd { padding:1px 6px; border:1px solid var(--line); border-radius:5px; font-family:var(--font-mono); font-size:12px; color:var(--soft); }
+.icon-btn { width:var(--hit); height:var(--hit); flex:none; display:inline-flex; align-items:center; justify-content:center; border-radius:var(--r-m); color:var(--soft); position:relative; cursor:pointer; background:transparent; }
+.icon-btn:hover { background:var(--muted); color:var(--ink); }
+.icon-btn[aria-pressed=true] { background:var(--sel); color:var(--ink); }
+.icon-btn:disabled { opacity:.45; pointer-events:none; }
+.seg { display:inline-flex; padding:3px; border-radius:var(--r-m); background:var(--muted); gap:2px; max-width:100%; }
+.seg > button { min-height:30px; padding:0 12px; border-radius:7px; font-size:13.5px; font-weight:600; color:var(--soft); white-space:nowrap; cursor:pointer; }
+.seg > button[aria-selected=true], .seg > button[aria-pressed=true] { background:var(--card); color:var(--ink); box-shadow:var(--shadow-s); }
+
+/* ---------- Barre de gauche ---------- */
+.noah-shell { font-size:15px; }
+.side-rail { flex-direction:column; gap:2px; padding:10px 10px 12px; background:var(--bg); border-right:1px solid var(--line); overflow:hidden; min-width:0; }
+.rail-top { display:flex; align-items:center; gap:6px; height:36px; margin-bottom:8px; padding-left:2px; flex:none; }
+.rail-brand { flex:1; min-width:0; padding-left:8px; font-weight:700; font-size:18px; letter-spacing:-.01em; }
+.rail-row { gap:10px; min-height:var(--hit); padding:0 10px; border-radius:var(--r-m); color:var(--ink); font-weight:600; font-size:15px; flex:none; }
+.rail-row svg { color:var(--soft); }
+.rail-row:hover { background:var(--muted); }
+.rail-row[aria-current] { background:var(--sel); box-shadow:none; color:var(--ink); }
+.rail-count { background:var(--warn); color:var(--accent-ink); min-width:22px; padding:0 6px; font-size:12.5px; line-height:22px; }
+.rail-kbd { display:inline-block; }
+.rail-agents-label { padding:16px 10px 6px; font-size:12.5px; font-weight:600; color:var(--soft); text-transform:none; letter-spacing:0; flex:none; }
+.rail-agents-scroll { flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; margin:0 -4px; padding:0 4px; }
+.rail-new { margin-top:2px; }
+.rail-new .rail-row { color:var(--soft); font-weight:600; }
+.rail-bottom { flex:none; margin-top:auto; padding-top:8px; border-top:0; display:flex; flex-direction:column; gap:2px; }
+.rail-fold { color:var(--soft); }
+.rail-account { display:flex; align-items:center; gap:10px; width:100%; min-height:48px; padding:5px 8px; text-align:left; font-weight:400; }
+.rail-account.static { display:flex; align-items:center; gap:10px; padding:5px 8px; }
+.agent-nav-item { border-radius:var(--r-m); }
+.agent-nav-item.is-selected { background:var(--sel); box-shadow:none; padding-bottom:0; }
+.agent-nav-row { gap:10px; min-height:48px; padding:5px 8px; border-radius:var(--r-m); width:100%; }
+.agent-nav-row:hover { background:var(--muted); }
+.is-selected .agent-nav-row:hover { background:transparent; }
+.agent-nav-text b { font-size:15px; font-weight:600; line-height:1.3; }
+.agent-nav-text small { display:block; font-size:12.5px; line-height:1.3; color:var(--soft); }
+.agent-nav-dot { margin-left:2px; }
+.agent-menu { border-radius:var(--r-l); box-shadow:var(--shadow-m); }
+
+/* Repliée : les icônes et les pastilles seules ; le nom reste dans l'infobulle et le nom accessible. */
+:root:has(.side-rail.is-folded) { --rail-width:var(--rail); }
+.side-rail.is-folded { padding:10px 8px 12px; align-items:center; }
+.side-rail.is-folded .rail-top { padding-left:0; justify-content:center; width:100%; }
+.side-rail.is-folded .rail-brand, .side-rail.is-folded .rail-label, .side-rail.is-folded .rail-agents-label, .side-rail.is-folded .rail-kbd, .side-rail.is-folded .agent-nav-text { display:none; }
+.side-rail.is-folded .rail-row, .side-rail.is-folded .agent-nav-row, .side-rail.is-folded .is-selected .agent-nav-row { width:44px; min-height:44px; padding:0; justify-content:center; position:relative; }
+.side-rail.is-folded .rail-bottom, .side-rail.is-folded .rail-agents-scroll { align-items:center; }
+.side-rail.is-folded .rail-agents-scroll { margin:0; padding:0; overflow-x:hidden; }
+.side-rail.is-folded .rail-count, .side-rail.is-folded .rail-row .dot { position:absolute; right:2px; top:2px; margin:0; }
+.side-rail.is-folded .agent-nav-row .dot { position:absolute; right:3px; bottom:5px; box-shadow:0 0 0 2px var(--bg); }
+.side-rail.is-folded .agent-nav-more, .side-rail.is-folded .agent-nav-options { display:none; }
+.side-rail.is-folded .rail-agents-label { display:none; }
+
+/* ---------- En-tête et panneau de droite ---------- */
+.work-area, .work-main, .chat-pane { background:var(--card); }
+.chat-pane > header.head { height:var(--head); flex:none; display:flex; align-items:center; justify-content:flex-start; gap:8px; padding:0 12px 0 20px; border-bottom:1px solid var(--line-soft); position:relative; z-index:20; }
+.head h1 { font-size:16px; font-weight:600; line-height:1.4; margin:0; }
+.head-title { min-width:0; }
+.head-role { font-size:13px; color:var(--soft); }
+.head-sub { font-size:13px; line-height:1.2; color:var(--soft); }
+.chat-pane > header.tache-tete { padding-left:12px; }
+.head-tools { margin-left:auto; display:flex; align-items:center; gap:2px; flex:none; }
+.work-bar { display:flex; align-items:center; gap:2px; }
+.pour-toi-pill { min-height:36px; cursor:pointer; padding:0 8px 0 12px; }
+.work-panel { border-left:1px solid var(--line); background:var(--card); }
+.work-panel-head { height:var(--head); gap:4px; padding:0 8px 0 10px; border-bottom:1px solid var(--line-soft); }
+.work-panel-head .panel-tabs { flex:1; min-width:0; overflow-x:auto; scrollbar-width:none; }
+.work-panel-head .shell-icon { width:var(--hit); height:var(--hit); min-width:var(--hit); border-radius:var(--r-m); color:var(--soft); }
+.work-panel-head .shell-icon:hover, .work-panel-head .shell-icon[aria-pressed=true] { background:var(--sel); color:var(--ink); }
+.work-panel-body { overflow:auto; }
+
+/* ---------- Le fil ---------- */
+.scroll-fil { overscroll-behavior:contain; }
+.col { width:100%; max-width:var(--col); margin:0 auto; padding:24px; }
+.thread { display:flex; flex-direction:column; gap:18px; }
+.day { align-self:center; font-size:12.5px; color:var(--soft); }
+.msg { min-width:0; overflow-wrap:anywhere; }
+.msg-who { display:flex; align-items:center; gap:6px; font-size:12.5px; font-weight:600; color:var(--soft); }
+.msg-me { max-width:78%; padding:10px 14px; border-radius:var(--r-xl); background:var(--accent-soft); }
+.msg-tools { opacity:0; transition:opacity .12s; }
+.msg:hover .msg-tools, .msg:focus-within .msg-tools, .msg-tools:focus-within { opacity:1; }
+.msg-tools button { width:30px; height:30px; color:var(--soft); }
+.msg-tools svg { width:15px; height:15px; }
+
+/* Les lignes de tâche voisines forment un seul cadre, comme la liste du prototype. */
+.msg-tache { border:1px solid var(--line); border-radius:var(--r-l); overflow:hidden; background:var(--card); }
+.msg-tache + .msg-tache { margin-top:-18px; border-top-color:var(--line-soft); border-top-left-radius:0; border-top-right-radius:0; }
+.msg-tache:has(+ .msg-tache) { border-bottom-width:0; border-bottom-left-radius:0; border-bottom-right-radius:0; }
+.list { border:1px solid var(--line); border-radius:var(--r-l); overflow:hidden; background:var(--card); }
+.list > * + * { border-top:1px solid var(--line-soft); }
+.list-head { padding:8px 14px; background:var(--bg); font-size:12.5px; font-weight:600; color:var(--soft); }
+.list-head + .task { border-top:1px solid var(--line-soft); }
+.task { display:flex; align-items:center; gap:12px; width:100%; min-height:52px; padding:8px 14px; text-align:left; cursor:pointer; }
+.task:hover { background:var(--bg); }
+.task-state { width:18px; height:18px; flex:none; display:flex; align-items:center; justify-content:center; }
+.row-title { font-weight:600; line-height:1.3; min-width:0; }
+.task-meta { font-size:13px; color:var(--soft); white-space:nowrap; }
+.task-meta-wait { color:var(--warn-ink); font-weight:600; }
+.chev { flex:none; width:16px; height:16px; color:var(--soft); transition:transform .15s; }
+.chev.is-open { transform:rotate(90deg); }
+.sub { display:flex; flex-direction:column; gap:10px; padding:2px 14px 14px 44px; font-size:15px; }
+.xchg { display:flex; flex-direction:column; gap:6px; padding:10px 12px; border-radius:var(--r-m); background:var(--bg); font-size:14px; }
+.xchg-line { display:flex; flex-wrap:wrap; gap:2px 8px; }
+.xchg-line > b { white-space:nowrap; }
+.xchg-line > span { flex:1; min-width:180px; }
+.file { display:inline-flex; align-items:center; gap:8px; max-width:100%; min-height:40px; padding:4px 12px 4px 8px; border:1px solid var(--line); border-radius:var(--r-m); background:var(--card); }
+.task-open { display:inline-flex; align-items:center; gap:4px; min-height:32px; font-size:13px; font-weight:500; color:var(--accent); cursor:pointer; text-decoration:none; }
+.task-open:hover { text-decoration:underline; text-underline-offset:2px; }
+
+/* ---------- La saisie ---------- */
+.composer-zone { flex:none; padding:10px 24px 18px; background:var(--card); }
+.composer-wrap { max-width:calc(var(--col) - 48px); margin:0 auto; display:flex; flex-direction:column; gap:8px; }
+.composer { display:flex; flex-direction:column; gap:4px; width:100%; padding:8px 8px 6px 14px; border:1px solid var(--line); border-radius:16px; background:var(--card); box-shadow:var(--shadow-s); }
+.composer:focus-within { border-color:var(--hollow); }
+.composer textarea { width:100%; min-height:28px; max-height:160px; padding:4px 0; border:0; outline:0; resize:none; background:transparent; font-size:15px; line-height:1.5; }
+.composer textarea::placeholder { color:var(--soft); opacity:1; }
+.composer-bar { display:flex; align-items:center; gap:2px; min-width:0; }
+.composer-bar .icon-btn { color:var(--soft); }
+.model-chip { display:inline-flex; align-items:center; gap:4px; min-width:0; max-width:220px; min-height:30px; padding:0 8px; border-radius:var(--r-s); font-size:13px; color:var(--soft); cursor:pointer; }
+.model-chip:hover { background:var(--muted); color:var(--ink); }
+.model-chip svg { width:18px; height:18px; flex:none; }
+.send { width:36px; height:36px; flex:none; margin-left:6px; border-radius:12px; background:var(--accent); color:var(--accent-ink); display:inline-flex; align-items:center; justify-content:center; cursor:pointer; }
+.send:hover { background:var(--accent); opacity:.92; }
+.send:active { transform:scale(.95); }
+.send:disabled { opacity:1; }
+.send-stop { width:36px; height:36px; flex:none; margin-left:6px; border-radius:12px; }
+[data-noah-composer] { border-radius:16px; box-shadow:var(--shadow-s); }
+
+/* ---------- Téléphone ---------- */
+.mobile-header { align-items:center; gap:4px; height:var(--head); padding:0 6px; border-bottom:1px solid var(--line-soft); background:var(--card); }
+.mobile-agent { flex:1; min-width:0; display:flex; flex-direction:column; align-items:flex-start; text-align:left; cursor:pointer; }
+.mobile-agent b { font-size:16px; font-weight:600; line-height:1.25; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mobile-agent small { font-size:13px; line-height:1.2; color:var(--soft); max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+@media (max-width:767px) {
+  .noah-shell { font-size:16px; }
+  .col { padding:16px; }
+  .msg-me { max-width:86%; }
+  .msg-tools { opacity:1; }
+  .sub { padding:0 14px 14px; }
+  .task { min-height:60px; }
+  .task-meta { white-space:normal; }
+  .composer-zone { padding:8px 12px calc(12px + env(safe-area-inset-bottom)); }
+  .composer { border-radius:22px; }
+  .composer textarea { font-size:16px; }
+  .send, .send-stop { width:40px; height:40px; border-radius:999px; }
+  .chat-pane > header.head { padding:0 6px; }
+  .bottom-tabs { display:none !important; }
+  .work-panel-head { padding:0 6px; }
+}
+@media (hover:none) { .msg-tools { opacity:1; } }
+
+/* Le téléphone : l'en-tête du prototype et le tiroir, qui est la barre de gauche. */
+@media (max-width:767px) {
+  .mobile-header { display:flex; flex:none; padding-top:env(safe-area-inset-top); height:calc(var(--head) + env(safe-area-inset-top)); }
+  .mobile-header .shell-icon, .mobile-header .icon-btn { width:44px; height:44px; min-width:44px; }
+  .mobile-drawer[role=dialog] { display:flex; flex-direction:column; overflow-y:auto; padding-top:env(safe-area-inset-top); }
+  .mobile-drawer .rail-top { padding:0 14px; }
+  .mobile-drawer .rail-row { min-height:44px; margin:0 8px; }
+  .mobile-drawer nav { padding:0 8px; }
+  .mobile-drawer .rail-bottom { margin-top:auto; border-top:1px solid var(--line-soft); padding:8px; }
+  .mobile-drawer .rail-bottom .rail-row { margin:0; }
+  .drawer-search { display:flex; align-items:center; gap:10px; margin:6px 8px; padding:0 12px; min-height:44px; border:1px solid var(--line); border-radius:var(--r-m); color:var(--soft); background:var(--card); }
+  .drawer-search input { flex:1; min-width:0; border:0; outline:0; background:transparent; color:var(--ink); font:inherit; }
+}

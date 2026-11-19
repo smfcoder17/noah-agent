@@ -29,6 +29,8 @@ export type TacheDuFil = {
   titre: string;
   genre: "demande" | "fil" | "initiative" | "sous_tache" | "routine" | "discussion";
   demandeur: { id: string; nom: string | null } | null;
+  /** Celui qui fait le travail : la ligne le nomme, jamais le demandeur. */
+  agent: { id: string; nom: string | null };
   etat: "encours" | "attend" | "fini" | "echec";
   resume: string;
   fichiers: unknown[];
@@ -38,6 +40,9 @@ export type TacheDuFil = {
   /** La conversation de la tâche : on y entre par elle (…/conversations/{id}/messages). */
   conversation_id: string;
   question: unknown;
+  /** Pas encore envoyés par le serveur : lus quand ils viennent (prototype : « Brief lu · Trois pistes générées »). */
+  etapes?: string[];
+  echanges?: { de: string; a: string; question: string; reponse: string }[];
 };
 export type Ouverture = {
   version: number;

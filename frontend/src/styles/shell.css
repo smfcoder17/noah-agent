@@ -22,26 +22,19 @@ button.shell-row { cursor:pointer; }
 .offline-banner { padding:8px 14px; background:var(--warn-soft); color:var(--warn); font-size:13px; }
 @media(max-width:767px) {
   .noah-shell { display:flex; flex-direction:column; height:calc(100% - var(--kb,0px)); }
-  .mobile-header { flex:none; display:grid; grid-template-columns:44px minmax(0,1fr); grid-auto-flow:column; grid-auto-columns:44px; column-gap:4px; align-items:center; padding:4px 10px 8px; padding-top:max(4px,env(safe-area-inset-top)); }
   /* Cibles tactiles : 44 px au moins. */
-  .mobile-header .shell-icon { width:44px; height:44px; min-width:44px; }
   /* F1 : chaque cible de la conversation (Copier, Modifier, Réagir, +, dictée, voix, Envoyer, Stop) fait 44 px au moins ; l'icône garde sa taille. */
   .cible-tactile { min-height:44px; min-width:44px; }
   /* En-tête compact : le visage à côté du nom, pas au-dessus. La conversation garde la hauteur. */
-  .mobile-agent { min-height:44px; display:grid; grid-template-columns:auto minmax(0,auto); justify-content:center; justify-items:start; align-items:center; column-gap:8px; row-gap:0; min-width:0; cursor:pointer; }
-  .mobile-agent > :first-child:not(b) { grid-row:span 2; }
-  .mobile-agent b { font-size:15px; font-weight:700; }
-  .mobile-agent small { font-size:12px; color:var(--muted-foreground); display:flex; align-items:center; gap:5px; max-width:100%; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
   .chat-pane > header { display:none; }
   /* Une tâche ouverte garde son en-tête sur le téléphone : retour au fil, titre, qui l'a confiée. */
-  .chat-pane > header.tache-tete { display:flex; height:56px; padding:0 8px; border-bottom:1px solid var(--border); }
-  .chat-pane > header.tache-tete > div:last-child { display:none; }
+  .chat-pane > header.tache-tete { display:flex; }
   .bottom-tabs { flex:none; height:calc(62px + env(safe-area-inset-bottom)); display:flex; justify-content:space-around; align-items:center; padding-bottom:calc(6px + env(safe-area-inset-bottom)); overflow-x:auto; }
   .bottom-tabs button { width:52px; height:48px; min-width:48px; border-radius:var(--radius-14); display:grid; place-items:center; color:var(--muted-foreground); flex:1; max-width:60px; cursor:pointer; }
   .bottom-tabs button[aria-current] { color:var(--foreground); background:var(--muted); }
   [data-keyboard=open] .bottom-tabs { display:none; }
   [data-keyboard=open] [role=dialog] { height:var(--visible-height,100%); max-height:var(--visible-height,100%); padding-bottom:12px; }
-  .mobile-drawer[role=dialog] { right:70px; width:calc(100% - 70px); padding:36px 16px 16px; gap:12px; background:var(--surface); box-shadow:var(--shadow-drawer); }
+  .mobile-drawer[role=dialog] { right:auto; width:min(86vw,320px); padding:0; gap:0; background:var(--bg); box-shadow:var(--shadow-l); }
   .object-page[role=dialog] { background:var(--background); gap:14px; padding-left:14px; padding-right:14px; }
 }
 @media(min-width:768px) { .page-header { height:56px; padding:0 20px; display:flex; gap:10px; justify-content:start; border-bottom:1px solid var(--line); } }

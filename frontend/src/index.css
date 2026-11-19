@@ -5,6 +5,7 @@
 @import "./styles/desktop.css";
 @import "./styles/privacy.css";
 @import "./styles/links.css";
+@import "./styles/fil-calme.css";
 
 @theme inline {
   --color-background: var(--background);
@@ -19,6 +20,12 @@
   --color-accent-soft: var(--accent-soft);
   --color-warn: var(--warn);
   --color-warn-soft: var(--warn-soft);
+  --color-warn-ink: var(--warn-ink);
+  --color-ok-soft: var(--ok-soft);
+  --color-danger-soft: var(--danger-soft);
+  --color-line-soft: var(--line-soft);
+  --color-sel: var(--sel);
+  --color-hollow: var(--hollow);
   --color-danger: var(--danger);
   --color-ok: var(--ok);
   --font-sans: var(--font);
@@ -31,7 +38,10 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
 }
 * { border-color: var(--border); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

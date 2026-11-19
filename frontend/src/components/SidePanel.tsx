@@ -255,7 +255,7 @@ function TachesPanel({ agent, refreshKey, onOpen }: { agent: Agent; refreshKey: 
     <section aria-label={t("Tâches")} className="flex flex-col gap-1.5">
       <h3 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{t("Tâches")}</h3>
       {!taches.length && <p className="text-sm text-muted-foreground">{t("Aucune tâche pour l'instant. Ce que {nom} fait pour toi ou pour un autre agent s'affichera ici.", { nom: agent.name })}</p>}
-      {taches.slice(0, shown).map((x) => <TacheLigne key={x.id} tache={x} agentId={agent.id} agentName={agent.name} onOpen={onOpen} />)}
+      {taches.length > 0 && <div className="list">{taches.slice(0, shown).map((x) => <TacheLigne key={x.id} tache={x} agentId={agent.id} agentName={agent.name} onOpen={onOpen} />)}</div>}
       {taches.length > shown && (
         <button type="button" onClick={() => setShown(shown + 10)} className="cursor-pointer self-start rounded-lg px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground">
           {t("… voir {n} de plus", { n: Math.min(10, taches.length - shown) })}

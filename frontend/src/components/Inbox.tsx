@@ -112,7 +112,7 @@ export function Inbox({ open, agents, onOpenChange, onOpenConversation, onOpenAg
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {open && (
-        <DialogContent title={t("À toi")} description={t("Ce que tes agents attendent de toi.")} className="max-w-lg">
+        <DialogContent title={t("Pour toi")} description={t("Ce que tes agents attendent de toi.")} className="max-w-lg">
           <ErrorText>{error}</ErrorText>
           {!items && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("Lecture…")}</p>}
           {items?.length === 0 && !accords.length && !propositions.length && <p className="py-4 text-sm text-muted-foreground">{t("Rien ne t'attend pour le moment.")}</p>}

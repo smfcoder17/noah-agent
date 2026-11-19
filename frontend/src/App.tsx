@@ -1,7 +1,8 @@
 import { SensitiveProvider } from "@/components/SensitiveText";
 import { Shell as LayoutShell } from "@/components/Shell";
 import { ChatPane, retourAu } from "@/components/ChatPane";
-import { etatDit } from "@/components/thread/TacheLigne";
+import { etatPastille, travailleur } from "@/components/thread/TacheLigne";
+import { etatMot } from "@/components/Sidebar";
 import { KeepAlive } from "@/components/KeepAlive";
 import { BottomTabs } from "@/components/mobile/BottomTabs";
 import { MobileHeader } from "@/components/mobile/MobileHeader";
@@ -9,7 +10,7 @@ import { Drawer } from "@/components/mobile/Drawer";
 import { CustomizeTabs } from "@/components/mobile/CustomizeTabs";
 import { AgentPage } from "@/components/mobile/AgentPage";
 import { useNavPrefs, type NavTab } from "@/lib/navPrefs";
-import { PANEL_NAMES, useWide } from "@/lib/workPanel";
+import { PANEL_NAMES, useWide, workTabsFor } from "@/lib/workPanel";
 import { WorkBar, WorkMenu } from "@/components/WorkBar";
 import { WorkPanel } from "@/components/WorkPanel";
 import { useNavigation } from "@/lib/navigation";
@@ -332,7 +333,8 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
   const wide = useWide();
   const [expanded, setExpanded] = useState(false);
   useEffect(() => { if (!panel) setExpanded(false); }, [panel]);
-  const togglePanel = (tab: PanelTab) => setPanel(panel === tab ? null : tab);
+  /** L'icône du panneau : elle le ferme, ou le rouvre là où on l'avait laissé. */
+  const togglePanelOpen = () => setPanel(panel ? null : keptPanel.current);
   /** L'onglet marqué dans la barre du bas et le tiroir : la session n'y a pas d'onglet, la discussion reste marquée. */
   const navActive: NavTab = panel === "routines" ? "tasks" : panel === "session" || !panel ? "chat" : panel;
   const [liveStatus, setLiveStatus] = useState<string | null>(null);
@@ -361,6 +363,14 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
     return () => clearTimeout(timer);
   }, [prefetchFor]);
   useNoahRetour(navigation.stack.length, navigation.dispatch, currentTab, goTab);
+  // Ctrl K (⌘ K) : la recherche, comme le montre la barre de gauche.
+  const openSearch = useRef(() => {});
+  openSearch.current = () => setSidebarOpen(true);
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") { e.preventDefault(); openSearch.current(); } };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, []);
   // Message envoyé à l'agent depuis Détails : il part dans la conversation principale.
   useEffect(() => {
     const toMain = (e: Event) => { const target = (e as CustomEvent<{ agentId?: string }>).detail?.agentId; if (target) setAgentId(target); goTab("chat"); setThreadId(null); };
@@ -504,22 +514,24 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
         }}
       />
       <LayoutShell>
-        <SideRail waiting={waiting} onInbox={() => setInbox(true)} agent={agent} agents={agents} tabs={tabs} active={navActive} onTab={goTab} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} onPickAgent={selectAgent} onMenu={() => setSidebarOpen(true)} onSettings={() => setSettings("home")} onGoals={() => setGoals(true)} onNewAgent={() => setAgentDialog({ open: true, agent: null })} onAgentPage={openAgentPage} onCustomize={customizeAgent} />
+        <SideRail waiting={waiting} onInbox={() => setInbox(true)} onActivity={() => setPanel("activity")} activityDot={(ouverture?.routines.non_vues ?? 0) > 0} me={me} onLogout={logout} agent={agent} agents={agents} tabs={tabs} active={navActive} onTab={goTab} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} onPickAgent={selectAgent} onMenu={() => setSidebarOpen(true)} onSettings={() => setSettings("home")} onGoals={() => setGoals(true)} onNewAgent={() => setAgentDialog({ open: true, agent: null })} onAgentPage={openAgentPage} onCustomize={customizeAgent} />
         <div className="work-area">
         <div className="work-main">
           <MobileHeader agent={agent} status={agent?.step || liveStatus || (agent?.online ? t("En ligne") : t("Hors ligne"))} onMenu={() => setSidebarOpen(true)} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })}
-            menu={<WorkMenu agent={agent} active={panel} onOpen={(tab) => setPanel(tab)} details={details} onDetails={setDetails} />} />
+            menu={<WorkMenu agent={agent} active={panel} onOpen={togglePanelOpen} waiting={waiting} onInbox={() => setInbox(true)} />} />
           <KeepAlive active={!panel || (wide && !expanded)} className="min-h-0 flex-1">
           <ChatPane
             title={thread?.title || agent?.name || "Noah"}
+            entete={agent ? { role: agent.role, ...etatMot(agent) } : null}
             tache={threadId && agent ? {
               titre: tacheOuverte?.titre || thread?.title || t("Tâche"),
-              sous: tacheOuverte?.demandeur?.nom ? t("Confiée par {de} à {a}", { de: tacheOuverte.demandeur.nom, a: agent.name }) : t("Tâche de {nom}", { nom: agent.name }),
-              etat: tacheOuverte ? etatDit(tacheOuverte.etat) : "",
+              sous: tacheOuverte?.demandeur?.nom ? t("Confiée par {de} à {a}", { de: tacheOuverte.demandeur.nom, a: travailleur(tacheOuverte, agent.name) }) : t("Tâche de {nom}", { nom: agent.name }),
+              etat: tacheOuverte ? etatPastille(tacheOuverte.etat).texte : "",
+              genre: tacheOuverte ? etatPastille(tacheOuverte.etat).genre : "",
               retour: retourAu(agent.name),
               onRetour: () => setThreadId(null),
             } : null}
-            onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} actions={<WorkBar agent={agent} active={panel} onOpen={togglePanel} details={details} onDetails={setDetails} />}>
+            onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} actions={<WorkBar agent={agent} active={panel} onOpen={togglePanelOpen} />}>
           <AppUpdate /><div id={CALL_SLOT} />
           {agent && canAdmin(agent) && <HandoffBanner agentId={agent.id} onOpenScreen={() => setPanel("computer")} />}
           {agent && canAdmin(agent) && <DelegatedTasks agentId={agent.id} />}
@@ -542,6 +554,7 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
                   report={!threadId && report?.agentId === agent.id ? report : null}
                   onReportRead={reportRead}
                   onStatus={setLiveStatus}
+                  tache={threadId ? (tacheOuverte ? travailleur(tacheOuverte, agent.name) : agent.name) : null}
                 />
                 </Boundary>
               </div>
@@ -561,7 +574,7 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
           <BottomTabs tabs={tabs} active={navActive} onSelect={goTab} onCustomize={() => navigation.dispatch({ type: "push", route: { kind: "customize" } })} />
         </div>
           {agent && <KeepAlive active={!!panel} className="contents">
-            <WorkPanel open={!!panel} tab={panel ?? keptPanel.current} title={PANEL_NAMES[panel ?? keptPanel.current]} expanded={expanded} onExpand={setExpanded} onClose={() => setPanel(null)}>
+            <WorkPanel open={!!panel} tab={panel ?? keptPanel.current} title={PANEL_NAMES[panel ?? keptPanel.current]} tabs={[...workTabsFor(agent), ...(canAdmin(agent) ? [{ tab: "connections" as const, label: PANEL_NAMES.connections }] : [])]} onTab={setPanel} details={details} onDetails={setDetails} expanded={expanded} onExpand={setExpanded} onClose={() => setPanel(null)}>
             <Suspense fallback={<p role="status">{t("Chargement…")}</p>}><Boundary label={t("Le panneau de l'agent")}>
             <SidePanel
               agent={agent}
@@ -589,7 +602,7 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
             </WorkPanel>
           </KeepAlive>}
         </div>
-        {sidebarOpen && <Drawer waiting={waiting} onInbox={() => { setSidebarOpen(false); setInbox(true); }} agents={agents} agentId={agentId} tabs={tabs} active={navActive} onAgent={selectAgent} onAgentPage={openAgentPage} onCustomizeAgent={customizeAgent} onTab={goTab} onNewAgent={() => { setSidebarOpen(false); setAgentDialog({ open: true, agent: null }); }} onCustomize={() => { setSidebarOpen(false); navigation.dispatch({ type: "push", route: { kind: "customize" } }); }} onSettings={() => { setSidebarOpen(false); setSettings("home"); }} onGoals={() => { setSidebarOpen(false); setGoals(true); }} onClose={() => setSidebarOpen(false)} onLogout={logout} />}
+        {sidebarOpen && <Drawer waiting={waiting} onInbox={() => { setSidebarOpen(false); setInbox(true); }} onActivity={() => { setSidebarOpen(false); setPanel("activity"); }} activityDot={(ouverture?.routines.non_vues ?? 0) > 0} me={me} agents={agents} agentId={agentId} tabs={tabs} active={navActive} onAgent={selectAgent} onAgentPage={openAgentPage} onCustomizeAgent={customizeAgent} onTab={goTab} onNewAgent={() => { setSidebarOpen(false); setAgentDialog({ open: true, agent: null }); }} onCustomize={() => { setSidebarOpen(false); navigation.dispatch({ type: "push", route: { kind: "customize" } }); }} onSettings={() => { setSidebarOpen(false); setSettings("home"); }} onGoals={() => { setSidebarOpen(false); setGoals(true); }} onClose={() => setSidebarOpen(false)} onLogout={logout} />}
         {latest("customize") && <CustomizeTabs tabs={tabs} save={saveTabs} error={tabsError} onClose={() => navigation.dispatch({ type: "close", kind: "customize" })} />}
         {latest("agent") && agent && <AgentPage agent={agent} onClose={() => navigation.dispatch({ type: "close", kind: "agent" })} onPanel={(tab) => { navigation.dispatch({ type: "close", kind: "agent" }); setPanel(tab); }} onBrain={() => setModelDialog(true)} onEdit={() => setAgentDialog({ open: true, agent })} onNotifications={() => setSettings("notifications")} onAutonomy={() => setSettings("privacy")} />}
         <Suspense fallback={null}>
@@ -650,6 +663,8 @@ type ChatProps = {
   report: CallReport | null;
   onReportRead: () => void;
   onStatus?: (status: string | null) => void;
+  /** Celui qui travaille dans la tâche ouverte ; absent : le fil. */
+  tache: string | null;
 };
 
 function AgentChat(props: ChatProps) {
@@ -732,9 +747,10 @@ function AgentChat(props: ChatProps) {
       hint: t("Pose une question, confie une tâche ou envoie un fichier."),
       readOnly,
       canWatch: canAdmin(props.agent),
+      tache: props.tache,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [say, id, name, color, shape, detail, model, props.details, readOnly, props.conversationId, canAdmin(props.agent)],
+    [say, id, name, color, shape, detail, model, props.details, readOnly, props.conversationId, canAdmin(props.agent), props.tache],
   );
   return (
     <AssistantRuntimeProvider runtime={runtime}>

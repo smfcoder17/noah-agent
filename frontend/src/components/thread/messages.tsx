@@ -51,11 +51,7 @@ function DayDivider() {
   const first = useAuiState((s) => dayOf(s.thread.messages[s.message.index - 1]?.createdAt) !== dayOf(s.message.createdAt));
   if (!first || !when) return null;
   return (
-    <div className="my-3 flex items-center gap-3 text-xs text-muted-foreground">
-      <span className="h-px flex-1 bg-border" />
-      <span className="first-letter:uppercase">{dayLabel(when)}</span>
-      <span className="h-px flex-1 bg-border" />
-    </div>
+    <div className="day first-letter:uppercase">{dayLabel(when)}</div>
   );
 }
 
@@ -153,7 +149,7 @@ function MessageReactions() {
 function MessageTime() {
   const when = useAuiState((s) => s.message.createdAt);
   if (!when) return null;
-  return <time dateTime={when.toISOString()} title={when.toLocaleString(langue() === "fr" ? "fr-CA" : locale(), { dateStyle: "long", timeStyle: "short" })} className="text-[11px] text-muted-foreground tabular-nums">{messageMoment(when)}</time>;
+  return <time dateTime={when.toISOString()} title={when.toLocaleString(langue() === "fr" ? "fr-CA" : locale(), { dateStyle: "long", timeStyle: "short" })} className="msg-tools text-[11px] text-muted-foreground tabular-nums">{messageMoment(when)}</time>;
 }
 
 /** En haut du fil : les messages plus anciens ne se chargent qu'à la demande, sans faire sauter la lecture. */
@@ -183,15 +179,15 @@ export const UserMessage = memo(function UserMessage() {
   return (
     <>
     <DayDivider />
-    <MessagePrimitive.Root data-noah-msg={id} className="group flex scroll-mt-4 flex-col items-end gap-1.5 py-2">
+    <MessagePrimitive.Root data-noah-msg={id} className="group msg me-row flex scroll-mt-4 flex-col items-end gap-1">
       <div className="flex flex-wrap justify-end gap-1.5">
         <MessagePrimitive.Attachments components={{ Attachment: AttachmentChip }} />
       </div>
-      <div className="max-w-[85%] rounded-2xl rounded-br-md bg-surface px-4 py-2.5 whitespace-pre-wrap shadow-sm ring-1 ring-border">
+      <div className="msg-me whitespace-pre-wrap">
         <MessagePrimitive.Parts components={{ Text: UserText }} />
       </div>
       <div className="flex items-center gap-2">
-        <ActionBarPrimitive.Root className="flex gap-1 opacity-0 pointer-coarse:opacity-70 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+        <ActionBarPrimitive.Root className="msg-tools flex gap-1">
           <ActionBarPrimitive.Copy asChild>
             <Button variant="ghost" size="icon-sm" aria-label={t("Copier mon message")} className="cible-tactile">
               <MessagePrimitive.If copied><Check /></MessagePrimitive.If>
@@ -297,7 +293,7 @@ function answerText(id: string): string {
 }
 
 export const AssistantMessage = memo(function AssistantMessage() {
-  const { agentColor, agentShape, agentDetail } = useContext(AgentContext);
+  const { agentName, agentColor, agentShape, agentDetail } = useContext(AgentContext);
   const busyActivity = useContext(WhileBusyContext).activity;
   const running = useAuiState((s) => s.message.status?.type === "running");
   const empty = useAuiState((s) => s.message.content.length === 0);
@@ -314,7 +310,7 @@ export const AssistantMessage = memo(function AssistantMessage() {
     return (
       <>
       <DayDivider />
-      <MessagePrimitive.Root data-noah-msg={id} className="flex min-w-0 scroll-mt-4 flex-col py-1">
+      <MessagePrimitive.Root data-noah-msg={id} className="msg-tache min-w-0 scroll-mt-4">
         <MessagePrimitive.Parts components={{ tools: TOOLS }} />
       </MessagePrimitive.Root>
       </>
@@ -326,9 +322,10 @@ export const AssistantMessage = memo(function AssistantMessage() {
     <>
     <DayDivider />
     <ModelDivider />
-    <MessagePrimitive.Root data-noah-msg={id} data-reply-source className="group relative flex scroll-mt-4 flex-col gap-1 py-2">
+    <MessagePrimitive.Root data-noah-msg={id} data-reply-source className="group msg relative flex scroll-mt-4 flex-col gap-1">
+      <span className="msg-who">{agentName}</span>
       {!(empty && running) && (
-        <div data-noah-answer className="max-w-[92%] min-w-0">
+        <div data-noah-answer className="min-w-0">
           <MessagePrimitive.Parts components={{ Text: MarkdownText, tools: TOOLS }} />
         </div>
       )}
@@ -336,16 +333,11 @@ export const AssistantMessage = memo(function AssistantMessage() {
         <LiveStatus face={<NoahTile color={agentColor} shape={agentShape} detail={agentDetail} state={MOOD_FACE[mood]} className={wide ? "size-12" : "size-11"} />} label={label} working={mood === "think" || mood === "work"} />
       )}
       {/* Place réservée : le bouton apparaît au survol sans décaler le texte en dessous. */}
-      <div className="flex h-8 items-center gap-2">
+      <div className="flex h-[30px] items-center gap-2">
         {!running && <MessageTime />}
         {!running && <MessageReactions />}
         {!running && (
-          <ActionBarPrimitive.Root
-            className={cn(
-              "flex gap-1 opacity-0 pointer-coarse:opacity-70 transition-opacity group-hover:opacity-100 focus-within:opacity-100",
-              isLast && "opacity-70",
-            )}
-          >
+          <ActionBarPrimitive.Root className="msg-tools -ml-1 flex gap-1">
             <ActionBarPrimitive.Copy asChild>
               <Button variant="ghost" size="icon-sm" aria-label={t("Copier la réponse")} className="cible-tactile" onClickCapture={(e) => { if (e.currentTarget.closest("[data-noah-msg]")?.querySelector(".sensitive-token:not(.shown)")) { e.preventDefault(); e.stopPropagation(); setCopyWarning(true); } else setCopyWarning(false); }}>
                 <MessagePrimitive.If copied><Check /></MessagePrimitive.If>

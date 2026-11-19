@@ -10,13 +10,15 @@ import type { TacheDuFil } from "@/lib/ouverture";
 import { TacheLigne, TraceOutil } from "./TacheLigne";
 
 vi.mock("../Noah", () => ({ AgentFace: () => null, agentColor: () => "#000" }));
+// La ligne de trace lit son groupe dans le fil d'assistant-ui ; ici elle est seule, hors fil.
+vi.mock("@assistant-ui/react", async (orig) => ({ ...(await orig<typeof import("@assistant-ui/react")>()), useAuiState: () => JSON.stringify({ premier: false, total: 0, finies: 0 }) }));
 
 let host: HTMLDivElement, root: Root;
 beforeEach(() => { host = document.createElement("div"); document.body.append(host); root = createRoot(host); });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 
 const tache = (over: Partial<TacheDuFil> = {}): TacheDuFil => ({
-  id: "t1", titre: "Rédiger la newsletter de jeudi", genre: "demande", demandeur: { id: "a", nom: "Alma" }, etat: "encours", resume: "",
+  id: "t1", titre: "Rédiger la newsletter de jeudi", genre: "demande", demandeur: { id: "a", nom: "Alma" }, agent: { id: "b", nom: "Basile" }, etat: "encours", resume: "",
   fichiers: [], ancre: 5, cree: 1_700_000_000, fini_a: null, conversation_id: "c1", question: null, ...over,
 });
 const render = (ui: React.ReactElement) => act(async () => root.render(ui));
@@ -98,4 +100,11 @@ it("une tâche sans trace se place avant le premier message écrit après son an
 it("la colonne des repères marque une tâche par son titre", () => {
   const [line] = avecTaches([msg(9)], [tache({ ancre: 0 })]);
   expect(markOf(line as never)).toMatchObject({ label: "Rédiger la newsletter de jeudi" });
+});
+
+it("la ligne nomme celui qui fait le travail, pas celui dont on lit le fil ni celui qui l'a demandée", async () => {
+  await render(<TacheLigne tache={tache({ demandeur: { id: "n", nom: "Noah" }, agent: { id: "h", nom: "Hugo" }, etat: "attend" })} agentId="n" agentName="Noah" />);
+  expect(host.textContent).toContain("Hugo · attend ta réponse");
+  expect(host.textContent).not.toContain("Noah · attend");
+  expect(host.textContent).toContain("Confiée par Noah");
 });

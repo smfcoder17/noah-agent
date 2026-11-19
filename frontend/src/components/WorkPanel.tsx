@@ -1,6 +1,6 @@
 // Panneau de droite, comme l'explorateur d'un éditeur de code : il s'ouvre à côté de la conversation, se règle en largeur,
 // s'étend sur toute la page et se ferme par Échap. Sur un téléphone, c'est une feuille plein écran avec Retour.
-import { ArrowLeft, Maximize2, Minimize2, X } from "lucide-react";
+import { ArrowLeft, Bug, Maximize2, Minimize2, X } from "lucide-react";
 import { useEffect, useRef } from "react";
 import type { PanelTab } from "./SidePanel";
 import { PANEL_MIN, panelMax, usePanelWidth, useWide } from "@/lib/workPanel";
@@ -20,9 +20,14 @@ const covered = () => [...document.querySelectorAll<HTMLElement>('[role="dialog"
   return true;
 });
 
-export function WorkPanel({ open, tab, title, expanded, onExpand, onClose, children }: {
+export function WorkPanel({ open, tab, title, tabs, onTab, details, onDetails, expanded, onExpand, onClose, children }: {
   /** Gardé monté une fois ouvert (l'écran de l'ordinateur reste connecté) : fermé, il ne prend plus ni focus ni Échap. */
-  open: boolean; tab: PanelTab; title: string; expanded: boolean; onExpand: (on: boolean) => void; onClose: () => void; children: React.ReactNode;
+  open: boolean; tab: PanelTab; title: string;
+  /** Les contenus de l'agent, en onglets : ce que le prototype range dans son panneau de droite. */
+  tabs: readonly { tab: PanelTab; label: string }[]; onTab: (tab: PanelTab) => void;
+  /** Détails techniques : la loupe sur ce que fait l'agent, pour qui veut vérifier. */
+  details: boolean; onDetails: (on: boolean) => void;
+  expanded: boolean; onExpand: (on: boolean) => void; onClose: () => void; children: React.ReactNode;
 }) {
   const wide = useWide();
   const [width, setWidth] = usePanelWidth(tab);
@@ -81,7 +86,14 @@ export function WorkPanel({ open, tab, title, expanded, onExpand, onClose, child
       )}
       <header className="work-panel-head">
         {!wide && <button type="button" className="shell-icon fill" aria-label={t("Retour")} onClick={onClose}><ArrowLeft size={20} /></button>}
-        <h2>{title}</h2>
+        <div className="panel-tabs" data-defile-x>
+          <div className="seg" role="tablist" aria-label={t("Contenus de l'agent")}>
+            {(tabs.some((x) => x.tab === tab) ? tabs : [...tabs, { tab, label: title }]).map((x) => (
+              <button key={x.tab} type="button" role="tab" aria-selected={x.tab === tab} onClick={() => onTab(x.tab)}>{x.label}</button>
+            ))}
+          </div>
+        </div>
+        <button type="button" className="shell-icon" aria-label={t("Détails techniques")} title={t("Détails techniques")} aria-pressed={details} onClick={() => onDetails(!details)}><Bug size={17} /></button>
         {wide && <button type="button" className="shell-icon" aria-label={expanded ? t("Réduire le panneau") : t("Étendre sur toute la page")} title={expanded ? t("Réduire le panneau") : t("Étendre sur toute la page")} aria-pressed={expanded} onClick={() => onExpand(!expanded)}>
           {expanded ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
         </button>}

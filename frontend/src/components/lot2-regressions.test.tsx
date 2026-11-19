@@ -35,16 +35,16 @@ const click = async (label: string) => {
 const noOp = () => {};
 const agent = { id: "a", name: "Noah", online: true, state: "approve", tasks: { approve: 2 }, droit: "proprietaire" } as Agent;
 
-it("09 — À toi et son compteur ouvrent la liste depuis le rail et le tiroir", async () => {
+it("09 — Pour toi et son compteur ouvrent la liste depuis le rail et le tiroir", async () => {
   const open = vi.fn();
   await act(async () => root.render(<SideRail agent={agent} waiting={3} onInbox={open} tabs={["chat"]} active="chat" onTab={noOp} onAgent={noOp} onMenu={noOp} onSettings={noOp} onGoals={noOp} />));
   const rail = host.querySelector('[aria-label="3 en attente"]')!.closest("button")!;
-  expect(rail.textContent).toContain("À toi");
+  expect(rail.textContent).toContain("Pour toi");
   await act(async () => rail.click());
   expect(open).toHaveBeenCalledTimes(1);
   await act(async () => root.render(<Drawer agents={[agent]} waiting={3} onInbox={open} agentId="a" tabs={["chat"]} onAgent={noOp} onNewAgent={noOp} onTab={noOp} onCustomize={noOp} onSettings={noOp} onGoals={noOp} onClose={noOp} onLogout={noOp} />));
   const drawer = document.querySelector('[aria-label="3 en attente"]')!.closest("button")!;
-  expect(drawer.textContent).toContain("À toi");
+  expect(drawer.textContent).toContain("Pour toi");
   await act(async () => drawer.click());
   expect(open).toHaveBeenCalledTimes(2);
 });
@@ -218,8 +218,7 @@ it("18 — Mammouth utilise le SVG officiel local", async () => {
 
 it("19 — le badge d'état montre les accords dans le rail et l'en-tête mobile", async () => {
   await act(async () => root.render(<MobileHeader agent={agent} status="En ligne" onMenu={noOp} onAgent={noOp} />));
-  expect(host.querySelector("small")?.textContent).toContain("2 accords");
-  expect(host.querySelector("small span")?.className).toContain("bg-warn");
+  expect(host.querySelector("small")?.textContent).toContain("attend ta réponse");
   await act(async () => root.render(<SideRail agent={agent} tabs={[]} active="chat" onTab={noOp} onAgent={noOp} onMenu={noOp} onSettings={noOp} onGoals={noOp} />));
-  expect(host.querySelector("small")?.textContent).toContain("2 accords");
+  expect(host.querySelector("small")?.textContent).toContain("Attend ta réponse");
 });

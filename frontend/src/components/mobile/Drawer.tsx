@@ -1,13 +1,15 @@
 import { useState } from "react";
-import type { Agent } from "@/lib/api";
+import { Activity, Inbox, Plus, Search, Settings, Target, LogOut, SlidersHorizontal } from "lucide-react";
+import type { Agent, Me } from "@/lib/api";
 import { Dialog, DialogContent } from "../ui";
 import type { NavTab } from "@/lib/navPrefs";
 import { AgentNav } from "../AgentNav";
+import { roleDit } from "../desktop/SideRail";
 import { t } from "@/i18n";
 
-/** Le menu du téléphone suit la barre de l'ordinateur : À toi, les agents alignés, l'agent ouvert déplié, peu d'entrées en bas. */
-export function Drawer({ waiting = 0, onInbox, agents, agentId, active = "chat", onAgent, onAgentPage, onCustomizeAgent, onNewAgent, tabs, onTab, onCustomize, onSettings, onGoals, onClose, onLogout }: {
-  waiting?: number; onInbox?: () => void; agents: Agent[]; agentId: string | null; tabs: NavTab[];
+/** Le menu du téléphone est la barre de l'ordinateur en tiroir : Pour toi, Activité, la recherche, les agents alignés, Nouvel agent, puis Réglages et le compte. */
+export function Drawer({ waiting = 0, onInbox, onActivity, activityDot = false, me = null, agents, agentId, active = "chat", onAgent, onAgentPage, onCustomizeAgent, onNewAgent, tabs, onTab, onCustomize, onSettings, onGoals, onClose, onLogout }: {
+  waiting?: number; onInbox?: () => void; onActivity?: () => void; activityDot?: boolean; me?: Me | null; agents: Agent[]; agentId: string | null; tabs: NavTab[];
   active?: NavTab;
   onAgent: (id: string) => void; onAgentPage?: (id: string) => void; onCustomizeAgent?: (id: string) => void; onNewAgent: () => void; onTab: (tab: NavTab) => void;
   onCustomize: () => void; onSettings: () => void; onGoals: () => void; onClose: () => void; onLogout: () => void;
@@ -15,14 +17,25 @@ export function Drawer({ waiting = 0, onInbox, agents, agentId, active = "chat",
   const [query, setQuery] = useState("");
   const q = query.trim().toLocaleLowerCase();
   const shown = q ? agents.filter((a) => a.name.toLocaleLowerCase().includes(q)) : agents;
+  const name = me?.username ?? "";
   return <Dialog open onOpenChange={(o) => !o && onClose()}><DialogContent title={t("Menu")} className="mobile-drawer">
-    <label className="sr-only" htmlFor="drawer-search">{t("Rechercher")}</label><input id="drawer-search" className="shell-search" placeholder={t("Rechercher")} value={query} onChange={(e) => setQuery(e.target.value)} />
-    <button className="shell-row" onClick={onInbox}>{t("À toi")}<span className={waiting > 0 ? "rail-count ml-auto" : "ml-auto"} aria-label={t("{n} en attente", { n: waiting })}>{waiting}</span></button>
-    <h2 className="section-label">{t("Agents")}</h2>
+    <div className="rail-top"><span className="rail-brand">Noah</span></div>
+    <button type="button" className="rail-row" onClick={onInbox}><Inbox size={18} aria-hidden /><span className="rail-label">{t("Pour toi")}</span><span className={waiting > 0 ? "rail-count ml-auto" : "ml-auto"} aria-label={t("{n} en attente", { n: waiting })}>{waiting}</span></button>
+    {onActivity && <button type="button" className="rail-row" onClick={onActivity}><Activity size={18} aria-hidden /><span className="rail-label">{t("Activité")}</span>{activityDot && <span className="dot glow ml-auto" role="img" aria-label={t("Des routines viennent de passer")} />}</button>}
+    <label className="sr-only" htmlFor="drawer-search">{t("Rechercher")}</label>
+    <div className="drawer-search"><Search size={18} aria-hidden /><input id="drawer-search" placeholder={t("Rechercher")} value={query} onChange={(e) => setQuery(e.target.value)} /></div>
+    <h2 className="section-label rail-agents-label">{t("Agents")}</h2>
     <nav aria-label={t("Navigation")}>
       <AgentNav variant="drawer" agents={shown} agentId={agentId} tabs={tabs} active={active}
         onPick={onAgent} onTab={(tab) => { onTab(tab); onClose(); }} onAgentPage={(id) => { onClose(); onAgentPage?.(id); }} onCustomize={onCustomizeAgent && ((id) => { onClose(); onCustomizeAgent(id); })} />
+      <button type="button" className="rail-row" onClick={onNewAgent}><Plus size={18} aria-hidden /><span className="rail-label">{t("Nouvel agent")}</span></button>
     </nav>
-    <div className="shell-group mt-auto"><button className="shell-row" onClick={onNewAgent}>＋ {t("Nouvel agent")}</button><button className="shell-row" onClick={onGoals}>{t("Objectifs")}</button><button className="shell-row" onClick={onCustomize}>{t("Personnaliser les onglets")}</button><button className="shell-row" onClick={onSettings}>{t("Réglages")}<span className="ml-auto" aria-hidden>›</span></button><button className="shell-row" onClick={onLogout}>{t("Me déconnecter")}</button></div>
+    <div className="rail-bottom">
+      <button type="button" className="rail-row" onClick={onGoals}><Target size={18} aria-hidden /><span className="rail-label">{t("Objectifs")}</span></button>
+      <button type="button" className="rail-row" onClick={onCustomize}><SlidersHorizontal size={18} aria-hidden /><span className="rail-label">{t("Personnaliser les onglets")}</span></button>
+      <button type="button" className="rail-row" onClick={onSettings}><Settings size={18} aria-hidden /><span className="rail-label">{t("Réglages")}</span></button>
+      <button type="button" className="rail-row" onClick={onLogout}><LogOut size={18} aria-hidden /><span className="rail-label">{t("Me déconnecter")}</span></button>
+      {name && <div className="rail-account static"><span className="avatar plain" aria-hidden>{name.charAt(0).toUpperCase()}</span><span className="agent-nav-text"><b>{name}</b><small className="text-muted-foreground">{roleDit(me)}</small></span></div>}
+    </div>
   </DialogContent></Dialog>;
 }

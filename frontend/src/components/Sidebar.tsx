@@ -19,24 +19,10 @@ export const STATE_WORD: Record<TaskState, string> = {
   idle: "",
 };
 
+/** La pastille d'état du prototype « Fil calme » : un rond qui s'éclaire (il travaille), un carré orangé (il attend ta réponse), un rond plein vert (fini), un rond creux (au repos). */
 export function StateShape({ state, className }: { state: TaskState | "offline" | "starting"; className?: string }) {
-  const base = "inline-block shrink-0";
-  switch (state) {
-    case "work":
-      return <span aria-hidden className={cn(base, "size-2 rounded-full bg-accent ring-3 ring-accent/25", className)} />;
-    case "starting":
-      return <span aria-hidden className={cn(base, "size-2 animate-pulse rounded-full bg-accent", className)} />;
-    case "choice":
-      return <span aria-hidden className={cn(base, "size-[7px] rotate-45 border-2 border-warn", className)} />;
-    case "approve":
-      return <span aria-hidden className={cn(base, "size-2 rotate-45 bg-warn", className)} />;
-    case "done":
-      return <span aria-hidden className={cn(base, "size-2 rounded-full bg-ok", className)} />;
-    case "error":
-      return <span aria-hidden className={cn(base, "size-2 bg-danger", className)} />;
-    default:
-      return <span aria-hidden className={cn(base, "size-[7px] rounded-full border-2 border-muted-foreground", className)} />;
-  }
+  const kind = state === "work" || state === "starting" ? "work" : state === "choice" || state === "approve" ? "wait" : state === "done" ? "ok" : state === "error" ? "err" : "";
+  return <span aria-hidden className={cn("dot", kind, className)} />;
 }
 
 /** Résumé d'un agent : sa conversation, et ce que ses fils font ou attendent de l'utilisateur. */
@@ -54,6 +40,16 @@ export function agentSummary(a: Agent): { state: TaskState | "offline" | "starti
   if (tasks.work) return { state: "work", text: tasks.work > 1 ? t("Travaille · {n} fils", { n: tasks.work }) : t("Travaille"), tone: "text-accent" };
   if (a.state === "error") return { state: "error", text: t("S'est arrêté sur une erreur"), tone: "text-danger" };
   return { state: "idle", text: t("Disponible"), tone: "text-muted-foreground" };
+}
+
+/** Le mot et la couleur de la pastille d'état d'un agent dans l'en-tête de son fil : « Travaille », « Attend ta réponse », ou rien de coloré. */
+export function etatMot(a: Agent): { mot: string; genre: "work" | "wait" | "err" | "" } {
+  const s = agentSummary(a);
+  if (s.state === "approve" || s.state === "choice") return { mot: t("Attend ta réponse"), genre: "wait" };
+  if (s.state === "work" || s.state === "starting") return { mot: s.state === "starting" ? s.text : t("Travaille"), genre: "work" };
+  if (s.state === "error") return { mot: t("S'est arrêté"), genre: "err" };
+  if (s.state === "offline") return { mot: t("Hors ligne"), genre: "" };
+  return { mot: t("Disponible"), genre: "" };
 }
 
 type Menu = { agent: Agent; x: number; y: number };
@@ -108,7 +104,7 @@ export const Sidebar = memo(function Sidebar(props: {
 
       <button type="button" onClick={props.onInbox} className="hidden cursor-pointer items-center gap-3 rounded-xl px-2 py-2 text-left text-sm font-medium hover:bg-surface/70 md:flex">
         <span className="grid size-10 place-items-center"><InboxIcon className="size-4" /></span>
-        <span className="flex-1">{t("À toi")}</span>
+        <span className="flex-1">{t("Pour toi")}</span>
         {props.waiting > 0 && <span className="grid h-5 min-w-5 place-items-center rounded-full bg-warn px-1.5 text-xs font-semibold text-surface">{props.waiting}</span>}
       </button>
       {/* À toi a sa porte sur un téléphone ; les objectifs s'ouvrent d'ici à toutes les tailles. */}

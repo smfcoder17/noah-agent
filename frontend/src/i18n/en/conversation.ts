@@ -186,8 +186,6 @@ export default {
   // Thread.tsx
   "Changer de modèle": "Change model",
   "Modèle": "Model",
-  "Connecter un outil": "Connect a tool",
-  "Outils": "Tools",
   "Autorisé": "Allowed",
   "Refusé": "Declined",
   "cette action": "this action",
@@ -245,7 +243,6 @@ export default {
   "Message à ton agent": "Message to your agent",
   "Parle, le texte arrive ici…": "Speak, your words will appear here…",
   "Précise, pose une question, ou ajoute une demande…": "Add details, ask a question, or add a request…",
-  "Écris à ton agent…": "Write to your agent…",
   "Envoyer": "Send",
   "Termine la transcription puis envoie": "Finish transcribing, then send",
   "Il répond tout de suite ; le travail continue": "It replies right away; the work keeps going",

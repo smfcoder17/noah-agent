@@ -1,13 +1,13 @@
 import { Menu } from "lucide-react";
 import type { Agent } from "@/lib/api";
-import { agentSummary, StateShape } from "../Sidebar";
-import { AgentFace } from "../Noah";
+import { agentSummary, etatMot } from "../Sidebar";
 import { t } from "@/i18n";
 
-/** `menu` : les contenus de l'agent (Activité, Tâches, Fichiers…), repliés dans « … » en haut à droite. */
+/** L'en-tête du téléphone, celui du prototype : le menu, le nom et « rôle · état », puis `menu` (Pour toi, appeler, panneau). */
 export function MobileHeader({ agent, status, onMenu, onAgent, menu }: { menu?: React.ReactNode; agent: Agent | null; status: string; onMenu: () => void; onAgent: () => void }) {
   const summary = agent ? agentSummary(agent) : null;
-  return <header className="mobile-header"><button className="shell-icon fill" aria-label={t("Menu")} onClick={onMenu}><Menu size={22} /></button>
-    <button className="mobile-agent" aria-label={t("Page de l'agent")} disabled={!agent} onClick={onAgent}>{agent && <AgentFace agent={agent} className="size-[34px]" />}<b>{agent?.name ?? "Noah"}</b><small><StateShape state={summary?.state || "offline"} />{agent?.step || (summary?.state === "idle" ? status : summary?.text) || status}</small></button>
+  const mot = agent ? (summary?.state === "idle" ? status : etatMot(agent).mot) : status;
+  return <header className="mobile-header"><button type="button" className="icon-btn" aria-label={t("Menu")} onClick={onMenu}><Menu size={20} aria-hidden /></button>
+    <button type="button" className="mobile-agent" aria-label={t("Page de l'agent")} disabled={!agent} onClick={onAgent}><b>{agent?.name ?? "Noah"}</b><small>{[agent?.role, mot.toLowerCase()].filter(Boolean).join(" · ")}</small></button>
     {menu}</header>;
 }

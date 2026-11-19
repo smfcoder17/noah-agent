@@ -28,18 +28,6 @@
 .video-mini.video-expanded { inset:0; width:100%; max-width:none; height:100%; border-radius:0; resize:none; display:flex; flex-direction:column; justify-content:center; z-index:70; }
 .video-expanded video { flex:1; min-height:0; object-fit:contain; }
 .video-resize { position:absolute; right:0; bottom:0; cursor:nwse-resize; touch-action:none; }
-[data-noah-composer] { border-radius:var(--radius-18); box-shadow:var(--shadow-composer); }
-@media(max-width:767px) {
-  [data-noah-composer] { border:0; border-radius:var(--radius-24); padding:6px 6px 6px 10px; }
-  [data-noah-composer] > div.flex-wrap { flex-wrap:nowrap; }
-  [data-noah-composer] [data-composer-input] { order:0; flex-basis:0; padding:6px 0; font-size:15px; }
-  [data-noah-composer] button[data-model-chip] { display:none; }
-  [data-noah-composer] button[data-envoyer] { border-radius:50%; background:var(--ink); color:var(--bg); width:36px; height:36px; }
-  /* Une seule place à droite, comme ChatGPT : vide, le mode vocal ; dès qu'on écrit, l'envoi prend sa place, sans rien décaler. */
-  [data-noah-composer] button[data-mode-vocal] { border-radius:50%; background:var(--ink); color:var(--bg); width:36px; height:36px; }
-  [data-noah-composer][data-vide] button[data-envoyer] { display:none; }
-  [data-noah-composer]:not([data-vide]) button[data-mode-vocal] { display:none; }
-}
 /* Statut de la mascotte : le texte s'éclaire en vague, l'étape nouvelle glisse en place, un halo respire derrière le visage. */
 .shimmer-text { background:linear-gradient(90deg,var(--muted-foreground) 0%,var(--muted-foreground) 35%,var(--foreground) 50%,var(--muted-foreground) 65%,var(--muted-foreground) 100%); background-size:250% 100%; -webkit-background-clip:text; background-clip:text; color:transparent; animation:noah-shimmer 2.2s linear infinite; }
 @keyframes noah-shimmer { from { background-position:100% 0; } to { background-position:-150% 0; } }

@@ -19,6 +19,9 @@ export function workTabsFor(agent: Agent | null) {
   return WORK_TABS.filter(({ tab }) => tab === "routines" ? canAdmin(agent) : tab === "files" || tab === "computer" ? canTalk(agent) : true);
 }
 
+/** Le téléphone du haut de la conversation demande le mode vocal : seul le fil qu'on voit répond. */
+export const MODE_VOCAL = "noah:mode-vocal";
+
 export const PANEL_NAMES: Record<PanelTab, string> = {
   activity: t("Activité"), routines: t("Tâches"), files: t("Fichiers"), computer: t("Ordinateur"), session: t("Session"),
   connections: t("Connexions"), competences: t("Compétences"), memory: t("Mémoire"),
@@ -54,7 +57,7 @@ export function useRailFolded() {
 
 export const PANEL_MIN = 320;
 /** Largeur d'origine : l'ordinateur un peu plus large, pour que son écran se lise. */
-export const panelDefault = (tab: PanelTab) => (tab === "computer" ? 680 : 420);
+export const panelDefault = (tab: PanelTab) => (tab === "computer" ? 680 : 400);
 const widthKey = (tab: PanelTab) => (tab === "computer" ? "noah:panneau-ordinateur" : "noah:panneau");
 /** La conversation garde toujours de quoi se lire à côté du panneau. */
 export const panelMax = () => Math.max(PANEL_MIN, window.innerWidth - 560);

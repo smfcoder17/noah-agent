@@ -29,7 +29,7 @@ import { Files } from "./Files";
 import { Session, SESSION_POLL } from "./Session";
 import { SideRail } from "./desktop/SideRail";
 import { MobileHeader } from "./mobile/MobileHeader";
-import { RAIL_KEY, panelDefault } from "@/lib/workPanel";
+import { RAIL_KEY, MODE_VOCAL, PANEL_NAMES, panelDefault, workTabsFor } from "@/lib/workPanel";
 import { SEEN } from "@/lib/seen";
 import type { PanelTab } from "./SidePanel";
 
@@ -46,6 +46,8 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); document.body.innerHTML = ""; });
 
 const agent = (over: Partial<Agent> = {}) => ({ id: "a", name: "Noah", online: true, state: "idle", tasks: {}, droit: "proprietaire", color: "#000", pinned: false, partage: false, role: "", step: null, ...over }) as Agent;
+/** Les onglets et le bouton des détails que le panneau reçoit de l'application. */
+const panelProps = (tab: PanelTab) => ({ tabs: [{ tab, label: PANEL_NAMES[tab] }], onTab: vi.fn(), details: false, onDetails: vi.fn() });
 const byLabel = (label: string) => document.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`);
 const press = async (key: string, target: EventTarget = window) => act(async () => { target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })); });
 const settle = async () => { for (let i = 0; i < 6; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)); }); };
@@ -56,36 +58,46 @@ const until = async (selector: string) => {
   expect(host.querySelector(selector), selector).not.toBeNull();
 };
 
-it("D1 — chaque icône du haut à droite dit son nom en infobulle et ouvre son panneau", async () => {
-  const open = vi.fn(), details = vi.fn();
-  await act(async () => root.render(<WorkBar agent={agent()} active={null} onOpen={open} details={false} onDetails={details} />));
+it("D1 — en haut à droite, les deux icônes du prototype : appeler l'agent, ouvrir ou fermer le panneau", async () => {
+  const open = vi.fn(), called = vi.fn();
+  window.addEventListener(MODE_VOCAL, called);
+  await act(async () => root.render(<WorkBar agent={agent()} active={null} onOpen={open} />));
   const icons = [...host.querySelectorAll<HTMLButtonElement>(".work-bar button")];
-  expect(icons.map((b) => b.getAttribute("aria-label"))).toEqual(["Activité", "Tâches", "Fichiers", "Ordinateur", "Session", "Détails techniques"]);
-  for (const b of icons) {
-    const tip = document.getElementById(b.getAttribute("aria-describedby")!)!;
-    expect(tip.getAttribute("role")).toBe("tooltip");
-    expect(tip.textContent).toBe(b.getAttribute("aria-label")); // l'infobulle dit le nom, sans autre texte visible
-    expect(b.textContent).toBe(tip.textContent); // icône seule : aucun libellé hors de l'infobulle
-  }
-  const tabs: PanelTab[] = ["activity", "routines", "files", "computer", "session"];
-  for (const [i, tab] of tabs.entries()) { await act(async () => icons[i].click()); expect(open).toHaveBeenLastCalledWith(tab); }
-  await act(async () => icons[5].click());
-  expect(details).toHaveBeenCalledWith(true);
-  // L'icône du panneau ouvert est marquée ; les détails sont un interrupteur.
-  await act(async () => root.render(<WorkBar agent={agent()} active="files" onOpen={open} details onDetails={details} />));
-  expect(byLabel("Fichiers")!.getAttribute("aria-current")).toBe("true");
-  expect(byLabel("Activité")!.getAttribute("aria-current")).toBeNull();
-  expect(byLabel("Détails techniques")!.getAttribute("aria-pressed")).toBe("true");
+  expect(icons.map((b) => b.getAttribute("aria-label"))).toEqual(["Appeler Noah", "Ouvrir ou fermer le panneau"]);
+  for (const b of icons) expect(b.textContent).toBe(""); // icône seule : le nom est dans aria-label et title
+  await act(async () => icons[0].click());
+  expect(called).toHaveBeenCalledTimes(1); // l'appel est le mode vocal, qui était à côté de la saisie
+  await act(async () => icons[1].click());
+  expect(open).toHaveBeenLastCalledWith("activity");
+  // Panneau ouvert : le bouton est marqué et rend l'onglet courant (App le referme).
+  await act(async () => root.render(<WorkBar agent={agent()} active="files" onOpen={open} />));
+  expect(byLabel("Ouvrir ou fermer le panneau")!.getAttribute("aria-pressed")).toBe("true");
+  await act(async () => byLabel("Ouvrir ou fermer le panneau")!.click());
+  expect(open).toHaveBeenLastCalledWith("files");
+  window.removeEventListener(MODE_VOCAL, called);
 });
 
-it("D1 — un profil partagé en simple lecture ne voit que ce qu'il peut ouvrir", async () => {
-  await act(async () => root.render(<WorkBar agent={agent({ droit: "lecture" })} active={null} onOpen={vi.fn()} details={false} onDetails={vi.fn()} />));
-  expect([...host.querySelectorAll(".work-bar button")].map((b) => b.getAttribute("aria-label"))).toEqual(["Activité", "Session", "Détails techniques"]);
+it("D1 — les contenus de l'agent sont les onglets du panneau, dans l'ordre ; les détails techniques y ont leur interrupteur", async () => {
+  const onTab = vi.fn(), onDetails = vi.fn();
+  const tabs = workTabsFor(agent());
+  expect(tabs.map((t) => t.label)).toEqual(["Activité", "Tâches", "Fichiers", "Ordinateur", "Session"]);
+  await act(async () => root.render(<WorkPanel open tab="files" title="Fichiers" tabs={tabs} onTab={onTab} details={false} onDetails={onDetails} expanded={false} onExpand={vi.fn()} onClose={vi.fn()}><p>contenu</p></WorkPanel>));
+  const seg = [...host.querySelectorAll<HTMLButtonElement>('.panel-tabs [role="tab"]')];
+  expect(seg.map((b) => b.textContent)).toEqual(["Activité", "Tâches", "Fichiers", "Ordinateur", "Session"]);
+  expect(seg[2].getAttribute("aria-selected")).toBe("true");
+  const expected: PanelTab[] = ["activity", "routines", "files", "computer", "session"];
+  for (const [i, tab] of expected.entries()) { await act(async () => seg[i].click()); expect(onTab).toHaveBeenLastCalledWith(tab); }
+  await act(async () => byLabel("Détails techniques")!.click());
+  expect(onDetails).toHaveBeenCalledWith(true);
+});
+
+it("D1 — un profil partagé en simple lecture ne voit que les onglets qu'il peut ouvrir", () => {
+  expect(workTabsFor(agent({ droit: "lecture" })).map((t) => t.label)).toEqual(["Activité", "Session"]);
 });
 
 function Panel({ onClose = vi.fn(), tab = "files" as PanelTab }) {
   const [expanded, setExpanded] = useState(false);
-  return <WorkPanel open tab={tab} title="Fichiers" expanded={expanded} onExpand={setExpanded} onClose={onClose}><p>contenu</p></WorkPanel>;
+  return <WorkPanel open tab={tab} title="Fichiers" {...panelProps(tab)} expanded={expanded} onExpand={setExpanded} onClose={onClose}><p>contenu</p></WorkPanel>;
 }
 
 it("D2 — Échap ferme le panneau, sauf quand une couche est posée dessus", async () => {
@@ -246,20 +258,21 @@ it("D4 — session : une tâche lancée apparaît en moins de 3 s, disparaît à
 
 const railProps = { agent: agent(), agents: [agent(), agent({ id: "b", name: "Veille" })], conversations: [], onAgent: vi.fn(), onPickAgent: vi.fn(), onMenu: vi.fn(), onThread: vi.fn(), onSettings: vi.fn(), onGoals: vi.fn() };
 
-it("D5 — barre de gauche minimale : grand visage sans tuile, nom, état, trois petits points à côté, plus de sous-menu", async () => {
+it("D5 — barre de gauche du prototype : nom et repli en haut, entrées, agents avec lettre, état et pastille, trois petits points, plus de sous-menu", async () => {
   const page = vi.fn();
   await act(async () => root.render(<SideRail {...railProps} onAgentPage={page} />));
-  const hero = host.querySelector<HTMLElement>(".agent-nav-item.is-hero")!;
-  expect(hero.querySelector("[data-agent]")!.getAttribute("data-bare")).toBe("true");
-  expect(hero.querySelector("[data-agent]")!.className).toContain("agent-nav-hero-face");
-  expect(hero.textContent).toContain("Noah");
-  expect(hero.textContent).toContain("Disponible");
-  expect(host.querySelector('[data-agent="b"]')!.getAttribute("data-bare")).toBe("false");
+  expect(host.querySelector(".rail-top .rail-brand")!.textContent).toBe("Noah");
+  expect(host.querySelector(".agent-nav-item.is-hero")).toBeNull(); // plus de grand visage : une lettre dans un rond
+  const first = host.querySelector<HTMLElement>(".agent-nav-item")!;
+  expect(first.querySelector(".avatar")!.textContent).toBe("N");
+  expect(first.textContent).toContain("Noah");
+  expect(first.textContent).toContain("Disponible");
+  expect(first.querySelector(".dot")).not.toBeNull();
   expect(byLabel("Page de Noah")).toBeNull(); // plus d'icône de réglages
   await act(async () => byLabel("Menu de Noah")!.click());
   await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent === "Page de Noah")!.click());
   expect(page).toHaveBeenCalledWith("a");
-  for (const label of ["Discussion", "Activité", "Tâches", "Fichiers", "Ordinateur"]) expect(host.textContent).not.toContain(label);
+  for (const label of ["Discussion", "Tâches", "Fichiers", "Ordinateur"]) expect(host.textContent).not.toContain(label);
   expect(host.querySelector('[role="group"]')).toBeNull();
 });
 
@@ -271,7 +284,7 @@ it("D5 — repliée en icônes seules, et toujours repliée après rechargement"
   expect(rail().classList.contains("is-folded")).toBe(true);
   expect(localStorage.getItem(RAIL_KEY)).toBe("1");
   // Repliée, chaque entrée garde son nom (accessible et en infobulle).
-  for (const label of ["À toi", "Objectifs", "Rechercher", "Réglages"]) expect(byLabel(label)?.getAttribute("title")).toBe(label);
+  for (const label of ["Pour toi", "Activité", "Rechercher", "Réglages"]) expect(byLabel(label)?.getAttribute("title")).toBe(label);
   await act(async () => root.unmount()); root = createRoot(host); // rechargement
   await act(async () => root.render(<SideRail {...railProps} />));
   expect(rail().classList.contains("is-folded")).toBe(true);
@@ -280,36 +293,31 @@ it("D5 — repliée en icônes seules, et toujours repliée après rechargement"
   expect(rail().classList.contains("is-folded")).toBe(false);
   expect(localStorage.getItem(RAIL_KEY)).toBe("0");
   // La grille suit la largeur de la barre repliée (règles sources : jsdom ne calcule pas les tailles).
-  const desktop = readFileSync("src/styles/desktop.css", "utf8"), shell = readFileSync("src/styles/shell.css", "utf8");
-  expect(desktop).toContain(":root:has(.side-rail.is-folded) { --rail-width:68px; }");
+  const shell = readFileSync("src/styles/shell.css", "utf8");
+  expect(readFileSync("src/styles/fil-calme.css", "utf8")).toContain(":root:has(.side-rail.is-folded) { --rail-width:var(--rail); }");
   expect(shell).toContain("grid-template-columns:var(--rail-width) minmax(0,1fr)");
 });
 
-it("E1 — téléphone : les mêmes entrées dans un menu « … » en haut à droite, au clavier aussi", async () => {
+it("E1 — téléphone : Pour toi (avec son nombre), appeler et le panneau, tout à droite de l'en-tête", async () => {
   wide = false;
-  const open = vi.fn();
+  const open = vi.fn(), inbox = vi.fn();
   await act(async () => root.render(<MobileHeader agent={agent()} status="En ligne" onMenu={vi.fn()} onAgent={vi.fn()}
-    menu={<WorkMenu agent={agent()} active={null} onOpen={open} details={false} onDetails={vi.fn()} />} />));
-  const more = byLabel("Contenus de l'agent")!;
-  expect(host.querySelector("header")!.lastElementChild!.contains(more)).toBe(true); // tout à droite
-  expect(more.getAttribute("aria-expanded")).toBe("false");
-  await act(async () => more.click());
-  const items = [...host.querySelectorAll<HTMLButtonElement>('[role="menu"] button')];
-  expect(items.map((b) => b.textContent)).toEqual(["Activité", "Tâches", "Fichiers", "Ordinateur", "Session", "Détails techniques"]);
-  expect(document.activeElement).toBe(items[0]);
-  await press("ArrowDown", items[0]);
-  expect(document.activeElement).toBe(items[1]);
-  await act(async () => items[2].click());
-  expect(open).toHaveBeenCalledWith("files");
-  expect(host.querySelector('[role="menu"]')).toBeNull();
-  await act(async () => more.click());
-  await press("Escape");
-  expect(host.querySelector('[role="menu"]')).toBeNull();
+    menu={<WorkMenu agent={agent()} active={null} onOpen={open} waiting={2} onInbox={inbox} />} />));
+  const bar = host.querySelector("header")!.lastElementChild!;
+  expect(bar.classList.contains("work-bar")).toBe(true); // tout à droite
+  expect([...bar.querySelectorAll("button")].map((b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual(["Pour toi2", "Appeler Noah", "Ouvrir ou fermer le panneau"]);
+  await act(async () => bar.querySelector<HTMLButtonElement>(".pour-toi-pill")!.click());
+  expect(inbox).toHaveBeenCalledTimes(1);
+  await act(async () => byLabel("Ouvrir ou fermer le panneau")!.click());
+  expect(open).toHaveBeenCalledWith("activity");
+  // Rien à attendre : pas de pastille.
+  await act(async () => root.render(<WorkMenu agent={agent()} active={null} onOpen={open} waiting={0} onInbox={inbox} />));
+  expect(host.querySelector(".pour-toi-pill")).toBeNull();
 });
 
 it("E2 — cibles tactiles du téléphone : 44 px au moins", () => {
   const shell = readFileSync("src/styles/shell.css", "utf8");
-  expect(shell).toContain(".mobile-header .shell-icon { width:44px; height:44px; min-width:44px; }");
+  expect(readFileSync("src/styles/fil-calme.css", "utf8")).toMatch(/\.mobile-header \.shell-icon, \.mobile-header \.icon-btn \{ width:44px; height:44px; min-width:44px; \}/);
   expect(shell).toContain(".work-panel-head .shell-icon { width:44px; height:44px; min-width:44px; }");
   expect(shell).toMatch(/\.work-menu-list button \{[^}]*min-height:48px/);
   expect(shell).toMatch(/\.session-row \{[^}]*min-height:44px/);
@@ -321,15 +329,15 @@ it("F1 — 375×812 : chaque cible de la conversation fait 44 px au moins (Copie
   expect(phone).toMatch(/\.cible-tactile \{[^}]*min-height:44px/);
   expect(phone).toMatch(/\.cible-tactile \{[^}]*min-width:44px/);
   expect(phone).not.toMatch(/\.cible-tactile[^{]*svg/); // l'icône garde sa taille ([&_svg]:size-4 du bouton)
-  const sources = ["Thread.tsx", "thread/Markdown.tsx", "thread/parts.tsx", "thread/messages.tsx", "thread/Composer.tsx", "thread/panneaux.tsx", "Voice.tsx", "ReportAnswer.tsx"].map((f) => readFileSync(`src/components/${f}`, "utf8")).join("\n");
+  const sources = ["Thread.tsx", "thread/Markdown.tsx", "thread/parts.tsx", "thread/messages.tsx", "thread/Composer.tsx", "thread/panneaux.tsx", "WorkBar.tsx", "Voice.tsx", "ReportAnswer.tsx"].map((f) => readFileSync(`src/components/${f}`, "utf8")).join("\n");
   const tag = (label: string) => {
     const at = sources.indexOf(`aria-label={${label}`);
     expect(at, label).toBeGreaterThan(-1);
     const start = sources.lastIndexOf("<", at);
     return sources.slice(start, sources.indexOf(">", at));
   };
-  for (const label of ['t("Copier mon message")', 't("Copier la réponse")', 't("Reprendre ce message")', 't("Réagir")', 't("Ajouter")',
-    'state === "recording" ? t("Arrêter la dictée")', 't("Mode vocal")', 't("Arrêter")', 't("Envoyer")', 't("Signaler la réponse")', 't("Réagir {emoji}"', 't("Retirer ta réaction {emoji}"']) {
+  for (const label of ['t("Copier mon message")', 't("Copier la réponse")', 't("Reprendre ce message")', 't("Réagir")', 't("Joindre des fichiers")',
+    'state === "recording" ? t("Arrêter la dictée")', 't("Appeler {nom}"', 't("Arrêter")', 't("Envoyer")', 't("Signaler la réponse")', 't("Réagir {emoji}"', 't("Retirer ta réaction {emoji}"']) {
     expect(tag(label), label).toContain("cible-tactile");
   }
   expect(sources.match(/data-envoyer aria-label=\{t\("Envoyer"\)\}/g)?.length).toBe(3);
@@ -425,19 +433,19 @@ it("P2n5 — une couche restée montée mais masquée ne bloque pas Échap", asy
   expect(close).toHaveBeenCalledTimes(1);
 });
 
-it("P2n2 — ouvert depuis le menu « … », le panneau rend le focus au bouton « … » en se fermant", async () => {
+it("P2n2 — ouvert depuis le bouton du panneau, le panneau rend le focus à ce bouton en se fermant", async () => {
   wide = false;
   function Phone() {
     const [tab, setTab] = useState<PanelTab | null>(null);
     return <>
-      <WorkMenu agent={agent()} active={tab} onOpen={setTab} details={false} onDetails={vi.fn()} />
-      {tab && <WorkPanel open tab={tab} title="Fichiers" expanded={false} onExpand={vi.fn()} onClose={() => setTab(null)}><p>contenu</p></WorkPanel>}
+      <WorkMenu agent={agent()} active={tab} onOpen={setTab} />
+      {tab && <WorkPanel open tab={tab} title="Fichiers" {...panelProps(tab)} expanded={false} onExpand={vi.fn()} onClose={() => setTab(null)}><p>contenu</p></WorkPanel>}
     </>;
   }
   await act(async () => root.render(<Phone />));
-  const more = byLabel("Contenus de l'agent")!;
+  const more = byLabel("Ouvrir ou fermer le panneau")!;
+  more.focus();
   await act(async () => more.click());
-  await act(async () => [...host.querySelectorAll<HTMLButtonElement>('[role="menu"] button')][2].click());
   expect(document.activeElement).toBe(host.querySelector("aside.work-panel"));
   await press("Escape");
   expect(host.querySelector("aside.work-panel")).toBeNull();
