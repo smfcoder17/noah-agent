@@ -29,7 +29,7 @@ const agents = [agent("a", "Noah"), agent("b", "Veille", { work: 1 }), agent("c"
 it("aligne tous les agents en haut, avec leur état ; l'agent ouvert est sélectionné", async () => {
   const picked = vi.fn();
   await render(base({ agent: agents[0], agents, onPickAgent: picked }));
-  expect(rows().map((r) => r.textContent)).toEqual(["NNoahDisponible", "VVeilleTravaille", "BBMDAttend ta réponse", "QQuatreDisponible", "CCinqDisponible"]);
+  expect(rows().map((r) => r.textContent)).toEqual(["NoahDisponible", "VeilleTravaille", "BMDAttend ta réponse", "QuatreDisponible", "CinqDisponible"]);
   expect(rows()[0].getAttribute("aria-current")).toBe("true");
   expect(rows()[0].getAttribute("aria-expanded")).toBeNull(); // rien à déplier : ni options (en haut à droite), ni historique
   expect(rows().slice(1).every((r) => r.getAttribute("aria-current") === null && r.getAttribute("aria-expanded") === "false")).toBe(true);
@@ -79,7 +79,7 @@ it("le tiroir du téléphone suit la même logique : agent ouvert déplié, aucu
   expect(document.body.textContent).not.toMatch(/Discussions|Historique|Archivés/);
   const search = document.querySelector<HTMLInputElement>("#drawer-search")!;
   await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(search, "Quatre"); search.dispatchEvent(new Event("input", { bubbles: true })); });
-  expect(rows().map((r) => r.textContent)).toEqual(["QQuatreDisponible"]);
+  expect(rows().map((r) => r.textContent)).toEqual(["QuatreDisponible"]);
   expect(document.body.textContent).not.toMatch(/Fils trouvés/);
   await act(async () => rows()[0].click());
   expect(pick).toHaveBeenCalledWith("d");

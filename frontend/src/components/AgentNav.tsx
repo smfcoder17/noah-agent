@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { TAB_ICONS } from "./mobile/BottomTabs";
 import { agentSummary, StateShape } from "./Sidebar";
 import { AgentMenu } from "./AgentMenu";
+import { AgentFace } from "./Noah";
 import { t } from "@/i18n";
 
 /** La ligne d'état d'un agent (0.4.0) : ce qu'il fait. Attend ta réponse, le titre de sa tâche en cours, « Suit N tâches » pour le chef d'équipe,
@@ -81,7 +82,7 @@ export const AgentNav = memo(function AgentNav({ agents, agentId, tabs, active, 
                 aria-label={`${a.name}, ${line}${!selected && pending ? ` · ${t("{n} en attente", { n: pending })}` : ""}`}
                 title={`${a.name} · ${line}`}
                 onClick={() => (selected ? foldable && setFolded(!folded) : onPick(a.id))}>
-                <span className="avatar" aria-hidden>{a.name.charAt(0).toUpperCase()}</span>
+                <AgentFace agent={a} className="size-8 shrink-0" />
                 <span className="agent-nav-text">
                   <b>{a.name}</b>
                   <small>{line}</small>

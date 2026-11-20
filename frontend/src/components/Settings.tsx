@@ -25,6 +25,7 @@ import type { Level } from "@/lib/modes";
 import { type MediaModel, ModelSelect } from "./ModelSelect";
 import { Dialog, DialogContent, Tabs, TabsContent, TabsList, TabsTrigger } from "./ui";
 import { Button, Input, Label } from "./ui";
+import { AgentFace } from "./Noah";
 import { t, tr } from "@/i18n";
 
 export type SettingsTab = "team" | "appearance" | "providers" | "home" | "mail" | "brain" | "create" | "voice" | "phone" | "notifications" | "telephone" | "security" | "updates" | "privacy" | "profiles" | "diagnostic" | "vault";
@@ -171,7 +172,7 @@ function Equipe({ agents }: { agents: Agent[] }) {
         <h3 className="h2">{t("Qui est chef d'équipe")}</h3>
         <p className="text-soft">{t("Il reçoit tes demandes larges, les confie aux autres, suit chaque tâche et te rend un seul compte. Le premier agent que tu as créé est ton chef d'équipe.")}</p>
         {chef ? (
-          <div className="list"><div className="row"><span className="avatar" aria-hidden>{chef.name.charAt(0)}</span><span className="grow flex min-w-0 flex-col"><span className="row-title">{chef.name}</span><span className="row-sub">{chef.role}</span></span><span className="pill work">{t("Chef d'équipe")}</span></div></div>
+          <div className="list"><div className="row"><AgentFace agent={chef} className="size-8 shrink-0" /><span className="grow flex min-w-0 flex-col"><span className="row-title">{chef.name}</span><span className="row-sub">{chef.role}</span></span><span className="pill work">{t("Chef d'équipe")}</span></div></div>
         ) : <p className="note">{t("Aucun agent pour l'instant.")}</p>}
       </section>
       <section className="stack g8">

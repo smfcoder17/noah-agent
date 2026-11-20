@@ -264,13 +264,13 @@ it("D4 — session : une tâche lancée apparaît en moins de 3 s, disparaît à
 
 const railProps = { agent: agent(), agents: [agent(), agent({ id: "b", name: "Veille" })], conversations: [], onAgent: vi.fn(), onPickAgent: vi.fn(), onMenu: vi.fn(), onThread: vi.fn(), onSettings: vi.fn(), onGoals: vi.fn() };
 
-it("D5 — barre de gauche du prototype : nom et repli en haut, entrées, agents avec lettre, état et pastille, trois petits points, plus de sous-menu", async () => {
+it("D5 — barre de gauche du prototype : nom et repli en haut, entrées, agents avec leur visage, état et pastille, trois petits points, plus de sous-menu", async () => {
   const page = vi.fn();
   await act(async () => root.render(<SideRail {...railProps} onAgentPage={page} />));
   expect(host.querySelector(".rail-top .rail-brand")!.textContent).toBe("Noah");
-  expect(host.querySelector(".agent-nav-item.is-hero")).toBeNull(); // plus de grand visage : une lettre dans un rond
+  expect(host.querySelector(".agent-nav-item.is-hero")).toBeNull(); // plus de grand visage : le visage à taille de ligne
   const first = host.querySelector<HTMLElement>(".agent-nav-item")!;
-  expect(first.querySelector(".avatar")!.textContent).toBe("N");
+  expect(first.querySelector("svg")).not.toBeNull(); // le visage animé de l'agent, pas une lettre (demande de Franck avant la 0.4.0)
   expect(first.textContent).toContain("Noah");
   expect(first.textContent).toContain("Disponible");
   expect(first.querySelector(".dot")).not.toBeNull();

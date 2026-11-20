@@ -144,7 +144,8 @@
 
 /* ---------- Téléphone ---------- */
 .mobile-header { align-items:center; gap:4px; height:var(--head); padding:0 6px; border-bottom:1px solid var(--line-soft); background:var(--card); }
-.mobile-agent { flex:1; min-width:0; display:flex; flex-direction:column; align-items:flex-start; text-align:left; cursor:pointer; }
+.mobile-agent { flex:1; min-width:0; display:flex; flex-direction:row; align-items:center; gap:10px; text-align:left; cursor:pointer; }
+.mobile-agent-text { min-width:0; display:flex; flex-direction:column; align-items:flex-start; }
 .mobile-agent b { font-size:16px; font-weight:600; line-height:1.25; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .mobile-agent small { font-size:13px; line-height:1.2; color:var(--soft); max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .mobile-titre { flex:1; min-width:0; margin:0; padding-left:6px; font-size:16px; font-weight:600; line-height:1.25; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
