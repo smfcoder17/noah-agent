@@ -15,6 +15,11 @@
     "menu.ouvrir": "Ouvrir Noah Agent",
     "menu.accord": "Voir l'accord en attente",
     "menu.changer": "Changer de serveur…",
+    // Mise à jour de l'app
+    "maj.prete": "Noah {version} est prête. Redémarrer pour l'installer ?",
+    "maj.redemarrer": "Redémarrer",
+    "maj.plus_tard": "Plus tard",
+    "maj.menu": "Redémarrer pour installer Noah {version}",
     "menu.couper_acces": "Couper l'accès de l'agent",
     "menu.quitter": "Quitter",
     "menu.masquer": "Masquer Noah Agent",
@@ -184,6 +189,11 @@
     "menu.ouvrir": "Open Noah Agent",
     "menu.accord": "See pending approval",
     "menu.changer": "Change server…",
+    // App update
+    "maj.prete": "Noah {version} is ready. Restart to install it?",
+    "maj.redemarrer": "Restart",
+    "maj.plus_tard": "Later",
+    "maj.menu": "Restart to install Noah {version}",
     "menu.couper_acces": "Cut off agent access",
     "menu.quitter": "Quit",
     "menu.masquer": "Hide Noah Agent",

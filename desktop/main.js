@@ -12,6 +12,7 @@ const dossiers = require("./dossiers");
 const bandeau = require("./bandeau");
 const permissions = require("./permissions");
 const { t, langue } = require("./textes");
+const maj = require("./maj");
 
 // Essai d'une version de développement à côté de l'app installée : son propre dossier (réglages, session, clé de
 // chiffrement), pour ne jamais lire ni révoquer la session de l'app installée.
@@ -766,8 +767,31 @@ function openSubscription(page) {
   }, 400);
 }
 
+// Mise à jour de l'app (maj.js) : Windows, app installée seulement. Un essai de développement (NOAH_PROFIL, electron .) n'en cherche pas.
+let updates = null;
+function logUpdate(line) {
+  try {
+    const file = path.join(app.getPath("userData"), "journal-maj.log");
+    if (fs.existsSync(file) && fs.statSync(file).size > 200000) fs.renameSync(file, file + ".old");
+    fs.appendFileSync(file, `${new Date().toISOString()} ${line}\n`);
+  } catch { /* le journal ne doit jamais gêner l'app */ }
+}
+function startUpdates() {
+  if (process.platform !== "win32" || !app.isPackaged || process.env.NOAH_PROFIL) return;
+  try {
+    updates = maj.create({
+      updater: require("electron-updater").autoUpdater, version: app.getVersion(), t, log: logUpdate,
+      ask: (options) => dialog.showMessageBox(options),
+    });
+    updates.onReady(() => { createMenu(); createTrayMenuState(); });
+    updates.start();
+  } catch (e) { logUpdate(`démarrage : ${e?.message || e}`); }
+}
+const updateMenu = () => (updates?.ready() ? [{ label: t("maj.menu", { version: updates.ready() }), click: () => updates.install() }] : []);
+
 function trayMenu() {
   return Menu.buildFromTemplate([
+    ...updateMenu(),
     { label: t("menu.ouvrir"), click: show },
     autonomyMenu(),
     subscriptionsMenu(),
@@ -797,6 +821,7 @@ function createMenu() {
       { label: t("menu.accord"), accelerator: "CommandOrControl+Shift+Space", click: () => bandeau.focus() },
       { label: t("menu.changer"), click: changeServer },
       ...startupMenu(),
+      ...updateMenu(),
       { type: "separator" },
       { role: "close", label: t("menu.fermer") },
       ...(process.platform === "darwin" ? [] : [{ label: t("menu.quitter"), click: quit }]),
@@ -985,6 +1010,7 @@ if (!app.requestSingleInstanceLock()) {
     });
     session.defaultSession.setPermissionCheckHandler((wc, permission, asking) => allowed(wc, permission, asking));
     createTray();
+    startUpdates();
     // Sessions oubliées hors ligne : révoquées dès que le serveur répond (l'app peut rester des jours ouverte).
     flushRevocations().catch(() => {});
     setInterval(() => flushRevocations().catch(() => {}), 10 * 60 * 1000);
