@@ -220,6 +220,15 @@ class BrowserKeys(BaseModel):
     timezone: str = ""
 
 
+def _browser_version(locale: str, timezone: str, proxy: bool) -> str:
+    """Étiquette des réglages du navigateur. Sans sortie réseau elle reste celle d'avant : aucun navigateur n'est recréé pour rien."""
+    return f"{BROWSER_VERSION}:{locale}:{timezone}" + (":s" if proxy else "")
+
+
+def _version_proxy(label: str) -> bool:
+    return (label.split(":") + ["", "", "", ""])[3] == "s"
+
+
 def _ensure_image(name: str) -> None:
     """containers.create ne télécharge pas l'image (run le fait) : premier navigateur sur un VPS neuf."""
     try:
@@ -318,13 +327,14 @@ def _ensure_browser(agent_id: str, body: BrowserKeys, image: str | None = None, 
     check_id(agent_id)
     container(agent_id)  # l'agent doit exister
     name = BROWSER_PREFIX + agent_id
-    version = f"{BROWSER_VERSION}:{body.locale}:{body.timezone}"
+    proxy = _sortie_ready()  # une sortie réseau est configurée : le navigateur n'a que l'aiguillage pour porte vers Internet
+    version = _browser_version(body.locale, body.timezone, proxy)
     try:
         c = client.containers.get(name)
         current = c.labels.get("noah.browser.version", "")
         # Langue et fuseau inconnus (ipinfo.io muet) : on garde l'identité en place plutôt que de recréer en UTC/en-US.
         same = current == version or (not (body.locale and body.timezone)
-                                      and current.split(":")[0] == BROWSER_VERSION)
+                                      and current.split(":")[0] == BROWSER_VERSION and _version_proxy(current) == proxy)
         if same:
             if c.status != "running":
                 c.start()
@@ -365,6 +375,8 @@ def _ensure_browser(agent_id: str, body: BrowserKeys, image: str | None = None, 
             "BROWSER_IDLE_TIMEOUT_MS": "1800000",
             **({"CAMOFOX_LOCALE": body.locale, "CAMOFOX_TIMEZONE": body.timezone, "TZ": body.timezone}
                if body.locale and body.timezone else {}),
+            # Camofox lit ces variables (/app/lib/config.js de l'image) ; sans sortie réseau configurée, rien n'est ajouté.
+            **({"PROXY_HOST": SORTIE, "PROXY_PORT": str(SORTIE_PORT), "PROXY_PROTOCOL": "http"} if proxy else {}),
         },
         volumes={name: {"bind": "/data", "mode": "rw"}},
         network=NETWORK,
@@ -402,6 +414,8 @@ def _ensure_browser(agent_id: str, body: BrowserKeys, image: str | None = None, 
     c.put_archive(os.path.dirname(CAMOUFOX_CFG), _tar({os.path.basename(CAMOUFOX_CFG): cfg}))
     if start:
         c.start()
+    if not proxy:
+        _sortie_cleanup()  # une sortie retirée garde son aiguillage tant qu'un navigateur s'y accroche : plus aucun ne le fait
     return {"host": name, "created": True}
 
 
@@ -459,6 +473,305 @@ def restart_browser(agent_id: str, new_identity: bool = False):
             raise HTTPException(502, "L'empreinte du navigateur n'a pas pu être effacée : réessaie.")
     c.restart(timeout=20)  # comme l'arrêt : le temps d'enregistrer les cookies de la session
     return {"ok": True, "new_identity": new_identity}
+
+
+# --- Sortie réseau des navigateurs ----------------------------------------------------------------------------------------
+# Lot sortie-reseau. Les sites doivent voir le navigateur d'un agent arriver de Montréal, pas du VPS. Trois conteneurs, créés
+# seulement si la personne a configuré une sortie (Réglages > Serveur > Sortie réseau) :
+#   noah-sortie-maison  nœud de sortie Tailscale (le PC de la personne), en mode espace utilisateur : aucune capacité, aucun /dev/net/tun ;
+#   noah-sortie-vpn     Gluetun (Surfshark, WireGuard) : le seul à demander NET_ADMIN et /dev/net/tun, parce qu'un VPN ne se fait pas autrement ;
+#   noah-sortie         l'aiguillage (launcher/aiguillage.py), seule porte des navigateurs, qui choisit la meilleure sortie.
+# Les sorties vivent sur un réseau à elles (noah-sorties) ; l'aiguillage est sur celui-là et sur celui des agents. Le lanceur
+# n'est ni sur l'un ni sur l'autre, et aucun des trois n'a le socket Docker ni de capacité de plus que ci-dessus.
+# Les clés (Tailscale, WireGuard) sont posées dans un fichier du conteneur (put_env), jamais dans sa config Docker.
+SORTIE = "noah-sortie"
+SORTIE_MAISON = "noah-sortie-maison"
+SORTIE_VPN = "noah-sortie-vpn"
+SORTIE_LABEL = "noah.sortie"  # « aiguillage », « maison » ou « vpn »
+SORTIE_PORT = 3128
+SORTIES_NETWORK = "noah-sorties"
+# Images officielles, figées par empreinte (liste multi-architectures) : on ne change de version qu'ici, après essai.
+TAILSCALE_IMAGE = os.environ.get("SORTIE_TAILSCALE_IMAGE", "tailscale/tailscale@sha256:72c1e19e0aedca96b8533bbb0b4368564410ff20b17e53b804eb6c1f04a31be4")
+GLUETUN_IMAGE = os.environ.get("SORTIE_GLUETUN_IMAGE", "qmcgaw/gluetun@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027")
+TAILSCALE_PROXY = 1056  # mandataire HTTP sortant de tailscaled (TS_OUTBOUND_HTTP_PROXY_LISTEN)
+GLUETUN_PROXY = 8888
+SORTIE_READY_WAIT = 60  # secondes à attendre que l'aiguillage ait fait sa première série de sondes
+NODE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")  # nom de machine Tailscale ou adresse du nœud de sortie
+CITY_RE = re.compile(r"^[A-Za-z][A-Za-z .'-]{0,39}$")
+ADDRESS_RE = re.compile(r"^[0-9a-fA-F:.]{3,45}/\d{1,3}(,[0-9a-fA-F:.]{3,45}/\d{1,3})?$")
+KEY_RE = re.compile(r"^[\w.+/=-]{8,512}$")  # clé d'authentification Tailscale, clé privée WireGuard (base64)
+_sortie_lock = threading.Lock()
+
+
+class SortieMaison(BaseModel):
+    cle: str = ""  # clé d'authentification Tailscale (tskey-auth-…) ; vide : le nœud déjà enregistré garde son état
+    noeud: str = ""  # nom ou adresse du nœud de sortie (le PC de la personne)
+
+
+class SortieVpn(BaseModel):
+    cle_privee: str = ""  # clé privée WireGuard du compte Surfshark
+    adresse: str = "10.14.0.2/16"
+    ville: str = "Montreal"
+
+
+class SortieConfig(BaseModel):
+    maison: SortieMaison | None = None
+    vpn: SortieVpn | None = None
+
+
+def _sortie_container(name: str, kind: str):
+    """Le conteneur de ce nom s'il est bien une sortie Noah ; None sinon."""
+    try:
+        c = client.containers.get(name)
+    except NotFound:
+        return None
+    return c if c.labels.get(SORTIE_LABEL) == kind else None
+
+
+def _sortie_ready() -> bool:
+    """Un aiguillage avec au moins une sortie en amont existe : les navigateurs créés maintenant passent par lui. Une panne de
+    Docker n'est pas « pas de sortie » : l'erreur remonte, le navigateur n'est pas créé en direct par mégarde."""
+    c = _sortie_container(SORTIE, "aiguillage")
+    if c is None or not c.labels.get("noah.sortie.amont"):
+        return False
+    if c.status != "running":
+        c.start()
+    return True
+
+
+def _sorties_network() -> None:
+    try:
+        client.networks.get(SORTIES_NETWORK)
+    except NotFound:
+        client.networks.create(SORTIES_NETWORK, driver="bridge", labels={"noah.reseau": "sorties"})
+
+
+def _digest(*parts: str) -> str:
+    import hashlib
+    return hashlib.sha256("\0".join(parts).encode()).hexdigest()[:16]
+
+
+def _remove_container(c, volume: str = "") -> None:
+    try:
+        c.stop(timeout=10)
+    except Exception:  # noqa: BLE001 - déjà arrêté
+        pass
+    c.remove(force=True)
+    if volume:
+        try:
+            client.volumes.get(volume).remove()
+        except NotFound:
+            pass
+
+
+def _sortie_common(name: str, kind: str, config_hash: str) -> dict:
+    return dict(
+        name=name, hostname=name,
+        labels={SORTIE_LABEL: kind, "noah.sortie.config": config_hash},
+        network=SORTIES_NETWORK,
+        restart_policy={"Name": "unless-stopped"},
+        mem_limit=_mem(0.15, 256 * 2**20),
+        log_config=LOG_CONFIG,
+        security_opt=["no-new-privileges"],
+        pids_limit=512,
+        cap_drop=["ALL"],
+    )
+
+
+def _make_maison(cfg: SortieMaison):
+    h = _digest("maison", cfg.cle, cfg.noeud)
+    c = _sortie_container(SORTIE_MAISON, "maison")
+    if c is not None and c.labels.get("noah.sortie.config") == h:
+        if c.status != "running":
+            c.start()
+        return c
+    if c is not None:  # autre clé ou autre nœud : le nœud s'enregistre de nouveau, avec son état neuf
+        _remove_container(c, SORTIE_MAISON)
+    _ensure_image(TAILSCALE_IMAGE)
+    c = client.containers.create(
+        TAILSCALE_IMAGE,
+        entrypoint=["/bin/sh", "-c", f'set -a; . {SECRETS_FILE}; set +a; exec /usr/local/bin/containerboot', "noah"],
+        environment={
+            "TS_USERSPACE": "true",  # pas de /dev/net/tun ni de NET_ADMIN : le trafic passe par le mandataire de tailscaled
+            "TS_STATE_DIR": "/var/lib/tailscale",
+            "TS_HOSTNAME": "noah-sortie",
+            "TS_AUTH_ONCE": "true",
+            "TS_OUTBOUND_HTTP_PROXY_LISTEN": f"0.0.0.0:{TAILSCALE_PROXY}",
+            "TS_EXTRA_ARGS": f"--exit-node={cfg.noeud}",
+            "TS_ACCEPT_DNS": "false",
+        },
+        volumes={SORTIE_MAISON: {"bind": "/var/lib/tailscale", "mode": "rw"}},
+        **_sortie_common(SORTIE_MAISON, "maison", h),
+    )
+    updater.put_env(c, SECRETS_FILE, {"TS_AUTHKEY": cfg.cle} if cfg.cle else {})
+    c.start()
+    return c
+
+
+def _make_vpn(cfg: SortieVpn):
+    h = _digest("vpn", cfg.cle_privee, cfg.adresse, cfg.ville)
+    c = _sortie_container(SORTIE_VPN, "vpn")
+    if c is not None and c.labels.get("noah.sortie.config") == h:
+        if c.status != "running":
+            c.start()
+        return c
+    if c is not None:
+        _remove_container(c)
+    _ensure_image(GLUETUN_IMAGE)
+    common = _sortie_common(SORTIE_VPN, "vpn", h)
+    # Gluetun est le seul conteneur de Noah qui demande une capacité : un VPN crée une interface réseau (NET_ADMIN) et ouvre
+    # /dev/net/tun. Rien d'autre : ni NET_RAW, ni privilège, ni accès à l'hôte.
+    common["cap_add"] = ["NET_ADMIN"]
+    c = client.containers.create(
+        GLUETUN_IMAGE,
+        entrypoint=["/bin/sh", "-c", f'set -a; . {SECRETS_FILE}; set +a; exec /gluetun-entrypoint', "noah"],
+        environment={
+            "VPN_SERVICE_PROVIDER": "surfshark",
+            "VPN_TYPE": "wireguard",
+            "WIREGUARD_ADDRESSES": cfg.adresse,
+            "SERVER_CITIES": cfg.ville,
+            "HTTPPROXY": "on",
+            "HTTPPROXY_LISTENING_ADDRESS": f":{GLUETUN_PROXY}",
+            "FIREWALL_INPUT_PORTS": str(GLUETUN_PROXY),  # l'aiguillage, voisin sur noah-sorties, joint le mandataire
+            "UPDATER_PERIOD": "0",
+        },
+        devices=["/dev/net/tun:/dev/net/tun:rwm"],
+        **common,
+    )
+    updater.put_env(c, SECRETS_FILE, {"WIREGUARD_PRIVATE_KEY": cfg.cle_privee})
+    c.start()
+    return c
+
+
+def _make_aiguillage(amont: list[dict]):
+    h = _digest("aiguillage", json.dumps(amont, sort_keys=True))
+    c = _sortie_container(SORTIE, "aiguillage")
+    if c is not None and c.labels.get("noah.sortie.config") == h:
+        if c.status != "running":
+            c.start()
+        return c
+    if c is not None:
+        _remove_container(c)
+    image = client.containers.get(updater.LAUNCHER).image  # l'image du lanceur, déjà là : l'aiguillage ne lui doit que Python et son fichier
+    _ensure_agents_network()
+    labels = {SORTIE_LABEL: "aiguillage", "noah.sortie.config": h, "noah.sortie.amont": ",".join(s["nom"] for s in amont)}
+    c = client.containers.create(
+        image,
+        name=SORTIE, hostname=SORTIE,
+        command=["python", "/app/aiguillage.py"],
+        user="65534:65534",
+        environment={"NOAH_SORTIE_AMONT": json.dumps(amont), "NOAH_SORTIE_PORT": str(SORTIE_PORT)},
+        labels=labels,
+        network=NETWORK,  # le réseau des agents, sous le nom « noah-sortie » : l'adresse que les navigateurs gardent
+        restart_policy={"Name": "unless-stopped"},
+        mem_limit=_mem(0.1, 192 * 2**20),
+        log_config=LOG_CONFIG,
+        security_opt=["no-new-privileges"],
+        pids_limit=256,
+        cap_drop=["ALL"],
+        read_only=True,
+        tmpfs={"/tmp": "size=8m"},
+        healthcheck={"test": ["CMD", "python", "/app/aiguillage.py", "--etat"], "interval": 30 * 10**9, "timeout": 5 * 10**9, "retries": 3},
+    )
+    try:
+        client.networks.get(SORTIES_NETWORK).connect(c)  # les sorties en amont, que les navigateurs ne voient pas
+    except Exception:
+        c.remove(force=True)
+        raise
+    c.start()
+    return c
+
+
+def _sortie_state() -> dict | None:
+    """Ce que l'aiguillage dit de lui-même (lu dans son conteneur : aucun port ne mène à cet état), ou None."""
+    c = _sortie_container(SORTIE, "aiguillage")
+    if c is None or c.status != "running":
+        return None
+    try:
+        out = c.exec_run(["python", "/app/aiguillage.py", "--etat"], user="65534")
+        return json.loads(out.output.decode()) if out.exit_code == 0 else None
+    except Exception:  # noqa: BLE001 - il démarre encore
+        return None
+
+
+def _sortie_wait() -> dict | None:
+    for _ in range(SORTIE_READY_WAIT):
+        state = _sortie_state()
+        if state is not None:
+            return state
+        time.sleep(1)
+    return None
+
+
+def _check_sortie(cfg: SortieConfig) -> None:
+    if cfg.maison and not (NODE_RE.match(cfg.maison.noeud) and (not cfg.maison.cle or KEY_RE.match(cfg.maison.cle))):
+        raise HTTPException(400, "Nœud de sortie ou clé Tailscale invalide.")
+    if cfg.vpn and not (KEY_RE.match(cfg.vpn.cle_privee) and ADDRESS_RE.match(cfg.vpn.adresse) and CITY_RE.match(cfg.vpn.ville)):
+        raise HTTPException(400, "Clé WireGuard, adresse ou ville invalide.")
+
+
+def _apply_sortie(cfg: SortieConfig) -> dict:
+    _check_sortie(cfg)
+    _sorties_network()
+    amont: list[dict] = []
+    if cfg.maison:
+        _make_maison(cfg.maison)
+        amont.append({"nom": "maison", "hote": SORTIE_MAISON, "port": TAILSCALE_PROXY})
+    elif (c := _sortie_container(SORTIE_MAISON, "maison")) is not None:
+        _remove_container(c, SORTIE_MAISON)
+    if cfg.vpn:
+        _make_vpn(cfg.vpn)
+        amont.append({"nom": "vpn", "hote": SORTIE_VPN, "port": GLUETUN_PROXY})
+    elif (c := _sortie_container(SORTIE_VPN, "vpn")) is not None:
+        _remove_container(c)
+    if amont:
+        _make_aiguillage(amont)
+    else:
+        _sortie_cleanup(emptied=True)
+    return _sortie_report(wait=bool(amont))
+
+
+def _browsers_on_proxy() -> bool:
+    return any(_version_proxy(b.labels.get("noah.browser.version", ""))
+               for b in client.containers.list(all=True, filters={"label": BROWSER_LABEL}))
+
+
+def _sortie_cleanup(emptied: bool = False) -> None:
+    """Plus aucune sortie. L'aiguillage reste, vidé (il ne sort plus qu'en direct), tant qu'un navigateur créé avec lui s'y
+    accroche, puis il part : sans cela, ces navigateurs perdraient Internet jusqu'à leur prochaine recréation.
+    `emptied` : la configuration vient d'être vidée. Sinon (un navigateur vient d'être recréé), seul un aiguillage déjà vide part."""
+    c = _sortie_container(SORTIE, "aiguillage")
+    if c is None or (not emptied and c.labels.get("noah.sortie.amont")):
+        return
+    if _browsers_on_proxy():
+        if emptied and c.labels.get("noah.sortie.amont"):
+            _make_aiguillage([])
+        return
+    _remove_container(c)
+
+
+def _sortie_report(wait: bool = False) -> dict:
+    present = {n: _sortie_container(n, k) is not None for n, k in ((SORTIE_MAISON, "maison"), (SORTIE_VPN, "vpn"), (SORTIE, "aiguillage"))}
+    return {"conteneurs": present, "aiguillage": (_sortie_wait() if wait else _sortie_state())}
+
+
+def _frozen_fleet():
+    """Une opération sur le parc qui ne vise aucun agent en particulier : même verrou que les autres."""
+    yield from _frozen("")
+
+
+@app.get("/sortie", dependencies=[Depends(auth)])
+def sortie_status():
+    """Lecture seule : quels conteneurs existent et ce que dit l'aiguillage (jamais une clé)."""
+    return _sortie_report()
+
+
+@app.put("/sortie", dependencies=[Depends(auth), Depends(_frozen_fleet)])
+def sortie_apply(body: SortieConfig):
+    """Pose la configuration complète des sorties : crée, remplace ou retire ce qui a changé, laisse en place ce qui n'a pas changé.
+    Les clés viennent du serveur (qui les garde scellées) et ne sont jamais renvoyées."""
+    with _sortie_lock:
+        return _apply_sortie(body)
 
 
 # --- Fichiers de l'espace de travail ----------------------------------------------
