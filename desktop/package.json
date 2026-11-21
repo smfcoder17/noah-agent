@@ -39,13 +39,19 @@
       "setup.html",
       "setup.js",
       "textes.js",
+      "maj.js",
+      "liens.js",
       "icon.png"
     ],
     "afterPack": "apres-empaquetage.js",
+    "publish": [{ "provider": "github", "owner": "smfcoder17", "repo": "noah-agent" }],
     "win": {
       "target": "nsis",
       "icon": "icon.png",
       "signAndEditExecutable": false
+    },
+    "nsis": {
+      "artifactName": "noah-agent-windows-setup.exe"
     },
     "protocols": [{ "name": "Noah Agent", "schemes": ["noah", "noah-agent"] }],
     "mac": {
@@ -56,5 +62,8 @@
       "target": "AppImage",
       "icon": "icon.png"
     }
+  },
+  "dependencies": {
+    "electron-updater": "6.8.11"
   }
 }
