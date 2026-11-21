@@ -578,7 +578,31 @@ export default function register(app, ctx) {
     ctx.log("info", "noah: nouveaux onglets gardés dans le conteneur de l'agent");
   });
   keepSessions(ctx);
+  keepIdentity(ctx);
   keepFingerprint(ctx);
+}
+
+/**
+ * Langue et fuseau derrière une sortie réseau. Sans proxy, Camofox pose CAMOFOX_LOCALE et CAMOFOX_TIMEZONE lui-même. Avec un proxy
+ * (l'aiguillage de Noah, variable PROXY_HOST), il les ignore (browser-identity.js) et tire langue, fuseau et position de l'adresse
+ * vue à travers le proxy : le fuseau est le bon, mais la langue est celle que sa table donne au pays (en-CA pour le Canada, jamais
+ * fr-CA). Le lanceur pose pourtant la langue qu'a choisie le serveur à partir de la même adresse (Québec : fr-CA) : on la remet ici.
+ * Si la base de position manque (« geoip setup failed »), le fuseau aussi vient d'ici.
+ */
+export function keepIdentity(ctx, env = process.env) {
+  ctx.events.on("browser:launching", ({ options }) => {
+    const locale = String(env.CAMOFOX_LOCALE || "").trim();
+    const timezone = String(env.CAMOFOX_TIMEZONE || "").trim();
+    const parts = /^([a-z]{2,3})-([A-Z]{2})$/.exec(locale);
+    if (!env.PROXY_HOST || !parts || !timezone || !options.env) return; // sans proxy, rien à corriger
+    const config = readCamouConfig(options.env) || {};
+    config["locale:language"] = parts[1];
+    config["locale:region"] = parts[2];
+    config["locale:all"] = `${locale}, ${parts[1]}`;
+    config.timezone = timezone;
+    writeCamouConfig(options.env, config);
+    ctx.log("info", "noah: langue et fuseau de la sortie réseau", { locale, timezone });
+  });
 }
 
 /**
