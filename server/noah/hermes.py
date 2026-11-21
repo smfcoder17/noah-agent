@@ -152,6 +152,14 @@ LOCALES = {"FR": "fr-FR", "BE": "fr-BE", "CH": "fr-CH", "LU": "fr-LU", "MA": "fr
            "PT": "pt-PT", "BR": "pt-BR", "MX": "es-MX", "NL": "nl-NL", "JP": "ja-JP"}
 
 
+def identity_of(geo: dict) -> dict:
+    """Langue et fuseau d'un visiteur de cet endroit (réponse d'ipinfo.io : country, region, timezone)."""
+    country = geo.get("country", "")
+    quebec = geo.get("region") in ("Quebec", "Québec", "QC")
+    locale = "fr-CA" if country == "CA" and quebec else ("en-CA" if country == "CA" else LOCALES.get(country, "en-US"))
+    return {"locale": locale, "timezone": geo.get("timezone", "")}
+
+
 async def browser_identity() -> dict:
     """Langue et fuseau du navigateur : ceux de .env (NOAH_LOCALE / NOAH_TIMEZONE), sinon déduits
     une fois de l'adresse IP publique du serveur (la même que voient les sites)."""
@@ -171,20 +179,33 @@ async def browser_identity() -> dict:
             geo = (await c.get("https://ipinfo.io/json")).json()
     except (httpx.HTTPError, ValueError):
         return {"locale": "", "timezone": ""}
-    country = geo.get("country", "")
-    quebec = geo.get("region") in ("Quebec", "Québec", "QC")
-    locale = "fr-CA" if country == "CA" and quebec else ("en-CA" if country == "CA" else LOCALES.get(country, "en-US"))
-    identity = {"locale": locale, "timezone": geo.get("timezone", "")}
+    identity = identity_of(geo)
     if identity["timezone"]:
         db.set_setting("browser_identity", json.dumps(identity))
     return identity
 
 
+async def browser_identity_now() -> dict:
+    """Celle du navigateur qu'on crée maintenant : avec une sortie réseau active (maison, VPN), la langue et le fuseau de l'endroit
+    où les sites le voient (Montréal : fr-CA, America/Toronto) ; sinon, comme avant. NOAH_LOCALE et NOAH_TIMEZONE gardent le dernier mot."""
+    from . import sortie
+    from .config import BROWSER_LOCALE, BROWSER_TIMEZONE
+
+    if not (BROWSER_LOCALE and BROWSER_TIMEZONE):
+        geo = await sortie.active_geo()
+        if geo:
+            return identity_of(geo)
+    return await browser_identity()
+
+
 async def ensure_browser(agent_id: str) -> None:
+    from . import sortie
+
+    await sortie.reconcile()  # sans sortie configurée : rien, pas même un appel au lanceur
     api_key, vnc_password = browser_secrets(agent_id)
     await _launcher("POST", f"/agents/{agent_id}/browser",
                     json={"api_key": api_key, "vnc_password": vnc_password, "private_key": private_key(agent_id),
-                          **await browser_identity()}, timeout=900)  # le premier usage télécharge l'image
+                          **await browser_identity_now()}, timeout=900)  # le premier usage télécharge l'image
 
 
 async def list_files(agent_id: str) -> list[dict]:

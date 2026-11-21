@@ -31,7 +31,7 @@ from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from pydantic import BaseModel, Field
 
-from . import access, accounts, apprentissage, appareils, auth, bureautique, catalog, chauffe, coffre, connecteurs, connecteurs_cles, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, propositions, public, publication, push, questions, recu, recuperation, relay, session, sites, taches, updates, watch
+from . import access, accounts, apprentissage, appareils, auth, bureautique, catalog, chauffe, coffre, connecteurs, connecteurs_cles, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, propositions, public, publication, push, questions, recu, recuperation, relay, session, sites, sortie, taches, updates, watch
 from . import config
 from . import accords, bus, credits, presets, rapide, sensitive, ui_preferences, linkpreview, providers as provider_accounts
 from .config import WEB_DIR, forget_setup_code
@@ -224,6 +224,7 @@ app.include_router(linkpreview.router)
 app.include_router(ui_preferences.router)
 app.include_router(provider_accounts.router)
 app.include_router(presets.router)
+app.include_router(sortie.router)  # sortie réseau des navigateurs : maison, VPN, serveur (Réglages > Serveur)
 
 # Agents en cours de création : id -> message d'étape ou d'erreur affiché dans l'interface.
 provisioning: dict[str, str] = {}
@@ -1540,6 +1541,15 @@ def outbound_flows(user: int = Depends(access.owner_only)):
                   "quand": "seulement quand tu touches « Joindre ma position », jamais en arrière-plan"})
     flows.append({"quoi": "Sites que tes agents visitent", "vers": "les sites de la tâche",
                   "quand": "quand une tâche le demande, depuis le navigateur de l'agent"})
+    if sortie.maison() or sortie.vpn():  # lot sortie-reseau : seulement si une sortie est configurée (Réglages > Serveur > Sortie réseau)
+        if sortie.maison():
+            flows.append({"quoi": "Sortie par ta maison (nœud de sortie Tailscale) : clé d'authentification", "vers": "controlplane.tailscale.com",
+                          "quand": "quand le nœud de sortie démarre ; le trafic des navigateurs passe ensuite par ton PC"})
+        if sortie.vpn():
+            flows.append({"quoi": "Sortie par ton VPN (Surfshark, WireGuard)", "vers": "le serveur Surfshark de la ville choisie",
+                          "quand": "tant que les navigateurs de tes agents sont ouverts"})
+        flows.append({"quoi": "Adresse et pays vus par les sites, pour chaque sortie", "vers": "api.ipify.org, ipinfo.io",
+                      "quand": "toutes les 20 secondes pour l'état, toutes les 15 minutes pour l'adresse, à travers chaque sortie"})
     flows.append({"quoi": "Vérification des mises à jour (manifeste signé)", "vers": _host(updates.MANIFEST_URL),
                   "quand": "une fois par heure"})
     flows.append({"quoi": "Téléchargement des mises à jour", "vers": "ghcr.io, registry-1.docker.io",

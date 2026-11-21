@@ -585,9 +585,14 @@ def _make_maison(cfg: SortieMaison):
         if c.status != "running":
             c.start()
         return c
-    if c is not None:  # autre clé ou autre nœud : le nœud s'enregistre de nouveau, avec son état neuf
-        _remove_container(c, SORTIE_MAISON)
+    key_hash = _digest(cfg.cle)
+    if c is not None:
+        # Une autre clé : le nœud s'enregistre de nouveau, avec un état neuf. Un autre nœud de sortie seulement : l'état reste,
+        # la clé (peut-être à usage unique) n'a pas à resservir.
+        _remove_container(c, SORTIE_MAISON if c.labels.get("noah.sortie.cle") != key_hash else "")
     _ensure_image(TAILSCALE_IMAGE)
+    common = _sortie_common(SORTIE_MAISON, "maison", h)
+    common["labels"]["noah.sortie.cle"] = key_hash
     c = client.containers.create(
         TAILSCALE_IMAGE,
         entrypoint=["/bin/sh", "-c", f'set -a; . {SECRETS_FILE}; set +a; exec /usr/local/bin/containerboot', "noah"],
@@ -601,7 +606,7 @@ def _make_maison(cfg: SortieMaison):
             "TS_ACCEPT_DNS": "false",
         },
         volumes={SORTIE_MAISON: {"bind": "/var/lib/tailscale", "mode": "rw"}},
-        **_sortie_common(SORTIE_MAISON, "maison", h),
+        **common,
     )
     updater.put_env(c, SECRETS_FILE, {"TS_AUTHKEY": cfg.cle} if cfg.cle else {})
     c.start()

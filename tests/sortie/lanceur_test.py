@@ -208,6 +208,14 @@ r = web.put("/sortie", json={"maison": {"cle": TS_KEY + "x", "noeud": "pc-franck
 assert [n for n, *_ in world.created] == ["noah-sortie-maison"] and "noah-sortie-maison" not in world.volumes, "autre clé : la maison seule est recréée, son état effacé"
 print("6. même configuration : rien ne bouge ; autre clé : la maison seule est recréée avec un état neuf")
 
+# 6 bis. Un autre nœud de sortie, même clé : la maison est recréée, son état reste (la clé a pu être à usage unique).
+world.created.clear()
+world.volumes.add("noah-sortie-maison")
+r = web.put("/sortie", json={"maison": {"cle": TS_KEY + "x", "noeud": "autre-pc"}, "vpn": {"cle_privee": WG_KEY, "adresse": "10.14.0.2/16", "ville": "Montreal"}})
+assert [n for n, *_ in world.created] == ["noah-sortie-maison"] and "noah-sortie-maison" in world.volumes, "autre nœud : l'état Tailscale est gardé"
+assert world.created[0][2]["environment"]["TS_EXTRA_ARGS"] == "--exit-node=autre-pc"
+print("6b. un autre nœud de sortie : la maison est recréée, son état gardé")
+
 # 7. La maison retirée : son conteneur et son état partent, le VPN reste, l'aiguillage n'a plus que lui.
 r = web.put("/sortie", json={"vpn": {"cle_privee": WG_KEY, "adresse": "10.14.0.2/16", "ville": "Montreal"}})
 assert r.status_code == 200 and "noah-sortie-maison" not in world.containers and "noah-sortie-vpn" in world.containers
