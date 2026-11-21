@@ -187,11 +187,14 @@ jobs:
           else
             echo "::warning::Préversion sans APK signé : aucun APK joint."
           fi
-          n=$(ls apps/noah-bureau/*Setup*.exe | wc -l)
-          [ "$n" = 1 ] || { echo "::error::$n installateurs Windows au lieu d'un seul."; exit 1; }
-          cp apps/noah-bureau/*Setup*.exe dist/noah-agent-windows-setup.exe
+          # L'app de bureau se met à jour seule : elle lit latest.yml sur le Release. Il doit citer ce fichier-ci, avec son sha512.
+          for f in noah-agent-windows-setup.exe noah-agent-windows-setup.exe.blockmap latest.yml; do
+            [ -s "apps/noah-bureau/$f" ] || { echo "::error::$f manque à l'installateur Windows."; exit 1; }
+            cp "apps/noah-bureau/$f" dist/
+          done
+          node scripts/latest-yml.mjs ecrire dist/latest.yml dist/noah-agent-windows-setup.exe "$VERSION"
           if [ "$STABLE" = true ]; then
-            for f in docker-compose.yml manifest.json manifest.json.sig noah-agent-android.apk noah-agent-windows-setup.exe; do
+            for f in docker-compose.yml manifest.json manifest.json.sig noah-agent-android.apk noah-agent-windows-setup.exe latest.yml; do
               [ -s "dist/$f" ] || { echo "::error::$f manque au Release."; exit 1; }
             done
           fi

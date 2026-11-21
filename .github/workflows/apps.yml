@@ -192,5 +192,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: noah-bureau
-          path: desktop/dist/*Setup*.exe
+          # L'installateur, et ce que l'app lit pour se mettre à jour seule : latest.yml (version, nom, sha512) et le blockmap.
+          path: |
+            desktop/dist/noah-agent-windows-setup.exe
+            desktop/dist/noah-agent-windows-setup.exe.blockmap
+            desktop/dist/latest.yml
           if-no-files-found: error

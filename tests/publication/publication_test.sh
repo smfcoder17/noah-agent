@@ -49,6 +49,11 @@ assert "--draft " in next(s for s in steps if s.get("name") == "Release en broui
 files = next(s for s in steps if s.get("name") == "Applications jointes")["run"]
 for f in ("docker-compose.yml", "manifest.json", "manifest.json.sig", "noah-agent-android.apk", "noah-agent-windows-setup.exe"):
     assert f in files, f
+# L'app de bureau se met à jour seule : latest.yml et le blockmap partent du job bureau et arrivent au Release, réécrits sur le fichier joint.
+assert "latest.yml" in files and "latest-yml.mjs ecrire" in files and "noah-agent-windows-setup.exe.blockmap" in files, "latest.yml du bureau"
+upload = next(s for s in apps["jobs"]["bureau"]["steps"] if s.get("uses", "").startswith("actions/upload-artifact"))["with"]["path"]
+for f in ("noah-agent-windows-setup.exe", "noah-agent-windows-setup.exe.blockmap", "latest.yml"):
+    assert f in upload, f"le job bureau doit transmettre {f}"
 android = {s.get("name"): s for s in apps["jobs"]["android"]["steps"]}
 assert "assembleGithubRelease" in android["APK signé"]["run"] and android["APK signé"]["if"]
 play = apps["jobs"]["play"]
