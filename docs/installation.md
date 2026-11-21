@@ -188,6 +188,8 @@ Accepte les notifications : c'est par elles qu'un agent te rappelle.
 
 Installateur Windows sur la [page des versions](https://github.com/smfcoder17/noah-agent/releases/latest), non signé : Windows peut afficher un avertissement au premier lancement. Pour le construire sous Windows : `cd desktop && npm install && npm run dist`, il arrive dans `desktop/dist/`.
 
+**Mises à jour.** L'app vérifie GitHub au démarrage puis toutes les 6 h, télécharge seule chaque nouvelle version stable (jamais une préversion `-rc`) et propose « Redémarrer » ou « Plus tard » ; sans clic, elle s'installe à la fermeture de l'app, et l'entrée « Redémarrer pour installer… » reste dans le menu de la zone de notification. Elle n'est pas signée : la mise à jour n'est vérifiée que par l'empreinte sha512 de `latest.yml`, servi en HTTPS par GitHub (aucune vérification de signature Windows), et l'avertissement de Windows reste celui du premier téléchargement à la main. Si GitHub est injoignable, rien n'apparaît : seul le journal `journal-maj.log` du dossier de l'app en garde trace.
+
 **Relier au VPS.** « Sur mon serveur », l'adresse en `https://`, « Relier ». Le navigateur s'ouvre : connecte-toi, « Autoriser cet appareil », puis recopie le nombre dans l'application. « J'ai un code à la place » utilise le code court de Réglages > Appareils. L'icône de la zone de notification propose « Changer de serveur… ».
 
 **En local.** « Sur cet ordinateur » démarre Noah avec Docker Desktop. `cd desktop && npm install && npm start`, depuis une copie du dépôt, va directement dans ce mode, sans montrer le choix : pour relier un VPS, passe par l'installateur.
