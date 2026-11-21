@@ -405,3 +405,6 @@ jobs:
       - name: Transaction sur conteneurs
         if: ${{ !inputs.rapide }}
         run: sh tests/updates/docker_test.sh
+      - name: "Sortie réseau sur de vrais conteneurs : deux faux amonts coupés et rallumés, bascule sans erreur, retour différé, repli direct, isolement de l'aiguillage"
+        if: ${{ !inputs.rapide }}
+        run: sh tests/sortie/docker_test.sh
