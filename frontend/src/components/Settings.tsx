@@ -3,7 +3,7 @@ import { Providers } from "./Providers";
 // Réglages : le cerveau des agents, les modèles de création (image, vidéo, musique), la voix et le téléphone.
 // Chaque type peut rester en « Automatique » : Noah Agent prend le meilleur modèle disponible avec la clé.
 import { Bell, Check, ChevronLeft, ChevronRight, Cpu, Globe, KeyRound, Link2, Loader2, Play, Server, Smartphone, Star, Sun, User, Users, type LucideIcon } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { type Agent, get, request, send } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Boundary } from "./Boundary";
@@ -28,7 +28,9 @@ import { Button, Input, Label } from "./ui";
 import { AgentFace } from "./Noah";
 import { t, tr } from "@/i18n";
 
-export type SettingsTab = "team" | "appearance" | "providers" | "home" | "mail" | "brain" | "create" | "voice" | "phone" | "notifications" | "telephone" | "security" | "updates" | "privacy" | "profiles" | "diagnostic" | "vault";
+const Sortie = lazy(() => import("./Sortie").then((m) => ({ default: m.Sortie })));
+
+export type SettingsTab = "team" | "appearance" | "providers" | "home" | "mail" | "brain" | "create" | "voice" | "phone" | "notifications" | "telephone" | "security" | "updates" | "privacy" | "profiles" | "diagnostic" | "vault" | "sortie";
 
 type Kind = { label: string; setting: string; auto: string | null; routed?: boolean; models: MediaModel[] };
 type MediaState = {
@@ -55,7 +57,7 @@ function rubrics(owner: boolean): Rubrique[] {
       { id: "models", label: t("Modèles et budget"), aide: t("Un modèle pour tous, budget, création, voix"), Icon: Cpu, tabs: [["brain", t("Cerveau")], ["create", t("Création")], ["voice", t("Voix")]] as [SettingsTab, string][] },
       { id: "providers", label: t("Fournisseurs"), aide: t("Où vont tes demandes"), Icon: Globe, tabs: [["providers", t("Fournisseurs")]] as [SettingsTab, string][] },
       { id: "people", label: t("Personnes"), aide: t("Qui a un compte sur ce serveur"), Icon: Users, tabs: [["profiles", t("Personnes")]] as [SettingsTab, string][] },
-      { id: "server", label: t("Serveur"), aide: t("Mises à jour, courriel, confidentialité"), Icon: Server, tabs: [["updates", t("Mises à jour")], ["mail", t("Courriel")], ["privacy", t("Confidentialité")], ["diagnostic", t("Diagnostic")]] as [SettingsTab, string][] },
+      { id: "server", label: t("Serveur"), aide: t("Mises à jour, courriel, confidentialité"), Icon: Server, tabs: [["updates", t("Mises à jour")], ["mail", t("Courriel")], ["privacy", t("Confidentialité")], ["sortie", t("Sortie réseau")], ["diagnostic", t("Diagnostic")]] as [SettingsTab, string][] },
     ] : []),
   ];
 }
@@ -147,6 +149,7 @@ export function SettingsPage({ tab, owner, agents = [], onTab, onClose, onBrainS
                 <TabsContent value="profiles"><Profiles /></TabsContent>
                 <TabsContent value="updates"><Updates /></TabsContent>
                 <TabsContent value="privacy"><Flows /></TabsContent>
+                <TabsContent value="sortie"><Suspense fallback={null}><Sortie /></Suspense></TabsContent>
                 <TabsContent value="diagnostic"><Diagnostic /></TabsContent>
               </Boundary>
             </Tabs>

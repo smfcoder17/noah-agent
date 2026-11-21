@@ -442,6 +442,7 @@ WHITELIST = {
     ("POST", "/api/desktop/taches/{rid}/arreter"): "Tâche de ce compte seulement (task[\"user\"] != user : 404).",
     ("GET", "/api/liens/image/{key}"): "Image publique mise en cache, identique pour tous ; connexion exigée (test_public_assets).",
     ("PUT", "/api/fournisseurs/{provider}"): "Configuration globale réservée au propriétaire (OWNER_WITH_ID et test_provider_access).",
+    ("DELETE", "/api/sortie/{ident}"): "Retire une voie de sortie : réservé au propriétaire (OWNER_WITH_ID).",
     ("GET", "/api/fournisseurs/{provider}/icone"): "Icône publique sans clé ni adresse dans la réponse ; connexion exigée (test_public_assets).",
     ("POST", "/api/desktop/accords/{rid}"): "Processus natif et appareil destinataire seulement (accords_sync_test).",
     ("POST", "/api/desktop/accords/{rid}/reponse"): "Même appareil, même demande, accord local uniquement (accords_sync_test).",
@@ -502,6 +503,9 @@ OWNER_ROUTES = {
     ("POST", "/api/media"): {"kind": "image", "model": "auto"},
     ("POST", "/api/media/key"): {"api_key": "CLE-DE-MEDIAS"},
     ("GET", "/api/diagnostic"): None,
+    ("GET", "/api/sortie"): None,
+    ("PUT", "/api/sortie/maison"): {"cle": "tskey-auth-CLE-DE-SORTIE", "noeud": "mon-pc"},
+    ("PUT", "/api/sortie/vpn"): {"cle_privee": "CLE-DE-SORTIE", "ville": "Montreal"},
     ("GET", "/api/voice/server"): None,
     ("POST", "/api/voice/server"): {"base_url": "http://voix.exemple/v1", "api_key": "CLE-DE-VOIX", "speech_model": "m"},
     ("POST", "/api/google/client"): {"fichier": '{"installed": {"client_id": "1-a.apps.googleusercontent.com", "client_secret": "secret"}}'},
@@ -526,7 +530,8 @@ OWNER_WITH_ID = {("PATCH", "/api/profiles/{profile_id}"): {"budget": None}, ("DE
                  ("GET", "/api/profiles/{profile_id}/appareils"): None,
                  ("DELETE", "/api/profiles/{profile_id}/appareils/{device}"): {"motdepasse": "motdepasse-d"},
                  ("POST", "/api/profiles/{profile_id}/mot-de-passe"): {"nouveau": "nouveau-motdepasse", "motdepasse": "motdepasse-d"},
-                 ("PUT", "/api/fournisseurs/{provider}"): {"api_key": "cle-de-test"}}
+                 ("PUT", "/api/fournisseurs/{provider}"): {"api_key": "cle-de-test"},
+                 ("DELETE", "/api/sortie/{ident}"): None}
 # … et les routes ouvertes, chacune avec la raison pour laquelle elle ne montre rien d'un autre.
 OPEN_ROUTES = {
     ("GET", "/api/connections/cles"): "Catalogue fixe des connecteurs par clé : noms et liens publics, jamais une clé.",
@@ -726,7 +731,7 @@ def test_owner_routes() -> None:
     with db.connect() as c:
         c.execute("DELETE FROM users WHERE username = 'nouveau-essai'")
     for (method, path), body in OWNER_WITH_ID.items():
-        url = path.replace("{profile_id}", str(ZED)).replace("{device}", "nimporte").replace("{provider}", "openai")
+        url = path.replace("{profile_id}", str(ZED)).replace("{device}", "nimporte").replace("{provider}", "openai").replace("{ident}", "maison")
         r = WEB["ada"].request(method, url, **({"json": body} if body is not None else {}))
         assert r.status_code == 403 and auth.check_password("zed", "motdepasse-z") == ZED, f"{method} {path} : {r.status_code}"
     # Un profil ne se sert pas du serveur pour essayer une adresse ou une clé.

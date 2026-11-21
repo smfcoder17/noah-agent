@@ -24,13 +24,13 @@ bibliothèque standard : l'image est celle du serveur Noah, déjà sur la machin
     python aiguillage.py --etat   écrit l'état en JSON (lu par le lanceur, qui n'ouvre aucun port vers ce conteneur)
 """
 import asyncio
+import http.client
 import ipaddress
 import json
 import os
 import ssl
 import sys
 import time
-import urllib.request
 
 DIRECT = "direct"
 PORT = int(os.environ.get("NOAH_SORTIE_PORT", "3128"))
@@ -418,7 +418,8 @@ async def main() -> None:
 
 if __name__ == "__main__":
     if "--etat" in sys.argv:
-        with urllib.request.urlopen(f"http://127.0.0.1:{ETAT_PORT}/", timeout=5) as rep:
-            sys.stdout.write(rep.read().decode())
+        conn = http.client.HTTPConnection("127.0.0.1", ETAT_PORT, timeout=5)
+        conn.request("GET", "/")
+        sys.stdout.write(conn.getresponse().read().decode())
     else:
         asyncio.run(main())

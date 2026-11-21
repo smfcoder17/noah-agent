@@ -425,4 +425,12 @@ export default {
   "Décision introuvable.": "Decision not found.",
   "Cette question n'attend plus ta réponse.": "This question no longer needs your answer.",
   "Passage introuvable": "Run not found",
+  "Le nom du nœud de sortie ne va pas : le nom de ton PC dans Tailscale (lettres, chiffres, tirets) ou son adresse en 100.….": "The exit node name is not valid: your PC's name in Tailscale (letters, digits, hyphens) or its 100.… address.",
+  "Cette clé Tailscale n'a pas la bonne forme : elle commence par tskey-auth- et ne contient ni espace ni retour à la ligne.": "This Tailscale key is not in the right form: it starts with tskey-auth- and contains no space or line break.",
+  "Colle la clé d'authentification Tailscale : sans elle, Noah ne peut pas rejoindre ton réseau.": "Paste the Tailscale authentication key: without it, Noah cannot join your network.",
+  "Cette clé WireGuard n'a pas la bonne forme : 44 caractères qui finissent par =, sans espace.": "This WireGuard key is not in the right form: 44 characters ending with =, no spaces.",
+  "Colle la clé privée WireGuard de ton compte Surfshark.": "Paste the WireGuard private key from your Surfshark account.",
+  "L'adresse WireGuard ne va pas : elle ressemble à 10.14.0.2/16.": "The WireGuard address is not valid: it looks like 10.14.0.2/16.",
+  "La ville ne va pas : son nom en anglais, comme Montreal.": "The city is not valid: its name in English, like Montreal.",
+  "Cette sortie n'existe pas.": "This exit does not exist.",
 } satisfies Record<string, string>;
