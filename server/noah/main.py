@@ -262,6 +262,7 @@ async def startup() -> None:
         taches.migrer()  # 0.4.0 : une tâche par ancienne sous-conversation ; rejouée à chaque démarrage, jamais bloquante
     except Exception as e:  # noqa: BLE001
         print(f"[taches] migration : {type(e).__name__} : {e}", flush=True)
+    propositions.sortir_comptes_rendus()  # 0.4.2 : un ancien point du matin n'attend plus de réponse dans « Pour toi »
     taches.redemarrage()  # 0.4.0 : un fil, une sous-tâche ou une routine encore « en cours » au démarrage a été coupé : échec, jamais une tâche qui tourne dans le vide
     questions.recover()  # 0.4.0 : une question qui attendait un agent monte à la personne
     _spawn(_resume_requests())

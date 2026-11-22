@@ -59,7 +59,7 @@ with db.connect() as c:
 r = A.get("/api/activite")
 assert r.status_code == 200, r.text
 d = r.json()
-assert sorted(d) == ["non_vues", "routines", "taches"], sorted(d)
+assert sorted(d) == ["non_vues", "propositions_expirees", "routines", "taches"], sorted(d)
 assert [t["titre"] for t in d["taches"]][:1] == ["Créer le visuel"], "la plus récemment active d'abord"
 assert {t["id"] for t in d["taches"]} == {t_a, t_c}, "seulement les tâches de ce compte, sur tous ses agents"
 assert {t["agent"]["nom"] for t in d["taches"]} == {"Alma", "Cléo"}

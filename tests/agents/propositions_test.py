@@ -141,6 +141,13 @@ def props(agent_id: str = "neuf") -> list[dict]:
         return [dict(r) for r in c.execute("SELECT * FROM propositions WHERE agent_id = ? ORDER BY created, id", (agent_id,))]
 
 
+def points(agent_id: str = "neuf") -> list[dict]:
+    """Les points du matin écrits dans le fil de l'agent : des messages, jamais des propositions."""
+    with db.connect() as c:
+        conv_id = c.execute("SELECT id FROM conversations WHERE agent_id = ? AND main = 1", (agent_id,)).fetchone()["id"]
+    return [m for m in messages(conv_id) if m["role"] == "agent" and "Voici le point du matin" in m["text"]]
+
+
 def a_toi(client=A) -> list[dict]:
     return [i for i in client.get("/api/a-toi").json() if i.get("type") == "proposition"]
 
@@ -349,21 +356,22 @@ source["gmail"] = [{"cle": "m3", "titre": "De Marie", "lien": "", "texte": "Réu
 answers[0] = {"verdict": "rien"}
 out = passe()
 assert out["etat"] == "rien" and len(asked) == 1, "le tri a lieu ; pas d'idée dans le même passage"
-brief = props()[-1]
-assert brief["genre"] == "briefing", props()
-assert "Courriels (1)" in brief["texte"] and "Routine « Veille des prix »" in brief["texte"] and "1 proposition(s) attendent" in brief["texte"], brief["texte"]
-assert "point du matin" in brief["demande"] and len(notified) == 1
+assert not [p for p in props() if p["genre"] == "briefing"] and len(a_toi()) == 1, "le point du matin n'est pas une proposition : rien de plus dans « Pour toi »"
+point = points()[-1]["text"]
+assert "Courriels (1)" in point and "Routine « Veille des prix »" in point and "1 proposition(s) attendent" in point, point
+assert "Fais-le" not in point and "Non »" not in point, "un compte rendu : aucun bouton à répondre"
+assert len(notified) == 1
 clear()
 source["gmail"] = [{"cle": "m4", "titre": "Encore", "lien": "", "texte": "z"}] + source["gmail"]
 passe()
-assert [p["genre"] for p in props()].count("briefing") == 1, "un seul point par jour"
+assert len(points()) == 1, "un seul point par jour"
 for p in a_toi():
     answer(p["id"], "non")
 with db.connect() as c:  # la routine d'hier est avant le point d'hier : elle ne revient pas
     c.execute("UPDATE messages SET created_at = datetime('now', '-2 hours') WHERE text LIKE '**Routine%'")
 new_day("2026-11-19", 8)
 answers[0] = {"utile": False, "proposition": ""}
-assert passe()["etat"] == "rien_de_neuf" and [p["genre"] for p in props()].count("briefing") == 1, "rien à dire : pas de point"
+assert passe()["etat"] == "rien_de_neuf" and len(points()) == 1, "rien à dire : pas de point"
 assert len(asked) == 1 and not notified, "l'idée a sa chance, rien d'autre"
 print("10. le point du matin : au premier passage de ses heures, une fois par jour, seulement avec du neuf, des routines ou des propositions")
 
@@ -445,22 +453,37 @@ clear()
 assert passe()["etat"] == "reprise" and "coupé avant la fin" in started[0]["text"]
 print("12. un tour de lui-même coupé (machine, redémarrage) reprend une fois dans son fil, puis dit qu'il n'a pas terminé")
 
-# --- 13. Une proposition expire au bout de 48 h ------------------------------------------------------------------------------------
+# --- 13. Une proposition expire au bout de 3 jours ------------------------------------------------------------------------------------
 
 with db.connect() as c:
     c.execute("DELETE FROM propositions")
 pid = propositions.create("neuf", "idee", "Une vieille idée", "Fais-le", "2026-11-18", conv)
 assert [i["id"] for i in a_toi()] == [pid]
 with db.connect() as c:
-    c.execute("UPDATE propositions SET created = ? WHERE id = ?", (time.time() - 47 * 3600, pid))
-assert [i["id"] for i in a_toi()] == [pid], "47 h : encore là"
-with db.connect() as c:
     c.execute("UPDATE propositions SET created = ? WHERE id = ?", (time.time() - 49 * 3600, pid))
+assert propositions.EXPIRE_JOURS == 3 and [i["id"] for i in a_toi()] == [pid], "49 h : encore là"
+with db.connect() as c:
+    c.execute("UPDATE propositions SET created = ? WHERE id = ?", (time.time() - 71 * 3600, pid))
+assert [i["id"] for i in a_toi()] == [pid], "71 h : encore là"
+assert A.get("/api/activite").json()["propositions_expirees"] == [], "tant qu'elle attend, Activité ne la montre pas expirée"
+with db.connect() as c:
+    c.execute("UPDATE propositions SET created = ? WHERE id = ?", (time.time() - 73 * 3600, pid))
 assert a_toi() == [] and props()[-1]["etat"] == "expiree"
+assert [p["id"] for p in A.get("/api/activite").json()["propositions_expirees"]] == [pid], "elle quitte « Pour toi » et reste lisible dans Activité"
+assert [p["id"] for p in B.get("/api/activite").json()["propositions_expirees"]] == []
 clear()
 r = A.post(f"/api/propositions/{pid}/reponse", json={"choix": "faire"})
 assert r.status_code == 409 and "expiré" in r.json()["detail"] and not started
-print("13. sans réponse, une proposition expire au bout de 48 h et ne lance plus rien")
+print("13. sans réponse, une proposition expire au bout de 3 jours, quitte « Pour toi » (Activité la garde) et ne lance plus rien")
+
+# --- 13b. Un point du matin déjà en base sort de « Pour toi » au démarrage, sans rien effacer ---------------------------------------
+
+old = propositions.create("neuf", "briefing", "Voici le point du matin :\n- Du nouveau", "Fais-moi le point", "2026-11-18", conv)
+assert [i["id"] for i in a_toi()] == [] , "même ouvert, un point du matin n'est jamais une carte « Pour toi »"
+assert propositions.sortir_comptes_rendus() == 1 and propositions.sortir_comptes_rendus() == 0, "une seule fois"
+assert [p["etat"] for p in props() if p["id"] == old] == ["expiree"] and [p for p in props() if p["id"] == old][0]["texte"].startswith("Voici"), "rien n'est effacé"
+assert old not in [p["id"] for p in A.get("/api/activite").json()["propositions_expirees"]], "ce n'est pas une proposition restée sans réponse"
+print("13b. un ancien point du matin quitte « Pour toi » au démarrage : la ligne reste, aucun message n'est touché")
 
 # --- 14. Les gardes de coût restent : budget atteint, rien ne part ------------------------------------------------------------------
 
@@ -495,10 +518,11 @@ db.set_setting("google_neuf", json.dumps({"compte": "a@b.c", "permissions": ["gm
 source["agenda"] = [{"cle": "e1", "titre": "Dentiste", "lien": "", "texte": "jeudi"}]
 source["gmail"] = [{"cle": "m40", "titre": "De Marie", "lien": "", "texte": "Réunion"}] + source["gmail"]
 answers[0] = {"verdict": "rien"}
+avant = len(points())
 passe()
-assert [p["genre"] for p in props()] == ["briefing"] and len(notified) == 1, props()
+assert props() == [] and len(points()) == avant + 1 and len(notified) == 1, props()
 clear()
-assert passe()["etat"] == "premier_releve" and [p["genre"] for p in props()] == ["briefing", "releve"], "le premier relevé vient au passage suivant"
+assert passe()["etat"] == "premier_releve" and [p["genre"] for p in props()] == ["releve"], "le premier relevé vient au passage suivant"
 assert "Agenda (1 pour l'instant)" in props()[-1]["texte"]
 print("16. point du matin et premier relevé : un par passage, le relevé attend le passage suivant sans rien perdre")
 

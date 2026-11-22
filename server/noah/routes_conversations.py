@@ -7,7 +7,7 @@ import re
 from fastapi import HTTPException, Depends, APIRouter
 from pydantic import BaseModel
 
-from . import media, access, events, apprentissage, auth, bus, db, desktop, handoff, machine, nettoyage, notifications, taches, main
+from . import propositions, media, access, events, apprentissage, auth, bus, db, desktop, handoff, machine, nettoyage, notifications, taches, main
 from . import main as main_module  # dans conversations(), `main` est une variable locale : le module s'y lit par ce nom
 
 router = APIRouter()
@@ -116,7 +116,7 @@ def liste_taches(agent_id: str, etat: str | None = None, limite: int = taches.LI
 @router.get("/api/activite")
 def activite(user: int = Depends(auth.current_user)):
     """La page Activité de tous les agents que ce compte peut lire (0.4.0, L9b) : leurs tâches (même forme que `GET /api/taches`, 100 au plus),
-    et, pour ceux qu'il administre, leurs routines (même forme que `…/routines-activite`, avec `agent`) ; `non_vues` est la somme des
+    les propositions restées sans réponse (`propositions_expirees`, sorties de « Pour toi »), et, pour ceux qu'il administre, leurs routines (même forme que `…/routines-activite`, avec `agent`) ; `non_vues` est la somme des
     passages pas encore vus. Rien ne passe par la machine d'un agent : la base et ce que le serveur a gardé. Un invité ne voit que ses agents."""
     agents, rights, *_ = main._agents_listing(user)
     nom = {a["id"]: a["name"] for a in agents}
@@ -128,7 +128,7 @@ def activite(user: int = Depends(auth.current_user)):
         non_vues += lues["non_vues"]
         routines += [{**r, "agent": {"id": a["id"], "nom": a["name"]}} for r in lues["routines"]]
     routines.sort(key=lambda o: (not o["vient"], -(o["dernier_a"] or 0)))
-    return {"taches": taches.liste_agents(user, list(nom)), "routines": routines, "non_vues": non_vues}
+    return {"taches": taches.liste_agents(user, list(nom)), "routines": routines, "non_vues": non_vues, "propositions_expirees": propositions.expirees(user)}
 
 
 class ArchiveBody(BaseModel):

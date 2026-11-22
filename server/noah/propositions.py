@@ -7,7 +7,8 @@ C'est proactif.py qui tient les heures actives et le plafond du jour ; ici, on e
 - « faire » : la demande part dans sa conversation principale comme un message d'elle, par la même file que les demandes qui attendent
   (pendant.py) : jamais par-dessus un travail en cours ;
 - « non » : rien ne part, et le refus s'apprend comme un accord refusé (apprentissage.on_refusal) ;
-- sans réponse, elle expire au bout de 48 h.
+- sans réponse, elle expire au bout de 3 jours : elle quitte « Pour toi » et reste lisible dans Activité, marquée « expirée ».
+Seule une décision à prendre y va : un compte rendu (le point du matin) s'écrit dans le fil, sans bouton (proactif._briefing).
 Seul le propriétaire de l'agent les voit et y répond : une personne invitée ne reçoit pas ce que l'agent propose à son propriétaire.
 """
 import time
@@ -21,7 +22,10 @@ from . import access, auth, db, pendant
 
 router = APIRouter()
 
-EXPIRE = 48 * 3600
+# Une proposition que personne n'a tranchée n'attend pas indéfiniment : passé ce délai, elle quitte « Pour toi » (et le compteur), et
+# Activité la montre « expirée ». Trois jours : un week-end sans ouvrir Noah ne fait pas perdre ce qu'il a proposé le vendredi.
+EXPIRE_JOURS = 3
+EXPIRE = EXPIRE_JOURS * 24 * 3600
 MAX_DEFAULT, MAX_LIMIT = 3, 6  # par agent et par jour
 OWNER_MAX = 3  # par compte et par jour, tous ses agents ensemble : cinq agents ne font pas quinze cartes
 GENRES = ("idee", "releve", "traiter", "briefing")
@@ -29,9 +33,30 @@ TEXT_MAX, DEMAND_MAX = 1500, 4000
 
 
 def sweep(now: float | None = None) -> None:
-    """Sans réponse au bout de 48 h : elle n'attend plus personne."""
+    """Sans réponse au bout de EXPIRE_JOURS jours : elle n'attend plus personne."""
     with db.connect() as c:
         c.execute("UPDATE propositions SET etat = 'expiree' WHERE etat = 'ouverte' AND created <= ?", ((now or time.time()) - EXPIRE,))
+
+
+def sortir_comptes_rendus() -> int:
+    """Au démarrage : un « point du matin » déjà en base n'est pas une proposition (c'est un compte rendu, écrit dans le fil). Il quitte
+    « Pour toi » en passant à « expirée » ; rien n'est effacé, le message du fil et la ligne restent. Rend le nombre de lignes sorties."""
+    with db.connect() as c:
+        done = c.execute("UPDATE propositions SET etat = 'expiree' WHERE etat = 'ouverte' AND genre = 'briefing'").rowcount
+    if done:
+        from . import bus
+        bus.invalidate_all()
+    return done
+
+
+def expirees(user: int, limite: int = 30) -> list[dict]:
+    """Pour Activité : ce que les agents de ce compte ont proposé et qui est resté sans réponse, la plus récente d'abord."""
+    sweep()
+    with db.connect() as c:
+        rows = c.execute("SELECT p.id, p.agent_id, p.texte, p.created, a.name FROM propositions p JOIN agents a ON a.id = p.agent_id "
+                         "WHERE p.owner = ? AND p.etat = 'expiree' AND p.genre != 'briefing' ORDER BY p.created DESC, p.id LIMIT ?", (user, limite)).fetchall()
+    return [{"id": r["id"], "agent_id": r["agent_id"], "agent": r["name"], "texte": r["texte"], "cree": r["created"], "etat": "expiree"}
+            for r in rows if access.right(user, r["agent_id"]) == "proprietaire"]
 
 
 def made_on(agent_id: str, day: str) -> int:
@@ -78,7 +103,7 @@ def inbox(user: int) -> list[dict]:
     sweep()
     with db.connect() as c:
         rows = c.execute("SELECT p.id, p.agent_id, p.texte, p.created, a.name FROM propositions p JOIN agents a ON a.id = p.agent_id "
-                         "WHERE p.owner = ? AND p.etat = 'ouverte' ORDER BY p.created, p.id", (user,)).fetchall()
+                         "WHERE p.owner = ? AND p.etat = 'ouverte' AND p.genre != 'briefing' ORDER BY p.created, p.id", (user,)).fetchall()
     return [{"type": "proposition", "id": r["id"], "agent_id": r["agent_id"], "agent": r["name"], "texte": r["texte"], "cree": r["created"]}
             for r in rows if access.right(user, r["agent_id"]) == "proprietaire"]
 

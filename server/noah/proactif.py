@@ -794,8 +794,8 @@ def _briefing(agent_id: str, now: float, fresh: list[dict]) -> str | None:
     if not lines:
         return None
     text = "Voici le point du matin :\n" + "\n".join(f"- {line}" for line in lines)
-    demande = "Fais-moi le point du matin : ce qui est arrivé, les résultats de mes routines et ce que tu m'as proposé. Puis dis-moi par quoi commencer."
-    return "briefing" if _offer(agent_id, "briefing", "le point du matin", text, demande, now) else None
+    # Un compte rendu, pas une question : il arrive comme un message de l'agent dans son fil, sans bouton et sans carte dans « Pour toi ».
+    return "briefing" if awake(agent_id, now) and _cap(agent_id) > 0 and _tell(agent_id, "Le point du matin", text) else None  # plafond 0 : « ne prépare rien de toi-même »
 
 
 def _cap_note(agent_id: str, title: str, text: str, now: float) -> bool:
