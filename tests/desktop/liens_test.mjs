@@ -83,6 +83,24 @@ check("D9 : setup.html reconnu par son chemin (espaces, .asar, casse de Windows)
   assert.ok(!/=== SETUP_URL/.test(main), "plus de comparaison d'URL à l'égalité stricte");
 });
 
+check("fichiers : images, vidéos et pages du serveur connecté ne sont jamais coupées ; un autre port, si", () => {
+  for (const origin of ["https://noah.exemple.com", "http://127.0.0.1:8080"]) {
+    for (const chemin of ["/api/agents/noah/files/raw/outputs/visuel.png", "/api/agents/noah/files/raw/outputs/demo.mp4",
+      "/api/agents/noah/files/raw/outputs/page.html", "/api/apercu/abc.def/page.html", "/api/media?path=a.png", "/assets/x.js"]) {
+      assert.equal(liens.requestBlocked(origin + chemin, origin), false, origin + chemin);
+    }
+  }
+  assert.equal(liens.requestBlocked("https://noah.exemple.com:443/api/media", "https://noah.exemple.com"), false, "port 443 explicite");
+  assert.equal(liens.requestBlocked("wss://noah.exemple.com/api/events", "https://noah.exemple.com"), false, "WebSocket sécurisé");
+  assert.equal(liens.requestBlocked("https://noah.exemple.com:8443/x.png", "https://noah.exemple.com"), true, "autre port, même hôte");
+  assert.equal(liens.requestBlocked("http://noah.exemple.com/x.png", "https://noah.exemple.com"), true, "même hôte en clair");
+  assert.equal(liens.requestBlocked("http://127.0.0.1:9000/x", "http://127.0.0.1:8080"), true, "service voisin sur l'ordinateur");
+  assert.equal(liens.requestBlocked("https://www.youtube-nocookie.com/embed/x", "https://noah.exemple.com"), false, "autre hôte : le CSP du serveur décide");
+  assert.equal(liens.requestBlocked("data:image/png;base64,AAAA", "https://noah.exemple.com"), false);
+  assert.equal(liens.requestBlocked("https://noah.exemple.com:8443/x", ""), false, "aucun serveur relié : rien n'est coupé");
+  assert.match(main, /liens\.requestBlocked\(details\.url, origin\)/);
+});
+
 if (failures) {
   console.log(`${failures} échec(s)`);
   process.exit(1);

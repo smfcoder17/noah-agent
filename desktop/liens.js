@@ -40,4 +40,24 @@ function sameFile(raw, file, platform = process.platform) {
   return windows ? a.toLowerCase() === b.toLowerCase() : a === b;
 }
 
-module.exports = { SCHEME, subscriptionOf, fromArgv, sameFile };
+/**
+ * Une requête de la fenêtre doit-elle être coupée ? Oui si elle vise l'hôte du serveur de Noah sur un autre port : le cookie de
+ * session ne distingue pas les ports (RFC 6265 §8.5), il ne doit partir que vers l'adresse exacte du serveur. WebSocket compris
+ * (sa poignée de main emporte aussi le cookie) ; wss:443 vaut https:443. Tout le reste passe : les images, vidéos et pages
+ * de fichiers (/api/agents/…/files/raw/, /api/apercu/, /api/media) sont des adresses du serveur lui-même, donc jamais coupées.
+ * `origin` : l'origine du serveur connecté ; vide, rien n'est coupé.
+ */
+function requestBlocked(rawUrl, origin) {
+  try {
+    const u = new URL(rawUrl), home = origin ? new URL(origin) : null;
+    const scheme = { "ws:": "http:", "wss:": "https:" }[u.protocol] || u.protocol;
+    const port = u.port || (scheme === "https:" ? "443" : "80");
+    const homePort = home && (home.port || (home.protocol === "https:" ? "443" : "80"));
+    return !!home && /^(https?|wss?):$/.test(u.protocol) && u.hostname === home.hostname
+      && !(scheme === home.protocol && port === homePort);
+  } catch {
+    return false;
+  }
+}
+
+module.exports = { SCHEME, subscriptionOf, fromArgv, sameFile, requestBlocked };

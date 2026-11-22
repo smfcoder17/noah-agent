@@ -584,18 +584,9 @@ function createWindow() {
   // Requêtes (images comprises) vers l'hôte du serveur sur un autre port : bloquées. Le cookie de session ne
   // distingue pas les ports (RFC 6265 §8.5) ; il ne doit partir que vers l'adresse exacte du serveur.
   session.defaultSession.webRequest.onBeforeRequest((details, done) => {
-    let cancel = false;
-    try {
-      const u = new URL(details.url), home = origin ? new URL(origin) : null;
-      // WebSocket compris : sa poignée de main emporte aussi le cookie. wss:443 = https:443 pour la comparaison.
-      const scheme = { "ws:": "http:", "wss:": "https:" }[u.protocol] || u.protocol;
-      const port = u.port || (scheme === "https:" ? "443" : "80");
-      const homePort = home && (home.port || (home.protocol === "https:" ? "443" : "80"));
-      cancel = !!home && /^(https?|wss?):$/.test(u.protocol) && u.hostname === home.hostname
-        && !(scheme === home.protocol && port === homePort);
-    } catch {
-      cancel = false;
-    }
+    const cancel = liens.requestBlocked(details.url, origin);
+    // Une requête coupée se lit au journal : sans cela, une image ou un aperçu qui ne s'affiche pas ne dit pas pourquoi.
+    if (cancel) console.warn(`Requête coupée (autre port que le serveur de Noah) : ${details.resourceType} ${details.url}`);
     done({ cancel });
   });
   // Liens externes : dans le navigateur de l'utilisateur, jamais dans la fenêtre de Noah.
