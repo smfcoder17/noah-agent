@@ -1,6 +1,6 @@
 // Panneau de droite, comme l'explorateur d'un éditeur de code : il s'ouvre à côté de la conversation, se règle en largeur,
 // s'étend sur toute la page et se ferme par Échap. Sur un téléphone, c'est une feuille plein écran avec Retour.
-import { ArrowLeft, Bug, Maximize2, Minimize2, MoreHorizontal, X } from "lucide-react";
+import { ArrowLeft, Bug, Maximize2, Minimize2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AgentMenu } from "./AgentMenu";
 import type { PanelTab } from "./SidePanel";
@@ -102,7 +102,7 @@ export function WorkPanel({ open, tab, title, tabs, onTab, details, onDetails, e
             {suite.length > 0 && (
               <button type="button" aria-haspopup="menu" aria-expanded={!!plus} aria-pressed={suite.some((x) => x.tab === tab)} data-agent-more data-plus
                 onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setPlus(plus ? null : { x: r.left, y: r.bottom + 4 }); }}>
-                {suite.some((x) => x.tab === tab) ? suite.find((x) => x.tab === tab)!.label : t("Plus")}<MoreHorizontal size={15} aria-hidden className="ml-1 inline" />
+                {suite.some((x) => x.tab === tab) ? suite.find((x) => x.tab === tab)!.label : t("Plus")}<span aria-hidden> …</span>
               </button>
             )}
           </div>

@@ -93,7 +93,7 @@ it("D1 — les contenus de l'agent sont les onglets du panneau, dans l'ordre ; l
   expect(ONGLETS_VISIBLES).toBe(3);
   expect(seg.map((b) => b.textContent)).toEqual(["Travail", "Routines", "Fichiers"]);
   const plus = host.querySelector<HTMLButtonElement>("[data-plus]")!;
-  expect(plus.textContent).toBe("Plus");
+  expect(plus.textContent).toBe("Plus …");
   expect(seg[2].getAttribute("aria-selected")).toBe("true");
   const expected: PanelTab[] = ["activity", "routines", "files"];
   for (const [i, tab] of expected.entries()) { await act(async () => seg[i].click()); expect(onTab).toHaveBeenLastCalledWith(tab); }

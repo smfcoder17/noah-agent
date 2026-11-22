@@ -23,7 +23,7 @@ import { CallScreen, type CallReport } from "@/components/Call";
 import { CALL_SLOT } from "@/components/CallStage";
 import { ConnectedBanner } from "@/components/ConnectedBanner";
 import { DeviceApproval, keepApprovalRequest } from "@/components/DeviceApproval";
-import { NewDeviceAlert } from "@/components/NewDeviceAlert";
+const NewDeviceAlert = lazy(() => import("@/components/NewDeviceAlert").then((m) => ({ default: m.NewDeviceAlert })));
 import { HandoffBanner } from "@/components/Handoff";
 import { DelegatedTasks } from "@/components/DelegatedTasks";
 import { agentColor } from "@/components/Noah";
@@ -521,7 +521,7 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
     <SensitiveProvider><ViewerProvider>
       <DeviceApproval />
       <ConnectedBanner />
-      <NewDeviceAlert onChangePassword={() => setSettings("security")} />
+      <Suspense fallback={null}><NewDeviceAlert onChangePassword={() => setSettings("security")} /></Suspense>
       <CallScreen
         agents={agents}
         onOpen={(r) => {

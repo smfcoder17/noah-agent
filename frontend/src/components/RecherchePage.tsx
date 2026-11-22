@@ -4,6 +4,7 @@ import { FileText, ListChecks, Loader2, MessageSquare, Search } from "lucide-rea
 import { useEffect, useMemo, useRef, useState } from "react";
 import { t } from "@/i18n";
 import { type Agent, get } from "@/lib/api";
+import "@/styles/recherche.css";
 import { fileSpec } from "./FilePreview";
 import { useViewer } from "./Viewer";
 
