@@ -586,7 +586,7 @@ function createWindow() {
   session.defaultSession.webRequest.onBeforeRequest((details, done) => {
     const cancel = liens.requestBlocked(details.url, origin);
     // Une requête coupée se lit au journal : sans cela, une image ou un aperçu qui ne s'affiche pas ne dit pas pourquoi.
-    if (cancel) console.warn(`Requête coupée (autre port que le serveur de Noah) : ${details.resourceType} ${details.url}`);
+    if (cancel) console.warn(`Requête coupée (autre port que le serveur de Noah) : ${details.resourceType} ${details.url}`); // i18n-ignore : journal, pas un écran
     done({ cancel });
   });
   // Liens externes : dans le navigateur de l'utilisateur, jamais dans la fenêtre de Noah.
