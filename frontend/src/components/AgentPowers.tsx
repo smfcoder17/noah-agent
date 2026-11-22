@@ -1,4 +1,3 @@
-import { ObjectPage } from "./mobile/ObjectPage";
 import { useVisibleSubscription } from "@/lib/events";
 // Ce que l'agent sait et fait de lui-même, réglable depuis Détails : routines, mémoire, connexions, logiciels, dossiers.
 import { Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, FolderOpen, HardDrive, Loader2, Pause, Pencil, Play, Plus, RefreshCw, SlidersHorizontal, Trash2, Zap } from "lucide-react";
@@ -156,7 +155,8 @@ const choiceSummary = (r: Routine) => {
   return parts.join(" · ");
 };
 
-export function Routines({ agentId }: { agentId: string }) {
+/** `onDetail` : dit au panneau quand le détail d'une routine est ouvert, pour qu'il ne montre que lui (rien d'autre dessous). */
+export function Routines({ agentId, onDetail }: { agentId: string; onDetail?: (ouvert: boolean) => void }) {
   const { data, error, setError, load } = useAgentData<{ routines: Routine[]; suggerees?: SuggestedRoutine[] }>(`/api/agents/${agentId}/routines`, { freshOnReload: false });
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -211,14 +211,17 @@ export function Routines({ agentId }: { agentId: string }) {
   };
 
   const open = list.find((r) => r.id === opened) ?? null;
+  useEffect(() => { onDetail?.(!!open); return () => onDetail?.(false); }, [open, onDetail]);
   if (open) {
     const r = open;
     const paused = !r.enabled || r.state === "paused";
     return (
-      <ObjectPage title={r.name || t("Routine")} onClose={() => { setOpened(null); setTuning(null); }}>
-        <button type="button" onClick={() => { setOpened(null); setTuning(null); }} className="flex cursor-pointer items-center gap-1 self-start text-sm text-muted-foreground hover:text-foreground">
-          <ChevronLeft className="size-4" />{t("Routines")}
-        </button>
+      // Le détail s'ouvre dans le panneau même, à pleine largeur, avec son retour : comme un fichier dans Fichiers (plus de petite fenêtre centrée).
+      <section className="routine-detail" aria-label={r.name || t("Routine")} data-routine-detail={r.id}>
+        <div className="file-preview-head">
+          <button type="button" className="shell-icon" aria-label={t("Retour aux routines")} title={t("Retour aux routines")} onClick={() => { setOpened(null); setTuning(null); }}><ChevronLeft size={18} /></button>
+          <b className="truncate" title={r.name || r.prompt}>{r.name || t("Routine")}</b>
+        </div>
         <div className="flex items-start gap-2">
           <span className={cn("mt-2 size-2.5 shrink-0 rounded-full", paused ? "bg-muted-foreground/40" : r.last_status === "error" ? "bg-danger" : "bg-ok")} />
           <div className="min-w-0 flex-1">
@@ -257,7 +260,7 @@ export function Routines({ agentId }: { agentId: string }) {
           </Button>
         )}
         <ErrorText>{error}</ErrorText>
-      </ObjectPage>
+      </section>
     );
   }
 
@@ -1746,7 +1749,7 @@ const sourceLabel = (w: Watch) =>
  * Veilles et routines à condition : Noah Agent relève une source lui-même, sans modèle ; le modèle de décision ne lit que les
  * nouveautés. Une veille prévient ; une routine à condition réveille le cerveau, seulement si la condition est remplie.
  */
-export function Watches({ agentId }: { agentId: string }) {
+export function Watches({ agentId, onDetail }: { agentId: string; onDetail?: (ouvert: boolean) => void }) {
   const { data, error, setError, load } = useAgentData<{ veilles: Watch[] }>(`/api/agents/${agentId}/watches`);
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -1788,13 +1791,15 @@ export function Watches({ agentId }: { agentId: string }) {
   };
 
   const open = list.find((x) => x.id === opened) ?? null;
+  useEffect(() => { onDetail?.(!!open); return () => onDetail?.(false); }, [open, onDetail]);
   if (open) {
     const w = open;
     return (
-      <ObjectPage title={w.nom} onClose={() => setOpened(null)}>
-        <button type="button" onClick={() => setOpened(null)} className="flex cursor-pointer items-center gap-1 self-start text-sm text-muted-foreground hover:text-foreground">
-          <ChevronLeft className="size-4" />{t("Veilles")}
-        </button>
+      <section className="routine-detail" aria-label={w.nom} data-veille-detail={w.id}>
+        <div className="file-preview-head">
+          <button type="button" className="shell-icon" aria-label={t("Retour aux veilles")} title={t("Retour aux veilles")} onClick={() => setOpened(null)}><ChevronLeft size={18} /></button>
+          <b className="truncate" title={w.nom}>{w.nom}</b>
+        </div>
         <div className="flex items-start gap-2">
           <span className={cn("mt-2 size-2.5 shrink-0 rounded-full", !w.active ? "bg-muted-foreground/40" : w.erreur ? "bg-danger" : "bg-ok")} />
           <div className="min-w-0 flex-1">
@@ -1819,7 +1824,7 @@ export function Watches({ agentId }: { agentId: string }) {
         {w.consigne && <div className="rounded-xl bg-muted/50 p-3 text-sm">{tr("{titre} : {texte}", { titre: <b>{t("Alors")}</b>, texte: w.consigne })}</div>}
         <p className="text-sm text-muted-foreground tabular-nums">{tally(w)}</p>
         <ErrorText>{error}</ErrorText>
-      </ObjectPage>
+      </section>
     );
   }
 

@@ -24,7 +24,7 @@ vi.mock("@/lib/api", async (original) => ({
 }));
 
 import { WorkBar, WorkMenu } from "./WorkBar";
-import { WorkPanel } from "./WorkPanel";
+import { ONGLETS_VISIBLES, WorkPanel } from "./WorkPanel";
 import { Files } from "./Files";
 import { Session, SESSION_POLL } from "./Session";
 import { SideRail } from "./desktop/SideRail";
@@ -86,13 +86,22 @@ it("D1 — en haut à droite, les deux icônes du prototype : appeler l'agent, o
 it("D1 — les contenus de l'agent sont les onglets du panneau, dans l'ordre ; les détails techniques y ont leur interrupteur", async () => {
   const onTab = vi.fn(), onDetails = vi.fn();
   const tabs = workTabsFor(agent());
-  expect(tabs.map((t) => t.label)).toEqual(["Travail", "Tâches", "Fichiers", "Ordinateur", "Session"]);
+  expect(tabs.map((t) => t.label)).toEqual(["Travail", "Routines", "Fichiers", "Ordinateur", "Session"]);
   await act(async () => root.render(<WorkPanel open tab="files" title="Fichiers" tabs={tabs} onTab={onTab} details={false} onDetails={onDetails} expanded={false} onExpand={vi.fn()} onClose={vi.fn()}><p>contenu</p></WorkPanel>));
   const seg = [...host.querySelectorAll<HTMLButtonElement>('.panel-tabs [role="tab"]')];
-  expect(seg.map((b) => b.textContent)).toEqual(["Travail", "Tâches", "Fichiers", "Ordinateur", "Session"]);
+  // Trois onglets tiennent sur une ligne à la largeur d'origine ; les moins utilisés sont dans « Plus » (jamais de défilement caché).
+  expect(ONGLETS_VISIBLES).toBe(3);
+  expect(seg.map((b) => b.textContent)).toEqual(["Travail", "Routines", "Fichiers"]);
+  const plus = host.querySelector<HTMLButtonElement>("[data-plus]")!;
+  expect(plus.textContent).toBe("Plus");
   expect(seg[2].getAttribute("aria-selected")).toBe("true");
-  const expected: PanelTab[] = ["activity", "routines", "files", "computer", "session"];
+  const expected: PanelTab[] = ["activity", "routines", "files"];
   for (const [i, tab] of expected.entries()) { await act(async () => seg[i].click()); expect(onTab).toHaveBeenLastCalledWith(tab); }
+  await act(async () => plus.click());
+  const menu = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+  expect(menu.map((m) => m.textContent)).toEqual(["Ordinateur", "Session"]);
+  await act(async () => menu[0].click());
+  expect(onTab).toHaveBeenLastCalledWith("computer");
   await act(async () => byLabel("Détails techniques")!.click());
   expect(onDetails).toHaveBeenCalledWith(true);
 });

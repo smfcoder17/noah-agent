@@ -7,13 +7,13 @@ import { t } from "@/i18n";
 /** Les icônes du haut de la conversation, dans l'ordre : chacune ouvre son contenu dans le panneau de droite. */
 export const WORK_TABS = [
   { tab: "activity", label: t("Travail"), Icon: Activity },
-  { tab: "routines", label: t("Tâches"), Icon: CheckSquare },
+  { tab: "routines", label: t("Routines"), Icon: CheckSquare },
   { tab: "files", label: t("Fichiers"), Icon: FolderOpen },
   { tab: "computer", label: t("Ordinateur"), Icon: Monitor },
   { tab: "session", label: t("Session"), Icon: Layers },
 ] as const satisfies readonly { tab: PanelTab; label: string; Icon: typeof Activity }[];
 
-/** Ce que ce profil peut ouvrir : l'activité et la session pour tous, l'ordinateur et les fichiers pour qui parle à l'agent, les tâches pour qui l'administre. */
+/** Ce que ce profil peut ouvrir : l'activité et la session pour tous, l'ordinateur et les fichiers pour qui parle à l'agent, les routines pour qui l'administre. */
 export function workTabsFor(agent: Agent | null) {
   if (!agent) return [];
   return WORK_TABS.filter(({ tab }) => tab === "routines" ? canAdmin(agent) : tab === "files" || tab === "computer" ? canTalk(agent) : true);
@@ -23,7 +23,7 @@ export function workTabsFor(agent: Agent | null) {
 export const MODE_VOCAL = "noah:mode-vocal";
 
 export const PANEL_NAMES: Record<PanelTab, string> = {
-  activity: t("Travail"), routines: t("Tâches"), files: t("Fichiers"), computer: t("Ordinateur"), session: t("Session"),
+  activity: t("Travail"), routines: t("Routines"), files: t("Fichiers"), computer: t("Ordinateur"), session: t("Session"),
   connections: t("Connexions"), competences: t("Compétences"), memory: t("Mémoire"),
 };
 
@@ -54,6 +54,15 @@ export function useRailFolded() {
   const change = useCallback((next: boolean) => { setFolded(next); write(RAIL_KEY, next ? "1" : "0"); }, []);
   return [folded, change] as const;
 }
+
+/** La discussion garde au moins cette largeur : en dessous, l'aperçu d'un fichier se pose par-dessus le panneau au lieu de tout serrer
+ * (retour de Franck : panneau et aperçu ouverts ensemble laissaient 70 px à la discussion). */
+export const CHAT_MIN = 420;
+/** La largeur de l'aperçu à droite (--right-width, styles/desktop.css). */
+export const APERCU_LARGEUR = 470;
+/** Vrai si, posé à côté du panneau, l'aperçu laisserait moins que CHAT_MIN à la discussion. `libre` : la largeur qui reste à la
+ * discussion et à ce qui est à sa droite, sans l'aperçu (fenêtre moins barre de gauche moins panneau). */
+export const apercuSeSuperpose = (libre: number) => libre - APERCU_LARGEUR < CHAT_MIN;
 
 export const PANEL_MIN = 320;
 /** Largeur d'origine : l'ordinateur un peu plus large, pour que son écran se lise. */

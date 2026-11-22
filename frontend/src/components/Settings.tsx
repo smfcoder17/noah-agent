@@ -4,7 +4,7 @@ import { Providers } from "./Providers";
 // Chaque type peut rester en « Automatique » : Noah Agent prend le meilleur modèle disponible avec la clé.
 import { Bell, Check, ChevronLeft, ChevronRight, Cpu, Globe, KeyRound, Link2, Loader2, Play, Server, Smartphone, Star, Sun, User, Users, type LucideIcon } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { type Agent, get, request, send } from "@/lib/api";
+import { type Agent, canAdmin, get, request, send } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Boundary } from "./Boundary";
 import { DoubleVerification } from "./DoubleVerification";
@@ -18,6 +18,7 @@ import { Updates } from "./Updates";
 import { Vault } from "./Vault";
 import { Flows } from "./Flows";
 import { JudgeSetting } from "./Juge";
+import { Proactive } from "./Proactive";
 import { DecisionModel } from "./DecisionModel";
 import { FastModel } from "./FastModel";
 import { ModeRows } from "./Modes";
@@ -163,6 +164,7 @@ export function SettingsPage({ tab, owner, agents = [], onTab, onClose, onBrainS
 /** L'équipe : qui orchestre, ce qui te revient toujours, jusqu'où tes agents avancent seuls. Le chef est le premier agent créé ; en désigner un autre attend L7. */
 function Equipe({ agents }: { agents: Agent[] }) {
   const chef = agents.find((a) => a.chef);
+  const reglables = agents.filter((a) => canAdmin(a)); // le réglage d'un agent est à celui qui l'administre
   const reserve: [string, string][] = [
     [t("Payer"), t("Un achat, un renouvellement, un abonnement.")],
     [t("Supprimer définitivement"), t("Des fichiers, un agent, un compte.")],
@@ -182,6 +184,16 @@ function Equipe({ agents }: { agents: Agent[] }) {
         <h3 className="h2">{t("Ce qui te revient toujours")}</h3>
         <p className="text-soft">{t("Ces sujets ne passent jamais par un agent : ils arrivent directement dans « Pour toi ». Tu ne peux pas les déléguer.")}</p>
         <div className="list">{reserve.map(([titre, aide]) => <div key={titre} className="row wrap"><span className="grow flex min-w-0 flex-col"><span className="row-title">{titre}</span><span className="row-sub">{aide}</span></span><span className="pill">{t("Toujours à toi")}</span></div>)}</div>
+      </section>
+      <section className="stack g8" data-autonomie>
+        <h3 className="h2">{t("Quand tu ne lui parles pas")}</h3>
+        <p className="text-soft">{t("Ce que chaque agent regarde et fait sans que tu lui écrives : rien, te signaler, ou agir puis te le dire.")}</p>
+        {reglables.map((a) => (
+          <div key={a.id} className="card stack g8" data-autonomie-agent={a.id}>
+            <div className="line g8"><AgentFace agent={a} className="size-8 shrink-0" /><b className="row-title">{a.name}</b></div>
+            <Proactive agentId={a.id} alone />
+          </div>
+        ))}
       </section>
       <JudgeSetting />
     </div>

@@ -2,7 +2,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/api", async (orig) => ({ ...(await orig<object>()), get: vi.fn(async (p: string) => p === "/api/juge" ? { actif: true, modele: "m", nom: "Juge", cout_mois: 0, appels: 0, refus: 0, accords: 0, pannes: 0, tris: 0, signales: 0, mode: "auto" } : []), send: vi.fn(async () => ({})), request: vi.fn(async () => ({})), canAdmin: () => true, canTalk: () => true, currentAuthEpoch: () => "test" }));
+vi.mock("@/lib/api", async (orig) => ({ ...(await orig<object>()), get: vi.fn(async (p: string) => p === "/api/juge" ? { actif: true, modele: "m", nom: "Juge", cout_mois: 0, appels: 0, refus: 0, accords: 0, pannes: 0, tris: 0, signales: 0, mode: "auto" } : p.endsWith("/proactif") ? { mode: "signaler", choisi: true, minutes: 60, modifiable: true, sources: [], objectifs: 0, dernier_passage: null, erreur: null, passages: 0, signalements: 0, tours_du_jour: 0, tours_max: 12, en_cours: false, cout: 0, heures: { de: 8, a: 21 }, propositions_max: 3 } : []), send: vi.fn(async () => ({})), request: vi.fn(async () => ({})), canAdmin: () => true, canTalk: () => true, currentAuthEpoch: () => "test" }));
 import type { Agent } from "@/lib/api";
 import { SettingsPage, type SettingsTab } from "./Settings";
 
@@ -85,6 +85,15 @@ it("Équipe : le chef est en lecture seule, sans bouton pour en désigner un aut
   expect(rows[0].querySelector("button")).toBeNull();
   expect(equipe.textContent).toContain("ce mois-ci"); // le réglage d'autonomie (le juge) vit ici, plus sous Confidentialité
   for (const sujet of ["Payer", "Supprimer définitivement", "Secrets et droits", "Première publication"]) expect(equipe.textContent).toContain(sujet);
+});
+
+it("Équipe : « Quand tu ne lui parles pas » est dans la fiche de chaque agent réglable (plus dans le panneau de l'agent)", async () => {
+  await show("team", true, noOp, chefs);
+  const section = host.querySelector("[data-autonomie]")!;
+  expect(section.textContent).toContain("Quand tu ne lui parles pas");
+  const fiches = [...section.querySelectorAll("[data-autonomie-agent]")];
+  expect(fiches.map((f) => f.getAttribute("data-autonomie-agent"))).toEqual(["a", "b"]);
+  for (const fiche of fiches) for (const mot of ["Rien", "Me signaler", "Agir et me dire"]) expect(fiche.textContent).toContain(mot);
 });
 
 it("Équipe sans agent : le dit, sans inventer de chef", async () => {

@@ -60,6 +60,7 @@ button.shell-row { cursor:pointer; }
 button.session-row { cursor:pointer; }
 button.session-row:hover { background:var(--muted); }
 .session-icon { display:grid; place-items:center; width:30px; height:30px; flex:none; border-radius:var(--radius-8); background:var(--muted); color:var(--soft); }
+.routine-detail { display:flex; flex-direction:column; gap:12px; width:100%; min-width:0; }
 .file-preview { display:flex; flex:1; min-height:0; flex-direction:column; gap:8px; }
 .file-preview-head { display:flex; align-items:center; gap:6px; min-width:0; }
 .file-preview-head b { font-size:14px; min-width:0; }

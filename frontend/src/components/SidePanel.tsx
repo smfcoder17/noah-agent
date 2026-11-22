@@ -1,7 +1,7 @@
 import { Approvals } from "./mobile/Approvals";
 import { subscribeUpdates } from "@/lib/events";
 // Panneau de l'agent : ce qu'il fait, à quoi il a accès, son ordinateur, ses routines, sa mémoire.
-import { Archive, ArchiveRestore, Brain, ChevronDown, ChevronRight, Clock, ExternalLink, FolderOpen, Hand, History, Loader2, LogIn, Monitor, MonitorPlay, Pencil, Plug, Power, RefreshCw, Sparkles, Sunrise, Users, X } from "lucide-react";
+import { Archive, ArchiveRestore, Brain, ChevronDown, Clock, ExternalLink, FolderOpen, Hand, History, Loader2, LogIn, Monitor, MonitorPlay, Pencil, Plug, Power, RefreshCw, Sparkles, Sunrise, Users, X } from "lucide-react";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { ApiError, type Agent, canAdmin, canTalk, type Conversation, get, request, send, type Usage } from "@/lib/api";
 import { peekScreenUrl, refuseScreenUrl, screenControl, screenUrl, screenViewOnly, watchScreenConnection } from "@/lib/screenCache";
@@ -15,7 +15,6 @@ import { AgentOverview } from "./AgentOverview";
 import { Competences } from "./Competences";
 import { Connections, Folders, Memory, Routines, Section, Software, Watches } from "./AgentPowers";
 import { Boundary } from "./Boundary";
-import { Proactive } from "./Proactive";
 import { Files } from "./Files";
 import { Session } from "./Session";
 import { AgentFace } from "./Noah";
@@ -23,7 +22,6 @@ import { ShareDialog } from "./Sharing";
 import { STATE_WORD, StateShape } from "./Sidebar";
 import { Button, Dialog, DialogContent, Tabs, TabsContent, TabsList, TabsTrigger } from "./ui";
 import { langue, locale, t, tr } from "@/i18n";
-import { activityResult, activityTitle } from "@/lib/lignesServeur";
 import { type TacheDuFil, useOuverture } from "@/lib/ouverture";
 import { TacheLigne } from "./thread/TacheLigne";
 
@@ -34,6 +32,12 @@ const FORMAT = langue() === "fr" ? "fr-CA" : locale();
 export type PanelTab = "activity" | "files" | "connections" | "competences" | "computer" | "routines" | "memory" | "session";
 
 /** Première visite seulement : ensuite le contenu reste monté, mais ses lectures suivent sa visibilité. */
+/** Routines puis veilles ; le détail de l'une prend tout le panneau, l'autre liste s'efface. */
+function RoutinesTab({ agentId }: { agentId: string }) {
+  const [routine, setRoutine] = useState(false), [veille, setVeille] = useState(false);
+  return <>{!veille && <Routines agentId={agentId} onDetail={setRoutine} />}{!routine && <Watches agentId={agentId} onDetail={setVeille} />}</>;
+}
+
 function KeptTab({ value, shown, className, children }: { value: string; shown: boolean; className: string; children: React.ReactNode }) {
   const parentVisible = useContext(SeenActive);
   const active = parentVisible && shown;
@@ -108,7 +112,6 @@ export function SidePanel({
       <KeptTab value="activity" shown={tab === "activity"} className="min-h-0 flex-1 overflow-y-auto">
         <Approvals agentId={agent.id} />
         <TachesPanel agent={agent} refreshKey={refreshKey} onOpen={(id) => { onOpenThread(id); onClose(); }} />
-        <ActivityLog agentId={agent.id} refreshKey={refreshKey} onOpen={(id, isMain) => { onOpenThread(isMain && id === main?.id ? null : id); onClose(); }} />
         <details className="mt-2"><summary className="text-sm text-muted-foreground cursor-pointer">{t("Fils et réglages")}</summary><Details agent={agent} onEdit={onEditAgent} refreshKey={refreshKey} onAgentChanged={onAgentChanged} onTab={onTab} onGoals={onGoals}>
           <Threads threads={threads} threadId={threadId} onOpen={onOpenThread} onArchive={onArchiveThread} />
           {agent.partage && main && <ConversationVisibility conversation={main} onChanged={onConversationChanged} />}
@@ -134,7 +137,7 @@ export function SidePanel({
         <ComputerTab agent={agent} admin={admin} refreshKey={refreshKey} onClose={onClose} />
       </KeptTab>
       <KeptTab value="routines" shown={tab === "routines"} className="relative flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1">
-        {admin && <><Proactive agentId={agent.id} /><Routines agentId={agent.id} /><Watches agentId={agent.id} /></>}
+        {admin && <RoutinesTab agentId={agent.id} />}
       </KeptTab>
       <KeptTab value="memory" shown={tab === "memory"} className="min-h-0 flex-1 overflow-y-auto px-1">
         {admin && <Memory agentId={agent.id} />}
@@ -166,61 +169,6 @@ function ComputerTab({ agent, admin, refreshKey, onClose }: { agent: Agent; admi
       <KeptTab value="folders" shown={part === "folders"} className="min-h-0 flex-1 overflow-y-auto px-1">{admin && <Folders agentId={agent.id} />}</KeptTab>
       <KeptTab value="software" shown={part === "software"} className="min-h-0 flex-1 overflow-y-auto px-1">{admin && <Software agentId={agent.id} />}</KeptTab>
     </Tabs>
-  );
-}
-
-type LogRow = { id?: number; kind: "tache" | "accord" | "juge"; titre: string; resultat: string; etat: "fait" | "a_verifier" | "erreur" | "arrete" | "autorise" | "refuse"; at: number; conversation_id: string; main: boolean };
-const ACTIVITE_PAGE = 50;
-const LOG_WORD: Record<LogRow["etat"], [string, string]> = {
-  fait: [t("Fait"), "text-ok"], a_verifier: [t("À vérifier"), "text-warn"], erreur: [t("A échoué"), "text-danger"], arrete: [t("Arrêté"), "text-muted-foreground"], autorise: [t("Autorisé"), "text-ok"], refuse: [t("Refusé"), "text-muted-foreground"],
-};
-
-/** Le temps se resserre en s'éloignant : aujourd'hui, hier, les jours de la semaine, puis des périodes de plus en plus larges. */
-function activityPeriod(at: Date, now = new Date()): string {
-  const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-  const days = Math.round((day(now) - day(at)) / 86400000);
-  if (days <= 0) return t("Aujourd'hui");
-  if (days === 1) return t("Hier");
-  if (days < 7) {
-    const label = at.toLocaleDateString(FORMAT, { weekday: "long", day: "numeric", month: "long" });
-    return label.charAt(0).toUpperCase() + label.slice(1);
-  }
-  if (days < 14) return t("La semaine dernière");
-  const months = (now.getFullYear() - at.getFullYear()) * 12 + now.getMonth() - at.getMonth();
-  if (months === 0) return t("Plus tôt ce mois-ci");
-  if (months === 1) return t("Le mois dernier");
-  const month = at.toLocaleDateString(FORMAT, { month: "long", year: "numeric" });
-  return month.charAt(0).toUpperCase() + month.slice(1);
-}
-
-const LOG_FIRST = 5;
-
-/** Une période : repliée sauf la plus récente, et jamais plus de quelques lignes d'un coup. */
-function ActivityPeriod({ label, rows, first, onOpen }: { label: string; rows: LogRow[]; first: boolean; onOpen: (conversation: string, main: boolean) => void }) {
-  const [open, setOpen] = useState(first);
-  const [shown, setShown] = useState(LOG_FIRST);
-  return (
-    <div className="flex flex-col gap-1">
-      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex cursor-pointer items-center gap-1.5 rounded-lg py-1 text-left text-xs font-medium text-muted-foreground hover:text-foreground">
-        <ChevronRight className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-90")} />
-        <span className="min-w-0 flex-1 truncate">{label}</span>
-        <span className="shrink-0 tabular-nums">{rows.length}</span>
-      </button>
-      {open && rows.slice(0, shown).map((r, i) => (
-        <button key={i} type="button" onClick={() => onOpen(r.conversation_id, r.main)} className="flex cursor-pointer flex-col gap-0.5 rounded-lg px-2 py-1.5 text-left hover:bg-muted">
-          <span className="flex items-baseline justify-between gap-2 text-sm">
-            <span className="min-w-0 truncate">{activityTitle(r.titre)}</span>
-            <span className="shrink-0 text-xs text-muted-foreground">{new Date(r.at * 1000).toLocaleTimeString(FORMAT, { hour: "2-digit", minute: "2-digit" })}</span>
-          </span>
-          <span className="truncate text-xs text-muted-foreground"><span className={cn("font-medium", LOG_WORD[r.etat][1])}>{LOG_WORD[r.etat][0]}</span>{r.resultat ? ` · ${activityResult(r.resultat)}` : ""}</span>
-        </button>
-      ))}
-      {open && rows.length > shown && (
-        <button type="button" onClick={() => setShown(shown + 10)} className="cursor-pointer self-start rounded-lg px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground">
-          {t("… voir {n} de plus", { n: Math.min(10, rows.length - shown) })}
-        </button>
-      )}
-    </div>
   );
 }
 
@@ -263,48 +211,6 @@ function TachesPanel({ agent, refreshKey, onOpen }: { agent: Agent; refreshKey: 
           {t("… voir {n} de plus", { n: Math.min(10, taches.length - shown) })}
         </button>
       )}
-    </section>
-  );
-}
-
-/** Un aperçu de ce que l'agent a fait dernièrement, pas une archive : plus ancien, il le retrouve quand on le lui demande. */
-function ActivityLog({ agentId, refreshKey, onOpen }: { agentId: string; refreshKey: number; onOpen: (conversation: string, main: boolean) => void }) {
-  const active = useContext(SeenActive);
-  const path = `/api/agents/${agentId}/activite`;
-  const [log, setLog] = useState<{ agent: string; rows: LogRow[] } | null>(() => SEEN.has(path) ? { agent: agentId, rows: SEEN.get(path) as LogRow[] } : null);
-  const rows = log?.agent === agentId ? log.rows : null; // jamais le journal d'un autre agent, même le temps de charger
-  useEffect(() => {
-    let current = true; // la réponse tardive d'un autre agent n'écrase pas celle-ci
-    if (!active) return;
-    const generation = seenGeneration();
-    get<LogRow[]>(path)
-      .then((r) => {
-        if (!current || generation !== seenGeneration()) return;
-        SEEN.set(path, r);
-        setLog({ agent: agentId, rows: r });
-      })
-      .catch(() => {});
-    return () => {
-      current = false;
-    };
-  }, [agentId, path, refreshKey, active]);
-  const [more, setMore] = useState<LogRow[]>([]);
-  const [fini, setFini] = useState(false);
-  useEffect(() => { setMore([]); setFini(false); }, [agentId, refreshKey]);
-  if (!rows) return null;
-  const toutes = [...rows, ...more];
-  const lireSuite = () => { const dernier = toutes[toutes.length - 1]?.id; if (dernier) get<LogRow[]>(`${path}?avant=${dernier}`).then((r) => { setMore((m) => [...m, ...r]); if (r.length < ACTIVITE_PAGE) setFini(true); }).catch(() => {}); };
-  const periods = new Map<string, LogRow[]>();
-  for (const r of toutes) {
-    const label = activityPeriod(new Date(r.at * 1000));
-    periods.set(label, [...(periods.get(label) ?? []), r]);
-  }
-  return (
-    <section aria-label={t("Activité")} className="flex flex-col gap-1.5">
-      <h3 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{t("Ce qu'il a fait")}</h3>
-      {!rows.length && <p className="text-sm text-muted-foreground">{t("Rien pour l'instant. Ses tâches et les accords que tu donnes s'afficheront ici.")}</p>}
-      {[...periods].map(([label, list], i) => <ActivityPeriod key={label} label={label} rows={list} first={i === 0} onOpen={onOpen} />)}
-      {rows.length >= ACTIVITE_PAGE && !fini && <Button size="sm" variant="ghost" className="w-fit" onClick={lireSuite}>{t("Voir plus")}</Button>}
     </section>
   );
 }

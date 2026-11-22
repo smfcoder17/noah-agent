@@ -151,7 +151,8 @@ export function ProactiveQuick({ agentId }: { agentId: string }) {
   );
 }
 
-export function Proactive({ agentId }: { agentId: string }) {
+/** `alone` : sans le titre repliable, pour une fiche qui a déjà le sien (Réglages > Équipe). */
+export function Proactive({ agentId, alone = false }: { agentId: string; alone?: boolean }) {
   const active = useContext(SeenActive);
   const { path, data: s, setData: setState, error, setError, change: save } = useProactive(agentId);
   const [busy, setBusy] = useState(false);
@@ -183,7 +184,7 @@ export function Proactive({ agentId }: { agentId: string }) {
   };
 
   return (
-    <Section title={t("Quand tu ne lui parles pas")} defaultOpen>
+    <Section title={t("Quand tu ne lui parles pas")} defaultOpen alone={alone}>
       {!s && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("Lecture…")}</p>}
       {s && (
         <>

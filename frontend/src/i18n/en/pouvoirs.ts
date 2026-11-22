@@ -255,7 +255,6 @@ export default {
   "Gmail : {recherche}": "Gmail: {recherche}",
   "Outil {nom}": "Tool {nom}",
   "Supprimer la veille « {nom} » ?": "Delete the watch “{nom}”?",
-  "Veilles": "Watches",
   "vue {quand}": "checked {quand}",
   "{titre} : {texte}": "{titre}: {texte}",
   "Si": "If",

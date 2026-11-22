@@ -1,13 +1,16 @@
 // Panneau de droite, comme l'explorateur d'un éditeur de code : il s'ouvre à côté de la conversation, se règle en largeur,
 // s'étend sur toute la page et se ferme par Échap. Sur un téléphone, c'est une feuille plein écran avec Retour.
-import { ArrowLeft, Bug, Maximize2, Minimize2, X } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { ArrowLeft, Bug, Maximize2, Minimize2, MoreHorizontal, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AgentMenu } from "./AgentMenu";
 import type { PanelTab } from "./SidePanel";
 import { PANEL_MIN, panelMax, usePanelWidth, useWide } from "@/lib/workPanel";
 import { cn } from "@/lib/utils";
 import { t } from "@/i18n";
 
 const STEP = 32;
+/** Les onglets qui tiennent sur une ligne à la largeur d'origine du panneau ; les suivants (les moins utilisés) sont dans « Plus ». Jamais de défilement caché. */
+export const ONGLETS_VISIBLES = 3;
 
 /** Une couche posée au-dessus (dialogue, visionneuse) reçoit Échap d'abord : le panneau ne se ferme pas avec elle. */
 /** Seule une couche visible compte : un nœud resté monté mais masqué ne bloque pas Échap (relecture 0.3.0, partie 2 n°5). */
@@ -32,6 +35,8 @@ export function WorkPanel({ open, tab, title, tabs, onTab, details, onDetails, e
   const wide = useWide();
   const [width, setWidth] = usePanelWidth(tab);
   const self = useRef<HTMLElement>(null);
+  const [plus, setPlus] = useState<{ x: number; y: number } | null>(null);
+  const fermerPlus = useCallback(() => setPlus(null), []);
   const close = useRef(onClose);
   close.current = onClose;
 
@@ -77,6 +82,9 @@ export function WorkPanel({ open, tab, title, tabs, onTab, details, onDetails, e
     e.preventDefault();
   };
 
+  // Un onglet ouvert qui n'est pas dans la liste (Compétences, Mémoire) rejoint « Plus ».
+  const tous = tabs.some((x) => x.tab === tab) ? tabs : [...tabs, { tab, label: title }];
+  const principaux = tous.slice(0, ONGLETS_VISIBLES), suite = tous.slice(ONGLETS_VISIBLES);
   return (
     <aside ref={self} tabIndex={-1} className={cn("work-panel", expanded && wide && "is-expanded")} style={wide && !expanded ? { width } : undefined}
       aria-label={title} data-panel={tab}>
@@ -88,10 +96,17 @@ export function WorkPanel({ open, tab, title, tabs, onTab, details, onDetails, e
         {!wide && <button type="button" className="shell-icon fill" aria-label={t("Retour")} onClick={onClose}><ArrowLeft size={20} /></button>}
         <div className="panel-tabs" data-defile-x>
           <div className="seg" role="tablist" aria-label={t("Contenus de l'agent")}>
-            {(tabs.some((x) => x.tab === tab) ? tabs : [...tabs, { tab, label: title }]).map((x) => (
+            {principaux.map((x) => (
               <button key={x.tab} type="button" role="tab" aria-selected={x.tab === tab} onClick={() => onTab(x.tab)}>{x.label}</button>
             ))}
+            {suite.length > 0 && (
+              <button type="button" aria-haspopup="menu" aria-expanded={!!plus} aria-pressed={suite.some((x) => x.tab === tab)} data-agent-more data-plus
+                onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setPlus(plus ? null : { x: r.left, y: r.bottom + 4 }); }}>
+                {suite.some((x) => x.tab === tab) ? suite.find((x) => x.tab === tab)!.label : t("Plus")}<MoreHorizontal size={15} aria-hidden className="ml-1 inline" />
+              </button>
+            )}
           </div>
+          {plus && <AgentMenu label={t("Plus d'onglets")} at={plus} onClose={fermerPlus} items={suite.map((x) => ({ key: x.tab, label: x.label, run: () => onTab(x.tab) }))} />}
         </div>
         <button type="button" className="shell-icon" aria-label={t("Détails techniques")} title={t("Détails techniques")} aria-pressed={details} onClick={() => onDetails(!details)}><Bug size={17} /></button>
         {wide && <button type="button" className="shell-icon" aria-label={expanded ? t("Réduire le panneau") : t("Étendre sur toute la page")} title={expanded ? t("Réduire le panneau") : t("Étendre sur toute la page")} aria-pressed={expanded} onClick={() => onExpand(!expanded)}>

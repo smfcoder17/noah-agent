@@ -338,6 +338,11 @@ export default {
   "Derniers fichiers": "Latest files",
   "Déplier la barre": "Expand sidebar",
   "Replier la barre": "Collapse sidebar",
+  "Ce que chaque agent regarde et fait sans que tu lui écrives : rien, te signaler, ou agir puis te le dire.": "What each agent watches and does without you writing to it: nothing, let you know, or act then tell you.",
+  "Plus": "More",
+  "Plus d'onglets": "More tabs",
+  "Retour aux veilles": "Back to watches",
+  "Retour aux routines": "Back to routines",
   // ActivitePage.tsx : une proposition qui a expiré
   "Propositions sans réponse": "Proposals with no answer",
   "{agent} · expirée": "{agent} · expired",
