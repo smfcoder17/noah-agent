@@ -338,4 +338,18 @@ export default {
   "Derniers fichiers": "Latest files",
   "Déplier la barre": "Expand sidebar",
   "Replier la barre": "Collapse sidebar",
+  // ActivitePage.tsx : une proposition qui a expiré
+  "Propositions sans réponse": "Proposals with no answer",
+  "{agent} · expirée": "{agent} · expired",
+  // RecherchePage.tsx
+  "Coche au moins un agent pour chercher.": "Tick at least one agent to search.",
+  "Écris au moins deux lettres : Noah cherche dans les messages, les tâches et les fichiers de tes agents.": "Type at least two letters: Noah searches your agents' messages, tasks and files.",
+  "Noah n'a pas pu chercher. Réessaie dans un instant.": "Noah couldn't search. Try again in a moment.",
+  "Je cherche…": "Searching…",
+  "Rien trouvé": "Nothing found",
+  "Aucun résultat pour « {mot} ».": "No results for “{mot}”.",
+  "Toi": "You",
+  "Un mot, un nom de fichier, une tâche…": "A word, a file name, a task…",
+  "Chercher chez": "Search in",
+  "{n} résultats": "{n} results",
 } satisfies Record<string, string>;

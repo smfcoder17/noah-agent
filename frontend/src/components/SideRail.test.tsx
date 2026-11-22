@@ -19,7 +19,7 @@ const agent = (id: string, name: string, tasks: Agent["tasks"] = {}) =>
 
 const noOp = () => {};
 type Props = Parameters<typeof SideRail>[0];
-const base = (over: Partial<Props> = {}): Props => ({ agent: null, agents: [], tabs: ["chat", "activity", "tasks", "files", "computer"], active: "chat", onTab: noOp, onAgent: noOp, onPickAgent: noOp, onMenu: noOp, onSettings: noOp, onGoals: noOp, onNewAgent: noOp, ...over });
+const base = (over: Partial<Props> = {}): Props => ({ agent: null, agents: [], tabs: ["chat", "activity", "tasks", "files", "computer"], active: "chat", onTab: noOp, onAgent: noOp, onPickAgent: noOp, onSearch: noOp, onSettings: noOp, onGoals: noOp, onNewAgent: noOp, ...over });
 const render = async (props: Props) => { await act(async () => root.render(<SideRail {...props} />)); };
 const rows = () => [...document.querySelectorAll<HTMLButtonElement>(".agent-nav-row")];
 const button = (text: string) => [...document.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.trim().startsWith(text));
@@ -71,17 +71,16 @@ it("met Pour toi tout en haut avec son compteur, puis Activité et Rechercher ; 
   expect(newAgent).toHaveBeenCalledTimes(1);
 });
 
-it("le tiroir du téléphone suit la même logique : agent ouvert déplié, aucun historique, aucune recherche de fils", async () => {
-  const close = vi.fn(), pick = vi.fn();
-  await act(async () => root.render(<Drawer agents={agents} agentId="a" tabs={["chat", "activity"]} waiting={1} onAgent={pick} onNewAgent={noOp} onTab={noOp} onCustomize={noOp} onSettings={noOp} onGoals={noOp} onClose={close} onLogout={noOp} />));
+it("le tiroir du téléphone suit la même logique : agent ouvert déplié, aucun historique ; « Rechercher » ouvre la page de recherche", async () => {
+  const close = vi.fn(), pick = vi.fn(), search = vi.fn();
+  await act(async () => root.render(<Drawer agents={agents} agentId="a" onSearch={search} tabs={["chat", "activity"]} waiting={1} onAgent={pick} onNewAgent={noOp} onTab={noOp} onCustomize={noOp} onSettings={noOp} onGoals={noOp} onClose={close} onLogout={noOp} />));
   expect(rows()[0].getAttribute("aria-expanded")).toBe("true");
   expect(document.querySelector('[aria-label="Options de Noah"]')).not.toBeNull();
   expect(document.body.textContent).not.toMatch(/Discussions|Historique|Archivés/);
-  const search = document.querySelector<HTMLInputElement>("#drawer-search")!;
-  await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(search, "Quatre"); search.dispatchEvent(new Event("input", { bubbles: true })); });
-  expect(rows().map((r) => r.textContent)).toEqual(["QuatreDisponible"]);
-  expect(document.body.textContent).not.toMatch(/Fils trouvés/);
-  await act(async () => rows()[0].click());
+  expect(document.querySelector("#drawer-search")).toBeNull();
+  await act(async () => [...document.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Rechercher")!.click());
+  expect(search).toHaveBeenCalledTimes(1);
+  await act(async () => rows()[3].click());
   expect(pick).toHaveBeenCalledWith("d");
 });
 

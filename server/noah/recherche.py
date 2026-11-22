@@ -64,7 +64,7 @@ async def recherche(q: str = "", agents: str = "", user: int = Depends(auth.curr
     compte = {i: 0 for i in ids}
     with db.connect() as c:
         for r in c.execute(
-            f"SELECT m.id, m.role, m.text, m.created_at, v.id AS conv, v.agent_id FROM messages m JOIN conversations v ON v.id = m.conversation_id "
+            f"SELECT m.id, m.role, m.text, m.created_at, v.id AS conv, v.agent_id, v.main, v.user_id AS auteur FROM messages m JOIN conversations v ON v.id = m.conversation_id "
             f"WHERE v.agent_id IN ({marques}) AND (v.user_id = ? OR v.shared = 1) AND m.role IN ('user', 'agent') AND m.text LIKE ? ESCAPE '\\' "
             "ORDER BY m.id DESC LIMIT 400", (*ids, user, like)):
             vu = nettoyage.message_lu({"role": r["role"], "text": r["text"]})
@@ -72,7 +72,7 @@ async def recherche(q: str = "", agents: str = "", user: int = Depends(auth.curr
                 continue
             compte[r["agent_id"]] += 1
             if len(messages[r["agent_id"]]) < PAR_AGENT["messages"]:
-                messages[r["agent_id"]].append({"id": r["id"], "conversation_id": r["conv"], "role": r["role"], "texte": _extrait(vu["text"], mot), "date": r["created_at"]})
+                messages[r["agent_id"]].append({"id": r["id"], "conversation_id": r["conv"], "principale": bool(r["main"]) and r["auteur"] == user, "role": r["role"], "texte": _extrait(vu["text"], mot), "date": r["created_at"]})
         for r in c.execute(
             f"SELECT t.id, t.titre, t.etat, t.conversation_id, t.agent_id FROM taches t WHERE t.owner_id = ? AND t.agent_id IN ({marques}) "
             f"AND (t.titre LIKE ? ESCAPE '\\' OR t.resume LIKE ? ESCAPE '\\') AND {taches.SAUF_VIDES} ORDER BY t.maj DESC, t.cree DESC LIMIT 200",

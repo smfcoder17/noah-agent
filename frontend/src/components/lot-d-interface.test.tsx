@@ -262,7 +262,7 @@ it("D4 — session : une tâche lancée apparaît en moins de 3 s, disparaît à
   } finally { vi.unstubAllGlobals(); }
 });
 
-const railProps = { agent: agent(), agents: [agent(), agent({ id: "b", name: "Veille" })], conversations: [], onAgent: vi.fn(), onPickAgent: vi.fn(), onMenu: vi.fn(), onThread: vi.fn(), onSettings: vi.fn(), onGoals: vi.fn() };
+const railProps = { agent: agent(), agents: [agent(), agent({ id: "b", name: "Veille" })], conversations: [], onAgent: vi.fn(), onPickAgent: vi.fn(), onSearch: vi.fn(), onThread: vi.fn(), onSettings: vi.fn(), onGoals: vi.fn() };
 
 it("D5 — barre de gauche du prototype : nom et repli en haut, entrées, agents avec leur visage, état et pastille, trois petits points, plus de sous-menu", async () => {
   const page = vi.fn();

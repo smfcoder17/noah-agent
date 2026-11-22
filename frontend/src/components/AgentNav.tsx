@@ -81,7 +81,7 @@ export const AgentNav = memo(function AgentNav({ agents, agentId, tabs, active, 
                 aria-controls={expanded ? panelId : undefined}
                 aria-label={`${a.name}, ${line}${!selected && pending ? ` · ${t("{n} en attente", { n: pending })}` : ""}`}
                 title={`${a.name} · ${line}`}
-                onClick={() => (selected ? foldable && setFolded(!folded) : onPick(a.id))}>
+                onClick={() => (selected && foldable ? setFolded(!folded) : onPick(a.id))}>
                 <AgentFace agent={a} className="size-8 shrink-0" />
                 <span className="agent-nav-text">
                   <b>{a.name}</b>

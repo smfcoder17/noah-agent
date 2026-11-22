@@ -17,7 +17,7 @@ export const roleDit = (me: Me | null) => (me?.role === "owner" ? t("Propriétai
  * chaque agent (au survol) ouvrent son menu. Les contenus de l'agent (Tâches, Fichiers…) sont dans le panneau de droite. Repliée, elle ne
  * garde que les icônes et les pastilles ; ce choix est retenu sur cet appareil. Objectifs, absent du prototype, est dans le menu du compte.
  */
-export const SideRail = memo(function SideRail({ waiting = 0, onInbox, onActivity, activityDot = false, me = null, agent, agents = [], onAgent, onPickAgent, onMenu, onSettings, onGoals, onNewAgent, onAgentPage, onCustomize, onLogout }: {
+export const SideRail = memo(function SideRail({ waiting = 0, onInbox, onActivity, activityDot = false, me = null, agent, agents = [], onAgent, onPickAgent, onSearch, onSettings, onGoals, onNewAgent, onAgentPage, onCustomize, onLogout }: {
   waiting?: number; onInbox?: () => void;
   /** Ouvre l'activité de l'agent affiché ; la pastille dit que des routines viennent de passer. */
   onActivity?: () => void; activityDot?: boolean;
@@ -34,8 +34,8 @@ export const SideRail = memo(function SideRail({ waiting = 0, onInbox, onActivit
   onCustomize?: (id: string) => void;
   /** Ouvre l'agent donné, depuis sa ligne. */
   onPickAgent?: (id: string) => void;
-  /** Recherche : les agents. */
-  onMenu: () => void;
+  /** Ouvre la page Rechercher (aussi Ctrl K). */
+  onSearch: () => void;
   onSettings: () => void; onGoals: () => void;
   onNewAgent?: () => void;
   onLogout?: () => void;
@@ -58,7 +58,7 @@ export const SideRail = memo(function SideRail({ waiting = 0, onInbox, onActivit
     </div>
     {entry(t("Pour toi"), Inbox, onInbox, waiting > 0 ? <span className="rail-count ml-auto" aria-label={t("{n} en attente", { n: waiting })}>{waiting}</span> : <span className="sr-only">{t("{n} en attente", { n: 0 })}</span>)}
     {entry(t("Activité"), Activity, onActivity, activityDot ? <span className="dot glow ml-auto" role="img" aria-label={t("Des routines viennent de passer")} title={t("Des routines viennent de passer")} /> : null)}
-    {entry(t("Rechercher"), Search, onMenu, <kbd className="kbd ml-auto rail-kbd">{/* i18n-ignore */}Ctrl K</kbd>)}
+    {entry(t("Rechercher"), Search, onSearch, <kbd className="kbd ml-auto rail-kbd">{/* i18n-ignore */}Ctrl K</kbd>)}
     <h2 className="section-label rail-agents-label">{t("Agents")}</h2>
     <nav aria-label={t("Navigation")} className="rail-agents-scroll">
       <AgentNav agents={list} agentId={agent?.id ?? null} tabs={[]} active="chat" showTabs={false}

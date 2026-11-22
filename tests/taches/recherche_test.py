@@ -63,7 +63,7 @@ par = {x["id"]: x for x in d["agents"]}
 assert d["q"] == "newsletter" and set(par) == {"a", "c"}, d
 assert par["a"]["nom"] == "Alma" and par["c"]["nom"] == "Cléo"
 assert len(par["a"]["messages"]) >= 2 and all("newsletter" in m["texte"].lower() for m in par["a"]["messages"]), par["a"]["messages"]
-assert par["a"]["messages"][0]["conversation_id"] == fils[(alice, "a")] or par["a"]["messages"][0]["id"] > 0
+assert par["a"]["messages"][0]["conversation_id"] == fils[(alice, "a")] and par["a"]["messages"][0]["principale"] is True
 assert [t["titre"] for t in par["a"]["taches"]] == ["Rédiger la newsletter"] and par["a"]["taches"][0]["conversation_id"] == conv_tache
 assert [f["path"] for f in par["a"]["fichiers"]] == ["outputs/newsletter-jeudi.md"] and par["c"]["fichiers"][0]["path"] == "outputs/visuel-newsletter.png"
 assert len(par["c"]["messages"]) == 1, "une trace ne se cherche pas"

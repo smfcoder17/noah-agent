@@ -11,7 +11,7 @@ import { useNavPrefs, type NavTab } from "@/lib/navPrefs";
 import { PANEL_NAMES, useWide, workTabsFor } from "@/lib/workPanel";
 import { WorkBar, WorkMenu } from "@/components/WorkBar";
 import { WorkPanel } from "@/components/WorkPanel";
-import { useNavigation } from "@/lib/navigation";
+import { type Page, useNavigation } from "@/lib/navigation";
 import { subscribeUpdates, useAccords } from "@/lib/events";
 import { useNoahRetour } from "@/lib/useNoahRetour";
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
@@ -61,6 +61,7 @@ const AgentPage = lazy(() => import("@/components/mobile/AgentPage").then((m) =>
 const Inbox = lazy(() => import("@/components/Inbox").then((m) => ({ default: m.Inbox })));
 const QuestionCard = lazy(() => import("@/components/QuestionCard").then((m) => ({ default: m.QuestionCard })));
 const SidePanel = lazy(() => import("@/components/SidePanel").then((m) => ({ default: m.SidePanel })));
+const RecherchePage = lazy(() => import("@/components/RecherchePage").then((m) => ({ default: m.RecherchePage })));
 const ActivitePage = lazy(() => import("@/components/ActivitePage").then((m) => ({ default: m.ActivitePage })));
 // Le bloc « Étapes » : seule une tâche ouverte le charge (budget B2).
 const EtapesTache = lazy(() => import("@/components/thread/Etapes").then((m) => ({ default: m.EtapesTache })));
@@ -347,8 +348,11 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
   const settings = latest("settings")?.tab ?? null;
   const setSettings = (tab: SettingsTab | null) => navigation.dispatch(tab ? { type: "push", route: { kind: "settings", tab } } : { type: "close", kind: "settings" });
   const [details, setDetails] = useState(false);
-  const [inbox, setInbox] = useState(false);
-  const [activite, setActivite] = useState(false); // « Activité » : une page de la zone de travail, comme « Pour toi »
+  // « Pour toi », « Activité » et « Rechercher » sont des pages de la zone de travail, comme Réglages : une seule à la fois (lib/navigation.ts).
+  const page = latest("page")?.page ?? null;
+  const inbox = page === "inbox", activite = page === "activite", recherche = page === "recherche";
+  const openPage = (p: Page) => navigation.dispatch({ type: "push", route: { kind: "page", page: p } });
+  const closePage = () => navigation.dispatch({ type: "close", kind: "page" });
   const [goals, setGoals] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [report, setReport] = useState<CallReport | null>(null); // rappel pris : lu dans le mode vocal de cet agent
@@ -372,7 +376,7 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
   useNoahRetour(navigation.stack.length, navigation.dispatch, currentTab, goTab);
   // Ctrl K (⌘ K) : la recherche, comme le montre la barre de gauche.
   const openSearch = useRef(() => {});
-  openSearch.current = () => setSidebarOpen(true);
+  openSearch.current = () => openPage("recherche");
   useEffect(() => {
     const key = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") { e.preventDefault(); openSearch.current(); } };
     window.addEventListener("keydown", key);
@@ -501,12 +505,13 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
     window.addEventListener("noah:ouvrir-panneau", tab);
     return () => { window.removeEventListener("noah:choisir-modele", open); window.removeEventListener("noah:ouvrir-panneau", tab); };
   }, []);
-  useEffect(() => { setInbox(false); setActivite(false); setSettings(null); }, [agent?.id, threadId, panel, navActive]); // « Pour toi » et « Activité » sont des pages : un autre agent, une tâche ou un onglet les ferme
-  const openInbox = () => { setActivite(false); setSettings(null); setInbox(true); };
-  const openActivite = () => { setInbox(false); setSettings(null); setActivite(true); };
-  const openFromActivite = (agent: string, conversation: string | null) => { setActivite(false); setAgentId(agent); setThreadId(conversation); setSidebarOpen(false); setPanel(null); };
+  useEffect(() => { closePage(); setSettings(null); }, [agent?.id, threadId, panel, navActive]); // une page se ferme quand on ouvre un autre agent, une tâche ou un onglet
+  const openInbox = () => openPage("inbox");
+  const openActivite = () => openPage("activite");
+  const openRecherche = () => { setSidebarOpen(false); openPage("recherche"); };
+  const openFromActivite = (agent: string, conversation: string | null) => { closePage(); setAgentId(agent); setThreadId(conversation); setSidebarOpen(false); setPanel(null); };
   const openFromInbox = (item: InboxItem) => {
-    setInbox(false);
+    closePage();
     setAgentId(item.agent_id);
     setThreadId(item.main && item.a_moi ? null : item.conversation_id); // la principale d'un autre profil n'est pas la sienne
     setSidebarOpen(false);
@@ -525,15 +530,19 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
         }}
       />
       <LayoutShell>
-        <SideRail waiting={waiting} onInbox={openInbox} onActivity={openActivite} activityDot={(ouverture?.routines.non_vues ?? 0) > 0} me={me} onLogout={logout} agent={agent} agents={agents} tabs={tabs} active={navActive} onTab={goTab} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} onPickAgent={selectAgent} onMenu={() => setSidebarOpen(true)} onSettings={() => setSettings("home")} onGoals={() => setGoals(true)} onNewAgent={() => setAgentDialog({ open: true, agent: null })} onAgentPage={openAgentPage} onCustomize={customizeAgent} />
+        <SideRail waiting={waiting} onInbox={openInbox} onActivity={openActivite} activityDot={(ouverture?.routines.non_vues ?? 0) > 0} me={me} onLogout={logout} agent={agent} agents={agents} tabs={tabs} active={navActive} onTab={goTab} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} onPickAgent={selectAgent} onSearch={openRecherche} onSettings={() => setSettings("home")} onGoals={() => setGoals(true)} onNewAgent={() => setAgentDialog({ open: true, agent: null })} onAgentPage={openAgentPage} onCustomize={customizeAgent} />
         <div className="work-area">
         <div className="work-main">
-          <MobileHeader titre={inbox ? t("Pour toi") : activite ? t("Activité") : settings ? t("Réglages") : undefined} agent={agent} status={agent?.step || liveStatus || (agent?.online ? t("En ligne") : t("Hors ligne"))} onMenu={() => setSidebarOpen(true)} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })}
+          <MobileHeader titre={inbox ? t("Pour toi") : activite ? t("Activité") : recherche ? t("Rechercher") : settings ? t("Réglages") : undefined} agent={agent} status={agent?.step || liveStatus || (agent?.online ? t("En ligne") : t("Hors ligne"))} onMenu={() => setSidebarOpen(true)} onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })}
             menu={<WorkMenu agent={agent} active={panel} onOpen={togglePanelOpen} waiting={waiting} onInbox={openInbox} />} />
-          {inbox && <div className="flex min-h-0 flex-1 flex-col"><Suspense fallback={null}><Inbox open page agents={agents} onOpenChange={setInbox} onOpenConversation={openFromInbox} onOpenAgent={(id) => { setInbox(false); selectAgent(id); }} /></Suspense></div>}
+          {inbox && <div className="flex min-h-0 flex-1 flex-col"><Suspense fallback={null}><Inbox open page agents={agents} onOpenChange={(o) => { if (!o) closePage(); }} onOpenConversation={openFromInbox} onOpenAgent={selectAgent} /></Suspense></div>}
           {settings && <div className="flex min-h-0 flex-1 flex-col"><Suspense fallback={null}><SettingsPage tab={settings} owner={me?.role === "owner"} agents={agents} onTab={setSettings} onClose={() => setSettings(null)} onBrainSaved={() => { setSettings(null); refreshAgents(); }} /></Suspense></div>}
+          {recherche && <div className="flex min-h-0 flex-1 flex-col"><Suspense fallback={null}><RecherchePage agents={agents}
+            onOpenFil={(id, conversation) => { closePage(); setAgentId(id); setThreadId(conversation); setPanel(null); }}
+            onOpenTache={openFromActivite}
+            onOpenFichier={(id) => { closePage(); setAgentId(id); setThreadId(null); }} /></Suspense></div>}
           {activite && <div className="flex min-h-0 flex-1 flex-col"><Suspense fallback={null}><ActivitePage agentId={agentId} onOpenTache={openFromActivite} onOpenAgent={(id) => openFromActivite(id, null)} /></Suspense></div>}
-          <KeepAlive active={!inbox && !activite && !settings && (!panel || (wide && !expanded))} className="min-h-0 flex-1">
+          <KeepAlive active={!inbox && !activite && !recherche && !settings && (!panel || (wide && !expanded))} className="min-h-0 flex-1">
           <ChatPane onMenu={() => setSidebarOpen(true)}
             title={thread?.title || agent?.name || "Noah"}
             entete={agent ? { role: agent.role, ...etatMot(agent) } : null}
@@ -545,7 +554,7 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
               retour: retourAu(agent.name),
               onRetour: () => setThreadId(null),
             } : null}
-            onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} actions={<WorkBar agent={agent} active={panel} onOpen={togglePanelOpen} onSearch={() => setSidebarOpen(true)} />}>
+            onAgent={() => navigation.dispatch({ type: "push", route: { kind: "agent" } })} actions={<WorkBar agent={agent} active={panel} onOpen={togglePanelOpen} onSearch={() => openPage("recherche")} />}>
           <AppUpdate /><div id={CALL_SLOT} />
           {agent && canAdmin(agent) && <HandoffBanner agentId={agent.id} onOpenScreen={() => setPanel("computer")} />}
           {agent && canAdmin(agent) && <DelegatedTasks agentId={agent.id} />}
@@ -618,7 +627,7 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
             </WorkPanel>
           </KeepAlive>}
         </div>
-        {sidebarOpen && <Drawer waiting={waiting} onInbox={() => { setSidebarOpen(false); openInbox(); }} onActivity={() => { setSidebarOpen(false); openActivite(); }} activityDot={(ouverture?.routines.non_vues ?? 0) > 0} me={me} agents={agents} agentId={agentId} tabs={tabs} active={navActive} onAgent={selectAgent} onAgentPage={openAgentPage} onCustomizeAgent={customizeAgent} onTab={goTab} onNewAgent={() => { setSidebarOpen(false); setAgentDialog({ open: true, agent: null }); }} onCustomize={() => { setSidebarOpen(false); navigation.dispatch({ type: "push", route: { kind: "customize" } }); }} onSettings={() => { setSidebarOpen(false); setSettings("home"); }} onGoals={() => { setSidebarOpen(false); setGoals(true); }} onClose={() => setSidebarOpen(false)} onLogout={logout} />}
+        {sidebarOpen && <Drawer waiting={waiting} onSearch={openRecherche} onInbox={() => { setSidebarOpen(false); openInbox(); }} onActivity={() => { setSidebarOpen(false); openActivite(); }} activityDot={(ouverture?.routines.non_vues ?? 0) > 0} me={me} agents={agents} agentId={agentId} tabs={tabs} active={navActive} onAgent={selectAgent} onAgentPage={openAgentPage} onCustomizeAgent={customizeAgent} onTab={goTab} onNewAgent={() => { setSidebarOpen(false); setAgentDialog({ open: true, agent: null }); }} onCustomize={() => { setSidebarOpen(false); navigation.dispatch({ type: "push", route: { kind: "customize" } }); }} onSettings={() => { setSidebarOpen(false); setSettings("home"); }} onGoals={() => { setSidebarOpen(false); setGoals(true); }} onClose={() => setSidebarOpen(false)} onLogout={logout} />}
         <Suspense fallback={null}>
         {latest("customize") && <CustomizeTabs tabs={tabs} save={saveTabs} error={tabsError} onClose={() => navigation.dispatch({ type: "close", kind: "customize" })} />}
         {latest("agent") && agent && <AgentPage agent={agent} onClose={() => navigation.dispatch({ type: "close", kind: "agent" })} onPanel={(tab) => { navigation.dispatch({ type: "close", kind: "agent" }); setPanel(tab); }} onBrain={() => setModelDialog(true)} onEdit={() => setAgentDialog({ open: true, agent })} onNotifications={() => setSettings("notifications")} onAutonomy={() => setSettings("team")} />}
