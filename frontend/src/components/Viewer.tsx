@@ -8,6 +8,7 @@ const ElementViewer = lazy(() => import("./elements/ElementViewer").then((m) => 
 import { MediaPlayers } from "./elements/MediaPlayers";
 import { RightPanel } from "./desktop/RightPanel";
 import { kindOfFile, type ElementSpec } from "@/lib/elements";
+import { apercuSeSuperpose } from "@/lib/workPanel";
 import { t } from "@/i18n";
 
 export type Viewable =
@@ -29,6 +30,30 @@ export const isImagePath = (p: string) => /\.(png|jpe?g|gif|webp|avif)$/i.test(p
 /** Dans l'app Android, un cadre PDF reste blanc et un cadre CSV se télécharge tout seul : ces fichiers ne s'y montrent pas. */
 export const canFrame = (p: string) => (inAndroidApp() ? /\.(html?|txt|md|json|svg|log)$/i : /\.(html?|pdf|txt|md|csv|json|svg|log)$/i).test(p.split(/[?#]/, 1)[0]);
 
+/** Tant que l'aperçu est ouvert à droite, mesure ce qui reste à la discussion ; trop peu : `data-apercu="sur"` sur le body, l'aperçu se pose
+ * par-dessus le panneau (styles/desktop.css) au lieu de pousser la page. */
+function useApercuSurLePanneau(actif: boolean) {
+  useEffect(() => {
+    if (!actif) return;
+    const mesurer = () => {
+      const largeur = (sel: string) => { const el = document.querySelector<HTMLElement>(sel); return el && el.offsetParent !== null ? el.getBoundingClientRect().width : 0; };
+      const panneau = document.querySelector(".work-panel.is-expanded") ? Infinity : largeur(".work-panel");
+      const libre = document.documentElement.clientWidth - largeur(".side-rail") - panneau;
+      if (apercuSeSuperpose(libre)) {
+        document.body.dataset.apercu = "sur";
+        // L'aperçu prend la place exacte du panneau (jamais plus large : il cacherait le bord de la discussion).
+        if (Number.isFinite(panneau) && panneau > 0) document.body.style.setProperty("--apercu-largeur", `${Math.round(panneau)}px`);
+      } else { delete document.body.dataset.apercu; document.body.style.removeProperty("--apercu-largeur"); }
+    };
+    mesurer();
+    window.addEventListener("resize", mesurer);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(mesurer);
+    const zone = document.querySelector(".work-area");
+    if (zone) observer?.observe(zone);
+    return () => { window.removeEventListener("resize", mesurer); observer?.disconnect(); delete document.body.dataset.apercu; document.body.style.removeProperty("--apercu-largeur"); };
+  }, [actif]);
+}
+
 export function ViewerProvider({ children }: { children: React.ReactNode }) {
   const [item, setItem] = useState<Viewable | null>(null);
   const [wide, setWide] = useState(() => matchMedia("(min-width:768px)").matches);
@@ -41,6 +66,7 @@ export function ViewerProvider({ children }: { children: React.ReactNode }) {
     setItem(shown);
   }, []);
   const panel = wide && item?.kind === "element" && !item.fullscreen;
+  useApercuSurLePanneau(!!panel);
   return <ViewerContext.Provider value={view}><MediaPlayers>{children}
     {panel && item?.kind === "element" && <RightPanel title={item.element.title} onClose={() => setItem(null)} onExpand={() => setItem({ ...item, fullscreen: true })}><Suspense fallback={<p role="status">{t("Chargement…")}</p>}><ElementViewer key={item.element.title + item.element.url} spec={item.element} onClose={() => setItem(null)} /></Suspense></RightPanel>}
     <Dialog open={!!item && !panel} onOpenChange={(o) => !o && setItem(null)}>
