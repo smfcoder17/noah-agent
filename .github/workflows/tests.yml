@@ -263,6 +263,10 @@ jobs:
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \
             "pip install -q -r /app/requirements.txt && python /tests/taches/activite_test.py"
+      - name: "Recherche : GET /api/recherche cherche dans les fils, les tâches et les fichiers, groupé par agent, filtre par agent, un invité ne lit jamais les fils du propriétaire, une clé collée sort masquée (0.4.2)"
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \
+            "pip install -q -r /app/requirements.txt && python /tests/taches/recherche_test.py"
       - name: "Barre de gauche : GET /api/agents dit ce que chaque agent fait (tâche en cours, attend, chef d'équipe et ses tâches suivies, aucun message), sans les tâches d'un autre compte (0.4.0, L9b)"
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \

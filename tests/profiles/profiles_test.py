@@ -583,6 +583,7 @@ OPEN_ROUTES = {
     ("GET", "/api/a-toi"): "Filtrée par compte : celui qui a lancé le travail et le propriétaire de l'agent (chat_vivant_test).",
     ("GET", "/api/decisions"): "Filtrée par compte : seules les décisions prises pour le compte connecté (regles_test).",
     ("GET", "/api/activite"): "Tâches de ce compte seulement, sur les agents qu'il peut lire ; routines des agents qu'il administre (activite_test).",
+    ("GET", "/api/recherche"): "Les fils de ce compte (ou rendus visibles), ses tâches, les fichiers des agents qu'il peut utiliser (recherche_test).",
     ("GET", "/api/accords"): "Accords de ce compte seulement, droits revérifiés (accords_sync_test).",
     ("GET", "/api/events"): "Flux révocable par compte, sans événements d'un autre profil (accords_sync_test).",
     ("GET", "/api/model"): "Le nom du cerveau, sans clé ni adresse pour un profil (vérifié par test_secrets).",

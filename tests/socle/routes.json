@@ -652,6 +652,13 @@
 "pass_now"
 ],
 [
+"/api/recherche",
+[
+"GET"
+],
+"recherche"
+],
+[
 "/api/propositions/{proposition_id}/reponse",
 [
 "POST"

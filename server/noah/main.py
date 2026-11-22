@@ -31,7 +31,7 @@ from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from pydantic import BaseModel, Field
 
-from . import access, accounts, apprentissage, appareils, auth, bureautique, catalog, chauffe, coffre, connecteurs, connecteurs_cles, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, propositions, public, publication, push, questions, recu, recuperation, relay, session, sites, sortie, taches, updates, watch
+from . import access, accounts, apprentissage, appareils, auth, bureautique, catalog, chauffe, coffre, connecteurs, connecteurs_cles, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, propositions, public, publication, recherche, push, questions, recu, recuperation, relay, session, sites, sortie, taches, updates, watch
 from . import config
 from . import accords, bus, credits, presets, rapide, sensitive, ui_preferences, linkpreview, providers as provider_accounts
 from .config import WEB_DIR, forget_setup_code
@@ -200,6 +200,7 @@ app.include_router(push.router)
 app.include_router(notifications.router)
 app.include_router(watch.router)
 app.include_router(proactif.router)
+app.include_router(recherche.router)  # 0.4.2 : Rechercher, groupé par agent
 app.include_router(propositions.router)  # « Fais-le » ou « Non » sur ce que l'agent propose de lui-même
 app.include_router(questions.router)  # 0.4.0 : les questions d'un agent montent d'un cran à la fois, la personne répond sur place
 app.include_router(juge.router)
