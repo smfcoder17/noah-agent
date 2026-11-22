@@ -124,3 +124,12 @@ it("en quittant la page, ce qui y était nouveau est marqué vu : le voyant de l
   await demonter();
   expect(send).toHaveBeenCalledWith("/api/agents/ines/routines-vues", {});
 });
+
+it("une proposition restée sans réponse a quitté « Pour toi » : Activité la montre, marquée expirée", async () => {
+  activite = { ...(activite as object), propositions_expirees: [{ id: "p1", agent_id: "lea", agent: "Léa", texte: "Je peux trier tes courriels.", cree: 1_700_000_000 }] };
+  await monter();
+  const ligne = host.querySelector('[data-propositions-expirees] [data-proposition="p1"]')!;
+  expect(ligne.querySelector(".row-title")?.textContent).toBe("Je peux trier tes courriels.");
+  expect(ligne.querySelector(".row-sub")?.textContent).toBe("Léa · expirée");
+  expect(ligne.querySelector("button")).toBeNull(); // plus de Non / Fais-le
+});

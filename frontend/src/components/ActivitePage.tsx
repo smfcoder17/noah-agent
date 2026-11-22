@@ -12,7 +12,9 @@ import { Decisions } from "./Decisions";
 import { StateShape } from "./Sidebar";
 import { duree, travailleur } from "./thread/TacheLigne";
 
-type Donnees = { taches: TacheDuFil[]; routines: Routine[]; non_vues: number };
+/** Une proposition de l'agent restée sans réponse : elle a quitté « Pour toi », elle se relit ici. */
+type Expiree = { id: string; agent_id: string; agent: string; texte: string; cree: number };
+type Donnees = { taches: TacheDuFil[]; routines: Routine[]; non_vues: number; propositions_expirees?: Expiree[] };
 const AGENT = (r: Routine) => r.agent?.id ?? "";
 
 /** Le sous-titre d'une tâche : « Noah l'a confiée à Léa · terminée en 4 min » ; une tâche que l'agent s'est donnée dit seulement qui la fait. */
@@ -53,7 +55,8 @@ export function ActivitePage({ agentId, onOpenTache, onOpenAgent }: {
   const haut = useRef<HTMLDivElement>(null);
 
   const ouverte = routine ? data?.routines.find((r) => r.id === routine.id && AGENT(r) === routine.agentId) : null;
-  const vide = data && !data.taches.length && !data.routines.length;
+  const expirees = data?.propositions_expirees ?? [];
+  const vide = data && !data.taches.length && !data.routines.length && !expirees.length;
   let corps: React.ReactNode;
   if (erreur && !data) {
     corps = (
@@ -103,6 +106,18 @@ export function ActivitePage({ agentId, onOpenTache, onOpenAgent }: {
                   <span className="task-meta">{t("{n} passages", { n: r.passages })}</span>
                   <ChevronRight className="chev" aria-hidden />
                 </button>
+              ))}
+            </div>
+          </section>
+        )}
+        {expirees.length > 0 && (
+          <section className="stack g8" aria-label={t("Propositions sans réponse")} data-propositions-expirees>
+            <h2 className="h2">{t("Propositions sans réponse")}</h2>
+            <div className="list">
+              {expirees.map((p) => (
+                <div key={p.id} className="row" data-proposition={p.id} data-etat="expiree">
+                  <span className="grow stack min-w-0"><span className="row-title">{ligne(p.texte)}</span><span className="row-sub">{t("{agent} · expirée", { agent: p.agent })}</span></span>
+                </div>
               ))}
             </div>
           </section>
