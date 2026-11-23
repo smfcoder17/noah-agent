@@ -486,6 +486,7 @@ WHITELIST = {
 # Routes sans identifiant : la configuration globale, refusée à un profil…
 OWNER_ROUTES = {
     ("GET", "/api/fournisseurs"): None,
+    ("GET", "/api/abonnements/utilisation"): None,  # utilisation des abonnements du propriétaire (abonnements_utilisation_test)
     ("GET", "/api/modele-rapide"): None,  # 0.1.9 : modèle rapide, réservé au propriétaire (rapide.py)
     ("POST", "/api/modele-rapide/mesurer"): None,
     ("POST", "/api/setup/done"): None,

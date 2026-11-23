@@ -88,9 +88,11 @@ def _subscriptions(raw: dict) -> dict:
     """Ce que l'ordinateur dit de ses abonnements, réduit à des drapeaux et des mots courts : jamais un e-mail ni un jeton."""
     c = raw.get("claude") if isinstance(raw.get("claude"), dict) else {}
     g = raw.get("chatgpt") if isinstance(raw.get("chatgpt"), dict) else {}
+    x = raw.get("grok") if isinstance(raw.get("grok"), dict) else {}
     return {"claude": {"installe": c.get("installe") is True, "connecte": c.get("connecte") is True, "offre": _word(c.get("offre")).lower(),
                        "methode": _word(c.get("methode")).lower(), "permis": c.get("permis") is True, "occupe": c.get("occupe") is True},
-            "chatgpt": {"connecte": g.get("connecte") is True, "permis": g.get("permis") is True}}
+            "chatgpt": {"connecte": g.get("connecte") is True, "permis": g.get("permis") is True},
+            "grok": {"installe": x.get("installe") is True, "connecte": x.get("connecte") is True, "permis": x.get("permis") is True}}
 
 
 def _queue(device: str) -> asyncio.Queue:
@@ -499,8 +501,71 @@ async def beat(body: Beat, request: Request, noah_session: str | None = Cookie(N
     brains = _brains(body.abonnements)
     _touch(device, user, os=body.os, bat=True, dossiers=shown, coupe=body.coupe, abonnements=_subscriptions(body.abonnements), cerveaux=brains)
     _remember_models(user, brains)
+    _remember_usage(user, body.abonnements.get("utilisation"))
     # Le compte sous une forme qui ne dit rien : l'application efface ses droits si elle change de compte.
     return {"compte": hashlib.sha256(f"noah-compte:{user}".encode()).hexdigest()[:16]}
+
+
+# --- Utilisation des abonnements : ce que l'ordinateur lit chez Claude Code, ChatGPT et Grok, gardé pour l'écran du propriétaire ----------
+# L'ordinateur envoie un instantané par abonnement (pourcentage utilisé, remise à zéro, état, tours). Seuls des champs connus, de forme
+# stricte, sont gardés : un jeton, un e-mail ou un texte libre n'a nulle part où entrer. Rien n'est envoyé par un autre compte.
+
+USAGE_NAMES = {"claude": "Claude Code", "chatgpt": "ChatGPT", "grok": "Grok"}
+_USAGE_STATES = {"permis", "bientot", "limite"}
+
+
+def _int(value, low: int, high: int) -> int | None:
+    return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and low <= value <= high else None
+
+
+def _usage(raw) -> dict:
+    """Les instantanés d'utilisation, réduits à des nombres bornés et des mots courts."""
+    out = {}
+    for provider in USAGE_NAMES:
+        s = raw.get(provider) if isinstance(raw, dict) else None
+        if not isinstance(s, dict):
+            continue
+        windows = []
+        for w in (s.get("fenetres") if isinstance(s.get("fenetres"), list) else [])[:12]:
+            if not isinstance(w, dict) or not _word(w.get("id"), 40):
+                continue
+            pct = w.get("pct")
+            windows.append({"id": _word(w.get("id"), 40), "pct": round(float(pct), 1) if isinstance(pct, (int, float)) and not isinstance(pct, bool) and 0 <= pct <= 100 else None,
+                            "reset": _int(w.get("reset"), 1, 4_102_444_800), "etat": w.get("etat") if w.get("etat") in _USAGE_STATES else "permis"})
+        model = s.get("modele") if isinstance(s.get("modele"), str) and _MODEL_NAME.fullmatch(s["modele"]) else ""
+        out[provider] = {"offre": _word(s.get("offre"), 20).lower(), "modele": model, "mesure_le": _int(s.get("mesure_le"), 1, 4_102_444_800_000) or 0,
+                         "tours": _int(s.get("tours"), 0, 10**9) or 0, "jetons": _int(s.get("jetons"), 0, 10**12) or 0, "fenetres": windows}
+    return out
+
+
+def _stored_usage(user: int) -> dict:
+    try:
+        data = json.loads(db.get_setting(f"abonnements_utilisation:{user}") or "{}")
+    except ValueError:
+        return {}
+    return _usage(data)
+
+
+def _remember_usage(user: int, raw) -> None:
+    """Garde le plus récent par abonnement (plusieurs ordinateurs possibles), lisible ordinateur éteint."""
+    fresh = _usage(raw)
+    if not fresh:
+        return
+    kept = _stored_usage(user)
+    for provider, snap in fresh.items():
+        if provider not in kept or snap["mesure_le"] >= kept[provider]["mesure_le"]:
+            kept[provider] = snap
+    value = json.dumps(kept, sort_keys=True)
+    if db.get_setting(f"abonnements_utilisation:{user}") != value:
+        db.set_setting(f"abonnements_utilisation:{user}", value)
+
+
+@router.get("/api/abonnements/utilisation")
+async def subscriptions_usage(user: int = Depends(access.owner_only)):
+    """La dernière mesure de chaque abonnement du propriétaire, et si un ordinateur est en ligne pour la rafraîchir."""
+    kept = _stored_usage(user)
+    return {"en_ligne": connected(user),
+            "abonnements": [{"id": p, "nom": USAGE_NAMES[p], **kept[p]} for p in USAGE_NAMES if p in kept]}
 
 
 @router.get("/api/desktop/encore/{rid}")
