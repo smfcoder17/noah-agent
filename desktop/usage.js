@@ -74,6 +74,13 @@ function fromCodexLimits(limits, now = Date.now()) {
   return out;
 }
 
+/** Réponse de `account/rateLimits/read` du serveur d'application de Codex : { rateLimits | rateLimitsByLimitId.codex : { primary, secondary: { usedPercent, windowDurationMins, resetsAt } } }. */
+function fromAppServerLimits(result, now = Date.now()) {
+  const bucket = result?.rateLimitsByLimitId?.codex || result?.rateLimits;
+  const snake = (w) => (w && typeof w === "object" ? { used_percent: w.usedPercent, window_minutes: w.windowDurationMins, resets_at: w.resetsAt } : null);
+  return fromCodexLimits({ primary: snake(bucket?.primary), secondary: snake(bucket?.secondary) }, now);
+}
+
 /** En-têtes d'une réponse (objet Headers ou fonction get) → fenêtres, si OpenAI les a jointes. Rend aussi les NOMS d'en-têtes vus. */
 function fromHeaders(headers, now = Date.now()) {
   const get = (name) => (typeof headers?.get === "function" ? headers.get(name) : null);
@@ -153,4 +160,4 @@ function describe(provider, snap, t, lang = "fr", now = Date.now()) {
 const reset = () => { for (const k of Object.keys(snapshots)) snapshots[k] = null; };
 const forget = (provider) => { if (provider in snapshots) snapshots[provider] = null; };
 
-module.exports = { describe, fromClaudeEvent, fromCodexLimits, fromHeaders, limitHeaderNames, record, snapshot, reset, forget, windowId };
+module.exports = { fromAppServerLimits, describe, fromClaudeEvent, fromCodexLimits, fromHeaders, limitHeaderNames, record, snapshot, reset, forget, windowId };
