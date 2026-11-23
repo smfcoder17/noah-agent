@@ -2,11 +2,12 @@
 import { del, get, send } from "@/lib/api";
 import { appShell } from "@/lib/platform";
 import { ProviderLogo, providerLogo } from "./ProviderLogo";
+import { SubscriptionUsage } from "./SubscriptionUsage";
 import { Button, ErrorText, Input, Label } from "./ui";
 import { t } from "@/i18n";
 
 type Provider = { id: string; label: string; connected: boolean; models: number; base_url: string; needs_key: boolean; own_url: boolean;
-  /** Abonnement par l'application de bureau (Claude Code, ChatGPT) ; pret : un ordinateur de ce compte le sert en ce moment. */
+  /** Abonnement par l'application de bureau (Claude Code, ChatGPT, Grok) ; pret : un ordinateur de ce compte le sert en ce moment. */
   ordinateur?: boolean; pret?: boolean | null;
   /** Fournisseur « autre » (nom, adresse et clé à lui) ; en_service : c'est le cerveau, on ne le débranche pas. */
   autre?: boolean; en_service?: boolean };
@@ -15,6 +16,7 @@ type Provider = { id: string; label: string; connected: boolean; models: number;
 const ON_COMPUTER: Record<string, { page: string; logo: string }> = {
   "ordinateur:claude-code": { page: "claude", logo: "anthropic" },
   "ordinateur:chatgpt": { page: "chatgpt", logo: "openai" },
+  "ordinateur:grok": { page: "grok", logo: "x-ai" },
 };
 const DOWNLOAD = "https://github.com/smfcoder17/noah-agent/releases/latest";
 
@@ -22,6 +24,7 @@ const DOWNLOAD = "https://github.com/smfcoder17/noah-agent/releases/latest";
 function shownLabel(p: Provider, inDesktop: boolean): string {
   if (p.id === "ordinateur:claude-code") return inDesktop ? t("Claude Code (ton ordinateur)") : t("Claude Code (ton ordinateur seulement)");
   if (p.id === "ordinateur:chatgpt") return inDesktop ? t("ChatGPT (ton ordinateur)") : t("ChatGPT (ton ordinateur seulement)");
+  if (p.id === "ordinateur:grok") return inDesktop ? t("Grok (ton ordinateur)") : t("Grok (ton ordinateur seulement)");
   return p.label;
 }
 
@@ -80,6 +83,7 @@ export function Providers() {
     {selected?.ordinateur ? <OnComputer p={selected} label={shownLabel(selected, inDesktop)} inDesktop={inDesktop} busy={busy} onConnect={plug} onBack={() => select(null)} />
       : selected || adding ? <form className="flex flex-col gap-3" onSubmit={connect}><h3>{selected ? selected.label : t("Un autre fournisseur")}</h3>{(adding || selected?.autre) && <Label>{t("Nom")}<Input aria-label={t("Nom du fournisseur")} value={name} onChange={(e) => setName(e.target.value)} placeholder={t("Mon serveur")} /></Label>}{(adding || selected?.own_url) && <Label>{t("Adresse de l'API")}<Input type="url" aria-label={t("Adresse du fournisseur")} value={base} onChange={(e) => setBase(e.target.value)} placeholder={t("https://mon-fournisseur.fr/v1")} /></Label>}<Label>{selected?.needs_key ? t("Clé API") : t("Clé API (facultative)")}<Input aria-label={t("Clé API du fournisseur")} type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} /></Label><div className="flex flex-wrap gap-2"><Button type="button" variant="ghost" onClick={back}>{t("Retour aux fournisseurs")}</Button><Button disabled={busy}>{busy ? t("Connexion…") : t("Brancher")}</Button>{selected?.autre && !selected.en_service && <Button type="button" variant="outline" disabled={busy} onClick={unplug}>{t("Débrancher")}</Button>}</div>{selected?.autre && selected.en_service && <p className="text-sm text-muted-foreground">{t("Ce fournisseur est ton cerveau : choisis-en un autre avant de le débrancher.")}</p>}</form>
       : list && <>{[true, false].map((connected) => <div key={String(connected)} className="flex flex-col gap-2"><h3 className="section-label">{connected ? t("Branchés") : t("À brancher")}</h3><div className="shell-group">{list.filter((p) => p.connected === connected && (connected || !p.autre)).map((p) => <button key={p.id} className="shell-row" onClick={() => open(p)}>{logo(p)}<span className="grow"><span className="block">{shownLabel(p, inDesktop)}</span>{p.connected && <small className="block text-muted-foreground text-[12.5px]">{p.models ? (p.models > 1 ? t("{n} modèles", { n: p.models }) : t("{n} modèle", { n: p.models })) : t("Branché")}</small>}</span><span aria-hidden>›</span></button>)}{connected && !list.some((p) => p.connected) && <p className="shell-row">{t("Aucun fournisseur branché.")}</p>}</div></div>)}<button className="shell-row shell-group" onClick={addOther}><span aria-hidden>＋</span><span><span className="block">{t("Un autre fournisseur")}</span><small className="text-muted-foreground text-[12.5px]">{t("Nom, adresse (compatible OpenAI) et clé : autant que tu veux")}</small></span></button></>}
+    {!selected && !adding && <SubscriptionUsage />}
     <ErrorText>{error}</ErrorText>{error && !list && <Button onClick={load}>{t("Réessayer")}</Button>}
   </section>;
 }

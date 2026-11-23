@@ -33,12 +33,17 @@ const autonomy = require("./autonomie").create(readConfig, writeConfig);
 // Abonnements de la personne (Claude Code, forfait ChatGPT) : réglés ici, sur cet ordinateur, éteints par défaut.
 const claude = require("./claude");
 const chatgpt = require("./chatgpt");
+const grok = require("./grok");
+const codex = require("./codex");
+const installer = require("./installateur");
+const usage = require("./usage");
 const rights = () => {
   const c = readConfig();
   return { claude: c.abonnement_claude === true, claudeProfil: c.abonnement_claude_outils === "complet" ? "complet" : "fichiers",
     claudeMinutes: Number.isInteger(c.abonnement_claude_minutes) ? Math.min(Math.max(c.abonnement_claude_minutes, 5), 120) : 30,
     claudeCerveau: c.abonnement_claude_cerveau === true,
-    chatgpt: c.abonnement_chatgpt === true, chatgptModele: typeof c.chatgpt_modele === "string" ? c.chatgpt_modele : "" };
+    chatgpt: c.abonnement_chatgpt === true, chatgptModele: typeof c.chatgpt_modele === "string" ? c.chatgpt_modele : "",
+    grok: c.abonnement_grok === true, grokModele: typeof c.grok_modele === "string" ? c.grok_modele : "" };
 };
 // noah-agent://abonnements/claude (ou /chatgpt), depuis le web ou le téléphone : ouvre l'app, ou la ramène au premier plan, sur cet abonnement.
 const liens = require("./liens");
@@ -730,7 +735,7 @@ async function setCut(cut) {
     return foldersState();
   }
   folders().setCut(cut);
-  if (cut) claude.stopAll("coupe"); // la tâche confiée en cours s'arrête aussi
+  if (cut) { claude.stopAll("coupe"); grok.stopAll("coupe"); } // la tâche confiée en cours s'arrête aussi
   createTrayMenuState();
   listening?.beat();
   return foldersState();
@@ -752,17 +757,91 @@ function subscriptionsChanged() {
 
 async function detectClaude() {
   await claude.detect().catch(() => {});
+  await grok.detect().catch(() => {});
+  await readChatgptLimits();
+  subscriptionsChanged();
+}
+
+/** Limites du forfait ChatGPT : demandées à `codex app-server` (interface officielle), seulement si Noah est relié à ChatGPT et Codex est là. */
+async function readChatgptLimits() {
+  if (!chatgpt.connected() || !codex.installed()) return;
+  await codex.readLimits().catch(() => {}); // Codex absent, non connecté ou muet : on garde le comptage des tours, rien d'inventé
+}
+
+// Installer la CLI d'un abonnement quand elle manque (installateur officiel de l'éditeur, accord explicite, progression au menu).
+let installing = null; // { which, step } : le menu le montre pendant l'installation
+const installLog = (line) => {
+  try {
+    const file = path.join(app.getPath("userData"), "journal-installation.log");
+    if (fs.existsSync(file) && fs.statSync(file).size > 200000) fs.renameSync(file, file + ".old");
+    fs.appendFileSync(file, `${new Date().toISOString()} ${installer.scrub(line)}\n`);
+  } catch { /* le journal ne doit jamais gêner l'app */ }
+};
+const REASONS = { reseau: "installation.erreur.reseau", adresse: "installation.erreur.adresse", installateur: "installation.erreur.installateur",
+  introuvable: "installation.erreur.introuvable", delai: "installation.erreur.delai", plateforme: "installation.erreur.plateforme" };
+
+/** Rend vrai quand la CLI est là (déjà présente, ou installée à l'instant). Faux : refus de la personne, ou erreur déjà montrée. */
+async function ensureCli(which) {
+  const mod = which === "claude" ? claude : grok;
+  if (mod.locate()) return true;
+  const r = await installer.ensure(which, {
+    locate: mod.locate,
+    confirm: (src, url) => askSystem(t("installation.accord", { nom: src.nom, editeur: src.editeur, site: src.site, mo: src.mo }), t("installation.detail", { adresse: url }), t("installation.bouton")),
+    onProgress: (step) => { installing = { which, step }; subscriptionsChanged(); },
+    log: installLog,
+  });
+  installing = null;
+  await mod.detect().catch(() => {});
+  subscriptionsChanged();
+  if (r.refuse) return false;
+  if (r.erreur) {
+    const key = REASONS[r.erreur] || "installation.erreur.installateur";
+    dialog.showMessageBox({ type: "warning", title: "Noah Agent", message: t("installation.echec", { nom: installer.SOURCES[which].nom }), detail: t(key) });
+    return false;
+  }
+  return true;
+}
+
+async function claudeLogin() {
+  if (!(await ensureCli("claude"))) return;
+  const r = await claude.login();
+  if (r.erreur) dialog.showMessageBox({ type: "warning", title: "Noah Agent", message: t("abonnement.claude.echec"), detail: String(r.erreur).slice(0, 300) });
+  subscriptionsChanged();
+}
+
+async function grokLogin() {
+  if (!(await ensureCli("grok"))) return;
+  const r = await grok.login({
+    // La commande affiche un code et une adresse chez xAI (invisibles sans terminal) : on les montre et on ouvre l'adresse.
+    onInfo: ({ url, code }) => {
+      shell.openExternal(url).catch(() => {});
+      dialog.showMessageBox({ type: "info", title: "Noah Agent", message: t("abonnement.grok.code", { code }), detail: t("abonnement.grok.code.detail", { adresse: url }) });
+    },
+  });
+  if (r.erreur) dialog.showMessageBox({ type: "warning", title: "Noah Agent", message: t("abonnement.grok.echec"), detail: String(r.erreur).slice(0, 300) });
   subscriptionsChanged();
 }
 
 async function chatgptLogin() {
   try {
     await chatgpt.login({ open: (url) => shell.openExternal(url), read: readConfig, write: writeConfig });
+    await readChatgptLimits();
   } catch (e) {
     dialog.showMessageBox({ type: "warning", title: "Noah Agent", message: t("abonnement.chatgpt.echec"), detail: String(e.message || e).slice(0, 300) });
   }
   subscriptionsChanged();
 }
+
+/** L'utilisation d'un abonnement dans le menu : une ligne grisée par fenêtre mesurée (42 % de ta semaine, remise à zéro jeu. 09:00). */
+function usageItems(provider, name) {
+  const lang = /^fr/i.test(app.getLocale?.() || "fr") ? "fr" : "en";
+  const snap = usage.snapshot()[provider];
+  if (!snap && provider !== "claude") return [];
+  return usage.describe(provider, snap, t, lang).map((detail) => ({ label: t("usage.ligne", { nom: name, detail }), enabled: false }));
+}
+
+const installStep = (step) => (step === "telechargement" ? t("installation.etape.telechargement") : step === "installation" ? t("installation.etape.installation")
+  : step === "verification" ? t("installation.etape.verification") : t("installation.etape.accord"));
 
 function subscriptionsMenu(only) {
   const r = rights();
@@ -770,8 +849,12 @@ function subscriptionsMenu(only) {
   const claudeState = !c.installe ? t("abonnement.claude.absent") : !c.connecte ? t("abonnement.claude.deconnecte")
     : t("abonnement.claude.connecte", { offre: c.offre || "—" });
   const models = chatgpt.models();
+  const g = grok.status();
+  const grokModels = grok.models();
   const items = [
     { label: claudeState, enabled: false },
+    ...(installing?.which === "claude" ? [{ label: t("installation.en_cours", { nom: "Claude Code", etape: installStep(installing.step) }), enabled: false }]
+      : !c.installe || !c.connecte ? [{ label: !c.installe ? t("installation.menu", { nom: "Claude Code" }) : t("abonnement.claude.connexion"), click: claudeLogin }] : []),
     { label: t("abonnement.claude.permis"), type: "checkbox", checked: r.claude, enabled: c.installe, click: async (item) => {
       if (item.checked && !(await askSystem(t("abonnement.claude.permis"), t("abonnement.claude.avertissement"), t("abonnement.allumer")))) return subscriptionsChanged();
       writeConfig({ abonnement_claude: item.checked });
@@ -785,6 +868,7 @@ function subscriptionsMenu(only) {
       writeConfig({ abonnement_claude_cerveau: item.checked });
       subscriptionsChanged();
     } },
+    ...usageItems("claude", t("abonnement.claude.nom")),
     { label: t("abonnement.claude.arreter"), enabled: c.occupe, click: () => { claude.stopAll("annule"); } },
     { label: t("abonnement.claude.verifier"), click: detectClaude },
     { type: "separator" },
@@ -796,10 +880,25 @@ function subscriptionsMenu(only) {
     ...(models.length ? [{ label: t("abonnement.chatgpt.modele"), submenu: models.map((m) => ({
       label: m.nom, type: "radio", checked: (r.chatgptModele || models[0].slug) === m.slug, click: () => { writeConfig({ chatgpt_modele: m.slug }); subscriptionsChanged(); },
     })) }] : []),
+    ...usageItems("chatgpt", "ChatGPT"),
+    { type: "separator" },
+    { label: !g.installe ? t("abonnement.grok.absent") : g.connecte ? t("abonnement.grok.connecte") : t("abonnement.grok.deconnecte"), enabled: false },
+    g.connecte
+      ? { label: t("abonnement.grok.deconnexion"), click: async () => { await grok.logout(); writeConfig({ abonnement_grok: false }); subscriptionsChanged(); } }
+      : { label: installing?.which === "grok" ? t("installation.en_cours", { nom: "Grok", etape: installStep(installing.step) }) : !g.installe ? t("installation.menu", { nom: "Grok" }) : t("abonnement.grok.connexion"), enabled: installing?.which !== "grok", click: grokLogin },
+    { label: t("abonnement.grok.permis"), type: "checkbox", checked: r.grok, enabled: g.connecte, click: async (item) => {
+      if (item.checked && !(await askSystem(t("abonnement.grok.permis"), t("abonnement.grok.avertissement"), t("abonnement.allumer")))) return subscriptionsChanged();
+      writeConfig({ abonnement_grok: item.checked });
+      subscriptionsChanged();
+    } },
+    ...(grokModels.length ? [{ label: t("abonnement.grok.modele"), submenu: grokModels.map((m) => ({
+      label: m.nom, type: "radio", checked: r.grokModele === m.slug, click: () => { writeConfig({ grok_modele: m.slug }); subscriptionsChanged(); },
+    })) }] : []),
+    ...usageItems("grok", "Grok"),
   ];
-  // Un seul abonnement (lien noah-agent://) : sa partie du menu, avant ou après le séparateur.
-  const cut = items.findIndex((i) => i.type === "separator");
-  const shown = only === "claude" ? items.slice(0, cut) : only === "chatgpt" ? items.slice(cut + 1) : items;
+  // Un seul abonnement (lien noah-agent://) : sa partie du menu, entre les séparateurs.
+  const cuts = items.map((i, n) => (i.type === "separator" ? n : -1)).filter((n) => n >= 0);
+  const shown = only === "claude" ? items.slice(0, cuts[0]) : only === "chatgpt" ? items.slice(cuts[0] + 1, cuts[1]) : only === "grok" ? items.slice(cuts[1] + 1) : items;
   return { label: t("menu.abonnements"), submenu: shown };
 }
 
@@ -1071,6 +1170,7 @@ if (!app.requestSingleInstanceLock()) {
     listening = actions.listen(() => origin, folders());
     // Le jeton ChatGPT : chiffré par le système, dans son propre fichier. Claude Code : son état, demandé à la CLI toutes les 10 minutes.
     chatgpt.configure({ storage: chatgpt.sealedFile(path.join(app.getPath("userData"), "chatgpt.bin"), safeStorage) });
+    grok.configure({ connected: readConfig().grok_connecte === true, models: readConfig().grok_modeles, changed: () => { writeConfig({ grok_connecte: grok.status().connecte, grok_modeles: grok.models().map((m) => m.slug) }); subscriptionsChanged(); } });
     chatgpt.refreshCatalog().then(subscriptionsChanged, () => {});
     detectClaude().then(() => openSubscription(askedSubscription));
     setInterval(detectClaude, 10 * 60 * 1000);

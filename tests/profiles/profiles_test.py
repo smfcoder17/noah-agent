@@ -488,6 +488,7 @@ WHITELIST = {
 OWNER_ROUTES = {
     ("GET", "/api/fournisseurs"): None,
     ("POST", "/api/fournisseurs"): {"nom": "Mon service", "base_url": "http://service.test/v1"},
+    ("GET", "/api/abonnements/utilisation"): None,  # utilisation des abonnements du propriétaire (abonnements_utilisation_test)
     ("GET", "/api/modele-rapide"): None,  # 0.1.9 : modèle rapide, réservé au propriétaire (rapide.py)
     ("POST", "/api/modele-rapide/mesurer"): None,
     ("POST", "/api/setup/done"): None,

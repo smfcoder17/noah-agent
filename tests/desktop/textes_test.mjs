@@ -42,7 +42,7 @@ check("anglais sans ponctuation française (« », espace avant : ; ! ?)", () =>
 
 // Clés utilisées : toute chaîne du code qui a la forme d'une clé (mots séparés par des points), sauf les noms de fichier.
 const KEY = /["'`]([a-z_]+(?:\.[a-z_]+)+)["'`]/g;
-const FILE = /\.(js|mjs|html|json|png|yml|yaml|md|env|exe|cmd|bin)$|^agent\.noah\.desktop$/; // noms de fichier, identifiant de l'app
+const FILE = /\.(js|mjs|html|json|png|yml|yaml|md|env|exe|cmd|bin|ai|sh|ps1)$|^agent\.noah\.desktop$/; // noms de fichier, identifiant de l'app
 const used = new Map(); // clé → fichier
 for (const f of sources) {
   const text = read(f);

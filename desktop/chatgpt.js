@@ -38,6 +38,7 @@ const http = require("node:http");
 const fs = require("node:fs");
 const { createHash, createPublicKey, randomBytes, randomUUID, verify } = require("node:crypto");
 const responses = require("./responses");
+const usage = require("./usage");
 
 let ISSUER = "https://auth.openai.com";
 let API = "https://api.openai.com/v1";
@@ -180,6 +181,7 @@ async function login({ open, read, write, port = 1455 }) {
 
 function logout() {
   save(null);
+  usage.forget("chatgpt");
   catalog = [];
 }
 
@@ -215,10 +217,12 @@ async function refreshCatalog() {
 }
 
 const models = () => catalog;
+let seenHeaders = []; // noms d'en-têtes de limites vus à la dernière réponse (jamais leurs valeurs) : pour l'essai réel
+const limitHeaders = () => seenHeaders;
 const connected = () => Boolean(credentials());
 
 /** Lit un flux SSE de l'API Responses jusqu'à response.completed. Rend { response } ou { erreur, code }. */
-async function readStream(r) {
+async function readStream(r, onLimits = () => {}) {
   const reader = r.body.getReader();
   const decoder = new TextDecoder();
   let pending = "", done = null;
@@ -227,7 +231,8 @@ async function readStream(r) {
     if (!data || data === "[DONE]") return;
     let event;
     try { event = JSON.parse(data); } catch { return; }
-    if (event.type === EVENT("completed")) done = { response: event.response };
+    if (event.type === "codex" + ".rate_limits") onLimits(event.rate_limits || event);
+    else if (event.type === EVENT("completed")) done = { response: event.response };
     else if (event.type === EVENT("incomplete")) done = { response: { ...event.response, status: "incomplete" } };
     else if (event.type === EVENT("failed") || event.type === "error") {
       const err = event.response?.error || event.error || {};
@@ -271,14 +276,23 @@ async function call(body, chosen, signal) {
   } catch {
     return { erreur: "OpenAI unreachable", statut: 502, code: "injoignable" };
   }
+  seenHeaders = usage.limitHeaderNames(r.headers);
+  const fromHeaders = usage.fromHeaders(r.headers);
+  if (fromHeaders.length) usage.record("chatgpt", { fenetres: fromHeaders, modele: model });
   if (!r.ok) {
     const data = await r.json().catch(() => ({}));
     const code = String(data?.error?.code || "").slice(0, 80);
+    if (code === "subscription_sharing_usage_limit_exceeded") usage.record("chatgpt", { modele: model, tour: true, limite: true });
     return { erreur: String(data?.error?.message || `HTTP ${r.status}`).slice(0, 300), statut: LIMIT_CODES.has(code) ? 429 : r.status, code };
   }
-  const out = await readStream(r);
+  const out = await readStream(r, (limits) => {
+    const fenetres = usage.fromCodexLimits(limits);
+    if (fenetres.length) usage.record("chatgpt", { fenetres, modele: model });
+  });
+  if (!out.erreur) usage.record("chatgpt", { modele: model, tour: true, jetons: Number(out.response?.usage?.total_tokens) || 0 });
+  if (out.erreur && out.code === "subscription_sharing_usage_limit_exceeded") usage.record("chatgpt", { modele: model, tour: true, limite: true });
   if (out.erreur) return { erreur: out.erreur, statut: LIMIT_CODES.has(out.code) ? 429 : 502, code: out.code };
   return { ok: true, reponse: responses.toChat(out.response, model), modele: model };
 }
 
-module.exports = { configure, sealedFile, login, logout, accessToken, refreshCatalog, models, connected, call, verifyIdentity };
+module.exports = { configure, sealedFile, login, logout, accessToken, refreshCatalog, models, connected, call, verifyIdentity, limitHeaders };

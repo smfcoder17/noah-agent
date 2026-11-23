@@ -1,4 +1,4 @@
-// Actions de l'agent sur l'ordinateur : les accords restent dans le bandeau local de l'app, jamais dans la page du serveur.
+﻿// Actions de l'agent sur l'ordinateur : les accords restent dans le bandeau local de l'app, jamais dans la page du serveur.
 // Les fichiers d'un dossier confié passent sans fenêtre, selon le droit donné (voir dossiers.js).
 const { execFile } = require("node:child_process");
 const fs = require("node:fs");
@@ -10,6 +10,8 @@ const { BrowserWindow, clipboard, Notification, session, shell } = require("elec
 const dossiers = require("./dossiers");
 const claude = require("./claude");
 const chatgpt = require("./chatgpt");
+const grok = require("./grok");
+const usage = require("./usage");
 const bandeau = require("./bandeau");
 const { t } = require("./textes");
 
@@ -34,7 +36,7 @@ const actionContext = new AsyncLocalStorage();
 // Les seuls appelants de configure sont le processus principal et les tests : aucun IPC de la page web.
 let getAutonomy = () => "prudent";
 // Droits des abonnements, réglés sur cet ordinateur seulement (menu de l'icône) : éteints par défaut, le serveur ne peut pas les allumer.
-let getRights = () => ({ claude: false, claudeProfil: "fichiers", claudeMinutes: 30, claudeCerveau: false, chatgpt: false, chatgptModele: "" });
+let getRights = () => ({ claude: false, claudeProfil: "fichiers", claudeMinutes: 30, claudeCerveau: false, chatgpt: false, chatgptModele: "", grok: false, grokModele: "" });
 // Résultat d'une action : renvoyé après une coupure, 1, 3 puis 9 s plus tard. Transferts : 2 minutes au plus,
 // sinon deux fichiers figés bloqueraient toute la file (MAX_FILES_RUNNING).
 let resultDelays = [1000, 3000, 9000];
@@ -290,6 +292,8 @@ async function performAction(req, ctx) {
       return chatgptTurn(req, store);
     case "claude_cerveau":
       return claudeBrainTurn(req, ctx, store);
+    case "grok":
+      return grokTurn(req, ctx, store);
     case "lister":
     case "lire":
     case "ecrire":
@@ -362,6 +366,8 @@ function subscriptions() {
     claude: { installe: c.installe, connecte: c.connecte, offre: c.offre, methode: c.methode, permis: Boolean(rights.claude), occupe: c.occupe,
       cerveau: Boolean(rights.claudeCerveau), modeles: claude.models().map((m) => m.slug) },
     chatgpt: { connecte: chatgpt.connected(), permis: Boolean(rights.chatgpt), modeles: chatgpt.models().map((m) => m.slug).slice(0, 40) },
+    grok: { installe: grok.status().installe, connecte: grok.status().connecte, permis: Boolean(rights.grok), modeles: grok.models().map((m) => m.slug) },
+    utilisation: usage.snapshot(), // pourcentages, remises à zéro, tours : jamais un jeton
   };
 }
 
@@ -434,6 +440,24 @@ async function claudeBrainTurn(req, ctx, store) {
   }, 2000);
   try {
     return await claude.brain({ body: req.requete, model: req.modele, signal: cancel.signal });
+  } finally {
+    clearInterval(watch);
+  }
+}
+
+/** Un tour du cerveau de l'agent par Grok Build (`grok`, outils coupés). Aucun accord : la personne l'a allumé ici. */
+async function grokTurn(req, ctx, store) {
+  const rights = getRights();
+  if (store?.isCut()) return CUT;
+  if (!rights.grok) return { erreur: "Grok est coupé sur cet ordinateur", statut: 503, code: "coupe" }; // i18n-ignore : lu par le serveur
+  if (!req.requete || typeof req.requete !== "object") return { erreur: "requête illisible", statut: 400, code: "illisible" }; // i18n-ignore : lu par le serveur
+  const cancel = new AbortController();
+  const watch = setInterval(async () => {
+    if (store?.isCut()) return cancel.abort("coupe");
+    try { if (ctx.stillWanted && !(await ctx.stillWanted())) cancel.abort("annule"); } catch { /* réseau : on réessaie */ }
+  }, 2000);
+  try {
+    return await grok.brain({ body: req.requete, model: (typeof req.modele === "string" && req.modele) || rights.grokModele || "", signal: cancel.signal });
   } finally {
     clearInterval(watch);
   }

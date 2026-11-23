@@ -3,7 +3,7 @@
 const path = require("node:path");
 const { fileURLToPath } = require("node:url");
 const SCHEME = "noah-agent";
-const PAGES = new Set(["claude", "chatgpt"]);
+const PAGES = new Set(["claude", "chatgpt", "grok"]);
 
 /** L'abonnement visé par un lien, ou null. Accepte aussi la forme sans « // » que certains systèmes rendent. */
 function subscriptionOf(raw) {

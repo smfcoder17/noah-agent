@@ -541,7 +541,7 @@ try {
     // 0.1.8 lot F : main.js s'appuie sur ces modules ; les vrais, chargés tels quels.
     "./config": require("../../desktop/config.js"), "./demarrage": require("../../desktop/demarrage.js"),
     "./permissions": require("../../desktop/permissions.js"), "./textes": require("../../desktop/textes.js"),
-    "./claude": require("../../desktop/claude.js"), "./chatgpt": require("../../desktop/chatgpt.js"), "./liens": require("../../desktop/liens.js"), "./maj": require("../../desktop/maj.js"),
+    "./claude": require("../../desktop/claude.js"), "./chatgpt": require("../../desktop/chatgpt.js"), "./grok": require("../../desktop/grok.js"), "./codex": require("../../desktop/codex.js"), "./installateur": require("../../desktop/installateur.js"), "./usage": require("../../desktop/usage.js"), "./liens": require("../../desktop/liens.js"), "./maj": require("../../desktop/maj.js"),
   };
   runInNewContext(`${readFileSync(require.resolve("../../desktop/main.js"), "utf8")}\ncreateWindow();`, {
     require: (id) => mainModules[id] ?? require(id), __dirname: join(require.resolve("../../desktop/main.js"), ".."),

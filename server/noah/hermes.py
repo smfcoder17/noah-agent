@@ -253,6 +253,7 @@ PROVIDERS = {
     # Anthropic ou OpenAI. Ordinateur éteint, ou agent partagé : le fournisseur de secours répond (relay.py).
     "ordinateur:claude-code": {"label": "Claude Code (ton ordinateur)", "env": None, "model": "sonnet"},
     "ordinateur:chatgpt": {"label": "ChatGPT (ton ordinateur)", "env": None, "model": ""},
+    "ordinateur:grok": {"label": "Grok (ton ordinateur)", "env": None, "model": ""},
 }
 
 

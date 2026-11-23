@@ -407,6 +407,13 @@
 "beat"
 ],
 [
+"/api/abonnements/utilisation",
+[
+"GET"
+],
+"subscriptions_usage"
+],
+[
 "/api/desktop/encore/{rid}",
 [
 "GET"
