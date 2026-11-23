@@ -834,10 +834,10 @@ async def chatgpt_call(link: dict, agent_id: str, body: dict) -> tuple[int, dict
 # où la personne l'a permis ; l'ordinateur le passe à son `claude -p` ou à son forfait ChatGPT et rend une réponse Chat Completions.
 # Jamais pour un agent partagé ni pour la tâche d'un invité (_gatekept) : un abonnement ne se partage pas.
 
-PC_PROVIDERS = {"ordinateur:claude-code": "claude", "ordinateur:chatgpt": "chatgpt"}
-PC_ACTION = {"ordinateur:claude-code": "claude_cerveau", "ordinateur:chatgpt": "chatgpt"}
-PC_NAME = {"ordinateur:claude-code": "Claude Code", "ordinateur:chatgpt": "ChatGPT"}
-PC_WAIT = {"ordinateur:claude-code": 660, "ordinateur:chatgpt": CHATGPT_WAIT}  # 10 min par tour sur l'ordinateur, et la file
+PC_PROVIDERS = {"ordinateur:claude-code": "claude", "ordinateur:chatgpt": "chatgpt", "ordinateur:grok": "grok"}
+PC_ACTION = {"ordinateur:claude-code": "claude_cerveau", "ordinateur:chatgpt": "chatgpt", "ordinateur:grok": "grok"}
+PC_NAME = {"ordinateur:claude-code": "Claude Code", "ordinateur:chatgpt": "ChatGPT", "ordinateur:grok": "Grok"}
+PC_WAIT = {"ordinateur:claude-code": 660, "ordinateur:chatgpt": CHATGPT_WAIT, "ordinateur:grok": 660}  # 10 min par tour sur l'ordinateur, et la file
 _MODEL_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,79}")
 INCLUDED = "compris dans l'abonnement"
 
@@ -846,12 +846,14 @@ def _brains(raw: dict) -> dict:
     """Ce que l'ordinateur permet comme cerveau : un drapeau et des noms de modèles, rien d'autre."""
     c = raw.get("claude") if isinstance(raw.get("claude"), dict) else {}
     g = raw.get("chatgpt") if isinstance(raw.get("chatgpt"), dict) else {}
+    x = raw.get("grok") if isinstance(raw.get("grok"), dict) else {}
 
     def names(value) -> list[str]:
         return [m for m in value if isinstance(m, str) and _MODEL_NAME.fullmatch(m)][:40] if isinstance(value, list) else []
 
     return {"ordinateur:claude-code": {"pret": c.get("connecte") is True and c.get("cerveau") is True, "modeles": names(c.get("modeles"))},
-            "ordinateur:chatgpt": {"pret": g.get("connecte") is True and g.get("permis") is True, "modeles": names(g.get("modeles"))}}
+            "ordinateur:chatgpt": {"pret": g.get("connecte") is True and g.get("permis") is True, "modeles": names(g.get("modeles"))},
+            "ordinateur:grok": {"pret": x.get("connecte") is True and x.get("permis") is True, "modeles": names(x.get("modeles"))}}
 
 
 def _remember_models(user: int, brains: dict) -> None:
@@ -871,7 +873,7 @@ def pc_models(provider: str, user: int | None = None) -> list[dict]:
         names = json.loads(db.get_setting(f"pc_modeles:{user}:{provider}") or "[]")
     except ValueError:
         names = []
-    lab = "anthropic" if provider == "ordinateur:claude-code" else "openai"
+    lab = {"ordinateur:claude-code": "anthropic", "ordinateur:grok": "xai"}.get(provider, "openai")
     return [{"id": m, "name": f"{PC_NAME[provider]} · {m}", "lab": lab, "created": 0, "context": 200000 if lab == "anthropic" else 0,
              "price_in": None, "price_out": None, "tools": True, "vision": False, "free": False, "prix": INCLUDED, "abonnement": True}
             for m in names if isinstance(m, str) and _MODEL_NAME.fullmatch(m)]
