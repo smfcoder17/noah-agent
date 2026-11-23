@@ -162,6 +162,9 @@ jobs:
       - name: "Fournisseurs « autres » : autant qu'on veut, un agent sur l'un d'eux, l'ancien emplacement intact"
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/providers/autres_test.py"
+      - name: "Image, vidéo et voix avec la clé de n'importe quel fournisseur (OpenAI, Gemini), OpenRouter débranché"
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/providers/medias_test.py"
       - name: "Relais : flux compressé par le fournisseur"
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/providers/flux_compresse_test.py"

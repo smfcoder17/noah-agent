@@ -8,14 +8,16 @@ passer par un serveur compatible OpenAI choisi dans les réglages (voice_server)
 """
 import asyncio
 import base64
+import hashlib
 import json
 import re
+import struct
 import time
 from pathlib import Path
 
 import httpx
 
-from . import catalog, db, decision, diagnostics, modes, rapide, relay
+from . import catalog, db, decision, diagnostics, mediaprov, modes, rapide, relay
 
 BASE = "https://openrouter.ai/api/v1"
 CACHE_SECONDS = 3600
@@ -33,16 +35,18 @@ RANKING = {
     "image": [
         "google/gemini-nano-banana-2.1", "openai/gpt-image-2.5-sunburst", "google/gemini-3.1-flash-image",
         "bytedance-seed/seedream-5-0-pro", "black-forest-labs/flux-3-image", "openai/gpt-image-2",
+        "gpt-image-1", "gemini-2.5-flash-image", "imagen-4.0-generate-001",  # en direct chez OpenAI et Gemini (mediaprov.py)
     ],
-    "video": ["google/veo-3.1-fast", "bytedance/seedance-2.0", "kwaivgi/kling-v3.0-std", "minimax/hailuo-3", "alibaba/wan-3.0"],
+    "video": ["google/veo-3.1-fast", "bytedance/seedance-2.0", "kwaivgi/kling-v3.0-std", "minimax/hailuo-3", "alibaba/wan-3.0",
+              "sora-2", "veo-3.1-fast-generate-preview"],
     "music": ["google/lyria-3-pro-preview", "google/lyria-3-clip-preview"],
     "speech": [
         "microsoft/mai-voice-2.1-flash", "elevenlabs/eleven-v4-turbo", "google/gemini-3.8-flash-tts",
-        "mistralai/voxtral-mini-tts-3-0",
+        "mistralai/voxtral-mini-tts-3-0", "gpt-4o-mini-tts", "gemini-2.5-flash-preview-tts",
     ],
     "transcription": [
         "mistralai/voxtral-small-transcribe-3-0", "elevenlabs/scribe-v2", "openai/gpt-4o-mini-transcribe",
-        "openai/whisper-large-v3-turbo",
+        "openai/whisper-large-v3-turbo", "gpt-4o-mini-transcribe", "whisper-1", "gemini-2.5-flash",
     ],
 }
 
@@ -66,7 +70,7 @@ def _key() -> str:
         return db.get_setting("media_api_key", secret=True)
     key = db.get_setting("api_key", secret=True) if db.get_setting("provider") == "openrouter" and db.get_setting("api_key") else None
     if not key:
-        raise MediaError("La voix et la création passent par OpenRouter : ajoute une clé OpenRouter dans Réglages > Voix, ou indique ton propre serveur de voix.")
+        raise MediaError("Cette fonction passe par OpenRouter : ajoute une clé OpenRouter dans Réglages > Modèles et budget > Fournisseurs.")
     return key
 
 
@@ -88,12 +92,26 @@ def voice_server(kind: str) -> tuple[str, dict, str] | None:
 def voice_refusal(kinds: tuple[str, ...]) -> str | None:
     """Pourquoi ces fonctions de voix ne peuvent pas marcher, avant d'ouvrir le micro. None : rien ne s'y oppose."""
     for kind in kinds:
-        if not voice_server(kind):
-            try:
-                _key()
-            except MediaError as e:
-                return str(e)
+        if not voice_server(kind) and not capable_keys():
+            return NO_PROVIDER
     return None
+
+
+async def _direct(kind: str, model: str) -> tuple[str, str] | None:
+    """(fournisseur, clé) si ce modèle se sert en direct chez OpenAI ou Gemini ; None : par OpenRouter, comme avant."""
+    keys = capable_keys()
+    if not any(p in keys for p in mediaprov.PROVIDERS):  # OpenRouter seul : rien à chercher, comme avant
+        return None
+    try:
+        provider = provider_of(kind, model, await models(kind))
+    except (MediaError, httpx.HTTPError, KeyError, ValueError):
+        return None  # une liste illisible ne bloque pas un modèle déjà choisi : il part par OpenRouter
+    key = keys.get(provider)
+    return (provider, key) if provider in mediaprov.PROVIDERS and key else None
+
+
+def _as_media_error(e: "mediaprov.Refused") -> MediaError:
+    return MediaError(str(e), temporary=e.temporary)
 
 
 def _check_budget(agent_id: str) -> None:
@@ -177,7 +195,8 @@ def _out_of_credit(msg: str, meta: dict) -> str:
 
 # --- Catalogue ---------------------------------------------------------------------------
 
-_cache: dict[str, tuple[float, list[dict]]] = {}
+_cache: dict[str, tuple[float, list[dict]]] = {}  # tous les fournisseurs branchés (voir models)
+_cache_openrouter: dict[str, tuple[float, list[dict]]] = {}
 
 
 # Repères par famille de modèles (qualité, vitesse, forces) : routing/models.json.
@@ -272,9 +291,60 @@ async def _image_prices(c: httpx.AsyncClient, items: list[dict]) -> None:
     await asyncio.gather(*(one(m) for m in items if m.get("endpoints")))
 
 
+NO_PROVIDER = ("La voix et la création demandent la clé d'un fournisseur qui les propose (OpenRouter, OpenAI, Google Gemini) : "
+               "branche-le dans Réglages > Modèles et budget > Fournisseurs, ou indique ton propre serveur de voix.")
+_cache_stamp: dict[str, str] = {}
+
+
+def capable_keys() -> dict[str, str]:
+    """Les fournisseurs branchés qui savent créer ou parler, avec leur clé : OpenRouter, OpenAI, Gemini. Aucun n'est obligatoire."""
+    from . import providers
+    out: dict[str, str] = {}
+    try:
+        out["openrouter"] = _key()
+    except MediaError:
+        pass
+    for provider in mediaprov.PROVIDERS:
+        key = providers.key_of(provider)
+        if key:
+            out[provider] = key
+    return out
+
+
 async def models(kind: str) -> list[dict]:
-    """Modèles disponibles pour un type, du plus récent au plus ancien, avec coût, qualité, vitesse et forces."""
+    """Modèles disponibles pour un type, du plus récent au plus ancien, avec coût, qualité, vitesse et forces. Ceux de chaque fournisseur
+    branché qui le propose, chacun avec le sien (« fournisseur ») : un identifiant dit donc d'où il vient (voir provider_of)."""
+    keys = capable_keys()
+    if not keys:
+        raise MediaError(NO_PROVIDER)
+    stamp = hashlib.sha256(json.dumps(sorted(keys.items())).encode()).hexdigest()
     hit = _cache.get(kind)
+    if hit and time.time() - hit[0] < CACHE_SECONDS and _cache_stamp.get(kind, stamp) == stamp:
+        return hit[1]
+    rows: list[dict] = []
+    failed: Exception | None = None
+    for provider, key in keys.items():
+        try:
+            if provider == "openrouter":
+                rows += [{**m, "fournisseur": "openrouter"} for m in await _openrouter_models(kind)]
+            else:
+                rows += await mediaprov.models(provider, kind, key)
+        except (httpx.HTTPError, KeyError, ValueError, mediaprov.Refused) as e:
+            failed = failed or e  # un fournisseur qui ne répond pas ne cache pas les autres
+    if failed and not rows:
+        raise MediaError(str(failed), temporary=True) if isinstance(failed, mediaprov.Refused) else failed
+    _cache[kind] = (time.time(), rows)
+    _cache_stamp[kind] = stamp
+    return rows
+
+
+def provider_of(kind: str, model: str, listed: list[dict]) -> str:
+    """Le fournisseur qui sert ce modèle : celui de la liste, sinon OpenRouter (ses identifiants portent « société/modèle »)."""
+    return next((m.get("fournisseur") or "openrouter" for m in listed if m["id"] == model), "openrouter")
+
+
+async def _openrouter_models(kind: str) -> list[dict]:
+    hit = _cache_openrouter.get(kind)
     if hit and time.time() - hit[0] < CACHE_SECONDS:
         return hit[1]
     async with httpx.AsyncClient(timeout=30, headers=_headers()) as c:
@@ -304,7 +374,7 @@ async def models(kind: str) -> list[dict]:
             **({"voices": m["supported_voices"]} if m.get("supported_voices") else {}),
             **({"description": (m.get("description") or "")[:240]} if m.get("description") else {}),
         })
-    _cache[kind] = (time.time(), out)
+    _cache_openrouter[kind] = (time.time(), out)
     return out
 
 
@@ -378,6 +448,8 @@ async def route(kind: str, request: str, context: str = "") -> dict:
         typed = await _route_typed(kind, user, ms)
         if typed:
             return typed
+        if "openrouter" not in capable_keys():  # le routeur lit la demande par OpenRouter : sans lui, le classement fixe choisit
+            return {"methode": "generation", "modele": await auto_choice(kind, request), "raison": "Choix par défaut (classement du fournisseur branché)."}
         name = await voice_model()
         body = {"model": name, "temperature": 0, "max_tokens": 200, "response_format": {"type": "json_object"},
                 "messages": [{"role": "system", "content": GUIDE}, {"role": "user", "content": user}]}
@@ -475,6 +547,16 @@ async def _image(agent_id: str, prompt: str, aspect_ratio: str | None, model: st
         if not beyond_budget and _image_budget_left(agent_id) <= 0:
             raise MediaError(f"Budget d'images atteint : {IMAGE_POST_CAP:.2f} $ en une heure. Fais la suite en HTML rendu par ton navigateur. "
                              "Dépasse seulement si la personne te le demande, avec --hors-budget.".replace(".", ",", 1))
+        direct = await _direct("image", model)
+        if direct:  # la clé du fournisseur qui propose ce modèle : OpenAI, Gemini
+            try:
+                data, ext = await mediaprov.image(direct[0], direct[1], model, prompt, aspect_ratio)
+            except mediaprov.Refused as e:
+                raise _as_media_error(e) from None
+            _record(agent_id, model, None)
+            with db.connect() as c:
+                c.execute("INSERT INTO image_spend (agent_id, cost, at) VALUES (?, ?, ?)", (agent_id, 0.0, time.time()))
+            return data, ext, model
         async with httpx.AsyncClient(timeout=300, headers=_headers()) as c:
             r = await c.post(f"{BASE}/images", json=body)
         if r.status_code != 200:
@@ -534,6 +616,14 @@ async def _video(agent_id: str, prompt: str, duration: int | None, aspect_ratio:
     """Tâche asynchrone : on soumet, on attend la fin (jusqu'à 10 min), puis on télécharge le MP4."""
     _check_budget(agent_id)
     model = model or await resolve("video", prompt)
+    direct = await _direct("video", model)
+    if direct:
+        try:
+            data = await mediaprov.video(direct[0], direct[1], model, prompt, duration, aspect_ratio)
+        except mediaprov.Refused as e:
+            raise _as_media_error(e) from None
+        _record(agent_id, model, None)
+        return data, "mp4", model
     body = {"model": model, "prompt": prompt}
     if duration:
         body["duration"] = duration
@@ -567,7 +657,17 @@ async def speak(agent_id: str, text: str) -> tuple[bytes, str, str]:
     """Synthèse vocale en MP3. Rend (octets, type MIME, modèle)."""
     _check_budget(agent_id)
     own = voice_server("speech")
-    base, headers, model = own if own else (BASE, _headers(), await resolve("speech"))
+    if not own:
+        model = await resolve("speech")
+        direct = await _direct("speech", model)
+        if direct:  # chez OpenAI ou Gemini, avec leur clé
+            try:
+                data, ctype = await mediaprov.speech(direct[0], direct[1], model, text, await voice_for(model))
+            except mediaprov.Refused as e:
+                raise _as_media_error(e) from None
+            _record(agent_id, model, None)
+            return data, ctype, model
+    base, headers, model = own if own else (BASE, _headers(), model)
     body = {"model": model, "input": text[:4000], "response_format": "mp3"}
     voice = (db.get_setting("voice_name") or None) if own else await voice_for(model)
     if voice:
@@ -1071,9 +1171,10 @@ async def speak_stream(agent_id: str, texts, out: AudioStream) -> None:
         _check_budget(agent_id)
         # Serveur choisi : ni modèle de secours, ni repli vers OpenRouter, la voix ne sort pas à l'insu de la personne.
         own = voice_server("speech")
-        base, headers = own[:2] if own else (BASE, _headers())
         candidates = [own[2]] if own else _keep_voice(agent_id, await backups("speech", 2))
         model = candidates[0]
+        directs = {} if own else {m: await _direct("speech", m) for m in candidates}  # OpenAI, Gemini : leur clé, leur route
+        base, headers = own[:2] if own else ((BASE, _headers()) if not all(directs.values()) else (BASE, {}))
         chosen: asyncio.Future = asyncio.get_running_loop().create_future()  # le modèle du premier son de cette réponse
         voices = {model: db.get_setting("voice_name") or None} if own else {m: await voice_for(m) for m in candidates}
         parts: asyncio.Queue = asyncio.Queue()
@@ -1082,6 +1183,21 @@ async def speak_stream(agent_id: str, texts, out: AudioStream) -> None:
         async def attempt(m: str, text: str, q: asyncio.Queue) -> bool:
             """Une synthèse ; rend False si ce modèle refuse sans avoir rien dit."""
             voice = voices[m]
+            if directs.get(m):  # une phrase entière à la fois : ces fournisseurs ne diffusent pas le son au fil de l'eau
+                try:
+                    data, ctype = await mediaprov.speech(directs[m][0], directs[m][1], m, text, voice)
+                except mediaprov.Refused as e:
+                    print(f"[voix] {m} n'a pas lu la phrase ({e})", flush=True)
+                    return False
+                if ctype == "audio/wav":  # le même en-tête WAV pour tout le flux : on ne garde que le son
+                    q.put_nowait(struct.unpack("<I", data[24:28])[0])
+                    data = data[44:]
+                if not chosen.done():
+                    chosen.set_result(m)
+                heard.add(id(q))
+                q.put_nowait(data)
+                spoken[m] = spoken.get(m, 0) + len(text)
+                return True
             for fmt in ("pcm",) if m in _PCM_ONLY else ("mp3", "pcm"):
                 body = {"model": m, "input": text[:4000], "response_format": fmt, **({"voice": voice} if voice else {})}
                 async with relay.upstream_client().stream("POST", f"{base}/audio/speech", json=body, headers=headers, timeout=60) as r:
@@ -1168,6 +1284,16 @@ async def transcribe(agent_id: str, audio: bytes, fmt: str, language: str | None
     data = base64.b64encode(audio).decode()
     last: MediaError | None = None
     for model in await backups("transcription"):
+        direct = await _direct("transcription", model)
+        if direct:  # OpenAI, Gemini : leur clé, leur route
+            try:
+                text = await mediaprov.transcribe(direct[0], direct[1], model, audio, fmt, language)
+            except mediaprov.Refused as e:
+                last = _as_media_error(e)
+                print(f"[voix] {model} n'a pas transcrit ({e}), modèle suivant", flush=True)
+                continue
+            _record(agent_id, model, None)
+            return text
         body = {"model": model, "input_audio": {"data": data, "format": fmt}, **({"language": language} if language else {})}
         for attempt in range(2):
             try:
