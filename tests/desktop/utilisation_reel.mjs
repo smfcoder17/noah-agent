@@ -3,7 +3,8 @@
 // Ne saisit jamais d'identifiant : la connexion ChatGPT et Grok se fait dans le navigateur de la personne.
 //   node tests/desktop/utilisation_reel.mjs claude            Claude Code (déjà connecté) : un tour cerveau, une tâche confiée
 //   node tests/desktop/utilisation_reel.mjs chatgpt           ouvre la connexion ChatGPT, attend le clic, puis un tour
-//   node tests/desktop/utilisation_reel.mjs grok              Grok Build : installé ? connexion (`grok login`) puis un tour
+//   node tests/desktop/utilisation_reel.mjs grok              Grok Build : installé ? un tour d'essai ; la connexion (`grok login`) seulement si pas connecté
+//   node tests/desktop/utilisation_reel.mjs codex             limites du forfait ChatGPT lues par `codex app-server` (Codex déjà connecté)
 //   node tests/desktop/utilisation_reel.mjs claude chatgpt grok
 //   NOAH_SANS_NAVIGATEUR=1 : n'ouvre pas le navigateur, attend seulement (pour vérifier qu'on arrive bien au point de connexion)
 // Rien n'est affiché qui ressemble à un jeton : seulement des pourcentages, des états, des noms d'en-têtes et des noms de modèles.
@@ -23,7 +24,7 @@ const grok = require(join(root, "grok.js"));
 const { t } = require(join(root, "textes.js"));
 
 const wanted = new Set(process.argv.slice(2));
-if (!wanted.size) { console.log("Usage : node tests/desktop/utilisation_reel.mjs claude|chatgpt|grok [...]"); process.exit(2); }
+if (!wanted.size) { console.log("Usage : node tests/desktop/utilisation_reel.mjs claude|chatgpt|grok|codex [...]"); process.exit(2); }
 const chat = (text) => ({ messages: [{ role: "user", content: text }] });
 const show = (provider) => {
   const snap = usage.snapshot()[provider];
@@ -92,17 +93,36 @@ if (wanted.has("grok")) {
     console.log("  Grok Build n'est pas installé sur ce PC. Installation officielle (PowerShell) : irm https://x.ai/cli/install.ps1 | iex");
     ok("Grok Build installé", false, "voir la ligne ci-dessus");
   } else {
-    console.log("  Grok Build trouvé. La connexion s'ouvre dans ton navigateur (commande officielle : grok login).");
-    const login = await grok.login();
-    ok("connexion `grok login`", login.ok === true, JSON.stringify(login));
+    // Pas de commande officielle d'état (`grok usage` répond « lance /usage dans grok » hors terminal) : un tour d'essai tranche.
+    // Déjà connecté : aucune connexion relancée. Sinon : `grok login` (code d'appareil), dont on montre l'adresse et le code.
     usage.reset();
-    const out = await grok.brain({ body: chat("Réponds uniquement par le mot : ok"), model: "" });
-    ok("tour réel par Grok Build", out.ok === true, JSON.stringify(out).slice(0, 400));
+    console.log("  Grok Build trouvé. Tour d'essai pour savoir s'il est déjà connecté...");
+    let out = await grok.brain({ body: chat("Réponds uniquement par le mot : ok"), model: "" });
+    if (out.ok === true) {
+      ok("déjà connecté : connexion `grok login` non relancée", true);
+    } else if (out.code === "deconnecte") {
+      console.log("  Pas connecté : `grok login` (code d'appareil). L'adresse et le code s'affichent ici ; l'adresse s'ouvre dans ton navigateur.");
+      const login = await grok.login({ onInfo: ({ url, code }) => { console.log(`  adresse de vérification : ${url}\n  code à recopier : ${code}`); if (process.env.NOAH_SANS_NAVIGATEUR !== "1") openBrowser(url); } });
+      ok("connexion `grok login`", login.ok === true, JSON.stringify(login));
+      usage.reset();
+      out = await grok.brain({ body: chat("Réponds uniquement par le mot : ok"), model: "" });
+    }    ok("tour réel par Grok Build", out.ok === true, JSON.stringify(out).slice(0, 400));
     console.log(`  modèle annoncé par la CLI : ${out.modele_exact}, modèles connus : ${grok.models().map((m) => m.slug).join(", ")}`);
     show("grok");
     ok("l'état connecté a été gardé", saved);
   }
 }
 
+if (wanted.has("codex")) {
+  console.log("\n=== Limites du forfait ChatGPT par `codex app-server` (réel) ===");
+  const codex = require(join(root, "codex.js"));
+  ok("Codex installé", codex.installed());
+  if (codex.installed()) {
+    usage.reset();
+    const out = await codex.readLimits();
+    ok("limites lues par l'interface officielle de Codex", out.ok === true, JSON.stringify(out));
+    show("chatgpt");
+  }
+}
 console.log(failed ? `\n${failed} échec(s)` : "\nEssai réel : tout est passé.");
 process.exit(failed ? 1 : 0);

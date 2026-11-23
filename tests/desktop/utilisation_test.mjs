@@ -23,6 +23,7 @@ const actions = require("../../desktop/actions.js");
 const claude = require("../../desktop/claude.js");
 const chatgpt = require("../../desktop/chatgpt.js");
 const grok = require("../../desktop/grok.js");
+const codex = require("../../desktop/codex.js");
 const usage = require("../../desktop/usage.js");
 const { t } = require("../../desktop/textes.js");
 Module._load = originalLoad;
@@ -241,6 +242,66 @@ await step("Grok, déconnexion : `grok logout`, l'état et l'utilisation sont ef
   assert.equal(grok.status().connecte, false);
   assert.equal(usage.snapshot().grok, undefined);
   assert.deepEqual(traces().at(-1).args, ["logout"]);
+});
+
+await step("Grok, connexion par code d'appareil : adresse x.ai et code rendus à l'app, jamais une autre adresse", async () => {
+  process.env.FAUX_GROK_DEVICE = "https://accounts.x.ai/oauth2/device";
+  const seen = [];
+  const out = await grok.login({ onInfo: (info) => seen.push(info) });
+  delete process.env.FAUX_GROK_DEVICE;
+  assert.equal(out.ok, true);
+  assert.deepEqual(seen, [{ url: "https://accounts.x.ai/oauth2/device", code: "WXYZ-2468" }], "montré une seule fois, sans les codes de couleur");
+  assert.deepEqual(grok.deviceInfo("open https://evil.example/x.ai and enter code ABCD-1234"), { url: "", code: "ABCD-1234" }, "adresse hors x.ai écartée");
+  assert.equal(grok.deviceInfo("open http://accounts.x.ai/device"), null, "HTTP refusé");
+  assert.equal(grok.deviceInfo("open https://x.ai.evil.com/device"), null, "domaine déguisé refusé");
+  assert.equal(grok.deviceInfo("rien d'utile ici"), null);
+  assert.deepEqual(grok.deviceInfo("https://accounts.x.ai/oauth2/device?user_code=QRST-1357"), { url: "https://accounts.x.ai/oauth2/device?user_code=QRST-1357", code: "QRST-1357" });
+});
+
+await step("Grok, connexion refusée : l'échec est rendu, rien n'est marqué connecté", async () => {
+  await grok.logout();
+  process.env.FAUX_GROK_LOGIN = "0";
+  const out = await grok.login({ onInfo: () => {} });
+  delete process.env.FAUX_GROK_LOGIN;
+  assert.ok(out.erreur);
+  assert.equal(grok.status().connecte, false);
+});
+
+// --- Limites du forfait ChatGPT, lues par `codex app-server` (faux binaire) -------------------------------------------------
+const fauxCodex = { cmd: process.execPath, prefix: [join(here, "faux_codex.mjs")] };
+await step("Codex app-server : initialize puis limites du forfait, en pourcentages seulement, e-mail jeté", async () => {
+  usage.reset();
+  codex.configure({ program: fauxCodex, timeout: 5000 });
+  assert.equal(codex.installed(), true);
+  const out = await codex.readLimits();
+  assert.equal(out.ok, true);
+  assert.equal(out.offre, "plus");
+  assert.deepEqual(out.fenetres.map((w) => [w.id, w.pct, w.reset]), [["five_hour", 25, 1900000000], ["seven_day", 60, 1900500000]]);
+  const snap = usage.snapshot().chatgpt;
+  assert.equal(snap.offre, "plus");
+  assert.ok(!/personne@example|email/i.test(JSON.stringify(usage.snapshot())), "l'e-mail ne reste nulle part");
+});
+
+await step("Codex app-server : non connecté, muet, sans mesure, absent : une erreur claire, aucun instantané inventé", async () => {
+  for (const [mode, wanted] of [["deconnecte", "non_connecte"], ["muet", "delai"], ["vide", "sans_mesure"]]) {
+    usage.reset();
+    process.env.FAUX_CODEX_MODE = mode;
+    codex.configure({ program: fauxCodex, timeout: mode === "muet" ? 400 : 5000 });
+    const out = await codex.readLimits();
+    assert.equal(out.erreur, wanted, mode);
+    assert.equal(usage.snapshot().chatgpt, undefined, mode);
+  }
+  delete process.env.FAUX_CODEX_MODE;
+  codex.configure({ program: { cmd: join(base, "n-existe-pas.exe"), prefix: [] }, timeout: 3000 });
+  assert.equal((await codex.readLimits()).erreur, "absent");
+  codex.configure({});
+});
+
+await step("usage.fromAppServerLimits : noms de l'app-server (usedPercent, windowDurationMins, resetsAt), repli sur rateLimits", async () => {
+  const w = usage.fromAppServerLimits({ rateLimits: { primary: { usedPercent: 9, windowDurationMins: 43200, resetsAt: 1797168627 }, secondary: null } });
+  assert.deepEqual(w.map((x) => [x.id, x.pct]), [["thirty_day", 9]]);
+  assert.deepEqual(usage.fromAppServerLimits({}), []);
+  assert.deepEqual(usage.fromAppServerLimits(null), []);
 });
 
 await step("l'instantané qui part au serveur ne contient aucun jeton, e-mail ni chemin", async () => {

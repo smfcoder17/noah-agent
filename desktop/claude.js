@@ -40,7 +40,8 @@ function configure({ program, minute } = {}) {
 /** Le binaire officiel : claude.exe dans le PATH, celui que l'installation npm enveloppe, ou l'installation native. */
 function locate() {
   if (configured) return configured;
-  const dirs = String(process.env.PATH || "").split(path.delimiter).filter(Boolean);
+  // Le PATH de ce processus peut dater d'avant l'installation : les emplacements par défaut (npm global, installation native) comptent aussi.
+  const dirs = [...String(process.env.PATH || "").split(path.delimiter).filter(Boolean), ...(process.env.APPDATA ? [path.join(process.env.APPDATA, "npm")] : [])];
   const exists = (p) => { try { return fs.statSync(p).isFile(); } catch { return false; } };
   if (process.platform === "win32") {
     for (const dir of dirs) {
@@ -69,6 +70,22 @@ function detect() {
       try { data = JSON.parse(String(stdout)); } catch { /* sortie illisible : installée, état inconnu */ }
       const word = (v) => (typeof v === "string" && /^[a-z0-9._-]{1,20}$/i.test(v) ? v.toLowerCase() : "");
       resolve((last = { installe: true, connecte: data.loggedIn === true, offre: word(data.subscriptionType), methode: word(data.authMethod) }));
+    });
+  });
+}
+
+/** Connexion : `claude auth login --claudeai` ouvre le navigateur de la personne (abonnement Claude, pas la facturation API). */
+function login({ minutes = 10 } = {}) {
+  const bin = locate();
+  if (!bin) return Promise.resolve({ erreur: "Claude Code n'est pas installé sur cet ordinateur." }); // i18n-ignore : lu par la personne
+  return new Promise((resolve) => {
+    const child = spawn(bin.cmd, [...bin.prefix, "auth", "login", "--claudeai"], { env: cleanEnv(), windowsHide: false, stdio: "ignore" });
+    const timer = setTimeout(() => { try { child.kill(); } catch { /* déjà fini */ } }, minutes * minuteMs);
+    child.on("error", (e) => { clearTimeout(timer); resolve({ erreur: String(e.message).slice(0, 200) }); });
+    child.on("close", async (code) => {
+      clearTimeout(timer);
+      const state = await detect();
+      resolve(code === 0 && state.connecte ? { ok: true } : { erreur: `La connexion à Claude Code ne s'est pas terminée (code ${code}).` }); // i18n-ignore : lu par la personne
     });
   });
 }
@@ -434,5 +451,5 @@ function stopAll(why = "coupe") {
   brainRunning?.stop(why);
 }
 
-module.exports = { configure, locate, detect, status, busy, run, stopAll, argsFor, PROFILES, brain, brainArgs, brainBusy, models, BRAIN_MODELS,
+module.exports = { login, configure, locate, detect, status, busy, run, stopAll, argsFor, PROFILES, brain, brainArgs, brainBusy, models, BRAIN_MODELS,
   brainPrompt, readDecision, cleanEnv, toolsOf };

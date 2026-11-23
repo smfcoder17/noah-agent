@@ -34,6 +34,8 @@ const autonomy = require("./autonomie").create(readConfig, writeConfig);
 const claude = require("./claude");
 const chatgpt = require("./chatgpt");
 const grok = require("./grok");
+const codex = require("./codex");
+const installer = require("./installateur");
 const usage = require("./usage");
 const rights = () => {
   const c = readConfig();
@@ -756,11 +758,66 @@ function subscriptionsChanged() {
 async function detectClaude() {
   await claude.detect().catch(() => {});
   await grok.detect().catch(() => {});
+  await readChatgptLimits();
+  subscriptionsChanged();
+}
+
+/** Limites du forfait ChatGPT : demandées à `codex app-server` (interface officielle), seulement si Noah est relié à ChatGPT et Codex est là. */
+async function readChatgptLimits() {
+  if (!chatgpt.connected() || !codex.installed()) return;
+  await codex.readLimits().catch(() => {}); // Codex absent, non connecté ou muet : on garde le comptage des tours, rien d'inventé
+}
+
+// Installer la CLI d'un abonnement quand elle manque (installateur officiel de l'éditeur, accord explicite, progression au menu).
+let installing = null; // { which, step } : le menu le montre pendant l'installation
+const installLog = (line) => {
+  try {
+    const file = path.join(app.getPath("userData"), "journal-installation.log");
+    if (fs.existsSync(file) && fs.statSync(file).size > 200000) fs.renameSync(file, file + ".old");
+    fs.appendFileSync(file, `${new Date().toISOString()} ${installer.scrub(line)}\n`);
+  } catch { /* le journal ne doit jamais gêner l'app */ }
+};
+const REASONS = { reseau: "installation.erreur.reseau", adresse: "installation.erreur.adresse", installateur: "installation.erreur.installateur",
+  introuvable: "installation.erreur.introuvable", delai: "installation.erreur.delai", plateforme: "installation.erreur.plateforme" };
+
+/** Rend vrai quand la CLI est là (déjà présente, ou installée à l'instant). Faux : refus de la personne, ou erreur déjà montrée. */
+async function ensureCli(which) {
+  const mod = which === "claude" ? claude : grok;
+  if (mod.locate()) return true;
+  const r = await installer.ensure(which, {
+    locate: mod.locate,
+    confirm: (src, url) => askSystem(t("installation.accord", { nom: src.nom, editeur: src.editeur, site: src.site, mo: src.mo }), t("installation.detail", { adresse: url }), t("installation.bouton")),
+    onProgress: (step) => { installing = { which, step }; subscriptionsChanged(); },
+    log: installLog,
+  });
+  installing = null;
+  await mod.detect().catch(() => {});
+  subscriptionsChanged();
+  if (r.refuse) return false;
+  if (r.erreur) {
+    const key = REASONS[r.erreur] || "installation.erreur.installateur";
+    dialog.showMessageBox({ type: "warning", title: "Noah Agent", message: t("installation.echec", { nom: installer.SOURCES[which].nom }), detail: t(key) });
+    return false;
+  }
+  return true;
+}
+
+async function claudeLogin() {
+  if (!(await ensureCli("claude"))) return;
+  const r = await claude.login();
+  if (r.erreur) dialog.showMessageBox({ type: "warning", title: "Noah Agent", message: t("abonnement.claude.echec"), detail: String(r.erreur).slice(0, 300) });
   subscriptionsChanged();
 }
 
 async function grokLogin() {
-  const r = await grok.login();
+  if (!(await ensureCli("grok"))) return;
+  const r = await grok.login({
+    // La commande affiche un code et une adresse chez xAI (invisibles sans terminal) : on les montre et on ouvre l'adresse.
+    onInfo: ({ url, code }) => {
+      shell.openExternal(url).catch(() => {});
+      dialog.showMessageBox({ type: "info", title: "Noah Agent", message: t("abonnement.grok.code", { code }), detail: t("abonnement.grok.code.detail", { adresse: url }) });
+    },
+  });
   if (r.erreur) dialog.showMessageBox({ type: "warning", title: "Noah Agent", message: t("abonnement.grok.echec"), detail: String(r.erreur).slice(0, 300) });
   subscriptionsChanged();
 }
@@ -768,6 +825,7 @@ async function grokLogin() {
 async function chatgptLogin() {
   try {
     await chatgpt.login({ open: (url) => shell.openExternal(url), read: readConfig, write: writeConfig });
+    await readChatgptLimits();
   } catch (e) {
     dialog.showMessageBox({ type: "warning", title: "Noah Agent", message: t("abonnement.chatgpt.echec"), detail: String(e.message || e).slice(0, 300) });
   }
@@ -782,6 +840,9 @@ function usageItems(provider, name) {
   return usage.describe(provider, snap, t, lang).map((detail) => ({ label: t("usage.ligne", { nom: name, detail }), enabled: false }));
 }
 
+const installStep = (step) => (step === "telechargement" ? t("installation.etape.telechargement") : step === "installation" ? t("installation.etape.installation")
+  : step === "verification" ? t("installation.etape.verification") : t("installation.etape.accord"));
+
 function subscriptionsMenu(only) {
   const r = rights();
   const c = claude.status();
@@ -792,6 +853,8 @@ function subscriptionsMenu(only) {
   const grokModels = grok.models();
   const items = [
     { label: claudeState, enabled: false },
+    ...(installing?.which === "claude" ? [{ label: t("installation.en_cours", { nom: "Claude Code", etape: installStep(installing.step) }), enabled: false }]
+      : !c.installe || !c.connecte ? [{ label: !c.installe ? t("installation.menu", { nom: "Claude Code" }) : t("abonnement.claude.connexion"), click: claudeLogin }] : []),
     { label: t("abonnement.claude.permis"), type: "checkbox", checked: r.claude, enabled: c.installe, click: async (item) => {
       if (item.checked && !(await askSystem(t("abonnement.claude.permis"), t("abonnement.claude.avertissement"), t("abonnement.allumer")))) return subscriptionsChanged();
       writeConfig({ abonnement_claude: item.checked });
@@ -822,7 +885,7 @@ function subscriptionsMenu(only) {
     { label: !g.installe ? t("abonnement.grok.absent") : g.connecte ? t("abonnement.grok.connecte") : t("abonnement.grok.deconnecte"), enabled: false },
     g.connecte
       ? { label: t("abonnement.grok.deconnexion"), click: async () => { await grok.logout(); writeConfig({ abonnement_grok: false }); subscriptionsChanged(); } }
-      : { label: t("abonnement.grok.connexion"), enabled: g.installe, click: grokLogin },
+      : { label: installing?.which === "grok" ? t("installation.en_cours", { nom: "Grok", etape: installStep(installing.step) }) : !g.installe ? t("installation.menu", { nom: "Grok" }) : t("abonnement.grok.connexion"), enabled: installing?.which !== "grok", click: grokLogin },
     { label: t("abonnement.grok.permis"), type: "checkbox", checked: r.grok, enabled: g.connecte, click: async (item) => {
       if (item.checked && !(await askSystem(t("abonnement.grok.permis"), t("abonnement.grok.avertissement"), t("abonnement.allumer")))) return subscriptionsChanged();
       writeConfig({ abonnement_grok: item.checked });
