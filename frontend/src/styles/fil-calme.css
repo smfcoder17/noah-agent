@@ -83,6 +83,8 @@
 .work-panel-head { height:var(--head); gap:4px; padding:0 8px 0 10px; border-bottom:1px solid var(--line-soft); }
 .work-panel-head .panel-tabs { flex:1; min-width:0; }
 .work-panel-head .seg > button { padding:0 8px; }
+/* « Plus » prend le nom de l'onglet ouvert (« Compétences ») : sur un panneau étroit, il se coupe au lieu de sortir du panneau. */
+.work-panel-head .seg > button[data-plus] { min-width:0; overflow:hidden; text-overflow:ellipsis; }
 .work-panel-head .shell-icon { width:var(--hit); height:var(--hit); min-width:var(--hit); border-radius:var(--r-m); color:var(--soft); }
 .work-panel-head .shell-icon:hover, .work-panel-head .shell-icon[aria-pressed=true] { background:var(--sel); color:var(--ink); }
 .work-panel-body { overflow:auto; }

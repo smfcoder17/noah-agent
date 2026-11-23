@@ -68,19 +68,23 @@ try {
     };
     const menu = async () => { if (telephone) await toucher("Menu"); };
     // Les contenus de l'agent (L9a) : le panneau de droite, ouvert par son bouton, puis son onglet.
+    // Trois onglets tiennent sur une ligne ; les autres (Ordinateur, Session…) sont dans « Plus » (0.4.2).
     const panneau = async (onglet) => {
       await toucher("Ouvrir ou fermer le panneau");
-      await page.getByRole("tab", { name: onglet, exact: true }).filter({ visible: true }).first().click({ timeout: 5000 });
+      const direct = page.getByRole("tab", { name: onglet, exact: true }).filter({ visible: true }).first();
+      if (await direct.count()) await direct.click({ timeout: 5000 });
+      else { await page.locator("[data-plus]").filter({ visible: true }).first().click({ timeout: 5000 }); await toucher(onglet); }
       await stable();
     };
-    const reglages = (section) => async () => { await menu(); await toucher("Réglages"); await page.locator(".set-link", { hasText: section }).filter({ visible: true }).first().click({ timeout: 5000 }); await stable(); };
+    // Le nom exact de la rubrique : sa ligne d'aide (masquée sur ordinateur) peut citer une autre rubrique (« … sur ce serveur »).
+    const reglages = (section) => async () => { await menu(); await toucher("Réglages"); await page.locator(".set-link").filter({ visible: true }).getByText(section, { exact: true }).first().click({ timeout: 5000 }); await stable(); };
     // Activité en page entière (L9b) : un bouton de la barre de gauche (ou du tiroir), comme « Pour toi ».
     const activitePage = async () => { await menu(); await page.getByRole("button", { name: /^Activité/ }).filter({ visible: true }).first().click({ timeout: 5000 }); await stable(); };
     const pageAgent = async () => { if (telephone) await toucher("Page de l'agent"); else { await toucher("Menu de Noah"); await toucher("Page de Noah"); } };
     // [nom, aller, texte qui prouve qu'on y est]
     const ECRANS = [
       ["fil", async () => {}, /Écris à ton agent|Demande numéro/],
-      ["taches", async () => panneau("Tâches"), /Routines/i],
+      ["routines", async () => panneau("Routines"), /Routines/i],
       ["travail", async () => panneau("Travail"), /Ce qu'il a fait|Tâches/i],
       ["activite", activitePage, /Activité/],
       ["fichiers", async () => panneau("Fichiers"), /Livrables/],
