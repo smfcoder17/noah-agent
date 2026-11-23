@@ -2,17 +2,19 @@
 import { get, send } from "@/lib/api";
 import { appShell } from "@/lib/platform";
 import { ProviderLogo, providerLogo } from "./ProviderLogo";
+import { SubscriptionUsage } from "./SubscriptionUsage";
 import { Button, ErrorText, Input, Label } from "./ui";
 import { t } from "@/i18n";
 
 type Provider = { id: string; label: string; connected: boolean; models: number; base_url: string; needs_key: boolean; own_url: boolean;
-  /** Abonnement par l'application de bureau (Claude Code, ChatGPT) ; pret : un ordinateur de ce compte le sert en ce moment. */
+  /** Abonnement par l'application de bureau (Claude Code, ChatGPT, Grok) ; pret : un ordinateur de ce compte le sert en ce moment. */
   ordinateur?: boolean; pret?: boolean | null };
 
 // Abonnements par l'ordinateur : le lien ouvre l'application de bureau (ou la ramène au premier plan) sur l'écran de cet abonnement.
 const ON_COMPUTER: Record<string, { page: string; logo: string }> = {
   "ordinateur:claude-code": { page: "claude", logo: "anthropic" },
   "ordinateur:chatgpt": { page: "chatgpt", logo: "openai" },
+  "ordinateur:grok": { page: "grok", logo: "x-ai" },
 };
 const DOWNLOAD = "https://github.com/smfcoder17/noah-agent/releases/latest";
 
@@ -20,6 +22,7 @@ const DOWNLOAD = "https://github.com/smfcoder17/noah-agent/releases/latest";
 function shownLabel(p: Provider, inDesktop: boolean): string {
   if (p.id === "ordinateur:claude-code") return inDesktop ? t("Claude Code (ton ordinateur)") : t("Claude Code (ton ordinateur seulement)");
   if (p.id === "ordinateur:chatgpt") return inDesktop ? t("ChatGPT (ton ordinateur)") : t("ChatGPT (ton ordinateur seulement)");
+  if (p.id === "ordinateur:grok") return inDesktop ? t("Grok (ton ordinateur)") : t("Grok (ton ordinateur seulement)");
   return p.label;
 }
 
@@ -65,6 +68,7 @@ export function Providers() {
     {selected?.ordinateur ? <OnComputer p={selected} label={shownLabel(selected, inDesktop)} inDesktop={inDesktop} busy={busy} onConnect={plug} onBack={() => select(null)} />
       : selected ? <form className="flex flex-col gap-3" onSubmit={connect}><h3>{selected.label}</h3>{selected.own_url && <Label>{t("Adresse de l'API")}<Input type="url" aria-label={t("Adresse du fournisseur")} value={base} onChange={(e) => setBase(e.target.value)} placeholder={t("https://mon-fournisseur.fr/v1")} /></Label>}<Label>{selected.needs_key ? t("Clé API") : t("Clé API (facultative)")}<Input aria-label={t("Clé API du fournisseur")} type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} /></Label><div className="flex gap-2"><Button type="button" variant="ghost" onClick={() => { select(null); setKey(""); }}>{t("Retour aux fournisseurs")}</Button><Button disabled={busy}>{busy ? t("Connexion…") : t("Brancher")}</Button></div></form>
       : list && <>{[true, false].map((connected) => <div key={String(connected)} className="flex flex-col gap-2"><h3 className="section-label">{connected ? t("Branchés") : t("À brancher")}</h3><div className="shell-group">{list.filter((p) => p.connected === connected && p.id !== "custom").map((p) => <button key={p.id} className="shell-row" onClick={() => open(p)}>{logo(p)}<span className="grow"><span className="block">{shownLabel(p, inDesktop)}</span>{p.connected && <small className="block text-muted-foreground text-[12.5px]">{p.models ? (p.models > 1 ? t("{n} modèles", { n: p.models }) : t("{n} modèle", { n: p.models })) : t("Branché")}</small>}</span><span aria-hidden>›</span></button>)}{connected && !list.some((p) => p.connected && p.id !== "custom") && <p className="shell-row">{t("Aucun fournisseur branché.")}</p>}</div></div>)}{list.filter((p) => p.id === "custom").map((p) => <button key={p.id} className="shell-row shell-group" onClick={() => open(p)}>{p.connected && !providerLogo(p.id) ? <CustomLogo id={p.id} label={p.base_url || p.label} /> : <span aria-hidden>＋</span>}<span><span className="block">{t("Un autre fournisseur")}</span><small className="text-muted-foreground text-[12.5px]">{t("Colle son adresse (compatible OpenAI)")}</small></span></button>)}</>}
+    {!selected && <SubscriptionUsage />}
     <ErrorText>{error}</ErrorText>{error && !list && <Button onClick={load}>{t("Réessayer")}</Button>}
   </section>;
 }
