@@ -9,6 +9,7 @@
   const fr = {
     // Menus et zone de notification
     "menu.demarrage": "Lancer Noah au démarrage de l'ordinateur",
+    "menu.relais": "Mes agents sortent par cet ordinateur",
     "menu.autonomie": "Autonomie de cet ordinateur",
     "menu.autonomie.auto": "Auto — agir dans les dossiers confiés",
     "menu.autonomie.prudent": "Prudent — demander avant d'écrire ou ranger",
@@ -183,6 +184,7 @@
 
   const en = {
     "menu.demarrage": "Start Noah when your computer starts",
+    "menu.relais": "My agents go out through this computer",
     "menu.autonomie": "Autonomy on this computer",
     "menu.autonomie.auto": "Auto — act in the folders you've shared",
     "menu.autonomie.prudent": "Careful — ask before writing or tidying up",

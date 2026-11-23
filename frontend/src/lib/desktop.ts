@@ -23,7 +23,11 @@ export type NoahDesktop = {
   forgetServer?(): Promise<void>;
   /** Version de l'app de bureau (pas de l'interface, servie par le serveur) ; une chaîne avant la 0.2. */
   version?: string | (() => Promise<string>);
+  /** Sortie réseau : l'état du relais de cet ordinateur et son interrupteur. Absents d'une application trop ancienne. */
+  relais?(): Promise<RelaisBureau | null>;
+  relaisActiver?(on: boolean): Promise<RelaisBureau | null>;
 };
+export type RelaisBureau = { voulu: boolean; etat: "arret" | "connexion" | "actif" | "remplace"; connexions: number; nom: string };
 
 declare global {
   interface Window {

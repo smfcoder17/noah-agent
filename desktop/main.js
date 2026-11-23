@@ -53,6 +53,61 @@ function startupMenu() {
     click: (item) => { startup.set(item.checked); createMenu(); createTrayMenuState(); },
   }];
 }
+// Sortie réseau : « Mes agents sortent par cet ordinateur ». Le relais (relais.js) tourne tant que l'app tourne, fenêtre fermée
+// comprise ; il se connecte au serveur déjà relié avec le jeton de cet appareil, jamais avec le mot de passe.
+function relaisJournal(ligne) {
+  try {
+    const file = path.join(app.getPath("userData"), "journal-relais.log");
+    if (fs.existsSync(file) && fs.statSync(file).size > 200000) fs.renameSync(file, file + ".old");
+    fs.appendFileSync(file, `${new Date().toISOString()} ${ligne}\n`);
+  } catch { /* le journal ne doit jamais gêner l'app */ }
+}
+let relaisStore = null;
+const relais = () => {
+  if (relaisStore) return relaisStore;
+  relaisStore = require("./relais").create({
+    journal: relaisJournal,
+    nom: () => os.hostname(),
+    lien: async () => {
+      const server = readConfig().server;
+      if (!server || readConfig().mode !== "remote") return null;
+      const cookie = (await session.defaultSession.cookies.get({ url: server, name: "noah_session" }).catch(() => []))[0]?.value;
+      const token = cookie || storedToken();
+      return token ? { origin: new URL(server).origin, token } : null;
+    },
+    prevenir: async (serverOrigin, token) => {
+      await fetch(`${serverOrigin}/api/sortie/relais`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(8000) });
+    },
+  });
+  relaisStore.onChange((etat) => {
+    // Un autre ordinateur a pris la place : l'interrupteur de celui-ci s'éteint, il ne se bat pas pour elle.
+    if (etat === "remplace") writeConfig({ relais_sortie: false });
+    createMenu();
+    createTrayMenuState();
+  });
+  return relaisStore;
+};
+const relaisVoulu = () => readConfig().relais_sortie === true;
+function relaisEtat() {
+  const s = relais().status();
+  return { voulu: relaisVoulu(), etat: s.etat, connexions: s.connexions, nom: os.hostname() };
+}
+async function setRelais(on) {
+  on = Boolean(on);
+  writeConfig({ relais_sortie: on });
+  if (on) relais().start();
+  else await relais().stop({ serveur: true });
+  createMenu();
+  createTrayMenuState();
+  return relaisEtat();
+}
+function relaisMenu() {
+  if (!readConfig().server) return [];
+  return [{
+    label: t("menu.relais"), type: "checkbox", checked: relaisVoulu(),
+    click: (item) => { setRelais(item.checked); },
+  }];
+}
 function autonomyMenu() {
   return { label: t("menu.autonomie"), submenu: [
     ...[["auto", t("menu.autonomie.auto")], ["prudent", t("menu.autonomie.prudent")]].map(([value, label]) => ({
@@ -789,6 +844,7 @@ function trayMenu() {
     { label: t("menu.accord"), click: () => bandeau.focus() },
     { label: t("menu.changer"), click: changeServer },
     ...startupMenu(),
+    ...relaisMenu(),
     { type: "separator" },
     { id: "couper", label: t("menu.couper_acces"), type: "checkbox", checked: folders().isCut(), click: (item) => setCut(item.checked) },
     { type: "separator" },
@@ -812,6 +868,7 @@ function createMenu() {
       { label: t("menu.accord"), accelerator: "CommandOrControl+Shift+Space", click: () => bandeau.focus() },
       { label: t("menu.changer"), click: changeServer },
       ...startupMenu(),
+      ...relaisMenu(),
       ...updateMenu(),
       { type: "separator" },
       { role: "close", label: t("menu.fermer") },
@@ -879,6 +936,9 @@ ipcMain.handle("noah:pick-folder", async (e) => {
 });
 let home = "";
 ipcMain.handle("noah:version", () => app.getVersion());
+// Sortie réseau : l'état du relais et son interrupteur, à la page de Noah seulement.
+ipcMain.handle("noah:relais", (e) => (origin && sameOrigin(e.senderFrame.url) ? relaisEtat() : null));
+ipcMain.handle("noah:relais-activer", (e, on) => (origin && sameOrigin(e.senderFrame.url) ? setRelais(on) : null));
 // Langue des pages locales (écran de connexion) : la même que les menus et les boîtes de l'app.
 ipcMain.handle("noah:langue", () => langue());
 
@@ -1006,6 +1066,7 @@ if (!app.requestSingleInstanceLock()) {
     flushRevocations().catch(() => {});
     setInterval(() => flushRevocations().catch(() => {}), 10 * 60 * 1000);
     createWindow();
+    if (relaisVoulu()) relais().start(); // le relais voulu repart avec l'app, sans fenêtre ouverte
     // Demandes de l'agent (ouvrir, notifier, lancer, commande, fichiers des dossiers confiés).
     listening = actions.listen(() => origin, folders());
     // Le jeton ChatGPT : chiffré par le système, dans son propre fichier. Claude Code : son état, demandé à la CLI toutes les 10 minutes.
@@ -1017,6 +1078,7 @@ if (!app.requestSingleInstanceLock()) {
   });
   app.on("before-quit", (e) => {
     quitting = true;
+    if (relaisStore) relaisStore.stop(); // la prise se ferme avec l'app ; le choix reste dans la config, le serveur bascule seul
     // Sessions à révoquer gardées en mémoire, ou attente d'accord en cours : dernier essai, 10 s au plus.
     if ((!unsealedRevocations.length && !activePoll) || lastTry) return;
     e.preventDefault();

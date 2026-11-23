@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld("noahDesktop", {
   dossierOuvrir: (id) => ipcRenderer.invoke("noah:dossier-ouvrir", String(id)),
   commandeOublier: (commande, dossier) => ipcRenderer.invoke("noah:commande-oublier", String(commande), String(dossier)),
   version: () => ipcRenderer.invoke("noah:version"),
+  relais: () => ipcRenderer.invoke("noah:relais"),
+  relaisActiver: (on) => ipcRenderer.invoke("noah:relais-activer", Boolean(on)),
 });
 
 // Écran du premier lancement seulement (fichier local) : relier l'app à un serveur, ou à Noah sur cet ordinateur.

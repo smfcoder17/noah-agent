@@ -74,9 +74,9 @@ function adresseInterdite(ip) {
     if (g.slice(0, 5).every((x) => x === 0) && g[5] === 0xffff) { // IPv4 vue en IPv6 : on juge l'IPv4
       return adresseInterdite(`${g[6] >> 8}.${g[6] & 255}.${g[7] >> 8}.${g[7] & 255}`);
     }
-    return INTERDITES.check(g.map((x) => x.toString(16)).join(":"), "ipv6") ? "adresse privée" : "";
+    return INTERDITES.check(g.map((x) => x.toString(16)).join(":"), "ipv6") ? "adresse privée" : ""; // i18n-ignore : raison technique, journal seulement
   }
-  return INTERDITES.check(ip, "ipv4") ? "adresse privée" : "";
+  return INTERDITES.check(ip, "ipv4") ? "adresse privée" : ""; // i18n-ignore : raison technique, journal seulement
 }
 
 const SUFFIXES_INTERNES = [".localhost", ".local", ".internal", ".lan", ".home.arpa", ".localdomain", ".ts.net", ".intranet", ".corp", ".private"];
@@ -96,7 +96,7 @@ function resoudre(hote) {
  */
 async function verifierDestination(hote, port, resolve = resoudre) {
   const refus = (raison) => ({ ok: false, genre: "refus", raison });
-  if (!Number.isInteger(port) || !PORTS.has(port)) return refus("port refusé");
+  if (!Number.isInteger(port) || !PORTS.has(port)) return refus("port refusé"); // i18n-ignore : raison technique, journal seulement
   let h = String(hote ?? "").trim().toLowerCase();
   if (h.startsWith("[") && h.endsWith("]")) h = h.slice(1, -1);
   h = h.replace(/\.$/, "");
@@ -111,11 +111,11 @@ async function verifierDestination(hote, port, resolve = resoudre) {
   try {
     adresses = await resolve(h);
   } catch {
-    return { ok: false, genre: "erreur", raison: "résolution impossible" };
+    return { ok: false, genre: "erreur", raison: "résolution impossible" }; // i18n-ignore : raison technique, journal seulement
   }
-  if (!Array.isArray(adresses) || !adresses.length) return { ok: false, genre: "erreur", raison: "résolution impossible" };
+  if (!Array.isArray(adresses) || !adresses.length) return { ok: false, genre: "erreur", raison: "résolution impossible" }; // i18n-ignore : raison technique, journal seulement
   for (const a of adresses) {
-    if (adresseInterdite(String(a))) return refus("résolu vers une adresse privée");
+    if (adresseInterdite(String(a))) return refus("résolu vers une adresse privée"); // i18n-ignore : raison technique, journal seulement
   }
   return { ok: true, adresses: adresses.map(String) };
 }
@@ -131,7 +131,7 @@ function connecter(adresse, port) {
       // Ceinture et bretelles : l'adresse réellement jointe est celle qu'on a vérifiée.
       if (adresseInterdite(s.remoteAddress || "")) {
         s.destroy();
-        return ko(new Error("adresse privée"));
+        return ko(new Error("adresse privée")); // i18n-ignore : raison technique, journal seulement
       }
       ok(s);
     });
@@ -215,7 +215,7 @@ function create({
     if (conns.has(id) || !Number.isInteger(id)) return;
     if (conns.size >= max) {
       journal(`relais : refus ${hote}:${port} (trop de connexions)`); // i18n-ignore : journal
-      return ordre(g, { t: "refus", id, raison: "trop de connexions" });
+      return ordre(g, { t: "refus", id, raison: "trop de connexions" }); // i18n-ignore : raison technique, journal seulement
     }
     const c = { socket: null, credit: FENETRE, recu: 0, ferme: false, arrete: false };
     conns.set(id, c); // la place est prise avant la résolution : le plafond tient aussi pour les connexions en cours d'ouverture
