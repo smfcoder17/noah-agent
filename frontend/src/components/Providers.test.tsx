@@ -84,3 +84,41 @@ it("A7 : un modèle d'abonnement affiche « Compris dans l'abonnement », jamais
   expect(costLabel({ free: false, price_in: null, price_out: null, prix: "compris dans l'abonnement", abonnement: true })).toBe("Compris dans l'abonnement");
   expect(costLabel({ free: false, price_in: null, price_out: null })).toBe("Prix inconnu");
 });
+
+// X12 : autant de fournisseurs « autres » que voulu, chacun avec son nom, son adresse et sa clé ; on les débranche un à un.
+it("X12 : « Un autre fournisseur » demande nom, adresse et clé, les envoie ensemble, et les autres branchés se listent à part", async () => {
+  const others = [
+    { id: "autre:vllm", label: "vLLM", connected: true, models: 4, base_url: "http://vllm.local:8000/v1", needs_key: false, own_url: true, autre: true, en_service: false },
+    { id: "autre:ollama", label: "Ollama maison", connected: true, models: 2, base_url: "http://nas:11434/v1", needs_key: false, own_url: true, autre: true, en_service: true },
+  ];
+  fetchApi.mockImplementation(async (path: string, init?: RequestInit) => {
+    if (path === "/api/fournisseurs" && !init?.method) return Response.json([...list(false), ...others]);
+    if (path === "/api/fournisseurs" && init?.method === "POST") return Response.json({ id: "autre:lm", connected: true, models: 1 });
+    if (path === "/api/fournisseurs/autre%3Avllm" && init?.method === "DELETE") return Response.json({ ok: true });
+    throw new Error(`Appel inattendu : ${path}`);
+  });
+  await render();
+  expect(host.textContent).toContain("vLLM");
+  expect(host.textContent).toContain("Ollama maison");
+  await click(button("Un autre fournisseur"));
+  const field = (label: string) => host.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!;
+  const type = async (el: HTMLInputElement, value: string) => {
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(el, value);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  };
+  await type(field("Nom du fournisseur"), "LM Studio");
+  await type(field("Adresse du fournisseur"), "http://pc:1234/v1");
+  await type(field("Clé API du fournisseur"), "cle-lm");
+  await click(button("Brancher"));
+  const post = fetchApi.mock.calls.find(([, init]) => init?.method === "POST")!;
+  expect(JSON.parse(post[1].body)).toEqual({ nom: "LM Studio", base_url: "http://pc:1234/v1", api_key: "cle-lm" });
+  // Un fournisseur qui n'est pas le cerveau se débranche ; celui qui l'est l'explique au lieu de proposer le bouton.
+  await click(button("vLLM"));
+  await click(button("Débrancher"));
+  expect(fetchApi.mock.calls.some(([p, init]) => p === "/api/fournisseurs/autre%3Avllm" && init?.method === "DELETE")).toBe(true);
+  await click(button("Ollama maison"));
+  expect(button("Débrancher")).toBeUndefined();
+  expect(host.textContent).toContain("Ce fournisseur est ton cerveau");
+});

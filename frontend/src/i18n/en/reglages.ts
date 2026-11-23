@@ -290,7 +290,11 @@ export default {
   "Branché": "Connected",
   "Aucun fournisseur branché.": "No provider connected.",
   "Un autre fournisseur": "Another provider",
-  "Colle son adresse (compatible OpenAI)": "Paste its address (OpenAI-compatible)",
+  "Nom, adresse (compatible OpenAI) et clé : autant que tu veux": "Name, address (OpenAI-compatible) and key: as many as you like",
+  "Nom du fournisseur": "Provider name",
+  "Mon serveur": "My server",
+  "Débrancher": "Disconnect",
+  "Ce fournisseur est ton cerveau : choisis-en un autre avant de le débrancher.": "This provider is your brain: pick another one before disconnecting it.",
 
   // components/PresetPicker.tsx
   "Partir d'un modèle": "Start from a template",
