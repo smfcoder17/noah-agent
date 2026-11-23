@@ -442,7 +442,6 @@ WHITELIST = {
     ("POST", "/api/desktop/taches/{rid}/arreter"): "Tâche de ce compte seulement (task[\"user\"] != user : 404).",
     ("GET", "/api/liens/image/{key}"): "Image publique mise en cache, identique pour tous ; connexion exigée (test_public_assets).",
     ("PUT", "/api/fournisseurs/{provider}"): "Configuration globale réservée au propriétaire (OWNER_WITH_ID et test_provider_access).",
-    ("DELETE", "/api/sortie/{ident}"): "Retire une voie de sortie : réservé au propriétaire (OWNER_WITH_ID).",
     ("GET", "/api/fournisseurs/{provider}/icone"): "Icône publique sans clé ni adresse dans la réponse ; connexion exigée (test_public_assets).",
     ("POST", "/api/desktop/accords/{rid}"): "Processus natif et appareil destinataire seulement (accords_sync_test).",
     ("POST", "/api/desktop/accords/{rid}/reponse"): "Même appareil, même demande, accord local uniquement (accords_sync_test).",
@@ -504,8 +503,9 @@ OWNER_ROUTES = {
     ("POST", "/api/media/key"): {"api_key": "CLE-DE-MEDIAS"},
     ("GET", "/api/diagnostic"): None,
     ("GET", "/api/sortie"): None,
-    ("PUT", "/api/sortie/maison"): {"cle": "tskey-auth-CLE-DE-SORTIE", "noeud": "mon-pc"},
-    ("PUT", "/api/sortie/vpn"): {"cle_privee": "CLE-DE-SORTIE", "ville": "Montreal"},
+    ("PUT", "/api/sortie/vpn"): {"conf": "CONF-DE-SORTIE"},
+    ("DELETE", "/api/sortie/vpn"): None,
+    ("DELETE", "/api/sortie/relais"): None,
     ("GET", "/api/voice/server"): None,
     ("POST", "/api/voice/server"): {"base_url": "http://voix.exemple/v1", "api_key": "CLE-DE-VOIX", "speech_model": "m"},
     ("POST", "/api/google/client"): {"fichier": '{"installed": {"client_id": "1-a.apps.googleusercontent.com", "client_secret": "secret"}}'},
@@ -530,8 +530,7 @@ OWNER_WITH_ID = {("PATCH", "/api/profiles/{profile_id}"): {"budget": None}, ("DE
                  ("GET", "/api/profiles/{profile_id}/appareils"): None,
                  ("DELETE", "/api/profiles/{profile_id}/appareils/{device}"): {"motdepasse": "motdepasse-d"},
                  ("POST", "/api/profiles/{profile_id}/mot-de-passe"): {"nouveau": "nouveau-motdepasse", "motdepasse": "motdepasse-d"},
-                 ("PUT", "/api/fournisseurs/{provider}"): {"api_key": "cle-de-test"},
-                 ("DELETE", "/api/sortie/{ident}"): None}
+                 ("PUT", "/api/fournisseurs/{provider}"): {"api_key": "cle-de-test"}}
 # … et les routes ouvertes, chacune avec la raison pour laquelle elle ne montre rien d'un autre.
 OPEN_ROUTES = {
     ("GET", "/api/connections/cles"): "Catalogue fixe des connecteurs par clé : noms et liens publics, jamais une clé.",
@@ -649,7 +648,8 @@ def test_every_route_is_declared() -> None:
     assert not stale, f"Routes déclarées qui n'existent plus : {stale}"
     assert all(reason for reason in [*WHITELIST.values(), *OPEN_ROUTES.values()]), "exception sans raison"
     sockets = [r.path for r in app.routes if isinstance(r, APIWebSocketRoute) and r.path.startswith("/api/")]
-    assert sockets == ["/api/agents/{agent_id}/screen/websockify"], f"nouveau WebSocket à couvrir : {sockets}"
+    # /api/sortie/relais : réservé au propriétaire sur un appareil de bureau relié (invité, jeton faux, web et téléphone refusés : tests/sortie/relais_serveur_test.py).
+    assert sockets == ["/api/sortie/relais", "/api/agents/{agent_id}/screen/websockify"], f"nouveau WebSocket à couvrir : {sockets}"
     print(f"2. {len(seen)} routes /api/ énumérées : {len(ROUTES)} par droit, {len(OWNER_ROUTES) + len(OWNER_WITH_ID)} réservées au propriétaire, "
           f"{len(WHITELIST)} en liste blanche, {len(OPEN_ROUTES)} ouvertes avec leur raison")
 
