@@ -476,40 +476,45 @@ def restart_browser(agent_id: str, new_identity: bool = False):
 
 
 # --- Sortie réseau des navigateurs ----------------------------------------------------------------------------------------
-# Lot sortie-reseau. Les sites doivent voir le navigateur d'un agent arriver de Montréal, pas du VPS. Trois conteneurs, créés
-# seulement si la personne a configuré une sortie (Réglages > Serveur > Sortie réseau) :
-#   noah-sortie-maison  nœud de sortie Tailscale (le PC de la personne), en mode espace utilisateur : aucune capacité, aucun /dev/net/tun ;
-#   noah-sortie-vpn     Gluetun (Surfshark, WireGuard) : le seul à demander NET_ADMIN et /dev/net/tun, parce qu'un VPN ne se fait pas autrement ;
+# Lot sortie-reseau. Les sites doivent voir le navigateur d'un agent arriver de chez la personne, pas du VPS. Deux conteneurs au plus,
+# créés seulement si la personne a choisi une sortie (Réglages > Serveur > Sortie réseau) :
+#   noah-sortie-vpn     Gluetun (le fichier WireGuard du fournisseur, ou Surfshark par clé pour qui l'avait déjà) : le seul à demander
+#                       NET_ADMIN et /dev/net/tun, parce qu'un VPN ne se fait pas autrement ;
 #   noah-sortie         l'aiguillage (launcher/aiguillage.py), seule porte des navigateurs, qui choisit la meilleure sortie.
+# La « maison » n'a plus de conteneur : c'est l'ordinateur de la personne, par son app de bureau, que le serveur joint à
+# noah-server:3130 (un mandataire HTTP CONNECT du serveur, qui multiplexe sur la connexion de l'app). Avant le relais par l'app de bureau, c'était un
+# nœud Tailscale (noah-sortie-maison) : ce conteneur et son volume sont retirés s'ils restent (_sortie_legacy).
 # Les sorties vivent sur un réseau à elles (noah-sorties) ; l'aiguillage est sur celui-là et sur celui des agents. Le lanceur
-# n'est ni sur l'un ni sur l'autre, et aucun des trois n'a le socket Docker ni de capacité de plus que ci-dessus.
-# Les clés (Tailscale, WireGuard) sont posées dans un fichier du conteneur (put_env), jamais dans sa config Docker.
+# n'est ni sur l'un ni sur l'autre, et aucun des deux n'a le socket Docker ni de capacité de plus que ci-dessus.
+# Le fichier du VPN est posé dans un fichier du conteneur (jamais dans sa config Docker : ni variable, ni étiquette).
 SORTIE = "noah-sortie"
-SORTIE_MAISON = "noah-sortie-maison"
+SORTIE_MAISON = "noah-sortie-maison"  # l'ancienne maison (Tailscale) : jamais plus créée, retirée si elle reste
 SORTIE_VPN = "noah-sortie-vpn"
-SORTIE_LABEL = "noah.sortie"  # « aiguillage », « maison » ou « vpn »
+SORTIE_LABEL = "noah.sortie"  # « aiguillage », « maison » (ancienne) ou « vpn »
 SORTIE_PORT = 3128
 SORTIES_NETWORK = "noah-sorties"
-# Images officielles, figées par empreinte (liste multi-architectures) : on ne change de version qu'ici, après essai.
-TAILSCALE_IMAGE = os.environ.get("SORTIE_TAILSCALE_IMAGE", "tailscale/tailscale@sha256:72c1e19e0aedca96b8533bbb0b4368564410ff20b17e53b804eb6c1f04a31be4")
+RELAIS_PORT = int(os.environ.get("NOAH_RELAIS_PORT", "3130"))  # le mandataire du relais, dans le serveur (server/noah/sortie_relais.py)
+# Image officielle, figée par empreinte (liste multi-architectures) : on ne change de version qu'ici, après essai.
 GLUETUN_IMAGE = os.environ.get("SORTIE_GLUETUN_IMAGE", "qmcgaw/gluetun@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027")
-TAILSCALE_PROXY = 1056  # mandataire HTTP sortant de tailscaled (TS_OUTBOUND_HTTP_PROXY_LISTEN)
 GLUETUN_PROXY = 8888
+GLUETUN_CONF = "/gluetun/wireguard/wg0.conf"  # l'endroit où Gluetun cherche le fichier WireGuard du fournisseur « custom »
 SORTIE_READY_WAIT = 60  # secondes à attendre que l'aiguillage ait fait sa première série de sondes
-NODE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")  # nom de machine Tailscale ou adresse du nœud de sortie
 CITY_RE = re.compile(r"^[A-Za-z][A-Za-z .'-]{0,39}$")
 ADDRESS_RE = re.compile(r"^[0-9a-fA-F:.]{3,45}/\d{1,3}(,[0-9a-fA-F:.]{3,45}/\d{1,3})?$")
-KEY_RE = re.compile(r"^[\w.+/=-]{8,512}$")  # clé d'authentification Tailscale, clé privée WireGuard (base64)
+KEY_RE = re.compile(r"^[\w.+/=-]{8,512}$")  # clé privée WireGuard de Surfshark (base64)
+WG_KEY_RE = re.compile(r"^[A-Za-z0-9+/]{43}=$")
+WG_ENDPOINT_RE = re.compile(r"^(\[[0-9A-Fa-f:.]{2,45}\]|[A-Za-z0-9][A-Za-z0-9.-]{0,252}):(\d{1,5})$")
 _sortie_lock = threading.Lock()
 
 
 class SortieMaison(BaseModel):
-    cle: str = ""  # clé d'authentification Tailscale (tskey-auth-…) ; vide : le nœud déjà enregistré garde son état
-    noeud: str = ""  # nom ou adresse du nœud de sortie (le PC de la personne)
+    actif: bool = True  # l'app de bureau de la personne relie son ordinateur : rien d'autre à dire, le serveur sait où il écoute
 
 
 class SortieVpn(BaseModel):
-    cle_privee: str = ""  # clé privée WireGuard du compte Surfshark
+    fournisseur: str = "surfshark"  # « custom » : le fichier WireGuard du fournisseur de la personne ; « surfshark » : l'ancienne clé
+    conf: str = ""  # fournisseur « custom » : le fichier, déjà vérifié par le serveur et revérifié ici
+    cle_privee: str = ""  # fournisseur « surfshark » : clé privée WireGuard du compte
     adresse: str = "10.14.0.2/16"
     ville: str = "Montreal"
 
@@ -517,6 +522,59 @@ class SortieVpn(BaseModel):
 class SortieConfig(BaseModel):
     maison: SortieMaison | None = None
     vpn: SortieVpn | None = None
+
+
+def wireguard(texte: str) -> str:
+    """Le fichier WireGuard d'un fournisseur, revérifié et réécrit avec les seules lignes dont Gluetun a besoin : jamais PostUp, PreUp,
+    Table ni autre ligne qui s'exécute. Même règle que server/noah/sortie.py (qui l'a déjà appliquée) : le lanceur ne fait pas confiance."""
+    import ipaddress
+    if len(texte) > 8 * 1024:
+        raise ValueError("trop long")
+    interface: dict = {}
+    peers: list[dict] = []
+    section = None
+    for brut in texte.replace("\r", "").split("\n"):
+        ligne = brut.split("#", 1)[0].strip()
+        if not ligne:
+            continue
+        if ligne.startswith("["):
+            nom = ligne.lower()
+            if nom == "[interface]" and section is None and not interface:
+                section = interface
+            elif nom == "[peer]" and not peers:
+                section = {}
+                peers.append(section)
+            else:
+                raise ValueError("sections")
+            continue
+        if section is None or "=" not in ligne:
+            raise ValueError("ligne")
+        cle, valeur = (x.strip() for x in ligne.split("=", 1))
+        cle = cle.lower()
+        if cle not in (("privatekey", "address", "dns", "mtu", "listenport") if section is interface else
+                       ("publickey", "presharedkey", "allowedips", "endpoint", "persistentkeepalive")):
+            raise ValueError("ligne refusée")
+        section[cle] = valeur
+    if not interface or len(peers) != 1:
+        raise ValueError("sections")
+    peer = peers[0]
+    if not WG_KEY_RE.match(interface.get("privatekey", "")) or not WG_KEY_RE.match(peer.get("publickey", "")):
+        raise ValueError("clés")
+    if peer.get("presharedkey") and not WG_KEY_RE.match(peer["presharedkey"]):
+        raise ValueError("clés")
+    try:
+        adresses = [str(ipaddress.ip_interface(a.strip())) for a in interface.get("address", "").split(",") if a.strip()]
+        plages = [str(ipaddress.ip_network(a.strip(), strict=False)) for a in (peer.get("allowedips") or "0.0.0.0/0, ::/0").split(",") if a.strip()]
+    except ValueError:
+        raise ValueError("adresses") from None
+    point = WG_ENDPOINT_RE.match(peer.get("endpoint", ""))
+    if not adresses or not plages or not point or not 0 < int(point.group(2)) < 65536:
+        raise ValueError("point d'accès")
+    lignes = ["[Interface]", f"PrivateKey = {interface['privatekey']}", f"Address = {', '.join(adresses)}", "",
+              "[Peer]", f"PublicKey = {peer['publickey']}"]
+    if peer.get("presharedkey"):
+        lignes.append(f"PresharedKey = {peer['presharedkey']}")
+    return "\n".join(lignes + [f"AllowedIPs = {', '.join(plages)}", f"Endpoint = {peer['endpoint']}", ""])
 
 
 def _sortie_container(name: str, kind: str):
@@ -578,43 +636,25 @@ def _sortie_common(name: str, kind: str, config_hash: str) -> dict:
     )
 
 
-def _make_maison(cfg: SortieMaison):
-    h = _digest("maison", cfg.cle, cfg.noeud)
-    c = _sortie_container(SORTIE_MAISON, "maison")
-    if c is not None and c.labels.get("noah.sortie.config") == h:
-        if c.status != "running":
-            c.start()
-        return c
-    key_hash = _digest(cfg.cle)
-    if c is not None:
-        # Une autre clé : le nœud s'enregistre de nouveau, avec un état neuf. Un autre nœud de sortie seulement : l'état reste,
-        # la clé (peut-être à usage unique) n'a pas à resservir.
-        _remove_container(c, SORTIE_MAISON if c.labels.get("noah.sortie.cle") != key_hash else "")
-    _ensure_image(TAILSCALE_IMAGE)
-    common = _sortie_common(SORTIE_MAISON, "maison", h)
-    common["labels"]["noah.sortie.cle"] = key_hash
-    c = client.containers.create(
-        TAILSCALE_IMAGE,
-        entrypoint=["/bin/sh", "-c", f'set -a; . {SECRETS_FILE}; set +a; exec /usr/local/bin/containerboot', "noah"],
-        environment={
-            "TS_USERSPACE": "true",  # pas de /dev/net/tun ni de NET_ADMIN : le trafic passe par le mandataire de tailscaled
-            "TS_STATE_DIR": "/var/lib/tailscale",
-            "TS_HOSTNAME": "noah-sortie",
-            "TS_AUTH_ONCE": "true",
-            "TS_OUTBOUND_HTTP_PROXY_LISTEN": f"0.0.0.0:{TAILSCALE_PROXY}",
-            "TS_EXTRA_ARGS": f"--exit-node={cfg.noeud}",
-            "TS_ACCEPT_DNS": "false",
-        },
-        volumes={SORTIE_MAISON: {"bind": "/var/lib/tailscale", "mode": "rw"}},
-        **common,
-    )
-    updater.put_env(c, SECRETS_FILE, {"TS_AUTHKEY": cfg.cle} if cfg.cle else {})
-    c.start()
-    return c
+def _put_file(c, path: str, text: str, mode: int = 0o600) -> None:
+    """Pose un fichier (et ses dossiers) dans le conteneur, lisible par son seul propriétaire."""
+    parts = Path(path).parts[1:]
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as tar:
+        for i in range(1, len(parts)):
+            d = tarfile.TarInfo("/".join(parts[:i]))
+            d.type, d.mode, d.mtime = tarfile.DIRTYPE, 0o755, int(time.time())
+            tar.addfile(d)
+        data = text.encode()
+        info = tarfile.TarInfo("/".join(parts))
+        info.size, info.mode, info.mtime = len(data), mode, int(time.time())
+        tar.addfile(info, io.BytesIO(data))
+    c.put_archive("/", buf.getvalue())
 
 
 def _make_vpn(cfg: SortieVpn):
-    h = _digest("vpn", cfg.cle_privee, cfg.adresse, cfg.ville)
+    custom = cfg.fournisseur == "custom"
+    h = _digest("vpn-custom", cfg.conf) if custom else _digest("vpn", cfg.cle_privee, cfg.adresse, cfg.ville)
     c = _sortie_container(SORTIE_VPN, "vpn")
     if c is not None and c.labels.get("noah.sortie.config") == h:
         if c.status != "running":
@@ -627,23 +667,29 @@ def _make_vpn(cfg: SortieVpn):
     # Gluetun est le seul conteneur de Noah qui demande une capacité : un VPN crée une interface réseau (NET_ADMIN) et ouvre
     # /dev/net/tun. Rien d'autre : ni NET_RAW, ni privilège, ni accès à l'hôte.
     common["cap_add"] = ["NET_ADMIN"]
+    environment = {
+        "VPN_TYPE": "wireguard",
+        "HTTPPROXY": "on",
+        "HTTPPROXY_LISTENING_ADDRESS": f":{GLUETUN_PROXY}",
+        "FIREWALL_INPUT_PORTS": str(GLUETUN_PROXY),  # l'aiguillage, voisin sur noah-sorties, joint le mandataire
+        "UPDATER_PERIOD": "0",
+    }
+    if custom:
+        environment["VPN_SERVICE_PROVIDER"] = "custom"  # le fournisseur, quel qu'il soit : tout est dans son fichier
+    else:
+        environment.update(VPN_SERVICE_PROVIDER="surfshark", WIREGUARD_ADDRESSES=cfg.adresse, SERVER_CITIES=cfg.ville)
     c = client.containers.create(
         GLUETUN_IMAGE,
         entrypoint=["/bin/sh", "-c", f'set -a; . {SECRETS_FILE}; set +a; exec /gluetun-entrypoint', "noah"],
-        environment={
-            "VPN_SERVICE_PROVIDER": "surfshark",
-            "VPN_TYPE": "wireguard",
-            "WIREGUARD_ADDRESSES": cfg.adresse,
-            "SERVER_CITIES": cfg.ville,
-            "HTTPPROXY": "on",
-            "HTTPPROXY_LISTENING_ADDRESS": f":{GLUETUN_PROXY}",
-            "FIREWALL_INPUT_PORTS": str(GLUETUN_PROXY),  # l'aiguillage, voisin sur noah-sorties, joint le mandataire
-            "UPDATER_PERIOD": "0",
-        },
+        environment=environment,
         devices=["/dev/net/tun:/dev/net/tun:rwm"],
         **common,
     )
-    updater.put_env(c, SECRETS_FILE, {"WIREGUARD_PRIVATE_KEY": cfg.cle_privee})
+    if custom:
+        updater.put_env(c, SECRETS_FILE, {})  # le point d'entrée lit ce fichier : vide ici, le fichier du fournisseur est ailleurs
+        _put_file(c, GLUETUN_CONF, wireguard(cfg.conf))
+    else:
+        updater.put_env(c, SECRETS_FILE, {"WIREGUARD_PRIVATE_KEY": cfg.cle_privee})
     c.start()
     return c
 
@@ -709,21 +755,41 @@ def _sortie_wait() -> dict | None:
 
 
 def _check_sortie(cfg: SortieConfig) -> None:
-    if cfg.maison and not (NODE_RE.match(cfg.maison.noeud) and (not cfg.maison.cle or KEY_RE.match(cfg.maison.cle))):
-        raise HTTPException(400, "Nœud de sortie ou clé Tailscale invalide.")
-    if cfg.vpn and not (KEY_RE.match(cfg.vpn.cle_privee) and ADDRESS_RE.match(cfg.vpn.adresse) and CITY_RE.match(cfg.vpn.ville)):
-        raise HTTPException(400, "Clé WireGuard, adresse ou ville invalide.")
+    if not cfg.vpn:
+        return
+    if cfg.vpn.fournisseur == "custom":
+        try:
+            wireguard(cfg.vpn.conf)
+        except ValueError:
+            raise HTTPException(400, "Configuration WireGuard invalide.") from None
+    elif cfg.vpn.fournisseur == "surfshark":
+        if not (KEY_RE.match(cfg.vpn.cle_privee) and ADDRESS_RE.match(cfg.vpn.adresse) and CITY_RE.match(cfg.vpn.ville)):
+            raise HTTPException(400, "Clé WireGuard, adresse ou ville invalide.")
+    else:
+        raise HTTPException(400, "Fournisseur de VPN inconnu.")
+
+
+def _retirer_ancienne_maison() -> None:
+    """Le nœud Tailscale d'avant le relais par l'app de bureau : son conteneur, et son état (qui garde la clé de la personne chez Tailscale)."""
+    c = _sortie_container(SORTIE_MAISON, "maison")
+    if c is not None:
+        _remove_container(c, SORTIE_MAISON)
+    else:
+        try:
+            client.volumes.get(SORTIE_MAISON).remove()
+        except NotFound:
+            pass
+        except Exception:  # noqa: BLE001 - un volume encore tenu : au prochain passage
+            pass
 
 
 def _apply_sortie(cfg: SortieConfig) -> dict:
     _check_sortie(cfg)
     _sorties_network()
+    _retirer_ancienne_maison()
     amont: list[dict] = []
-    if cfg.maison:
-        _make_maison(cfg.maison)
-        amont.append({"nom": "maison", "hote": SORTIE_MAISON, "port": TAILSCALE_PROXY})
-    elif (c := _sortie_container(SORTIE_MAISON, "maison")) is not None:
-        _remove_container(c, SORTIE_MAISON)
+    if cfg.maison and cfg.maison.actif:
+        amont.append({"nom": "maison", "hote": SERVER_NAME, "port": RELAIS_PORT})  # le mandataire du relais, dans le serveur
     if cfg.vpn:
         _make_vpn(cfg.vpn)
         amont.append({"nom": "vpn", "hote": SORTIE_VPN, "port": GLUETUN_PROXY})
@@ -734,6 +800,38 @@ def _apply_sortie(cfg: SortieConfig) -> dict:
     else:
         _sortie_cleanup(emptied=True)
     return _sortie_report(wait=bool(amont))
+
+
+def _sortie_legacy() -> None:
+    """Au démarrage du lanceur : plus rien de l'ancienne maison. Son conteneur part, et un aiguillage qui la comptait encore parmi
+    ses amonts est refait sans elle (ou part, s'il ne lui reste rien) : le serveur n'a pas à repasser pour que cela soit propre."""
+    with _sortie_lock:
+        _retirer_ancienne_maison()
+        c = _sortie_container(SORTIE, "aiguillage")
+        if c is None:
+            return
+        try:
+            env = dict(e.split("=", 1) for e in c.attrs["Config"]["Env"] if "=" in e)
+            amont = json.loads(env.get("NOAH_SORTIE_AMONT", "[]"))
+        except (KeyError, TypeError, ValueError):
+            return
+        gardes = [s for s in amont if s.get("hote") != SORTIE_MAISON]
+        if len(gardes) == len(amont):
+            return
+        if gardes:
+            _make_aiguillage(gardes)
+        else:
+            _sortie_cleanup(emptied=True)
+
+
+@app.on_event("startup")
+def sortie_legacy() -> None:
+    def run() -> None:
+        try:
+            _sortie_legacy()
+        except Exception as e:  # noqa: BLE001 - Docker pas prêt : le serveur redira la configuration, qui fait le même ménage
+            print(f"[lanceur] ancienne sortie maison : {type(e).__name__}", flush=True)
+    threading.Thread(target=run, daemon=True).start()
 
 
 def _browsers_on_proxy() -> bool:

@@ -315,7 +315,7 @@ for hote, port, refus in [("192.168.1.10", 445, True), ("100.101.102.103", 3389,
                           ("exemple.org", 443, False), ("1.1.1.1", 443, False), ("www.facebook.com", 443, False)]:
     got = bool(A.destination_interdite(hote, port))
     assert got == refus, f"{hote}:{port} refus attendu {refus}, obtenu {got}"
-print("3b. adresses du réseau local, de Tailscale, noms internes et courrier : refusés ; les sites publics passent")
+print("3b. adresses du réseau local, CGNAT, noms internes et courrier : refusés ; les sites publics passent")
 
 
 async def partie3c():
@@ -326,4 +326,50 @@ async def partie3c():
     serveur.close()
 asyncio.run(partie3c())
 print("3c. le mandataire répond 403 à une destination privée")
+
+
+async def partie4():
+    """Le relais de l'ordinateur : quand l'app est fermée, le mandataire du serveur répond 503 (ErreurAmont : la sortie est tombée, on
+    passe à la suivante) ; quand l'app refuse une destination, il répond 403 (RefusAmont : la sortie va bien, c'est cette destination)."""
+    compte: dict = {}
+    reponse = {"ligne": b"HTTP/1.1 503 Service Unavailable"}
+
+    async def relais(r, w):
+        await r.readuntil(b"\r\n\r\n")
+        w.write(reponse["ligne"] + b"\r\nContent-Length: 0\r\n\r\n")
+        await w.drain()
+        w.close()
+    amont = await asyncio.start_server(relais, "127.0.0.1", 0)
+    port_amont = amont.sockets[0].getsockname()[1]
+    A.PRIVE_OK = True
+    site = await faux_site(compte)
+    site_port = site.sockets[0].getsockname()[1]
+    loop = asyncio.get_running_loop()
+    vrai = loop.getaddrinfo
+
+    async def getaddrinfo(host, port, **k):
+        return await vrai("127.0.0.1", site_port, **k)
+    loop.getaddrinfo = getaddrinfo  # noqa: B010
+    a = A.Aiguillage([A.Sortie("maison", "127.0.0.1", port_amont)], inactivite=1.5, seuil=2)
+    try:
+        await A.ouvrir_par(a.sorties["maison"], "www.exemple.test", 443)
+        raise AssertionError("503 : la sortie aurait dû être déclarée tombée")
+    except A.ErreurAmont:
+        pass
+    reponse["ligne"] = b"HTTP/1.1 403 Forbidden"
+    try:
+        await A.ouvrir_par(a.sorties["maison"], "www.exemple.test", 443)
+        raise AssertionError("403 : la destination aurait dû être refusée")
+    except A.RefusAmont:
+        pass
+    reponse["ligne"] = b"HTTP/1.1 503 Service Unavailable"
+    serveur = await asyncio.start_server(lambda r, w: A.servir_client(a, r, w), "127.0.0.1", 0, limit=A.MAX_ENTETE)
+    code, corps = await via(serveur.sockets[0].getsockname()[1], "www.exemple.test", site_port)
+    assert (code, corps) == (200, b"ok") and a.courante == "direct" and not a.saine("maison"), (code, a.etat())
+    serveur.close()
+    amont.close()
+    site.close()
+    A.PRIVE_OK = False
+asyncio.run(partie4())
+print("3d. relais éteint (503) : la sortie est déclarée tombée et le navigateur passe en direct sans erreur ; refus de l'app (403) : une destination, pas une panne")
 print("OK : aiguillage")

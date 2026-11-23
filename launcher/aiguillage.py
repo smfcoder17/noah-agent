@@ -1,7 +1,7 @@
 """Aiguillage de la sortie réseau des navigateurs d'agents (conteneur `noah-sortie`).
 
 Le navigateur de chaque agent a ce mandataire (HTTP, CONNECT) pour seule porte vers Internet. Il le fait sortir par la
-meilleure sortie qui répond, dans l'ordre de la liste : maison (nœud de sortie Tailscale), puis VPN (Gluetun), puis, en
+meilleure sortie qui répond, dans l'ordre de la liste : maison (l'ordinateur de la personne, par le relais du serveur), puis VPN (Gluetun), puis, en
 repli, le serveur lui-même (« direct »).
 
 Règles (tests/sortie/aiguillage_test.py) :
@@ -14,10 +14,10 @@ Règles (tests/sortie/aiguillage_test.py) :
   tâches, jamais au milieu d'une session) ;
 - tant qu'une sortie répond, rien ne part en direct : le direct n'est qu'un dernier recours.
 
-Le mandataire refuse les destinations privées (adresses du réseau local, de Tailscale, noms internes) : un navigateur
-compromis ne s'en sert pas pour atteindre le PC de la personne par la sortie maison.
+Le mandataire refuse les destinations privées (adresses du réseau local, CGNAT, noms internes) : un navigateur
+compromis ne s'en sert pas pour atteindre le PC de la personne par la sortie maison (l'app de bureau le refuse aussi, de son côté).
 
-Rien de secret ici : les clés Tailscale et WireGuard sont dans les conteneurs des sorties, jamais dans celui-ci. Seulement la
+Rien de secret ici : le fichier WireGuard est dans le conteneur du VPN, jamais dans celui-ci. Seulement la
 bibliothèque standard : l'image est celle du serveur Noah, déjà sur la machine.
 
     python aiguillage.py          sert (variables NOAH_SORTIE_*, voir plus bas)
@@ -162,7 +162,7 @@ def adresse_privee(ip: str) -> bool:
     if a.version == 6 and a.ipv4_mapped:
         a = a.ipv4_mapped
     return (a.is_private or a.is_loopback or a.is_link_local or a.is_multicast or a.is_reserved or a.is_unspecified
-            or a in ipaddress.ip_network("100.64.0.0/10"))  # Tailscale et CGNAT : is_private ne les couvre pas
+            or a in ipaddress.ip_network("100.64.0.0/10"))  # CGNAT : is_private ne le couvre pas
 
 
 def destination_interdite(hote: str, port: int) -> str:
@@ -229,6 +229,9 @@ async def ouvrir_par(s: Sortie, hote: str, port: int):
     if len(parts) < 2 or not parts[0].startswith("HTTP/") or not parts[1].isdigit():
         w.close()
         raise ErreurAmont("réponse incompréhensible")
+    if parts[1] == "503":  # « pas de service » : le relais de l'ordinateur n'est pas connecté (ordinateur éteint, app fermée). Une panne de la sortie.
+        w.close()
+        raise ErreurAmont(ligne)
     if parts[1] != "200":
         w.close()
         raise RefusAmont(ligne)
@@ -400,7 +403,7 @@ async def servir_etat(a: Aiguillage, r: asyncio.StreamReader, w: asyncio.StreamW
 
 
 def depuis_environnement() -> Aiguillage:
-    """NOAH_SORTIE_AMONT : [{"nom": "maison", "hote": "noah-sortie-maison", "port": 1056}, …], dans l'ordre de préférence."""
+    """NOAH_SORTIE_AMONT : [{"nom": "maison", "hote": "noah-server", "port": 3130}, …], dans l'ordre de préférence."""
     amont = [Sortie(str(s["nom"]), str(s["hote"]), int(s["port"])) for s in json.loads(os.environ.get("NOAH_SORTIE_AMONT", "[]"))]
     return Aiguillage(amont)
 
