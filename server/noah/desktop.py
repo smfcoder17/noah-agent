@@ -980,6 +980,9 @@ async def pc_call(link: dict, agent_id: str, body: dict, model: str) -> tuple[in
     except Gone:
         return 503, {"erreur": GONE}
     if isinstance(out, dict) and out.get("ok") and isinstance(out.get("reponse"), dict):
+        exact = out.get("modele_exact")
+        if isinstance(exact, str) and _MODEL_NAME.fullmatch(exact):  # le modèle réellement servi (« claude-haiku-5-5 »), pas l'alias choisi (« haiku »)
+            out["modele"] = exact
         return 200, out
     status = out.get("statut") if isinstance(out, dict) and isinstance(out.get("statut"), int) and 400 <= out["statut"] < 600 else 502
     return status, out if isinstance(out, dict) else {}

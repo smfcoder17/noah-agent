@@ -119,4 +119,21 @@ models = desktop.pc_models("ordinateur:grok", ALICE)
 assert [m["id"] for m in models] == ["grok-4.3"] and models[0]["name"] == "Grok · grok-4.3" and models[0]["abonnement"] is True, models
 print("7. Grok (ton ordinateur) : prêt seulement connecté et permis, modèles annoncés par l'ordinateur")
 
+# 8. Le nom exact du modèle réellement servi remplace l'alias dans l'Activité (« Claude Code · claude-haiku-5-5 · abonnement »).
+import asyncio  # noqa: E402
+
+
+async def fake_ask(device, user, item, seconds=0, agent_id=""):
+    return {"ok": True, "modele": "haiku", "modele_exact": "claude-haiku-5-5", "reponse": {"choices": [], "usage": {}}}
+
+real_ask, desktop._ask = desktop._ask, fake_ask
+try:
+    desktop._agent_name = lambda agent_id: "Nadine"
+    status, out = asyncio.run(desktop.pc_call({"fournisseur": "ordinateur:claude-code", "appareil": "d", "user": ALICE}, "a1", {"messages": []}, "haiku"))
+finally:
+    desktop._ask = real_ask
+assert status == 200 and out["modele"] == "claude-haiku-5-5", out
+assert desktop.usage_name("ordinateur:claude-code", out["modele"]) == "Claude Code · claude-haiku-5-5 · abonnement"
+print("8. l'Activité porte le nom exact du modèle servi, pas l'alias")
+
 print("Utilisation des abonnements, côté serveur : tout tient.")
