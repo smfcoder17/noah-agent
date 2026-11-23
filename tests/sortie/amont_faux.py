@@ -1,5 +1,5 @@
 """Un faux mandataire amont (« maison » ou « VPN ») pour tests/sortie/docker_test.sh : un CONNECT et rien d'autre, comme le mandataire HTTP
-de tailscaled ou de Gluetun. On l'arrête et on le relance avec `docker stop` et `docker start`."""
+d'un VPN (Gluetun). On l'arrête et on le relance avec `docker stop` et `docker start`."""
 import asyncio
 
 

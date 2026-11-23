@@ -101,5 +101,5 @@ refus 169.254.169.254 80
 refus mon-pc.tailnet.ts.net 443
 refus $P-maison 3128
 refus site.essai.test 25
-echo "8. l'aiguillage de production refuse le réseau local, Tailscale, les noms internes et le courrier"
+echo "8. l'aiguillage de production refuse le réseau local, le CGNAT, les noms internes et le courrier"
 echo "OK : sortie réseau sur de vrais conteneurs"

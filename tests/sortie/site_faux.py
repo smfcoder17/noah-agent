@@ -1,6 +1,7 @@
 """Un faux site pour tests/sortie/docker_test.sh : répond « ip=<adresse de celui qui s'est connecté> ». Derrière une sortie, cette
 adresse est celle du faux amont (maison ou VPN) qui a relayé la connexion ; en repli direct, celle de l'aiguillage lui-même."""
 import asyncio
+import os
 
 
 async def un(r, w):
@@ -16,7 +17,7 @@ async def un(r, w):
 
 
 async def main():
-    server = await asyncio.start_server(un, "0.0.0.0", 8080)
+    server = await asyncio.start_server(un, "0.0.0.0", int(os.environ.get("PORT", "8080")))
     async with server:
         await server.serve_forever()
 
