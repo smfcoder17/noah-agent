@@ -41,6 +41,7 @@
       "textes.js",
       "maj.js",
       "liens.js",
+      "relais.js",
       "icon.png"
     ],
     "afterPack": "apres-empaquetage.js",
