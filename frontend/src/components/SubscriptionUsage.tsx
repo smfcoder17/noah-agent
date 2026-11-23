@@ -46,26 +46,26 @@ function Bar({ p, w }: { p: Usage["id"]; w: Window }) {
   const sentence = pct === null
     ? t("Limite atteinte sur {fenetre}", { fenetre: name })
     : w.reset ? t("{pct} % de {fenetre}, remise à zéro {quand}", { pct: Math.round(pct), fenetre: name, quand: when(w.reset) }) : t("{pct} % de {fenetre}", { pct: Math.round(pct), fenetre: name });
-  return <div className="flex flex-col gap-1">
+  return <div className="flex w-full flex-col gap-1 text-left">
     <span className={cn("text-sm", w.etat === "limite" && "text-danger")}>{sentence}{w.etat === "limite" && pct !== null ? ` — ${t("limite atteinte")}` : w.etat === "bientot" ? ` — ${t("bientôt la limite")}` : ""}</span>
-    <span role="meter" aria-label={name} aria-valuenow={Math.round(pct ?? 100)} aria-valuemin={0} aria-valuemax={100} className="h-2 overflow-hidden rounded-full bg-muted">
+    <span role="meter" aria-label={name} aria-valuenow={Math.round(pct ?? 100)} aria-valuemin={0} aria-valuemax={100} className="block h-2 w-full overflow-hidden rounded-full bg-muted">
       <span className={cn("block h-full rounded-full", w.etat === "limite" ? "bg-danger" : w.etat === "bientot" || (pct ?? 100) >= 90 ? "bg-warn" : "bg-foreground/70")} style={{ width: `${pct ?? 100}%` }} />
     </span>
   </div>;
 }
 
 function Card({ u, now }: { u: Usage; now: number }) {
-  return <div className="shell-row flex-col items-stretch gap-2" aria-label={u.nom}>
-    <div className="flex flex-wrap items-baseline gap-x-2">
+  return <div className="shell-row flex-col items-stretch gap-2 text-left" aria-label={u.nom}>
+    <div className="flex w-full flex-wrap items-baseline justify-start gap-x-2">
       <strong>{u.nom}</strong>
       {u.offre && <small className="text-muted-foreground text-[12.5px]">{t("offre {offre}", { offre: u.offre })}</small>}
       {u.modele && <small className="text-muted-foreground text-[12.5px]">{t("modèle {modele}", { modele: u.modele })}</small>}
     </div>
     {u.fenetres.map((w) => <Bar key={w.id} p={u.id} w={w} />)}
-    {!u.fenetres.length && <p className="text-sm text-muted-foreground">{u.id === "grok"
+    {!u.fenetres.length && <p className="w-full text-left text-sm text-muted-foreground">{u.id === "grok"
       ? t("{n} tours comptés. xAI ne donne pas le reste : ni pourcentage, ni remise à zéro.", { n: u.tours })
       : t("{n} tours comptés. Aucune mesure du forfait reçue pour l'instant.", { n: u.tours })}</p>}
-    <small className="text-muted-foreground text-[12.5px]">{t("Dernière mesure {quand}", { quand: ago(u.mesure_le, now) })}</small>
+    <small className="w-full text-left text-muted-foreground text-[12.5px]">{t("Dernière mesure {quand}", { quand: ago(u.mesure_le, now) })}</small>
   </div>;
 }
 
