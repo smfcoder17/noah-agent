@@ -13,10 +13,12 @@ import { t } from "@/i18n";
 
 const AUTO_LEVELS: [TierId, string][] = [["fast", t("Simple")], ["balanced", t("Moyen")], ["smart", t("Complexe")]];
 
-export function AgentBrain({ agentId, own, mode, reasoning, onChanged }: { agentId: string; own: string | null | undefined; mode?: string | null; reasoning?: string | null; onChanged: () => void; openKey?: number; bare?: boolean }) {
+/** `precise` : ouvert depuis l'étiquette sous la saisie, où l'on vient chercher un modèle : la recherche est déjà là, le curseur dedans
+ * (toucher l'étiquette, taper, toucher le modèle : trois gestes). */
+export function AgentBrain({ agentId, own, mode, reasoning, onChanged, precise }: { agentId: string; own: string | null | undefined; mode?: string | null; reasoning?: string | null; onChanged: () => void; openKey?: number; bare?: boolean; precise?: boolean }) {
   const [base, setBase] = useState<CurrentModel>(null);
   const [state, setState] = useState<ModesState | null>(null);
-  const [choosing, setChoosing] = useState<TierId | "precis" | null>(null);
+  const [choosing, setChoosing] = useState<TierId | "precis" | null>(precise ? "precis" : null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -80,8 +82,11 @@ export function AgentBrain({ agentId, own, mode, reasoning, onChanged }: { agent
   );
 
   const [providersOpen, setProvidersOpen] = useState(false);
+  // Venu de l'étiquette sous la saisie, on cherche un modèle : la recherche passe avant les modes, que le téléphone laisserait hors de l'écran.
+  const search = choosing === "precis" && <ModelSearch level="cerveau" autoFocus={precise} selected={!mode ? own || base?.model : null} onPick={(m) => pick({ model: m.id, provider: m.fournisseur })} />;
   const panel = (
     <div className="flex flex-col gap-3">
+      {precise && search}
       <div role="radiogroup" aria-label={t("Modèle de l'agent")} className="flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border">
         <div>
           <Row id="auto" name={t("Auto")} under={t("Simple, moyen ou complexe : Noah choisit")} onPick={() => pick({ mode: "auto" })} disabled={!autoAvailable} />
@@ -106,7 +111,7 @@ export function AgentBrain({ agentId, own, mode, reasoning, onChanged }: { agent
         <Row id="tous" name={t("Comme mes autres agents")} under={everyone} onPick={() => pick({ model: null })} />
         <Row id="precis" name={t("Un modèle précis")} under={own && !mode ? readableModel(own) : undefined} onPick={() => setChoosing(choosing === "precis" ? null : "precis")} />
       </div>
-      {choosing === "precis" && <ModelSearch level="cerveau" selected={!mode ? own || base?.model : null} onPick={(m) => pick({ model: m.id, provider: m.fournisseur })} />}
+      {!precise && search}
       <label className="flex items-center gap-2 text-sm">
         <span className="shrink-0">{t("Réflexion")}</span>
         <select value={reasoning ?? ""} disabled={busy} onChange={(e) => change({ raisonnement: e.target.value || null })}

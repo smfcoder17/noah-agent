@@ -43,57 +43,78 @@ const press = async (label: string) => {
   expect(b, label).toBeTruthy();
   await act(async () => b!.click());
 };
+const type = async (text: string) => {
+  const field = host.querySelector<HTMLInputElement>('input[type="search"]')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(field, text);
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+};
+const radios = () => [...host.querySelectorAll<HTMLButtonElement>('[role="radio"]')];
+const heads = () => [...host.querySelectorAll('[role="presentation"]')].map((h) => h.textContent);
+const box = () => host.querySelector<HTMLElement>('[aria-label="Modèles"]')!;
+const checkbox = (label: string) => host.querySelector<HTMLInputElement>(`input[type="checkbox"][aria-label="${label}"]`)!;
 
-it("montre la recherche sous un filtre par fournisseur connecté, avec son compte et Tous", async () => {
+it("la recherche est en haut, les fournisseurs se cochent (plusieurs) avec leur compte, Tous les remet", async () => {
   await render();
+  const first = host.querySelector("input, button")!;
+  expect(first.getAttribute("type")).toBe("search"); // la recherche d'abord
+  const chooser = [...host.querySelectorAll("button")].find((b) => b.textContent?.includes("Tous les fournisseurs"))!;
+  expect(chooser.textContent).toContain("63");
+  expect(chooser.getAttribute("aria-expanded")).toBe("false");
+  await act(async () => chooser.click());
   const bar = host.querySelector('[aria-label="Fournisseurs"]')!;
-  expect(bar).toBeTruthy();
-  expect([...bar.querySelectorAll("button")].map((b) => b.getAttribute("aria-pressed") === "true")).toEqual([true, false, false, false]);
-  expect(bar.textContent).toContain("Anthropic (Claude)1");
-  expect(bar.textContent).toContain("Ollama1");
+  expect([...bar.querySelectorAll('input[type="checkbox"]')].map((c) => c.getAttribute("aria-label"))).toEqual(["Anthropic (Claude)", "Ollama", "OpenRouter"]);
   expect(bar.textContent).toContain("OpenRouter61");
-  expect(bar.textContent).toContain("Tous63");
+  await act(async () => checkbox("Anthropic (Claude)").click());
+  await act(async () => checkbox("Ollama").click());
+  expect(chooser.textContent).toContain("2 fournisseurs");
+  expect(radios().map((r) => r.textContent)).toEqual([expect.stringContaining("Claude Sonnet 4.5"), expect.stringContaining("Llama 4")]); // deux fournisseurs, deux modèles
+  await act(async () => checkbox("Ollama").click());
+  expect(chooser.textContent).toContain("Anthropic (Claude)"); // un seul coché : son nom
+  expect(radios()).toHaveLength(1);
+  await press("Tous les fournisseurs");
+  expect(chooser.textContent).toContain("Tous les fournisseurs");
+  expect(radios().length).toBeGreaterThan(4); // la fenêtre, pas les 63
 });
 
-it("classe tout par fournisseur, rien n'enterre une clé, et le choix sert en tête de son groupe", async () => {
+it("groupe par entreprise, le modèle en service en tête de la sienne, et ne rend que les rangées visibles", async () => {
   await render("claude-sonnet-4-5");
-  const groupes = [...host.querySelectorAll('[aria-label="Modèles"] section')];
-  expect(groupes.map((g) => g.getAttribute("aria-label"))).toEqual(["Anthropic (Claude)", "OpenRouter", "Ollama"]);
-  const openrouter = groupes.find((g) => g.getAttribute("aria-label") === "OpenRouter")!;
-  expect(openrouter.querySelectorAll('[role="radio"]').length).toBe(61); // la clé entière est rendue, rien n'est coupé
-  expect(openrouter.querySelector("h4")?.textContent).toContain("OpenRouter");
-  // Le modèle en service sort premier de son groupe, avec sa rangée marquée « Utilisé ».
+  expect(heads()).toEqual([expect.stringContaining("Anthropic"), expect.stringContaining("Lab")]); // la fenêtre ne montre pas encore Meta
   const used = host.querySelector('[aria-checked="true"]');
   expect(used?.textContent).toContain("Claude Sonnet 4.5");
-  expect(used?.closest("section")!.getAttribute("aria-label")).toBe("Anthropic (Claude)");
-});
-
-it("le filtre isole un fournisseur, Tous remet tout", async () => {
-  await render();
-  await press("Anthropic (Claude)1");
-  const radios = host.querySelectorAll('[role="radio"]');
-  expect(radios.length).toBe(1);
-  expect(radios[0].textContent).toContain("Claude Sonnet 4.5");
-  await press("Tous");
-  expect(host.querySelectorAll('[role="radio"]').length).toBe(63);
+  expect(radios()[0]).toBe(used); // premier de la liste
+  expect(radios().length).toBeLessThan(25); // 63 modèles, quelques rangées seulement dans le DOM
+  // Défiler fait apparaître la suite, groupes d'entreprise compris.
+  await act(async () => { box().scrollTop = 60 * 56; box().dispatchEvent(new Event("scroll")); });
+  expect(heads()).toContain("Meta2");
+  expect(radios().some((r) => r.textContent?.includes("Llama 4"))).toBe(true);
+  // Le même modèle chez deux fournisseurs reste deux rangées, chacune dit son fournisseur.
+  expect(radios().filter((r) => r.textContent?.includes("Llama 4")).map((r) => r.textContent)).toEqual([expect.stringContaining("OpenRouter"), expect.stringContaining("Ollama")]);
 });
 
 it("une recherche ne touche que le texte, un clic choisit exactement le modèle visé", async () => {
   await render();
-  const field = host.querySelector<HTMLInputElement>('input[type="search"]')!;
-  const fieldSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
-  await act(async () => {
-    fieldSetter.call(field, "llama");
-    field.dispatchEvent(new Event("input", { bubbles: true }));
-  });
-  const picks = [...host.querySelectorAll('[role="radio"]')];
+  await type("llama");
+  const picks = radios();
   expect(picks.length).toBe(2); // le même identifiant, un rang par fournisseur
-  expect(picks.map((p) => p.closest("section")!.getAttribute("aria-label"))).toEqual(["OpenRouter", "Ollama"]);
-  const target = picks.find((p): p is HTMLButtonElement => p.closest("section")!.getAttribute("aria-label") === "Ollama")!;
+  const target = picks.find((p) => p.textContent?.includes("Ollama"))!;
   await act(async () => target.click());
   expect(chain).toHaveBeenCalledOnce();
   expect(chain.mock.calls[0][0].fournisseur).toBe("ollama");
 });
+
+it("la recherche remet la liste en haut, et rien ne correspond : un mot clair", async () => {
+  await render();
+  await act(async () => { box().scrollTop = 600; box().dispatchEvent(new Event("scroll")); });
+  await type("modele-5");
+  expect(box().scrollTop).toBe(0);
+  expect(radios().length).toBeGreaterThan(0);
+  await type("introuvable");
+  expect(host.textContent).toContain("Aucun modèle ne correspond.");
+  expect(radios()).toHaveLength(0);
+});
+
 
 it("une étiquette Ollama garde son nom : « glm-5.3:cloud » ne s'affiche pas « cloud »", async () => {
   const { shortName } = await import("./Modes");

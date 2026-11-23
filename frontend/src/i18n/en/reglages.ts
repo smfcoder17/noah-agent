@@ -136,6 +136,8 @@ export default {
   "Niveau": "Level",
   "Rechercher parmi {n} modèles (claude, gemini, deepseek…)": "Search {n} models (claude, gemini, deepseek…)",
   "Rechercher un modèle": "Search for a model",
+  "Tous les fournisseurs": "All providers",
+  "{n} fournisseurs": "{n} providers",
   "Voit les images": "Sees images",
   "Gratuits": "Free",
   "{n} résultats": "{n} results",

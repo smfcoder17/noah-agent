@@ -1,11 +1,11 @@
 // Modèles et budget : une rangée par mode, le modèle qu'il utilise, un bouton pour changer. Gratuit prend ce que tes clés offrent de moins
 // cher ; Custom est ta liste, dans ton ordre. Le suivant prend le relais si l'un est épuisé ou en panne.
-import { ArrowDown, ArrowUp, Check, Eye, GripVertical, Loader2, Plus, Search, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { ArrowDown, ArrowUp, Check, ChevronDown, Eye, GripVertical, Loader2, Plus, Search, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { get, type Model, send } from "@/lib/api";
 import { type Level, type ListedModel, type ModeId, type ModeLink, type ModesState, TIERS, readableModel } from "@/lib/modes";
 import { cn, contextSize, money } from "@/lib/utils";
-import { ProviderLogo } from "./ProviderLogo";
+import { ProviderLogo, labName, labOf } from "./ProviderLogo";
 import { Button, ErrorText, Input } from "./ui";
 import { locale, t } from "@/i18n";
 
@@ -27,7 +27,9 @@ export const costLabel = (m: Priced, short = false) => {
 // « Anthropic: Claude Sonnet » perd son labo ; « glm-5.3:cloud » (étiquette Ollama, sans espace) garde son nom.
 export const shortName = (name: string) => readableModel(name.replace(/^[^:]+:\s+/, ""));
 
-export function ModelRow({ m, selected, onPick }: { m: Pick<Model, "id" | "name" | "vision" | "context"> & Priced; selected: boolean; onPick: () => void }) {
+/** `via` : chez quel fournisseur on l'obtient, quand plusieurs sont branchés (le même modèle peut venir de deux). */
+export function ModelRow({ m, selected, onPick, via, className }: { m: Pick<Model, "id" | "name" | "vision" | "context"> & Priced; selected: boolean; onPick: () => void; via?: string; className?: string }) {
+  const sub = [m.id.includes("/") ? labName(labOf(m.id)) : "", via].filter(Boolean).join(" · ");
   return (
     <button
       type="button"
@@ -38,12 +40,13 @@ export function ModelRow({ m, selected, onPick }: { m: Pick<Model, "id" | "name"
       className={cn(
         "flex w-full cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-muted",
         selected && "bg-accent-soft ring-2 ring-accent hover:bg-accent-soft",
+        className,
       )}
     >
       <ProviderLogo modelId={m.id} />
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="truncate font-medium">{shortName(m.name)}</span>
-        {m.id.includes("/") && <span className="truncate text-xs text-muted-foreground" title={m.id}>{readableModel(m.id.split("/")[0]).replace(/^./, (c) => c.toUpperCase())}</span>}
+        {sub && <span className="truncate text-xs text-muted-foreground" title={m.id}>{sub}</span>}
       </span>
       {selected && <span className="shrink-0 rounded-full bg-accent px-2 py-0.5 text-[11px] font-semibold text-surface">{t("Utilisé")}</span>}
       {m.vision && <Eye className="size-3.5 shrink-0 text-muted-foreground" aria-label={t("Voit les images")} />}
@@ -52,29 +55,60 @@ export function ModelRow({ m, selected, onPick }: { m: Pick<Model, "id" | "name"
   );
 }
 
-/** Un groupe = un fournisseur, dans l'ordre servi par /api/modes/…/modeles. Le libellé vient du serveur ; à défaut, il se devine. */
-function groupByBrand(models: ListedModel[], brands: { id: string; label: string }[]) {
-  const byBrand = new Map<string, ListedModel[]>();
+/** L'entreprise qui a fait le modèle : le préfixe de son identifiant (« meta/llama-4 »), sinon son labo, sinon son fournisseur. */
+const companyOf = (m: ListedModel) => (m.id.includes("/") ? labOf(m.id) : (m.lab || m.fournisseur).toLowerCase());
+
+// Rendu fenêtré : 656 modèles se lisent en quelques rangées dans le DOM. Hauteurs fixes, donc positions calculées sans rien mesurer.
+const HEAD_H = 28, ROW_H = 56, OVERSCAN_PX = 280;
+type Item = { kind: "head"; key: string; label: string; lab: string; n: number } | { kind: "model"; key: string; m: ListedModel };
+
+/** Modèles groupés par entreprise : celle du modèle en service d'abord, puis par nom ; dans un groupe, le modèle en service puis les plus récents. */
+function groupByCompany(models: ListedModel[], selected: string | null | undefined): Item[] {
+  // « meta » et « meta-llama » sont la même entreprise à l'écran : le groupe se tient par son nom affiché.
+  const byCompany = new Map<string, { lab: string; got: ListedModel[] }>();
   for (const m of models) {
-    const got = byBrand.get(m.fournisseur) ?? [];
-    got.push(m);
-    byBrand.set(m.fournisseur, got);
+    const lab = companyOf(m);
+    const group = byCompany.get(labName(lab)) ?? { lab, got: [] };
+    group.got.push(m);
+    byCompany.set(labName(lab), group);
   }
-  return [...byBrand.entries()].map(([id, got]) => ({
-    key: id,
-    label: (brands.find((b) => b.id === id)?.label) || readableModel(id).replace(/^./, (c) => c.toUpperCase()),
-    models: got,
-  }));
+  const has = (got: ListedModel[]) => got.some((m) => m.id === selected);
+  const groups = [...byCompany.entries()].sort(([a, ga], [b, gb]) => Number(has(gb.got)) - Number(has(ga.got)) || a.localeCompare(b, locale()));
+  return groups.flatMap(([label, { lab, got }]) => {
+    const ranked = [...got].sort((a, b) => Number(b.id === selected) - Number(a.id === selected) || b.created - a.created);
+    return [{ kind: "head" as const, key: `h:${label}`, label, lab, n: got.length },
+      ...ranked.map((m) => ({ kind: "model" as const, key: `${m.fournisseur}:${m.id}`, m }))];
+  });
 }
 
-/** Tout ce que les clés de la personne permettent à ce niveau : une recherche, un filtre par fournisseur, des groupes.
- * Un même identifiant proposé par deux fournisseurs (Ollama et OpenRouter…) reste deux choix distincts. */
-export function ModelSearch({ level, selected, onPick }: { level: Level; selected?: string | null; onPick: (m: ListedModel) => void }) {
+/** Les positions et la hauteur totale d'une liste de rangées de hauteurs fixes. */
+function layout(items: Item[]) {
+  const tops: number[] = [];
+  let y = 0;
+  for (const it of items) { tops.push(y); y += it.kind === "head" ? HEAD_H : ROW_H; }
+  return { tops, total: y };
+}
+
+/** Hauteur de la liste : 256 px sur ordinateur, 55 % de l'écran sur téléphone. */
+const listHeight = () => (window.innerWidth < 768 ? Math.round(window.innerHeight * 0.55) : 256);
+
+/** Tout ce que les clés de la personne permettent à ce niveau : la recherche en haut, les fournisseurs à cocher (plusieurs), puis les modèles
+ * groupés par entreprise, rendus à la fenêtre. Un même identifiant proposé par deux fournisseurs (Ollama et OpenRouter…) reste deux choix. */
+export function ModelSearch({ level, selected, onPick, autoFocus }: { level: Level; selected?: string | null; onPick: (m: ListedModel) => void; autoFocus?: boolean }) {
   const [models, setModels] = useState<ListedModel[] | null>(null);
   const [brands, setBrands] = useState<{ id: string; label: string }[]>([]);
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
-  const [brand, setBrand] = useState<string | null>(null);
+  const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
+  const [chooser, setChooser] = useState(false);
+  const [scroll, setScroll] = useState(0);
+  const [view, setView] = useState(listHeight);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const resize = () => setView(listHeight());
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, []);
   useEffect(() => {
     get<{ modeles: ListedModel[]; fournisseurs?: { id: string; label: string }[] }>(`/api/modes/${level}/modeles`)
       .then((r) => { setModels(r.modeles); setBrands(r.fournisseurs ?? []); })
@@ -92,68 +126,79 @@ export function ModelSearch({ level, selected, onPick }: { level: Level; selecte
     for (const b of brands) if (!rows.has(b.id)) rows.set(b.id, { label: b.label, n: 0 });
     return [...rows.entries()].map(([id, row]) => ({ id, ...row })).sort((a, b) => a.label.localeCompare(b.label, locale()) || a.id.localeCompare(b.id));
   }, [models, brands]);
-  const groups = useMemo(() => {
+  const items = useMemo(() => {
     const q = query.trim().toLowerCase();
     let all = models ?? [];
-    if (brand) all = all.filter((m) => m.fournisseur === brand);
+    if (picked.size) all = all.filter((m) => picked.has(m.fournisseur));
     if (q) all = all.filter((m) => `${m.id} ${m.name}`.toLowerCase().includes(q));
-    const ranked = [...all].sort((a, b) => Number(b.id === selected) - Number(a.id === selected) || b.created - a.created);
-    return groupByBrand(ranked, brands);
-  }, [models, query, brand, selected, brands]);
+    return groupByCompany(all, selected);
+  }, [models, query, picked, selected]);
+  const { tops, total } = useMemo(() => layout(items), [items]);
+  // Un filtre change : la liste repart du haut.
+  useEffect(() => { if (box.current) box.current.scrollTop = 0; setScroll(0); }, [query, picked]);
   if (error) return <ErrorText>{error}</ErrorText>;
   if (!models) return <p className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" />{t("Lecture des modèles…")}</p>;
+  const many = brands.length > 1;
+  const labels = new Map(counts.map((b) => [b.id, b.label]));
+  const toggle = (id: string) => setPicked((cur) => { const next = new Set(cur); if (!next.delete(id)) next.add(id); return next; });
+  const summary = picked.size === 0 ? t("Tous les fournisseurs") : picked.size === 1 ? labels.get([...picked][0]) ?? [...picked][0] : t("{n} fournisseurs", { n: picked.size });
+  // Rangées visibles : de la première qui touche le haut de la fenêtre à la dernière qui touche le bas, avec une marge.
+  const from = Math.max(0, scroll - OVERSCAN_PX), to = scroll + view + OVERSCAN_PX;
+  let lo = 0, hi = items.length;
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (tops[mid] + (items[mid].kind === "head" ? HEAD_H : ROW_H) <= from) lo = mid + 1; else hi = mid; }
+  const shown: number[] = [];
+  for (let i = lo; i < items.length && tops[i] <= to; i++) shown.push(i);
   return (
     <div className="flex flex-col gap-2">
       <div className="relative">
         <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input type="search" className="h-9 pl-9" placeholder={t("Rechercher un modèle")} value={query} onChange={(e) => setQuery(e.target.value)} aria-label={t("Rechercher un modèle")} />
+        <Input type="search" autoFocus={autoFocus} className="h-9 pl-9" placeholder={t("Rechercher un modèle")} value={query} onChange={(e) => setQuery(e.target.value)} aria-label={t("Rechercher un modèle")} />
       </div>
-      {brands.length > 1 && (
-        <div className="flex flex-wrap gap-1" role="group" aria-label={t("Fournisseurs")}>
-          <button
-            type="button"
-            aria-pressed={!brand}
-            onClick={() => setBrand(null)}
-            className={cn(
-              "h-7 cursor-pointer rounded-full border px-2.5 text-xs font-medium",
-              !brand ? "border-accent bg-accent-soft text-accent" : "border-muted-foreground/50 text-muted-foreground",
-            )}
-          >
-            {t("Tous")}<span className="ml-1 font-normal text-muted-foreground tabular-nums">{models.length}</span>
+      {many && (
+        <div className="flex flex-col gap-1">
+          <button type="button" aria-expanded={chooser} aria-haspopup="true" onClick={() => setChooser(!chooser)}
+            className="flex h-9 cursor-pointer items-center gap-2 rounded-lg border border-border bg-background px-3 text-left text-sm hover:border-muted-foreground/60">
+            <span className="min-w-0 flex-1 truncate">{summary}</span>
+            <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{models.length}</span>
+            <ChevronDown aria-hidden className={cn("size-4 shrink-0 text-muted-foreground transition-transform", chooser && "rotate-180")} />
           </button>
-          {counts.map((b) => (
-            <button
-              key={b.id}
-              type="button"
-              aria-pressed={brand === b.id}
-              onClick={() => { setBrand(brand === b.id ? null : b.id); setQuery(""); }}
-              className={cn(
-                "flex h-7 cursor-pointer items-center gap-1.5 rounded-full border py-0 pr-2.5 pl-1 text-xs font-medium",
-                brand === b.id ? "border-accent bg-accent-soft text-accent" : "border-muted-foreground/50 text-muted-foreground",
-              )}
-            >
-              <ProviderLogo lab={b.id} className="size-5 rounded-full" />
-              {b.label}
-              <span className="font-normal text-muted-foreground tabular-nums">{b.n}</span>
-            </button>
-          ))}
+          {chooser && (
+            <div className="flex flex-col gap-0.5 rounded-lg border border-border bg-background p-1" role="group" aria-label={t("Fournisseurs")}>
+              {counts.map((b) => (
+                <label key={b.id} className="flex min-h-9 cursor-pointer items-center gap-2 rounded-md px-2 text-sm hover:bg-muted">
+                  <input type="checkbox" className="size-4 shrink-0 accent-accent" checked={picked.has(b.id)} onChange={() => toggle(b.id)} aria-label={b.label} />
+                  <ProviderLogo lab={b.id} className="size-5 rounded-full" />
+                  <span className="min-w-0 flex-1 truncate">{b.label}</span>
+                  <span className="text-xs text-muted-foreground tabular-nums">{b.n}</span>
+                </label>
+              ))}
+              {picked.size > 0 && <button type="button" className="h-8 cursor-pointer self-start rounded-md px-2 text-xs text-accent hover:underline" onClick={() => setPicked(new Set())}>{t("Tous les fournisseurs")}</button>}
+            </div>
+          )}
         </div>
       )}
       <p className="flex justify-end px-2.5 text-[11px] text-muted-foreground">{t("Prix d'une tâche type")}</p>
-      <div role="radiogroup" aria-label={t("Modèles")} className="flex max-h-64 flex-col overflow-y-auto max-md:max-h-[55dvh]">
-        {groups.map((g) => (
-          <section key={g.key} aria-label={g.label}>
-            {brands.length > 1 && (
-              <h4 className="flex items-center justify-between border-b border-border/60 px-2.5 py-1 text-[11px] tracking-wide text-muted-foreground uppercase">
-                <span className="min-w-0 flex-1 truncate font-semibold">{g.label}</span>
-                <span className="tabular-nums">{g.models.length}</span>
-              </h4>
-            )}
-            {g.models.map((m) => <ModelRow key={`${m.fournisseur}:${m.id}`} m={m} selected={selected === m.id} onPick={() => onPick(m)} />)}
-          </section>
-        ))}
-        {!groups.some((g) => g.models.length) && <p className="p-3 text-sm text-muted-foreground">{t("Aucun modèle ne correspond.")}</p>}
-      </div>
+      {total === 0 ? <p className="p-3 text-sm text-muted-foreground">{t("Aucun modèle ne correspond.")}</p> : (
+        <div ref={box} role="radiogroup" aria-label={t("Modèles")} className="overflow-y-auto" style={{ height: Math.min(total, view) }} onScroll={(e) => setScroll(e.currentTarget.scrollTop)}>
+          <div className="relative" style={{ height: total }}>
+            {shown.map((i) => {
+              const it = items[i];
+              return it.kind === "head" ? (
+                <div key={it.key} role="presentation" style={{ position: "absolute", top: tops[i], left: 0, right: 0, height: HEAD_H }}
+                  className="flex items-center gap-2 border-b border-border/60 px-2.5 text-[11px] tracking-wide text-muted-foreground uppercase">
+                  <ProviderLogo lab={it.lab} className="size-4 rounded" />
+                  <span className="min-w-0 flex-1 truncate font-semibold">{it.label}</span>
+                  <span className="tabular-nums">{it.n}</span>
+                </div>
+              ) : (
+                <div key={it.key} style={{ position: "absolute", top: tops[i], left: 0, right: 0, height: ROW_H }}>
+                  <ModelRow m={it.m} selected={selected === it.m.id} onPick={() => onPick(it.m)} via={many ? labels.get(it.m.fournisseur) : undefined} className="h-full" />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
