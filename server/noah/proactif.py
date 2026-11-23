@@ -667,7 +667,7 @@ async def _propose(agent_id: str, now: float) -> dict | None:
     except Exception as e:  # noqa: BLE001 - fournisseur qui refuse (clé, budget 402, 422), injoignable, réponse illisible
         _idea_failed(agent_id, row, day, now)
         _save_note(agent_id, f"Idée du jour impossible : {str(e)[:200]}")
-        return None
+        return {"etat": "erreur", "raison": "Le modèle de décision n'a pas répondu."}  # jamais « rien de neuf » : ce passage n'a rien pu regarder
     text = str((answer.data or {}).get("proposition") or "").strip()
     useful = bool((answer.data or {}).get("utile")) and bool(text)
     with db.connect() as c:

@@ -771,6 +771,13 @@
 "may_learn"
 ],
 [
+"/api/decision/echec",
+[
+"DELETE"
+],
+"close_failure"
+],
+[
 "/api/decision/cle",
 [
 "POST"

@@ -497,6 +497,7 @@ OWNER_ROUTES = {
     ("POST", "/api/decision"): {"modele": "auto"},
     ("POST", "/api/decision/mesurer"): {},
     ("POST", "/api/decision/cle"): {"cle": ""},
+    ("DELETE", "/api/decision/echec"): None,
     ("GET", "/api/juge"): None,
     ("POST", "/api/juge"): {"actif": True},
     ("GET", "/api/flux"): None,

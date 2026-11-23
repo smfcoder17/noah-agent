@@ -525,6 +525,12 @@ served("2026-11-10")
 asked.clear()
 # 0.2.0 (lot 1) : avant, « sans objectif, pas d'idée ». Désormais l'idée part du rôle de l'agent, sur le même petit modèle.
 assert passe()["etat"] == "rien_de_neuf" and len(asked) == 1 and "aucun d'écrit" in asked[0]["user"], "sans objectif, l'idée part de son rôle"
+proactif._local = lambda now: ("2026-11-11", 10)
+served("2026-11-11")
+asked.clear()
+verdict[0] = decision.DecisionError("Le fournisseur a refusé la clé.")  # X15 : le modèle de décision échoue
+assert passe()["etat"] == "erreur" and len(asked) == 1, "un passage où le modèle de décision a échoué n'est jamais compté « rien de neuf »"
+verdict[0] = {"verdict": "rien"}
 proactif._local = lambda now: ("2026-11-07", 10)
 with db.connect() as c:  # retour au jour des autres tests, déjà servi
     c.execute("UPDATE proactive SET proposal_day = '2026-11-07' WHERE agent_id = 'a1'")

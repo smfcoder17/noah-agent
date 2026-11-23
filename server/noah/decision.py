@@ -203,6 +203,7 @@ async def ask(agent_id: str, system: str, user: str, *, max_tokens: int = 400, t
 
     for name in dict.fromkeys(m for m in (model(), _brain()) if m):
         if answer := await attempt(name, None):
+            clear_failure()
             return answer
     try:  # lu seulement après l'échec du fournisseur global : un appel qui réussit n'attend rien de plus
         rescue = (await _brain_elsewhere())[:1]
@@ -210,8 +211,63 @@ async def ask(agent_id: str, system: str, user: str, *, max_tokens: int = 400, t
         rescue = []
     for link in rescue:
         if answer := await attempt(link["modele"], link["fournisseur"]):
+            clear_failure()
             return answer
-    raise DecisionError(str(last) if isinstance(last, DecisionError) else "Le modèle de décision ne répond pas.")
+    reason = str(last) if isinstance(last, DecisionError) else "Le modèle de décision ne répond pas."
+    note_failure(reason, model())
+    raise DecisionError(reason)
+
+
+# --- Un modèle de décision qui échoue se voit, une fois (X15) -----------------------------------------------------------------------
+
+FAILURE = "decision_echec"  # {modele, raison, quand, fermee}
+
+
+def _failure() -> dict:
+    try:
+        state = json.loads(db.get_setting(FAILURE) or "{}")
+    except ValueError:
+        return {}
+    return state if isinstance(state, dict) else {}
+
+
+def note_failure(reason: str, name: str) -> None:
+    """Tous les appels échouent au même endroit : la personne le voit sur une carte « Pour toi », une seule fois par modèle, avec le
+    bouton pour en changer. Tant que ce modèle échoue, rien ne s'ajoute (elle a vu, ou fermé la carte). Le premier succès, ou un
+    autre modèle, remet le compte à zéro."""
+    state = _failure()
+    if state.get("modele") == name:
+        db.set_setting(FAILURE, json.dumps({**state, "raison": reason[:300]}, ensure_ascii=False))
+        return
+    db.set_setting(FAILURE, json.dumps({"modele": name, "raison": reason[:300], "quand": time.time(), "fermee": False}, ensure_ascii=False))
+    from . import bus
+    bus.invalidate_all()
+
+
+def clear_failure() -> None:
+    if _failure():
+        db.set_setting(FAILURE, "")
+        from . import bus
+        bus.invalidate_all()
+
+
+def failure_card() -> list[dict]:
+    """La carte de « Pour toi » (/api/a-toi), pour le propriétaire seulement : le modèle de décision n'a pas pu répondre."""
+    state = _failure()
+    if not state or state.get("fermee"):
+        return []
+    return [{"type": "decision", "id": "decision-echec", "modele": state["modele"], "raison": state["raison"], "created": state["quand"], "cree": state["quand"]}]
+
+
+@router.delete("/api/decision/echec")
+def close_failure(_: int = Depends(access.owner_only)):
+    """« Plus tard » : la carte se ferme, et ne revient pas pour ce modèle tant qu'il n'a pas réussi une fois."""
+    state = _failure()
+    if state:
+        db.set_setting(FAILURE, json.dumps({**state, "fermee": True}, ensure_ascii=False))
+        from . import bus
+        bus.invalidate_all()
+    return {"ok": True}
 
 
 def stronger(agent_id: str) -> str:
@@ -726,6 +782,7 @@ async def set_decision(body: Choice, _: int = Depends(access.owner_only)):
         if typed:
             _typed_store({**typed, "choisi_par": "auto"})
         await refresh()
+        clear_failure()
         return public()
     options = await _typed_options()
     option = next((o for o in options if o["id"] == body.modele), None)
@@ -734,6 +791,7 @@ async def set_decision(body: Choice, _: int = Depends(access.owner_only)):
         if not row["ok"]:
             raise HTTPException(400, f"Ce modèle n'a pas réussi l'essai : {row['erreur']}")
         _typed_store({**row, "choisi_par": "toi", "candidats": [row], "options": options})
+        clear_failure()
         return public()
     if body.modele.split(":")[0] in TYPED_URLS:
         raise HTTPException(400, "Ce modèle de décision n'est pas disponible avec tes clés.")
@@ -745,6 +803,7 @@ async def set_decision(body: Choice, _: int = Depends(access.owner_only)):
             "prix_entree": known.get("prix_entree"), "prix_sortie": None, "ms": row["ms"], "choisi_par": "toi"})
     _typed_store({"modele": "", "choisi_par": "toi", "options": options})  # un petit modèle choisi : c'est lui qui décide
     await apply_to_agents()
+    clear_failure()  # un autre modèle : on le laisse faire ses preuves
     return public()
 
 

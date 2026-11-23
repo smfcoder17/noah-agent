@@ -165,6 +165,9 @@ jobs:
       - name: "Image, vidéo et voix avec la clé de n'importe quel fournisseur (OpenAI, Gemini), OpenRouter débranché"
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/providers/medias_test.py"
+      - name: "Modèle de décision qui échoue : une carte « Pour toi », une seule fois, avec le bouton pour en changer"
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/agents/decision_echec_test.py"
       - name: "Relais : flux compressé par le fournisseur"
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/providers/flux_compresse_test.py"
