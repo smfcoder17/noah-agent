@@ -31,7 +31,7 @@ from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from pydantic import BaseModel, Field
 
-from . import access, accounts, apprentissage, appareils, auth, bureautique, catalog, chauffe, coffre, connecteurs, connecteurs_cles, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, propositions, public, publication, recherche, push, questions, recu, recuperation, relay, session, sites, sortie, taches, updates, watch
+from . import access, accounts, apprentissage, appareils, auth, bureautique, catalog, chauffe, coffre, connecteurs, connecteurs_cles, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, propositions, public, publication, recherche, push, questions, recu, recuperation, relay, session, sites, sortie, sortie_relais, taches, updates, watch
 from . import config
 from . import accords, bus, credits, presets, rapide, sensitive, ui_preferences, linkpreview, providers as provider_accounts
 from .config import WEB_DIR, forget_setup_code
@@ -225,7 +225,8 @@ app.include_router(linkpreview.router)
 app.include_router(ui_preferences.router)
 app.include_router(provider_accounts.router)
 app.include_router(presets.router)
-app.include_router(sortie.router)  # sortie réseau des navigateurs : maison, VPN, serveur (Réglages > Serveur)
+app.include_router(sortie.router)  # sortie réseau des navigateurs : maison (app de bureau), VPN, serveur (Réglages > Serveur)
+app.include_router(sortie_relais.router)  # le relais de l'app de bureau (WebSocket) et son interrupteur
 
 # Agents en cours de création : id -> message d'étape ou d'erreur affiché dans l'interface.
 provisioning: dict[str, str] = {}
@@ -256,6 +257,7 @@ async def startup() -> None:
     _spawn(updates.run(task_state))
     _spawn(push.run_queue())
     _spawn(desktop.keep_clean())
+    _spawn(sortie.migrer())  # 0.4.3 : plus de Tailscale ; le relais voulu rouvre son mandataire
     _spawn(_after_updates(lambda: machine.keep_connections_warm(lambda: [a["id"] for a in _agents()], _warmable)))
     _spawn(_after_updates(lambda: machine.keep_machine_warm(lambda: [a["id"] for a in _agents()], _warmable)))  # 0.4.0 S7 : routines, ordinateur, mémoire, compétences
     _migrate_threads()
@@ -1545,10 +1547,10 @@ def outbound_flows(user: int = Depends(access.owner_only)):
                   "quand": "quand une tâche le demande, depuis le navigateur de l'agent"})
     if sortie.maison() or sortie.vpn():  # lot sortie-reseau : seulement si une sortie est configurée (Réglages > Serveur > Sortie réseau)
         if sortie.maison():
-            flows.append({"quoi": "Sortie par ta maison (nœud de sortie Tailscale) : clé d'authentification", "vers": "controlplane.tailscale.com",
-                          "quand": "quand le nœud de sortie démarre ; le trafic des navigateurs passe ensuite par ton PC"})
+            flows.append({"quoi": "Sortie par ton ordinateur : les connexions du navigateur de l'agent passent par ton app de bureau", "vers": "ton ordinateur, relié à ce serveur",
+                          "quand": "tant que ton ordinateur est allumé et que l'interrupteur de l'app est en marche ; sinon le serveur prend le relais"})
         if sortie.vpn():
-            flows.append({"quoi": "Sortie par ton VPN (Surfshark, WireGuard)", "vers": "le serveur Surfshark de la ville choisie",
+            flows.append({"quoi": "Sortie par ton VPN (configuration WireGuard de ton fournisseur)", "vers": "le serveur de ton fournisseur de VPN",
                           "quand": "tant que les navigateurs de tes agents sont ouverts"})
         flows.append({"quoi": "Adresse et pays vus par les sites, pour chaque sortie", "vers": "api.ipify.org, ipinfo.io",
                       "quand": "toutes les 20 secondes pour l'état, toutes les 15 minutes pour l'adresse, à travers chaque sortie"})

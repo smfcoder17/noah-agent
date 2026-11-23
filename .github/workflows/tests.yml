@@ -177,9 +177,12 @@ jobs:
       - name: "Sortie réseau, lanceur : aucun conteneur de plus sans sortie configurée, images figées, NET_ADMIN pour le seul VPN, clés jamais dans la config Docker, navigateur sur l'aiguillage"
         run: |
           docker run --rm -v "$PWD/launcher:/launcher:ro" -v "$PWD/tests:/tests:ro" python:3.12-slim sh -c "pip install -q fastapi pydantic httpx && python /tests/sortie/lanceur_test.py"
-      - name: "Sortie réseau, serveur : clés scellées et jamais renvoyées ni journalisées, états des trois lignes, identité fr-CA par la maison ou le VPN, aucun appel au lanceur sans sortie"
+      - name: "Sortie réseau, serveur : fichier VPN scellé et jamais renvoyé ni journalisé, migration Tailscale, états du relais, identité fr-CA par la maison ou le VPN, aucun appel au lanceur sans sortie"
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/sortie/serveur_test.py"
+      - name: "Sortie réseau, relais du bureau, serveur : route réservée au propriétaire sur un appareil de bureau relié, jeton faux refusé, un seul relais actif, multiplexage avec contre-pression, aucun jeton nulle part"
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/sortie/relais_serveur_test.py"
       - name: "Publication : Instagram et X par leur API, un post part une seule fois, le jeton reste sur le serveur"
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/tools/publication_test.py"
