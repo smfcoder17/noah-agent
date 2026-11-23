@@ -22,6 +22,9 @@ if (args[0] === "auth" && args[1] === "status") {
 //   « OUTIL_TERMINAL » : demande l'outil terminal, puis répond quand son résultat est dans la conversation ;
 //   « ILLISIBLE » : une première réponse qui n'est pas du JSON, valide à la relance ; « TOUJOURS_ILLISIBLE » : jamais valide ;
 //   « OUTIL_INCONNU » : un outil qui n'existe pas ; « LENT » : ne répond jamais (arrêt) ; « LIMITE » : limite atteinte.
+const EXACT = { sonnet: "claude-sonnet-5-5", opus: "claude-opus-5-5", haiku: "claude-haiku-5-5" };
+const limits = () => say({ type: "rate_limit_event", rate_limit_info: { status: "allowed", resetsAt: 1795672800, rateLimitType: "seven_day", overageStatus: "rejected", isUsingOverage: false,
+  unifiedWindows: { five_hour: { utilization: 0.07, resetsAt: 1795000000, status: "allowed" }, seven_day: { utilization: 0.42, resetsAt: 1795672800, status: "allowed" } } }, uuid: "u-1", session_id: "s" });
 const brain = async (prompt) => {
   const at = (flag) => (args.includes(flag) ? args[args.indexOf(flag) + 1] : undefined);
   const model = at("--model");
@@ -30,7 +33,8 @@ const brain = async (prompt) => {
   trace({ args, prompt, system, cwd: process.cwd(), cerveau: true, facturation: billing(), garde: process.env.NOAH_GARDE });
   const usage = { input_tokens: 100, cache_read_input_tokens: 20, cache_creation_input_tokens: 0, output_tokens: 7 };
   const done = (fields) => { say({ type: "result", subtype: "success", is_error: false, session_id: "s-cerveau", num_turns: 1, total_cost_usd: 0.01, duration_ms: 50, usage, ...fields }); process.exit(0); };
-  say({ type: "system", subtype: "init", session_id: "s-cerveau", tools: [], model });
+  say({ type: "system", subtype: "init", session_id: "s-cerveau", tools: [], model: EXACT[model] || model });
+  limits();
   if (prompt.includes("LENT")) await new Promise(() => setInterval(() => {}, 1000));
   if (prompt.includes("LIMITE")) {
     say({ type: "result", subtype: "error_during_execution", is_error: true, result: "Claude usage limit reached. Your limit will reset at 5pm.", usage });
@@ -53,7 +57,8 @@ process.stdin.on("end", async () => {
   if (args.includes("--system-prompt-file")) return brain(prompt);
   trace({ args, prompt, cwd: process.cwd(), facturation: billing(), garde: process.env.NOAH_GARDE });
   const session = "sess-1234";
-  say({ type: "system", subtype: "init", session_id: session, cwd: process.cwd(), tools: [] });
+  say({ type: "system", subtype: "init", session_id: session, cwd: process.cwd(), tools: [], model: "claude-sonnet-5-5" });
+  limits();
   if (prompt.includes("LENT")) {
     for (let i = 0; ; i += 1) {
       say({ type: "assistant", message: { content: [{ type: "text", text: `étape ${i}` }] } });

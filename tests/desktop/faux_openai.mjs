@@ -21,8 +21,8 @@ export async function fakeOpenAI() {
       expires_in: state.expiresIn, scope: "chatgpt.tokens.use.direct email offline_access openid profile resource.invoke" };
   };
   const read = (req) => new Promise((res) => { let b = ""; req.on("data", (c) => (b += c)); req.on("end", () => res(b)); });
-  const sse = (res, events) => {
-    res.writeHead(200, { "Content-Type": "text/event-stream" });
+  const sse = (res, events, headers = {}) => {
+    res.writeHead(200, { "Content-Type": "text/event-stream", ...headers });
     for (const e of events) res.write(`event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`);
     res.end();
   };
@@ -71,8 +71,12 @@ export async function fakeOpenAI() {
       const output = last.type === "message" && tools.length
         ? [{ type: "function_call", call_id: "appel-1", name: tools[0].name, arguments: "{\"chemin\":\"notes.txt\"}", namespace: "functions" }]
         : [{ type: "message", role: "assistant", content: [{ type: "output_text", text: `réponse du forfait (${payload.model})` }] }];
-      return sse(res, [{ type: "response.created", response: { id: "r2" } }, { type: "response.output_text.delta", delta: "réponse" },
-        { type: "response.completed", response: { id: "r2", status: "completed", output, usage: { input_tokens: 12, output_tokens: 5, total_tokens: 17 } } }]);
+      // Limites du forfait au format de l'API d'OpenAI (en-têtes x-codex-*, ou événement codex.rate_limits) : forme lue par desktop/usage.js.
+      const limitHeaders = text.includes("EN_TETES") ? { "x-codex-primary-used-percent": "9.0", "x-codex-primary-window-minutes": "43200", "x-codex-primary-reset-after-seconds": "86400",
+        "x-codex-secondary-used-percent": "30", "x-codex-secondary-window-minutes": "300", "x-codex-secondary-reset-at": String(Math.floor(Date.now() / 1000) + 3600), "x-request-id": "req-1" } : {};
+      const limitEvents = text.includes("EVENEMENT") ? [{ type: "codex.rate_limits", rate_limits: { primary: { used_percent: 12.5, window_minutes: 10080, resets_at: Math.floor(Date.now() / 1000) + 7200 } } }] : [];
+      return sse(res, [{ type: "response.created", response: { id: "r2" } }, ...limitEvents, { type: "response.output_text.delta", delta: "réponse" },
+        { type: "response.completed", response: { id: "r2", status: "completed", output, usage: { input_tokens: 12, output_tokens: 5, total_tokens: 17 } } }], limitHeaders);
     }
     res.writeHead(404).end();
   });

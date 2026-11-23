@@ -6,6 +6,7 @@ const { randomBytes } = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const usage = require("./usage");
 
 const DETECT_TIMEOUT = 15000;
 const MAX_LINES = 400; // lignes de progression gardées pour le résultat
@@ -83,6 +84,18 @@ function argsFor(profile) {
     "--tools", p.tools.join(","), "--allowedTools", p.tools.join(","), "--permission-mode", "acceptEdits", "--permission-prompts", "none"];
 }
 
+const LIMIT_WORDS = /usage limit|rate limit|limit reached|5-hour limit|weekly limit/i;
+
+/** Ce que le flux dit en passant : le modèle réellement servi (system/init : « claude-haiku-5-5 », pas l'alias) et l'utilisation de
+ * l'abonnement (rate_limit_event). Les valeurs vont à usage.js ; rien d'autre n'est gardé. */
+function watchEvent(event, seen) {
+  if (event?.type === "system" && event.subtype === "init" && typeof event.model === "string" && /^[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,79}$/.test(event.model)) seen.modele = event.model;
+  else if (event?.type === "rate_limit_event") {
+    const fenetres = usage.fromClaudeEvent(event);
+    if (fenetres.length) usage.record("claude", { fenetres, offre: last.offre, modele: seen.modele });
+  }
+}
+
 const short = (text, max) => String(text ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 
 /** Une ligne lisible par événement du flux : l'agent et la personne suivent l'avancement sans tout le texte. */
@@ -110,6 +123,7 @@ function run({ consigne, cwd, profile = "fichiers", minutes = 30, onLine = () =>
   const files = new Set();
   const lines = [];
   let final = null, buffer = "", stderr = "", stopped = null;
+  const seen = { modele: "" };
   const child = spawn(bin.cmd, [...bin.prefix, ...argsFor(profile)], { cwd, env: cleanEnv(), windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
   const job = { child, stop: (why) => stop(why) };
   current = job;
@@ -130,6 +144,7 @@ function run({ consigne, cwd, profile = "fichiers", minutes = 30, onLine = () =>
     let event;
     try { event = JSON.parse(raw); } catch { return; }
     if (event.type === "result") final = event;
+    watchEvent(event, seen);
     if (event.type === "assistant") {
       for (const part of event.message?.content || []) {
         if (part.type === "tool_use" && FILE_TOOLS.has(part.name) && part.input?.file_path) {
@@ -175,8 +190,10 @@ function run({ consigne, cwd, profile = "fichiers", minutes = 30, onLine = () =>
         etapes: lines.slice(-12),
       };
       if (stopped) out.arret = stopped;
+      if (seen.modele) out.modele_exact = seen.modele;
       const why = `${final?.result ?? ""} ${final?.subtype ?? ""} ${stderr}`;
-      if (/usage limit|rate limit|limit reached|5-hour limit|weekly limit/i.test(why)) out.limite = true;
+      if (LIMIT_WORDS.test(why)) out.limite = true;
+      if (final || out.limite) usage.record("claude", { offre: last.offre, modele: seen.modele, tour: Boolean(final), limite: Boolean(out.limite) });
       if (!out.ok && !stopped) out.erreur = short(spawnError?.message || (final?.is_error ? final.result : "") || stderr || `Claude Code s'est arrêté (code ${code}).`, 600); // i18n-ignore : lu par le serveur
       resolve(out);
     };
@@ -300,6 +317,7 @@ function readDecision(final, tools) {
 function spawnBrain(bin, args, stdin, signal) {
   return new Promise((resolve) => {
     let final = null, buffer = "", stderr = "", stopped = null;
+    const seen = { modele: "" };
     const child = spawn(bin.cmd, [...bin.prefix, ...args], { cwd: os.tmpdir(), env: cleanEnv(), windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
     const stop = (why) => {
       if (stopped || child.exitCode !== null) return;
@@ -313,7 +331,7 @@ function spawnBrain(bin, args, stdin, signal) {
     signal?.addEventListener("abort", onAbort, { once: true });
     if (signal?.aborted) onAbort();
     const take = (raw) => {
-      try { const e = JSON.parse(raw); if (e.type === "result") final = e; } catch { /* ligne illisible : ignorée */ }
+      try { const e = JSON.parse(raw); if (e.type === "result") final = e; watchEvent(e, seen); } catch { /* ligne illisible : ignorée */ }
     };
     child.stdout.on("data", (chunk) => {
       buffer += chunk;
@@ -331,7 +349,7 @@ function spawnBrain(bin, args, stdin, signal) {
       signal?.removeEventListener("abort", onAbort);
       brainRunning = null;
       if (buffer.trim()) take(buffer.trim());
-      resolve({ final, stderr, code, spawnError, arret: stopped });
+      resolve({ final, stderr, code, spawnError, arret: stopped, modele: seen.modele });
     };
     child.on("error", (e) => done(null, e));
     child.on("close", (code) => done(code));
@@ -363,6 +381,7 @@ async function brainTurn({ body, model, signal }) {
   fs.writeFileSync(systemFile, system, { mode: 0o600 });
   const started = Date.now();
   const used = { prompt: 0, completion: 0, cached: 0 };
+  let exact = "";
   try {
     let stdin = conversation;
     for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -373,10 +392,15 @@ async function brainTurn({ body, model, signal }) {
       if (run.arret) return { erreur: "tour arrêté", statut: 499, code: run.arret }; // i18n-ignore : lu par le serveur
       if (run.spawnError) return { erreur: short(run.spawnError.message, 300), statut: 503, code: "absent" };
       const why = `${run.final?.result ?? ""} ${run.final?.subtype ?? ""} ${run.stderr}`;
-      if (/usage limit|rate limit|limit reached|5-hour limit|weekly limit/i.test(why)) return { erreur: short(run.final?.result || run.stderr, 300), statut: 429, code: "limite" };
+      if (LIMIT_WORDS.test(why)) {
+        usage.record("claude", { offre: last.offre, modele: run.modele, tour: true, limite: true });
+        return { erreur: short(run.final?.result || run.stderr, 300), statut: 429, code: "limite" };
+      }
       if (!run.final || run.final.is_error || run.code !== 0) {
         return { erreur: short(run.final?.result || run.stderr || `Claude Code s'est arrêté (code ${run.code}).`, 300), statut: 502, code: "echec" }; // i18n-ignore : lu par le serveur
       }
+      usage.record("claude", { offre: last.offre, modele: run.modele, tour: true });
+      exact = run.modele || exact;
       const decision = readDecision(run.final, tools);
       if (decision.raison) {
         // Une relance, avec la raison : au-delà, le fournisseur suivant répond plutôt qu'un appel d'outil inventé.
@@ -388,9 +412,9 @@ async function brainTurn({ body, model, signal }) {
       const message = { role: "assistant", content: decision.texte || (calls.length ? null : "") };
       if (calls.length) message.tool_calls = calls;
       return {
-        ok: true, modele: chosen, duree_ms: Date.now() - started,
+        ok: true, modele: chosen, modele_exact: exact || undefined, duree_ms: Date.now() - started,
         reponse: {
-          id: `claude-code-${randomBytes(6).toString("hex")}`, object: "chat." + "completion", created: Math.floor(Date.now() / 1000), model: chosen,
+          id: `claude-code-${randomBytes(6).toString("hex")}`, object: "chat." + "completion", created: Math.floor(Date.now() / 1000), model: exact || chosen,
           choices: [{ index: 0, message, finish_reason: calls.length ? "tool_calls" : "stop" }],
           usage: { prompt_tokens: used.prompt, completion_tokens: used.completion, total_tokens: used.prompt + used.completion, prompt_tokens_details: { cached_tokens: used.cached } },
         },
@@ -411,4 +435,4 @@ function stopAll(why = "coupe") {
 }
 
 module.exports = { configure, locate, detect, status, busy, run, stopAll, argsFor, PROFILES, brain, brainArgs, brainBusy, models, BRAIN_MODELS,
-  brainPrompt, readDecision, cleanEnv };
+  brainPrompt, readDecision, cleanEnv, toolsOf };
