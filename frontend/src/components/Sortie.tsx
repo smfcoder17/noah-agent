@@ -1,141 +1,138 @@
-// Réglages > Serveur > Sortie réseau : par où les navigateurs des agents sortent sur Internet (ta maison, un VPN, le serveur).
-// Les clés se saisissent ici, partent scellées au serveur et ne reviennent jamais : les champs restent vides.
+// Réglages > Serveur > Sortie réseau : par où les navigateurs des agents sortent sur Internet.
+// En haut, une phrase qui dit où l'on en est. Puis l'interrupteur « Mes agents sortent par cet ordinateur » (dans l'app de bureau ;
+// sinon une ligne dit où l'allumer). Le VPN, pour quand l'ordinateur est éteint, est rangé sous « Avancé » : le fichier collé part
+// scellé au serveur et ne revient jamais, le champ reste vide.
 import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { t } from "@/i18n";
 import { del, get, send } from "@/lib/api";
-import { Button, ErrorText, Input, Label } from "./ui";
+import { desktop, type RelaisBureau } from "@/lib/desktop";
+import { Interrupteur, ReglageLigne } from "./Appearance";
+import { Button, ErrorText, Label, Textarea } from "./ui";
 
-type Ligne = {
-  id: "maison" | "vpn" | "serveur";
-  titre: string;
-  etat: "non_configuree" | "en_attente" | "prete" | "active" | "injoignable";
-  adresse: string;
-  lieu: string;
-  configuree: boolean;
-  noeud?: string;
-  ville?: string;
-  adresse_wireguard?: string;
-  cle?: boolean;
+type Phase = "sans_relais" | "relais_eteint" | "relais_connecte" | "relais_actif";
+type Resume = {
+  phase: Phase;
+  relais: { voulu: boolean; connecte: boolean; nom: string; adresse: string; lieu: string };
+  vpn: { configure: boolean; fournisseur: string; etat: "non_configure" | "en_attente" | "pret" | "actif" | "injoignable"; adresse: string; lieu: string; ville: string };
+  serveur: { adresse: string };
+  active: string | null;
+  lanceur: boolean;
 };
-type Resume = { lignes: Ligne[]; active: string | null; lanceur: boolean };
 
-const ETATS: Record<Ligne["etat"], () => string> = {
-  active: () => t("Active"),
-  prete: () => t("Prête"),
-  injoignable: () => t("Injoignable"),
-  en_attente: () => t("En attente"),
-  non_configuree: () => t("Non configurée"),
-};
-const TITRES: Record<Ligne["id"], () => string> = { maison: () => t("Maison"), vpn: () => t("VPN"), serveur: () => t("Serveur") };
+const TELECHARGER = "https://github.com/smfcoder17/noah-agent/releases/latest";
+
+/** La phrase du haut : où sortent les agents, en mots simples. */
+function phrase(s: Resume, bureau: RelaisBureau | null): string {
+  const nom = s.relais.nom || bureau?.nom || t("ton ordinateur");
+  if (s.phase === "relais_actif") {
+    return s.relais.lieu ? t("Tes agents sortent par ton ordinateur ({nom}), à {lieu}", { nom, lieu: s.relais.lieu }) : t("Tes agents sortent par ton ordinateur ({nom})", { nom });
+  }
+  if (s.phase === "relais_connecte") return t("Ton ordinateur ({nom}) est relié : tes agents sortiront par lui dans un instant", { nom });
+  if (s.phase === "relais_eteint") return s.active === "vpn" ? t("Ton ordinateur est éteint : ils sortent par ton VPN") : t("Ton ordinateur est éteint : ils sortent par le serveur");
+  if (s.active === "vpn") return t("Tes agents sortent par ton VPN");
+  return bureau ? t("Tes agents sortent par le serveur") : t("Installe l'app Noah sur ton ordinateur pour les faire sortir de chez toi");
+}
 
 export function Sortie() {
   const [s, setS] = useState<Resume | null>(null);
+  const [bureau, setBureau] = useState<RelaisBureau | null>(null);
   const [error, setError] = useState("");
-  const load = useCallback(() => get<Resume>("/api/sortie").then(setS).catch((e) => setError((e as Error).message)), []);
+  const app = desktop();
+  const load = useCallback(async () => {
+    try {
+      setS(await get<Resume>("/api/sortie"));
+      setBureau((await app?.relais?.()) ?? null);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, [app]);
   useEffect(() => {
     load();
+    const id = setInterval(load, 5000); // le relais se branche et se débranche tout seul : l'écran suit
+    return () => clearInterval(id);
   }, [load]);
-  const by = (id: Ligne["id"]) => s?.lignes.find((l) => l.id === id);
+
   if (!s) return error ? <ErrorText>{error}</ErrorText> : <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("Lecture…")}</p>;
+
+  const dansApp = !!app?.relaisActiver;
+  const basculer = async (on: boolean) => {
+    setError("");
+    try {
+      setBureau((await app?.relaisActiver?.(on)) ?? null);
+      setTimeout(load, 1500);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
   return (
-    <div className="flex flex-col gap-4 text-sm" data-sortie>
-      <p className="text-soft">{t("Le navigateur de chaque agent sort sur Internet par la meilleure voie : ta maison d'abord, puis le VPN, puis le serveur lui-même. Si une voie tombe, la suivante prend le relais sans coupure.")}</p>
+    <div className="flex flex-col gap-4 text-sm" data-sortie data-phase={s.phase}>
+      <p className="text-base font-medium" data-sortie-etat>{phrase(s, dansApp ? bureau ?? { voulu: false, etat: "arret", connexions: 0, nom: "" } : null)}</p>
+      {s.phase === "sans_relais" && !dansApp && s.active !== "vpn" && (
+        <p><a className="underline" href={TELECHARGER} target="_blank" rel="noreferrer">{t("Télécharger l'app Noah")}</a></p>
+      )}
       {error && <ErrorText>{error}</ErrorText>}
-      <div className="list">
-        {s.lignes.map((l) => (
-          <div key={l.id} className="row wrap">
-            <span className="grow flex min-w-0 flex-col">
-              <span className="row-title">{TITRES[l.id]()}</span>
-              <span className="row-sub">{l.adresse ? `${t("Les sites te voient comme")} ${l.adresse}${l.lieu ? ` (${l.lieu})` : ""}` : t("Adresse pas encore connue")}</span>
-            </span>
-            <span className={l.etat === "active" ? "pill work" : "pill"}>{ETATS[l.etat]()}</span>
-          </div>
-        ))}
-      </div>
-      <p className="note">{t("Les navigateurs déjà ouverts changent de voie à leur prochain réveil, jamais en pleine session.")}</p>
-      <Maison ligne={by("maison")} onDone={load} onError={setError} />
-      <Vpn ligne={by("vpn")} onDone={load} onError={setError} />
+      {dansApp ? (
+        <>
+          <ReglageLigne titre={t("Mes agents sortent par cet ordinateur")} aide={t("Les sites voient l'adresse de ton accès Internet. Ça marche tant que l'app Noah reste ouverte, même fenêtre fermée.")}>
+            <Interrupteur libelle={t("Mes agents sortent par cet ordinateur")} on={bureau?.voulu ?? false} onChange={basculer} />
+          </ReglageLigne>
+          {bureau?.etat === "remplace" && <p className="note">{t("Un autre ordinateur a pris la place : celui-ci ne sert plus de sortie.")}</p>}
+        </>
+      ) : (
+        <p className="note" data-sortie-aide>{t("Pour que tes agents sortent par ton ordinateur, active « Mes agents sortent par cet ordinateur » depuis l'app Noah (menu Fichier, ou l'icône près de l'horloge).")}</p>
+      )}
+      <p className="note">{t("Les navigateurs déjà ouverts changent de sortie à leur prochain réveil, jamais en pleine session.")}</p>
+      <Avance vpn={s.vpn} onDone={load} onError={setError} />
     </div>
   );
 }
 
-type Props = { ligne?: Ligne; onDone: () => void; onError: (m: string) => void };
+const ETATS_VPN: Record<Resume["vpn"]["etat"], () => string> = {
+  non_configure: () => "",
+  en_attente: () => t("En attente"),
+  pret: () => t("Prêt"),
+  actif: () => t("Actif"),
+  injoignable: () => t("Injoignable"),
+};
 
-function useSave(path: string, id: string, onDone: () => void, onError: (m: string) => void) {
+function Avance({ vpn, onDone, onError }: { vpn: Resume["vpn"]; onDone: () => void; onError: (m: string) => void }) {
+  const [conf, setConf] = useState("");
   const [busy, setBusy] = useState(false);
-  const run = async (body: unknown | null) => {
+  const run = async (action: () => Promise<unknown>) => {
     setBusy(true);
     onError("");
     try {
-      if (body === null) await del(`/api/sortie/${id}`);
-      else await send(path, body, "PUT");
+      await action();
+      setConf("");
       onDone();
-      return true;
     } catch (e) {
       onError((e as Error).message);
-      return false;
     } finally {
       setBusy(false);
     }
   };
-  return { busy, run };
-}
-
-function Maison({ ligne, onDone, onError }: Props) {
-  const [cle, setCle] = useState("");
-  const [noeud, setNoeud] = useState("");
-  useEffect(() => setNoeud(ligne?.noeud ?? ""), [ligne?.noeud]);
-  const { busy, run } = useSave("/api/sortie/maison", "maison", onDone, onError);
   return (
-    <section className="stack g8">
-      <h3 className="h2">{t("Maison : ton ordinateur à Montréal")}</h3>
-      <ol className="list-decimal pl-5 text-soft">
-        <li>{t("Installe Tailscale sur ton ordinateur Windows et connecte-toi.")}</li>
-        <li>{t("Dans Tailscale, ouvre le menu de l'icône puis « Exit node » > « Run as exit node ».")}</li>
-        <li>{t("Sur le site d'administration de Tailscale, ouvre les réglages de cet ordinateur et accepte-le comme sortie.")}</li>
-        <li>{t("Dans les clés de Tailscale, crée une clé d'authentification et colle-la ci-dessous avec le nom de l'ordinateur.")}</li>
-      </ol>
-      <Label>{t("Clé d'authentification Tailscale")}
-        <Input type="password" autoComplete="off" value={cle} placeholder={ligne?.cle ? t("Clé enregistrée : laisse vide pour la garder") : "tskey-auth-…"} onChange={(e) => setCle(e.target.value)} />
-      </Label>
-      <Label>{t("Nom de l'ordinateur dans Tailscale")}
-        <Input value={noeud} onChange={(e) => setNoeud(e.target.value)} />
-      </Label>
-      <div className="flex gap-2">
-        <Button size="sm" disabled={busy} onClick={async () => { if (await run({ cle, noeud })) setCle(""); }}>{t("Enregistrer")}</Button>
-        {ligne?.configuree && <Button size="sm" variant="outline" disabled={busy} onClick={() => confirm(t("Retirer cette voie ?")) && run(null)}>{t("Retirer")}</Button>}
-      </div>
-    </section>
-  );
-}
-
-function Vpn({ ligne, onDone, onError }: Props) {
-  const [cle, setCle] = useState("");
-  const [adresse, setAdresse] = useState("");
-  const [ville, setVille] = useState("");
-  useEffect(() => {
-    setAdresse(ligne?.adresse_wireguard ?? "");
-    setVille(ligne?.ville ?? "");
-  }, [ligne?.adresse_wireguard, ligne?.ville]);
-  const { busy, run } = useSave("/api/sortie/vpn", "vpn", onDone, onError);
-  return (
-    <section className="stack g8">
-      <h3 className="h2">{t("VPN : Surfshark")}</h3>
-      <p className="text-soft">{t("Dans ton compte Surfshark, crée une configuration WireGuard manuelle : copie sa clé privée et, si elle est donnée, son adresse.")}</p>
-      <Label>{t("Clé privée WireGuard")}
-        <Input type="password" autoComplete="off" value={cle} placeholder={ligne?.cle ? t("Clé enregistrée : laisse vide pour la garder") : ""} onChange={(e) => setCle(e.target.value)} />
-      </Label>
-      <Label>{t("Adresse WireGuard (facultatif)")}
-        <Input value={adresse} onChange={(e) => setAdresse(e.target.value)} />
-      </Label>
-      <Label>{t("Ville de sortie")}
-        <Input value={ville} placeholder={t("Montreal")} onChange={(e) => setVille(e.target.value)} />
-      </Label>
-      <div className="flex gap-2">
-        <Button size="sm" disabled={busy} onClick={async () => { if (await run({ cle_privee: cle, adresse, ville })) setCle(""); }}>{t("Enregistrer")}</Button>
-        {ligne?.configuree && <Button size="sm" variant="outline" disabled={busy} onClick={() => confirm(t("Retirer cette voie ?")) && run(null)}>{t("Retirer")}</Button>}
-      </div>
-    </section>
+    <details className="flex flex-col gap-2" data-sortie-avance>
+      <summary className="cursor-pointer font-medium">{t("Avancé")}</summary>
+      <section className="stack g8 mt-2">
+        <h3 className="h2">{t("VPN, quand ton ordinateur est éteint")}</h3>
+        <p className="text-soft">{t("Colle le fichier de configuration WireGuard que ton fournisseur de VPN te donne. Tes agents sortent par lui si ton ordinateur est éteint, avant de retomber sur le serveur.")}</p>
+        {vpn.configure && (
+          <p data-vpn-etat>
+            {vpn.fournisseur === "surfshark" ? t("Un VPN Surfshark est enregistré avec ta clé : colle un fichier pour le remplacer.") : t("Un VPN est enregistré.")}
+            {ETATS_VPN[vpn.etat]() && ` ${ETATS_VPN[vpn.etat]()}`}
+            {vpn.adresse ? ` ${t("Les sites te voient comme")} ${vpn.adresse}${vpn.lieu ? ` (${vpn.lieu})` : ""}.` : ""}
+          </p>
+        )}
+        <Label>{t("Fichier de configuration WireGuard")}
+          <Textarea rows={8} spellCheck={false} autoComplete="off" value={conf} placeholder={"[Interface]\nPrivateKey = …\nAddress = …\n\n[Peer]\nPublicKey = …\nEndpoint = …"} onChange={(e) => setConf(e.target.value)} />
+        </Label>
+        <div className="flex gap-2">
+          <Button size="sm" disabled={busy || !conf.trim()} onClick={() => run(() => send("/api/sortie/vpn", { conf }, "PUT"))}>{t("Enregistrer")}</Button>
+          {vpn.configure && <Button size="sm" variant="outline" disabled={busy} onClick={() => confirm(t("Retirer ce VPN ?")) && run(() => del("/api/sortie/vpn"))}>{t("Retirer")}</Button>}
+        </div>
+      </section>
+    </details>
   );
 }
