@@ -2,10 +2,12 @@ import { subscribeUpdates } from "@/lib/events";
 // « À toi » : tout ce qui attend la personne, tous agents confondus. Un accord se donne ici ; le reste ouvre la conversation.
 import { Lightbulb, Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { t } from "@/i18n";
-import { type Agent, get, type InboxItem, isProposition, type Proposition, send } from "@/lib/api";
+import { t, tServeur } from "@/i18n";
+import { type Agent, type DecisionEchec, del, get, type InboxItem, isDecisionEchec, isProposition, type Proposition, send } from "@/lib/api";
 import { refreshAccords, useAccords } from "@/lib/events";
+import { readableModel } from "@/lib/modes";
 import { refreshPropositions, setAutresCount, setPropositionCount } from "@/lib/propositions";
+import { DecisionModel } from "./DecisionModel";
 import { LoginCard } from "./LoginCard";
 import { QUESTION_REPONDUE, QuestionCard } from "./QuestionCard";
 import { AgentFace } from "./Noah";
@@ -30,6 +32,26 @@ export function PropositionCard({ item, agent, onAnswer }: { item: Proposition; 
   );
 }
 
+/** Le modèle de décision n'a pas pu répondre : dit une seule fois, avec le geste pour en changer. « Plus tard » ferme la carte. */
+export function DecisionEchecCard({ item, onChange, onLater }: { item: DecisionEchec; onChange: () => void; onLater: () => void }) {
+  const model = readableModel(item.modele);
+  return (
+    <li className="card" aria-label={t("Le modèle de décision n'a pas pu répondre")}>
+      <span className="line wrap g8 text-[13px] text-muted-foreground">
+        <span>{t("Modèle de décision")}</span>
+        <span className="pill wait">{t("Attend ton choix")}</span>
+      </span>
+      <span className="text-[19px] font-semibold leading-snug">{t("{modele} n'a pas pu répondre", { modele: model })}</span>
+      <span className="text-muted-foreground">{tServeur(item.raison)}</span>
+      <span className="text-sm text-muted-foreground">{t("C'est lui qui décide à la place du cerveau : veilles, routines, mémoire.")}</span>
+      <div className="line wrap g8">
+        <button type="button" className="btn btn-ink" onClick={onChange}>{t("Changer de modèle")}</button>
+        <button type="button" className="btn" onClick={onLater}>{t("Plus tard")}</button>
+      </div>
+    </li>
+  );
+}
+
 export function Inbox({ open, page = false, agents, onOpenChange, onOpenConversation, onOpenAgent }: {
   open: boolean;
   /** Dans la zone de travail, comme le prototype, au lieu d'une fenêtre. */
@@ -45,8 +67,10 @@ export function Inbox({ open, page = false, agents, onOpenChange, onOpenConversa
   const answered = useRef(new Set<string>()); // une relecture pendant l'envoi ne la fait pas revenir
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
+  const [echec, setEchec] = useState<DecisionEchec | null>(null);
+  const [changeDecision, setChangeDecision] = useState(false);
   const { items: accords } = useAccords();
-  useEffect(() => { if (items) setAutresCount(items.length); }, [items]); // la barre et l'en-tête du téléphone comptent ce que cette page liste
+  useEffect(() => { if (items) setAutresCount(items.length + (echec ? 1 : 0)); }, [items, echec]); // la barre et l'en-tête du téléphone comptent ce que cette page liste
   useEffect(() => {  // une question répondue (ici, dans la tâche ou dans le fil) quitte la liste sans attendre la relève
     const on = (e: Event) => { const id = (e as CustomEvent<{ id: string }>).detail?.id; setItems((cur) => cur?.filter((i) => i.question?.id !== id) ?? null); };
     window.addEventListener(QUESTION_REPONDUE, on);
@@ -59,8 +83,9 @@ export function Inbox({ open, page = false, agents, onOpenChange, onOpenConversa
     const load = () => get<(InboxItem | Proposition)[]>("/api/a-toi").then((rows) => {
       const ideas = rows.filter((r): r is Proposition => isProposition(r as { type?: string }));
       setPropositions(ideas.filter((p) => !answered.current.has(p.id)).sort((a, b) => a.cree - b.cree));
-      const autres = rows.filter((r): r is InboxItem => !isProposition(r as { type?: string }) && !(r as InboxItem).request_id);
+      const autres = rows.filter((r): r is InboxItem => !isProposition(r as { type?: string }) && !isDecisionEchec(r as { type?: string }) && !(r as InboxItem).request_id);
       setItems(autres);
+      setEchec((rows as { type?: string }[]).find(isDecisionEchec) ?? null);
       setPropositionCount(ideas.filter((p) => !answered.current.has(p.id)).length);    }).catch((e) => setError((e as Error).message));
     void load();
     // Connexions et choix gardent leur relève existante ; les accords viennent exclusivement du bus et de /api/accords (secours 60 s).
@@ -118,14 +143,20 @@ export function Inbox({ open, page = false, agents, onOpenChange, onOpenConversa
       void refreshPropositions().catch(() => {});
     }
   };
-  const decisions = (items?.length ?? 0) + accords.length + propositions.length;
+  /** « Plus tard » : la carte part tout de suite, le serveur ne la remontre pas pour ce modèle tant qu'il n'a pas répondu une fois. */
+  const later = async () => {
+    setError("");
+    setEchec(null);
+    try { await del("/api/decision/echec"); } catch (e) { setError((e as Error).message); }
+  };
+  const decisions = (items?.length ?? 0) + accords.length + propositions.length + (echec ? 1 : 0);
   const phrase = decisions === 1 ? t("Une décision te revient. Le reste se règle entre agents.") : decisions > 1 ? t("{n} décisions te reviennent. Le reste se règle entre agents.", { n: decisions }) : "";
   const corps = (
     <>
         <ErrorText>{error}</ErrorText>
       {!page && phrase ? <p className="soft text-muted-foreground">{phrase}</p> : null}
         {!items && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("Lecture…")}</p>}
-        {items?.length === 0 && !accords.length && !propositions.length && <p className="py-4 text-sm text-muted-foreground">{t("Rien ne t'attend pour le moment.")}</p>}
+        {items?.length === 0 && !accords.length && !propositions.length && !echec && <p className="py-4 text-sm text-muted-foreground">{t("Rien ne t'attend pour le moment.")}</p>}
         <ul className={page ? "stack g16" : "flex max-h-[70vh] flex-col gap-4 overflow-y-auto max-md:max-h-none max-md:overflow-visible"}>
           {[...accords, ...(items ?? [])].sort((a, b) => a.created - b.created).map((item) => {
             if (item.question) return <li key={item.id ?? item.conversation_id}><QuestionCard q={item.question} onTache={() => onOpenConversation(item)} /></li>;
@@ -160,8 +191,16 @@ export function Inbox({ open, page = false, agents, onOpenChange, onOpenConversa
               </li>
             );
           })}
+          {echec && <DecisionEchecCard item={echec} onChange={() => setChangeDecision(true)} onLater={() => void later()} />}
           {propositions.map((p) => <PropositionCard key={p.id} item={p} agent={agents.find((a) => a.id === p.agent_id)} onAnswer={(choix) => void reply(p, choix)} />)}
         </ul>
+        <Dialog open={changeDecision} onOpenChange={setChangeDecision}>
+          {changeDecision && (
+            <DialogContent title={t("Modèle de décision")} description={t("Celui qui décide à la place du cerveau : veilles, routines, mémoire.")} className="max-w-xl">
+              <DecisionModel startOpen onChanged={() => { setEchec(null); setChangeDecision(false); }} />
+            </DialogContent>
+          )}
+        </Dialog>
     </>
   );
   if (page) {  // la page du prototype : dans la zone de travail, un titre de 26 px, une phrase, des cartes

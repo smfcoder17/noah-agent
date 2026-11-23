@@ -50,9 +50,10 @@ function typedWhy(typed: NonNullable<DecisionState["type"]>) {
   return [typed.choisi_par === "toi" ? t("choisi par toi") : t("choisi parce qu'il est le moins cher à répondre juste"), ...facts].join(", ");
 }
 
-export function DecisionModel() {
+/** `startOpen` : le choix d'un autre modèle est déjà ouvert (la carte « Pour toi » y mène) ; `onChanged` : un autre choix vient d'être pris. */
+export function DecisionModel({ startOpen = false, onChanged }: { startOpen?: boolean; onChanged?: () => void }) {
   const [state, setState] = useState<DecisionState | null>(null);
-  const [changing, setChanging] = useState(false);
+  const [changing, setChanging] = useState(startOpen);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [key, setKey] = useState("");
@@ -72,7 +73,7 @@ export function DecisionModel() {
     setError("");
     try {
       setState(await send<DecisionState>(path, body));
-      if (!keepOpen) setChanging(false);
+      if (!keepOpen) { setChanging(false); onChanged?.(); }
       return true;
     } catch (e) {
       setError((e as Error).message);

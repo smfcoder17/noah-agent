@@ -237,6 +237,9 @@ export type InboxItem = { type?: "question"; question?: QuestionCarte; id?: stri
 /** Une idée que l'agent a préparée de lui-même : « faire » la lance dans sa conversation principale (server/noah/propositions.py). */
 export type Proposition = { type: "proposition"; id: string; agent_id: string; agent: string; texte: string; cree: number };
 export const isProposition = (row: { type?: string }): row is Proposition => row.type === "proposition";
+/** Le modèle de décision n'a pas pu répondre (clé refusée, service en panne…) : une carte, une seule fois par modèle (server/noah/decision.py). */
+export type DecisionEchec = { type: "decision"; id: string; modele: string; raison: string; created: number; cree: number };
+export const isDecisionEchec = (row: { type?: string }): row is DecisionEchec => row.type === "decision";
 export type Accord = InboxItem & { id: string; conv_id: string; request_id: string; generation: number; run_id: string; summary: string; bureau?: boolean; created: number; state: "attend" };
 export type Usage = {
   month_cost: number;

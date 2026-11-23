@@ -5,7 +5,9 @@ const proposition = { type: "proposition", id: "p1", agent_id: "a", agent: "Léa
 vi.mock("@/lib/api", () => ({
   get: vi.fn(async () => [proposition]),
   send: vi.fn(async () => ({ ok: true })),
+  del: vi.fn(async () => ({})),
   isProposition: (r: { type?: string }) => r.type === "proposition",
+  isDecisionEchec: (r: { type?: string }) => r.type === "decision",
 }));
 vi.mock("@/lib/events", () => ({ subscribeUpdates: () => () => {}, refreshAccords: async () => {}, useAccords: () => ({ items: [] }) }));
 vi.mock("./Noah", () => ({ AgentFace: () => <span data-face /> }));
