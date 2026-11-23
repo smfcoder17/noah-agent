@@ -5,6 +5,7 @@
   l'agent : prévenu sur le téléphone à 80 %, arrêté à 100 % (les plaintes de coûts OpenClaw en contre-exemple).
 - Tous les fournisseurs passent par leur point d'accès compatible OpenAI.
 """
+import contextlib
 import hashlib
 import hmac
 import ipaddress
@@ -320,6 +321,32 @@ def _journal_turn(agent_id: str, task: str | None, name: str, usage: dict | None
 def _note_model(task: str | None, model: str, small: bool) -> None:
     if task and model and not small:
         turn_model[task] = model
+
+
+# Agent -> le fournisseur et le modèle qui ont vraiment répondu à son dernier tour, mode Auto compris : ce que la page Confidentialité
+# montre (main.outbound_flows). Gardé aussi dans les réglages : un redémarrage ne l'efface pas. Écrit seulement quand il change.
+last_turn: dict[str, dict] = {}
+
+
+def _note_turn(agent_id: str | None, provider: str | None, model: str, small: bool) -> None:
+    if not agent_id or not provider or small:
+        return
+    now = time.time()
+    current = last_turn.get(agent_id)
+    last_turn[agent_id] = {"fournisseur": provider, "modele": model, "quand": now}
+    if not current or (current["fournisseur"], current["modele"]) != (provider, model) or now - current["quand"] > 300:
+        with contextlib.suppress(Exception):  # la page ne doit jamais coûter une réponse
+            db.set_setting(f"dernier_tour:{agent_id}", json.dumps(last_turn[agent_id]))
+
+
+def last_turn_of(agent_id: str) -> dict | None:
+    if agent_id in last_turn:
+        return last_turn[agent_id]
+    try:
+        saved = json.loads(db.get_setting(f"dernier_tour:{agent_id}") or "null")
+    except ValueError:
+        return None
+    return saved if isinstance(saved, dict) and saved.get("fournisseur") else None
 
 
 def _small_work(asked: str) -> bool:
@@ -653,6 +680,7 @@ async def relay(path: str, request: Request):
         name = desktop.usage_name(link["fournisseur"], str(out.get("modele") or link["modele"]))
         _note_status(agent_id, 200)
         _note_model(task, name, _small_work(model))
+        _note_turn(agent_id, link["fournisseur"], str(out.get("modele") or link["modele"]), _small_work(model))
         await _record(agent_id, name, {**(reply.get("usage") or {}), "cost": 0}, task, link["fournisseur"])
         _journal_turn(agent_id, task, name, reply.get("usage"), time.time() - started)
         return _completion_reply(reply, stream)
@@ -679,6 +707,7 @@ async def relay(path: str, request: Request):
                 name = "forfait ChatGPT" + (f" · {out['modele']}" if out.get("modele") else "")
                 _note_status(agent_id, 200)
                 _note_model(task, name, False)
+                _note_turn(agent_id, "ordinateur:chatgpt", str(out.get("modele") or ""), False)
                 await _record(agent_id, name, {**(reply.get("usage") or {}), "cost": 0}, task, "chatgpt-pc")
                 return _completion_reply(reply, stream)
             retry_later(pc, status)
@@ -710,6 +739,7 @@ async def relay(path: str, request: Request):
             if r.status_code == 200:
                 if chat:
                     _note_model(task, link["modele"], _small_work(model))
+                    _note_turn(agent_id, link["fournisseur"], link["modele"], _small_work(model))
                     answered_by(link)
                 try:
                     await _record(agent_id, link["modele"], r.json().get("usage"), task, link["fournisseur"])
@@ -773,6 +803,7 @@ async def relay(path: str, request: Request):
         _note_status(agent_id, 200)
         if chat:
             _note_model(task, link["modele"], _small_work(model))
+            _note_turn(agent_id, link["fournisseur"], link["modele"], _small_work(model))
             answered_by(link)
         return StreamingResponse(_passthrough(agent_id, upstream, chunks, head, link, task), status_code=200,
                                  media_type=upstream.headers.get("content-type", "text/event-stream"))

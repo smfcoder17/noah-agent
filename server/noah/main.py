@@ -31,7 +31,7 @@ from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from pydantic import BaseModel, Field
 
-from . import access, accounts, autres, apprentissage, appareils, auth, bureautique, catalog, chauffe, coffre, connecteurs, connecteurs_cles, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, propositions, public, publication, recherche, push, questions, recu, recuperation, relay, session, sites, sortie, sortie_relais, taches, updates, watch
+from . import access, accounts, autres, mediaprov, apprentissage, appareils, auth, bureautique, catalog, chauffe, coffre, connecteurs, connecteurs_cles, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, propositions, public, publication, recherche, push, questions, recu, recuperation, relay, session, sites, sortie, sortie_relais, taches, updates, watch
 from . import config
 from . import accords, bus, credits, presets, rapide, sensitive, ui_preferences, linkpreview, providers as provider_accounts
 from .config import WEB_DIR, forget_setup_code
@@ -1503,6 +1503,32 @@ def _host(url: str) -> str:
     return urlparse(url).hostname or url
 
 
+PC_SUBSCRIPTION = {"ordinateur:claude-code": "Claude", "ordinateur:chatgpt": "ChatGPT", "ordinateur:grok": "Grok"}
+
+
+def _brain_flow(a: dict) -> dict:
+    """Où part le cerveau de cet agent : le fournisseur et le modèle qui ont vraiment répondu à son dernier tour (relay.last_turn_of),
+    mode Auto compris ; sans tour encore, ce qui répondra (modes.shown_brain). Un abonnement de l'ordinateur reste chez la personne."""
+    last = relay.last_turn_of(a["id"])
+    shown = modes.shown_brain(a["id"])
+    provider = last["fournisseur"] if last else shown["fournisseur"]
+    model = last["modele"] if last else shown["modele"]
+    flow = {"quoi": f"Cerveau de {a['name']}", "agent": a["id"], "fournisseur": provider, "modele": model, "mode": shown["mode"],
+            "dernier_tour": bool(last), "quand": "à chaque message et à chaque étape d'une tâche"}
+    if not provider:  # un mode (Auto…) et aucun tour encore : le modèle se choisit à chaque demande
+        return {**flow, "vers": "selon la demande", "detail": f"mode {shown['mode']} : le modèle se choisit à chaque demande, aucun tour pour l'instant", "local": False}
+    suffix = "" if last else " (aucun tour pour l'instant : ce qui répondra)"
+    if provider in desktop.PC_PROVIDERS or provider.startswith("ordinateur:"):
+        name = PC_SUBSCRIPTION.get(provider) or desktop.PC_NAME.get(provider, provider.removeprefix("ordinateur:"))
+        model_name = (model or "").split(" · ")[1] if " · " in (model or "") else (model or "")  # « Claude Code · sonnet · abonnement » : le modèle seul
+        return {**flow, "vers": "ton ordinateur", "local": True,
+                "detail": f"ton abonnement {name}, sur ton ordinateur" + (f" · {model_name}" if model_name else "") + suffix}
+    base = relay.upstream_base(provider, provider_accounts.base_of(provider))
+    local = provider == "ollama" and not provider_accounts.base_of(provider)
+    return {**flow, "vers": "ce serveur (Ollama)" if local else _host(base), "local": local,
+            "detail": f"{modes.autres_label(provider, provider_accounts.base_of(provider))} · {model or ''}{suffix}"}
+
+
 @app.get("/api/flux")
 def outbound_flows(user: int = Depends(access.owner_only)):
     """Tout ce qui sort de ce serveur, et vers où : le fournisseur de chaque agent d'abord. La liste suit le code
@@ -1511,15 +1537,9 @@ def outbound_flows(user: int = Depends(access.owner_only)):
     for a in _agents():
         if access.right(user, a["id"]) != "proprietaire":  # les agents des autres profils restent les leurs
             continue
-        m = model_for(a["id"])
-        if not m:
+        if not current_model():
             continue
-        p = hermes.provider_info(m["provider"]) or {}
-        base = relay.upstream_base(m["provider"], m.get("base_url"))
-        local = m["provider"] == "ollama" and not m.get("base_url")
-        flows.append({"quoi": f"Cerveau de {a['name']}", "vers": "ce serveur (Ollama)" if local else _host(base),
-                      "detail": f"{p.get('label', m['provider'])} · {m.get('model') or p.get('model', '')}",
-                      "quand": "à chaque message et à chaque étape d'une tâche", "agent": a["id"], "local": local})
+        flows.append(_brain_flow(a))
     if current_model():
         m = current_model()
         local = m["provider"] == "ollama" and not m.get("base_url")
@@ -1535,8 +1555,10 @@ def outbound_flows(user: int = Depends(access.owner_only)):
         if typed:
             flows.append({"quoi": "Vrai modèle de décision", "vers": _host(decision.TYPED_URLS[typed["service"]]), "detail": typed["modele"],
                           "quand": "pour trier les nouveautés des veilles, juger les notes de mémoire et choisir le modèle d'une image ; un court essai chaque semaine"})
-    if db.get_setting("media_api_key") or db.get_setting("provider") == "openrouter":
-        flows.append({"quoi": "Création et voix (images, vidéos, musique, dictée, lecture)", "vers": "openrouter.ai",
+    capable = media.capable_keys()  # OpenRouter, OpenAI, Gemini : chacun avec sa clé, seulement pour ce qu'il propose
+    if capable:
+        hosts = {"openrouter": "openrouter.ai", "openai": _host(mediaprov.OPENAI), "gemini": _host(mediaprov.GEMINI)}
+        flows.append({"quoi": "Création et voix (images, vidéos, musique, dictée, lecture)", "vers": ", ".join(hosts[p] for p in capable),
                       "quand": "seulement quand tu t'en sers"})
     if db.get_setting("provider") == "openrouter":
         flows.append({"quoi": "Solde de la clé du cerveau", "vers": "openrouter.ai",
