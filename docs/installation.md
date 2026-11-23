@@ -196,6 +196,10 @@ Installateur Windows sur la [page des versions](https://github.com/smfcoder17/no
 
 **Dossiers (en local seulement).** Panneau de l'agent > Ordinateur > Dossiers donne le vrai sélecteur de dossier : tu confies à un agent des dossiers de ton ordinateur, en lecture seule ou en écriture, et l'un d'eux devient son dossier de travail. Le partage n'est possible que sous les racines de `NOAH_SHARE_ROOTS` dans `.env` (l'application y met ton dossier personnel au premier lancement ; plusieurs racines séparées par `;`). Les dossiers de clés et de réglages (`.ssh`, `.aws`, `AppData`, `.config`…) sont toujours refusés. Sur un VPS, la variable reste vide : le partage est coupé.
 
+**Sortie par ton ordinateur.** Les sites que visitent tes agents voient d'ordinaire l'adresse de ton serveur. Pour qu'ils voient celle de ton accès Internet (chez toi, à Montréal par exemple), coche « Mes agents sortent par cet ordinateur » : dans le menu Fichier de l'app, dans le menu de la zone de notification, ou dans Réglages > Serveur > Sortie réseau, qui dit aussi où les agents sortent en ce moment. Rien d'autre à installer ni à configurer. L'app ouvre une connexion sortante vers ton serveur, avec le jeton de cet appareil (jamais ton mot de passe), et les navigateurs des agents passent par elle. Elle marche tant que l'app tourne, fenêtre fermée comprise, et se reconnecte seule. Ordinateur éteint, ou app fermée : les agents sortent par le serveur (ou par le VPN, voir plus bas) sans erreur, et reviennent par ton ordinateur après 5 minutes sans activité. Un seul ordinateur à la fois : en cocher un autre éteint l'interrupteur du premier. L'app refuse toute destination du réseau local (adresses privées, `localhost`, noms en `.local`, CGNAT, lien local), n'ouvre que les ports 80 et 443, plafonne les connexions simultanées et ne garde dans son journal (`journal-relais.log`) que les ouvertures, fermetures et refus, jamais le contenu.
+
+**VPN, sous « Avancé ».** Dans Réglages > Serveur > Sortie réseau > Avancé, colle le fichier de configuration WireGuard de n'importe quel fournisseur de VPN. Noah le range scellé comme tes autres secrets, ne le montre ni ne le journalise jamais, et refuse tout fichier qui contient une ligne exécutable (`PostUp`, `Table`…). Le conteneur du VPN n'existe que si tu en enregistres un. Un VPN Surfshark enregistré avec sa clé avant ce changement continue de marcher tel quel. Les anciennes clés Tailscale sont effacées au démarrage.
+
 L'application fermée reste dans la zone de notification, pour que les routines continuent.
 
 ## Tes agents
@@ -280,6 +284,8 @@ Ce guide n'a pas été suivi sur un VPS neuf ni sur un vrai téléphone. L'écra
 | `noah-caddy` | HTTPS, sur un VPS seulement (absent derrière Traefik). Seul à publier des ports : 80 et 443 |
 | `noah-agent-*` | Un conteneur Hermes par agent, avec son volume (mémoire, fichiers). Jamais exposé |
 | `noah-browser-*` | Le navigateur de l'agent, avec son profil. Jamais exposé |
+| `noah-sortie` | Seulement si la sortie par ton ordinateur ou un VPN est active : l'aiguillage par où sortent les navigateurs (ton ordinateur, puis le VPN, puis le serveur). Aucune clé |
+| `noah-sortie-vpn` | Seulement si tu as enregistré un VPN (Gluetun, le seul conteneur qui demande `NET_ADMIN`) |
 
 En local, c'est `noah-server` qui publie le port, sur `127.0.0.1:8080`. Derrière Traefik, il publie `127.0.0.1:8088`.
 
