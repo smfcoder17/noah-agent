@@ -83,22 +83,61 @@ function detect() {
 const status = () => ({ ...last, occupe: Boolean(running) });
 const models = () => (last.connecte ? known.map((slug) => ({ slug, nom: `Grok · ${slug}` })) : []);
 
-/** Connexion : `grok login` ouvre le navigateur de la personne chez xAI. La commande rend la main quand elle a fini. */
-function login({ minutes = LOGIN_MINUTES } = {}) {
+/**
+ * Ce que `grok login` affiche en mode « code d'appareil » (celui par défaut de la CLI 1.0.x) : l'adresse de vérification, chez xAI
+ * (domaine x.ai exactement, en HTTPS), et le code à y recopier. Rend { url, code } (l'un ou l'autre peut manquer) ou null.
+ * Un jeton ou une clé qui passerait dans la sortie n'est jamais retenu : seuls un code court et une adresse x.ai sortent d'ici.
+ */
+function deviceInfo(text) {
+  const clean = String(text ?? "").replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
+  let url = "", code = "";
+  for (const m of clean.matchAll(/https:\/\/[^\s"'<>)]+/g)) {
+    try {
+      const u = new URL(m[0].replace(/[.,;]+$/, ""));
+      if (u.protocol === "https:" && (u.hostname === "x.ai" || u.hostname.endsWith(".x.ai")) && !u.username && !u.password) {
+        url = url || u.toString();
+        const q = u.searchParams.get("user_code");
+        if (q && /^[A-Za-z0-9-]{4,16}$/.test(q)) code = code || q;
+      }
+    } catch { /* pas une adresse */ }
+  }
+  const byLabel = clean.match(/\bcode\b[^A-Za-z0-9\r\n]{0,6}([A-Z0-9]{3,5}-[A-Z0-9]{3,5}|[A-Z0-9]{6,10})\b/);
+  const bare = clean.match(/\b([A-Z0-9]{4}-[A-Z0-9]{4})\b/);
+  code = code || byLabel?.[1] || bare?.[1] || "";
+  return url || code ? { url, code } : null;
+}
+
+/**
+ * Connexion : `grok login` (code d'appareil par défaut). Sa sortie est invisible sans terminal : on la lit pour en tirer l'adresse
+ * et le code, qu'on rend par onInfo({ url, code }) pour les montrer à la personne et ouvrir l'adresse dans son navigateur.
+ * Le retour n'est PAS supposé automatique : la commande rend la main quand xAI a validé le code, et c'est elle seule qui compte.
+ */
+function login({ minutes = LOGIN_MINUTES, onInfo } = {}) {
   const bin = locate();
   if (!bin) return Promise.resolve({ erreur: "Grok Build n'est pas installé sur cet ordinateur." }); // i18n-ignore : lu par le serveur
   return new Promise((resolve) => {
-    const child = spawn(bin.cmd, [...bin.prefix, "login"], { env: cleanEnv(), windowsHide: false, stdio: "ignore" });
+    const child = spawn(bin.cmd, [...bin.prefix, "login"], { env: cleanEnv(), windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    let seen = "", sent = "";
+    const take = (chunk) => {
+      seen = (seen + chunk).slice(-4000);
+      const info = deviceInfo(seen);
+      const key = info ? `${info.url}|${info.code}` : "";
+      if (info && key !== sent && info.url && info.code) { sent = key; try { onInfo?.(info); } catch { /* l'affichage ne doit pas casser la connexion */ } }
+    };
+    child.stdout.on("data", take);
+    child.stderr.on("data", take);
     const timer = setTimeout(() => { try { child.kill(); } catch { /* déjà fini */ } }, minutes * minuteMs);
     child.on("error", (e) => { clearTimeout(timer); resolve({ erreur: String(e.message).slice(0, 200) }); });
     child.on("close", (code) => {
       clearTimeout(timer);
       if (code === 0) { setConnected(true); return resolve({ ok: true }); }
+      // Adresse ou code vus seulement à la fin (sortie sans saut de ligne) : on les rend avec l'échec, pour les montrer quand même.
+      const info = deviceInfo(seen);
+      if (info && !sent) try { onInfo?.(info); } catch { /* idem */ }
       resolve({ erreur: `La connexion à Grok ne s'est pas terminée (code ${code}).` }); // i18n-ignore : lu par la personne
     });
   });
 }
-
 /** Déconnexion : on demande à la CLI (`grok logout`) ; quoi qu'elle réponde, Noah cesse de s'en servir. */
 function logout() {
   const bin = locate();
@@ -229,4 +268,4 @@ async function brainTurn({ body, model, signal }) {
 const brainBusy = () => Boolean(running);
 const stopAll = (why = "coupe") => running?.stop(why);
 
-module.exports = { configure, locate, detect, status, models, login, logout, brain, brainArgs, brainBusy, stopAll, setConnected, cleanEnv };
+module.exports = { configure, locate, detect, status, models, login, deviceInfo, logout, brain, brainArgs, brainBusy, stopAll, setConnected, cleanEnv };

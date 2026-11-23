@@ -13,7 +13,12 @@ const say = (event) => process.stdout.write(JSON.stringify(event) + "\n");
 const xai = () => Object.keys(process.env).filter((k) => /^xai_/i.test(k));
 
 if (args[0] === "--version") { console.log("grok 0.0.0-faux"); process.exit(0); }
-if (args[0] === "login") { trace({ args, connexion: true }); process.exit(process.env.FAUX_GROK_LOGIN === "0" ? 1 : 0); }
+if (args[0] === "login") {
+  trace({ args, connexion: true });
+  // Code d'appareil, comme la CLI 1.0.x : adresse de vérification et code, puis attente de la validation (FAUX_GROK_DEVICE).
+  if (process.env.FAUX_GROK_DEVICE) { process.stdout.write(`\x1b[1mTo sign in, open ${process.env.FAUX_GROK_DEVICE}\x1b[0m\nand enter the code: WXYZ-2468\nWaiting for authorization...\n`); await new Promise((r) => setTimeout(r, 150)); }
+  process.exit(process.env.FAUX_GROK_LOGIN === "0" ? 1 : 0);
+}
 if (args[0] === "logout") { trace({ args }); process.exit(0); }
 
 const prompt = readFileSync(at("--prompt-file"), "utf8");
