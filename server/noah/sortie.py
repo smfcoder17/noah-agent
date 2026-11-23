@@ -9,7 +9,7 @@ sous « Avancé » : le fichier est scellé en base (db.seal), envoyé au seul l
 toute réponse, de tout journal et de toute erreur : on ne renvoie que « un VPN est enregistré ».
 Sans relais ni VPN, rien ne change : pas de conteneur de plus, pas d'appel au lanceur.
 
-Avant la 0.4.3 la maison était un nœud de sortie Tailscale : sa clé et son nom sont effacés au premier démarrage (migrer), et le
+Avant le relais par l'app de bureau, la maison était un nœud de sortie Tailscale : sa clé et son nom sont effacés au premier démarrage (migrer), et le
 lanceur retire le conteneur qui reste. Un VPN Surfshark enregistré par clé continue de marcher tel quel (fournisseur « surfshark »).
 """
 import asyncio
@@ -57,7 +57,7 @@ def vpn() -> dict | None:
     conf = _setting("vpn:conf", True)
     if conf:
         return {"fournisseur": "custom", "conf": conf}
-    key = _setting("vpn:cle", True)  # enregistré avant la 0.4.3 : Surfshark par sa clé, Gluetun choisit le serveur de la ville
+    key = _setting("vpn:cle", True)  # enregistré avant le relais par l'app de bureau : Surfshark par sa clé, Gluetun choisit le serveur de la ville
     if key:
         return {"fournisseur": "surfshark", "cle_privee": key, "adresse": _setting("vpn:adresse") or DEFAULT_ADDRESS,
                 "ville": _setting("vpn:ville") or DEFAULT_CITY}
@@ -177,7 +177,7 @@ async def reconcile() -> None:
 
 
 async def migrer() -> None:
-    """Au démarrage : la clé Tailscale et le nom du nœud d'avant la 0.4.3 sont effacés, et le lanceur retire ce qui en reste
+    """Au démarrage : la clé Tailscale et le nom du nœud d'avant le relais par l'app de bureau sont effacés, et le lanceur retire ce qui en reste
     (conteneur, volume). La maison repasse par l'interrupteur de l'app de bureau : rien n'est repris tout seul."""
     with db.connect() as c:
         reste = c.execute("DELETE FROM settings WHERE key IN ('sortie:maison:cle', 'sortie:maison:noeud')").rowcount

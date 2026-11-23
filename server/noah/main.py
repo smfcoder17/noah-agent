@@ -257,7 +257,7 @@ async def startup() -> None:
     _spawn(updates.run(task_state))
     _spawn(push.run_queue())
     _spawn(desktop.keep_clean())
-    _spawn(sortie.migrer())  # 0.4.3 : plus de Tailscale ; le relais voulu rouvre son mandataire
+    _spawn(sortie.migrer())  # plus de Tailscale ; le relais voulu rouvre son mandataire
     _spawn(_after_updates(lambda: machine.keep_connections_warm(lambda: [a["id"] for a in _agents()], _warmable)))
     _spawn(_after_updates(lambda: machine.keep_machine_warm(lambda: [a["id"] for a in _agents()], _warmable)))  # 0.4.0 S7 : routines, ordinateur, mémoire, compétences
     _migrate_threads()
