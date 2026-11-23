@@ -33,12 +33,15 @@ const autonomy = require("./autonomie").create(readConfig, writeConfig);
 // Abonnements de la personne (Claude Code, forfait ChatGPT) : réglés ici, sur cet ordinateur, éteints par défaut.
 const claude = require("./claude");
 const chatgpt = require("./chatgpt");
+const grok = require("./grok");
+const usage = require("./usage");
 const rights = () => {
   const c = readConfig();
   return { claude: c.abonnement_claude === true, claudeProfil: c.abonnement_claude_outils === "complet" ? "complet" : "fichiers",
     claudeMinutes: Number.isInteger(c.abonnement_claude_minutes) ? Math.min(Math.max(c.abonnement_claude_minutes, 5), 120) : 30,
     claudeCerveau: c.abonnement_claude_cerveau === true,
-    chatgpt: c.abonnement_chatgpt === true, chatgptModele: typeof c.chatgpt_modele === "string" ? c.chatgpt_modele : "" };
+    chatgpt: c.abonnement_chatgpt === true, chatgptModele: typeof c.chatgpt_modele === "string" ? c.chatgpt_modele : "",
+    grok: c.abonnement_grok === true, grokModele: typeof c.grok_modele === "string" ? c.grok_modele : "" };
 };
 // noah-agent://abonnements/claude (ou /chatgpt), depuis le web ou le téléphone : ouvre l'app, ou la ramène au premier plan, sur cet abonnement.
 const liens = require("./liens");
@@ -730,7 +733,7 @@ async function setCut(cut) {
     return foldersState();
   }
   folders().setCut(cut);
-  if (cut) claude.stopAll("coupe"); // la tâche confiée en cours s'arrête aussi
+  if (cut) { claude.stopAll("coupe"); grok.stopAll("coupe"); } // la tâche confiée en cours s'arrête aussi
   createTrayMenuState();
   listening?.beat();
   return foldersState();
@@ -752,6 +755,13 @@ function subscriptionsChanged() {
 
 async function detectClaude() {
   await claude.detect().catch(() => {});
+  await grok.detect().catch(() => {});
+  subscriptionsChanged();
+}
+
+async function grokLogin() {
+  const r = await grok.login();
+  if (r.erreur) dialog.showMessageBox({ type: "warning", title: "Noah Agent", message: t("abonnement.grok.echec"), detail: String(r.erreur).slice(0, 300) });
   subscriptionsChanged();
 }
 
@@ -764,12 +774,22 @@ async function chatgptLogin() {
   subscriptionsChanged();
 }
 
+/** L'utilisation d'un abonnement dans le menu : une ligne grisée par fenêtre mesurée (42 % de ta semaine, remise à zéro jeu. 09:00). */
+function usageItems(provider, name) {
+  const lang = /^fr/i.test(app.getLocale?.() || "fr") ? "fr" : "en";
+  const snap = usage.snapshot()[provider];
+  if (!snap && provider !== "claude") return [];
+  return usage.describe(provider, snap, t, lang).map((detail) => ({ label: t("usage.ligne", { nom: name, detail }), enabled: false }));
+}
+
 function subscriptionsMenu(only) {
   const r = rights();
   const c = claude.status();
   const claudeState = !c.installe ? t("abonnement.claude.absent") : !c.connecte ? t("abonnement.claude.deconnecte")
     : t("abonnement.claude.connecte", { offre: c.offre || "—" });
   const models = chatgpt.models();
+  const g = grok.status();
+  const grokModels = grok.models();
   const items = [
     { label: claudeState, enabled: false },
     { label: t("abonnement.claude.permis"), type: "checkbox", checked: r.claude, enabled: c.installe, click: async (item) => {
@@ -785,6 +805,7 @@ function subscriptionsMenu(only) {
       writeConfig({ abonnement_claude_cerveau: item.checked });
       subscriptionsChanged();
     } },
+    ...usageItems("claude", t("abonnement.claude.nom")),
     { label: t("abonnement.claude.arreter"), enabled: c.occupe, click: () => { claude.stopAll("annule"); } },
     { label: t("abonnement.claude.verifier"), click: detectClaude },
     { type: "separator" },
@@ -796,10 +817,25 @@ function subscriptionsMenu(only) {
     ...(models.length ? [{ label: t("abonnement.chatgpt.modele"), submenu: models.map((m) => ({
       label: m.nom, type: "radio", checked: (r.chatgptModele || models[0].slug) === m.slug, click: () => { writeConfig({ chatgpt_modele: m.slug }); subscriptionsChanged(); },
     })) }] : []),
+    ...usageItems("chatgpt", "ChatGPT"),
+    { type: "separator" },
+    { label: !g.installe ? t("abonnement.grok.absent") : g.connecte ? t("abonnement.grok.connecte") : t("abonnement.grok.deconnecte"), enabled: false },
+    g.connecte
+      ? { label: t("abonnement.grok.deconnexion"), click: async () => { await grok.logout(); writeConfig({ abonnement_grok: false }); subscriptionsChanged(); } }
+      : { label: t("abonnement.grok.connexion"), enabled: g.installe, click: grokLogin },
+    { label: t("abonnement.grok.permis"), type: "checkbox", checked: r.grok, enabled: g.connecte, click: async (item) => {
+      if (item.checked && !(await askSystem(t("abonnement.grok.permis"), t("abonnement.grok.avertissement"), t("abonnement.allumer")))) return subscriptionsChanged();
+      writeConfig({ abonnement_grok: item.checked });
+      subscriptionsChanged();
+    } },
+    ...(grokModels.length ? [{ label: t("abonnement.grok.modele"), submenu: grokModels.map((m) => ({
+      label: m.nom, type: "radio", checked: r.grokModele === m.slug, click: () => { writeConfig({ grok_modele: m.slug }); subscriptionsChanged(); },
+    })) }] : []),
+    ...usageItems("grok", "Grok"),
   ];
-  // Un seul abonnement (lien noah-agent://) : sa partie du menu, avant ou après le séparateur.
-  const cut = items.findIndex((i) => i.type === "separator");
-  const shown = only === "claude" ? items.slice(0, cut) : only === "chatgpt" ? items.slice(cut + 1) : items;
+  // Un seul abonnement (lien noah-agent://) : sa partie du menu, entre les séparateurs.
+  const cuts = items.map((i, n) => (i.type === "separator" ? n : -1)).filter((n) => n >= 0);
+  const shown = only === "claude" ? items.slice(0, cuts[0]) : only === "chatgpt" ? items.slice(cuts[0] + 1, cuts[1]) : only === "grok" ? items.slice(cuts[1] + 1) : items;
   return { label: t("menu.abonnements"), submenu: shown };
 }
 
@@ -1071,6 +1107,7 @@ if (!app.requestSingleInstanceLock()) {
     listening = actions.listen(() => origin, folders());
     // Le jeton ChatGPT : chiffré par le système, dans son propre fichier. Claude Code : son état, demandé à la CLI toutes les 10 minutes.
     chatgpt.configure({ storage: chatgpt.sealedFile(path.join(app.getPath("userData"), "chatgpt.bin"), safeStorage) });
+    grok.configure({ connected: readConfig().grok_connecte === true, models: readConfig().grok_modeles, changed: () => { writeConfig({ grok_connecte: grok.status().connecte, grok_modeles: grok.models().map((m) => m.slug) }); subscriptionsChanged(); } });
     chatgpt.refreshCatalog().then(subscriptionsChanged, () => {});
     detectClaude().then(() => openSubscription(askedSubscription));
     setInterval(detectClaude, 10 * 60 * 1000);
