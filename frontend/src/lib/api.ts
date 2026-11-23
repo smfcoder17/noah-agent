@@ -163,6 +163,8 @@ export type Agent = {
   model?: string | null;
   /** Mode propre à cet agent (fast, gratuit…) ; vide : le réglage de tous. */
   mode?: string | null;
+  /** Le cerveau qui répond à cet agent au prochain tour (le sien, sinon celui de tous) : la seule source de l'étiquette sous la saisie. */
+  cerveau?: { mode: string | null; modele: string | null; fournisseur: string | null; fournisseur_nom: string | null };
   raisonnement?: string | null;
   /** Ce que ce compte a le droit d'en faire. */
   droit: AgentRight;

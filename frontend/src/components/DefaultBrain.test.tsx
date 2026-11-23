@@ -2,7 +2,6 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import recorded from "../__fixtures__/cerveau/reponses.json?raw";
-import type { OwnBrain } from "@/lib/modes";
 import { DefaultBrain } from "./DefaultBrain";
 import { SettingsPage } from "./Settings";
 
@@ -87,69 +86,30 @@ it("montre une erreur du cerveau et permet de recharger ses choix", async () => 
   expect(host.querySelectorAll('[aria-label="Niveaux Auto"] li')).toHaveLength(3);
 });
 
-const OWN: OwnBrain[] = [
-  { id: "noah", nom: "Noah", modele: "openai/gpt-6.1-terra", mode: null, fournisseur: "openrouter", fournisseur_nom: "OpenRouter" },
-  { id: "bmd", nom: "BMD", modele: "openai/gpt-6.1-terra", mode: null, fournisseur: "openrouter", fournisseur_nom: "OpenRouter" },
-];
-
-it("sans agent qui garde son propre modèle, aucune ligne en plus", async () => {
-  await render();
-  expect(host.querySelector('[aria-label="Agents avec leur propre modèle"]')).toBeNull();
-});
-
-it("Auto choisi : la réponse dit que Noah et BMD gardent leur modèle OpenRouter, et un bouton les remet sur le cerveau de tous", async () => {
-  const realFetch = fetchApi.getMockImplementation()!;
-  let own = OWN.map((a) => ({ ...a }));
-  const reset: string[] = [];
-  fetchApi.mockImplementation(async (path: string, init?: RequestInit) => {
-    const m = /^\/api\/agents\/(\w+)\/model$/.exec(path);
-    if (m && init?.method === "PUT") {
-      expect(JSON.parse(String(init.body))).toEqual({ model: null }); // même effet que « Comme mes autres agents »
-      reset.push(m[1]);
-      own = own.filter((a) => a.id !== m[1]);
-      return Response.json({ model: null, mode: null, raisonnement: null });
-    }
-    if (path === "/api/modes/cerveau") {
-      const r = await realFetch(path, init);
-      return Response.json({ ...(await r.json()), agents_propres: init?.method === "PUT" ? own : [] });
-    }
-    return realFetch(path, init);
-  });
-  await render();
-  expect(host.querySelector('[aria-label="Agents avec leur propre modèle"]')).toBeNull();
-  await act(async () => host.querySelector<HTMLButtonElement>('[role="radio"]')!.click());
-  const line = host.querySelector('[aria-label="Agents avec leur propre modèle"]')!;
-  expect(line.textContent).toMatch(/^Noah et BMD gardent leur propre modèle \(OpenRouter · .*6\.1.*Terra.*\)\. Ce cerveau ne s'applique pas à eux\./i);
-  fetchApi.mockImplementation(async (path: string, init?: RequestInit) => {
-    if (path === "/api/modes/cerveau" && !init?.method) return Response.json({ ...modes, agents_propres: own });
-    const m = /^\/api\/agents\/(\w+)\/model$/.exec(path);
-    if (m && init?.method === "PUT") { reset.push(m[1]); own = own.filter((a) => a.id !== m[1]); return Response.json({ model: null }); }
-    return realFetch(path, init);
-  });
-  await act(async () => button("Leur appliquer ce cerveau").click());
-  expect(reset).toEqual(["noah", "bmd"]);
-  expect(host.querySelector('[aria-label="Agents avec leur propre modèle"]')).toBeNull();
-});
-
-it("chaque agent avec le sien quand leurs modèles diffèrent, au singulier pour un seul", async () => {
-  const realFetch = fetchApi.getMockImplementation()!;
-  let own: OwnBrain[] = [OWN[0], { id: "bmd", nom: "BMD", modele: null, mode: "fast", fournisseur: null, fournisseur_nom: null }];
-  fetchApi.mockImplementation(async (path: string, init?: RequestInit) =>
-    path === "/api/modes/cerveau" && !init?.method ? Response.json({ ...modes, agents_propres: own }) : realFetch(path, init));
-  await render();
-  expect(host.querySelector('[aria-label="Agents avec leur propre modèle"]')!.textContent).toMatch(/^Noah \(OpenRouter · .+\) et BMD \(mode Rapide\) gardent leur propre modèle\./);
-  await act(async () => root.unmount());
-  root = createRoot(host);
-  own = [OWN[1]];
-  await render();
-  expect(host.querySelector('[aria-label="Agents avec leur propre modèle"]')!.textContent).toMatch(/^BMD garde son propre modèle \(OpenRouter · .+\)\. Ce cerveau ne s'applique pas à lui\./);
-  expect(button("Lui appliquer ce cerveau")).toBeTruthy();
-});
-
 it("branche cet écran dans Réglages > Modèles et budget > Cerveau", async () => {
   await act(async () => root.render(<SettingsPage tab="brain" owner onTab={() => {}} onClose={() => {}} onBrainSaved={() => {}} />));
   const dialog = document.querySelector('main[aria-label="Réglages"]')!;
   expect(dialog.querySelector('[aria-label="Cerveau par défaut"]')).not.toBeNull();
   expect(dialog.querySelectorAll('[aria-label="Niveaux Auto"] li')).toHaveLength(3);
   expect(dialog.textContent).not.toContain("Comme mes autres agents");
+});
+
+// X11 : une seule règle. L'agent a le sien, sinon celui de tous : plus de bandeau « garde son propre modèle », et tout changement de
+// cerveau prévient l'application, qui relit les agents (l'étiquette sous la saisie, les réglages et le tour suivant disent la même chose).
+it("plus de bandeau « garde son propre modèle », même si l'ancien serveur envoyait la liste", async () => {
+  const realFetch = fetchApi.getMockImplementation()!;
+  fetchApi.mockImplementation(async (path: string, init?: RequestInit) =>
+    path === "/api/modes/cerveau" && !init?.method ? Response.json({ ...modes, agents_propres: [{ id: "noah", nom: "Noah", modele: "x/y", mode: null }] }) : realFetch(path, init));
+  await render();
+  expect(host.textContent).not.toContain("propre modèle");
+  expect(host.querySelector('[aria-label="Agents avec leur propre modèle"]')).toBeNull();
+});
+
+it("un changement de cerveau de tous prévient l'application (noah:cerveau), qui relit les agents sans recharger", async () => {
+  const heard = vi.fn();
+  window.addEventListener("noah:cerveau", heard);
+  await render();
+  await act(async () => host.querySelector<HTMLButtonElement>('[role="radio"]')!.click()); // Auto
+  window.removeEventListener("noah:cerveau", heard);
+  expect(heard).toHaveBeenCalledOnce();
 });

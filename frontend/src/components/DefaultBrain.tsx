@@ -2,7 +2,7 @@
 // sans dépendre du catalogue d'un fournisseur ni du temps de calcul de la consommation.
 import { useEffect, useState } from "react";
 import { type CurrentModel, get, send, type Usage } from "@/lib/api";
-import { type ListedModel, type ModesState, type OwnBrain, type TierId, MODE_NAMES, modeName, readableModel } from "@/lib/modes";
+import { type ListedModel, type ModesState, type TierId, MODE_NAMES, brainChanged, readableModel } from "@/lib/modes";
 import { cn, money } from "@/lib/utils";
 import { ModelSearch, shortName } from "./Modes";
 import { ProviderLogo } from "./ProviderLogo";
@@ -10,21 +10,6 @@ import { Button, ErrorText, Input } from "./ui";
 import { t } from "@/i18n";
 
 const LEVELS: [TierId, string][] = [["fast", t("Simple")], ["balanced", t("Moyen")], ["smart", t("Complexe")]];
-
-const names = (list: string[]) => list.length > 1 ? t("{debut} et {fin}", { debut: list.slice(0, -1).join(", "), fin: list[list.length - 1] }) : list[0];
-const ownLabel = (a: OwnBrain) => a.mode ? t("mode {nom}", { nom: modeName(a.mode) }) : [a.fournisseur_nom, readableModel(a.modele)].filter(Boolean).join(" · ");
-
-/** « Noah et BMD gardent leur propre modèle (OpenRouter · GPT 6.1 Terra) », ou chacun avec le sien s'ils diffèrent. */
-function ownSentence(own: OwnBrain[]): string {
-  const labels = own.map(ownLabel);
-  const several = own.length > 1;
-  if (labels.every((l) => l === labels[0])) {
-    const vars = { noms: names(own.map((a) => a.nom)), modele: labels[0] };
-    return several ? t("{noms} gardent leur propre modèle ({modele})", vars) : t("{noms} garde son propre modèle ({modele})", vars);
-  }
-  const noms = names(own.map((a, i) => `${a.nom} (${labels[i]})`));
-  return several ? t("{noms} gardent leur propre modèle", { noms }) : t("{noms} garde son propre modèle", { noms });
-}
 
 export function DefaultBrain({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
   const [state, setState] = useState<ModesState | null>(null);
@@ -69,23 +54,18 @@ export function DefaultBrain({ onDone, onCancel }: { onDone: () => void; onCance
     setState(next);
     setCurrent((c) => c ? { ...c, model: next.en_service } : c);
     setChoosing(null);
+    brainChanged();
   });
   const precise = (m: ListedModel) => change(async () => {
     // Seul le fournisseur en service réutilise son adresse. Les autres clés sont gardées par le serveur.
     await send("/api/model", { provider: m.fournisseur, model: m.id, base_url: m.fournisseur === current?.provider ? current.base_url : undefined });
     await loadBrain();
     setChoosing(null);
+    brainChanged();
   });
   const saveBudget = () => change(async () => {
     await send("/api/budget", { monthly: monthly === "" ? null : Number(monthly), daily: daily === "" ? null : Number(daily) });
     onDone();
-  });
-  // Le choix propre à un agent prime, c'est voulu : on le montre, et on propose de le ramener sur le cerveau de tous.
-  const own = state?.agents_propres ?? [];
-  const applyToAll = () => change(async () => {
-    try {
-      for (const a of own) await send(`/api/agents/${a.id}/model`, { model: null }, "PUT"); // comme « Comme mes autres agents »
-    } finally { await loadBrain(); }
   });
   const auto = state?.actif === "auto";
   const canAuto = state?.modes.some((m) => m.modele);
@@ -124,10 +104,6 @@ export function DefaultBrain({ onDone, onCancel }: { onDone: () => void; onCance
       </div>
       {state.actif && state.actif !== "auto" && <p className="text-xs text-muted-foreground">{t("Mode actuel : {mode}. Choisis Auto ou un modèle précis pour le remplacer.", { mode: MODE_NAMES[state.actif] })}</p>}
       {choosing === "precis" && <ModelSearch level="cerveau" selected={!state.actif ? current?.model : null} onPick={precise} />}
-      {own.length > 0 && <div role="status" aria-label={t("Agents avec leur propre modèle")} className="flex flex-col items-start gap-2 rounded-xl border border-warn/40 bg-warn/5 p-3 text-sm">
-        <p>{own.length > 1 ? t("{phrase}. Ce cerveau ne s'applique pas à eux.", { phrase: ownSentence(own) }) : t("{phrase}. Ce cerveau ne s'applique pas à lui.", { phrase: ownSentence(own) })}</p>
-        <Button variant="outline" disabled={busy} onClick={applyToAll}>{own.length > 1 ? t("Leur appliquer ce cerveau") : t("Lui appliquer ce cerveau")}</Button>
-      </div>}
     </>}
     <fieldset disabled={busy || !usage} className="flex flex-col gap-2 rounded-2xl border border-border p-4">
       <legend className="px-1.5 text-sm font-semibold">{t("Budget")}</legend>

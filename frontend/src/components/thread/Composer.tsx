@@ -1,12 +1,10 @@
 import { ComposerPrimitive, ThreadPrimitive, useAui, useAuiState } from "@assistant-ui/react";
 import { ArrowUp, Cpu, Paperclip, Square } from "lucide-react";
-import { useContext, useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef } from "react";
 import { WhileBusyContext, AgentContext } from "@/lib/agentContext";
-import { get } from "@/lib/api";
 import { Button } from "../ui";
 import { AttachPosition } from "../PhoneSettings";
 import { DictateButton, useDictation } from "../Voice";
-import { readableModel } from "@/lib/modes";
 import { historyStep } from "@/lib/historique";
 import { t } from "@/i18n";
 import { AttachmentChip, QuoteChips, useSentHistory } from "./messages";
@@ -16,19 +14,13 @@ import { WhileBusyPanel } from "./panneaux";
 const FINE_POINTER = window.matchMedia("(pointer: fine)").matches;
 
 /** Le modèle de l'agent sous la saisie : un geste ouvre le choix. Seulement pour qui peut le changer. */
-let generalModel: Promise<string> | null = null; // le modèle de tous, lu une fois
 function ModelChip() {
+  // L'étiquette vient du cerveau que le serveur dit pour cet agent (le sien, sinon celui de tous) : jamais d'une valeur gardée de côté.
   const { agentModel, canWatch, readOnly } = useContext(AgentContext);
-  const [general, setGeneral] = useState("");
-  useEffect(() => {
-    if (agentModel) return;
-    generalModel ??= get<{ model?: string } | null>("/api/model").then((m) => readableModel(m?.model ?? "")).catch(() => "");
-    generalModel.then(setGeneral);
-  }, [agentModel]);
   if (!canWatch || readOnly) return null;
   return (
     <button type="button" data-model-chip className="model-chip" onClick={() => window.dispatchEvent(new Event("noah:choisir-modele"))} title={t("Changer de modèle")}>
-      <Cpu aria-hidden /><span className="cut">{agentModel || general || t("Modèle")}</span>
+      <Cpu aria-hidden /><span className="cut">{agentModel || t("Modèle")}</span>
     </button>
   );
 }

@@ -3,7 +3,7 @@
 import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { type CurrentModel, get, send } from "@/lib/api";
-import { type ModesState, readableModel, REASONING, type TierId } from "@/lib/modes";
+import { brainChanged, type ModesState, modeName, readableModel, REASONING, type TierId } from "@/lib/modes";
 import { cn } from "@/lib/utils";
 import { ModelSearch } from "./Modes";
 import { ProviderLogo } from "./ProviderLogo";
@@ -33,6 +33,7 @@ export function AgentBrain({ agentId, own, mode, reasoning, onChanged }: { agent
     try {
       await send(`/api/agents/${agentId}/model`, body, "PUT");
       onChanged();
+      brainChanged();
       return true;
     } catch (e) {
       setError((e as Error).message);
@@ -53,6 +54,7 @@ export function AgentBrain({ agentId, own, mode, reasoning, onChanged }: { agent
     try {
       setState(await send<ModesState>("/api/modes/cerveau", { mode: tier, modele, fournisseur }, "PUT"));
       setChoosing(null);
+      brainChanged();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -63,6 +65,8 @@ export function AgentBrain({ agentId, own, mode, reasoning, onChanged }: { agent
   const tierModel = (id: TierId) => state?.modes.find((m) => m.id === id)?.modele ?? null;
   const autoAvailable = AUTO_LEVELS.some(([tier]) => tierModel(tier));
   const chosen = mode || (own ? "precis" : "tous");
+  // « Comme mes autres agents » dit ce que font les autres : leur mode s'il y en a un (Auto…), sinon leur modèle.
+  const everyone = state?.actif ? modeName(state.actif) : readableModel(base?.model || "");
 
   const Row = ({ id, name, under, onPick, disabled }: { id: string; name: string; under?: React.ReactNode; onPick: () => void; disabled?: boolean }) => (
     <button type="button" role="radio" aria-checked={chosen === id} disabled={busy || disabled} onClick={onPick}
@@ -99,10 +103,10 @@ export function AgentBrain({ agentId, own, mode, reasoning, onChanged }: { agent
             </ul>
           )}
         </div>
-        <Row id="tous" name={t("Comme mes autres agents")} under={readableModel(base?.model || "")} onPick={() => pick({ model: null })} />
+        <Row id="tous" name={t("Comme mes autres agents")} under={everyone} onPick={() => pick({ model: null })} />
         <Row id="precis" name={t("Un modèle précis")} under={own && !mode ? readableModel(own) : undefined} onPick={() => setChoosing(choosing === "precis" ? null : "precis")} />
       </div>
-      {choosing === "precis" && <ModelSearch level="cerveau" selected={!mode ? own || base?.model : null} onPick={(m) => pick({ model: m.id })} />}
+      {choosing === "precis" && <ModelSearch level="cerveau" selected={!mode ? own || base?.model : null} onPick={(m) => pick({ model: m.id, provider: m.fournisseur })} />}
       <label className="flex items-center gap-2 text-sm">
         <span className="shrink-0">{t("Réflexion")}</span>
         <select value={reasoning ?? ""} disabled={busy} onChange={(e) => change({ raisonnement: e.target.value || null })}

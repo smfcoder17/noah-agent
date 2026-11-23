@@ -2,7 +2,7 @@
 import { Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { type Catalog, type CurrentModel, get, type Provider, send, type Usage } from "@/lib/api";
-import { TIERS } from "@/lib/modes";
+import { brainChanged, TIERS } from "@/lib/modes";
 import { cn, money } from "@/lib/utils";
 import { costLabel, ModelRow, ModeRows, shortName } from "./Modes";
 import { ProviderLogo } from "./ProviderLogo";
@@ -105,6 +105,7 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
     try {
       await send("/api/budget", { monthly: budget === "" ? null : Number(budget), daily: daily === "" ? null : Number(daily) });
       await send("/api/model", { provider: provider.id, api_key: apiKey || null, model: picked.id, base_url: provider.own_url ? baseUrl || null : null });
+      brainChanged();
       onDone();
     } catch (e) {
       setError((e as Error).message);

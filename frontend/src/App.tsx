@@ -42,7 +42,7 @@ import { clearShare, pendingShare } from "@/lib/share";
 import { appShell, tooOld } from "@/lib/platform";
 import { forgetPushSession, reconcilePush } from "@/lib/push";
 import { useAgentChat } from "@/lib/useAgentChat";
-import { modeName, readableModel } from "@/lib/modes";
+import { BRAIN_CHANGED, brainLabel, modeName, readableModel } from "@/lib/modes";
 
 import { AppUpdate } from "./components/AppUpdate";
 import { Dialog, DialogContent } from "./components/ui";
@@ -448,6 +448,12 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
     refreshAgents();
     return subscribeUpdates(refreshAgents);
   }, [refreshAgents]);
+  // Un changement de cerveau, de tous ou d'un agent : l'étiquette sous la saisie relit le serveur, sans recharger la page.
+  useEffect(() => {
+    const changed = () => { void refreshAgents(); };
+    window.addEventListener(BRAIN_CHANGED, changed);
+    return () => window.removeEventListener(BRAIN_CHANGED, changed);
+  }, [refreshAgents]);
 
   const selectAgent = (id: string) => {
     goTab("chat");
@@ -750,7 +756,7 @@ function AgentChat(props: ChatProps) {
   const { readOnly } = props;
   const color = agentColor(props.agent);
   const { shape, detail } = props.agent;
-  const model = props.agent.mode ? modeName(props.agent.mode) : readableModel(props.agent.model);
+  const model = props.agent.cerveau ? brainLabel(props.agent.cerveau) : props.agent.mode ? modeName(props.agent.mode) : readableModel(props.agent.model);
   const context = useMemo(
     () => ({
       say,

@@ -37,11 +37,10 @@ export type ModesState = {
   modes: { id: TierId; personnalise: boolean; modele: ModeLink | null }[];
   gratuit: ModeLink[];
   custom: ModeLink[];
-  /** Cerveau seulement : les agents qui gardent leur propre modèle ou mode, que le cerveau de tous ne touche pas. */
-  agents_propres?: OwnBrain[];
 };
 
-export type OwnBrain = { id: string; nom: string; modele: string | null; mode: string | null; fournisseur: string | null; fournisseur_nom: string | null };
+/** Le cerveau d'un agent tel que le serveur le dit : un mode (Auto…), ou un modèle et son fournisseur. */
+export type ShownBrain = { mode: string | null; modele: string | null; fournisseur: string | null; fournisseur_nom: string | null };
 
 export type ListedModel = {
   id: string;
@@ -128,3 +127,13 @@ export function readableModel(id: string | null | undefined): string {
 export function modeName(mode: string): string {
   return mode === "auto" ? t("Auto") : MODE_NAMES[mode as ModeId] ?? mode;
 }
+
+/** Ce que dit l'étiquette sous la saisie : le nom du mode, ou le modèle. Une seule règle, celle du serveur (`cerveau`). */
+export function brainLabel(brain: ShownBrain | null | undefined): string {
+  if (!brain) return "";
+  return brain.mode ? modeName(brain.mode) : readableModel(brain.modele);
+}
+
+/** Après tout changement de cerveau (de tous ou d'un agent) : l'étiquette, les réglages et la suite lisent le serveur sans recharger. */
+export const BRAIN_CHANGED = "noah:cerveau";
+export const brainChanged = () => window.dispatchEvent(new Event(BRAIN_CHANGED));
