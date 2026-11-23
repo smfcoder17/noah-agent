@@ -352,24 +352,23 @@ r = web.put("/api/modes/cerveau", json={"actif": "auto"})
 assert r.status_code == 200 and r.json()["actif"] == "auto", r.text
 assert web.get("/api/modes/cerveau").json()["actif"] == "auto", "Auto doit persister à la relecture"
 assert db.get_setting("model") == "lab/a", "ne pas confondre cerveau et petit modèle de décision"
-assert r.json()["agents_propres"] == [], r.json().get("agents_propres")
-# Deux agents gardent leur propre choix : il prime (c'est voulu), et la réponse au choix du cerveau de tous le dit tout de suite.
+assert "agents_propres" not in r.json(), "X11 : plus de bandeau « garde son propre modèle », une seule règle"
+# Deux agents ont leur propre choix : il prime (une seule règle : l'agent a le sien, sinon celui de tous), et l'écran le montre par agent.
 db.set_setting("model_a1", "lab/b")
 db.set_setting("model_mode_a2", "fast")
 db.set_setting("model_b1", "lab/b")
 r = web.put("/api/modes/cerveau", json={"actif": "auto"})
-own = r.json()["agents_propres"]
-assert [(a["id"], a["nom"], a["modele"], a["mode"]) for a in own] == [("a1", "Noah", "lab/b", None), ("a2", "Lea", None, "fast")], own
-assert own[0]["fournisseur"] == db.get_setting("provider") and own[0]["fournisseur_nom"], own[0]
+assert "agents_propres" not in r.json() and "agents_propres" not in web.get("/api/modes/cerveau").json()
 assert modes.agent_mode("a1") is None and modes.agent_mode("a2") == "fast", "le choix propre à l'agent prime toujours"
-assert [a["id"] for a in web.get("/api/modes/cerveau").json()["agents_propres"]] == ["a1", "a2"]
-assert [a["id"] for a in other.get("/api/modes/cerveau").json()["agents_propres"]] == ["b1"], "un profil ne voit que ses agents"
-for a in ("a1", "a2"):  # « Leur appliquer ce cerveau » : la même route que « Comme mes autres agents »
+shown = {a["id"]: a["cerveau"] for a in web.get("/api/agents").json()}
+assert shown["a1"]["modele"] == "lab/b" and shown["a1"]["mode"] is None and shown["a1"]["fournisseur_nom"], shown["a1"]
+assert shown["a2"]["mode"] == "fast" and shown["a2"]["modele"] is None, shown["a2"]
+for a in ("a1", "a2"):  # « Comme mes autres agents » : la même route qu'avant
     assert web.put(f"/api/agents/{a}/model", json={"model": None}).status_code == 200
-assert web.get("/api/modes/cerveau").json()["agents_propres"] == [] and modes.agent_mode("a2") == "auto"
+assert modes.agent_mode("a2") == "auto" and modes.shown_brain("a2")["mode"] == "auto"
 with db.connect() as c:
     c.execute("DELETE FROM settings WHERE key = 'model_b1'")
-print("18b. Cerveau de tous : la réponse liste les agents qui gardent leur propre modèle, chacun ne voit que les siens")
+print("18b. Cerveau de tous : plus de bandeau ; chaque agent montre son propre cerveau, ou celui de tous")
 for tier, model in (("fast", "lab/c"), ("balanced", "lab/a"), ("smart", "lab/cerveau")):
     selected_tier["value"] = tier
     reset()
@@ -396,9 +395,9 @@ reset()
 assert ask().status_code == 200 and tried() == ["lab/b"], "le niveau modifié est pris en compte dès l'appel suivant"
 assert web.put("/api/modes/image", json={"actif": "auto"}).status_code == 400, "Auto du cerveau ne change pas les modes média"
 same_model = db.get_setting("model")
-db.set_setting("model_a1", "lab/b")  # même fournisseur : le modèle propre reste, et la réponse le dit
+db.set_setting("model_a1", "lab/b")  # même fournisseur : le modèle propre reste
 r = web.post("/api/model", json={"provider": "openrouter", "model": same_model})
-assert r.status_code == 200 and [a["id"] for a in r.json()["agents_propres"]] == ["a1"], r.text
+assert r.status_code == 200 and db.get_setting("model_a1") == "lab/b", r.text
 assert web.put("/api/agents/a1/model", json={"model": None}).status_code == 200
 assert web.get("/api/modes/cerveau").json()["actif"] is None, "le choix précis quitte Auto même à modèle identique"
 complexite.tier_for, decision.model = real_tier_for, real_decision_model

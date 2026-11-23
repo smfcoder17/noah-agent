@@ -31,7 +31,7 @@ from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from pydantic import BaseModel, Field
 
-from . import access, accounts, apprentissage, appareils, auth, bureautique, catalog, chauffe, coffre, connecteurs, connecteurs_cles, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, propositions, public, publication, recherche, push, questions, recu, recuperation, relay, session, sites, sortie, sortie_relais, taches, updates, watch
+from . import access, accounts, autres, apprentissage, appareils, auth, bureautique, catalog, chauffe, coffre, connecteurs, connecteurs_cles, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, propositions, public, publication, recherche, push, questions, recu, recuperation, relay, session, sites, sortie, sortie_relais, taches, updates, watch
 from . import config
 from . import accords, bus, credits, presets, rapide, sensitive, ui_preferences, linkpreview, providers as provider_accounts
 from .config import WEB_DIR, forget_setup_code
@@ -1351,8 +1351,8 @@ def me(user: int = Depends(auth.current_user)):
 @app.get("/api/providers")
 def providers(_: int = Depends(auth.current_user)):
     return [
-        {"id": k, "label": v["label"], "needs_key": v["env"] is not None, "default_model": v["model"], "own_url": k in relay.OWN_URL}
-        for k, v in hermes.PROVIDERS.items()
+        {"id": k, "label": v["label"], "needs_key": v["env"] is not None, "default_model": v["model"], "own_url": relay.own_url(k)}
+        for k, v in hermes.provider_table().items()
     ]
 
 
@@ -1390,12 +1390,24 @@ def model_for(agent_id: str) -> dict | None:
     """Le cerveau d'un agent : le sien s'il en a un, sinon celui de tous (même fournisseur, même clé)."""
     m = current_model()
     own = db.get_setting(f"model_{agent_id}")
-    return {**m, "model": own} if m and own else m
+    if not (m and own):
+        return m
+    provider = modes.agent_provider(agent_id)
+    if provider == m["provider"]:
+        return {**m, "model": own}
+    return {"provider": provider, "model": own, "base_url": provider_accounts.base_of(provider), "api_key": provider_accounts.key_of(provider)}
 
 
 def _clear_agent_models() -> None:
+    """Un nouveau fournisseur pour tous : les modèles propres à un agent, qui n'existent que chez l'ancien, s'effacent. Celui qu'un agent
+    a choisi avec son propre fournisseur (model_provider_…) ne dépend pas de celui de tous : il reste."""
     with db.connect() as c:
-        c.execute("DELETE FROM settings WHERE key LIKE 'model\\_%' ESCAPE '\\'")
+        keep = {r["key"].removeprefix("model_provider_") for r in c.execute("SELECT key FROM settings WHERE key LIKE 'model\\_provider\\_%' ESCAPE '\\'")}
+        for row in c.execute("SELECT key FROM settings WHERE key LIKE 'model\\_%' ESCAPE '\\'").fetchall():
+            tail = row["key"].removeprefix("model_")
+            if tail.removeprefix("provider_") in keep and not tail.startswith("mode_"):
+                continue
+            c.execute("DELETE FROM settings WHERE key = ?", (row["key"],))
 
 
 KEY_REFUSED = "Le fournisseur a refusé cette clé API : elle est invalide ou expirée."
@@ -1422,7 +1434,7 @@ class ModelQuery(BaseModel):
 async def list_models(body: ModelQuery, user: int = Depends(auth.current_user)):
     """Modèles disponibles pour un fournisseur, avec les groupes recommandés. Un profil ne lit que la liste du fournisseur
     en service (pour le cerveau de ses agents) : essayer une autre adresse ou une autre clé est réservé au propriétaire."""
-    if body.provider not in hermes.PROVIDERS:
+    if not hermes.provider_info(body.provider):
         raise HTTPException(400, "Fournisseur inconnu")
     if not access.is_owner(user) and (body.api_key or body.base_url or body.provider != db.get_setting("provider")):
         raise HTTPException(403, "Réservé au propriétaire de ce Noah Agent.")
@@ -1445,11 +1457,11 @@ async def list_models(body: ModelQuery, user: int = Depends(auth.current_user)):
     except httpx.HTTPError:
         if body.provider == "ollama":
             raise HTTPException(502, "Ollama est injoignable. Vérifie qu'il tourne et que son adresse est juste.")
-        if body.provider == "custom":
+        if autres.is_other(body.provider):
             raise HTTPException(502, "Ce service est injoignable. Vérifie son adresse.")
         raise HTTPException(502, "Impossible de joindre le fournisseur.")
     return {
-        "needs_key": not models and hermes.PROVIDERS[body.provider]["env"] is not None and not key,
+        "needs_key": not models and hermes.provider_info(body.provider)["env"] is not None and not key,
         "groups": catalog.groups(body.provider, models),
         "models": sorted(models, key=lambda m: -m["created"]),
     }
@@ -1502,7 +1514,7 @@ def outbound_flows(user: int = Depends(access.owner_only)):
         m = model_for(a["id"])
         if not m:
             continue
-        p = hermes.PROVIDERS.get(m["provider"], {})
+        p = hermes.provider_info(m["provider"]) or {}
         base = relay.upstream_base(m["provider"], m.get("base_url"))
         local = m["provider"] == "ollama" and not m.get("base_url")
         flows.append({"quoi": f"Cerveau de {a['name']}", "vers": "ce serveur (Ollama)" if local else _host(base),
@@ -1616,13 +1628,13 @@ modes.on_brain_change(_brain_mode_changed)
 
 @app.post("/api/model")
 async def set_model(body: ModelChoice, tasks: BackgroundTasks, user: int = Depends(access.owner_only)):
-    p = hermes.PROVIDERS.get(body.provider)
+    p = hermes.provider_info(body.provider)
     if not p:
         raise HTTPException(400, "Fournisseur inconnu")
-    base_url = _clean_base_url(body.base_url) if body.provider in relay.OWN_URL else None
-    if "base_url" not in body.model_fields_set and body.provider in relay.OWN_URL:
+    base_url = _clean_base_url(body.base_url) if relay.own_url(body.provider) else None
+    if "base_url" not in body.model_fields_set and relay.own_url(body.provider):
         base_url = provider_accounts.base_of(body.provider)
-    if body.provider == "custom" and not base_url:
+    if autres.is_other(body.provider) and not base_url:
         raise HTTPException(400, "Indique l'adresse du service, par exemple http://mon-serveur:8000/v1")
     previous = current_model()
     # Garder la clé déjà enregistrée si on ne change que le modèle : jamais vers un autre fournisseur ni une autre adresse.
@@ -1665,7 +1677,7 @@ async def set_model(body: ModelChoice, tasks: BackgroundTasks, user: int = Depen
         tasks.add_task(_write_configs, [a["id"] for a in agents])
     decision.schedule_refresh()  # ce que cette clé offre, ses prix, sa vitesse : l'écran ne l'attend pas
     rapide.schedule()  # le modèle rapide de cette clé : mesuré en tâche de fond
-    return {"ok": True, "agents_propres": modes.own_brains(user)}  # ceux que ce choix ne touche pas : leur choix prime
+    return {"ok": True}
 
 
 # --- Agents ------------------------------------------------------------------------------
@@ -2046,6 +2058,7 @@ async def list_agents(user: int = Depends(auth.current_user)):
             "pinned": bool(a["pinned"]),
             "model": own_models.get(a["id"]),
             "mode": own_models.get(f"mode_{a['id']}"),
+            "cerveau": modes.shown_brain(a["id"]),  # ce qui répondra au prochain tour : la règle du relais, la même partout à l'écran
             "raisonnement": reasonings.get(a["id"]) if reasonings.get(a["id"]) in modes.REASONING else None,
             "droit": rights[a["id"]],
             "partage": rights[a["id"]] != "proprietaire" or a["id"] in shared,
@@ -2130,6 +2143,7 @@ def _main_conversation(agent_id: str, user: int | None = None) -> str | None:
 
 class AgentModel(BaseModel):
     model: str | None = Field(default=None, max_length=200)
+    provider: str | None = Field(default=None, max_length=40)  # chez qui tourne ce modèle ; absent : le fournisseur de tous
     mode: str | None = Field(default=None, pattern="^(auto|fast|balanced|smart|gratuit|custom)$")
     raisonnement: str | None = Field(default=None, pattern="^(low|medium|high)$")  # présent et nul : celui du modèle
 
@@ -2148,14 +2162,21 @@ async def agent_model(agent_id: str, body: AgentModel, tasks: BackgroundTasks, u
         await modes.set_agent_mode(agent_id, body.mode)
     elif "model" in sent or "mode" in sent:
         modes.clear_agent_mode(agent_id)
-        if body.model and (body.model != db.get_setting("model") or modes.active(modes.BRAIN) == modes.AUTO):
+        with db.connect() as c:
+            c.execute("DELETE FROM settings WHERE key IN (?, ?)", (f"model_{agent_id}", f"model_provider_{agent_id}"))
+        if body.model:
+            # Une seule règle : l'agent a son modèle, sinon celui de tous. Un modèle choisi pour cet agent est le sien, même quand il
+            # est aussi celui de tous aujourd'hui : un changement du cerveau de tous ne le déplace plus à son insu.
+            provider = body.provider or db.get_setting("provider")
+            if not hermes.provider_info(provider) or provider not in modes.usable_providers():
+                raise HTTPException(400, "Ce fournisseur n'est pas branché.")
             db.set_setting(f"model_{agent_id}", body.model)
-        else:
-            with db.connect() as c:
-                c.execute("DELETE FROM settings WHERE key = ?", (f"model_{agent_id}",))
+            if provider != db.get_setting("provider"):
+                db.set_setting(f"model_provider_{agent_id}", provider)
     if sent & {"model", "mode"}:
         tasks.add_task(_write_configs, [agent.id])
-    return {"model": db.get_setting(f"model_{agent_id}"), "mode": db.get_setting(f"model_mode_{agent_id}"), "raisonnement": modes.reasoning(agent_id)}
+    return {"model": db.get_setting(f"model_{agent_id}"), "mode": db.get_setting(f"model_mode_{agent_id}"), "raisonnement": modes.reasoning(agent_id),
+            "cerveau": modes.shown_brain(agent_id)}
 
 
 class AgentLook(BaseModel):
@@ -2889,7 +2910,7 @@ async def browser_restart(agent_id: str, nouvelle_identite: bool = False, user: 
 @app.get("/api/media")
 async def media_settings(user: int = Depends(access.owner_only)):
     """Pour chaque type : le réglage, le modèle que prendrait « Automatique », la liste des modèles."""
-    has_key = bool(db.get_setting("media_api_key")) or (db.get_setting("provider") == "openrouter" and bool(db.get_setting("api_key")))
+    has_key = bool(media.capable_keys())
     out: dict = {"kinds": {}, "available": True, "reason": None, "has_key": has_key}
     try:
         for kind, label in media.KINDS.items():

@@ -117,7 +117,7 @@ async def measure() -> dict:
         base = relay.upstream_base(provider, base_url)
         brain = db.get_setting("model") or ""
         names: list[str] = []
-        if provider not in relay.OWN_URL:
+        if not relay.own_url(provider):
             try:
                 names = _candidates(provider, await catalog.models_for(provider, key, base_url))
             except Exception as e:  # noqa: BLE001 - liste illisible : on mesure au moins le cerveau

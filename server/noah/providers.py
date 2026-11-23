@@ -6,7 +6,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
-from . import access, auth, catalog, db, hermes, relay
+from . import access, auth, autres, catalog, db, hermes, relay
 
 router = APIRouter()
 
@@ -48,32 +48,72 @@ async def list_providers(_user: int = Depends(access.owner_only)):
                 db.set_setting(f"provider_count:{p}", str(count))
             except (httpx.HTTPError, ValueError, KeyError):
                 pass  # hors connexion : garder le dernier nombre connu
-        return {"id": p, "label": v["label"], "needs_key": v["env"] is not None, "own_url": p in relay.OWN_URL,
+        label = autres.label_of(p, base_of(p)) if autres.is_other(p) else v["label"]
+        return {"id": p, "label": label, "needs_key": v["env"] is not None, "own_url": relay.own_url(p),
                 "connected": branch, "models": count, "base_url": base_of(p) or "", "ordinateur": p in desktop.PC_PROVIDERS,
-                "pret": desktop.pc_ready(p, _user) if p in desktop.PC_PROVIDERS else None}
-    return await asyncio.gather(*(describe(p, v) for p, v in hermes.PROVIDERS.items()))
+                "pret": desktop.pc_ready(p, _user) if p in desktop.PC_PROVIDERS else None,
+                "autre": autres.is_other(p), "en_service": p == db.get_setting("provider")}
+    return await asyncio.gather(*(describe(p, v) for p, v in hermes.provider_table().items()))
 
 
 class Choice(BaseModel):
     api_key: str | None = Field(default=None, max_length=8192)
     base_url: str | None = Field(default=None, max_length=500)
+    nom: str | None = Field(default=None, max_length=60)  # un fournisseur « autre » : son nom, que la personne peut changer
+
+
+class NewOther(Choice):
+    nom: str = Field(min_length=1, max_length=60)
+
+
+@router.post("/api/fournisseurs")
+async def add_other(body: NewOther, _user: int = Depends(access.owner_only)):
+    """Un fournisseur « autre » de plus : un service compatible OpenAI, avec son nom, son adresse et sa clé. Rien n'est gardé s'il ne répond pas."""
+    if not (body.base_url or "").strip():
+        raise HTTPException(400, "Indique l'adresse de ton fournisseur.")
+    try:
+        provider = autres.add(body.nom)
+    except ValueError:
+        raise HTTPException(400, "Tu as déjà branché le maximum de fournisseurs.") from None
+    try:
+        out = await connect(provider, Choice(api_key=body.api_key, base_url=body.base_url), _user)
+    except HTTPException:
+        autres.remove(provider)  # il n'a jamais répondu : on ne garde pas sa fiche
+        raise
+    return {**out, "id": provider}
+
+
+@router.delete("/api/fournisseurs/{provider}")
+async def unplug(provider: str, _user: int = Depends(access.owner_only)):
+    """Débranche un fournisseur « autre » : son nom, son adresse et sa clé sortent. Refusé tant qu'il sert de cerveau."""
+    from . import modes
+    if not autres.is_other(provider) or (provider != autres.LEGACY and not autres.info(provider)):
+        raise HTTPException(404, "Fournisseur inconnu.")
+    if provider == db.get_setting("provider"):
+        raise HTTPException(409, "Ce fournisseur sert de cerveau : choisis d'abord un autre cerveau, puis débranche-le.")
+    autres.remove(provider)
+    with db.connect() as c:
+        for row in c.execute("SELECT key FROM settings WHERE key LIKE 'model\\_provider\\_%' ESCAPE '\\' AND value = ?", (provider,)).fetchall():
+            c.execute("DELETE FROM settings WHERE key IN (?, ?)", (row["key"], "model_" + row["key"].removeprefix("model_provider_")))
+    modes.forget_unusable()
+    return {"ok": True}
 
 
 @router.put("/api/fournisseurs/{provider}")
 async def connect(provider: str, body: Choice, _user: int = Depends(access.owner_only)):
-    if provider not in hermes.PROVIDERS:
+    if not hermes.provider_info(provider):
         raise HTTPException(404, "Fournisseur inconnu.")
     base = (body.base_url or "").strip().rstrip("/") or None
-    if provider not in relay.OWN_URL:
+    if not relay.own_url(provider):
         base = None
     if base:
         u = urlsplit(base)
         if u.scheme not in ("http", "https") or not u.hostname or u.username or u.password or u.query or u.fragment:
             raise HTTPException(400, "Adresse HTTP ou HTTPS sans identifiants requise.")
-    if provider == "custom" and not base:
+    if autres.is_other(provider) and not base:
         raise HTTPException(400, "Indique l'adresse de ton fournisseur.")
     key = body.api_key or (key_of(provider) if base == base_of(provider) else None)
-    if hermes.PROVIDERS[provider]["env"] and not key:
+    if hermes.provider_info(provider)["env"] and not key:
         raise HTTPException(400, "Colle ta clé dans ce champ.")
     try:
         if key:
@@ -87,6 +127,8 @@ async def connect(provider: str, body: Choice, _user: int = Depends(access.owner
             raise HTTPException(400, "Ouvre Noah Agent sur ton ordinateur et allume cet abonnement dans son menu Abonnements, puis réessaie.")
         raise HTTPException(400, "Ce fournisseur ne propose aucun modèle utilisable.")
     remember(provider, key, base)
+    if body.nom and body.nom.strip() and autres.is_other(provider):
+        autres.rename(provider, body.nom)
     db.set_setting(f"provider_count:{provider}", str(len(models)))
     if provider == db.get_setting("provider"):
         db.set_setting("api_key", key or "", secret=bool(key))
@@ -96,7 +138,7 @@ async def connect(provider: str, body: Choice, _user: int = Depends(access.owner
 
 @router.get("/api/fournisseurs/{provider}/icone")
 async def icon(provider: str, _user: int = Depends(auth.current_user)):
-    if provider not in hermes.PROVIDERS:
+    if not hermes.provider_info(provider):
         raise HTTPException(404, "Fournisseur inconnu.")
     base = base_of(provider)
     found = await asyncio.to_thread(catalog.provider_icon, base) if base else None

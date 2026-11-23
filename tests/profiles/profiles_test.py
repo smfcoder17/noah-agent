@@ -442,6 +442,7 @@ WHITELIST = {
     ("POST", "/api/desktop/taches/{rid}/arreter"): "Tâche de ce compte seulement (task[\"user\"] != user : 404).",
     ("GET", "/api/liens/image/{key}"): "Image publique mise en cache, identique pour tous ; connexion exigée (test_public_assets).",
     ("PUT", "/api/fournisseurs/{provider}"): "Configuration globale réservée au propriétaire (OWNER_WITH_ID et test_provider_access).",
+    ("DELETE", "/api/fournisseurs/{provider}"): "Débrancher un fournisseur « autre » : réservé au propriétaire (OWNER_WITH_ID, autres_test).",
     ("GET", "/api/fournisseurs/{provider}/icone"): "Icône publique sans clé ni adresse dans la réponse ; connexion exigée (test_public_assets).",
     ("POST", "/api/desktop/accords/{rid}"): "Processus natif et appareil destinataire seulement (accords_sync_test).",
     ("POST", "/api/desktop/accords/{rid}/reponse"): "Même appareil, même demande, accord local uniquement (accords_sync_test).",
@@ -486,6 +487,7 @@ WHITELIST = {
 # Routes sans identifiant : la configuration globale, refusée à un profil…
 OWNER_ROUTES = {
     ("GET", "/api/fournisseurs"): None,
+    ("POST", "/api/fournisseurs"): {"nom": "Mon service", "base_url": "http://service.test/v1"},
     ("GET", "/api/modele-rapide"): None,  # 0.1.9 : modèle rapide, réservé au propriétaire (rapide.py)
     ("POST", "/api/modele-rapide/mesurer"): None,
     ("POST", "/api/setup/done"): None,
@@ -530,7 +532,7 @@ OWNER_WITH_ID = {("PATCH", "/api/profiles/{profile_id}"): {"budget": None}, ("DE
                  ("GET", "/api/profiles/{profile_id}/appareils"): None,
                  ("DELETE", "/api/profiles/{profile_id}/appareils/{device}"): {"motdepasse": "motdepasse-d"},
                  ("POST", "/api/profiles/{profile_id}/mot-de-passe"): {"nouveau": "nouveau-motdepasse", "motdepasse": "motdepasse-d"},
-                 ("PUT", "/api/fournisseurs/{provider}"): {"api_key": "cle-de-test"}}
+                 ("PUT", "/api/fournisseurs/{provider}"): {"api_key": "cle-de-test"}, ("DELETE", "/api/fournisseurs/{provider}"): None}
 # … et les routes ouvertes, chacune avec la raison pour laquelle elle ne montre rien d'un autre.
 OPEN_ROUTES = {
     ("GET", "/api/connections/cles"): "Catalogue fixe des connecteurs par clé : noms et liens publics, jamais une clé.",

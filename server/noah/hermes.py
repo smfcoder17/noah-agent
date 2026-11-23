@@ -256,6 +256,17 @@ PROVIDERS = {
 }
 
 
+def provider_table() -> dict:
+    """Tous les fournisseurs : ceux de la liste fixe et les « autres » que la personne a ajoutés (autres.py)."""
+    from . import autres
+    return {**PROVIDERS, **{r["id"]: {"label": r["label"], "env": None, "model": ""} for r in autres.entries()}}
+
+
+def provider_info(provider: str | None) -> dict | None:
+    from . import autres
+    return PROVIDERS.get(provider or "") or autres.info(provider or "")
+
+
 def _agent_env(text: str, agent_id: str) -> str:
     """Retire toute clé de fournisseur du .env de l'agent (elles restent dans le serveur)
     et le branche sur son navigateur Camoufox."""
@@ -281,7 +292,7 @@ async def configure(agent_id: str, model: dict, role: str | None = None, restart
     """
     from .relay import RELAY_URL, token_for
 
-    p = PROVIDERS[model["provider"]]
+    p = provider_info(model["provider"])
     model_id = model.get("model") or p["model"]
     files: dict[str, str] = {".env": _agent_env(await _read(agent_id, ".env"), agent_id)}
 
@@ -376,7 +387,7 @@ async def cheap_brain(model_id: str) -> bool:
     if not model_id:
         return False
     provider = db.get_setting("provider")
-    if provider in (*relay.OWN_URL, "ollama-cloud"):
+    if relay.own_url(provider) or provider == "ollama-cloud":
         return True
     try:
         price = catalog.price_of(await asyncio.wait_for(catalog.mammouth_prices() if provider == "mammouth" else catalog.price_index(), 5), model_id)

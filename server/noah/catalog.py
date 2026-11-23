@@ -8,6 +8,8 @@ import time
 
 import httpx
 
+from . import autres
+
 OPENROUTER_MODELS = "https://openrouter.ai/api/v1/models"
 OLLAMA_URL = "http://host.docker.internal:11434"
 CACHE_SECONDS = 3600
@@ -244,7 +246,7 @@ async def models_for(provider: str, api_key: str | None, base_url: str | None = 
         return [m for m in await openrouter_catalog() if m["tools"]]
     if provider == "ollama":
         return [m for m in await _ollama((base_url or OLLAMA_URL).rstrip("/").removesuffix("/v1"), api_key) if m["tools"]]
-    if provider == "custom":
+    if autres.is_other(provider):
         return await _openai_compatible(base_url, api_key) if base_url else []
     if provider == "mammouth":
         return await mammouth_catalog()
@@ -275,7 +277,7 @@ async def models_for(provider: str, api_key: str | None, base_url: str | None = 
 
 def groups(provider: str, models: list[dict]) -> list[dict]:
     """Groupes recommandés : pour chaque labo et chaque gamme de prix, le modèle le plus récent."""
-    if provider == "custom":
+    if autres.is_other(provider):
         return []
     if provider == "ordinateur:claude-code":  # sans prix : les trois gammes de Claude Code, quand l'ordinateur les annonce
         by_id = {m["id"]: m for m in models}

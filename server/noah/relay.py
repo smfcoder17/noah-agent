@@ -38,6 +38,13 @@ UPSTREAMS = {
 }
 # Ces fournisseurs acceptent une adresse choisie par l'utilisateur. Aucun prix connu : leur coût reste à 0.
 OWN_URL = {"ollama", "custom"}
+
+
+def own_url(provider: str | None) -> bool:
+    """Un fournisseur dont la personne donne l'adresse : Ollama, l'ancien « custom » et chaque « autre:… » (autres.py)."""
+    return provider in OWN_URL or bool(provider and provider.startswith("autre:"))
+
+
 # URL que les agents utilisent, sur le réseau Docker interne.
 RELAY_URL = "http://noah-server:8080/relay/v1"
 
@@ -57,7 +64,7 @@ def upstream_client() -> httpx.AsyncClient:
 
 def upstream_base(provider: str, base_url: str | None = None) -> str:
     """Adresse de l'API OpenAI du fournisseur, sans « / » final. Vide si le fournisseur demande une adresse et n'en a pas."""
-    if provider in OWN_URL and base_url:
+    if own_url(provider) and base_url:
         base = base_url.rstrip("/")
         # Ollama : « http://machine:11434 » est ce qu'on saisit, et l'API compatible OpenAI est sous /v1.
         return base + "/v1" if provider == "ollama" and not base.endswith("/v1") else base
@@ -296,7 +303,7 @@ def fallback_link() -> dict | None:
 
 def _provider_label(provider: str) -> str:
     from . import hermes
-    return hermes.PROVIDERS.get(provider, {}).get("label", provider)
+    return (hermes.provider_info(provider) or {}).get("label", provider)
 
 
 def _journal_turn(agent_id: str, task: str | None, name: str, usage: dict | None, seconds: float) -> None:
@@ -337,7 +344,7 @@ async def _record(agent_id: str, model: str, usage: dict | None, task: str | Non
     cached = int((usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)
     cost = usage.get("cost")
     provider = provider or db.get_setting("provider")
-    if cost is None and provider not in (*OWN_URL, "ollama-cloud"):
+    if cost is None and not own_url(provider) and provider != "ollama-cloud":
         price = catalog.price_of(await (catalog.mammouth_prices() if provider == "mammouth" else catalog.price_index()), model)
         if price:
             cost = (prompt * price["price_in"] + completion * price["price_out"]) / 1e6
@@ -469,9 +476,11 @@ async def _chain_of(agent_id: str, asked: str, body: dict | None = None) -> list
     pinned = await modes.routine_links(agent_id, asked)
     if pinned:
         return pinned
-    single = [{"modele": _current_brain(agent_id, asked), "fournisseur": db.get_setting("provider") or ""}]
     helper = decision.model()
-    if helper and helper != db.get_setting("model") and asked == helper:  # ses petits travaux restent au modèle de décision
+    small = bool(helper and helper != db.get_setting("model") and asked == helper)
+    # Le modèle propre à un agent part chez le fournisseur choisi avec lui (modes.agent_provider) ; les petits travaux, chez celui de tous.
+    single = [{"modele": _current_brain(agent_id, asked), "fournisseur": (db.get_setting("provider") if small else modes.agent_provider(agent_id)) or ""}]
+    if small:  # ses petits travaux restent au modèle de décision
         from . import desktop
         backup = fallback_link() if single[0]["fournisseur"] in desktop.PC_PROVIDERS else None
         return [{"modele": asked, "fournisseur": backup["fournisseur"]}] if backup else single  # chez le secours, avec sa clé

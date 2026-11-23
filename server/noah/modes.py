@@ -127,7 +127,7 @@ def key_of(provider: str) -> str | None:
 
 def usable_providers() -> list[str]:
     from . import hermes, providers
-    return [p for p in hermes.PROVIDERS if providers.connected(p)]
+    return [p for p in hermes.provider_table() if providers.connected(p)]
 
 
 _listed: dict[str, tuple[float, list[dict]]] = {}
@@ -150,8 +150,8 @@ async def _models_of(provider: str) -> list[dict]:
 
 def _media_row(m: dict) -> dict:
     cost = m.get("cost") or {}
-    return {"id": m["id"], "name": m.get("name") or m["id"], "lab": m["id"].split("/")[0], "created": m.get("created") or 0, "context": 0,
-            "price_in": None, "price_out": None, "vision": False, "free": cost.get("value") == 0, "fournisseur": "openrouter",
+    return {"id": m["id"], "name": m.get("name") or m["id"], "lab": m["id"].split("/")[0] if "/" in m["id"] else (m.get("fournisseur") or "openrouter"), "created": m.get("created") or 0, "context": 0,
+            "price_in": None, "price_out": None, "vision": False, "free": cost.get("value") == 0, "fournisseur": m.get("fournisseur") or "openrouter",
             "prix": cost.get("label"), "prix_valeur": cost.get("value"), "quality": m.get("quality"), "speed": m.get("speed")}
 
 
@@ -478,24 +478,30 @@ async def state(level: str) -> dict:
             "custom": [_row(link, index) for link in await links_of(level, "custom")]}
 
 
-def own_brains(user: int) -> list[dict]:
-    """Les agents que ce compte règle et qui gardent leur propre cerveau (un modèle précis ou un mode) : le cerveau de tous ne les
-    touche pas. Leur choix prime, c'est voulu ; l'écran le montre pour qu'aucun ne reste en arrière sans qu'on le sache."""
-    from . import hermes
-    provider = db.get_setting("provider") or ""
-    label = hermes.PROVIDERS.get(provider, {}).get("label", provider)
-    out = []
-    with db.connect() as c:
-        agents = c.execute("SELECT id, name FROM agents ORDER BY pinned DESC, created_at").fetchall()
-    for a in agents:
-        right = access.right(user, a["id"])
-        if not right or access.LEVELS[right] < access.LEVELS["admin"]:
-            continue
-        model, mode = db.get_setting(f"model_{a['id']}"), db.get_setting(f"model_mode_{a['id']}")
-        if model or mode:  # un modèle propre part chez le fournisseur en service, avec sa clé
-            out.append({"id": a["id"], "nom": a["name"], "modele": None if mode else model, "mode": mode or None,
-                        "fournisseur": None if mode else provider, "fournisseur_nom": None if mode else label})
-    return out
+def agent_provider(agent_id: str) -> str:
+    """Le fournisseur où part le modèle propre à cet agent : celui qu'il a choisi avec lui, s'il est toujours branché, sinon celui de tous."""
+    own = db.get_setting(f"model_provider_{agent_id}")
+    return own if own and db.get_setting(f"model_{agent_id}") and own in usable_providers() else db.get_setting("provider") or ""
+
+
+def shown_brain(agent_id: str) -> dict:
+    """Le cerveau qui répond à cet agent au prochain tour, avec la règle du relais (relay._chain_of) : l'agent a son mode ou son modèle,
+    sinon il suit celui de tous. Un mode (Auto…) choisit le modèle à chaque demande : seul son nom se connaît d'avance.
+    C'est ce que montrent l'étiquette sous la saisie, les réglages et la page Confidentialité."""
+    from . import providers
+    mode = agent_mode(agent_id)
+    if mode:
+        return {"mode": mode, "modele": None, "fournisseur": None, "fournisseur_nom": None}
+    provider = agent_provider(agent_id)
+    label = autres_label(provider, providers.base_of(provider))
+    return {"mode": None, "modele": db.get_setting(f"model_{agent_id}") or db.get_setting("model"), "fournisseur": provider, "fournisseur_nom": label}
+
+
+def autres_label(provider: str, base_url: str | None = None) -> str:
+    from . import autres, hermes
+    if autres.is_other(provider):
+        return autres.label_of(provider, base_url)
+    return (hermes.provider_info(provider) or {}).get("label", provider)
 
 
 def _owner_for_level(level: str, user: int) -> None:
@@ -507,10 +513,7 @@ def _owner_for_level(level: str, user: int) -> None:
 async def get_modes(level: str, user: int = Depends(auth.current_user)):
     _check_level(level)
     _owner_for_level(level, user)
-    out = await state(level)
-    if level == BRAIN:
-        out["agents_propres"] = own_brains(user)
-    return out
+    return await state(level)
 
 
 @router.get("/api/modes/{level}/modeles")
@@ -524,7 +527,7 @@ async def get_mode_models(level: str, user: int = Depends(auth.current_user)):
         brands: list[dict] = []  # voix et création ne servent qu'OpenRouter : un seul groupe, aucun filtre n'aide
     else:
         from . import hermes
-        labels = {p: v["label"] for p, v in hermes.PROVIDERS.items()}
+        labels = {p: v["label"] for p, v in hermes.provider_table().items()}
         brands = sorted(({"id": p, "label": labels.get(p, p)} for p in {m["fournisseur"] for m in models} if p),
                         key=lambda b: b["label"].lower())
     return {"modeles": [{k: m.get(k) for k in keep} for m in models], "fournisseurs": brands}
@@ -577,10 +580,7 @@ _changing = asyncio.Lock()  # lecture, attentes, écriture : deux changements en
 @router.put("/api/modes/{level}")
 async def change_modes(level: str, body: ModeChange, user: int = Depends(access.owner_only)):
     async with _changing:
-        out = await _change_modes(level, body)
-    if level == BRAIN:  # l'écran dit tout de suite quels agents ce choix ne touche pas
-        out["agents_propres"] = own_brains(user)
-    return out
+        return await _change_modes(level, body)
 
 
 async def _change_modes(level: str, body: ModeChange):
