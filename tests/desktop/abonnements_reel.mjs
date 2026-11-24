@@ -230,7 +230,7 @@ if (!ready) {
     { role: "tool", tool_call_id: call?.id, content: ran }] }));
   check("l'outil exécuté, la réponse finale arrive par Claude Code", ran === "bonjour" && out.choices?.[0]?.message?.content === "Fini : bonjour", JSON.stringify(out));
   const suivi = await run("/tmp/suivi.py");
-  check("suivi : « Claude Code · sonnet · abonnement », 0 $, jetons rapportés par la CLI", Array.isArray(suivi) && suivi[0][0] === "Claude Code · sonnet · abonnement"
+  check("suivi : « Claude Code · claude-sonnet-5-5 · abonnement » (nom exact du modèle servi), 0 $, jetons rapportés par la CLI", Array.isArray(suivi) && suivi[0][0] === "Claude Code · claude-sonnet-5-5 · abonnement"
     && suivi[0][1] === 0 && suivi[0][2] === 120 && suivi[0][3] === 7, JSON.stringify(suivi));
 
   // 4. Ordinateur déconnecté : le fournisseur habituel, sans erreur visible.
