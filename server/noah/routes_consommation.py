@@ -8,7 +8,7 @@ import time
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import Field, BaseModel
-from . import decision, taches, questions, machine, updates, coffre, handoff, desktop, access, session, db, auth, relay, propositions, proactif, coordination, nettoyage, sensitive, accords, main
+from . import decision, taches, questions, machine, updates, coffre, handoff, desktop, access, session, db, auth, relay, propositions, proactif, pourtoi, coordination, nettoyage, sensitive, accords, main
 
 router = APIRouter()
 
@@ -40,6 +40,7 @@ def follow_up_offer(conv_id: str) -> bool:
 def inbox(user: int = Depends(auth.current_user)):
     """Accords du compte qui a lancé le travail, connexions et choix. Une conversation privée reste à son auteur. Une tâche finie
     sur l'offre d'une suite n'attend rien : elle n'y est pas (follow_up_offer)."""
+    pourtoi.sweep()  # ce qui est passé n'est jamais montré, même entre deux nettoyages
     out = accords.list_accords(user)
     asked = questions.a_la_personne(user)  # 0.4.0 : les questions des agents et leurs choix, une ligne chacune
     for conv_id, state in list(main.task_state.items()):

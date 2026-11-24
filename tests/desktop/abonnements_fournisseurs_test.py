@@ -163,7 +163,7 @@ listed = {p["id"]: p for p in pc.get("/api/fournisseurs").json()}
 assert listed["ordinateur:claude-code"]["ordinateur"] is True and listed["ordinateur:claude-code"]["pret"] is False, listed["ordinateur:claude-code"]
 assert listed["ordinateur:chatgpt"]["label"] == "ChatGPT (ton ordinateur)" and listed["ordinateur:claude-code"]["needs_key"] is False
 r = pc.put("/api/fournisseurs/ordinateur:claude-code", json={})
-assert r.status_code == 400 and "Ouvre Noah Agent sur ton ordinateur" in r.json()["detail"], r.text
+assert r.status_code == 400 and "application de bureau Noah Agent" in r.json()["detail"], r.text
 assert bruno.get("/api/fournisseurs").status_code == 403 and bruno.put("/api/fournisseurs/ordinateur:claude-code", json={}).status_code == 403
 print("0. listé sans ordinateur prêt ; le brancher dit d'ouvrir Noah Agent sur l'ordinateur ; réservé au propriétaire")
 

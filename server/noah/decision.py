@@ -251,6 +251,17 @@ def clear_failure() -> None:
         bus.invalidate_all()
 
 
+def sweep_failure(now: float) -> int:
+    """La carte d'échec est passée quand le modèle en cause n'est plus celui qui décide, ou au bout de 3 jours (elle revient si l'échec revient)."""
+    state = _failure()
+    if not state:
+        return 0
+    if state.get("modele") in (model(), _brain()) and now - float(state.get("quand") or 0) <= 3 * 86400:
+        return 0
+    db.set_setting(FAILURE, "")
+    return 1
+
+
 def failure_card() -> list[dict]:
     """La carte de « Pour toi » (/api/a-toi), pour le propriétaire seulement : le modèle de décision n'a pas pu répondre."""
     state = _failure()

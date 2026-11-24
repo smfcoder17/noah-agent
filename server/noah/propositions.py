@@ -7,12 +7,16 @@ C'est proactif.py qui tient les heures actives et le plafond du jour ; ici, on e
 - « faire » : la demande part dans sa conversation principale comme un message d'elle, par la même file que les demandes qui attendent
   (pendant.py) : jamais par-dessus un travail en cours ;
 - « non » : rien ne part, et le refus s'apprend comme un accord refusé (apprentissage.on_refusal) ;
-- sans réponse, elle expire au bout de 3 jours : elle quitte « Pour toi » et reste lisible dans Activité, marquée « expirée ».
+- sans réponse, elle expire : quand l'heure ou le jour qu'elle nomme est passé (« aujourd'hui », « ce soir », « demain », « le 25 novembre » :
+  voir echeance), sinon au bout de 3 jours. Elle quitte « Pour toi » et reste lisible dans Activité, marquée « expirée ».
 Seule une décision à prendre y va : un compte rendu (le point du matin) s'écrit dans le fil, sans bouton (proactif._briefing).
 Seul le propriétaire de l'agent les voit et y répond : une personne invitée ne reçoit pas ce que l'agent propose à son propriétaire.
 """
+import re
 import time
+import unicodedata
 import uuid
+from datetime import datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -32,10 +36,77 @@ GENRES = ("idee", "releve", "traiter", "briefing")
 TEXT_MAX, DEMAND_MAX = 1500, 4000
 
 
-def sweep(now: float | None = None) -> None:
-    """Sans réponse au bout de EXPIRE_JOURS jours : elle n'attend plus personne."""
+_MOIS = {"janvier": 1, "fevrier": 2, "mars": 3, "avril": 4, "mai": 5, "juin": 6, "juillet": 7, "aout": 8, "septembre": 9, "octobre": 10, "novembre": 11, "decembre": 12,
+         "janv": 1, "fevr": 2, "avr": 4, "juil": 7, "sept": 9, "oct": 10, "nov": 11, "dec": 12}
+_AUJOURDHUI = re.compile(r"\b(aujourd ?hui|ce matin|cet apres midi|ce soir|cette nuit|maintenant|tout de suite|des maintenant|today|tonight|this (?:morning|afternoon|evening))\b")
+_APRES_DEMAIN = re.compile(r"\b(apres demain|day after tomorrow)\b")
+_DEMAIN = re.compile(r"\b(demain|tomorrow)\b")
+_DATE = re.compile(r"\b(?:le |on )?(\d{1,2}) (janvier|fevrier|mars|avril|mai|juin|juillet|aout|septembre|octobre|novembre|decembre|janv|fevr|avr|juil|sept|oct|nov|dec)\b")
+_DATE_NUM = re.compile(r"\b(?:le )?(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?\b")
+
+
+def _plain(texte: str) -> str:
+    """Sans accents ni majuscules, apostrophes en espaces : \"Aujourd'hui\" devient \"aujourd hui\"."""
+    flat = unicodedata.normalize("NFKD", texte or "").encode("ascii", "ignore").decode().lower()
+    return re.sub(r"[^a-z0-9/ ]", " ", flat)
+
+
+def echeance(texte: str, created: float, zone=None) -> float:
+    """Quand cette proposition est passée : la fin du jour qu'elle nomme, sinon created + EXPIRE_JOURS.
+
+    Règle (écrite ici, testée dans tests/agents/pour_toi_passe_test.py). Le jour se compte chez la personne, depuis le jour où la proposition
+    est née. « aujourd'hui », « ce soir », « maintenant »… : fin de ce jour-là. « demain » : fin du lendemain. « après-demain » : J+2.
+    Une date écrite (« le 25 novembre », « 25/11 ») : fin de cette date. Plusieurs repères : le plus proche l'emporte (« je t'audite
+    aujourd'hui, ton essai expire dans 3 jours » est passée ce soir). « dans 3 jours » ne compte pas : c'est un fait, pas le moment
+    de la proposition. Aucun repère : la durée habituelle."""
+    if zone is None:
+        from . import updates
+        zone = updates.local_zone()
+    born = datetime.fromtimestamp(created, zone)
+    plain = _plain(texte)
+
+    def end_of(day: datetime) -> float:
+        return day.replace(hour=23, minute=59, second=59, microsecond=0).timestamp()
+
+    marks = []
+    if _AUJOURDHUI.search(plain):
+        marks.append(end_of(born))
+    if _APRES_DEMAIN.search(plain):
+        marks.append(end_of(born + timedelta(days=2)))
+    elif _DEMAIN.search(plain):
+        marks.append(end_of(born + timedelta(days=1)))
+    for m in _DATE.finditer(plain):
+        marks += _date(born, int(m.group(1)), _MOIS[m.group(2)], None, end_of)
+    for m in _DATE_NUM.finditer(plain):
+        marks += _date(born, int(m.group(1)), int(m.group(2)), m.group(3), end_of)
+    return min(marks) if marks else created + EXPIRE
+
+
+def _date(born: datetime, day: int, month: int, year: str | None, end_of) -> list[float]:
+    try:
+        y = (int(year) + (2000 if len(year) == 2 else 0)) if year else born.year
+        found = born.replace(year=y, month=month, day=day)
+        if not year and found.date() < born.date() - timedelta(days=31):
+            found = found.replace(year=y + 1)  # « le 3 janvier » écrit en décembre
+    except ValueError:
+        return []  # pas une date (« 12/45 »)
+    return [end_of(found)] if found.date() >= born.date() else []  # une date déjà passée à la naissance n'est pas un repère
+
+
+def sweep(now: float | None = None) -> int:
+    """Passée (echeance) ou sans réponse trois jours : elle n'attend plus personne. Rend le nombre de lignes sorties."""
+    now = now or time.time()
+    gone = []
     with db.connect() as c:
-        c.execute("UPDATE propositions SET etat = 'expiree' WHERE etat = 'ouverte' AND created <= ?", ((now or time.time()) - EXPIRE,))
+        for r in c.execute("SELECT id, texte, created FROM propositions WHERE etat = 'ouverte'").fetchall():
+            if echeance(r["texte"], r["created"]) <= now:
+                gone.append(r["id"])
+        for pid in gone:
+            c.execute("UPDATE propositions SET etat = 'expiree' WHERE id = ? AND etat = 'ouverte'", (pid,))
+    if gone:
+        from . import bus
+        bus.invalidate_all()
+    return len(gone)
 
 
 def sortir_comptes_rendus() -> int:

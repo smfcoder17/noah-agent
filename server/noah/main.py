@@ -33,7 +33,7 @@ from pydantic import BaseModel, Field
 
 from . import access, accounts, autres, mediaprov, apprentissage, appareils, auth, bureautique, catalog, chauffe, coffre, connecteurs, connecteurs_cles, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, propositions, public, publication, recherche, push, questions, recu, recuperation, relay, session, sites, sortie, sortie_relais, taches, updates, watch
 from . import config
-from . import accords, bus, credits, presets, rapide, sensitive, ui_preferences, linkpreview, providers as provider_accounts
+from . import accords, bus, pourtoi, credits, presets, rapide, sensitive, ui_preferences, linkpreview, providers as provider_accounts
 from .config import WEB_DIR, forget_setup_code
 from .hermes import Agent
 
@@ -268,6 +268,8 @@ async def startup() -> None:
     propositions.sortir_comptes_rendus()  # 0.4.2 : un ancien point du matin n'attend plus de réponse dans « Pour toi »
     taches.redemarrage()  # 0.4.0 : un fil, une sous-tâche ou une routine encore « en cours » au démarrage a été coupé : échec, jamais une tâche qui tourne dans le vide
     questions.recover()  # 0.4.0 : une question qui attendait un agent monte à la personne
+    pourtoi.sweep()  # ce qui est passé quitte « Pour toi » dès le démarrage, puis chaque minute
+    _spawn(pourtoi.keep_clean())
     _spawn(_resume_requests())
     _spawn(_after_updates(_refresh_browsers))
     _spawn(machine.deliver_routines(_save_message, _main_conversation))

@@ -23,6 +23,7 @@ TOURS_MAX = 3  # questions presque identiques entre les mêmes agents avant de m
 BOUCLE_FENETRE = 3600  # secondes : au-delà, deux questions semblables ne comptent plus comme un échange qui tourne en rond
 DELAI_AGENT = 600  # un agent qui ne répond pas dans ce délai : la question monte d'un cran
 EXPIRE = 48 * 3600  # une question que personne n'a tranchée
+EXPIRE_RESERVEE = 7 * 86400  # un sujet réservé (payer, supprimer, secrets, publier) compte plus longtemps : il ne se perd pas en deux jours
 AGENT_WAIT = 150  # l'outil de l'agent attend la réponse jusqu'là, puis il rend la main
 LIVRAISON_ATTENTE = 900
 RESERVES = ("payer", "supprimer", "secrets", "publier")
@@ -454,8 +455,8 @@ def recover() -> None:
     """Au démarrage : une question qui attendait un agent monte à la personne (le délai de l'agent s'est perdu avec le serveur) ;
     une question vieille de 48 h expire. Les questions à la personne restent telles quelles."""
     now = _now()
+    sweep(now)
     with db.connect() as c:
-        c.execute("UPDATE questions SET etat = 'expiree', maj = ? WHERE etat = 'attend' AND cree < ?", (now, now - EXPIRE))
         rows = c.execute("SELECT id, a FROM questions WHERE etat = 'attend' AND genre = 'question' AND a != ''").fetchall()
         for r in rows:
             c.execute("UPDATE questions SET a = '', maj = ? WHERE id = ?", (now, r["id"]))
@@ -466,6 +467,35 @@ def recover() -> None:
             main.task_state[r["conversation_id"]] = "approve"
     if due:
         bus.invalidate_all()
+
+
+def sweep(now: float | None = None) -> int:
+    """Une question qui n'attend plus personne quitte « Pour toi » (au démarrage et chaque minute, pas seulement à l'affichage). Rend le nombre sorties.
+
+    - sans réponse depuis 48 h : « expirée » ; un sujet réservé (EXPIRE_RESERVEE) garde 7 jours ;
+    - la tâche qui l'a posée est finie ou en échec : « annulée », il n'y a plus rien à décider pour elle ;
+    - un choix (genre « choix ») après lequel la personne a écrit dans la conversation : « répondue », c'est sa réponse.
+    Rien n'est effacé : la ligne reste, avec son état. La conversation ne « demande » plus rien (_apaiser)."""
+    now = now or _now()
+    closed = []
+    with db.connect() as c:
+        for r in c.execute("SELECT * FROM questions WHERE etat = 'attend'").fetchall():
+            q = _ligne(r)
+            if now - q["cree"] > (EXPIRE_RESERVEE if q["reserve"] else EXPIRE):
+                state = "expiree"
+            elif q["genre"] == "question" and q["tache_id"] and (c.execute("SELECT etat FROM taches WHERE id = ?", (q["tache_id"],)).fetchone() or {"etat": ""})["etat"] in ("fini", "echec"):
+                state = "annulee"
+            elif q["genre"] == "choix" and q["message_id"] and c.execute("SELECT 1 FROM messages WHERE conversation_id = ? AND role = 'user' AND id > ?",
+                                                                       (q["conversation_id"], q["message_id"])).fetchone():
+                state = "repondue"
+            else:
+                continue
+            if c.execute("UPDATE questions SET etat = ?, maj = ? WHERE id = ? AND etat = 'attend'", (state, now, q["id"])).rowcount:
+                closed.append(q)
+    for q in closed:
+        _apaiser(q)
+        bus.invalidate(q["owner_id"])
+    return len(closed)
 
 
 async def attendre_reponses(conv_id: str, limite: float = EXPIRE) -> None:
