@@ -691,15 +691,49 @@ export const SAVE_EVERY_MS = Number(process.env.NOAH_SESSION_SAVE_MS) || 60_000;
 export function keepSessions(ctx, every = SAVE_EVERY_MS) {
   const live = new Map(); // userId -> contexte Playwright
   const last = new Map(); // userId -> dernier état écrit
+  const options = new Map(); // userId -> options du contexte (chemin de l'état restauré, posé par le module de persistance)
+  const origins = new Map(); // userId -> origine -> stockage local connu
+  ctx.events.on("session:creating", ({ userId, contextOptions }) => options.set(userId, contextOptions));
   ctx.events.on("session:created", ({ userId, context }) => live.set(userId, context));
   ctx.events.on("session:destroyed", ({ userId }) => {
     live.delete(userId);
     last.delete(userId);
+    options.delete(userId);
+    origins.delete(userId);
   });
+  // context.storageState() ne se lit pas ici : pour toute origine sans page ouverte, Playwright crée une page temporaire et la
+  // fait naviguer vers chacune (playwright-core coreBundle.js, storageState : newPage puis gotoImpl). Dans Firefox avec un écran,
+  // cette page recouvre l'onglet de l'utilisateur à chaque passage. Ici : les cookies (une connexion tient dans les cookies),
+  // le stockage local des pages déjà ouvertes (lu dans la page, sans rien ouvrir) et, pour le reste, ce qui était déjà gardé.
+  // L'état complet reste écrit par Camofox à la fermeture propre de la session.
+  const snapshot = async (userId, context) => {
+    let known = origins.get(userId);
+    if (!known) {
+      known = new Map();
+      const file = options.get(userId)?.storageState;
+      try {
+        const restored = typeof file === "string" ? JSON.parse(fs.readFileSync(file, "utf8")) : file;
+        for (const o of restored?.origins || []) known.set(o.origin, o);
+      } catch (e) {} // rien de gardé avant : on part des pages ouvertes
+      origins.set(userId, known);
+    }
+    const cookies = await context.cookies();
+    for (const page of context.pages()) {
+      let origin;
+      try {
+        origin = new URL(page.url()).origin;
+        if (!/^https?:/.test(origin)) continue;
+        const items = await page.evaluate(() => Object.entries(localStorage).map(([name, value]) => ({ name, value })));
+        if (items.length) known.set(origin, { origin, localStorage: items });
+        else known.delete(origin);
+      } catch (e) {} // page fermée, plantée ou sans stockage lisible : on garde ce qu'on savait
+    }
+    return { cookies, origins: [...known.values()] };
+  };
   const save = async () => {
     for (const [userId, context] of live) {
       try {
-        const state = await context.storageState(ctx.persistenceStorageStateOptions);
+        const state = await snapshot(userId, context);
         const text = JSON.stringify(state);
         if (last.get(userId) === text) continue;
         const emit = ctx.events.emitAsync ? ctx.events.emitAsync.bind(ctx.events) : ctx.events.emit.bind(ctx.events);
