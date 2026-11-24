@@ -320,6 +320,89 @@ try {
     assert.match(out.erreur, /outil inconnu : rm_rf/);
   });
 
+  // --- Processus gardé chaud : le démarrage de la CLI est payé pendant l'attente, pas pendant le tour ---
+  const starts = join(base, "demarrages.jsonl");
+  const started = () => (existsSync(starts) ? readFileSync(starts, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)) : []);
+  const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+  const ask = (text, system = "Tu es Nadine.", more = {}) => turn([{ role: "system", content: system }, { role: "user", content: text }], more);
+
+  await step("chaud : le tour suivant part d'un processus déjà lancé (même consigne), et le démarrage n'est pas repayé", async () => {
+    process.env.FAUX_CLAUDE_DEMARRAGES = starts;
+    process.env.FAUX_CLAUDE_BOOT_MS = "700";
+    claude.configure({ program: FAKE, warm: true });
+    const first = await actions.perform(ask("Bonjour"), ctx());
+    assert.equal(first.ok, true, JSON.stringify(first));
+    assert.equal(first.processus_chaud, undefined, "le premier tour part à froid");
+    assert.ok(first.duree_ms >= 650, `à froid, le démarrage compte : ${first.duree_ms} ms`);
+    for (let i = 0; i < 40 && started().length < 2; i += 1) await sleepMs(50);
+    assert.deepEqual(started().map((s) => s.chaud), [false, true], "un processus préchauffé est lancé derrière le premier tour");
+    await sleepMs(900); // la personne lit la réponse : le démarrage du suivant se fait pendant ce temps
+    const second = await actions.perform(ask("Et ensuite ?"), ctx());
+    assert.equal(second.ok, true, JSON.stringify(second));
+    assert.equal(second.processus_chaud, true);
+    assert.ok(second.duree_ms < 450, `à chaud, plus de démarrage : ${second.duree_ms} ms (à froid ${first.duree_ms} ms)`);
+    assert.equal(second.reponse.choices[0].message.content, "réponse de Claude Code (sonnet)");
+    for (let i = 0; i < 40 && started().length < 3; i += 1) await sleepMs(50);
+    assert.deepEqual(started().map((s) => s.chaud), [false, true, true], "et le suivant est déjà relancé");
+    const run = brainRuns().at(-1);
+    const at = (flag) => run.args[run.args.indexOf(flag) + 1];
+    assert.equal(run.chaud, true);
+    assert.equal(at("--input-format"), "stream-json");
+    assert.equal(at("--tools"), "", "mêmes garde-fous : aucun outil de Claude Code");
+    assert.ok(run.args.includes("--safe-mode") && run.args.includes("--strict-mcp-config") && run.args.includes("--no-session-persistence") && run.args.includes("--disable-slash-commands"), run.args.join(" "));
+    assert.ok(!run.args.includes("--bare") && !run.args.includes("--dangerously-skip-permissions"));
+    assert.match(run.prompt, /<<utilisateur #[0-9a-f]{16}>>\nEt ensuite \?/, "la conversation de CE tour, pas celle du précédent");
+    assert.ok(!run.prompt.includes("Bonjour"), "rien ne passe d'un tour au suivant : l'historique est celui que le relais renvoie");
+    assert.ok(run.system.startsWith("Tu es Nadine."));
+  });
+
+  await step("chaud : une autre consigne, un autre modèle ou « Couper l'accès » : lancement à froid, le processus gardé est abandonné", async () => {
+    let out = await actions.perform(ask("Salut", "Tu es Bastien."), ctx());
+    assert.equal(out.ok, true);
+    assert.equal(out.processus_chaud, undefined, "consigne différente");
+    assert.equal(brainRuns().at(-1).system.startsWith("Tu es Bastien."), true);
+    out = await actions.perform(ask("Salut encore", "Tu es Bastien.", { modele: "opus" }), ctx());
+    assert.equal(out.processus_chaud, undefined, "modèle différent");
+    await sleepMs(900);
+    claude.stopAll("coupe"); // couper l'accès : plus aucun processus gardé
+    out = await actions.perform(ask("Et maintenant", "Tu es Bastien.", { modele: "opus" }), ctx());
+    assert.equal(out.ok, true);
+    assert.equal(out.processus_chaud, undefined, "après la coupure, rien n'attend");
+  });
+
+  await step("chaud : un processus qui meurt avant de servir : le lancement à froid répond, sans compter comme un essai", async () => {
+    await actions.perform(ask("Un", "Tu es Camille."), ctx()); // prépare un processus pour la consigne de Camille
+    process.env.FAUX_CLAUDE_CHAUD_MORT = "1";
+    await actions.perform(ask("Deux", "Tu es Camille."), ctx()); // le processus préparé (ci-dessus) meurt au démarrage : le suivant aussi
+    const before = brainRuns().length;
+    const out = await actions.perform(ask("Trois", "Tu es Camille."), ctx());
+    delete process.env.FAUX_CLAUDE_CHAUD_MORT;
+    assert.equal(out.ok, true, JSON.stringify(out));
+    assert.equal(out.processus_chaud, undefined);
+    assert.equal(brainRuns().length, before + 1, "un seul tour a abouti, à froid");
+  });
+
+  await step("chaud : sans tour pendant quelques minutes, le processus gardé s'arrête (le cache du fournisseur aussi)", async () => {
+    claude.configure({ program: FAKE, warm: true, minute: 250 }); // 4 minutes = 1 s
+    const one = await actions.perform(ask("Un", "Tu es Dominique."), ctx());
+    assert.equal(one.ok, true, JSON.stringify(one));
+    await sleepMs(1500);
+    const two = await actions.perform(ask("Deux", "Tu es Dominique."), ctx());
+    assert.equal(two.ok, true, JSON.stringify(two));
+    assert.equal(two.processus_chaud, undefined, "trop tard : à froid");
+  });
+
+  await step("chaud : sans « warm » (les tests d'avant), aucun processus n'est lancé d'avance", async () => {
+    claude.configure({ program: FAKE });
+    delete process.env.FAUX_CLAUDE_BOOT_MS;
+    await sleepMs(500); // les lancements d'avance des essais précédents ont fini de s'écrire
+    const n = started().length;
+    const out = await actions.perform(ask("Bonjour"), ctx());
+    assert.equal(out.ok, true);
+    assert.equal(started().length, n + 1, "un seul lancement : le tour lui-même");
+    delete process.env.FAUX_CLAUDE_DEMARRAGES;
+  });
+
   await step("limite de l'abonnement pendant un tour : 429, le relais passe au suivant", async () => {
     const out = await actions.perform(turn([{ role: "user", content: "LIMITE" }]), ctx());
     assert.equal(out.statut, 429);

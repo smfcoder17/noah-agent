@@ -2,7 +2,7 @@
 // Noah ne lit, ne copie et ne relaie jamais ses identifiants : il demande l'état de la connexion à la CLI elle-même
 // (`claude auth status --json`) et n'en garde que trois champs, puis lui confie une tâche entière (`claude -p`) dans un dossier confié.
 const { execFile, spawn } = require("node:child_process");
-const { randomBytes } = require("node:crypto");
+const { createHash, randomBytes } = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -22,6 +22,7 @@ const PROFILES = {
 };
 
 let configured = null; // { cmd, prefix } : imposé par les tests (faux binaire)
+let warmOn = true; // le processus du tour suivant, lancé d'avance (voir « Processus gardé chaud ») ; les tests le demandent par configure({ warm: true })
 let minuteMs = 60000; // raccourci par les tests pour éprouver le délai
 let last = { installe: false, connecte: false, offre: "", methode: "" };
 let current = null; // une tâche à la fois sur cet ordinateur
@@ -32,9 +33,11 @@ function cleanEnv(env = process.env) {
   return Object.fromEntries(Object.entries(env).filter(([k]) => !/^(anthropic|claude)_/i.test(k)));
 }
 
-function configure({ program, minute } = {}) {
+function configure({ program, minute, warm } = {}) {
   configured = program || null;
   if (minute) minuteMs = minute;
+  warmOn = warm === undefined ? !program : Boolean(warm); // un faux binaire n'est pas préchauffé, sauf demande des tests
+  dropWarm();
 }
 
 /** Le binaire officiel : claude.exe dans le PATH, celui que l'installation npm enveloppe, ou l'installation native. */
@@ -330,17 +333,24 @@ function readDecision(final, tools) {
   return { texte, appels: out };
 }
 
-/** Un lancement de `claude -p` pour ce tour : rend { final, stderr, arret? } ou { spawnError }. */
-function spawnBrain(bin, args, stdin, signal) {
+/** Arrête un processus de la CLI et ses sous-processus. */
+function killChild(child, grace = 2000) {
+  if (child.exitCode !== null || child.killed) return;
+  if (process.platform === "win32") execFile("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true }, () => {});
+  else { child.kill("SIGINT"); setTimeout(() => { if (child.exitCode === null) child.kill("SIGKILL"); }, grace).unref(); }
+}
+
+/** Un lancement de `claude -p` pour ce tour : rend { final, stderr, arret? } ou { spawnError }.
+ * `warm` : un processus déjà lancé par warmUp (même consigne, même modèle, même schéma) : le tour lui arrive en un message stream-json. */
+function spawnBrain(bin, args, stdin, signal, warm = null) {
   return new Promise((resolve) => {
     let final = null, buffer = "", stderr = "", stopped = null;
     const seen = { modele: "" };
-    const child = spawn(bin.cmd, [...bin.prefix, ...args], { cwd: os.tmpdir(), env: cleanEnv(), windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+    const child = warm ? warm.child : spawn(bin.cmd, [...bin.prefix, ...args], { cwd: os.tmpdir(), env: cleanEnv(), windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
     const stop = (why) => {
       if (stopped || child.exitCode !== null) return;
       stopped = why;
-      if (process.platform === "win32") execFile("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true }, () => {});
-      else { child.kill("SIGINT"); setTimeout(() => { if (child.exitCode === null) child.kill("SIGKILL"); }, 2000).unref(); }
+      killChild(child);
     };
     brainRunning = { stop };
     const timer = setTimeout(() => stop("delai"), BRAIN_MINUTES * minuteMs);
@@ -357,7 +367,8 @@ function spawnBrain(bin, args, stdin, signal) {
     });
     child.stderr.on("data", (chunk) => { stderr = (stderr + chunk).slice(-3000); });
     child.stdin.on("error", () => {});
-    child.stdin.end(stdin);
+    // Entrée standard fermée aussitôt après le message : la CLI finit le tour, puis s'arrête.
+    child.stdin.end(warm ? JSON.stringify({ type: "user", message: { role: "user", content: stdin } }) + "\n" : stdin);
     let finished = false;
     const done = (code, spawnError) => {
       if (finished) return;
@@ -365,6 +376,7 @@ function spawnBrain(bin, args, stdin, signal) {
       clearTimeout(timer);
       signal?.removeEventListener("abort", onAbort);
       brainRunning = null;
+      if (warm) fs.rmSync(warm.dir, { recursive: true, force: true });
       if (buffer.trim()) take(buffer.trim());
       resolve({ final, stderr, code, spawnError, arret: stopped, modele: seen.modele });
     };
@@ -373,6 +385,67 @@ function spawnBrain(bin, args, stdin, signal) {
   });
 }
 
+// --- Processus gardé chaud ------------------------------------------------------------------------------------------------
+// Un tour coûte d'abord le démarrage de la CLI (environ une seconde) avant le moindre appel au modèle. Dès qu'un tour a abouti, le
+// processus du suivant est lancé d'avance, avec la même consigne, le même modèle et le même schéma : `claude -p --input-format
+// stream-json` ne démarre son travail qu'au premier message, qui lui arrive à la fin de l'attente. Un processus sert un seul tour :
+// aucune conversation ne passe d'un tour au suivant (l'historique entier est renvoyé chaque fois, comme avant). Consigne, modèle ou
+// schéma différents, ou processus mort : lancement à froid, comme avant. Il s'arrête de lui-même après quelques minutes sans tour
+// (le cache de consigne du fournisseur dure 5 minutes) et à « Couper l'accès ».
+
+const WARM_MINUTES = 4;
+let warm = null; // { key, child, dir, timer, dead }
+
+const warmKey = (model, system, schema) => createHash("sha256").update(JSON.stringify([model, system, schema])).digest("hex");
+
+/** Les arguments d'un processus préchauffé : ceux d'un tour (brainArgs), avec l'entrée en stream-json. */
+function brainWarmArgs(model, systemFile, schema) {
+  return ["-p", "--input-format", "stream-json", ...brainArgs(model, systemFile, schema).slice(1)];
+}
+
+function dropWarm() {
+  if (!warm) return;
+  const w = warm;
+  warm = null;
+  clearTimeout(w.timer);
+  killChild(w.child, 500);
+  fs.rmSync(w.dir, { recursive: true, force: true });
+}
+
+/** Lance d'avance le processus du prochain tour (un seul à la fois) ; sans effet s'il existe déjà pour la même clé. */
+function warmUp(bin, model, system, schema) {
+  if (!warmOn || !bin) return;
+  const key = warmKey(model, system, schema);
+  if (warm && warm.key === key && !warm.dead) { clearTimeout(warm.timer); warm.timer = setTimeout(dropWarm, WARM_MINUTES * minuteMs); warm.timer.unref(); return; }
+  dropWarm();
+  let dir;
+  try {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "noah-cerveau-"));
+    const systemFile = path.join(dir, "consigne-systeme");
+    fs.writeFileSync(systemFile, system, { mode: 0o600 });
+    const child = spawn(bin.cmd, [...bin.prefix, ...brainWarmArgs(model, systemFile, schema)], { cwd: os.tmpdir(), env: cleanEnv(), windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+    const w = { key, child, dir, dead: false, timer: setTimeout(dropWarm, WARM_MINUTES * minuteMs) };
+    w.timer.unref();
+    const dead = () => { w.dead = true; if (warm === w) { warm = null; clearTimeout(w.timer); fs.rmSync(dir, { recursive: true, force: true }); } };
+    child.on("error", dead);
+    child.on("close", dead);
+    child.stdin.on("error", () => {});
+    child.stderr.on("data", () => {}); // vidé : un tampon plein bloquerait la CLI
+    warm = w;
+  } catch {
+    if (dir) fs.rmSync(dir, { recursive: true, force: true }); // préchauffer est un confort : un échec ne change rien au tour
+  }
+}
+
+/** Le processus prêt pour cette clé, retiré de la réserve (il sert une fois) ; une autre clé : la réserve est vidée. */
+function takeWarm(key) {
+  if (!warm) return null;
+  if (warm.key !== key || warm.dead) { dropWarm(); return null; }
+  const w = warm;
+  warm = null;
+  clearTimeout(w.timer);
+  return w;
+}
 const tokens = (u) => ({
   prompt: (Number(u?.input_tokens) || 0) + (Number(u?.cache_read_input_tokens) || 0) + (Number(u?.cache_creation_input_tokens) || 0),
   completion: Number(u?.output_tokens) || 0, cached: Number(u?.cache_read_input_tokens) || 0,
@@ -393,16 +466,24 @@ async function brainTurn({ body, model, signal }) {
   const tools = toolsOf(body);
   const { system, conversation, token } = brainPrompt(body, tools);
   if (system.length + conversation.length > MAX_PROMPT) return { erreur: "contexte trop long pour Claude Code", statut: 413, code: "trop_long" }; // i18n-ignore : lu par le serveur
+  const schema = tools.length ? brainSchema(tools) : null;
+  const key = warmKey(chosen, system, schema);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "noah-cerveau-"));
   const systemFile = path.join(dir, "consigne-systeme");
   fs.writeFileSync(systemFile, system, { mode: 0o600 });
   const started = Date.now();
-  const used = { prompt: 0, completion: 0, cached: 0 };
+  const used = { prompt: 0, completion: 0, cached: 0, chaud: false };
   let exact = "";
   try {
     let stdin = conversation;
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      const run = await spawnBrain(bin, brainArgs(chosen, systemFile, tools.length ? brainSchema(tools) : null), stdin, signal);
+      // Premier essai : le processus préchauffé du même modèle, de la même consigne et du même schéma, s'il y en a un ; mort avant d'avoir
+      // répondu, le lancement à froid prend le relais sans compter comme un essai.
+      const hot = attempt === 0 ? takeWarm(key) : null;
+      let run = await spawnBrain(bin, brainArgs(chosen, systemFile, schema), stdin, signal, hot);
+      let wasHot = Boolean(hot);
+      if (hot && !run.final && !run.arret && !run.spawnError) { wasHot = false; run = await spawnBrain(bin, brainArgs(chosen, systemFile, schema), stdin, signal); }
+      if (attempt === 0) used.chaud = wasHot;
       const u = tokens(run.final?.usage);
       used.prompt += u.prompt; used.completion += u.completion; used.cached += u.cached;
       if (run.arret === "delai") return { erreur: "Claude Code n'a pas répondu en 10 minutes", statut: 504, code: "delai" }; // i18n-ignore : lu par le serveur
@@ -425,11 +506,12 @@ async function brainTurn({ body, model, signal }) {
         if (attempt === 0) continue;
         return { erreur: `réponse illisible de Claude Code (${decision.raison})`, statut: 502, code: "illisible" }; // i18n-ignore : lu par le serveur
       }
+      warmUp(bin, chosen, system, schema); // le tour suivant d'une conversation en cours part d'un processus déjà démarré
       const calls = decision.appels.map((c) => ({ id: `call_${randomBytes(9).toString("hex")}`, type: "function", function: { name: c.nom, arguments: JSON.stringify(c.arguments) } }));
       const message = { role: "assistant", content: decision.texte || (calls.length ? null : "") };
       if (calls.length) message.tool_calls = calls;
       return {
-        ok: true, modele: chosen, modele_exact: exact || undefined, duree_ms: Date.now() - started,
+        ok: true, modele: chosen, modele_exact: exact || undefined, duree_ms: Date.now() - started, ...(used.chaud ? { processus_chaud: true } : {}),
         reponse: {
           id: `claude-code-${randomBytes(6).toString("hex")}`, object: "chat." + "completion", created: Math.floor(Date.now() / 1000), model: exact || chosen,
           choices: [{ index: 0, message, finish_reason: calls.length ? "tool_calls" : "stop" }],
@@ -447,9 +529,10 @@ const brainBusy = () => Boolean(brainRunning);
 
 /** « Couper l'accès » ou fermeture de l'app : la tâche en cours s'arrête, et le tour du cerveau en cours aussi. */
 function stopAll(why = "coupe") {
+  dropWarm();
   current?.stop(why);
   brainRunning?.stop(why);
 }
 
-module.exports = { login, configure, locate, detect, status, busy, run, stopAll, argsFor, PROFILES, brain, brainArgs, brainBusy, models, BRAIN_MODELS,
+module.exports = { login, configure, locate, detect, status, busy, run, stopAll, argsFor, PROFILES, brain, brainArgs, brainWarmArgs, warmUp, brainSchema, dropWarm, brainBusy, models, BRAIN_MODELS,
   brainPrompt, readDecision, cleanEnv, toolsOf };
