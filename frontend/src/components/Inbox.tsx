@@ -159,7 +159,7 @@ export function Inbox({ open, page = false, agents, onOpenChange, onOpenConversa
         {items?.length === 0 && !accords.length && !propositions.length && !echec && <p className="py-4 text-sm text-muted-foreground">{t("Rien ne t'attend pour le moment.")}</p>}
         <ul className={page ? "stack g16" : "flex max-h-[70vh] flex-col gap-4 overflow-y-auto max-md:max-h-none max-md:overflow-visible"}>
           {[...accords, ...(items ?? [])].sort((a, b) => a.created - b.created).map((item) => {
-            if (item.question) return <li key={item.id ?? item.conversation_id}><QuestionCard q={item.question} onTache={() => onOpenConversation(item)} /></li>;
+            if (item.question) return <li key={item.id ?? item.conversation_id}><QuestionCard q={item.question} onTache={() => onOpenConversation(item)} onVoir={() => onOpenConversation(item)} /></li>;
             return (
               <li key={item.id ?? item.conversation_id} className="card">
                 <button type="button" onClick={() => onOpenConversation(item)} className="stack g8 w-full cursor-pointer text-left" aria-label={t("Ouvrir la conversation : {demande}", { demande: item.demande })}>

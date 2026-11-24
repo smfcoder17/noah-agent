@@ -389,6 +389,39 @@ def attente_agent(qid: str) -> dict:
 _CHOIX_BLOC = re.compile(r"```noah\s*(\{.*?\})\s*```", re.S)
 
 
+QUESTION_GENERIQUE = "Une question attend ta réponse."
+_FENCES = re.compile(r"```.*?(?:```|$)", re.S)
+_FIN_DE_PHRASE = re.compile(r"(?<=[.!?…])\s+")
+
+
+def _sans_markdown(text: str) -> str:
+    text = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", text)  # lien ou image : son texte
+    text = re.sub(r"^\s{0,3}(?:#{1,6}|>|[-*+]|\d+[.)])\s+", "", text, flags=re.M)  # titre, citation, puce
+    text = re.sub(r"(\*\*|__|\*|`|~~)", "", text)
+    return " ".join(text.split())
+
+
+def question_du_texte(texte: str) -> str:
+    """La question d'un message d'agent dont le bloc de choix n'a pas de champ « question » : elle est dans la prose, hors du bloc.
+    La dernière phrase qui finit par « ? », sinon le dernier paragraphe, sans Markdown, 300 caractères au plus. Sans texte : le texte générique."""
+    prose = _FENCES.sub("\n\n", texte or "")
+    paragraphes = [_sans_markdown(p) for p in re.split(r"\n\s*\n", prose)]
+    paragraphes = [p for p in paragraphes if p and not p.startswith("MEDIA:")]
+    if not paragraphes:
+        return QUESTION_GENERIQUE
+    for p in reversed(paragraphes):
+        phrases = [x for x in _FIN_DE_PHRASE.split(p) if x.endswith("?") and len(x) > 1]
+        if phrases:
+            return phrases[-1][:300]
+    return paragraphes[-1][:300]
+
+
+def dernier_message_agent(conv_id: str) -> dict | None:
+    with db.connect() as c:
+        row = c.execute("SELECT id, text FROM messages WHERE conversation_id = ? AND role = 'agent' ORDER BY id DESC LIMIT 1", (conv_id,)).fetchone()
+    return dict(row) if row else None
+
+
 def ouvrir_choix(conv_id: str, texte: str, message_id: int | None = None) -> str | None:
     """Un message d'agent qui propose des choix devient une ligne de `questions` : « Pour toi » la montre et y répond."""
     m = None
@@ -404,7 +437,7 @@ def ouvrir_choix(conv_id: str, texte: str, message_id: int | None = None) -> str
     options = [str(o.get("label") if isinstance(o, dict) else o) for o in (m.get("options") or []) if o]
     if len(options) == 2 and {" ".join(o.split()).casefold().rstrip(".!") for o in options} == {"oui, vas-y", "non"}:
         return None  # l'offre d'une suite après une tâche finie n'attend rien : elle n'est pas une question
-    titre = str(m.get("question") or "").strip() or "Une question attend ta réponse."
+    titre = str(m.get("question") or "").strip() or question_du_texte(texte)
     with db.connect() as c:
         conv = c.execute("SELECT user_id, agent_id FROM conversations WHERE id = ?", (conv_id,)).fetchone()
         if not conv:
@@ -514,12 +547,21 @@ async def attendre_reponses(conv_id: str, limite: float = EXPIRE) -> None:
 
 # --- Lecture pour l'interface ------------------------------------------------------------------------------------------------
 
+def _titre_lu(q: dict) -> str:
+    """Un choix enregistré avec le titre générique (avant que la question soit tirée du texte) se relit dans son message."""
+    if q["titre"] != QUESTION_GENERIQUE or q["genre"] != "choix" or not q.get("message_id"):
+        return q["titre"]
+    with db.connect() as c:
+        row = c.execute("SELECT text FROM messages WHERE id = ?", (q["message_id"],)).fetchone()
+    return question_du_texte(row["text"]) if row else q["titre"]
+
+
 def _carte(q: dict) -> dict:
     with db.connect() as c:
         agent = c.execute("SELECT name FROM agents WHERE id = ?", (q["de"],)).fetchone()
         t = c.execute("SELECT titre FROM taches WHERE id = ?", (q["tache_id"],)).fetchone() if q["tache_id"] else None
     return {"id": q["id"], "genre": q["genre"], "de": q["de"], "de_nom": agent["name"] if agent else q["de"], "tache_id": q["tache_id"],
-            "tache": t["titre"] if t else "", "conversation_id": q["conversation_id"], "titre": q["titre"], "pourquoi": q["pourquoi"],
+            "tache": t["titre"] if t else "", "conversation_id": q["conversation_id"], "message_id": q.get("message_id"), "titre": _titre_lu(q), "pourquoi": q["pourquoi"],
             "choix": q["choix"], "libre": bool(q["libre"]), "reserve": q["reserve"], "chemin": [{"id": a, "nom": _nom(a)} for a in q["chemin"]],
             "cree": q["cree"]}
 

@@ -62,8 +62,9 @@ def inbox(user: int = Depends(auth.current_user)):
                 out.append({"agent_id": row["agent_id"], "agent": row["name"], "conversation_id": conv_id, "titre": row["title"], "main": bool(row["main"]), "a_moi": True, "etat": "approve",
                             "demande": f"Se connecter à {login['site']}" if login["type"] == "connexion" else f"Code demandé par {login['site']}", "apercu": [], "connexion": coffre.asked(conv_id, user), "created": login["created"]})
             continue
-        out.append({"agent_id": row["agent_id"], "agent": row["name"], "conversation_id": conv_id, "titre": row["title"], "main": bool(row["main"]), "a_moi": row["user_id"] == user, "etat": state,
-                    "demande": "Une question attend ta réponse.", "apercu": [], "created": row["created"]})
+        dernier = questions.dernier_message_agent(conv_id)  # la vraie question est dans la prose du dernier message de l'agent
+        out.append({"agent_id": row["agent_id"], "agent": row["name"], "conversation_id": conv_id, "message_id": dernier["id"] if dernier else None, "titre": row["title"], "main": bool(row["main"]),
+                    "a_moi": row["user_id"] == user, "etat": state, "demande": questions.question_du_texte(dernier["text"] if dernier else ""), "apercu": [], "created": row["created"]})
     out += [_question_item(q) for q in asked]
     out += _calls_waiting(user)
     if access.is_owner(user):  # X15 : le modèle de décision a échoué ; une carte, une seule fois, avec le bouton pour en changer

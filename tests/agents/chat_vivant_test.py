@@ -187,7 +187,15 @@ clear_approvals(conv)
 assert web.get("/api/a-toi").json() == [], "un choix dont la ligne est close n'attend plus personne"
 main.task_state[conv] = "choice"
 questions.ouvrir_choix(conv, '```noah\n{"type": "choice", "question": "", "options": ["Rouge", "Bleu"]}\n```')
-assert web.get("/api/a-toi").json()[0]["demande"] == "Une question attend ta réponse."
+assert web.get("/api/a-toi").json()[0]["demande"] == "Une question attend ta réponse.", "un message sans texte : le texte générique reste"
+questions.fermer_choix(conv)
+main.task_state[conv] = "done"
+# Avec du texte avant le bloc, et sans champ « question » : la carte dit la vraie question du message.
+avec_texte = 'Le calendrier est relu. On publie lundi ou mardi ?\n```noah\n{"type": "choice", "options": ["Lundi", "Mardi"]}\n```'
+main._save_message(conv, "agent", avec_texte)
+main.task_state[conv] = "choice"
+questions.ouvrir_choix(conv, avec_texte)
+assert web.get("/api/a-toi").json()[0]["demande"] == "On publie lundi ou mardi ?", web.get("/api/a-toi").json()
 questions.fermer_choix(conv)
 main.task_state[conv] = "done"
 assert web.get("/api/a-toi").json() == []

@@ -230,7 +230,7 @@ export type AgentUsage = {
 export type LoginAsked = { id: string; type: "connexion" | "code"; site: string; origine: string; chiffre: boolean; identifiant_requis: boolean; comptes?: { id: string; nom: string; compte: string; origine?: string }[] };
 /** Une question qu'un agent pose pendant un travail (server/noah/questions.py) : qui demande, pour quelle tâche, le pourquoi, les choix. */
 export type QuestionCarte = {
-  id: string; genre: "question" | "choix"; de: string; de_nom: string; tache_id: string | null; tache: string; conversation_id: string;
+  id: string; genre: "question" | "choix"; de: string; de_nom: string; tache_id: string | null; tache: string; conversation_id: string; message_id?: number | null;
   titre: string; pourquoi: string; choix: string[]; libre: boolean; reserve: "" | "payer" | "supprimer" | "secrets" | "publier"; chemin: { id: string; nom: string }[]; cree: number;
 };
 /** Une question réglée par un agent ou par une règle à la place de la personne : « Décidé pour toi ». */
