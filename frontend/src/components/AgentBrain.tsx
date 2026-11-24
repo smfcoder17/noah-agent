@@ -3,7 +3,7 @@
 import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { type CurrentModel, get, send } from "@/lib/api";
-import { brainChanged, type ModesState, modeName, readableModel, REASONING, type TierId } from "@/lib/modes";
+import { brainChanged, type ModesState, modeName, nomAvecExact, REASONING, type TierId } from "@/lib/modes";
 import { cn } from "@/lib/utils";
 import { ModelSearch } from "./Modes";
 import { ProviderLogo } from "./ProviderLogo";
@@ -15,7 +15,7 @@ const AUTO_LEVELS: [TierId, string][] = [["fast", t("Simple")], ["balanced", t("
 
 /** `precise` : ouvert depuis l'étiquette sous la saisie, où l'on vient chercher un modèle : la recherche est déjà là, le curseur dedans
  * (toucher l'étiquette, taper, toucher le modèle : trois gestes). */
-export function AgentBrain({ agentId, own, mode, reasoning, onChanged, precise }: { agentId: string; own: string | null | undefined; mode?: string | null; reasoning?: string | null; onChanged: () => void; openKey?: number; bare?: boolean; precise?: boolean }) {
+export function AgentBrain({ agentId, own, ownExact, mode, reasoning, onChanged, precise }: { agentId: string; own: string | null | undefined; ownExact?: string | null; mode?: string | null; reasoning?: string | null; onChanged: () => void; openKey?: number; bare?: boolean; precise?: boolean }) {
   const [base, setBase] = useState<CurrentModel>(null);
   const [state, setState] = useState<ModesState | null>(null);
   const [choosing, setChoosing] = useState<TierId | "precis" | null>(precise ? "precis" : null);
@@ -68,7 +68,7 @@ export function AgentBrain({ agentId, own, mode, reasoning, onChanged, precise }
   const autoAvailable = AUTO_LEVELS.some(([tier]) => tierModel(tier));
   const chosen = mode || (own ? "precis" : "tous");
   // « Comme mes autres agents » dit ce que font les autres : leur mode s'il y en a un (Auto…), sinon leur modèle.
-  const everyone = state?.actif ? modeName(state.actif) : readableModel(base?.model || "");
+  const everyone = state?.actif ? modeName(state.actif) : nomAvecExact(base?.model || "", base?.model_exact);
 
   const Row = ({ id, name, under, onPick, disabled }: { id: string; name: string; under?: React.ReactNode; onPick: () => void; disabled?: boolean }) => (
     <button type="button" role="radio" aria-checked={chosen === id} disabled={busy || disabled} onClick={onPick}
@@ -97,7 +97,7 @@ export function AgentBrain({ agentId, own, mode, reasoning, onChanged, precise }
                   <div className="brain-tier">
                     <span className="w-16 shrink-0 text-muted-foreground">{label}</span>
                     <ProviderLogo lab={tierModel(tier)?.fournisseur || base?.provider || ""} />
-                    <span className="min-w-0 flex-1 truncate font-medium" title={tierModel(tier)?.nom}>{tierModel(tier) ? readableModel(tierModel(tier)!.modele) : "—"}</span>
+                    <span className="min-w-0 flex-1 truncate font-medium" title={tierModel(tier)?.nom}>{tierModel(tier) ? nomAvecExact(tierModel(tier)!.modele, tierModel(tier)!.exact) : "—"}</span>
                     <button type="button" className="cursor-pointer text-accent hover:underline" onClick={() => setChoosing(choosing === tier ? null : tier)}>
                       {choosing === tier ? t("Fermer") : t("Changer")}
                     </button>
@@ -109,7 +109,7 @@ export function AgentBrain({ agentId, own, mode, reasoning, onChanged, precise }
           )}
         </div>
         <Row id="tous" name={t("Comme mes autres agents")} under={everyone} onPick={() => pick({ model: null })} />
-        <Row id="precis" name={t("Un modèle précis")} under={own && !mode ? readableModel(own) : undefined} onPick={() => setChoosing(choosing === "precis" ? null : "precis")} />
+        <Row id="precis" name={t("Un modèle précis")} under={own && !mode ? nomAvecExact(own, ownExact) : undefined} onPick={() => setChoosing(choosing === "precis" ? null : "precis")} />
       </div>
       {!precise && search}
       <label className="flex items-center gap-2 text-sm">

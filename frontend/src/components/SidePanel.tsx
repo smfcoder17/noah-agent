@@ -296,7 +296,7 @@ function Details({ agent, onEdit, refreshKey, onAgentChanged, onTab, onGoals, ch
       {usage && <Spending usage={usage} agentId={agent.id} />}
       </Section>
       </div>}
-      {canAdmin(agent) && brainOpen > 0 && <div ref={brainBox}><AgentBrain key={`cerveau-${agent.id}`} agentId={agent.id} own={agent.model} mode={agent.mode} reasoning={agent.raisonnement} onChanged={onAgentChanged} openKey={brainOpen} /></div>}
+      {canAdmin(agent) && brainOpen > 0 && <div ref={brainBox}><AgentBrain key={`cerveau-${agent.id}`} agentId={agent.id} own={agent.model} ownExact={agent.model_exact} mode={agent.mode} reasoning={agent.raisonnement} onChanged={onAgentChanged} openKey={brainOpen} /></div>}
       {canAdmin(agent) && <AgentAppearance key={`visage-${agent.id}`} agent={agent} onChanged={onAgentChanged} />}
     </div>
   );

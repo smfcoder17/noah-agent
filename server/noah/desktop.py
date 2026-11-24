@@ -931,18 +931,61 @@ def _remember_models(user: int, brains: dict) -> None:
                 db.set_setting(key, value)
 
 
+def _alias_name(alias: str) -> str:
+    """« haiku » se lit « Haiku » ; un nom déjà précis (grok-build…) reste tel quel."""
+    return alias.capitalize() if alias.isalpha() else alias
+
+
+def exact_of(provider: str, alias: str, user: int | None = None) -> str:
+    """Le nom exact du modèle que cet alias a servi (« haiku » → « claude-haiku-5-5 »), appris à chaque tour passé par l'ordinateur ;
+    pour Claude Code, à défaut, le modèle de la dernière mesure d'utilisation s'il porte l'alias. Vide : pas encore connu."""
+    user = user or db.owner_id()
+    try:
+        known = (json.loads(db.get_setting(f"pc_exacts:{user}") or "{}").get(provider) or {}).get(alias)
+    except (ValueError, AttributeError):
+        known = None
+    if isinstance(known, str) and _MODEL_NAME.fullmatch(known):
+        return known
+    if provider == "ordinateur:claude-code":
+        seen = _stored_usage(user).get("claude", {}).get("modele", "")
+        if seen and seen != alias and re.search(rf"(^|[-.]){re.escape(alias)}([-.]|$)", seen):
+            return seen
+    return ""
+
+
+def _remember_exact(user: int, provider: str, alias: str, exact: str) -> None:
+    """Un tour vient de servir `exact` pour l'alias choisi : le choix de modèle le montre ensuite à côté de l'alias."""
+    if not alias or exact == alias or not _MODEL_NAME.fullmatch(exact):
+        return
+    try:
+        known = json.loads(db.get_setting(f"pc_exacts:{user}") or "{}")
+    except ValueError:
+        known = {}
+    if not isinstance(known, dict):
+        known = {}
+    if (known.get(provider) or {}).get(alias) != exact:
+        known.setdefault(provider, {})[alias] = exact
+        db.set_setting(f"pc_exacts:{user}", json.dumps(known))
+
+
 def pc_models(provider: str, user: int | None = None) -> list[dict]:
-    """Les modèles que l'ordinateur annonce pour cet abonnement, comme ceux des autres fournisseurs, avec « compris dans l'abonnement »."""
+    """Les modèles que l'ordinateur annonce pour cet abonnement, comme ceux des autres fournisseurs, avec « compris dans l'abonnement ».
+    Le nom exact, quand un tour l'a fait connaître, suit l'alias : « Claude Code · Haiku · claude-haiku-5-5 »."""
     user = user or db.owner_id()
     try:
         names = json.loads(db.get_setting(f"pc_modeles:{user}:{provider}") or "[]")
     except ValueError:
         names = []
     lab = {"ordinateur:claude-code": "anthropic", "ordinateur:grok": "xai"}.get(provider, "openai")
-    return [{"id": m, "name": f"{PC_NAME[provider]} · {m}", "lab": lab, "created": 0, "context": 200000 if lab == "anthropic" else 0,
-             "price_in": None, "price_out": None, "tools": True, "vision": False, "free": False, "prix": INCLUDED, "abonnement": True}
-            for m in names if isinstance(m, str) and _MODEL_NAME.fullmatch(m)]
-
+    out = []
+    for m in names:
+        if not isinstance(m, str) or not _MODEL_NAME.fullmatch(m):
+            continue
+        exact = exact_of(provider, m, user)
+        out.append({"id": m, "name": " · ".join([PC_NAME[provider], _alias_name(m), *([exact] if exact else [])]), "exact": exact or None,
+                    "lab": lab, "created": 0, "context": 200000 if lab == "anthropic" else 0,
+                    "price_in": None, "price_out": None, "tools": True, "vision": False, "free": False, "prix": INCLUDED, "abonnement": True})
+    return out
 
 def pc_link(agent_id: str, provider: str) -> dict | None:
     """Un ordinateur du propriétaire de l'agent, en ligne, accès non coupé, où cet abonnement est connecté et permis comme cerveau.
@@ -983,6 +1026,7 @@ async def pc_call(link: dict, agent_id: str, body: dict, model: str) -> tuple[in
         exact = out.get("modele_exact")
         if isinstance(exact, str) and _MODEL_NAME.fullmatch(exact):  # le modèle réellement servi (« claude-haiku-5-5 »), pas l'alias choisi (« haiku »)
             out["modele"] = exact
+            _remember_exact(link["user"], link["fournisseur"], model, exact)
         return 200, out
     status = out.get("statut") if isinstance(out, dict) and isinstance(out.get("statut"), int) and 400 <= out["statut"] < 600 else 502
     return status, out if isinstance(out, dict) else {}

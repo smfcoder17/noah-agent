@@ -1623,7 +1623,7 @@ def get_model(user: int = Depends(auth.current_user)):
     """Un profil voit quel cerveau sert ses agents, pas l'adresse du service."""
     m = current_model()
     url = m["base_url"] if m and access.is_owner(user) else None
-    return {"provider": m["provider"], "model": m["model"], "has_key": bool(m["api_key"]), "base_url": url} if m else None
+    return {"provider": m["provider"], "model": m["model"], "has_key": bool(m["api_key"]), "base_url": url, "model_exact": modes._exact(m["provider"], m["model"])} if m else None
 
 
 _first_agent_lock = asyncio.Lock()
@@ -2081,6 +2081,7 @@ async def list_agents(user: int = Depends(auth.current_user)):
             "detail": a["detail"],
             "pinned": bool(a["pinned"]),
             "model": own_models.get(a["id"]),
+            "model_exact": modes._exact(modes.agent_provider(a["id"]), own_models.get(a["id"])),
             "mode": own_models.get(f"mode_{a['id']}"),
             "cerveau": modes.shown_brain(a["id"]),  # ce qui répondra au prochain tour : la règle du relais, la même partout à l'écran
             "raisonnement": reasonings.get(a["id"]) if reasonings.get(a["id"]) in modes.REASONING else None,

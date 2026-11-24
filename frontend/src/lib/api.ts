@@ -140,7 +140,7 @@ export type Model = {
 };
 export type ModelGroup = { id: string; title: string; hint: string; models: Model[] };
 export type Catalog = { needs_key: boolean; groups: ModelGroup[]; models: Model[] };
-export type CurrentModel = { provider: string; model: string; has_key: boolean; base_url?: string | null } | null;
+export type CurrentModel = { provider: string; model: string; has_key: boolean; base_url?: string | null; model_exact?: string | null } | null;
 export type TaskState = "work" | "approve" | "choice" | "done" | "error" | "idle";
 /** Compte connecté : le rôle cache ce qui n'est pas permis, le serveur reste la seule protection. */
 export type Me = { id: number; username: string; role: "owner" | "member"; mot_de_passe_a_changer?: boolean };
@@ -161,10 +161,12 @@ export type Agent = {
   pinned: boolean;
   /** Cerveau propre à cet agent ; absent : celui de tous. */
   model?: string | null;
+  /** Le nom exact derrière l'alias d'un abonnement de l'ordinateur (« haiku » : « claude-haiku-5-5 »), quand un tour l'a fait connaître. */
+  model_exact?: string | null;
   /** Mode propre à cet agent (fast, gratuit…) ; vide : le réglage de tous. */
   mode?: string | null;
   /** Le cerveau qui répond à cet agent au prochain tour (le sien, sinon celui de tous) : la seule source de l'étiquette sous la saisie. */
-  cerveau?: { mode: string | null; modele: string | null; fournisseur: string | null; fournisseur_nom: string | null };
+  cerveau?: { mode: string | null; modele: string | null; fournisseur: string | null; fournisseur_nom: string | null; modele_exact?: string | null };
   raisonnement?: string | null;
   /** Ce que ce compte a le droit d'en faire. */
   droit: AgentRight;

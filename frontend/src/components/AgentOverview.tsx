@@ -2,7 +2,7 @@
 import { ChevronRight, MoreHorizontal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { type Agent, canAdmin, canTalk, get, type Goal } from "@/lib/api";
-import { modeName, readableModel, REASONING } from "@/lib/modes";
+import { modeName, nomAvecExact, REASONING } from "@/lib/modes";
 import { Button } from "./ui";
 import type { PanelTab } from "./SidePanel";
 import { t } from "@/i18n";
@@ -62,7 +62,7 @@ export function AgentOverview({ agent, refreshKey, spent, onTab, onEdit, onBrain
   }, [agent.id, admin, owner, refreshKey]);
   const show = (n: number | undefined, word: (n: number) => string) => (n === undefined ? "…" : n ? word(n) : t("Aucune"));
   const reasoning = REASONING.find((r) => r.id === agent.raisonnement)?.name;
-  const brain = [agent.mode ? modeName(agent.mode) : readableModel(agent.model) || t("Le réglage général"), reasoning].filter(Boolean).join(" · ");
+  const brain = [agent.mode ? modeName(agent.mode) : nomAvecExact(agent.model, agent.model_exact) || t("Le réglage général"), reasoning].filter(Boolean).join(" · ");
   return (
     <section aria-label={t("Ce qui constitue cet agent")} className="grid grid-cols-2 gap-1.5">
       <Tile label={t("Personnalité et rôle")} value={agent.role.trim() ? agent.role.trim().split("\n")[0] : t("À écrire")} onClick={admin ? onEdit : undefined} />

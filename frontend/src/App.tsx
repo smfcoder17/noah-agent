@@ -650,7 +650,7 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
           <Dialog open={modelDialog} onOpenChange={setModelDialog}>
             {modelDialog && (
               <DialogContent title={t("Modèle de {nom}", { nom: agent.name })} description={t("Ton choix vaut pour cet agent seulement, tout de suite. Ses conversations restent.")} className="max-w-xl">
-                <AgentBrain agentId={agent.id} own={agent.model} mode={agent.mode} reasoning={agent.raisonnement} onChanged={() => { refreshAgents(); }} openKey={1} bare precise />
+                <AgentBrain agentId={agent.id} own={agent.model} ownExact={agent.model_exact} mode={agent.mode} reasoning={agent.raisonnement} onChanged={() => { refreshAgents(); }} openKey={1} bare precise />
               </DialogContent>
             )}
           </Dialog>
