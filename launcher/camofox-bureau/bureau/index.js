@@ -6,16 +6,16 @@ const HOME = "/home/bureau";
 const APPS = [["openbox", []], ["tint2", []], ["pcmanfm", ["--desktop"]]];
 const [W, H] = (process.env.VNC_RESOLUTION || "1920x1080").split("x").map(Number); // l'écran X
 
-// Un gestionnaire de fenêtres réduit toute fenêtre plus grande que l'écran X. Sans bureau, une empreinte 2560x1440 donne
-// une fenêtre 2560 coupée à l'écran mais cohérente ; avec Openbox, innerWidth tombe à 1918 pour un outerWidth de 2560,
-// ce qui se lit depuis n'importe quelle page. On ramène donc les empreintes trop grandes au profil 1920x1080.
+// La fenêtre de Firefox prend la taille de son empreinte. Plus grande que l'écran X, Openbox la réduit et innerWidth tombe à
+// 1918 pour un outerWidth de 2560, ce qui se lit depuis n'importe quelle page ; plus petite, elle laisse des bandes noires
+// autour d'elle à l'écran. On ramène donc toute empreinte à l'écran : écran WxH, fenêtre pleine largeur au-dessus de tint2.
 function borneEmpreinte(env, log) {
   const cles = Object.keys(env || {}).filter((k) => k.startsWith("CAMOU_CONFIG_"))
     .sort((a, b) => +a.split("_")[2] - +b.split("_")[2]);
   if (!cles.length) return;
   const c = JSON.parse(cles.map((k) => env[k]).join(""));
   const avant = [c["screen.width"], c["screen.height"], c["window.outerWidth"], c["window.outerHeight"]];
-  if (avant.every((v, i) => !v || v <= (i % 2 ? H : W))) return log("info", "bureau: empreinte gardée", { avant });
+  if (avant.join() === [W, H, W, H - 40].join()) return log("info", "bureau: empreinte déjà à l'écran", { avant });
   const dh = (c["window.outerHeight"] - c["window.innerHeight"]) || 56, dw = (c["window.outerWidth"] - c["window.innerWidth"]) || 0;
   Object.assign(c, { "screen.width": W, "screen.height": H, "screen.availWidth": W, "screen.availHeight": H, "screen.availLeft": 0, "screen.availTop": 0,
     "window.outerWidth": W, "window.outerHeight": H - 40, "window.innerWidth": W - dw, "window.innerHeight": H - 40 - dh, "window.screenX": 0, "window.screenY": 0 });
@@ -51,7 +51,8 @@ export default function register(app, ctx) {
   ecranPermanent(ctx.VirtualDisplay, () => { tour++; ecran = null; });
   ctx.events.on("browser:launching", ({ options }) => borneEmpreinte(options.env, ctx.log));
   const lance = (cmd, args, env, t) => {
-    const p = spawn(cmd, args, { env, cwd: HOME, uid: 1001, gid: 1001, stdio: "ignore", detached: true });
+    // cwd « / » : le changement de dossier se fait encore en root, et root sans DAC_OVERRIDE n'entre pas dans /home/bureau (700).
+    const p = spawn(cmd, args, { env, cwd: "/", uid: 1001, gid: 1001, stdio: "ignore", detached: true });
     p.on("error", (e) => ctx.log("warn", `bureau: ${cmd} (${e.message})`));
     p.on("exit", () => { if (t === tour) setTimeout(() => t === tour && lance(cmd, args, env, t), 2000); });
     p.unref();

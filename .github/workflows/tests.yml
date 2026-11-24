@@ -374,6 +374,10 @@ jobs:
           docker run --rm -v "$PWD/launcher/camofox-noah:/p:ro" -v "$PWD/tests:/tests:ro" node:22-alpine \
             sh -c "mkdir -p /data && node /tests/navigateur/empreinte_test.mjs"
           docker run --rm -v "$PWD/launcher/camofox-noah:/p:ro" -v "$PWD/tests:/tests:ro" node:22-alpine node /tests/navigateur/identite_sortie_test.mjs
+      - name: "Bureau du navigateur, sur le vrai Firefox isolé comme le lanceur : Openbox, tint2 et PCManFM sous le compte 1001, fenêtre plein écran"
+        run: |
+          docker build -q -t noah-browser:bureau launcher/camofox-bureau
+          BROWSER_IMAGE=noah-browser:bureau node tests/navigateur/bureau_reel.mjs
       - name: "Se connecter à un site : l'agent ne voit jamais le mot de passe (usage unique, expiration, droits, origine de la page)"
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/tools/coffre_test.py"

@@ -217,7 +217,8 @@ try {
   check("B. le navigateur marche : la page est lue", /sans-cookie/.test(reply.output) && !/erreur|error/i.test(reply.error || ""), reply.output.slice(0, 300) || reply.error);
   const browser = `noah-browser-${agent}`;
   const b = inspect(browser);
-  check("B. navigateur : cap_drop ALL, aucune capacité, noah-agents seul", (b.HostConfig.CapDrop || []).join() === "ALL" && !(b.HostConfig.CapAdd || []).length
+  const bcaps = (b.HostConfig.CapAdd || []).map((c) => c.replace(/^CAP_/, "")).sort().join();
+  check("B. navigateur : cap_drop ALL, SETUID et SETGID seules (bureau sous le compte 1001), noah-agents seul", (b.HostConfig.CapDrop || []).join() === "ALL" && bcaps === "SETGID,SETUID"
     && Object.keys(b.NetworkSettings.Networks).join() === "noah-agents", `${b.HostConfig.CapDrop} ${b.HostConfig.CapAdd} ${Object.keys(b.NetworkSettings.Networks)}`);
   note(`navigateur, /proc/1/status : ${caps(browser)}`);
   for (const url of ["http://noah-launcher:9000/health", `http://${launcherIp}:9000/health`]) {

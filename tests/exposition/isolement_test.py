@@ -80,9 +80,10 @@ except Created:
     pass
 browser = client.containers.create.call_args.kwargs
 check(browser["network"] == "noah-agents", f"navigateur : réseau des agents ({browser['network']})")
-check(browser.get("cap_drop") == ["ALL"] and not browser.get("cap_add"), f"navigateur : aucune capacité ({browser.get('cap_drop')}, {browser.get('cap_add')})")
+check(browser.get("cap_drop") == ["ALL"] and sorted(browser.get("cap_add") or []) == ["SETGID", "SETUID"],
+      f"navigateur : SETUID et SETGID seules, pour le bureau sous le compte 1001 ({browser.get('cap_drop')}, {browser.get('cap_add')})")
 check("no-new-privileges" in (browser.get("security_opt") or []), "navigateur : no-new-privileges")
-check(int(launcher.BROWSER_VERSION) >= 19, "navigateur : version des réglages montée, les anciens sont recréés isolés")
+check(int(launcher.BROWSER_VERSION) >= 20, "navigateur : version des réglages montée, les anciens sont recréés isolés")
 
 # 3. Le réseau des agents : créé s'il manque, le serveur y est branché sous son nom ; le lanceur n'y est jamais.
 launcher._ensure_agents_network = ensure_network

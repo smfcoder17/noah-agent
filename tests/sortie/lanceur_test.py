@@ -183,7 +183,7 @@ env = kw["environment"]
 assert (env["PROXY_HOST"], env["PROXY_PORT"], env["PROXY_PROTOCOL"]) == ("noah-sortie", "3128", "http"), env
 assert "PROXY_USERNAME" not in env and "PROXY_PASSWORD" not in env
 assert kw["labels"]["noah.browser.version"] == f"{launcher.BROWSER_VERSION}:fr-CA:America/Toronto:s"
-assert kw["cap_drop"] == ["ALL"] and not kw.get("cap_add")
+assert kw["cap_drop"] == ["ALL"] and sorted(kw.get("cap_add") or []) == ["SETGID", "SETUID"]
 print("4. le navigateur reçoit PROXY_HOST=noah-sortie, PROXY_PORT, étiquette « :s »")
 
 # 4 ter. Les outils de l'agent (terminal, curl, web) passent par l'aiguillage ; restent directs le serveur (appels de modèle), le navigateur

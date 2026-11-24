@@ -51,9 +51,11 @@ MANAGED_NETWORK = NETWORK == "noah-agents"  # créé et tenu par le lanceur ; un
 SERVER_NAME = os.environ.get("NOAH_SERVER_NAME", "noah-server")
 # Capacités : toutes retirées, puis seulement celles dont l'essai a prouvé le besoin (isolement_reel.sh, securite-audit.md).
 # Hermes démarre en root sous s6 puis passe à l'utilisateur hermes (SETUID, SETGID), règle son volume (CHOWN, DAC_OVERRIDE)
-# et s'arrête proprement (KILL : s6 signale des processus d'un autre utilisateur). Camoufox tourne en root : aucune.
+# et s'arrête proprement (KILL : s6 signale des processus d'un autre utilisateur). Camoufox tourne en root et ne demande
+# rien ; les programmes du bureau de son écran passent au compte 1001, ce qui demande SETUID et SETGID. Sans elles,
+# le bureau ne démarrait jamais (EACCES) : Firefox seul, sans gestionnaire de fenêtres (tests/navigateur/bureau_reel.mjs).
 AGENT_CAPS = ["CHOWN", "DAC_OVERRIDE", "SETUID", "SETGID", "KILL"]
-BROWSER_CAPS: list[str] = []
+BROWSER_CAPS: list[str] = ["SETUID", "SETGID"]
 PREFIX = "noah-agent-"
 LABEL = "noah.agent"
 DATA = "/opt/data"
@@ -189,8 +191,8 @@ BROWSER_PREFIX = "noah-browser-"
 BROWSER_LABEL = "noah.browser"
 # Version des réglages du navigateur ; un conteneur plus ancien est recréé (le profil reste dans son volume).
 # 19 : aucune capacité, réseau des agents sans le lanceur (E1).
-# 17 : empreinte tirée une fois par agent, gardée dans /data/empreinte.json ; 15 : sessions enregistrées chaque minute (connexions gardées après un arrêt brutal) ; 14 : remplir une page de connexion ; 12 : image Noah avec bureau, sans uBlock ; 11 : toutes les routes sous clé ; 10 : clé du mode privé à part ; 9 : aucune capture pendant une prise en main ; 8 : jetons hors de la config Docker
-BROWSER_VERSION = "19"
+# 20 : SETUID et SETGID pour le bureau (sous le compte 1001), empreinte à la taille de l'écran ; 17 : empreinte tirée une fois par agent, gardée dans /data/empreinte.json ; 15 : sessions enregistrées chaque minute (connexions gardées après un arrêt brutal) ; 14 : remplir une page de connexion ; 12 : image Noah avec bureau, sans uBlock ; 11 : toutes les routes sous clé ; 10 : clé du mode privé à part ; 9 : aucune capture pendant une prise en main ; 8 : jetons hors de la config Docker
+BROWSER_VERSION = "20"
 
 
 FROZEN_WAIT = 30  # secondes ; sous le délai de 120 s du serveur (hermes._launcher)
@@ -391,7 +393,7 @@ def _ensure_browser(agent_id: str, body: BrowserKeys, image: str | None = None, 
         nano_cpus=_cpus(4),
         shm_size="1g",
         security_opt=["no-new-privileges"],
-        # E1 : aucune capacité (Camoufox tourne en root dans son conteneur et n'en demande aucune : isolement_reel.sh). Sans
+        # E1 : SETUID et SETGID seules, pour passer le bureau au compte 1001 (Camoufox lui-même n'en demande aucune). Sans
         # NET_RAW, un navigateur compromis n'écoute ni n'usurpe rien ; il est sur le réseau des agents, sans le lanceur.
         # PID bornés : un onglet fou n'épuise pas l'hôte (M8).
         cap_drop=["ALL"],
