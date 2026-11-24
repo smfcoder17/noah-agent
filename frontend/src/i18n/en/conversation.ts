@@ -359,4 +359,12 @@ export default {
   "Ranger cette clé au coffre": "Save this key to the vault",
   "La clé est dans le champ « Mot de passe ». Chiffrée sur ton serveur, tes agents s'en servent sans jamais la lire.": "The key is in the “Password” field. Encrypted on your server, your agents use it without ever reading it.",
   "Colle ta clé dans le champ « Mot de passe » : elle n'est plus dans ce message. Chiffrée sur ton serveur, tes agents s'en servent sans jamais la lire.": "Paste your key in the “Password” field: it is no longer in this message. Encrypted on your server, your agents use it without ever reading it.",
+  // components/thread/MentionsLayer.tsx : citer avec @ et /
+  "@ pour citer un agent ou un fichier, / pour une compétence": "@ to mention an agent or a file, / for a skill",
+  "Citer un agent, un fichier ou une compétence": "Mention an agent, a file or a skill",
+  "Aucun résultat": "No result",
+  "1 résultat": "1 result",
+  "{n} résultats": "{n} results",
+  "désactivée": "disabled",
+  "Ouvrir le dossier {nom}": "Open folder {nom}",
 } satisfies Record<string, string>;

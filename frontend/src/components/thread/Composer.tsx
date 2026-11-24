@@ -1,6 +1,6 @@
 import { ComposerPrimitive, ThreadPrimitive, useAui, useAuiState } from "@assistant-ui/react";
 import { ArrowUp, Cpu, Paperclip, Square } from "lucide-react";
-import { useContext, useEffect, useRef } from "react";
+import { Suspense, lazy, useContext, useEffect, useRef, useState } from "react";
 import { WhileBusyContext, AgentContext } from "@/lib/agentContext";
 import { Button } from "../ui";
 import { AttachPosition } from "../PhoneSettings";
@@ -9,6 +9,9 @@ import { historyStep } from "@/lib/historique";
 import { t } from "@/i18n";
 import { AttachmentChip, QuoteChips, useSentHistory } from "./messages";
 import { WhileBusyPanel } from "./panneaux";
+
+// Citer avec @ et / : chargé au premier clic dans la saisie, pas avec le premier écran.
+const MentionsLayer = lazy(() => import("./MentionsLayer"));
 
 // Sur téléphone, le focus ouvrirait le clavier à chaque conversation, et par-dessus un appel.
 const FINE_POINTER = window.matchMedia("(pointer: fine)").matches;
@@ -47,16 +50,22 @@ export function Composer({ inCall }: { inCall: boolean }) {
     void composer.reset();
     busy.send(text, files);
   };
-  const { agentName, tache } = useContext(AgentContext);
+  const { agentId, agentName, tache } = useContext(AgentContext);
+  // Le premier geste dans la saisie (focus, touche, toucher) charge la liste @ et / ; l'agent n'est pas lu avant.
+  const [field, setField] = useState<HTMLDivElement | null>(null);
+  const [armed, setArmed] = useState(false);
+  useEffect(() => { if (field && field.querySelector("textarea") === document.activeElement) setArmed(true); }, [field]);
+  const arm = () => setArmed(true);
   const placeholder = dictating ? t("Parle, le texte arrive ici…") : running ? t("Précise, pose une question, ou ajoute une demande…") : tache ? t("Écrire à {nom} dans cette tâche", { nom: tache }) : t("Écrire à {nom}", { nom: agentName || t("ton agent") });
   return (
     <>
     <WhileBusyPanel />
-    <ComposerPrimitive.Root data-noah-composer data-vide={empty && !dictating ? "" : undefined} className="composer">
+    <ComposerPrimitive.Root data-noah-composer data-vide={empty && !dictating ? "" : undefined} className="composer relative">
       <QuoteChips />
       <div className="flex flex-wrap gap-1.5 empty:hidden">
         <ComposerPrimitive.Attachments components={{ Attachment: AttachmentChip }} />
       </div>
+      <div ref={setField} className="composer-field" onFocusCapture={arm} onKeyDownCapture={arm} onPointerDownCapture={arm}>
       <ComposerPrimitive.Input
         data-composer-input
         aria-label={t("Message à ton agent")}
@@ -91,6 +100,8 @@ export function Composer({ inCall }: { inCall: boolean }) {
           }
         }}
       />
+      </div>
+      {armed && field && <Suspense fallback={null}><MentionsLayer field={field} agentId={agentId} /></Suspense>}
       {/* La barre du prototype : le trombone, la dictée, le modèle, puis l'envoi. Le mode vocal est le téléphone du haut de la conversation ; les outils, un onglet du panneau. */}
       <div className="composer-bar">
         <ComposerPrimitive.AddAttachment asChild multiple>

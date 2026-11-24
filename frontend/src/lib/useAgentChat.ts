@@ -16,6 +16,10 @@ import { avecTaches } from "./tachesFil";
 import { t, tServeur } from "@/i18n";
 import { pcNote } from "./lignesServeur";
 import { ancienMessage, ligneInterne, retenirCles } from "./nettoyage";
+import { hasMentions } from "./mentionsCore";
+
+/** Les pastilles posées avec @ et / deviennent des liens dans le message ; le morceau qui sait le faire n'est lu qu'à ce moment-là. */
+const withMentions = async (agentId: string, text: string) => (hasMentions(agentId) ? (await import("./mentions")).serialize(agentId, text) : text);
 
 type TextPart = { type: "text"; text: string };
 type ToolPart = { type: "tool-call"; toolCallId: string; toolName: string; args: Record<string, unknown>; result?: unknown };
@@ -608,7 +612,7 @@ export function useAgentChat(opts: {
       sending,
       send: (text, files = []) =>
         void (async () => {
-          const full = (takeQuotes.current?.() ?? "") + text;
+          const full = (takeQuotes.current?.() ?? "") + (await withMentions(agentId, text));
           let paths: string[] = [];
           try {
             paths = await Promise.all(files.map((f) => uploadFile(agentId, f)));
@@ -645,7 +649,7 @@ export function useAgentChat(opts: {
         .trim();
       const attachments = (message.attachments ?? []).map((a) => a.id).filter((id) => id.startsWith("/opt/data/"));
       if (!typed) return;
-      const text = (takeQuotes.current?.() ?? "") + typed;
+      const text = (takeQuotes.current?.() ?? "") + (await withMentions(agentId, typed));
       retenirCles(text); // 0.4.0 (X17) : la clé qu'on vient de taper reste en mémoire vive, pour l'offre de la ranger au coffre ; elle ne va nulle part ailleurs
       const clientId = message.metadata?.custom?.clientId as string | undefined; // l'appel renvoie un tour sous le même identifiant
       if (running.current || serverBusy.current) return sendWhileBusy(text, clientId, attachments); // un message demandé par l'interface en plein travail
