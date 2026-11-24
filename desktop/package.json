@@ -41,6 +41,10 @@
       "textes.js",
       "maj.js",
       "liens.js",
+      "grok.js",
+      "codex.js",
+      "usage.js",
+      "installateur.js",
       "relais.js",
       "icon.png"
     ],
