@@ -33,7 +33,7 @@ from pydantic import BaseModel, Field
 
 from . import access, accounts, autres, mediaprov, apprentissage, appareils, auth, bureautique, catalog, chauffe, coffre, connecteurs, connecteurs_cles, connexion, coordination, courriel, db, decision, desktop, diagnostics, double_verification, events, exposition, handoff, hermes, juge, logos, machine, mcp, media, modes, notifications, pendant, precall, proactif, profiles, propositions, public, publication, recherche, push, questions, recu, recuperation, relay, session, sites, sortie, sortie_relais, taches, updates, watch
 from . import config
-from . import accords, bus, credits, presets, rapide, sensitive, ui_preferences, linkpreview, providers as provider_accounts
+from . import fichiers_servis, accords, bus, credits, presets, rapide, sensitive, ui_preferences, linkpreview, providers as provider_accounts
 from .config import WEB_DIR, forget_setup_code
 from .hermes import Agent
 
@@ -2502,13 +2502,13 @@ async def agent_file(agent_id: str, path: str, request: Request, download: bool 
     name = path.rsplit("/", 1)[-1]
     ctype = _file_type(name)
     headers = {
-        "Content-Security-Policy": "sandbox allow-scripts allow-forms allow-popups allow-modals",
+        "Content-Security-Policy": fichiers_servis.protection(ctype),
         "X-Content-Type-Options": "nosniff",
         "Cache-Control": "private, no-cache",
     }
     if download:
         headers["Content-Disposition"] = f"attachment; filename*=UTF-8''{quote(name)}"
-    return Response(r.content, media_type=ctype, headers=headers)
+    return fichiers_servis.served(request, r.content, ctype, headers)
 
 
 PREVIEW_SECONDS = 2 * 3600  # l'interface en redemande un avant la fin (frontend/src/lib/api.ts)
@@ -2590,8 +2590,9 @@ async def preview_file(token: str, path: str, request: Request, download: bool =
         if request.headers.get("sec-fetch-dest") == "iframe":
             return Response(FILE_GONE, r.status_code, media_type="text/html; charset=utf-8")
         raise HTTPException(r.status_code, "Fichier indisponible")
-    return Response(r.content, media_type=_file_type(posixpath.basename(wanted)), headers={
-        "Content-Security-Policy": "sandbox allow-scripts allow-forms allow-popups allow-modals",
+    ctype = _file_type(posixpath.basename(wanted))
+    return fichiers_servis.served(request, r.content, ctype, {
+        "Content-Security-Policy": fichiers_servis.protection(ctype),
         "X-Content-Type-Options": "nosniff",
         "Referrer-Policy": "no-referrer",  # le lien ne part pas vers les sites que la page appelle
         "Access-Control-Allow-Origin": "*",  # fetch depuis l'origine opaque ; aucun cookie n'est lu ici
