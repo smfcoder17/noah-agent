@@ -52,13 +52,15 @@ jobs:
       # Construit l'interface une fois, puis lit le résultat : poids gzip du premier écran et compression de chaque voie (B2, B2 bis),
       # requêtes dans un vrai navigateur sur le vrai serveur d'essai (B1), débordement de 320 à 1920 px (B3). B1 et B3 passent
       # par Playwright (dépendance de développement de frontend) et le Chrome du poste ; sans eux, ils disent « NON MESURÉ ».
-      - name: "Interface construite, budget B2, B2 bis, B1 et B3 : poids du premier écran, compression, requêtes à l'ouverture, débordement horizontal"
+      # citer.mjs : taper @ et /, choisir, envoyer, puis lire ce que le faux moteur a reçu (tests/real/citer_serveur.py), ordinateur et 390 px.
+      - name: "Interface construite, budget B2, B2 bis, B1 et B3, citer avec @ et / de bout en bout : poids du premier écran, compression, requêtes à l'ouverture, débordement horizontal"
         run: |
           npm run build --prefix frontend
           rc=0
           node tools/eval/poids.mjs || rc=1
           node tools/eval/ouverture.mjs || rc=1
           node tools/eval/debordement.mjs || rc=1
+          node tools/eval/citer.mjs || rc=1
           exit $rc
       - name: "Durée des routes, budget B4 : 95e centile sous 300 ms, maximum sous 1 s, lanceur lent de 1,5 s, base remplie"
         run: |
