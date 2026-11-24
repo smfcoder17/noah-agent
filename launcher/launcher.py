@@ -1717,6 +1717,20 @@ def _recreate_isolated(c, quoi: str = "isolé (cap_drop ALL)", env: dict | None 
 
 
 threading.Thread(target=_isolate_existing, daemon=True).start()
+
+
+def _agents_vers_aiguillage_au_demarrage() -> None:
+    """Une sortie était déjà choisie avant cette version (0.4.3 : seul le navigateur passait par elle) : au démarrage du lanceur,
+    les agents sans le proxy le reçoivent, sans attendre que la personne rebascule l'interrupteur. Après l'isolement et la reprise
+    d'une mise à jour, qui prennent le même verrou."""
+    _recovering.join(600)
+    try:
+        _agents_vers_aiguillage()
+    except Exception as e:  # noqa: BLE001 - Docker indisponible : au prochain démarrage, ou au prochain choix de sortie
+        print(f"[lanceur] passage des agents sur l'aiguillage remis : {e}", flush=True)
+
+
+threading.Thread(target=_agents_vers_aiguillage_au_demarrage, daemon=True).start()
 threading.Thread(target=_watch_network, daemon=True).start()
 
 
