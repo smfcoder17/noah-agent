@@ -140,6 +140,39 @@ async def test_choix_du_texte():
     print("5. un choix proposé dans le texte devient une ligne, répondue sur place ou en écrivant ; l'offre d'une suite n'en est pas une")
 
 
+async def test_choix_sans_champ_question():
+    """Le bloc de choix n'a pas de « question » : la carte dit la vraie question, tirée de la prose du message, et mène à ce message."""
+    J.clear()
+    conv = J.MAINS["lea"]
+    bloc = '```noah {"type":"choice","options":["Non, rien","Oui, parle-moi","Peut-être plus tard"]}```'
+    text = f"J'ai relu **tout** le calendrier de juin. Il reste un trou le jeudi.\n\nTu veux que je te propose un créneau pour la vidéo ? Je peux aussi attendre.\n\n{bloc}"
+    J.main._save_message(conv, "agent", text)
+    with J.db.connect() as c:
+        mid = c.execute("SELECT MAX(id) FROM messages WHERE conversation_id = ?", (conv,)).fetchone()[0]
+    J.main.task_state[conv] = "choice"
+    qid = questions.ouvrir_choix(conv, text, mid)
+    (item,) = await a_toi()
+    assert item["demande"] == "Tu veux que je te propose un créneau pour la vidéo ?", item["demande"]
+    assert item["question"]["titre"] == item["demande"] and item["question"]["message_id"] == mid, item["question"]
+    assert item["conversation_id"] == conv
+    # Pas de phrase en « ? » : le dernier paragraphe, nettoyé du Markdown.
+    questions.fermer_choix(conv)
+    text2 = f"Voici le plan.\n\n- un\n\n**On lance la suite**\n\n{bloc}"
+    assert questions.question_du_texte(text2) == "On lance la suite"
+    assert len(questions.question_du_texte("x" * 500)) == 300
+    # Message sans texte : le texte générique reste.
+    assert questions.question_du_texte(bloc) == "Une question attend ta réponse."
+    # Cas réel : une ligne déjà enregistrée avec le titre générique se relit dans son message.
+    J.main.task_state[conv] = "choice"
+    with J.db.connect() as c:
+        c.execute("UPDATE questions SET titre = 'Une question attend ta réponse.', etat = 'attend' WHERE id = ?", (qid,))
+    (ancien,) = await a_toi()
+    assert ancien["demande"] == "Tu veux que je te propose un créneau pour la vidéo ?" and ancien["question"]["titre"] == ancien["demande"], ancien["demande"]
+    questions.fermer_choix(conv)
+    J.main.task_state[conv] = "done"
+    print("6. un choix sans champ « question » dit la question du message, mène à ce message, et les anciennes lignes se relisent")
+
+
 async def go():
     tache = asyncio.create_task(joueur())
     try:
@@ -148,6 +181,7 @@ async def go():
         await test_survit_au_redemarrage()
         await test_droits()
         await test_choix_du_texte()
+        await test_choix_sans_champ_question()
         print("OK : pour_toi_test")
     finally:
         tache.cancel()
