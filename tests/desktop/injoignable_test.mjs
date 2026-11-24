@@ -84,7 +84,7 @@ try {
     "./bandeau": { create() {} }, "./autonomie": require("../../desktop/autonomie.js"),
     "./config": require("../../desktop/config.js"), "./demarrage": require("../../desktop/demarrage.js"),
     "./permissions": require("../../desktop/permissions.js"), "./textes": require("../../desktop/textes.js"),
-    "./claude": require("../../desktop/claude.js"), "./chatgpt": require("../../desktop/chatgpt.js"), "./grok": require("../../desktop/grok.js"), "./codex": require("../../desktop/codex.js"), "./installateur": require("../../desktop/installateur.js"), "./usage": require("../../desktop/usage.js"), "./liens": require("../../desktop/liens.js"), "./maj": require("../../desktop/maj.js"),
+    "./claude": require("../../desktop/claude.js"), "./chatgpt": require("../../desktop/chatgpt.js"), "./grok": require("../../desktop/grok.js"), "./codex": require("../../desktop/codex.js"), "./installateur": require("../../desktop/installateur.js"), "./usage": require("../../desktop/usage.js"), "./liens": require("../../desktop/liens.js"), "./maj": require("../../desktop/maj.js"), "./relais": require("../../desktop/relais.js"), "./brancher": require("../../desktop/brancher.js"),
   };
   modules["./textes"].choisir("fr");
   runInNewContext(`${readFileSync(mainPath, "utf8")}\ncreateWindow();`, {

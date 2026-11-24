@@ -287,6 +287,28 @@ function sameOrigin(url) {
   }
 }
 
+/** Un fichier du serveur ouvert « dans un onglet » : fenêtre de l'app, même session (cookie), sans preload ni Node.
+ *  Ce qui sort du serveur depuis cette fenêtre part dans le navigateur de la personne. */
+function openServerFile(url) {
+  const w = new BrowserWindow({
+    width: 1100, height: 800, autoHideMenuBar: true, title: "Noah Agent",
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  const ailleurs = (e, next) => {
+    if (sameOrigin(next)) return;
+    e.preventDefault();
+    if (/^https?:/.test(next)) shell.openExternal(next);
+  };
+  w.webContents.on("will-navigate", ailleurs);
+  w.webContents.on("will-redirect", ailleurs);
+  w.webContents.setWindowOpenHandler(({ url: next }) => {
+    if (sameOrigin(next)) openServerFile(next);
+    else if (/^https?:/.test(next)) shell.openExternal(next);
+    return { action: "deny" };
+  });
+  w.loadURL(url).catch(() => {});
+}
+
 const jsonHeaders = () => ({ "Content-Type": "application/json", "X-Noah-Version": app.getVersion() });
 
 /** Session de cet appareil : chiffrée par le système (safeStorage : DPAPI sous Windows, Trousseau sous macOS,
@@ -651,7 +673,10 @@ function createWindow() {
   });
   // Liens externes : dans le navigateur de l'utilisateur, jamais dans la fenêtre de Noah.
   page.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:/.test(url)) shell.openExternal(url);
+    // Un fichier du serveur de Noah (« Ouvrir dans un onglet ») : le navigateur de la personne n'a pas sa session, la page
+    // y tomberait sur la connexion. Il s'ouvre dans une fenêtre de l'app, même session, sans pont ni Node.
+    if (sameOrigin(url)) openServerFile(url);
+    else if (/^https?:/.test(url)) shell.openExternal(url);
     else openSubscription(liens.subscriptionOf(url)); // noah-agent://abonnements/… cliqué dans l'app : son écran, ici même
     return { action: "deny" };
   });
