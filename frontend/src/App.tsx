@@ -11,7 +11,7 @@ import { useNavPrefs, type NavTab } from "@/lib/navPrefs";
 import { PANEL_NAMES, useWide, workTabsFor } from "@/lib/workPanel";
 import { WorkBar, WorkMenu } from "@/components/WorkBar";
 import { WorkPanel } from "@/components/WorkPanel";
-import { type Page, useNavigation } from "@/lib/navigation";
+import { type Page, agentRepris, finirReprise, noterAgent, repriseEnCours, useNavigation } from "@/lib/navigation";
 import { subscribeUpdates, useAccords } from "@/lib/events";
 import { useNoahRetour } from "@/lib/useNoahRetour";
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
@@ -45,6 +45,8 @@ import { useAgentChat } from "@/lib/useAgentChat";
 import { BRAIN_CHANGED, brainLabel, modeName, readableModel } from "@/lib/modes";
 
 import { AppUpdate } from "./components/AppUpdate";
+// Chargé à part : le bandeau « Noah a été mis à jour » n'est pas utile au premier écran (budget B2).
+const InterfaceMiseAJour = lazy(() => import("./components/InterfaceMiseAJour").then((m) => ({ default: m.InterfaceMiseAJour })));
 import { Dialog, DialogContent } from "./components/ui";
 import { listenFileMenus } from "@/lib/desktop";
 import { useOuvertureAffichee, verifier } from "@/lib/ouverture";
@@ -293,7 +295,7 @@ export default function App() {
         {status.has_account && <div className="mx-auto max-w-4xl px-4 pb-10"><DeviceApproval /></div>}
       </>
     );
-  return <Shell onLogout={boot} known={me} />;
+  return <><Shell onLogout={boot} known={me} /><Suspense fallback={null}><InterfaceMiseAJour /></Suspense></>;
 }
 
 function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) {
@@ -314,7 +316,8 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
     get<Me>("/api/me").then(setMe).catch(() => {});
   }, [known]);
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [agentId, setAgentId] = useState<string | null>(null);
+  const [agentId, setAgentId] = useState<string | null>(agentRepris);
+  noterAgent(agentId);
   // L'ouverture de l'agent affiché (lib/ouverture.ts) : une requête rend la liste des conversations, le fil, ce que l'agent fait, l'appel,
   // les tâches confiées et les routines. Ce qui est gardé en mémoire se montre tout de suite ; la lecture part derrière. Associée à son
   // agent : au retour sur un agent, la liste du précédent ne lui donne pas une autre conversation.
@@ -511,7 +514,11 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
     window.addEventListener("noah:ouvrir-panneau", tab);
     return () => { window.removeEventListener("noah:choisir-modele", open); window.removeEventListener("noah:ouvrir-panneau", tab); };
   }, []);
-  useEffect(() => { closePage(); setSettings(null); }, [agent?.id, threadId, panel, navActive]); // une page se ferme quand on ouvre un autre agent, une tâche ou un onglet
+  const reprendre = useRef(repriseEnCours()); // page rechargée après une mise à jour : on garde l'écran repris jusqu'à ce que l'agent soit là
+  useEffect(() => {
+    if (reprendre.current) { if (agent?.id) { reprendre.current = false; finirReprise(); } return; }
+    closePage(); setSettings(null);
+  }, [agent?.id, threadId, panel, navActive]); // une page se ferme quand on ouvre un autre agent, une tâche ou un onglet
   const openInbox = () => openPage("inbox");
   const openActivite = () => openPage("activite");
   const openRecherche = () => { setSidebarOpen(false); openPage("recherche"); };

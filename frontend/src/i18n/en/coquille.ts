@@ -12,6 +12,7 @@ export default {
   "Ce n'est pas mon compte : me déconnecter": "This isn't my account: sign me out",
   "Mets à jour l'app Noah": "Update the Noah app",
   "Ton serveur Noah a été mis à jour et cette version de l'app est trop ancienne pour lui (il demande une version plus récente). Installe la dernière version de l'app, puis rouvre-la : tes agents et tes réglages n'ont pas bougé.": "Your Noah server was updated and this version of the app is too old for it (it needs a newer one). Install the latest version of the app, then reopen it: your agents and settings haven't changed.",
+  "Noah a été mis à jour.": "Noah has been updated.",
   "Noah ne répond pas. Vérifie ta connexion.": "Noah isn't responding. Check your connection.",
   "Nouvel essai dans quelques secondes…": "Trying again in a few seconds…",
   "Détails techniques": "Technical details",
