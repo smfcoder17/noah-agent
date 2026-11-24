@@ -8,7 +8,10 @@ import "@fontsource-variable/figtree/wght.css";
 import "@fontsource-variable/geist-mono";
 import "./index.css";
 
+import { surveillerMorceaux } from "./lib/rechargement";
+
 captureShare();
+surveillerMorceaux();
 void chargerLangue().finally(() => { // l'anglais se charge avant le premier affichage ; un échec réseau laisse le français plutôt qu'un écran vide
   createRoot(document.getElementById("root")!).render(
     <StrictMode>

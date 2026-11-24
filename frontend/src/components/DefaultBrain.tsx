@@ -2,7 +2,7 @@
 // sans dépendre du catalogue d'un fournisseur ni du temps de calcul de la consommation.
 import { useEffect, useState } from "react";
 import { type CurrentModel, get, send, type Usage } from "@/lib/api";
-import { type ListedModel, type ModesState, type TierId, MODE_NAMES, brainChanged, readableModel } from "@/lib/modes";
+import { type ListedModel, type ModesState, type TierId, MODE_NAMES, brainChanged, nomAvecExact } from "@/lib/modes";
 import { cn, money } from "@/lib/utils";
 import { ModelSearch, shortName } from "./Modes";
 import { ProviderLogo } from "./ProviderLogo";
@@ -100,7 +100,7 @@ export function DefaultBrain({ onDone, onCancel }: { onDone: () => void; onCance
             })}
           </ul>
         </div>
-        {row(t("Un modèle précis"), !state.actif, !state.actif ? readableModel(current?.model) : t("Le même modèle pour chaque tâche"), () => setChoosing(choosing === "precis" ? null : "precis"), !current)}
+        {row(t("Un modèle précis"), !state.actif, !state.actif ? nomAvecExact(current?.model, current?.model_exact) : t("Le même modèle pour chaque tâche"), () => setChoosing(choosing === "precis" ? null : "precis"), !current)}
       </div>
       {state.actif && state.actif !== "auto" && <p className="text-xs text-muted-foreground">{t("Mode actuel : {mode}. Choisis Auto ou un modèle précis pour le remplacer.", { mode: MODE_NAMES[state.actif] })}</p>}
       {choosing === "precis" && <ModelSearch level="cerveau" selected={!state.actif ? current?.model : null} onPick={precise} />}

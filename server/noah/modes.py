@@ -465,7 +465,7 @@ def _row(link: dict | None, models: dict[tuple[str, str], dict]) -> dict | None:
     m = models.get((link.get("fournisseur", ""), link["modele"])) or {}
     return {**link, "nom": m.get("name") or link["modele"], "price_in": m.get("price_in"), "price_out": m.get("price_out"),
             "free": bool(m.get("free")), "prix": m.get("prix"), "inconnu": not m,
-            "abonnement": bool(m.get("abonnement"))}
+            "abonnement": bool(m.get("abonnement")), "exact": m.get("exact")}
 
 
 async def state(level: str) -> dict:
@@ -491,10 +491,17 @@ def shown_brain(agent_id: str) -> dict:
     from . import providers
     mode = agent_mode(agent_id)
     if mode:
-        return {"mode": mode, "modele": None, "fournisseur": None, "fournisseur_nom": None}
+        return {"mode": mode, "modele": None, "fournisseur": None, "fournisseur_nom": None, "modele_exact": None}
     provider = agent_provider(agent_id)
     label = autres_label(provider, providers.base_of(provider))
-    return {"mode": None, "modele": db.get_setting(f"model_{agent_id}") or db.get_setting("model"), "fournisseur": provider, "fournisseur_nom": label}
+    model = db.get_setting(f"model_{agent_id}") or db.get_setting("model")
+    return {"mode": None, "modele": model, "fournisseur": provider, "fournisseur_nom": label, "modele_exact": _exact(provider, model)}
+
+
+def _exact(provider: str, model: str | None) -> str | None:
+    """Le nom exact derrière l'alias d'un abonnement de l'ordinateur (« haiku » → « claude-haiku-5-5 »), quand un tour l'a fait connaître."""
+    from . import desktop
+    return (desktop.exact_of(provider, model) or None) if provider in desktop.PC_PROVIDERS and model else None
 
 
 def autres_label(provider: str, base_url: str | None = None) -> str:
@@ -520,7 +527,7 @@ async def get_modes(level: str, user: int = Depends(auth.current_user)):
 async def get_mode_models(level: str, user: int = Depends(auth.current_user)):
     _check_level(level)
     _owner_for_level(level, user)
-    keep = ("id", "name", "lab", "created", "context", "price_in", "price_out", "vision", "free", "fournisseur", "prix", "abonnement")
+    keep = ("id", "name", "lab", "created", "context", "price_in", "price_out", "vision", "free", "fournisseur", "prix", "abonnement", "exact")
     models = await available(level)
     # Rangée des fournisseurs réellement présents dans la liste : la recherche les groupe au lieu de les deviner.
     if level != BRAIN:

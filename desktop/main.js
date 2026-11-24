@@ -1237,6 +1237,7 @@ if (!app.requestSingleInstanceLock()) {
   });
   app.on("before-quit", (e) => {
     quitting = true;
+    claude.dropWarm(); // le processus de Claude Code gardé chaud pour le prochain tour ne survit pas à l'app
     if (relaisStore) relaisStore.stop(); // la prise se ferme avec l'app ; le choix reste dans la config, le serveur bascule seul
     // Sessions à révoquer gardées en mémoire, ou attente d'accord en cours : dernier essai, 10 s au plus.
     if ((!unsealedRevocations.length && !activePoll) || lastTry) return;

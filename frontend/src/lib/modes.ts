@@ -28,6 +28,8 @@ export type ModeLink = {
   free: boolean;
   prix?: string | null;
   inconnu?: boolean;
+  /** Abonnement de l'ordinateur : le nom exact que le dernier tour a servi (« claude-haiku-5-5 »), quand il est connu. */
+  exact?: string | null;
 };
 
 export type ModesState = {
@@ -40,7 +42,7 @@ export type ModesState = {
 };
 
 /** Le cerveau d'un agent tel que le serveur le dit : un mode (Auto…), ou un modèle et son fournisseur. */
-export type ShownBrain = { mode: string | null; modele: string | null; fournisseur: string | null; fournisseur_nom: string | null };
+export type ShownBrain = { mode: string | null; modele: string | null; fournisseur: string | null; fournisseur_nom: string | null; modele_exact?: string | null };
 
 export type ListedModel = {
   id: string;
@@ -123,6 +125,13 @@ export function readableModel(id: string | null | undefined): string {
   return free ? t("{nom} (gratuit)", { nom: out.join(" ") }) : out.join(" ");
 }
 
+/** « Haiku · claude-haiku-5-5 » : l'alias d'un abonnement de l'ordinateur (celui que la CLI reçoit) et le nom exact que le dernier tour a servi.
+ * Sans nom exact connu, l'alias seul. */
+export function nomAvecExact(model: string | null | undefined, exact: string | null | undefined): string {
+  const base = BRANDS[(model ?? "").trim().toLowerCase()] ?? readableModel(model); // « haiku » seul se lit « Haiku »
+  return base && exact && exact !== model ? `${base} · ${exact}` : base;
+}
+
 /** Le nom d'un mode d'agent, « auto » compris (le niveau suit chaque demande : server/noah/complexite.py). */
 export function modeName(mode: string): string {
   return mode === "auto" ? t("Auto") : MODE_NAMES[mode as ModeId] ?? mode;
@@ -131,7 +140,7 @@ export function modeName(mode: string): string {
 /** Ce que dit l'étiquette sous la saisie : le nom du mode, ou le modèle. Une seule règle, celle du serveur (`cerveau`). */
 export function brainLabel(brain: ShownBrain | null | undefined): string {
   if (!brain) return "";
-  return brain.mode ? modeName(brain.mode) : readableModel(brain.modele);
+  return brain.mode ? modeName(brain.mode) : nomAvecExact(brain.modele, brain.modele_exact);
 }
 
 /** Après tout changement de cerveau (de tous ou d'un agent) : l'étiquette, les réglages et la suite lisent le serveur sans recharger. */

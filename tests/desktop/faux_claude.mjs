@@ -37,7 +37,7 @@ const brain = async (prompt) => {
   const model = at("--model");
   const schema = at("--json-schema");
   const system = readFileSync(at("--system-prompt-file"), "utf8");
-  trace({ args, prompt, system, cwd: process.cwd(), cerveau: true, facturation: billing(), garde: process.env.NOAH_GARDE });
+  trace({ args, prompt, system, cwd: process.cwd(), cerveau: true, chaud: args.includes("--chaud"), facturation: billing(), garde: process.env.NOAH_GARDE });
   const usage = { input_tokens: 100, cache_read_input_tokens: 20, cache_creation_input_tokens: 0, output_tokens: 7 };
   const done = (fields) => { say({ type: "result", subtype: "success", is_error: false, session_id: "s-cerveau", num_turns: 1, total_cost_usd: 0.01, duration_ms: 50, usage, ...fields }); process.exit(0); };
   say({ type: "system", subtype: "init", session_id: "s-cerveau", tools: [], model: EXACT[model] || model });
@@ -58,9 +58,23 @@ const brain = async (prompt) => {
   return done({ result: "", structured_output: { texte: result ? `Fini : ${result}` : `réponse de Claude Code (${model})`, appels: [] } });
 };
 
+// Entrée en stream-json (processus préchauffé, --input-format stream-json) : la consigne arrive dans un message { type: "user", message: { content } },
+// après un délai FAUX_CLAUDE_CHAUD_MS s'il est posé (le démarrage qu'un préchauffage doit épargner). FAUX_CLAUDE_DEMARRAGES : une ligne par lancement.
+const streamIn = args.includes("--input-format") && args[args.indexOf("--input-format") + 1] === "stream-json";
+if (process.env.FAUX_CLAUDE_DEMARRAGES && !(args[0] === "auth")) appendFileSync(process.env.FAUX_CLAUDE_DEMARRAGES, JSON.stringify({ chaud: streamIn, cerveau: args.includes("--system-prompt-file") }) + "\n");
+// FAUX_CLAUDE_BOOT_MS : le démarrage de la CLI (une seconde environ en vrai), compté depuis le lancement, pas depuis le message.
+const booted = new Promise((ok) => setTimeout(ok, Number(process.env.FAUX_CLAUDE_BOOT_MS || 0)));
+if (streamIn && process.env.FAUX_CLAUDE_CHAUD_MORT === "1") process.exit(1); // un processus préchauffé qui meurt avant d'avoir servi
 let prompt = "";
 process.stdin.on("data", (c) => (prompt += c));
 process.stdin.on("end", async () => {
+  await booted;
+  if (streamIn) {
+    const lines = prompt.split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter((m) => m?.type === "user");
+    prompt = lines.map((m) => (typeof m.message?.content === "string" ? m.message.content : "")).join("\n");
+    if (!lines.length) process.exit(0); // fermé sans message : rien à faire, comme la vraie CLI
+    args.push("--chaud");
+  }
   if (args.includes("--system-prompt-file")) return brain(prompt);
   trace({ args, prompt, cwd: process.cwd(), facturation: billing(), garde: process.env.NOAH_GARDE });
   const session = "sess-1234";
