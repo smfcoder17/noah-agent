@@ -17,7 +17,7 @@ import httpx  # noqa: E402
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from noah import auth, db, events, hermes, machine, main, media  # noqa: E402
+from noah import auth, db, events, hermes, machine, main, media, questions  # noqa: E402
 
 def seed_approval(conv, summary, run=None):
     with db.connect() as c:
@@ -182,7 +182,13 @@ assert items[0]["request_id"] == "r" and items[0]["run_id"] == "x", "À toi rép
 assert other.get("/api/a-toi").json() == [], "rien des autres"
 main.task_state[conv] = "choice"
 clear_approvals(conv)
+# Un choix posé à la personne est une ligne de `questions` (tours.py) : sans elle, et avec des choix déjà clos dans le fil (cas 3 ter),
+# l'état « choice » seul n'attend plus personne et « Pour toi » le retire (pourtoi.py).
+assert web.get("/api/a-toi").json() == [], "un choix dont la ligne est close n'attend plus personne"
+main.task_state[conv] = "choice"
+questions.ouvrir_choix(conv, '```noah\n{"type": "choice", "question": "", "options": ["Rouge", "Bleu"]}\n```')
 assert web.get("/api/a-toi").json()[0]["demande"] == "Une question attend ta réponse."
+questions.fermer_choix(conv)
 main.task_state[conv] = "done"
 assert web.get("/api/a-toi").json() == []
 with db.connect() as c:
