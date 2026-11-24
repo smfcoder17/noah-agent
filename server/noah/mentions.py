@@ -151,7 +151,7 @@ async def mention_agents(agent_id: str, q: str = "", user: int = Depends(auth.cu
             continue
         out.append((score, len(out), {"id": a["id"], "nom": a["name"], "role": (a["role"] or "")[:160], "color": a["color"] or "", "shape": a["shape"] or "", "detail": a["detail"] or ""}))
     out.sort(key=lambda x: x[:2])
-    return {"agents": [x[2] for x in out[:12]]}
+    return {"agents": [x[2] for x in out[:50]]}
 
 
 @router.get("/api/agents/{agent_id}/mentions/fichiers")
@@ -186,7 +186,7 @@ async def mention_skills(agent_id: str, q: str = "", user: int = Depends(auth.cu
             "nom": s["nom"], "titre": s.get("titre") or s["nom"], "resume": (s.get("resume") or "")[:200],
             "origine": s.get("origine") or "", "desactivee": bool(s.get("desactivee"))}))
     out.sort(key=lambda x: x[:3])
-    return {"competences": [x[3] for x in out[:40]], "total": len(skills)}
+    return {"competences": [x[3] for x in out[:200]], "total": len(skills)}
 
 
 # --- Ce qui part dans le message, et ce que l'agent en lit -----------------------------------------------------------
