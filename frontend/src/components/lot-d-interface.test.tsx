@@ -206,13 +206,13 @@ it("D3 — arbre : dossiers dépliables, filtre, aperçu Markdown, image et PDF 
     expect(host.querySelector<HTMLImageElement>(".file-preview img")?.getAttribute("src")).toBe("/api/agents/a/files/raw/outputs/graphe.png");
     await act(async () => byLabel("Retour aux fichiers")!.click());
 
-    // PDF : dans un cadre sans accès à la session, une fois son sous-dossier déplié.
+    // PDF : dans un cadre sans accès à la session (CSP inerte côté serveur), une fois son sous-dossier déplié.
     await act(async () => folder("notes").click());
     await act(async () => byLabel("Aperçu de facture.pdf")!.click());
     await until(".file-preview iframe");
     const frame = host.querySelector<HTMLIFrameElement>(".file-preview iframe")!;
     expect(frame.getAttribute("src")).toContain("/api/agents/a/files/raw/outputs/notes/facture.pdf");
-    expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
+    expect(frame.hasAttribute("sandbox")).toBe(false); // hors bac à sable : le lecteur de PDF du navigateur refuse un cadre isolé (le serveur donne un CSP inerte)
     await act(async () => byLabel("Retour aux fichiers")!.click());
 
     // HTML : rendu en bac à sable, depuis le bouton Ouvrir de l'application.
