@@ -7,13 +7,25 @@
 // d'un module (listes, libellés) suivent aussi.
 import type { ReactNode } from "react";
 import { Fragment, createElement } from "react";
-import { en } from "./en";
 
 export const LANGUES = { fr: "Français", en: "English" } as const;
 export type Langue = keyof typeof LANGUES;
 
 const CLE = "noah-langue";
-const DICTIONNAIRES: Record<Langue, Record<string, string> | null> = { fr: null, en };
+// L'anglais (180 ko de texte) n'est pas dans le premier écran d'un navigateur français : il se charge avant le premier
+// affichage, seulement si la langue le demande (chargerLangue, attendue par main.tsx).
+const DICTIONNAIRES: Record<Langue, Record<string, string> | null> = { fr: null, en: null };
+
+/** Pose le dictionnaire anglais (les tests le posent d'avance ; l'app le charge par chargerLangue). */
+export function enregistrerAnglais(dico: Record<string, string>) {
+  DICTIONNAIRES.en = dico;
+  cache = null;
+}
+
+/** À attendre avant le premier affichage : charge le dictionnaire de la langue courante s'il n'est pas déjà là. */
+export async function chargerLangue(): Promise<void> {
+  if (courante === "en" && !DICTIONNAIRES.en) enregistrerAnglais((await import("./en")).en);
+}
 
 function depuisNavigateur(): Langue {
   const liste = typeof navigator === "undefined" ? [] : navigator.languages?.length ? navigator.languages : [navigator.language];

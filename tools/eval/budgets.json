@@ -69,8 +69,8 @@
       "libelle": "poids du premier écran, gzip (X24)",
       "unite": "ko",
       "seuil": 400,
-      "mesure": 450,
-      "bloquant": false,
+      "mesure": 398,
+      "bloquant": true,
       "tolerance": 2
     },
     "B2bis.voies_sans_compression": {
