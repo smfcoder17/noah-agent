@@ -80,6 +80,7 @@ def get(name):
 def create(image, **kw):
     c = Fake(kw["name"], kw.get("labels", {}), **{k: v for k, v in kw.items() if k not in ("name", "labels")})
     c.image_ref = image
+    c.attrs["Config"] = {"Env": [f"{k}={v}" for k, v in (kw.get("environment") or {}).items()]}
     world.containers[c.name] = c
     world.created.append((c.name, image, kw))
     return c
@@ -101,7 +102,7 @@ client.info.return_value = {"NCPU": 2, "MemTotal": 4 * 2**30}
 launcher._cores.cache_clear()
 launcher._ram.cache_clear()
 world.containers["noah-launcher"] = Fake("noah-launcher", {}, "running", image_obj="image-du-lanceur")
-launcher.updater.put_env = lambda c, path, values: world.keys.append((c.name, path, dict(values)))
+launcher.updater.put_env = lambda c, path, values, *propre: world.keys.append((c.name, path, dict(values)))
 launcher.container = lambda agent_id: None
 launcher._ensure_agents_network = lambda: None
 launcher.time.sleep = lambda s: None
@@ -127,6 +128,20 @@ assert r.status_code == 200 and r.json() == {"conteneurs": {"noah-sortie-maison"
 r = web.put("/sortie", json={})
 assert r.status_code == 200 and not [c for n, c in world.containers.items() if n.startswith("noah-sortie")], "configuration vide : rien n'est créé"
 print("1. sans sortie configurée : aucun conteneur de plus, navigateur identique à celui d'avant")
+
+def agent(agent_id="essai"):
+    """Crée l'agent de bout en bout (Docker simulé) et rend l'environnement du conteneur."""
+    world.created.clear()
+    world.containers.pop("noah-agent-" + agent_id, None)
+    launcher._run_agent(agent_id, "jeton", [])
+    return next(x for x in world.created if x[0] == "noah-agent-" + agent_id)[2]["environment"]
+
+
+# 1 bis. Sans sortie : l'agent est créé comme avant, aucune variable de proxy.
+env = agent()
+assert not any("proxy" in k.lower() for k in env), env
+world.containers.pop("noah-agent-essai")  # sinon la configuration suivante le recréerait en arrière-plan
+print("1b. sans sortie configurée : l'agent n'a aucune variable de proxy")
 
 # 2. Maison (le relais de l'ordinateur) et VPN : un seul conteneur de sortie (Gluetun) plus l'aiguillage ; rien de Tailscale.
 world.created.clear()
@@ -170,6 +185,61 @@ assert "PROXY_USERNAME" not in env and "PROXY_PASSWORD" not in env
 assert kw["labels"]["noah.browser.version"] == f"{launcher.BROWSER_VERSION}:fr-CA:America/Toronto:s"
 assert kw["cap_drop"] == ["ALL"] and not kw.get("cap_add")
 print("4. le navigateur reçoit PROXY_HOST=noah-sortie, PROXY_PORT, étiquette « :s »")
+
+# 4 ter. Les outils de l'agent (terminal, curl, web) passent par l'aiguillage ; restent directs le serveur (appels de modèle), le navigateur
+# de l'agent, l'aiguillage et le réseau interne. Hermes lit ces variables en majuscules et en minuscules (image figée, agent/proxy_bypass.py).
+env = agent()
+for k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
+    assert env[k] == "http://noah-sortie:3128", (k, env)
+assert env["NO_PROXY"] == env["no_proxy"]
+direct = env["NO_PROXY"].split(",")
+for h in ("localhost", "127.0.0.1", "noah-server", "noah-sortie", "noah-browser-essai", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"):
+    assert h in direct, (h, direct)
+assert "noah-browser-autre" not in direct, "le navigateur d'un autre agent n'est pas dans la liste de celui-ci"
+assert env["API_SERVER_ENABLED"] == "true", "le reste de l'environnement est inchangé"
+print("4c. l'agent créé avec une sortie reçoit HTTP(S)_PROXY=noah-sortie:3128 et NO_PROXY (serveur, navigateur, réseau interne)")
+
+# 4 quater. Un agent d'avant la sortie est recréé une fois avec le proxy (même image, même volume) ; un agent déjà dessus, non.
+class Ancien:
+    def __init__(self, nom, env):
+        self.name, self.status, self.labels = nom, "running", {launcher.LABEL: nom[len("noah-agent-"):]}
+        self.attrs = {"Config": {"Env": list(env)}, "HostConfig": {}}
+        self.image = MagicMock(id="image-agent")
+        self.renommes, self.supprime = [], False
+
+    def stop(self, **k): self.status = "exited"
+    def rename(self, n): self.renommes.append(n)
+    def reload(self): pass
+    def remove(self, **k): self.supprime = True
+
+
+vieux = Ancien("noah-agent-vieux", ["API_SERVER_KEY=x", "HTTPS_PROXY=http://autre:1", "TOKEN=y"])
+deja = Ancien("noah-agent-deja", [f"{k}={v}" for k, v in launcher._agent_proxy_env("deja").items()])
+recrees = []
+def creer_comme(old, name, image):
+    recrees.append((old.name, name, image, list(old.attrs["Config"]["Env"])))
+    world.containers[name] = Fake(name, {}, "created")
+    world.containers[name].id = "id-" + name
+
+
+launcher.updater._create_like = creer_comme
+launcher.updater.healthy = lambda name, s=None: True
+charger = launcher.updater.load_state
+launcher.updater.load_state = lambda: {}
+client.containers.get.side_effect = lambda n: (_ for _ in ()).throw(NotFound()) if n.endswith("-ancien") else get(n)
+client.containers.list.side_effect = lambda all=False, filters=None: [vieux, deja] if (filters or {}).get("label") == launcher.LABEL else lister(all, filters)
+launcher._agents_vers_aiguillage()
+assert [r[:3] for r in recrees] == [("noah-agent-vieux", "noah-agent-vieux", "image-agent")], recrees
+envs = dict(e.split("=", 1) for e in recrees[0][3])
+assert envs["HTTPS_PROXY"] == "http://noah-sortie:3128" and "noah-browser-vieux" in envs["NO_PROXY"] and envs["TOKEN"] == "y", envs
+assert [e for e in recrees[0][3] if e.startswith("HTTPS_PROXY=")] == ["HTTPS_PROXY=http://noah-sortie:3128"], "l'ancienne valeur est remplacée, pas doublée"
+assert vieux.renommes == ["noah-agent-vieux-ancien"] and vieux.supprime and not deja.renommes and not deja.supprime
+assert launcher._agent_on_proxy(deja) and not launcher._agent_on_proxy(Ancien("noah-agent-x", ["A=b"]))
+launcher.updater.load_state = charger
+world.containers.pop("noah-agent-vieux", None)
+client.containers.get.side_effect = get
+client.containers.list.side_effect = lister
+print("4d. un agent d'avant la sortie est recréé une fois avec le proxy ; un agent déjà dessus n'est pas touché")
 
 # 4 bis. Un navigateur sans proxy, une sortie ensuite configurée : recréé. Avec proxy, une identité vide le garde.
 nav = world.containers["noah-browser-essai"]
@@ -278,7 +348,10 @@ assert "noah-sortie" in world.containers and world.containers["noah-sortie"].lab
 assert not launcher._sortie_ready(), "vidé : les navigateurs créés maintenant ne passent plus par lui"
 world.containers["noah-browser-essai"].labels["noah.browser.version"] = f"{launcher.BROWSER_VERSION}:fr-FR:Europe/Paris"
 navigateur(locale="fr-FR", timezone="Europe/Paris")
-assert "noah-sortie" not in world.containers, "plus aucun navigateur sur le proxy : l'aiguillage part"
+assert "noah-sortie" in world.containers, "un agent créé avec le proxy tient encore à l'aiguillage : il reste, vidé"
+world.containers.pop("noah-agent-essai")
+launcher._sortie_cleanup()
+assert "noah-sortie" not in world.containers, "plus aucun navigateur ni agent sur le proxy : l'aiguillage part"
 print("8. tout retiré : l'aiguillage reste vidé tant qu'un navigateur s'y accroche, puis part")
 
 # 9. Mise à jour en cours : refusé comme les autres opérations sur le parc.

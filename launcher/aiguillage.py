@@ -1,6 +1,6 @@
 """Aiguillage de la sortie réseau des navigateurs d'agents (conteneur `noah-sortie`).
 
-Le navigateur de chaque agent a ce mandataire (HTTP, CONNECT) pour seule porte vers Internet. Il le fait sortir par la
+Le navigateur de chaque agent a ce mandataire (HTTP, CONNECT) pour seule porte vers Internet, et ses outils (terminal, curl, web) aussi, par HTTP(S)_PROXY (env_proxy_agent). Il le fait sortir par la
 meilleure sortie qui répond, dans l'ordre de la liste : maison (l'ordinateur de la personne, par le relais du serveur), puis VPN (Gluetun), puis, en
 repli, le serveur lui-même (« direct »).
 
@@ -400,6 +400,15 @@ async def servir_etat(a: Aiguillage, r: asyncio.StreamReader, w: asyncio.StreamW
         pass
     finally:
         w.close()
+
+
+def env_proxy_agent(hote: str, port: int, directs: list[str]) -> dict[str, str]:
+    """Les variables qui mettent les outils d'un agent (curl, requests, httpx, aiohttp, Hermes) derrière cet aiguillage. Le lanceur
+    les pose sur le conteneur de l'agent ; `directs` : les noms qui ne passent pas par lui (le serveur Noah, le navigateur de l'agent).
+    Toujours directs : la boucle locale, le réseau Docker et le réseau local, que l'aiguillage refuserait de toute façon."""
+    url = f"http://{hote}:{port}"
+    direct = ",".join(["localhost", "127.0.0.1", "::1", hote, *directs, "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", ".local", ".internal"])
+    return {**{k: url for k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy")}, "NO_PROXY": direct, "no_proxy": direct}
 
 
 def depuis_environnement() -> Aiguillage:
