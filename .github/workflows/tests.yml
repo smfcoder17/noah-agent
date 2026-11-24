@@ -63,6 +63,7 @@ jobs:
           node tools/eval/citer.mjs || rc=1
           node tools/eval/mise-a-jour.mjs || rc=1
           node tools/eval/noms-exacts.mjs || rc=1
+          node tools/eval/pourtoi.mjs || rc=1
           exit $rc
       - name: "Aperçus de fichiers dans un vrai navigateur : image, vidéo, Markdown, texte, page HTML et PDF, depuis le panneau, la conversation et un onglet, sur ordinateur et à 390 px"
         run: node tests/real/apercus_lancer.mjs
