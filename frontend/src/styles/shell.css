@@ -65,6 +65,8 @@ button.session-row:hover { background:var(--muted); }
 .file-preview-head { display:flex; align-items:center; gap:6px; min-width:0; }
 .file-preview-head b { font-size:14px; min-width:0; }
 .file-preview .element-frame { min-height:0; }
+/* Le cadre d'une page ou d'un PDF n'a pas de hauteur propre : sans plancher, le navigateur lui donne 150 px. */
+.file-preview iframe.element-frame { min-height:min(60dvh,640px); }
 @media(max-width:767px) {
   /* Téléphone : chaque contenu est une feuille plein écran, avec Retour. */
   .work-panel { position:fixed; inset:0; z-index:40; border-left:0; padding-top:env(safe-area-inset-top); padding-bottom:env(safe-area-inset-bottom); }
