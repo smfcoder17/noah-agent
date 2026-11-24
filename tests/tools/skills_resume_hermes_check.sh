@@ -1,7 +1,7 @@
 #!/bin/sh
 # La liste courte des skills pour la saisie (« / »), sur le VRAI Hermes : nom, titre, une ligne, origine, jamais le texte ; un skill que le réglage
 # `skills.disabled` d'Hermes écarte sort « désactivé ». Conteneur jetable de l'image de l'agent, rien ne tourne sur un agent en service.
-#     MSYS_NO_PATHCONV=1 docker run --rm --entrypoint sh -v "$PWD/launcher:/l:ro" -v "$PWD/tests/tools:/t:ro" nousresearch/hermes-agent:stable /t/skills_resume_hermes_check.sh
+#     MSYS_NO_PATHCONV=1 docker run --rm --entrypoint sh -v "$PWD/launcher:/l:ro" -v "$PWD/tests/tools:/t:ro" nousresearch/hermes-agent@sha256:9c5561579f3ffdf333401797094ac3a743738d6c25d40f4331c7bf77b694238d /t/skills_resume_hermes_check.sh
 set -e
 P=/opt/hermes/.venv/bin/python
 export HOME=/opt/data HERMES_HOME=/opt/data
