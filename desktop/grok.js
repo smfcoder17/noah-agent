@@ -28,6 +28,7 @@ const LIMIT_WORDS = /usage limit|rate limit|limit reached|quota|too many request
 const AUTH_WORDS = /not (?:logged|signed) in|unauthori[sz]ed|login required|please (?:log|sign) in|authentication (?:required|failed)|invalid (?:token|credentials)/i;
 
 let configured = null; // { cmd, prefix } : imposé par les tests (faux binaire)
+let authFile = null; // fichier de connexion de la CLI : imposé par les tests ; sinon ~/.grok/auth.json, hors faux binaire
 let minuteMs = 60000;
 let last = { installe: false, connecte: false };
 let known = []; // les modèles annoncés par la CLI à ses tours
@@ -36,8 +37,9 @@ let queue = Promise.resolve();
 let running = null;
 
 /** program, minute : changés par les tests. connected : l'état gardé par l'app (config.json) ; onChange : il change, l'app le garde. */
-function configure({ program, minute, connected, models, changed } = {}) {
+function configure({ program, minute, connected, models, changed, auth } = {}) {
   configured = program || null;
+  if (auth !== undefined) authFile = auth || null;
   if (minute) minuteMs = minute;
   if (typeof connected === "boolean") last = { ...last, connecte: connected };
   if (Array.isArray(models)) known = models.filter((m) => typeof m === "string" && MODEL.test(m)).slice(0, 20);
@@ -68,13 +70,26 @@ function setConnected(value) {
   onChange();
 }
 
-/** La CLI est-elle là ? `grok --version` répond sans connexion. L'état connecté n'est pas lu ici : la CLI ne le dit pas. */
+/** Le fichier où la CLI range sa connexion existe-t-il ? Seule sa présence compte : il n'est jamais lu. null : on ne sait pas. */
+function authPresent() {
+  const file = authFile || (configured ? null : path.join(os.homedir(), ".grok", "auth.json"));
+  if (!file) return null;
+  try { return fs.statSync(file).size > 0; } catch { return false; }
+}
+
+/**
+ * La CLI est-elle là ? `grok --version` répond sans connexion, et la CLI ne dit pas si elle est connectée. Son fichier de connexion
+ * le dit : une personne connectée hors de l'app (`grok login` dans un terminal, ou une autre installation de Noah) l'est aussi ici
+ * (0.4.3 : Grok restait « non connecté » dans l'app installée).
+ */
 function detect() {
   const bin = locate();
   if (!bin) return Promise.resolve((last = { ...last, installe: false, connecte: false }));
   return new Promise((resolve) => {
     execFile(bin.cmd, [...bin.prefix, "--version"], { timeout: DETECT_TIMEOUT, windowsHide: true, maxBuffer: 64 * 1024, env: cleanEnv() }, (err) => {
       last = { ...last, installe: !(err && err.code === "ENOENT") };
+      const present = last.installe ? authPresent() : null;
+      if (present !== null && present !== last.connecte) setConnected(present);
       resolve(last);
     });
   });

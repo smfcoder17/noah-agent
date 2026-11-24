@@ -97,6 +97,8 @@ jobs:
           node tests/desktop/pont_reel.mjs
           node tests/desktop/textes_test.mjs
           node tests/desktop/injoignable_test.mjs
+          node tests/desktop/oubli_test.mjs
+          node tests/desktop/grok_connexion_test.mjs
           node tests/desktop/maj_test.mjs
           docker run --rm -v "$PWD:/repo:ro" node:22-alpine node /repo/tests/desktop/relais_test.mjs
       - name: "Abonnements par l'ordinateur : tâches confiées à Claude Code, forfait ChatGPT et bascule"

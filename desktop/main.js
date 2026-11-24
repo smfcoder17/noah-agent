@@ -558,6 +558,13 @@ async function changeServer() {
   await forgetServer();
 }
 
+/** Une promesse qui peut ne jamais répondre : au plus `ms`, puis undefined. Une erreur donne aussi undefined. */
+function borne(promise, ms) {
+  let minuteur;
+  return Promise.race([Promise.resolve(promise).catch(() => undefined), new Promise((ok) => { minuteur = setTimeout(ok, ms); })])
+    .finally(() => clearTimeout(minuteur));
+}
+
 /** Oublie le serveur : la session disparaît aussi côté serveur (si l'appel échoue, on oublie quand même ici). */
 let forgetting = Promise.resolve();
 /** Un oubli à la fois : un double clic ne lance pas deux oublis qui se marchent dessus. */
@@ -582,15 +589,17 @@ async function forgetOnce({ revoke = true } = {}, asked, askedToken) {
   if (server) {
     // La fenêtre peut utiliser une autre session que celle rangée par l'app (déconnexion puis reconnexion dans
     // l'interface) : on révoque les deux.
-    const cookie = (await session.defaultSession.cookies.get({ url: server, name: "noah_session" }).catch(() => []))[0]?.value;
+    const cookie = ((await borne(session.defaultSession.cookies.get({ url: server, name: "noah_session" }), 3000)) || [])[0]?.value;
     const tokens = [...new Set([token, cookie].filter(Boolean))];
     // Notifications et marqueur de session de la page : rien de l'ancien compte ne reste lisible ici.
-    await page?.webContents.executeJavaScript(
+    // Chaque étape est bornée : dans Electron, getNotifications() d'un service worker ne répond jamais (0.4.3,
+    // « Relier de nouveau » sans effet), et un oubli bloqué bloquait aussi tous les suivants.
+    await borne(page?.webContents.executeJavaScript(
       "navigator.serviceWorker?.getRegistration().then((r) => r?.getNotifications()).then((l) => (l || []).forEach((n) => n.close())).catch(() => {})",
-    ).catch(() => {});
-    await session.defaultSession.clearStorageData({ origin: server, storages: ["cachestorage", "serviceworkers"] }).catch(() => {});
+    ), 2000);
+    await borne(session.defaultSession.clearStorageData({ origin: server, storages: ["cachestorage", "serviceworkers"] }), 5000);
     for (const t of revoke ? tokens : []) await revokeOrQueue(server, t); // sans réponse : gardée pour plus tard
-    await session.defaultSession.cookies.remove(server, "noah_session");
+    await borne(session.defaultSession.cookies.remove(server, "noah_session"), 3000);
   }
   // Un nouvel appairage a pu se terminer pendant les révocations : sa configuration n'est pas celle qu'on oublie.
   const now = readConfig();
@@ -1093,7 +1102,8 @@ ipcMain.handle("noah:abonnement-etat", (e, which) => (fromPage(e) ? { etat: plug
 // Page de Noah (app reliée à un serveur) : appareil déconnecté côté serveur, l'utilisateur le relie de nouveau.
 ipcMain.handle("noah:forget-server", async (e) => {
   if (origin && !sameOrigin(e.senderFrame.url)) return;
-  await forgetServer().catch(() => {}); // en mode local aussi : l'écran « Relier de nouveau » doit toujours mener quelque part
+  // Au plus 30 s (révocations de 10 s comprises) : passé ce délai, l'écran d'accueil revient quand même.
+  await borne(forgetServer(), 30000); // en mode local aussi : l'écran « Relier de nouveau » doit toujours mener quelque part
   // Quoi qu'il arrive à l'oubli (session illisible, adresse déjà oubliée, révocation en échec), on finit sur l'écran
   // d'accueil : jamais une app bloquée sur « Cet appareil n'est plus relié ».
   if (!page.webContents.getURL().endsWith("setup.html")) {

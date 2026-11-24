@@ -35,10 +35,16 @@ export async function forgetPushSession() {
   await window.Capacitor?.Plugins?.NoahShell?.pushForget?.().catch(() => {});
 }
 
+/** Au plus 2 s : dans l'app de bureau (Electron), getNotifications() ne répond jamais, et la déconnexion attendait sans fin. */
 async function closeNotifications() {
   if (!("serviceWorker" in navigator)) return;
-  const reg = await navigator.serviceWorker.getRegistration().catch(() => undefined);
-  (await reg?.getNotifications().catch(() => []))?.forEach((n) => n.close());
+  let minuteur: ReturnType<typeof setTimeout> | undefined;
+  const fermer = (async () => {
+    const reg = await navigator.serviceWorker.getRegistration().catch(() => undefined);
+    (await reg?.getNotifications().catch(() => []))?.forEach((n) => n.close());
+  })();
+  await Promise.race([fermer, new Promise<void>((ok) => { minuteur = setTimeout(ok, 2000); })]);
+  clearTimeout(minuteur);
 }
 
 const b64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
