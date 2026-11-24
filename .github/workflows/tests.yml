@@ -62,6 +62,8 @@ jobs:
           node tools/eval/debordement.mjs || rc=1
           node tools/eval/citer.mjs || rc=1
           exit $rc
+      - name: "Aperçus de fichiers dans un vrai navigateur : image, vidéo, Markdown, texte, page HTML et PDF, depuis le panneau, la conversation et un onglet, sur ordinateur et à 390 px"
+        run: node tests/real/apercus_lancer.mjs
       - name: "Durée des routes, budget B4 : 95e centile sous 300 ms, maximum sous 1 s, lanceur lent de 1,5 s, base remplie"
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" -v "$PWD/tools:/tools:ro" python:3.12-slim sh -c \
@@ -103,6 +105,7 @@ jobs:
           node tests/desktop/claude_test.mjs
           node tests/desktop/brancher_test.mjs
           node tests/desktop/chatgpt_test.mjs
+          node tests/desktop/apercus_test.mjs
           node tests/desktop/abonnements_reel.mjs
       - name: Appairage
         run: |
@@ -213,6 +216,9 @@ jobs:
       - name: "Aperçu : une app charge ses fichiers sans sortir de son dossier"
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/agents/apercu_test.py"
+      - name: "Fichiers de l'agent : une vidéo, un PDF ou un texte se lit seul dans un onglet et par morceaux (206), une page reste en bac à sable"
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/agents/fichiers_servis_test.py"
       - name: "Appel : une demande en attente survit au raccroché"
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/voice/ensuite_test.py"

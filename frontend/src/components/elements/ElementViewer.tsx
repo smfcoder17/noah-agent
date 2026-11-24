@@ -1,4 +1,4 @@
-import { send } from "@/lib/api";
+import { previewUrl, send } from "@/lib/api";
 import { appShell, elementAction } from "@/lib/platform";
 import { SensitiveContext, SensitiveText } from "../SensitiveText";
 import { sensitiveParts } from "@/lib/sensitive";
@@ -22,6 +22,9 @@ const ACTIONS: Partial<Record<ElementSpec["kind"], string>> = { pr: t("Voir l'an
 const TEXT_EXT = /\.(md|markdown|mdx|txt|text|log|json|jsonc|json5|ya?ml|toml|ini|cfg|conf|properties|env|csv|tsv|xml|html?|css|scss|sass|less|js|jsx|mjs|cjs|ts|tsx|py|pyi|ipynb|java|kt|kts|scala|groovy|gradle|c|h|cc|cpp|cxx|hpp|cs|go|rs|rb|php|swift|m|mm|pl|lua|r|jl|sh|bash|zsh|fish|ps1|bat|cmd|sql|graphql|gql|proto|dockerfile|makefile|cmake|gitignore|editorconfig|diff|patch|srt|vtt|tex|rst|adoc|org|nfo|readme|license)$/i;
 /** Un fichier bureautique : son texte est extrait par le serveur. */
 const OFFICE_EXT = /\.(docx|docm|dotx|pptx|pptm|xlsx|xlsm|odt|ods|odp)$/i;
+
+/** Seuls ces fichiers sont du Markdown. Un .txt, un .log ou un .json se lit tel qu'il est écrit : rendu en Markdown, ses lignes se collent en une phrase. */
+const MARKDOWN_EXT = /\.(md|markdown|mdx)$/i;
 
 /** Le contenu vient d'un fichier de l'agent, pas du chat : les liens externes partent dans l'onglet, les autres restent du texte. */
 const TEXT_MARKDOWN: NonNullable<React.ComponentProps<typeof ReactMarkdown>["components"]> = {
@@ -65,6 +68,15 @@ export function ElementViewer({ spec, onClose }: { spec: ElementSpec; onClose?: 
       .catch(() => { if (live) setText(undefined); });
     return () => { live = false; };
   }, [needsText, office, spec.path, spec.agentId, spec.title, text]);
+  // Une page de l'agent (HTML, SVG) se montre par son lien d'aperçu : isolée sans cookie, elle ne charge ses images, ses styles et ses scripts voisins que par lui.
+  const pagePath = spec.kind === "page" && spec.agentId && spec.path ? spec.path : null;
+  const [pageLink, setPageLink] = useState<string | null>(null);
+  useEffect(() => {
+    if (!pagePath || !spec.agentId) return;
+    let live = true;
+    previewUrl(spec.agentId, pagePath).then((u) => live && setPageLink(u), () => live && setPageLink(url || ""));
+    return () => { live = false; };
+  }, [pagePath, spec.agentId, url]);
   const toggle = async () => { if (!spec.agentId || typeof data.id !== "string") return; try { await send(`/api/agents/${encodeURIComponent(spec.agentId)}/${spec.kind === "routine" ? "routines" : "watches"}/${encodeURIComponent(data.id)}/${enabled ? "pause" : "reprendre"}`, {}); setEnabled(!enabled); setActionError(""); } catch (e) { setActionError((e as Error).message); } };
   const rows = Array.isArray(data.rows) ? data.rows.filter(Array.isArray) as unknown[][] : [];
   const columns = Array.isArray(data.columns) ? data.columns : [];
@@ -85,9 +97,10 @@ export function ElementViewer({ spec, onClose }: { spec: ElementSpec; onClose?: 
         onPointerUp={(e) => { if (points.current.size === 1 && zoom === 1 && gesture.current && e.clientY - gesture.current.y > 120) onClose?.(); points.current.delete(e.pointerId); }} onPointerCancel={(e) => points.current.delete(e.pointerId)}>
         <img src={url} alt={display(spec.description || spec.title)} onError={() => setError(true)} style={{ transform: `scale(${zoom})` }} /><label>{t("Zoom")} <input type="range" min="1" max="4" step=".1" value={zoom} onChange={(e) => setZoom(Number(e.target.value))} /></label></div>
       : spec.kind === "pdf" && url ? <><div className="flex gap-3 items-center"><button disabled={page === 1} onClick={() => setPage(page - 1)}>{t("Page précédente")}</button><span>{t("Page {n}", { n: page })}{Number(data.pages) > 0 ? ` / ${Number(data.pages)}` : ""}</span><button disabled={Number(data.pages) > 0 && page >= Number(data.pages)} onClick={() => setPage(page + 1)}>{t("Page suivante")}</button><label>{t("Zoom")} <input type="range" min=".5" max="3" step=".1" value={zoom} onChange={(e) => setZoom(Number(e.target.value))} /></label></div><SandboxedFrame title={elementName(spec)} src={url.split("#")[0] + `#page=${page}&zoom=${zoom * 100}`} className="element-frame" onError={() => setError(true)} /></>
-      : spec.kind === "page" && url ? <SandboxedFrame title={elementName(spec)} src={url} className="element-frame" onError={() => setError(true)} />
+      : spec.kind === "page" && url ? (pagePath && !pageLink ? <p role="status" className="text-sm text-muted-foreground">{t("Chargement…")}</p> : <SandboxedFrame title={elementName(spec)} src={pageLink || url} className="element-frame" onError={() => setError(true)} />)
       : spec.kind === "video" && url ? <video src={url} controls playsInline preload="metadata" className="element-frame max-h-[70vh] w-full bg-black" onError={() => setError(true)}>{t("Ce format vidéo n'est pas lu par ce navigateur.")} <button onClick={() => download(url, spec.title)}>{t("Télécharger")}</button></video>
       : spec.kind === "audio" && url ? <div className="flex flex-col gap-2 px-4 py-5"><audio src={url} controls preload="metadata" className="w-full" onError={() => setError(true)} /><span className="text-xs text-muted-foreground">{ext ? t("Audio {format}", { format: ext.toUpperCase() }) : t("Audio")} · <button className="cursor-pointer underline" onClick={() => download(url, spec.title)}>{t("télécharger")}</button></span></div>
+      : needsText && text && !office && !MARKDOWN_EXT.test((spec.path || "").split("?")[0]) ? <pre className="element-frame max-w-none overflow-auto whitespace-pre-wrap break-words bg-surface px-6 py-4 font-mono text-[13px] leading-relaxed"><SensitiveText text={text} /></pre>
       : needsText && text ? <div className="element-frame prose-chat max-w-none overflow-auto bg-surface px-6 py-4 text-[15px] leading-relaxed"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ ...SENSITIVE_MARKDOWN, a: TEXT_MARKDOWN.a, img: TEXT_MARKDOWN.img }}>{text}</ReactMarkdown></div>
       : needsText && text !== null && text === undefined ? <p role="alert">{t("Ce fichier n'a pas pu être lu ici. Télécharge-le pour l'ouvrir.")} <button onClick={() => download(url || spec.path || "", spec.title)}>{t("Télécharger")}</button></p>
       : spec.kind === "grid" || spec.kind === "batch" ? <div className="element-grid">{items.map((it, i) => <article key={i}>{elementUrl(String(it.image ?? "")) && <img src={elementUrl(String(it.image))} alt={String(it.title ?? "")} loading="lazy" />}<b><SensitiveText text={String(it.title ?? "")} /></b><p><SensitiveText text={String(it.subtitle ?? "")} /></p></article>)}</div>
