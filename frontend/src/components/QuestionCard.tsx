@@ -4,6 +4,7 @@
 import { useState } from "react";
 import { t } from "@/i18n";
 import { type QuestionCarte, send } from "@/lib/api";
+import { viserMessage } from "@/lib/versMessage";
 import { ErrorText } from "./ui";
 
 /** Un événement de fenêtre prévient les autres lieux où la même question s'affiche : elle y disparaît sans attendre le bus. */
@@ -75,8 +76,9 @@ export function QuestionRepondue({ q, reponse, court }: { q: QuestionCarte; repo
   return <span className="grow" style={{ minWidth: 200 }}>{!court && <><b>{q.titre}</b><br /></>}{reponse ? <>{t("Tu as répondu : ")}<b>{reponse}</b>.</> : t("Cette question est réglée.")}</span>;
 }
 
-/** La carte entière : « Pour toi » et la page de la tâche. `dansTache` : une ligne de tâche la montre sans cadre. */
-export function QuestionCard({ q, onTache, dansTache = false }: { q: QuestionCarte; onTache?: () => void; dansTache?: boolean }) {
+/** La carte entière : « Pour toi » et la page de la tâche. `dansTache` : une ligne de tâche la montre sans cadre.
+ *  `onVoir` : ouvre la conversation d'où vient la question ; la carte y fait ensuite défiler jusqu'au message qui la pose. */
+export function QuestionCard({ q, onTache, onVoir, dansTache = false }: { q: QuestionCarte; onTache?: () => void; onVoir?: () => void; dansTache?: boolean }) {
   const [reponse, setReponse] = useState<string | null>(null);
   if (reponse !== null) return <div className={dansTache ? "line wrap g8" : "card done"}><QuestionRepondue q={q} reponse={reponse} court={dansTache} /></div>;
   if (dansTache) {
@@ -95,6 +97,7 @@ export function QuestionCard({ q, onTache, dansTache = false }: { q: QuestionCar
       <h2>{q.titre}</h2>
       {q.pourquoi && <p className="soft text-muted-foreground">{q.pourquoi}</p>}
       <ChoixQuestion q={q} onDone={setReponse} />
+      {onVoir && <button type="button" data-voir-fil className="cursor-pointer self-start text-[13px] text-[var(--accent)] hover:underline" onClick={() => { onVoir(); viserMessage(q.message_id); }}>{t("Voir dans le fil")}</button>}
     </section>
   );
 }

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const carte = {
   id: "q1", genre: "question", de: "hugo", de_nom: "Hugo", tache_id: "t1", tache: "Envoi de la newsletter", conversation_id: "c1",
   titre: "Quelle heure pour l'envoi ?", pourquoi: "Deux créneaux sont libres.", choix: ["8 h", "12 h"], libre: true, reserve: "",
-  chemin: [{ id: "hugo", nom: "Hugo" }, { id: "noah", nom: "Noah" }], cree: 1_700_000_000,
+  chemin: [{ id: "hugo", nom: "Hugo" }, { id: "noah", nom: "Noah" }], cree: 1_700_000_000, message_id: 42,
 };
 const ligne = { type: "question", id: "q1", agent_id: "hugo", agent: "Hugo", conversation_id: "c1", titre: "Envoi", main: false, a_moi: true, etat: "approve", demande: carte.titre, apercu: [], created: 1_700_000_000, question: carte };
 const idee = { type: "proposition", id: "p1", agent_id: "a", agent: "Léa", texte: "Je peux trier tes courriels.", cree: 1_700_000_100 };
@@ -57,6 +57,27 @@ it("la question répondue ailleurs (la tâche, le fil) quitte la liste sans atte
   await act(async () => { window.dispatchEvent(new CustomEvent("noah:question-repondue", { detail: { id: "q1", reponse: "8 h" } })); });
   expect(host.querySelector('[data-question="q1"]')).toBeNull();
   expect(host.textContent).toContain("Une décision te revient.");
+});
+
+it("« Voir dans le fil » ouvre la conversation de la question, puis fait défiler jusqu'à son message", async () => {
+  const defile = vi.fn();
+  Element.prototype.scrollIntoView = defile;
+  const lien = host.querySelector<HTMLButtonElement>("[data-question='q1'] [data-voir-fil]")!;
+  expect(lien.textContent).toBe("Voir dans le fil");
+  await act(async () => lien.click());
+  expect(ouvrir).toHaveBeenCalledWith(expect.objectContaining({ conversation_id: "c1" }));
+  // Le fil se charge après l'ouverture : le message arrive plus tard, visible, et la carte le rejoint.
+  const message = document.createElement("div");
+  message.setAttribute("data-noah-msg", "h42");
+  message.getClientRects = () => [{}] as unknown as DOMRectList;
+  const animer = vi.fn();
+  message.animate = animer;
+  expect(defile).not.toHaveBeenCalled();
+  document.body.append(message);
+  await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+  expect(defile).toHaveBeenCalledTimes(1);
+  expect(animer).toHaveBeenCalledTimes(1);
+  message.remove();
 });
 
 it("en page (zone de travail, comme le prototype) : un titre, la phrase de compte, des cartes", async () => {

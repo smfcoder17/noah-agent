@@ -335,6 +335,7 @@ export default {
   "tâche « {titre} »": "task \"{titre}\"",
   "La réponse n'est pas partie : {erreur}": "The answer was not sent: {erreur}",
   "Autre réponse": "Other answer",
+  "Voir dans le fil": "See in the thread",
   "Tu as répondu : ": "You answered: ",
   "Cette question est réglée.": "This question is settled.",
   "Une décision te revient. Le reste se règle entre agents.": "One decision is yours. The rest is settled between agents.",
