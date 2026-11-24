@@ -2400,6 +2400,8 @@ from .routes_chat import (
 
 from . import tours
 app.include_router(tours.router)
+from . import mentions  # noqa: E402  (citer avec @ et /)
+app.include_router(mentions.router)
 # Noms déplacés, relus ailleurs (tests, autres modules) ou par ce qui reste ici : ils restent des attributs de main.
 from .tours import (
     _speaker,

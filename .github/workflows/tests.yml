@@ -283,6 +283,10 @@ jobs:
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \
             "pip install -q -r /app/requirements.txt && python /tests/taches/recherche_test.py"
+      - name: "Citer avec @ et / : suggestions d'agents, de fichiers et de compétences réservées à qui peut parler à l'agent, rien hors de l'espace de travail (.., lien, caché), cache sous 100 ms, ce que l'agent reçoit pour chaque pastille"
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/launcher:/l:ro" -v "$PWD/tests:/tests" python:3.12-slim sh -c \
+            "pip install -q -r /app/requirements.txt && python /tests/agents/mentions_test.py"
       - name: "Barre de gauche : GET /api/agents dit ce que chaque agent fait (tâche en cours, attend, chef d'équipe et ses tâches suivies, aucun message), sans les tâches d'un autre compte (0.4.0, L9b)"
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \

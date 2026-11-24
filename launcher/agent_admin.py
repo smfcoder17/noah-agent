@@ -904,6 +904,25 @@ def skill_list(_):
     return {"skills": sorted(out, key=lambda s: (order.get(s["origine"], 3), s["titre"].lower()))}
 
 
+def skill_summaries(_):
+    """Pour la saisie (« / ») : de chaque skill son nom, son titre, une ligne et son origine, sans le texte entier. `desactivee` : Hermes la
+    garde hors de ses outils (réglage `skills.disabled`) ; une lecture qui échoue ne désactive rien."""
+    bundled = _bundled()
+    try:
+        from tools.skills_tool import _get_disabled_skill_names
+        off = {str(n) for n in _get_disabled_skill_names()}
+    except Exception:  # noqa: BLE001
+        off = set()
+    out = []
+    for folder in _skill_dirs():
+        shown = _skill_shown(folder, bundled)
+        if shown:
+            out.append({"nom": shown["nom"], "titre": shown["titre"], "resume": shown["resume"], "origine": shown["origine"],
+                        "desactivee": shown["nom"] in off or folder.name in off})
+    order = {"enseigné par toi": 0, "appris par ton agent": 1, "fourni avec Noah": 2}
+    return {"skills": sorted(out, key=lambda s: (order.get(s["origine"], 3), s["titre"].lower()))}
+
+
 def _skill_folder(name):
     """Le dossier d'un skill par son nom relatif (`categorie/skill`) ou son nom simple, s'il est unique."""
     wanted = str(name or "").strip().strip("/")
@@ -1053,7 +1072,7 @@ ACTIONS = {
     "google_installer": google_install, "google_lire": google_read, "source_google": source_google,
     "competences": competence_list, "competence_ajouter": competence_add, "competence_modifier": competence_edit,
     "competence_retirer": competence_remove,
-    "skills": skill_list, "skill_lire": skill_read, "skill_ecrire": skill_write, "skill_retirer": skill_remove,
+    "skills": skill_list, "skills_resume": skill_summaries, "skill_lire": skill_read, "skill_ecrire": skill_write, "skill_retirer": skill_remove,
 }
 
 if __name__ == "__main__":

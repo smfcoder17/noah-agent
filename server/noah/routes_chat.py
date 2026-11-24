@@ -12,7 +12,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import Field, BaseModel
 
 from .hermes import Agent
-from . import hermes, coordination, machine, coffre, updates, auth, db, notifications, pendant, diagnostics, handoff, access, media, accords, nettoyage, sensitive, bus, main
+from . import hermes, coordination, machine, coffre, updates, auth, db, notifications, pendant, diagnostics, handoff, access, media, accords, nettoyage, sensitive, bus, main, mentions
 
 router = APIRouter()
 
@@ -71,7 +71,7 @@ async def chat(body: ChatMessage, request: Request, noah_session: str | None = C
             yield main._sse({"type": "deja"})
         return StreamingResponse(known(), media_type="text/event-stream", headers=bus.event_headers())
     try:
-        stream = await main._run(agent, conv_id, prompt, body.details, main._speaker(user, agent.id) + machine.pop_context(conv_id) + main._left_open(agent.id, conv_id))
+        stream = await main._run(agent, conv_id, prompt, body.details, main._speaker(user, agent.id) + machine.pop_context(conv_id) + main._left_open(agent.id, conv_id) + mentions.contexte(user, agent.id, body.text))
     except HTTPException:
         if request_id:
             pendant.forget(request_id)
@@ -107,7 +107,7 @@ async def _queued_turn(row: dict) -> None:
     """Le tour d'une demande qui attendait. Suivi jusqu'au bout : la suivante ne part qu'après."""
     agent, user = main._agent(row["agent_id"]), row["user_id"]
     try:
-        stream = await main._run(agent, row["conversation_id"], row["text"], False, main._speaker(user, agent.id) + machine.pop_context(row["conversation_id"]) + main._left_open(agent.id, row["conversation_id"]), live=False)
+        stream = await main._run(agent, row["conversation_id"], row["text"], False, main._speaker(user, agent.id) + machine.pop_context(row["conversation_id"]) + main._left_open(agent.id, row["conversation_id"]) + mentions.contexte(user, agent.id, row["text"]), live=False)
         pendant.settle(row["id"], pendant.DONE)  # l'agent l'a : un redémarrage ne doit plus la relancer
         async for _ in stream:
             pass
@@ -255,7 +255,7 @@ async def chat_while_busy(body: WhileBusy, user: int = Depends(auth.current_user
         machine.add_context(conv_id, f"[Pendant ton travail, la personne a demandé : « {text[:1000]} ». Il lui a été répondu : « {reply} ».]\n\n")
     elif kind == "precision":
         pendant.move(request_id, (pendant.TRI,), pendant.SENDING)  # à partir d'ici, un redémarrage ne la rejoue plus
-        outcome = await _steer(agent, conv_id, user, text)
+        outcome = await _steer(agent, conv_id, user, mentions.contexte(user, agent.id, text) + text)
         if outcome == STEER_REFUSED:
             kind, status = "tache", pendant.WAITING
         else:
