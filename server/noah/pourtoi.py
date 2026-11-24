@@ -5,6 +5,7 @@ Ce que liste /api/a-toi, type par type, et quand l'élément est passé :
 | Type                               | Passé quand                                                                              | Où il reste lisible        |
 |------------------------------------|------------------------------------------------------------------------------------------|----------------------------|
 | proposition d'un agent             | l'heure ou le jour qu'elle nomme est passé (propositions.echeance), sinon 3 jours       | Activité, « expirée »       |
+| idée du jour sans repère (« idee ») | la fin de son jour chez la personne ; une idée plus récente du même agent la remplace   | Activité, « expirée »       |
 | question d'un agent (et ses choix) | 48 h sans réponse ; sa tâche est finie ou en échec ; un choix : la personne a écrit après | la ligne, avec son état     |
 | question d'un sujet réservé        | comme ci-dessus, mais 7 jours (payer, supprimer pour toujours, secrets et droits, publier) | la ligne, avec son état     |
 | choix resté dans une conversation  | sa question est close, ou la conversation n'a pas bougé depuis 48 h                      | la conversation             |

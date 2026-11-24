@@ -51,14 +51,15 @@ def _plain(texte: str) -> str:
     return re.sub(r"[^a-z0-9/ ]", " ", flat)
 
 
-def echeance(texte: str, created: float, zone=None) -> float:
+def echeance(texte: str, created: float, zone=None, genre: str = "") -> float:
     """Quand cette proposition est passée : la fin du jour qu'elle nomme, sinon created + EXPIRE_JOURS.
 
     Règle (écrite ici, testée dans tests/agents/pour_toi_passe_test.py). Le jour se compte chez la personne, depuis le jour où la proposition
     est née. « aujourd'hui », « ce soir », « maintenant »… : fin de ce jour-là. « demain » : fin du lendemain. « après-demain » : J+2.
     Une date écrite (« le 25 novembre », « 25/11 ») : fin de cette date. Plusieurs repères : le plus proche l'emporte (« je t'audite
     aujourd'hui, ton essai expire dans 3 jours » est passée ce soir). « dans 3 jours » ne compte pas : c'est un fait, pas le moment
-    de la proposition. Aucun repère : la durée habituelle."""
+    de la proposition. Aucun repère : une idée du jour (genre « idee ») est passée à la fin de son jour ; les autres genres gardent
+    la durée habituelle. Une idée plus récente du même agent remplace l'ancienne tout de suite (sweep)."""
     if zone is None:
         from . import updates
         zone = updates.local_zone()
@@ -79,7 +80,10 @@ def echeance(texte: str, created: float, zone=None) -> float:
         marks += _date(born, int(m.group(1)), _MOIS[m.group(2)], None, end_of)
     for m in _DATE_NUM.finditer(plain):
         marks += _date(born, int(m.group(1)), int(m.group(2)), m.group(3), end_of)
-    return min(marks) if marks else created + EXPIRE
+    if marks:
+        return min(marks)
+    # Une « idée du jour » sans repère est du jour : passée à la fin de ce jour, chez la personne (même fuseau que les heures actives).
+    return end_of(born) if genre == "idee" else created + EXPIRE
 
 
 def _date(born: datetime, day: int, month: int, year: str | None, end_of) -> list[float]:
@@ -98,8 +102,14 @@ def sweep(now: float | None = None) -> int:
     now = now or time.time()
     gone = []
     with db.connect() as c:
-        for r in c.execute("SELECT id, texte, created FROM propositions WHERE etat = 'ouverte'").fetchall():
-            if echeance(r["texte"], r["created"]) <= now:
+        newest: dict[str, tuple[float, str]] = {}  # par agent, l'idée ouverte la plus récente : les plus anciennes lui cèdent la place
+        rows = c.execute("SELECT id, agent_id, genre, texte, created FROM propositions WHERE etat = 'ouverte' ORDER BY created, id").fetchall()
+        for r in rows:
+            if r["genre"] == "idee":
+                newest[r["agent_id"]] = (r["created"], r["id"])
+        for r in rows:
+            replaced = r["genre"] == "idee" and newest[r["agent_id"]][1] != r["id"]
+            if replaced or echeance(r["texte"], r["created"], genre=r["genre"]) <= now:
                 gone.append(r["id"])
         for pid in gone:
             c.execute("UPDATE propositions SET etat = 'expiree' WHERE id = ? AND etat = 'ouverte'", (pid,))
@@ -149,6 +159,7 @@ def create(agent_id: str, genre: str, texte: str, demande: str, day: str, conv_i
                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                   (prop_id, agent_id, access.owner_of(agent_id), genre, texte.strip()[:TEXT_MAX], demande.strip()[:DEMAND_MAX], day,
                    conv_id, message_id, time.time()))
+    sweep()  # une idée plus récente remplace tout de suite l'ancienne du même agent
     from . import bus
     bus.invalidate_all()  # « À toi » se relit
     return prop_id

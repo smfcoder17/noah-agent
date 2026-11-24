@@ -90,7 +90,7 @@ for key, text, created in [
     ("aujourdhui_ce_jour", "Je te prépare aujourd'hui une lead magnet.", now - 60),
     ("date_future", f"Je prépare le point pour le {local_now.day:02d}/{local_now.month:02d} sans faute.", now - 3600),
 ]:
-    rows[key] = propositions.create("a1", "idee", text, "Fais-le", "2026-11-20")
+    rows[key] = propositions.create("a1", "traiter", text, "Fais-le", "2026-11-20")
     with db.connect() as c:
         c.execute("UPDATE propositions SET created = ? WHERE id = ?", (created, rows[key]))
 with db.connect() as c:
@@ -186,4 +186,30 @@ mine = [i for i in liste(I)]
 assert all(i.get("id") not in ("q-fraiche", "q-reservee-3j") and i.get("agent_id") != "a2" for i in mine), mine
 assert not any(i.get("type") == "proposition" for i in mine), "une personne invitée ne reçoit pas ce que l'agent propose à son propriétaire"
 print("8. l'invité ne voit ni les questions ni les propositions du propriétaire")
+# --- 9. L'idée du jour sans repère : passée à la fin de son jour ; une plus récente remplace l'ancienne ----------------------------------------------
+with db.connect() as c:
+    c.execute("DELETE FROM propositions")
+assert propositions.echeance("Je peux écrire un script.", lundi, genre="idee") == fin_lundi, "idée du jour : fin de son jour, chez la personne"
+assert propositions.echeance("Je peux écrire un script.", lundi, genre="traiter") == lundi + propositions.EXPIRE, "les autres genres gardent 3 jours"
+assert propositions.echeance("Je peux écrire un script.", stamp(2026, 11, 23, 23) + 30 * 60, genre="idee") == fin_lundi, "née à 23 h 30 : elle part à minuit, pas 24 h plus tard"
+hier = propositions.create("a1", "idee", "Une idée d'hier sans date.", "Fais-le", "2026-11-22")
+with db.connect() as c:
+    c.execute("UPDATE propositions SET created = ? WHERE id = ?", (time.time() - 30 * 3600, hier))
+assert hier not in [i["id"] for i in liste() if i.get("type") == "proposition"], "l'idée d'un autre jour est passée, sans repère de date"
+ce_jour = propositions.create("a1", "idee", "Une idée du jour sans date.", "Fais-le", "2026-11-23")
+autre_agent = propositions.create("a2", "idee", "Une idée d'un autre agent.", "Fais-le", "2026-11-23")
+traite = propositions.create("a1", "traiter", "Un travail préparé, sans date.", "Fais-le", "2026-11-23")
+with db.connect() as c:
+    c.execute("UPDATE propositions SET created = ? WHERE id = ?", (time.time() - 5, ce_jour))
+    c.execute("UPDATE propositions SET created = ? WHERE id = ?", (time.time() - 3600, traite))
+if datetime.now(PARIS).hour >= 1:  # l'heure de naissance doit rester dans le même jour que maintenant, pour que le test ne dépende pas de minuit
+    shown = {i["id"] for i in liste() if i.get("type") == "proposition"}
+    assert {ce_jour, autre_agent, traite} <= shown, shown
+nouvelle = propositions.create("a1", "idee", "Une idée plus récente.", "Fais-le", "2026-11-23")
+shown = {i["id"] for i in liste() if i.get("type") == "proposition"}
+assert nouvelle in shown and ce_jour not in shown, "l'idée plus récente du même agent remplace l'ancienne tout de suite"
+assert autre_agent in shown and traite in shown, "l'idée d'un autre agent et un travail préparé ne sont pas touchés"
+exp = [p["id"] for p in A.get("/api/activite").json()["propositions_expirees"]]
+assert {hier, ce_jour} <= set(exp), "les deux restent lisibles dans Activité, « expirée »"
+print("9. idée du jour sans repère : fin de son jour ; une plus récente du même agent la remplace ; les autres genres gardent 3 jours")
 print("Tout est tenu.")

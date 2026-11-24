@@ -457,7 +457,7 @@ print("12. un tour de lui-même coupé (machine, redémarrage) reprend une fois 
 
 with db.connect() as c:
     c.execute("DELETE FROM propositions")
-pid = propositions.create("neuf", "idee", "Une vieille idée", "Fais-le", "2026-11-18", conv)
+pid = propositions.create("neuf", "traiter", "Un vieux travail préparé", "Fais-le", "2026-11-18", conv)  # lot 044 : une idée du jour part à la fin de son jour ; les autres genres gardent 3 jours
 assert [i["id"] for i in a_toi()] == [pid]
 with db.connect() as c:
     c.execute("UPDATE propositions SET created = ? WHERE id = ?", (time.time() - 49 * 3600, pid))
