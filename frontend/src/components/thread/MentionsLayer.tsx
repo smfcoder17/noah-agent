@@ -47,12 +47,17 @@ export default function MentionsLayer({ field, agentId }: { field: HTMLElement; 
   const [active, setActive] = useState(0);
   const [focused, setFocused] = useState(() => !!el && document.activeElement === el);
   const dismissed = useRef<number | null>(null);
+  const forgetLater = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(forgetLater.current), []);
 
   // --- Ce qu'on tape ---
   const sync = useCallback(() => {
     if (!el) return;
     setText(el.value);
-    prune(agentId, el.value);
+    // Un champ vidé par l'envoi se vide avant que le message ne soit écrit avec ses liens : on n'oublie les pastilles qu'un instant après.
+    clearTimeout(forgetLater.current);
+    if (el.value) prune(agentId, el.value);
+    else forgetLater.current = setTimeout(() => prune(agentId, el.value), 3000);
     const caret = el.selectionStart ?? el.value.length;
     const found = el.selectionEnd !== el.selectionStart ? null : detectTrigger(el.value, caret, mentionsOf(agentId));
     if (found?.start !== dismissed.current) dismissed.current = null; // un autre mot, ou plus de mot : Échap est oublié

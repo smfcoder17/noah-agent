@@ -272,6 +272,17 @@ it("un toucher choisit sans enlever le focus du champ, et le message garde ses p
   expect(lisible(sent)).toBe("Regarde @plan.md avec @Marie");
 });
 
+it("le champ vidé par l'envoi n'efface pas les pastilles avant que le message ne soit écrit avec ses liens", async () => {
+  const id = newAgent();
+  await mount(id);
+  await type("Regarde @pl");
+  await press("Enter");
+  await type("Regarde @plan.md ");
+  await type(""); // l'envoi vide le champ ; le message est écrit juste après (un chargement de morceau, un tour de boucle)
+  expect(mentionsOf(id).size).toBe(1);
+  expect(serialize(id, "Regarde @plan.md ")).toBe("Regarde [@plan.md](noah:fichier/outputs/plan.md) ");
+});
+
 it("téléphone (390 px, pointeur tactile) : la liste s'ouvre, se touche, et reste dans la saisie", async () => {
   phone.coarse = true;
   Object.defineProperty(window, "innerWidth", { value: 390, configurable: true });
