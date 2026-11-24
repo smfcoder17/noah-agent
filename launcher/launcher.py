@@ -18,6 +18,7 @@ from pathlib import Path
 
 import docker
 
+import aiguillage
 import restore
 import updater
 from docker.errors import NotFound
@@ -834,9 +835,28 @@ def sortie_legacy() -> None:
     threading.Thread(target=run, daemon=True).start()
 
 
+def _agent_proxy_env(agent_id: str) -> dict[str, str]:
+    """Les outils de l'agent (terminal, curl, web, recherche) sortent par l'aiguillage, comme son navigateur : sans cela, un
+    site voit l'adresse du serveur même quand la personne a choisi la sortie de chez elle. Hermes lit HTTP(S)_PROXY et NO_PROXY
+    (majuscules et minuscules) et les transmet à ses outils. Restent directs : ce serveur, par où passent tous les appels de
+    modèle et de fournisseur (RELAY_URL : l'agent n'a aucune clé et ne parle à aucun fournisseur), le navigateur de l'agent,
+    l'aiguillage, le réseau Docker et le réseau local (l'aiguillage les refuserait de toute façon)."""
+    return aiguillage.env_proxy_agent(SORTIE, SORTIE_PORT, [SERVER_NAME, BROWSER_PREFIX + agent_id])
+
+
+def _agent_on_proxy(c) -> bool:
+    env = dict(e.split("=", 1) for e in (c.attrs.get("Config", {}).get("Env") or []) if "=" in e)
+    return env.get("HTTPS_PROXY") == f"http://{SORTIE}:{SORTIE_PORT}"
+
+
+def _agents_on_proxy() -> bool:
+    return any(_agent_on_proxy(a) for a in client.containers.list(all=True, filters={"label": LABEL}))
+
+
 def _browsers_on_proxy() -> bool:
-    return any(_version_proxy(b.labels.get("noah.browser.version", ""))
-               for b in client.containers.list(all=True, filters={"label": BROWSER_LABEL}))
+    """Un navigateur ou un agent créé avec le proxy s'y accroche : l'aiguillage ne part pas, il reste vidé (direct seulement)."""
+    return _agents_on_proxy() or any(_version_proxy(b.labels.get("noah.browser.version", ""))
+                                     for b in client.containers.list(all=True, filters={"label": BROWSER_LABEL}))
 
 
 def _sortie_cleanup(emptied: bool = False) -> None:
@@ -851,6 +871,21 @@ def _sortie_cleanup(emptied: bool = False) -> None:
             _make_aiguillage([])
         return
     _remove_container(c)
+
+
+def _agents_vers_aiguillage() -> None:
+    """Une sortie vient d'être choisie : les agents d'avant n'ont pas le proxy dans leur environnement, que Docker ne change pas
+    sur un conteneur qui existe. Chacun est recréé une fois (même image, même volume, même jeton), comme pour l'isolement ; ensuite
+    le choix de la sortie (maison, VPN, serveur) se fait dans l'aiguillage, sans rien redémarrer."""
+    with updater._lock:
+        try:
+            if updater.load_state().get("en_cours") or not _sortie_ready():
+                return  # une mise à jour recrée déjà le parc ; sortie retirée entre-temps
+        except updater.Corrupt:
+            return
+        for c in client.containers.list(all=True, filters={"label": LABEL}):
+            if not c.name.endswith("-ancien") and not _agent_on_proxy(c):
+                _recreate_isolated(c, "sur l'aiguillage de sortie", _agent_proxy_env(c.labels.get(LABEL) or c.name[len(PREFIX):]))
 
 
 def _sortie_report(wait: bool = False) -> dict:
@@ -874,7 +909,10 @@ def sortie_apply(body: SortieConfig):
     """Pose la configuration complète des sorties : crée, remplace ou retire ce qui a changé, laisse en place ce qui n'a pas changé.
     Les clés viennent du serveur (qui les garde scellées) et ne sont jamais renvoyées."""
     with _sortie_lock:
-        return _apply_sortie(body)
+        out = _apply_sortie(body)
+    if body.maison or body.vpn:
+        threading.Thread(target=_agents_vers_aiguillage, daemon=True).start()  # après la réponse : le verrou du parc se libère avec elle
+    return out
 
 
 # --- Fichiers de l'espace de travail ----------------------------------------------
@@ -1204,6 +1242,7 @@ def _run_agent(agent_id: str, api_key: str, folders: list[Folder]):
     image = updater.pinned("hermes", IMAGE)
     _ensure_image(image)
     _ensure_agents_network()
+    proxy = _sortie_ready()  # une sortie réseau est configurée : les outils web de l'agent sortent par l'aiguillage, comme son navigateur
     c = client.containers.create(
         image,
         command="gateway run",
@@ -1213,6 +1252,7 @@ def _run_agent(agent_id: str, api_key: str, folders: list[Folder]):
         environment={
             "API_SERVER_ENABLED": "true",
             "API_SERVER_HOST": "0.0.0.0",
+            **(_agent_proxy_env(agent_id) if proxy else {}),
         },
         volumes=volumes,
         network=NETWORK,
@@ -1638,7 +1678,7 @@ def _isolate_existing() -> None:
                 _recreate_isolated(c)
 
 
-def _recreate_isolated(c) -> None:
+def _recreate_isolated(c, quoi: str = "isolé (cap_drop ALL)", env: dict | None = None) -> None:
     name, running = c.name, c.status == "running"
     if _exists_container(name + "-ancien"):
         print(f"[lanceur] isolement de {name} remis : {name}-ancien existe déjà", flush=True)
@@ -1651,15 +1691,18 @@ def _recreate_isolated(c) -> None:
         c.reload()
         hc = c.attrs["HostConfig"]  # _create_like recopie cette configuration : on y pose l'isolement
         hc.update(CapDrop=["ALL"], CapAdd=list(AGENT_CAPS), SecurityOpt=sorted(set(hc.get("SecurityOpt") or []) | {"no-new-privileges"}))
+        if env:  # _create_like recopie aussi l'environnement : on y pose le proxy
+            cfg = c.attrs["Config"]
+            cfg["Env"] = [e for e in (cfg.get("Env") or []) if e.split("=", 1)[0] not in env] + [f"{k}={v}" for k, v in env.items()]
         updater._create_like(c, name, c.image.id)
         new = client.containers.get(name)
         new_id = new.id
         if running:
             new.start()
             if not updater.healthy(name, 120):
-                raise RuntimeError("l'agent ne répond pas une fois isolé")
+                raise RuntimeError("l'agent ne répond pas une fois recréé")
         c.remove(force=True)
-        print(f"[lanceur] {name} recréé isolé (cap_drop ALL)", flush=True)
+        print(f"[lanceur] {name} recréé {quoi}", flush=True)
     except Exception as e:  # noqa: BLE001 — l'ancien conteneur revient tel quel
         print(f"[lanceur] isolement de {name} annulé : {e}", flush=True)
         if new_id:

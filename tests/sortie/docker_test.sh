@@ -11,7 +11,7 @@ HERE="$(pwd -W 2>/dev/null || pwd)"
 P=noahtest-sortie
 NET=$P-net
 cleanup() {
-  docker rm -f $P-site $P-maison $P-vpn $P-aig $P-aig2 >/dev/null 2>&1 || true
+  docker rm -f $P-agent $P-site $P-maison $P-vpn $P-aig $P-aig2 >/dev/null 2>&1 || true
   docker network rm $NET >/dev/null 2>&1 || true
 }
 cleanup
@@ -23,7 +23,7 @@ docker build -q -t noahtest/sortie-lanceur launcher >/dev/null
 PY=python:3.12-slim
 docker image inspect $PY >/dev/null 2>&1 || docker pull -q $PY >/dev/null
 T="-v $HERE/tests/sortie:/t:ro"
-docker run -d --name $P-site --network $NET --network-alias site.essai.test $T $PY python /t/site_faux.py >/dev/null
+docker run -d --name $P-site --network $NET --network-alias site.essai.test --network-alias direct.essai.test $T $PY python /t/site_faux.py >/dev/null
 docker run -d --name $P-maison --network $NET $T $PY python /t/amont_faux.py >/dev/null
 docker run -d --name $P-vpn --network $NET $T $PY python /t/amont_faux.py >/dev/null
 ip() { docker inspect -f "{{(index .NetworkSettings.Networks \"$NET\").IPAddress}}" "$1"; }
@@ -56,6 +56,35 @@ doit() {  # ce que le faux site doit voir, et pourquoi
 doit $MAISON "toutes les sorties répondent : la maison"
 doit $MAISON "la maison, encore"
 echo "1. avec les deux sorties, tout passe par la maison ($MAISON)"
+
+# Les outils d'un agent : un conteneur de l'image Hermes figée, avec les variables que le lanceur pose (aiguillage.env_proxy_agent). Un site
+# vu par curl ou par Python (requests, httpx) passe par l'aiguillage ; un nom de la liste NO_PROXY (le serveur Noah, le navigateur de
+# l'agent : ici direct.essai.test) reste direct. L'image pèse 4 Go : sans elle sur la machine, cette partie est sautée.
+HERMES=$(sed -n 's/^IMAGE = os.environ.get("AGENT_IMAGE", "\(.*\)")$/\1/p' launcher/launcher.py)
+if docker image inspect "$HERMES" >/dev/null 2>&1; then
+  ENVS=$(docker run --rm noahtest/sortie-lanceur python -c "import sys; sys.path.insert(0, '/app'); import aiguillage; print('\n'.join(f'{k}={v}' for k, v in aiguillage.env_proxy_agent('$P-aig', 3128, ['direct.essai.test']).items()))")
+  set --; for e in $ENVS; do set -- "$@" -e "$e"; done
+  docker run -d --name $P-agent --network $NET --entrypoint sleep "$@" "$HERMES" 300 >/dev/null
+  AGENT=$(ip $P-agent)
+  PYA=/opt/hermes/.venv/bin/python
+  agent_voit() {  # outil, URL ; ce que le faux site a vu
+    case $1 in
+      curl) docker exec $P-agent curl -fsS -m 20 "$2" ;;
+      tunnel) docker exec $P-agent curl -fsS -m 20 -p "$2" ;;
+      requests) docker exec $P-agent $PYA -c "import requests,sys; print(requests.get(sys.argv[1], timeout=20).text)" "$2" ;;
+      httpx) docker exec $P-agent $PYA -c "import httpx,sys; print(httpx.get(sys.argv[1], timeout=20).text)" "$2" ;;
+    esac
+  }
+  for outil in curl tunnel requests httpx; do
+    got=$(agent_voit $outil http://site.essai.test:8080/ 2>&1) || true
+    [ "$got" = "ip=$MAISON" ] || fail "outil $outil de l'agent : le site a vu « $got », attendu ip=$MAISON (la sortie maison)"
+    got=$(agent_voit $outil http://direct.essai.test:8080/ 2>&1) || true
+    [ "$got" = "ip=$AGENT" ] || fail "outil $outil de l'agent, nom dans NO_PROXY : le site a vu « $got », attendu ip=$AGENT (direct)"
+  done
+  echo "1b. les outils de l'agent (curl, tunnel CONNECT, requests, httpx) sortent par la maison ($MAISON) ; un nom de NO_PROXY reste direct ($AGENT)"
+else
+  echo "1b. sauté : l'image Hermes figée n'est pas sur cette machine"
+fi
 
 docker stop -t 1 $P-maison >/dev/null
 doit $VPN "maison coupée : la connexion suivante passe tout de suite par le VPN, sans erreur"
