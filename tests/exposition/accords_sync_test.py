@@ -241,7 +241,8 @@ with serve() as base, httpx.Client(base_url=base, headers=headers(web_token), ti
     main._save_message(choice_conv, "agent", "Quelle option ?")
     main.task_state[choice_conv] = "choice"
     with db.connect() as c:
-        c.execute("UPDATE conversations SET updated_at = '2020-01-01 00:00:00' WHERE id = ?", (choice_conv,))
+        # lot 044 : un choix sans mouvement depuis 48 h est passé (pourtoi.py) ; une heure plus tôt reste une date plus ancienne que les accords
+        c.execute("UPDATE conversations SET updated_at = datetime('now', '-1 hour') WHERE id = ?", (choice_conv,))
     inbox = web.get("/api/a-toi").json()
     assert all(isinstance(item["created"], (int, float)) for item in inbox)
     assert sorted(inbox, key=lambda item: item["created"])[0]["conversation_id"] == choice_conv
