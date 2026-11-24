@@ -73,6 +73,12 @@ KNOWN = {
     # Connexion « Sign in with ChatGPT », faite par l'app de bureau sur le PC de la personne quand elle la lance (desktop/chatgpt.js) ;
     # la doc d'OpenAI n'est citée qu'en commentaire
     "auth.openai.com": "à la demande", "developers.openai.com": "lien montré",
+    # Installation de Claude Code et de Grok par l'app de bureau, sur le PC de la personne et seulement avec son accord (desktop/installateur.js) ;
+    # le serveur n'y touche pas. Le reste n'est cité qu'en commentaire (documentation d'Anthropic, de xAI et d'OpenAI)
+    "claude.ai": "à la demande", "x.ai": "à la demande",
+    "code.claude.com": "lien montré", "docs.x.ai": "lien montré", "learn.chatgpt.com": "lien montré",
+    # Adresses d'exemple écrites dans les tests de l'interface (fournisseur vLLM local, mentions), jamais appelées
+    "vllm.local": "exemple", "exemple.fr": "exemple",
     # Pages où la personne crée sa clé, et sources citées en commentaire : jamais appelées par le serveur
     "dashboard.stripe.com": "lien montré", "console.apify.com": "lien montré", "support.airtable.com": "lien montré",
     "docs.stripe.com": "lien montré", "docs.apify.com": "lien montré",
