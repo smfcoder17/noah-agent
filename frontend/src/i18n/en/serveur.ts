@@ -418,7 +418,7 @@ export default {
   "Connecteur inconnu.": "Unknown connector.",
   "Route du fournisseur non permise": "This provider route is not allowed",
   "Requête trop grande.": "Request too large.",
-  "Ouvre Noah Agent sur ton ordinateur et allume cet abonnement dans son menu Abonnements, puis réessaie.": "Open Noah Agent on your computer and turn this subscription on in its Subscriptions menu, then try again.",
+  "Cet abonnement n'est pas encore prêt : branche-le depuis l'application de bureau Noah Agent (Réglages > Fournisseurs), puis réessaie.": "This subscription is not ready yet: connect it from the Noah Agent desktop app (Settings > Providers), then try again.",
   "Pas de conversation pour poser cette question.": "No conversation to ask this question from.",
   "Question introuvable ou déjà réglée.": "Question not found or already settled.",
   "Cette question n'est pas à toi.": "This question is not yours.",

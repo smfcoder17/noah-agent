@@ -1,7 +1,7 @@
 // Faux binaire `claude` pour les tests : mêmes formes de sortie que la CLI (auth status --json, -p --output-format stream-json).
 // Il écrit vraiment dans son dossier de travail, et note ses arguments dans FAUX_CLAUDE_TRACE.
 //   « LENT » dans la consigne : il travaille longtemps (arrêt, délai) ; « LIMITE » : la limite de l'abonnement est atteinte.
-import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const args = process.argv.slice(2);
@@ -10,9 +10,16 @@ const say = (event) => process.stdout.write(JSON.stringify(event) + "\n");
 // D8 : variables qui feraient facturer l'API au lieu de l'abonnement ; elles ne doivent jamais arriver ici. NOAH_GARDE prouve que le reste passe.
 const billing = () => Object.keys(process.env).filter((k) => /^(anthropic|claude)_/i.test(k));
 
+// FAUX_CLAUDE_ETAT : un fichier qui dit « connecté » ; `auth login --claudeai` le crée (FAUX_CLAUDE_LOGIN=0 : la connexion échoue).
+if (args[0] === "auth" && args[1] === "login") {
+  trace({ args, connexion: true });
+  if (process.env.FAUX_CLAUDE_LOGIN === "0") process.exit(1);
+  if (process.env.FAUX_CLAUDE_ETAT) writeFileSync(process.env.FAUX_CLAUDE_ETAT, "connecte");
+  process.exit(0);
+}
 if (args[0] === "auth" && args[1] === "status") {
   // La vraie CLI rend aussi l'e-mail et l'organisation : Noah ne doit pas les garder.
-  const connected = process.env.FAUX_CLAUDE_CONNECTE !== "0";
+  const connected = process.env.FAUX_CLAUDE_ETAT ? existsSync(process.env.FAUX_CLAUDE_ETAT) : process.env.FAUX_CLAUDE_CONNECTE !== "0";
   process.stdout.write(JSON.stringify({ loggedIn: connected, authMethod: "claude.ai", subscriptionType: "max", apiProvider: "firstParty",
     email: "franck@exemple.fr", orgId: "org-secret", orgName: "Org secrète" }));
   process.exit(0);

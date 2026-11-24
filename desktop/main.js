@@ -780,19 +780,38 @@ const installLog = (line) => {
 const REASONS = { reseau: "installation.erreur.reseau", adresse: "installation.erreur.adresse", installateur: "installation.erreur.installateur",
   introuvable: "installation.erreur.introuvable", delai: "installation.erreur.delai", plateforme: "installation.erreur.plateforme" };
 
-/** Rend vrai quand la CLI est là (déjà présente, ou installée à l'instant). Faux : refus de la personne, ou erreur déjà montrée. */
-async function ensureCli(which) {
+/** Installe la CLI si elle manque (accord, installateur officiel). Rend { ok } | { refuse } | { erreur : mot court } ; aucune fenêtre d'échec. */
+async function installCli(which, onStep = () => {}) {
   const mod = which === "claude" ? claude : grok;
-  if (mod.locate()) return true;
+  if (mod.locate()) return { ok: true };
   const r = await installer.ensure(which, {
     locate: mod.locate,
     confirm: (src, url) => askSystem(t("installation.accord", { nom: src.nom, editeur: src.editeur, site: src.site, mo: src.mo }), t("installation.detail", { adresse: url }), t("installation.bouton")),
-    onProgress: (step) => { installing = { which, step }; subscriptionsChanged(); },
+    onProgress: (step) => { installing = { which, step }; onStep(step); subscriptionsChanged(); },
     log: installLog,
   });
   installing = null;
   await mod.detect().catch(() => {});
   subscriptionsChanged();
+  return r;
+}
+
+// L'écran Réglages > Fournisseurs enchaîne les mêmes gestes que le menu Abonnements : un seul « Brancher » (brancher.js).
+const plugger = require("./brancher").create({
+  claude, grok, chatgpt,
+  install: installCli,
+  consent: (which) => (which === "claude"
+    ? askSystem(t("abonnement.claude.cerveau"), t("abonnement.claude.cerveau_avertissement"), t("abonnement.allumer"))
+    : askSystem(t("abonnement.grok.permis"), t("abonnement.grok.avertissement"), t("abonnement.allumer"))),
+  openExternal: (url) => { shell.openExternal(url).catch(() => {}); },
+  read: readConfig, write: writeConfig,
+  changed: () => subscriptionsChanged(),
+  limits: () => readChatgptLimits(),
+});
+
+/** Rend vrai quand la CLI est là (déjà présente, ou installée à l'instant). Faux : refus de la personne, ou erreur déjà montrée. */
+async function ensureCli(which) {
+  const r = await installCli(which);
   if (r.refuse) return false;
   if (r.erreur) {
     const key = REASONS[r.erreur] || "installation.erreur.installateur";
@@ -1040,6 +1059,11 @@ ipcMain.handle("noah:relais", (e) => (origin && sameOrigin(e.senderFrame.url) ? 
 ipcMain.handle("noah:relais-activer", (e, on) => (origin && sameOrigin(e.senderFrame.url) ? setRelais(on) : null));
 // Langue des pages locales (écran de connexion) : la même que les menus et les boîtes de l'app.
 ipcMain.handle("noah:langue", () => langue());
+
+// Réglages > Fournisseurs, dans l'app : brancher un abonnement (Claude Code, ChatGPT, Grok) sans passer par le menu. Page du serveur seulement.
+const fromPage = (e) => Boolean(origin && sameOrigin(e.senderFrame.url));
+ipcMain.handle("noah:abonnement-brancher", (e, which) => (fromPage(e) ? plugger.plug(String(which)) : null));
+ipcMain.handle("noah:abonnement-etat", (e, which) => (fromPage(e) ? { etat: plugger.state(String(which)), ...plugger.summary(String(which)) } : null));
 
 // Page de Noah (app reliée à un serveur) : appareil déconnecté côté serveur, l'utilisateur le relie de nouveau.
 ipcMain.handle("noah:forget-server", async (e) => {

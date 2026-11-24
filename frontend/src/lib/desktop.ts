@@ -26,7 +26,12 @@ export type NoahDesktop = {
   /** Sortie réseau : l'état du relais de cet ordinateur et son interrupteur. Absents d'une application trop ancienne. */
   relais?(): Promise<RelaisBureau | null>;
   relaisActiver?(on: boolean): Promise<RelaisBureau | null>;
+  /** Abonnements (Claude Code, ChatGPT, Grok) : enchaîne détection, installation, connexion et accord sur cet ordinateur. Absents d'une application plus ancienne que la 0.4.3. */
+  abonnementBrancher?(page: string): Promise<BranchementBureau | null>;
+  abonnementEtat?(page: string): Promise<{ etat: BranchementBureau | null; installe: boolean; connecte: boolean; cerveau: boolean; occupe: boolean } | null>;
 };
+/** etape : detection, installation, connexion, accord, pret ou erreur (alors erreur : refus_installation, installation, connexion, refus_accord, inconnu). */
+export type BranchementBureau = { etape: string; detail?: string; code?: string; adresse?: string; erreur?: string };
 export type RelaisBureau = { voulu: boolean; etat: "arret" | "connexion" | "actif" | "remplace"; connexions: number; nom: string };
 
 declare global {

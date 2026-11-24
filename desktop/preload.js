@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld("noahDesktop", {
   version: () => ipcRenderer.invoke("noah:version"),
   relais: () => ipcRenderer.invoke("noah:relais"),
   relaisActiver: (on) => ipcRenderer.invoke("noah:relais-activer", Boolean(on)),
+  abonnementBrancher: (which) => ipcRenderer.invoke("noah:abonnement-brancher", String(which)),
+  abonnementEtat: (which) => ipcRenderer.invoke("noah:abonnement-etat", String(which)),
 });
 
 // Écran du premier lancement seulement (fichier local) : relier l'app à un serveur, ou à Noah sur cet ordinateur.

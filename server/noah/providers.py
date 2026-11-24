@@ -52,6 +52,7 @@ async def list_providers(_user: int = Depends(access.owner_only)):
         return {"id": p, "label": label, "needs_key": v["env"] is not None, "own_url": relay.own_url(p),
                 "connected": branch, "models": count, "base_url": base_of(p) or "", "ordinateur": p in desktop.PC_PROVIDERS,
                 "pret": desktop.pc_ready(p, _user) if p in desktop.PC_PROVIDERS else None,
+                "relie": bool(desktop._known(_user)) if p in desktop.PC_PROVIDERS else None,  # une app de bureau est reliée à ce compte (sinon : lien de téléchargement)
                 "autre": autres.is_other(p), "en_service": p == db.get_setting("provider")}
     return await asyncio.gather(*(describe(p, v) for p, v in hermes.provider_table().items()))
 
@@ -124,7 +125,7 @@ async def connect(provider: str, body: Choice, _user: int = Depends(access.owner
     if not models:
         from . import desktop
         if provider in desktop.PC_PROVIDERS:
-            raise HTTPException(400, "Ouvre Noah Agent sur ton ordinateur et allume cet abonnement dans son menu Abonnements, puis réessaie.")
+            raise HTTPException(400, "Cet abonnement n'est pas encore prêt : branche-le depuis l'application de bureau Noah Agent (Réglages > Fournisseurs), puis réessaie.")
         raise HTTPException(400, "Ce fournisseur ne propose aucun modèle utilisable.")
     remember(provider, key, base)
     if body.nom and body.nom.strip() and autres.is_other(provider):
