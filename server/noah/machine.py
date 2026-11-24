@@ -37,7 +37,7 @@ _routines_connues: dict[str, list[dict]] = {}
 # exec`) : 1 à 4 s. La dernière lecture est donc gardée, par agent. Elle est servie tout de suite ; passé son délai, une relecture part en
 # fond pour la suivante. Remplie par la relève de chaque minute (routines, sans coût de plus : la même lecture que les sorties) et par
 # `keep_machine_warm` (le reste) ; vidée par toute écriture ; forcée par `?frais=1`, comme les connexions plus bas.
-LECTURES_GARDEES = {"routines": 180, "ordinateur": 60, "memoire": 60, "competences": 60}  # secondes avant la relecture en fond ; ordinateur : la taille du dossier de travail
+LECTURES_GARDEES = {"routines": 180, "ordinateur": 60, "memoire": 60, "competences": 60, "skills_resume": 60}  # secondes avant la relecture en fond ; ordinateur : la taille du dossier de travail
 ECRITURES = ("routine_", "competence_", "memoire_", "skill_")  # une action de ce début écrit : ce qui était su n'est plus sûr
 WARM_MAX = 300  # la relève relit en avance ce qui a plus de cinq minutes
 _lus: dict[tuple[str, str], tuple[float, dict]] = {}

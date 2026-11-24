@@ -1,4 +1,4 @@
-import { memo, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, memo, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { ActionBarPrimitive, AttachmentPrimitive, MessagePrimitive, type TextMessagePartProps, useAui, useAuiState } from "@assistant-ui/react";
 import { Check, ChevronUp, Copy, FileText, Loader2, Pencil, Reply, SmilePlus, X, Zap } from "lucide-react";
 import { SensitiveText } from "../SensitiveText";
@@ -15,6 +15,10 @@ import { MarkdownText } from "./Markdown";
 import { OffreCle } from "../OffreCle";
 import { masquerCles } from "@/lib/nettoyage";
 import { LiveStatus, TOOLS } from "./parts";
+import { hasTokens, lisible } from "@/lib/mentionsCore";
+
+// Les pastilles d'un message (@ et /) : lues seulement s'il y en a.
+const MentionText = lazy(() => import("./MentionText"));
 
 // --- Messages ------------------------------------------------------------------------
 
@@ -41,7 +45,7 @@ function UserText({ text }: TextMessagePartProps) {
           <SensitiveText text={masquerCles(q)} />
         </span>
       ))}
-      <SensitiveText text={rest} />
+      {hasTokens(rest) ? <Suspense fallback={<SensitiveText text={lisible(rest)} />}><MentionText text={rest} /></Suspense> : <SensitiveText text={rest} />}
       <OffreCle text={rest} />
     </>
   );
@@ -255,7 +259,7 @@ function TakeBack() {
 
 export function useSentHistory() {
   const sent = useAuiState((s) => s.thread.messages.filter((m) => m.role === "user").map((m) => m.content.map((p) => (p.type === "text" ? p.text : "")).join("").trim()).filter(Boolean).join("\u0000"));
-  return useMemo(() => (sent ? sent.split("\u0000") : []), [sent]);
+  return useMemo(() => (sent ? sent.split("\u0000").map(lisible) : []), [sent]); // retapé, un message garde « @plan.md », sans le lien
 }
 
 /** Bouton flottant sur un passage sélectionné d'une réponse : il le joint au prochain message. */

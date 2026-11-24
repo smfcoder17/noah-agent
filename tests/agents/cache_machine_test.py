@@ -23,6 +23,7 @@ REPONSES = {
     "ordinateur": {"disque": {"total": 10, "libre": 5, "utilise": 5}, "espace_de_travail": 1234, "paquets": []},
     "memoire": {"memory": ["Aime le thé."], "user": [], "limites": {"memory": 2200, "user": 1375}},
     "competences": {"competences": []},
+    "skills_resume": {"skills": []},
     "routine_creer": {"id": "r2", "name": "Nouvelle", "enabled": True, "schedule_display": "every day at 8am", "prompt": "Fais."},
     "memoire_ecrire": {"memory": ["Aime le café."], "user": [], "limites": {"memory": 2200, "user": 1375}},
     "routines_sorties": {"sorties": [], "etats": {}, "routines": [{"id": "r1", "name": "Veille", "enabled": True, "schedule_display": "every 60m", "prompt": "Regarde."}]},
@@ -150,12 +151,12 @@ async def everything():
             pass
         finally:
             machine.asyncio.sleep = real_sleep
-        assert sorted(appels) == sorted(["routines", "ordinateur", "memoire", "competences"] * 2), appels
+        assert sorted(appels) == sorted(["routines", "ordinateur", "memoire", "competences", "skills_resume"] * 2), appels
         appels.clear()
         for chemin in ("routines", "computer", "memory", "competences"):
             assert duree(await A.get(f"/api/agents/a2/{chemin}")) < 100
         assert not appels
-        print("6. keep_machine_warm : quatre lectures par agent, puis tout est servi du cache")
+        print("6. keep_machine_warm : cinq lectures par agent, puis tout est servi du cache")
 
         # 7. Une lecture vieille est servie tout de suite, et relue en fond pour la suivante.
         old, value = machine._lus[("a2", "ordinateur")]

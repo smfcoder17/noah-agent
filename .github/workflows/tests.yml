@@ -46,16 +46,21 @@ jobs:
       - name: "Tâches : la ligne de tâche du fil (repliée, dépliée, on y entre), la place des tâches dans le fil, la barre sans historique (0.4.0, L1)"
         run: npm test -- src/components/thread/TacheLigne.test.tsx src/components/SideRail.test.tsx
         working-directory: frontend
+      - name: "Citer avec @ et / dans la saisie : ouverture, filtre, touches, pastille supprimable, e-mail et chemin sans déclenchement, téléphone (390 px), pastilles du fil"
+        run: npm test -- src/components/thread/Mentions.test.tsx src/components/thread/MentionText.test.tsx
+        working-directory: frontend
       # Construit l'interface une fois, puis lit le résultat : poids gzip du premier écran et compression de chaque voie (B2, B2 bis),
       # requêtes dans un vrai navigateur sur le vrai serveur d'essai (B1), débordement de 320 à 1920 px (B3). B1 et B3 passent
       # par Playwright (dépendance de développement de frontend) et le Chrome du poste ; sans eux, ils disent « NON MESURÉ ».
-      - name: "Interface construite, budget B2, B2 bis, B1 et B3 : poids du premier écran, compression, requêtes à l'ouverture, débordement horizontal"
+      # citer.mjs : taper @ et /, choisir, envoyer, puis lire ce que le faux moteur a reçu (tests/real/citer_serveur.py), ordinateur et 390 px.
+      - name: "Interface construite, budget B2, B2 bis, B1 et B3, citer avec @ et / de bout en bout : poids du premier écran, compression, requêtes à l'ouverture, débordement horizontal"
         run: |
           npm run build --prefix frontend
           rc=0
           node tools/eval/poids.mjs || rc=1
           node tools/eval/ouverture.mjs || rc=1
           node tools/eval/debordement.mjs || rc=1
+          node tools/eval/citer.mjs || rc=1
           exit $rc
       - name: "Durée des routes, budget B4 : 95e centile sous 300 ms, maximum sous 1 s, lanceur lent de 1,5 s, base remplie"
         run: |
@@ -285,6 +290,10 @@ jobs:
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \
             "pip install -q -r /app/requirements.txt && python /tests/taches/recherche_test.py"
+      - name: "Citer avec @ et / : suggestions d'agents, de fichiers et de compétences réservées à qui peut parler à l'agent, rien hors de l'espace de travail (.., lien, caché), cache sous 100 ms, ce que l'agent reçoit pour chaque pastille"
+        run: |
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/launcher:/l:ro" -v "$PWD/tests:/tests" python:3.12-slim sh -c \
+            "pip install -q -r /app/requirements.txt && python /tests/agents/mentions_test.py"
       - name: "Barre de gauche : GET /api/agents dit ce que chaque agent fait (tâche en cours, attend, chef d'équipe et ses tâches suivies, aucun message), sans les tâches d'un autre compte (0.4.0, L9b)"
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \

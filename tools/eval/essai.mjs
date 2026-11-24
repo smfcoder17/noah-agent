@@ -12,14 +12,14 @@ export const racine = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..
 export const COMPTE = { nom: "alice", motDePasse: "motdepasse-essai" };
 
 /** Rend { base, arreter }. */
-export async function demarrer() {
+export async function demarrer(script = "fil_long_serveur.py") {
   if (process.env.NOAH_BASE) return { base: process.env.NOAH_BASE, arreter: async () => {} };
   process.env.MSYS_NO_PATHCONV = "1";
   const ici = process.platform === "win32" ? execFileSync("bash", ["-c", "pwd -W"], { cwd: racine }).toString().trim() : racine;
   const nom = `noah-budget-essai-${process.pid}`;
   execFileSync("docker", ["run", "-d", "--name", nom, "-p", "127.0.0.1:18098:8099", "-e", "NOAH_WEB_DIR=/web",
     "-v", "noah-pip-cache:/root/.cache/pip", "-v", `${ici}/server:/app`, "-v", `${ici}/tests:/tests`, "-v", `${ici}/frontend/dist:/web`,
-    "python:3.12-slim", "sh", "-c", "pip install -q -r /app/requirements.txt uvicorn && python /tests/real/fil_long_serveur.py"], { stdio: "pipe" });
+    "python:3.12-slim", "sh", "-c", "pip install -q -r /app/requirements.txt uvicorn && python /tests/real/" + script], { stdio: "pipe" });
   const arreter = async () => { try { execFileSync("docker", ["rm", "-f", nom], { stdio: "pipe" }); } catch { /* déjà parti */ } };
   const base = "http://127.0.0.1:18098";
   const fin = Date.now() + 240000;

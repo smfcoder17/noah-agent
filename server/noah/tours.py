@@ -15,7 +15,7 @@ from fastapi import Request, Depends, HTTPException, APIRouter
 from pydantic import BaseModel
 
 from .hermes import Agent
-from . import desktop, mcp, session, diagnostics, updates, notifications, machine, access, chauffe, auth, db, proactif, push, apprentissage, pendant, handoff, coordination, relay, recu, hermes, events, accords, bus, nettoyage, taches, questions, main
+from . import desktop, mcp, session, diagnostics, updates, notifications, machine, access, chauffe, auth, db, proactif, push, apprentissage, pendant, handoff, coordination, relay, recu, hermes, events, accords, bus, nettoyage, taches, questions, main, mentions
 
 router = APIRouter()
 
@@ -147,7 +147,7 @@ async def _run(agent: Agent, conv_id: str, prompt: str, details: bool = False, c
     main._save_message(conv_id, author, prompt)
     if author == "user":
         questions.fermer_choix(conv_id)  # 0.4.0 : la personne a écrit dans la conversation, les choix qui attendaient sont réglés
-        taches.premier_message(conv_id, prompt)  # 0.4.0 : une nouvelle discussion prend le titre de ce qu'on y demande
+        taches.premier_message(conv_id, mentions.lisible(prompt))  # 0.4.0 : une nouvelle discussion prend le titre de ce qu'on y demande
     # Configuration qui sert à cette exécution (preuve de l'essai de l'assistant) : celle que l'agent a vraiment reçue.
     rev = main._config_rev(agent.id)
     if db.get_setting(f"applied:{agent.id}") != rev:
