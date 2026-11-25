@@ -234,6 +234,7 @@ export default {
   "Invité": "Guest",
   "Des routines viennent de passer": "Routines have just run",
   "Appeler {nom}": "Call {nom}",
+  "Ordinateur de {nom}": "{nom}'s computer",
   "Ouvrir ou fermer le panneau": "Open or close the panel",
   "S'est arrêté": "Stopped",
   "Écrire à {nom}": "Write to {nom}",

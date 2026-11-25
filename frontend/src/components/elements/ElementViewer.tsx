@@ -6,10 +6,11 @@ import { Dialog, DialogContent } from "../ui";
 import { SENSITIVE_MARKDOWN } from "../SensitiveMarkdown";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { useContext, useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import { elementName, elementUrl, sourceName, type ElementSpec } from "@/lib/elements";
 import { askAgent } from "@/lib/askAgent";
 import { SandboxedFrame } from "./SandboxedFrame";
+import { ImageStage } from "./ImageStage";
 import { useDownload } from "../Viewer";
 import { Chart } from "../Widgets";
 import { locale, t } from "@/i18n";
@@ -42,8 +43,6 @@ export function ElementViewer({ spec, onClose }: { spec: ElementSpec; onClose?: 
   const [actionError, setActionError] = useState("");
   const [error, setError] = useState(false), [zoom, setZoom] = useState(1), [page, setPage] = useState(1);
   const [loaded, setLoaded] = useState((spec.size ?? 0) <= 10_000_000);
-  const points = useRef(new Map<number, { x: number; y: number }>());
-  const gesture = useRef<{ distance: number; zoom: number; y: number } | null>(null);
   const data = spec.data ?? {};
   const [enabled, setEnabled] = useState(Boolean(data.active ?? data.enabled));
   const [fields, setFields] = useState<Record<string, string>>({});
@@ -92,10 +91,7 @@ export function ElementViewer({ spec, onClose }: { spec: ElementSpec; onClose?: 
     {spec.description && <p><SensitiveText text={spec.description} /></p>}
     {error ? <p role="alert">{t("Fichier introuvable.")} <button onClick={() => setError(false)}>{t("Réessayer")}</button></p>
       : !loaded ? <div><p>{t("Fichier volumineux.")} <SensitiveText text={spec.description || t("Aperçu sur demande.")} /></p><button onClick={() => setLoaded(true)}>{t("Charger l'aperçu")}</button></div>
-      : spec.kind === "image" && url ? <div className="image-stage" onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); points.current.set(e.pointerId, { x: e.clientX, y: e.clientY }); const p = [...points.current.values()]; gesture.current = { distance: p.length === 2 ? Math.hypot(p[1].x - p[0].x, p[1].y - p[0].y) : 0, zoom, y: e.clientY }; }}
-        onPointerMove={(e) => { if (!points.current.has(e.pointerId)) return; points.current.set(e.pointerId, { x: e.clientX, y: e.clientY }); const p = [...points.current.values()], g = gesture.current; if (p.length === 2 && g?.distance) setZoom(Math.max(1, Math.min(4, g.zoom * Math.hypot(p[1].x - p[0].x, p[1].y - p[0].y) / g.distance))); }}
-        onPointerUp={(e) => { if (points.current.size === 1 && zoom === 1 && gesture.current && e.clientY - gesture.current.y > 120) onClose?.(); points.current.delete(e.pointerId); }} onPointerCancel={(e) => points.current.delete(e.pointerId)}>
-        <img src={url} alt={display(spec.description || spec.title)} onError={() => setError(true)} style={{ transform: `scale(${zoom})` }} /><label>{t("Zoom")} <input type="range" min="1" max="4" step=".1" value={zoom} onChange={(e) => setZoom(Number(e.target.value))} /></label></div>
+      : spec.kind === "image" && url ? <ImageStage src={url} alt={display(spec.description || spec.title)} onError={() => setError(true)} onClose={onClose} />
       : spec.kind === "pdf" && url ? <><div className="flex gap-3 items-center"><button disabled={page === 1} onClick={() => setPage(page - 1)}>{t("Page précédente")}</button><span>{t("Page {n}", { n: page })}{Number(data.pages) > 0 ? ` / ${Number(data.pages)}` : ""}</span><button disabled={Number(data.pages) > 0 && page >= Number(data.pages)} onClick={() => setPage(page + 1)}>{t("Page suivante")}</button><label>{t("Zoom")} <input type="range" min=".5" max="3" step=".1" value={zoom} onChange={(e) => setZoom(Number(e.target.value))} /></label></div><SandboxedFrame title={elementName(spec)} src={url.split("#")[0] + `#page=${page}&zoom=${zoom * 100}`} className="element-frame" onError={() => setError(true)} /></>
       : spec.kind === "page" && url ? (pagePath && !pageLink ? <p role="status" className="text-sm text-muted-foreground">{t("Chargement…")}</p> : <SandboxedFrame title={elementName(spec)} src={pageLink || url} className="element-frame" onError={() => setError(true)} />)
       : spec.kind === "video" && url ? <video src={url} controls playsInline preload="metadata" className="element-frame max-h-[70vh] w-full bg-black" onError={() => setError(true)}>{t("Ce format vidéo n'est pas lu par ce navigateur.")} <button onClick={() => download(url, spec.title)}>{t("Télécharger")}</button></video>

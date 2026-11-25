@@ -1,7 +1,8 @@
-// Les icônes du haut à droite de la conversation, celles du prototype « Fil calme » : appeler l'agent, ouvrir ou fermer le panneau de droite.
+// Les icônes du haut à droite de la conversation, celles du prototype « Fil calme » : appeler l'agent, son ordinateur (accès direct
+// à son écran, demandé par Franck en 0.4.4), ouvrir ou fermer le panneau de droite.
 // Les contenus de l'agent (Activité, Tâches, Fichiers, Ordinateur, Session, Connexions) et les détails techniques sont dans le panneau,
 // sous forme d'onglets ; l'appel est le mode vocal, qui était à côté de la saisie.
-import { PanelRight, Phone, Search } from "lucide-react";
+import { Monitor, PanelRight, Phone, Search } from "lucide-react";
 import type { PanelTab } from "./SidePanel";
 import { type Agent, canTalk } from "@/lib/api";
 import { MODE_VOCAL } from "@/lib/workPanel";
@@ -11,13 +12,16 @@ type Props = { agent: Agent | null; active: PanelTab | null; onOpen: (tab: Panel
 
 const call = () => window.dispatchEvent(new Event(MODE_VOCAL));
 
-/** Appeler, puis le panneau. Sur ordinateur dans l'en-tête du fil ; sur téléphone dans celui du téléphone (voir WorkMenu). */
+/** Appeler, l'ordinateur, puis le panneau. Sur ordinateur dans l'en-tête du fil ; sur téléphone dans celui du téléphone (voir WorkMenu). */
 function Icons({ agent, active, onOpen, onSearch }: Props) {
   return (
     <>
       {onSearch && <button type="button" className="icon-btn cible-tactile" aria-label={t("Rechercher")} title={t("Rechercher")} onClick={onSearch}><Search size={18} aria-hidden /></button>}
       <button type="button" className="icon-btn cible-tactile" aria-label={t("Appeler {nom}", { nom: agent?.name ?? "" })} title={t("Appeler {nom}", { nom: agent?.name ?? "" })} disabled={!agent || !canTalk(agent)} onClick={call}>
         <Phone size={18} aria-hidden />
+      </button>
+      <button type="button" className="icon-btn cible-tactile" aria-label={t("Ordinateur de {nom}", { nom: agent?.name ?? "" })} title={t("Ordinateur de {nom}", { nom: agent?.name ?? "" })} aria-pressed={active === "computer"} disabled={!agent || !canTalk(agent)} onClick={() => onOpen("computer")}>
+        <Monitor size={18} aria-hidden />
       </button>
       <button type="button" className="icon-btn cible-tactile" aria-label={t("Ouvrir ou fermer le panneau")} title={t("Ouvrir ou fermer le panneau")} aria-pressed={!!active} disabled={!agent} onClick={() => onOpen(active ?? "activity")}>
         <PanelRight size={18} aria-hidden />

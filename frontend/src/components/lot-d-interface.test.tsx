@@ -58,16 +58,18 @@ const until = async (selector: string) => {
   expect(host.querySelector(selector), selector).not.toBeNull();
 };
 
-it("D1 — en haut à droite, les deux icônes du prototype : appeler l'agent, ouvrir ou fermer le panneau", async () => {
+it("D1 — en haut à droite : appeler l'agent, son ordinateur, ouvrir ou fermer le panneau", async () => {
   const open = vi.fn(), called = vi.fn();
   window.addEventListener(MODE_VOCAL, called);
   await act(async () => root.render(<WorkBar agent={agent()} active={null} onOpen={open} />));
   const icons = [...host.querySelectorAll<HTMLButtonElement>(".work-bar button")];
-  expect(icons.map((b) => b.getAttribute("aria-label"))).toEqual(["Appeler Noah", "Ouvrir ou fermer le panneau"]);
+  expect(icons.map((b) => b.getAttribute("aria-label"))).toEqual(["Appeler Noah", "Ordinateur de Noah", "Ouvrir ou fermer le panneau"]);
   for (const b of icons) expect(b.textContent).toBe(""); // icône seule : le nom est dans aria-label et title
   await act(async () => icons[0].click());
   expect(called).toHaveBeenCalledTimes(1); // l'appel est le mode vocal, qui était à côté de la saisie
   await act(async () => icons[1].click());
+  expect(open).toHaveBeenLastCalledWith("computer"); // l'écran de l'agent en un clic
+  await act(async () => icons[2].click());
   expect(open).toHaveBeenLastCalledWith("activity");
   // Panneau ouvert : le bouton est marqué et rend l'onglet courant (App le referme).
   await act(async () => root.render(<WorkBar agent={agent()} active="files" onOpen={open} />));
@@ -77,7 +79,7 @@ it("D1 — en haut à droite, les deux icônes du prototype : appeler l'agent, o
   // Sur ordinateur, la recherche est la première icône (comme dans le prototype) ; elle ouvre la même recherche que Ctrl K.
   const search = vi.fn();
   await act(async () => root.render(<WorkBar agent={agent()} active={null} onOpen={open} onSearch={search} />));
-  expect([...host.querySelectorAll(".work-bar button")].map((b) => b.getAttribute("aria-label"))).toEqual(["Rechercher", "Appeler Noah", "Ouvrir ou fermer le panneau"]);
+  expect([...host.querySelectorAll(".work-bar button")].map((b) => b.getAttribute("aria-label"))).toEqual(["Rechercher", "Appeler Noah", "Ordinateur de Noah", "Ouvrir ou fermer le panneau"]);
   await act(async () => byLabel("Rechercher")!.click());
   expect(search).toHaveBeenCalledTimes(1);
   window.removeEventListener(MODE_VOCAL, called);
@@ -313,14 +315,14 @@ it("D5 — repliée en icônes seules, et toujours repliée après rechargement"
   expect(shell).toContain("grid-template-columns:var(--rail-width) minmax(0,1fr)");
 });
 
-it("E1 — téléphone : Pour toi (avec son nombre), appeler et le panneau, tout à droite de l'en-tête", async () => {
+it("E1 — téléphone : Pour toi (avec son nombre), appeler, l'ordinateur et le panneau, tout à droite de l'en-tête", async () => {
   wide = false;
   const open = vi.fn(), inbox = vi.fn();
   await act(async () => root.render(<MobileHeader agent={agent()} status="En ligne" onMenu={vi.fn()} onAgent={vi.fn()}
     menu={<WorkMenu agent={agent()} active={null} onOpen={open} waiting={2} onInbox={inbox} />} />));
   const bar = host.querySelector("header")!.lastElementChild!;
   expect(bar.classList.contains("work-bar")).toBe(true); // tout à droite
-  expect([...bar.querySelectorAll("button")].map((b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual(["Pour toi2", "Appeler Noah", "Ouvrir ou fermer le panneau"]);
+  expect([...bar.querySelectorAll("button")].map((b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual(["Pour toi2", "Appeler Noah", "Ordinateur de Noah", "Ouvrir ou fermer le panneau"]);
   await act(async () => bar.querySelector<HTMLButtonElement>(".pour-toi-pill")!.click());
   expect(inbox).toHaveBeenCalledTimes(1);
   await act(async () => byLabel("Ouvrir ou fermer le panneau")!.click());
