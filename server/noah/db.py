@@ -277,7 +277,7 @@ def init() -> None:
         _adopt(db)
         # 0.3.0 : le coffre appartient à la personne (coffre.py), partagé par ses agents selon un droit par agent.
         db.execute("CREATE TABLE IF NOT EXISTS coffre (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
-                   "genre TEXT NOT NULL DEFAULT 'login' CHECK (genre IN ('login', 'carte', 'totp')), nom TEXT NOT NULL DEFAULT '', "
+                   "genre TEXT NOT NULL DEFAULT 'login' CHECK (genre IN ('login', 'carte', 'totp', 'cle_api')), nom TEXT NOT NULL DEFAULT '', "
                    "origine TEXT NOT NULL DEFAULT '', secret TEXT NOT NULL, created_at REAL NOT NULL, used_at REAL)")
         db.execute("CREATE INDEX IF NOT EXISTS coffre_user ON coffre(user_id, genre)")
         db.execute("CREATE TABLE IF NOT EXISTS coffre_agents (agent_id TEXT PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE, "
@@ -358,6 +358,36 @@ def init() -> None:
         db.commit()  # le changement de journal ne se fait pas au milieu d'une transaction
         # WAL : les lectures ne bloquent plus pendant une écriture (flux de chat et relais en parallèle).
         db.execute("PRAGMA journal_mode = WAL")
+    _allow_api_keys()
+
+
+def _allow_api_keys() -> None:
+    """0.4.4 : le coffre accepte le genre `cle_api`. SQLite ne change pas un CHECK en place : une base d'avant refait la table (les
+    douze étapes de sqlite.org), clés étrangères éteintes le temps de la copie pour que coffre_retraits ne soit pas vidée en cascade."""
+    db = sqlite3.connect(DATA_DIR / "noah.db", isolation_level=None)
+    try:
+        row = db.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'coffre'").fetchone()
+        if not row or "cle_api" in row[0]:
+            return
+        db.execute("PRAGMA foreign_keys = OFF")
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            db.execute("CREATE TABLE coffre_neuf (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
+                       "genre TEXT NOT NULL DEFAULT 'login' CHECK (genre IN ('login', 'carte', 'totp', 'cle_api')), nom TEXT NOT NULL DEFAULT '', "
+                       "origine TEXT NOT NULL DEFAULT '', secret TEXT NOT NULL, created_at REAL NOT NULL, used_at REAL)")
+            db.execute("INSERT INTO coffre_neuf (id, user_id, genre, nom, origine, secret, created_at, used_at) "
+                       "SELECT id, user_id, genre, nom, origine, secret, created_at, used_at FROM coffre")
+            db.execute("DROP TABLE coffre")
+            db.execute("ALTER TABLE coffre_neuf RENAME TO coffre")
+            db.execute("CREATE INDEX IF NOT EXISTS coffre_user ON coffre(user_id, genre)")
+            if db.execute("PRAGMA foreign_key_check").fetchall():
+                raise sqlite3.IntegrityError("foreign_key_check")
+            db.execute("COMMIT")
+        except Exception:
+            db.execute("ROLLBACK")
+            raise
+    finally:
+        db.close()
 
 
 def _adopt(db) -> None:

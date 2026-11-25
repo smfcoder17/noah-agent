@@ -19,6 +19,10 @@ hors de portée de l'agent. Le mot de passe ne retourne jamais vers un navigateu
   remplit sans rien demander ; plusieurs, la carte demande lequel ; aucun, la carte demande l'identifiant ;
 - de même pour un code : une clé d'authentificateur du site retenue, le serveur calcule et tape le code lui-même ;
 - le modèle ne reçoit d'un identifiant que son nom, son site et ses deux premiers caractères.
+
+0.4.4 : les clés d'API (genre `cle_api`). L'agent ne les lit jamais : action=api_keys les liste (nom, service, identifiant opaque), et
+action=api_request demande au serveur de faire la requête, qui ajoute l'en-tête, ne joint que l'origine du service enregistré, ne suit
+aucune redirection, borne la taille et le délai, et masque la clé si la réponse la répète (voir « Les clés d'API » plus bas).
 """
 import asyncio
 import base64
@@ -34,7 +38,7 @@ import secrets
 import struct
 import time
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urljoin, urlsplit
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -461,6 +465,141 @@ async def _fill_saved(agent_id: str, handle: str, session: str = "", said_harden
     return await _use_login(agent_id, page, row)
 
 
+# --- Les clés d'API : l'agent demande au serveur de s'en servir, il ne les lit jamais ---------------------------------------
+# Une clé d'API (genre `cle_api`) n'est jamais remise à l'agent : il choisit une clé par son identifiant opaque, et le serveur de Noah
+# ajoute l'en-tête, envoie la requête et rend la réponse. Seule l'origine du service enregistré est jointe ; une autre est refusée, et une
+# redirection n'est jamais suivie. Une réponse qui répéterait la clé est masquée avant de repartir vers l'agent.
+API_METHODS = ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE")
+API_READS = ("GET", "HEAD")
+API_HEADER = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,63}")
+API_KEY = re.compile(r"[\x21-\x7e]{1,4096}")  # sans espace ni caractère de contrôle : la clé finit dans un en-tête
+API_MAX_RESPONSE = 200_000  # octets lus ; le reste est coupé, et l'agent le sait
+API_MAX_REQUEST = 60_000
+API_SECONDS = 30
+API_TEXT = re.compile(r"^(text/|application/(json|xml|x-ndjson|ndjson|javascript|x-www-form-urlencoded|[\w.+-]*\+(json|xml)))", re.I)
+
+
+def _api_rows(agent_id: str):
+    return _rows(agent_id, "cle_api")
+
+
+def _api_keys(agent_id: str) -> dict:
+    """Les clés d'API que cet agent peut faire utiliser : nom, service, identifiant opaque. Jamais la valeur."""
+    items = [{"handle": row["id"], "name": _label(row), "service": row["origine"], "header": _secret(row).get("entete") or "Authorization"}
+             for row in _api_rows(agent_id)]
+    out = {"success": True, "items": items}
+    if not may_use(agent_id):
+        out["hint"] = "Le coffre de la personne n'est pas ouvert à cet agent."
+    elif not items:
+        out["hint"] = "Aucune clé d'API rangée au coffre. La personne la range dans Réglages > Coffre."
+    return out
+
+
+def _api_target(row, url: str) -> str:
+    """L'adresse à joindre, sur l'origine de la clé et nulle part ailleurs. Une adresse relative (« /v1/models ») s'y ajoute."""
+    url = (url or "").strip()
+    if not url or len(url) > 2000 or re.search(r"[\s\\\x00-\x1f\x7f]", url):
+        raise ValueError("Adresse illisible.")
+    if url.startswith("//"):
+        raise PermissionError
+    if url.startswith("/"):
+        return row["origine"] + url
+    parts = urlsplit(url)
+    if parts.username is not None or parts.password is not None or "@" in parts.netloc:
+        raise PermissionError
+    if origin_of(url) != row["origine"] or parts.scheme not in ("http", "https") or "://" not in url:
+        raise PermissionError
+    return url
+
+
+def _scrub_key(text: str, key: str) -> str:
+    """La clé, et ses écritures usuelles (JSON, adresse), remplacées : une API qui répète l'en-tête reçu ne la fait pas arriver à l'agent."""
+    for form in {key, json.dumps(key)[1:-1], quote(key, safe=""), quote(key)}:
+        if form:
+            text = text.replace(form, "[clé masquée]")
+    return text
+
+
+async def _api_request(agent_id: str, body: dict, said_hardened: bool = False) -> dict:
+    handle = str(body.get("handle") or "")
+    row = next((r for r in _api_rows(agent_id) if r["id"] == handle), None)
+    if not may_use(agent_id):
+        return _refused("no_right", "Le coffre de la personne n'est pas ouvert à cet agent.")
+    if not row:
+        return _refused("unknown_handle", "Clé inconnue : regarde action=api_keys.")
+    if not _owner_turn(agent_id):
+        return _refused("not_owner", "Les clés rangées sont celles du propriétaire de l'agent, et cette tâche n'est pas la sienne.")
+    method = str(body.get("method") or "GET").upper()
+    if method not in API_METHODS:
+        return _refused("bad_method", "Méthode permise : " + ", ".join(API_METHODS) + ".")
+    if method not in API_READS and await _hardened(agent_id, str(body.get("session") or ""), said_hardened):
+        return _refused("hardened", "Ce tour a lu un contenu qui donne des consignes : Noah n'envoie aucune requête qui écrit avec une clé sans la personne. "
+                                    "Une lecture (GET) reste possible ; sinon, demande-lui.")
+    try:
+        address = _api_target(row, str(body.get("url") or ""))
+    except PermissionError:
+        return _refused("origin_refused", f"Refusé : cette clé ne sert que sur {row['origine']}. Rien n'a été envoyé.")
+    except ValueError as e:
+        return _refused("bad_url", str(e))
+    content, content_type = None, None
+    payload = body.get("body")
+    if payload is not None and method not in API_READS:
+        content = (payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)).encode()
+        if len(content) > API_MAX_REQUEST:
+            return _refused("too_big", "Corps trop long.")
+        try:
+            json.loads(content)
+            content_type = "application/json"
+        except ValueError:
+            content_type = "text/plain; charset=utf-8"
+    secret = _secret(row)
+    key, header = secret.get("cle") or "", secret.get("entete") or ""
+    if not key:
+        return _refused("unreadable", "Cette clé est illisible : la personne doit la remplacer dans Réglages > Coffre.")
+    from . import mcp
+    mcp._scope(agent_id)
+    try:
+        target = await mcp.resolve(address)  # revérifiée à chaque requête ; la connexion part vers l'IP vérifiée
+    except (mcp.Refused, mcp.Down) as e:
+        return _refused("address_refused", str(e))
+    headers = {"Host": target.host_header, "Accept": "application/json, text/plain;q=0.9, */*;q=0.1", "User-Agent": "Noah-Agent/1",
+               "Accept-Encoding": "identity", (header or "Authorization"): key if header and header.lower() != "authorization" else f"Bearer {key}"}
+    if content_type:
+        headers["Content-Type"] = content_type
+    try:
+        async with asyncio.timeout(API_SECONDS + 6):
+            async with httpx.AsyncClient(timeout=httpx.Timeout(API_SECONDS, connect=6), follow_redirects=False, trust_env=False) as c:
+                async with c.stream(method, target.pinned, headers=headers, content=content, extensions=target.extensions) as r:
+                    data, cut = bytearray(), False
+                    async for chunk in r.aiter_bytes():
+                        data += chunk
+                        if len(data) > API_MAX_RESPONSE:
+                            data, cut = data[:API_MAX_RESPONSE], True
+                            break
+                    status, kind, location = r.status_code, r.headers.get("content-type", ""), r.headers.get("location", "")
+                    retry = r.headers.get("retry-after", "")
+    except (httpx.HTTPError, httpx.InvalidURL, TimeoutError, OSError) as e:  # jamais le texte de l'exception : il peut citer l'adresse interne
+        why = "délai dépassé" if isinstance(e, (httpx.TimeoutException, TimeoutError)) else "connexion impossible"
+        return _refused("unreachable", f"Le service ne répond pas ({why}).")
+    with db.connect() as c:
+        c.execute("UPDATE coffre SET used_at = ? WHERE id = ?", (time.time(), row["id"]))
+    out = {"success": 200 <= status < 400, "status": status, "content_type": _scrub_key(kind.split(";")[0].strip().lower(), key)}
+    if retry:
+        out["retry_after"] = _scrub_key(retry[:40], key)
+    if 300 <= status < 400:
+        out["redirect"] = ("redirection non suivie : " + _scrub_key(location[:300], key)) if location and origin_of(urljoin(address, location)) == row["origine"] \
+            else "redirection vers une autre origine, non suivie"
+    if method == "HEAD":
+        return out
+    if kind and not API_TEXT.match(kind):
+        out["body"] = f"[contenu non texte, {len(data)} octets, non transmis]"
+        return out
+    out["body"] = _scrub_key(bytes(data).decode("utf-8", errors="replace"), key)
+    if cut:
+        out["truncated"] = True
+    return out
+
+
 async def _ask(agent_id: str, kind: str, session: str, said_hardened: bool = False) -> dict:
     """Le serveur regarde d'abord le coffre : un seul élément pour cette origine exacte, hors tour durci, il remplit lui-même. Sinon
     il ouvre la carte (les comptes du même site y sont proposés, avec leur adresse), et rend {attente: id}, ou ce qui l'empêche."""
@@ -545,9 +684,13 @@ async def agent_vault(request: Request):
         return await _fill_saved(agent_id, str(body.get("handle") or ""), str(body.get("session") or ""), said_hardened)
     if action in ("save_login", "enter_code"):
         return await _ask(agent_id, "connexion" if action == "save_login" else "code", str(body.get("session") or ""), said_hardened)
+    if action == "api_keys":
+        return _api_keys(agent_id)
+    if action == "api_request":
+        return await _api_request(agent_id, body, said_hardened)
     if action == "unlock":
         return _refused("no_manager", "Aucun gestionnaire de mots de passe externe n'est branché sur cet agent.")
-    return _refused("unknown_action", "Action inconnue : list, fill, save_login ou enter_code.")
+    return _refused("unknown_action", "Action inconnue : list, fill, save_login, enter_code, api_keys ou api_request.")
 
 
 def _agents_own(agent_id: str, ask_id: str) -> dict:
@@ -748,6 +891,8 @@ def _preview(row) -> str:
     if row["genre"] == "carte":
         number = secret.get("numero") or ""
         return f"{_brand(number)} •••• {number[-4:]} · {secret.get('expiration') or ''}"
+    if row["genre"] == "cle_api":
+        return secret.get("entete") or "Authorization"  # le nom de l'en-tête, jamais la clé
     return ""
 
 
@@ -805,7 +950,20 @@ def _validated(body: dict, genre: str, before: dict | None = None) -> tuple[str,
         if not key:
             raise HTTPException(400, "Cette clé d'authentificateur n'est pas valide.")
         return name, origin, {"cle": key}
-    raise HTTPException(400, "Type inconnu : identifiant, carte ou clé d'authentificateur.")
+    if genre == "cle_api":
+        origin = origin_of(_text(body, "origine", 500)) if body.get("origine") is not None else before.get("_origine", "")
+        if not origin:
+            raise HTTPException(400, "Donne l'adresse de base de l'API (ex. https://api.openai.com).")
+        header = _text(body, "entete", 64).strip() if body.get("entete") is not None else before.get("entete", "")
+        if header.lower() == "authorization":
+            header = ""  # l'en-tête par défaut : Authorization: Bearer <clé>
+        if header and not API_HEADER.fullmatch(header):
+            raise HTTPException(400, "Nom d'en-tête invalide (lettres, chiffres et tirets, ex. x-api-key).")
+        key = _text(body, "cle", 4096) or before.get("cle", "")
+        if not API_KEY.fullmatch(key):
+            raise HTTPException(400, "Saisis la clé d'API (sans espace).")
+        return name or site_of(origin), origin, {"cle": key, "entete": header}
+    raise HTTPException(400, "Type inconnu : identifiant, carte, clé d'authentificateur ou clé d'API.")
 
 
 def _mine(user: int, item_id: str):
@@ -847,7 +1005,7 @@ async def change_in_vault(item_id: str, request: Request, user: int = Depends(au
     before = _secret(row)
     name, origin, secret = _validated(body, row["genre"], {**before, "_origine": row["origine"], "_nom": row["nom"]})
     # Changer l'adresse ou l'identifiant, c'est décider où ce secret sera tapé : la même preuve que pour le voir (relecture D2).
-    if origin != row["origine"] or secret.get("identifiant") != before.get("identifiant"):
+    if origin != row["origine"] or secret.get("identifiant") != before.get("identifiant") or secret.get("entete") != before.get("entete"):
         from . import main
         main._prove_if_needed(request, user, _text(body, "motdepasse", 256), _text(body, "code", 32),
                               "Confirme ton mot de passe pour changer l'adresse ou l'identifiant.")
@@ -879,7 +1037,8 @@ async def reveal(item_id: str, request: Request, user: int = Depends(auth.curren
         except (ValueError, TypeError):  # binascii.Error en est une : une clé abîmée en base, sans la citer
             raise HTTPException(422, "Cette clé d'authentificateur est illisible : remplace-la.") from None
         return {"cle": secret.get("cle", ""), "code": code}
-    return {k: v for k, v in secret.items() if k in ("identifiant", "mot_de_passe", "numero", "expiration", "titulaire")}
+    return {k: v for k, v in secret.items() if k in ("identifiant", "mot_de_passe", "numero", "expiration", "titulaire")
+            or row["genre"] == "cle_api" and k in ("cle", "entete")}
 
 
 CSV_COLUMNS = {

@@ -661,13 +661,19 @@ VAULT_SCHEMA = {
         "Noah le tape lui-même s'il a la clé d'authentificateur du site, sinon il le demande de la même façon) ; list (les identifiants retenus : "
         "nom, site, deux premiers caractères) ; fill (handle : remplit avec cet identifiant, seulement sur son adresse exacte) ; wait (handle : la personne n'a pas encore répondu, error_type=still_waiting, et tu continues d'attendre sa carte). "
         "Ne tape, ne demande et ne répète jamais un mot de passe ou un code toi-même. Après chaque action, relis la page. "
-        "Arrête-toi sur save_declined. Sur page=meme, le site a peut-être refusé : dis ce qu'il indique."
+        "Arrête-toi sur save_declined. Sur page=meme, le site a peut-être refusé : dis ce qu'il indique. "
+        "Clés d'API de la personne : api_keys liste celles que tu peux utiliser (nom, service, handle), jamais la valeur ; api_request (handle, url, method, body) "
+        "demande à Noah d'appeler le service avec la clé, que tu ne vois jamais. À utiliser quand une tâche appelle une API payante ou privée de la personne : "
+        "l'url doit être sur l'adresse du service (une adresse relative comme /v1/models s'y ajoute), sinon Noah refuse."
     ),
     "parameters": {
         "type": "object",
         "properties": {
-            "action": {"type": "string", "enum": ["list", "fill", "save_login", "enter_code", "wait"]},
-            "handle": {"type": "string", "description": "fill : un handle donné par list. wait : celui de still_waiting."},
+            "action": {"type": "string", "enum": ["list", "fill", "save_login", "enter_code", "wait", "api_keys", "api_request"]},
+            "handle": {"type": "string", "description": "fill : un handle donné par list. wait : celui de still_waiting. api_request : celui d'une clé donnée par api_keys."},
+            "url": {"type": "string", "description": "api_request : l'adresse à appeler, sur le service de la clé (ou son chemin, /v1/models)."},
+            "method": {"type": "string", "enum": ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"], "description": "api_request : GET par défaut."},
+            "body": {"type": "string", "description": "api_request : le corps (JSON en texte), pour POST, PUT et PATCH."},
         },
         "required": ["action"],
     },
@@ -703,6 +709,14 @@ def _vault_tool(args: dict, session_id: str | None = None, **_) -> str:
         return json.dumps({"success": False, "error_type": "prompt_unavailable",
                            "error": "Personne ne peut répondre pendant une routine. Préviens la personne et continue sans."}, ensure_ascii=False)
     handle = str((args or {}).get("handle") or "")
+    if action in ("api_keys", "api_request"):  # la clé reste au serveur : il fait la requête, et rend une réponse sans elle
+        words = {"action": action, "session": session_id or "", "durci": max(_hardened.get(session_id or "", 0), _reported_hardened.get(session_id or "", 0)) > time.time()}
+        if action == "api_request":
+            body = (args or {}).get("body")
+            words.update(handle=handle, url=str((args or {}).get("url") or ""), method=str((args or {}).get("method") or "GET"),
+                         body=body if body is None or isinstance(body, str) else json.dumps(body))
+        out = _vault_call("coffre", json.dumps(words))
+        return json.dumps({"success": False, "error": str(out["erreur"])[:300]} if "erreur" in out else out, ensure_ascii=False)
     # browser_vault ne passe pas par le juge (NO_EFFECT) : le serveur doit apprendre ici qu'un contenu de dehors a donné des consignes
     # dans ce tour, même quand il n'a pas pu le savoir lui-même. Il ne tape alors rien d'office (coffre._hardened).
     hardened = max(_hardened.get(session_id or "", 0), _reported_hardened.get(session_id or "", 0)) > time.time()
@@ -1199,6 +1213,8 @@ def no_effect(tool_name: str, args: dict | None) -> bool:
         return False
     if tool_name in ("browser_navigate", "web_extract") and long_address(tool_name, args):
         return False  # une adresse sert aussi à emporter des données : requête, chemin, sous-domaine
+    if tool_name == "browser_vault" and str(args.get("action") or "") == "api_request":
+        return str(args.get("method") or "GET").upper() in ("GET", "HEAD")  # une écriture avec la clé passe par le juge ; une lecture non
     if tool_name in NO_EFFECT:
         return True
     if tool_name == "browser_navigate":
@@ -1629,6 +1645,8 @@ def signs_in(text: str) -> tuple[str, re.Match | None]:
 def _is_untrusted(tool_name: str, args: dict) -> bool:
     if tool_name in UNTRUSTED_TOOLS or tool_name.startswith("mcp__") or (tool_name.startswith("browser_") and tool_name != "browser_vault"):
         return True
+    if tool_name == "browser_vault":  # la réponse d'une API est écrite par un tiers : triée comme une page
+        return str(args.get("action") or "") == "api_request"
     if tool_name == "terminal":  # un courriel, un événement, un document : écrits par d'autres, triés comme une page
         command = str(args.get("command") or "")
         return bool(READS_OUTSIDE.search(command)) or google_call(command) is not None

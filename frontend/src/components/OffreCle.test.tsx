@@ -29,8 +29,11 @@ it("une clé tapée ici : le texte est masqué, l'offre ouvre le coffre avec la 
   expect(host.textContent).not.toContain(CLE);
   expect(host.textContent).toMatch(/masquée/);
   await act(async () => bouton()!.click());
-  expect(ouvert.props!.initial.mot_de_passe).toBe(CLE);
+  expect(ouvert.props!.initial.cle).toBe(CLE);
   expect(ouvert.props!.initial.nom).toBe("Clé OpenAI");
+  expect(ouvert.props!.initial.origine).toBe("https://api.openai.com"); // l'adresse de l'API, pas celle de la console
+  expect(ouvert.props!.initial.entete).toBe("");
+  expect(ouvert.props!.initial).not.toHaveProperty("mot_de_passe");
   expect(host.querySelector("[data-vault-dialog]")!.textContent).not.toContain(CLE);
   await act(async () => { ouvert.props!.onSaved(); ouvert.props!.onClose(); });
   expect(host.textContent).toContain("Rangée au coffre");
@@ -40,9 +43,17 @@ it("une clé tapée ici : le texte est masqué, l'offre ouvre le coffre avec la 
 it("un ancien message relu : la valeur n'existe plus à l'écran, le formulaire s'ouvre vide et le dit", async () => {
   await rendre("ma clé : ghp_•••• (clé masquée)");
   await act(async () => bouton()!.click());
-  expect(ouvert.props!.initial.mot_de_passe).toBe("");
+  expect(ouvert.props!.initial.cle).toBe("");
   expect(ouvert.props!.initial.nom).toBe("Clé GitHub");
+  expect(ouvert.props!.initial.origine).toBe("https://api.github.com");
   expect(ouvert.props!.description).toMatch(/Colle ta clé/);
+});
+
+it("une clé Anthropic : l'en-tête x-api-key est prérempli avec l'adresse de l'API", async () => {
+  retenirCles(`ma clé sk-ant-${"a1B2c3D4e5F6g7H8i9J0"}`);
+  await rendre(masquer(`ma clé sk-ant-${"a1B2c3D4e5F6g7H8i9J0"}`).texte);
+  await act(async () => bouton()!.click());
+  expect(ouvert.props!.initial).toMatchObject({ nom: "Clé Anthropic", origine: "https://api.anthropic.com", entete: "x-api-key" });
 });
 
 it("deux clés : une offre chacune", async () => {

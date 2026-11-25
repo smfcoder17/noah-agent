@@ -355,10 +355,9 @@ export default {
   "Ranger au coffre": "Save to the vault",
   "Rangée au coffre.": "Saved to the vault.",
   "Clé d'API": "API key",
-  "clé d'API": "API key",
   "Ranger cette clé au coffre": "Save this key to the vault",
-  "La clé est dans le champ « Mot de passe ». Chiffrée sur ton serveur, tes agents s'en servent sans jamais la lire.": "The key is in the “Password” field. Encrypted on your server, your agents use it without ever reading it.",
-  "Colle ta clé dans le champ « Mot de passe » : elle n'est plus dans ce message. Chiffrée sur ton serveur, tes agents s'en servent sans jamais la lire.": "Paste your key in the “Password” field: it is no longer in this message. Encrypted on your server, your agents use it without ever reading it.",
+  "La clé est dans le champ « Clé d'API ». Chiffrée sur ton serveur, tes agents la font utiliser par Noah sans jamais la lire.": "The key is in the “API key” field. Encrypted on your server, your agents have Noah use it without ever reading it.",
+  "Colle ta clé dans le champ « Clé d'API » : elle n'est plus dans ce message. Chiffrée sur ton serveur, tes agents la font utiliser par Noah sans jamais la lire.": "Paste your key in the “API key” field: it is no longer in this message. Encrypted on your server, your agents have Noah use it without ever reading it.",
   // components/thread/MentionsLayer.tsx : citer avec @ et /
   "@ pour citer un agent ou un fichier, / pour une compétence": "@ to mention an agent or a file, / for a skill",
   "Citer un agent, un fichier ou une compétence": "Mention an agent, a file or a skill",
