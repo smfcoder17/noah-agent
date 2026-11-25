@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 
-const { keepSessions } = await import("/p/index.js");
+const { keepSessions, default: register } = await import("/p/index.js");
 
 const events = new EventEmitter();
 const saved = [];
@@ -59,3 +59,59 @@ events.emit("session:destroyed", { userId: "noah" });
 await keep.save();
 assert.equal(saved.length, n, "session fermée : plus rien d'écrit");
 console.log("Sessions du navigateur : photographiées à chaque changement, sans navigation, jamais après fermeture : OK");
+
+// --- GET /sessions/:userId/storage_state ----------------------------------------------------------------------------------
+// La route de Camofox appelle context.storageState() : le serveur de Noah la demandait toutes les 3 min (keep_browser_sessions)
+// et après chaque appel d'aide, et l'écran de l'agent défilait en 0.4.4 malgré le passage régulier corrigé. L'extension la
+// remplace par la même photo sans navigation, et la garde derrière les clés de l'agent et du serveur.
+process.env.CAMOFOX_API_KEY = "cle-agent";
+process.env.NOAH_PRIVATE_KEY = "cle-serveur";
+const events2 = new EventEmitter();
+const written = [];
+events2.on("session:storage:export", ({ storageState }) => written.push(storageState));
+const stack = [];
+register({ use: (fn) => stack.push(fn), router: { stack }, post() {}, get() {} }, { events: events2, log: () => {}, sessions: new Map(), normalizeUserId: String, withUserLimit: (_u, fn) => fn() });
+let calls2 = 0;
+const page2 = { url: () => "https://www.tiktok.com/", evaluate: async () => [{ name: "k", value: "v" }] };
+events2.emit("session:created", { userId: "noah", context: {
+  storageState: async () => { calls2++; return { cookies: [], origins: [] }; },
+  cookies: async () => [{ name: "sessionid" }],
+  pages: () => [page2],
+} });
+const route = (path, key) => new Promise((resolve) => {
+  let status = 200;
+  const res = { headersSent: false, status: (c) => ((status = c), res), json: (data) => { resolve({ status, data }); return res; } };
+  stack[0]({ method: "GET", path, query: {}, headers: { authorization: key && `Bearer ${key}` } }, res, () => resolve({ status: "suivant" }));
+});
+assert.equal((await route("/sessions/noah/storage_state")).status, 403, "sans clé : refusé");
+for (const key of ["cle-serveur", "cle-agent"]) {
+  const r = await route("/sessions/noah/storage_state", key);
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.data.cookies.map((c) => c.name), ["sessionid"]);
+  assert.deepEqual(r.data.origins.map((o) => o.origin), ["https://www.tiktok.com"]);
+}
+assert.equal(written.length, 1, "l'état est écrit sur le volume, une fois tant qu'il ne change pas");
+assert.equal((await route("/sessions/autre/storage_state", "cle-serveur")).status, 404, "pas de session : 404 comme Camofox");
+assert.equal(calls2, 0, "la route n'appelle jamais context.storageState : aucune page cachée sur l'écran de l'agent");
+assert.equal((await route("/tabs", "cle-serveur")).status, "suivant", "les autres routes passent à Camofox");
+console.log("Route storage_state : même photo sans navigation, derrière les clés : OK");
+
+// Un site visité puis quitté entre deux passages : son stockage local est relevé au chargement de la page, et reste gardé.
+const listeners = new Map();
+let url3 = "https://fr.wikipedia.org/wiki/Montr%C3%A9al";
+const page3 = { url: () => url3, on: (name, fn) => listeners.set(name, fn), evaluate: async () => (url3.includes("wikipedia") ? [{ name: "mwprefs", value: "1" }] : []) };
+let onPage;
+events2.emit("session:created", { userId: "lea", context: {
+  storageState: async () => { calls2++; return { cookies: [], origins: [] }; },
+  cookies: async () => [],
+  pages: () => [page3],
+  on: (name, fn) => { if (name === "page") onPage = fn; },
+} });
+assert.equal(typeof onPage, "function", "les pages ouvertes plus tard sont suivies aussi");
+listeners.get("load")();
+await new Promise((ok) => setTimeout(ok, 50)); // le premier relevé part au chargement même
+url3 = "https://example.com/";
+const r3 = await route("/sessions/lea/storage_state", "cle-serveur");
+assert.deepEqual(r3.data.origins.map((o) => o.origin), ["https://fr.wikipedia.org"], "Wikipédia quitté : son stockage reste dans l'état");
+assert.equal(calls2, 0);
+console.log("Site quitté entre deux passages : stockage relevé au chargement, gardé : OK");

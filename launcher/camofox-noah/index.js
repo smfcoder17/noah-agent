@@ -525,7 +525,21 @@ async function fillPage(req, res, ctx) {
 }
 
 export default function register(app, ctx) {
+  let sessions = null; // posé par keepSessions plus bas, avant toute requête
   app.use((req, res, next) => {
+    // GET /sessions/:userId/storage_state de Camofox appelle context.storageState() : pour chaque site sans onglet ouvert,
+    // Playwright ouvre une page cachée et la fait naviguer, et dans Firefox avec un écran elle recouvre l'onglet affiché. Le
+    // serveur de Noah l'appelait toutes les 3 min et après chaque appel d'aide : l'écran de l'agent défilait. Ici, la même
+    // sauvegarde que le passage régulier (cookies et stockage des pages ouvertes), sans rien ouvrir.
+    const stored = req.method === "GET" && /^\/sessions\/([^/]+)\/storage_state$/.exec(req.path);
+    if (stored && sessions) {
+      if (!agentKeyGiven(req) && !serverKeyGiven(req)) return res.status(403).json({ error: "Forbidden" });
+      const userId = decodeURIComponent(stored[1]);
+      return sessions.saveOne(userId).then(
+        (state) => (state ? res.json(state) : res.status(404).json({ error: `No active session for userId="${userId}"` })),
+        (e) => res.status(500).json({ error: String(e.message).slice(0, 200) }),
+      );
+    }
     if (req.method === "POST" && (req.path === "/noah/page" || req.path === "/noah/remplir" || req.path === "/noah/jeton")) {
       if (!serverKeyGiven(req)) return res.status(403).json({ error: "Forbidden" });
       if (req.path === "/noah/jeton") return readToken(req, res, ctx);
@@ -577,7 +591,7 @@ export default function register(app, ctx) {
     };
     ctx.log("info", "noah: nouveaux onglets gardés dans le conteneur de l'agent");
   });
-  keepSessions(ctx);
+  sessions = keepSessions(ctx);
   keepIdentity(ctx);
   keepFingerprint(ctx);
 }
@@ -694,7 +708,11 @@ export function keepSessions(ctx, every = SAVE_EVERY_MS) {
   const options = new Map(); // userId -> options du contexte (chemin de l'état restauré, posé par le module de persistance)
   const origins = new Map(); // userId -> origine -> stockage local connu
   ctx.events.on("session:creating", ({ userId, contextOptions }) => options.set(userId, contextOptions));
-  ctx.events.on("session:created", ({ userId, context }) => live.set(userId, context));
+  ctx.events.on("session:created", ({ userId, context }) => {
+    live.set(userId, context);
+    for (const page of context.pages?.() || []) watch(userId, page);
+    context.on?.("page", (page) => watch(userId, page));
+  });
   ctx.events.on("session:destroyed", ({ userId }) => {
     live.delete(userId);
     last.delete(userId);
@@ -706,7 +724,7 @@ export function keepSessions(ctx, every = SAVE_EVERY_MS) {
   // cette page recouvre l'onglet de l'utilisateur à chaque passage. Ici : les cookies (une connexion tient dans les cookies),
   // le stockage local des pages déjà ouvertes (lu dans la page, sans rien ouvrir) et, pour le reste, ce qui était déjà gardé.
   // L'état complet reste écrit par Camofox à la fermeture propre de la session.
-  const snapshot = async (userId, context) => {
+  const knownOf = (userId) => {
     let known = origins.get(userId);
     if (!known) {
       known = new Map();
@@ -717,28 +735,47 @@ export function keepSessions(ctx, every = SAVE_EVERY_MS) {
       } catch (e) {} // rien de gardé avant : on part des pages ouvertes
       origins.set(userId, known);
     }
+    return known;
+  };
+  /** Le stockage local d'une page ouverte, lu dans la page (rien n'est ouvert ni chargé pour ça). */
+  const readPage = async (known, page) => {
+    try {
+      const origin = new URL(page.url()).origin;
+      if (!/^https?:/.test(origin)) return;
+      const items = await page.evaluate(() => Object.entries(localStorage).map(([name, value]) => ({ name, value })));
+      if (items.length) known.set(origin, { origin, localStorage: items });
+      else known.delete(origin);
+    } catch (e) {} // page fermée, plantée ou sans stockage lisible : on garde ce qu'on savait
+  };
+  // Chaque page chargée est relevée tout de suite, puis 3 s et 10 s après (les sites écrivent souvent leur stockage juste après le
+  // chargement) : un site visité puis quitté entre deux passages garde son stockage local.
+  const RELEVES_MS = [0, 3_000, 10_000];
+  const watch = (userId, page) => page.on?.("load", () => {
+    for (const ms of RELEVES_MS) setTimeout(() => readPage(knownOf(userId), page), ms).unref?.();
+  });
+  const snapshot = async (userId, context) => {
+    const known = knownOf(userId);
     const cookies = await context.cookies();
-    for (const page of context.pages()) {
-      let origin;
-      try {
-        origin = new URL(page.url()).origin;
-        if (!/^https?:/.test(origin)) continue;
-        const items = await page.evaluate(() => Object.entries(localStorage).map(([name, value]) => ({ name, value })));
-        if (items.length) known.set(origin, { origin, localStorage: items });
-        else known.delete(origin);
-      } catch (e) {} // page fermée, plantée ou sans stockage lisible : on garde ce qu'on savait
-    }
+    for (const page of context.pages()) await readPage(known, page);
     return { cookies, origins: [...known.values()] };
   };
+  /** L'état d'une session, écrit sur le volume s'il a changé ; null sans session ouverte. */
+  const saveOne = async (userId) => {
+    const context = live.get(userId);
+    if (!context) return null;
+    const state = await snapshot(userId, context);
+    const text = JSON.stringify(state);
+    if (last.get(userId) !== text) {
+      const emit = ctx.events.emitAsync ? ctx.events.emitAsync.bind(ctx.events) : ctx.events.emit.bind(ctx.events);
+      await emit("session:storage:export", { userId, storageState: state });
+      last.set(userId, text);
+    }
+    return state;
+  };
   const save = async () => {
-    for (const [userId, context] of live) {
+    for (const userId of [...live.keys()]) {
       try {
-        const state = await snapshot(userId, context);
-        const text = JSON.stringify(state);
-        if (last.get(userId) === text) continue;
-        const emit = ctx.events.emitAsync ? ctx.events.emitAsync.bind(ctx.events) : ctx.events.emit.bind(ctx.events);
-        await emit("session:storage:export", { userId, storageState: state });
-        last.set(userId, text);
+        await saveOne(userId);
       } catch (e) {
         ctx.log?.("warn", "noah: session non enregistrée", { error: String(e.message).slice(0, 200) }); // contexte fermé entre-temps
       }
@@ -746,5 +783,5 @@ export function keepSessions(ctx, every = SAVE_EVERY_MS) {
   };
   const timer = setInterval(save, every);
   timer.unref?.();
-  return { save, stop: () => clearInterval(timer) };
+  return { save, saveOne, stop: () => clearInterval(timer) };
 }
