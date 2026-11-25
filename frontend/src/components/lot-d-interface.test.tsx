@@ -23,7 +23,7 @@ vi.mock("@/lib/api", async (original) => ({
   send: vi.fn(async () => ({})),
 }));
 
-import { WorkBar, WorkMenu } from "./WorkBar";
+import { WorkBar, WorkMenu, panneauApres } from "./WorkBar";
 import { ONGLETS_VISIBLES, WorkPanel } from "./WorkPanel";
 import { Files } from "./Files";
 import { Session, SESSION_POLL } from "./Session";
@@ -83,6 +83,15 @@ it("D1 — en haut à droite : appeler l'agent, son ordinateur, ouvrir ou fermer
   await act(async () => byLabel("Rechercher")!.click());
   expect(search).toHaveBeenCalledTimes(1);
   window.removeEventListener(MODE_VOCAL, called);
+});
+
+it("D1 — l'icône de l'ordinateur ouvre son onglet ; celle du panneau le ferme ou le rouvre où on l'avait laissé", () => {
+  // En 0.4.4, App ignorait l'onglet demandé : l'icône de l'ordinateur ouvrait le panneau sur « Travail ».
+  expect(panneauApres(null, "computer", "activity")).toBe("computer");
+  expect(panneauApres("files", "computer", "files")).toBe("computer");
+  expect(panneauApres("computer", "computer", "computer")).toBeNull();
+  expect(panneauApres(null, "activity", "files")).toBe("files");
+  expect(panneauApres("files", "files", "files")).toBeNull();
 });
 
 it("D1 — les contenus de l'agent sont les onglets du panneau, dans l'ordre ; les détails techniques y ont leur interrupteur", async () => {

@@ -12,6 +12,13 @@ type Props = { agent: Agent | null; active: PanelTab | null; onOpen: (tab: Panel
 
 const call = () => window.dispatchEvent(new Event(MODE_VOCAL));
 
+/** Le panneau après un clic sur une icône. L'ordinateur s'ouvre sur son onglet, quel que soit l'onglet affiché, et se referme s'il
+ *  est déjà affiché ; l'icône du panneau le ferme, ou le rouvre sur l'onglet où on l'avait laissé (`garde`). */
+export function panneauApres(ouvert: PanelTab | null, demande: PanelTab, garde: PanelTab): PanelTab | null {
+  if (demande === "computer") return ouvert === "computer" ? null : "computer";
+  return ouvert ? null : garde;
+}
+
 /** Appeler, l'ordinateur, puis le panneau. Sur ordinateur dans l'en-tête du fil ; sur téléphone dans celui du téléphone (voir WorkMenu). */
 function Icons({ agent, active, onOpen, onSearch }: Props) {
   return (

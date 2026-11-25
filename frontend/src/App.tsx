@@ -9,7 +9,7 @@ import { MobileHeader } from "@/components/mobile/MobileHeader";
 import { Drawer } from "@/components/mobile/Drawer";
 import { useNavPrefs, type NavTab } from "@/lib/navPrefs";
 import { PANEL_NAMES, useWide, workTabsFor } from "@/lib/workPanel";
-import { WorkBar, WorkMenu } from "@/components/WorkBar";
+import { WorkBar, WorkMenu, panneauApres } from "@/components/WorkBar";
 import { WorkPanel } from "@/components/WorkPanel";
 import { type Page, agentRepris, finirReprise, noterAgent, repriseEnCours, useNavigation } from "@/lib/navigation";
 import { subscribeUpdates, useAccords } from "@/lib/events";
@@ -341,8 +341,8 @@ function Shell({ onLogout, known }: { onLogout: () => void; known: Me | null }) 
   const wide = useWide();
   const [expanded, setExpanded] = useState(false);
   useEffect(() => { if (!panel) setExpanded(false); }, [panel]);
-  /** L'icône du panneau : elle le ferme, ou le rouvre là où on l'avait laissé. */
-  const togglePanelOpen = () => setPanel(panel ? null : keptPanel.current);
+  /** Les icônes du haut : celle de l'ordinateur ouvre son onglet ; celle du panneau le ferme, ou le rouvre là où on l'avait laissé. */
+  const togglePanelOpen = (tab: PanelTab) => setPanel(panneauApres(panel, tab, keptPanel.current));
   /** L'onglet marqué dans la barre du bas et le tiroir : la session n'y a pas d'onglet, la discussion reste marquée. */
   const navActive: NavTab = panel === "routines" ? "tasks" : panel === "session" || !panel ? "chat" : panel;
   const [liveStatus, setLiveStatus] = useState<string | null>(null);
