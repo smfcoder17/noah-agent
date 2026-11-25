@@ -111,6 +111,57 @@ it("B6 ajouter un identifiant : un vrai formulaire, le mot de passe masqué", as
   expect(host.innerHTML).not.toContain(MDP);
 });
 
+const CLE_API = "sk-faux-Zq81xKLm92pTrW";
+const CLE_ELEMENT = { id: "cle_api_1", genre: "cle_api", nom: "OpenAI", site: "openai.com", origine: "https://api.openai.com", apercu: "Authorization", utilise_a: null };
+
+it("clé d'API : la liste ne porte pas la valeur, voir demande la preuve, la suppression se confirme dans une fenêtre", async () => {
+  const calls = serve({
+    "/api/coffre": { elements: [CLE_ELEMENT], agents: [] },
+    "/api/me/double-verification": { active: false },
+    "POST /api/coffre/cle_api_1/voir": (b: Record<string, unknown>) => b.motdepasse === "bon" ? [200, { cle: CLE_API, entete: "" }] : [428, { detail: "Confirme ton mot de passe pour voir ce secret." }],
+    "DELETE /api/coffre/cle_api_1": { ok: true },
+  });
+  const host = await render(<Vault />);
+  expect(host.textContent).toContain("OpenAI");
+  expect(host.textContent).toContain("Clé d'API · Authorization");
+  expect(host.innerHTML).not.toContain(CLE_API);
+  await act(async () => button(host, "Voir OpenAI").click());
+  await flush();
+  const password = document.body.querySelector<HTMLInputElement>("#proof-password")!;
+  expect(password).not.toBeNull();
+  expect(host.innerHTML).not.toContain(CLE_API);
+  await act(async () => type(password, "bon"));
+  await act(async () => password.form!.requestSubmit());
+  await flush();
+  expect(host.textContent).toContain(CLE_API);
+  expect(host.textContent).toContain("Authorization");
+  await act(async () => button(host, "Supprimer OpenAI").click());
+  expect(document.body.textContent).toContain("Supprimer OpenAI du coffre ?");
+  expect(calls.some((c) => c.method === "DELETE")).toBe(false); // rien ne part avant la confirmation dans la fenêtre
+  await act(async () => button(document.body, "Supprimer").click());
+  await flush();
+  expect(calls.some((c) => c.method === "DELETE" && c.url === "/api/coffre/cle_api_1")).toBe(true);
+});
+
+it("ajouter une clé d'API : adresse, en-tête au choix, clé masquée ; modifier avec les champs vides garde la valeur", async () => {
+  const calls = serve({ "/api/coffre": { elements: [CLE_ELEMENT], agents: [] }, "POST /api/coffre": CLE_ELEMENT, "PUT /api/coffre/cle_api_1": CLE_ELEMENT });
+  const host = await render(<Vault />);
+  await act(async () => button(host, "Ajouter : Clé d'API").click());
+  const [nom, origine, entete, cle] = [...host.querySelectorAll<HTMLInputElement>("form input")];
+  expect(cle.type).toBe("password");
+  await act(async () => { type(nom, "Anthropic"); type(origine, "https://api.anthropic.com"); type(entete, "x-api-key"); type(cle, CLE_API); });
+  await act(async () => host.querySelector<HTMLFormElement>("form")!.requestSubmit());
+  await flush();
+  expect(JSON.parse(calls.find((c) => c.method === "POST" && c.url === "/api/coffre")!.body)).toEqual({ genre: "cle_api", nom: "Anthropic", origine: "https://api.anthropic.com", entete: "x-api-key", cle: CLE_API });
+  expect(host.innerHTML).not.toContain(CLE_API);
+  await act(async () => button(host, "Modifier OpenAI").click());
+  const form = host.querySelector<HTMLFormElement>("form")!;
+  expect(form.querySelector<HTMLInputElement>('input[type="password"]')!.placeholder).toBe("Inchangé si vide");
+  await act(async () => form.requestSubmit());
+  await flush();
+  expect(JSON.parse(calls.find((c) => c.method === "PUT")!.body)).toEqual({ genre: "cle_api", nom: "OpenAI", origine: "https://api.openai.com" }); // ni clé ni en-tête : ils gardent leur valeur côté serveur
+});
+
 it("B1 deux comptes retenus : la carte demande lequel et n'envoie que le choix", async () => {
   const calls = serve({ "POST /api/agents/a1/connexions/q1": { ok: true, page: "changee" } });
   const done = vi.fn();

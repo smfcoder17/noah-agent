@@ -374,13 +374,165 @@ def test_nothing_is_kept_in_clear():
     client.delete(f"/api/agents/{A}/coffre/{seen['handle']}", headers=web(ALICE))
 
 
+def test_old_database_accepts_api_keys():
+    """Une base d'avant le genre `cle_api` (CHECK à trois genres) est refaite au démarrage, sans perdre ni une ligne ni un retrait."""
+    import sqlite3
+    raw = sqlite3.connect(DATA / "noah.db")
+    raw.execute("PRAGMA foreign_keys = OFF")
+    raw.executescript("DROP TABLE coffre_retraits; DROP TABLE coffre;"
+                      "CREATE TABLE coffre (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
+                      "genre TEXT NOT NULL DEFAULT 'login' CHECK (genre IN ('login', 'carte', 'totp')), nom TEXT NOT NULL DEFAULT '', "
+                      "origine TEXT NOT NULL DEFAULT '', secret TEXT NOT NULL, created_at REAL NOT NULL, used_at REAL);"
+                      "CREATE INDEX coffre_user ON coffre(user_id, genre);"
+                      "CREATE TABLE coffre_retraits (agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, "
+                      "coffre_id TEXT NOT NULL REFERENCES coffre(id) ON DELETE CASCADE, PRIMARY KEY (agent_id, coffre_id));")
+    raw.execute("INSERT INTO coffre (id, user_id, genre, nom, origine, secret, created_at) VALUES ('login_ancien', ?, 'login', 'n', 'https://a.fr', 's', 1)", (ALICE,))
+    raw.execute("INSERT INTO coffre_retraits (agent_id, coffre_id) VALUES (?, 'login_ancien')", (A,))
+    raw.commit()
+    raw.close()
+    db.init()
+    with db.connect() as c:
+        rows = c.execute("SELECT id FROM coffre").fetchall()
+        retraits = c.execute("SELECT coffre_id FROM coffre_retraits").fetchall()
+        c.execute("INSERT INTO coffre (id, user_id, genre, nom, origine, secret, created_at) VALUES ('cle_api_x', ?, 'cle_api', '', 'https://a.fr', 's', 1)", (ALICE,))
+        c.execute("DELETE FROM coffre")
+    check("l'ancienne base garde ses lignes et ses retraits, et accepte le nouveau genre", [r["id"] for r in rows] == ["login_ancien"] and [r["coffre_id"] for r in retraits] == ["login_ancien"])
+    db.init()  # rejoué : rien à refaire
+    check("rejouer le démarrage ne change rien", True)
+
+
+CLE = "sk-faux-Zq81xKLm92pTrW"
+SERVICE = "https://api.exemple.test"
+
+
+def test_api_keys():
+    """Une clé d'API : rangée, jamais lue par l'agent, appelée par le serveur sur l'origine du service et nulle part ailleurs."""
+    import httpx
+    from noah import mcp
+    with db.connect() as c:
+        c.execute("DELETE FROM coffre")
+        c.execute("INSERT OR IGNORE INTO agents (id, name, role, api_key, owner_id) VALUES ('agent-bruno', 'B', '', 'k', ?)", (BRUNO,))
+    r = client.post("/api/coffre", headers=web(ALICE), json={"genre": "cle_api", "nom": "Mon API", "origine": SERVICE + "/v1/models?x=1", "cle": CLE})
+    check("ranger une clé d'API : la réponse n'a pas la valeur", r.status_code == 200 and CLE not in r.text and r.json()["origine"] == SERVICE and r.json()["apercu"] == "Authorization", r.text)
+    item = r.json()["id"]
+    bads = ("", "a b", "a\r\nX: 1")
+    check("une clé vide ou avec une espace est refusée sans la citer", all(client.post("/api/coffre", headers=web(ALICE), json={"genre": "cle_api", "origine": SERVICE, "cle": bad}).status_code == 400 for bad in bads))
+    check("un en-tête invalide est refusé", client.post("/api/coffre", headers=web(ALICE), json={"genre": "cle_api", "origine": SERVICE, "cle": CLE, "entete": "X Bad:"}).status_code == 400)
+    check("la liste du coffre ne porte jamais la valeur", CLE not in client.get("/api/coffre", headers=web(ALICE)).text)
+    voir = client.post(f"/api/coffre/{item}/voir", headers=web(ALICE), json={"motdepasse": "motdepasse-a"})
+    check("voir la valeur demande la preuve, puis la rend", voir.status_code == 200 and voir.json()["cle"] == CLE, voir.text)
+    r = client.put(f"/api/coffre/{item}", headers=web(ALICE), json={"genre": "cle_api", "nom": "Renommée"})
+    with db.connect() as c:
+        raw = c.execute("SELECT secret FROM coffre WHERE id = ?", (item,)).fetchone()["secret"]
+    check("champ vide en modification : la clé est gardée", r.status_code == 200 and json.loads(db.unseal(raw))["cle"] == CLE and r.json()["nom"] == "Renommée", r.text)
+    check("la valeur est chiffrée en base", CLE not in raw)
+
+    listed = ask("api_keys")
+    check("api_keys : nom, service, identifiant opaque, jamais la valeur", listed["success"] and listed["items"] == [{"handle": item, "name": "Renommée", "service": SERVICE, "header": "Authorization"}] and CLE not in json.dumps(listed), listed)
+
+    seen = []
+    echo = {"on": False}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path == "/redirige":
+            return httpx.Response(302, headers={"Location": "https://piege.exemple.test/vole"})
+        if request.url.path == "/image":
+            return httpx.Response(200, headers={"Content-Type": "image/png"}, content=b"\x89PNG" * 10)
+        if request.url.path == "/gros":
+            return httpx.Response(200, headers={"Content-Type": "text/plain"}, content=b"x" * (coffre.API_MAX_RESPONSE + 5000))
+        if echo["on"]:
+            return httpx.Response(200, headers={"Content-Type": "application/json"}, json={"vu": request.headers.get("authorization"), "tout": CLE, "url": f"?k={CLE}"})
+        return httpx.Response(200, headers={"Content-Type": "application/json"}, json={"data": [1, 2]})
+
+    real_client, real_dns = coffre.httpx.AsyncClient, mcp.socket.getaddrinfo
+    dns = {"ip": "93.184.216.34"}
+    mcp.socket.getaddrinfo = lambda host, port, **kw: [(2, 1, 6, "", (dns["ip"], port))]
+    coffre.httpx.AsyncClient = lambda **kw: real_client(transport=httpx.MockTransport(handler), **{k: v for k, v in kw.items() if k != "transport"})
+    try:
+        out = ask("api_request", handle=item, url="/v1/models")
+        sent = seen[-1]
+        check("la requête part avec Authorization: Bearer, vers l'IP vérifiée, et l'agent reçoit la réponse", out["success"] and out["status"] == 200 and json.loads(out["body"]) == {"data": [1, 2]}
+              and sent.headers["authorization"] == f"Bearer {CLE}" and sent.headers["host"] == "api.exemple.test" and sent.url.host == "93.184.216.34", (out, sent.headers))
+        check("ni la valeur ni l'en-tête n'arrivent à l'agent", CLE not in json.dumps(out), out)
+        out = ask("api_request", handle=item, url=SERVICE + "/v1/chat", method="POST", body={"a": 1})
+        check("POST avec un corps JSON", out["success"] and seen[-1].method == "POST" and json.loads(seen[-1].content) == {"a": 1} and seen[-1].headers["content-type"] == "application/json", out)
+        before = len(seen)
+        for bad in ("https://piege.exemple.test/v1", "https://api.exemple.test.piege.io/v1", "http://api.exemple.test/v1", "https://api.exemple.test:8443/v1",
+                    "https://api.exemple.test@piege.io/v1", "https://piege.io\\@api.exemple.test/", "//piege.io/v1", "https://user:p@api.exemple.test/v1", "ftp://api.exemple.test/", "piege.io/v1"):
+            out = ask("api_request", handle=item, url=bad)
+            check(f"autre origine refusée : {bad}", out["success"] is False and out["error_type"] in ("origin_refused", "bad_url") and len(seen) == before, out)
+        out = ask("api_request", handle=item, url="/redirige")
+        check("une redirection vers une autre origine n'est pas suivie", out["status"] == 302 and "autre origine" in out["redirect"] and len(seen) == before + 1 and "piege" not in json.dumps(out), out)
+        out = ask("api_request", handle=item, url="/image")
+        check("un contenu non texte n'est pas transmis", out["body"].startswith("[contenu non texte") and "PNG" not in out["body"], out)
+        out = ask("api_request", handle=item, url="/gros")
+        check("la réponse est bornée", out["truncated"] is True and len(out["body"]) == coffre.API_MAX_RESPONSE, len(out.get("body", "")))
+        echo["on"] = True
+        out = ask("api_request", handle=item, url="/v1/echo")
+        check("une réponse qui renvoie la clé la montre masquée", out["success"] and CLE not in json.dumps(out) and out["body"].count("[clé masquée]") >= 3 and "Bearer [clé masquée]" in out["body"], out)
+        echo["on"] = False
+        before = len(seen)
+        dns["ip"] = "10.0.0.5"
+        out = ask("api_request", handle=item, url="/v1/models")
+        check("un nom qui résout vers une adresse privée est refusé", out["error_type"] == "address_refused" and len(seen) == before, out)
+        dns["ip"] = "169.254.169.254"
+        out = ask("api_request", handle=item, url="/v1/models")
+        check("et vers les métadonnées du cloud", out["error_type"] == "address_refused" and len(seen) == before, out)
+        dns["ip"] = "93.184.216.34"
+        check("méthode inconnue refusée", ask("api_request", handle=item, url="/v1/models", method="TRACE")["error_type"] == "bad_method")
+        check("identifiant inconnu", ask("api_request", handle="cle_api_0", url="/")["error_type"] == "unknown_handle")
+        r = client.post("/api/coffre", headers=web(ALICE), json={"genre": "cle_api", "nom": "Anthropic", "origine": SERVICE, "cle": CLE + "-2", "entete": "x-api-key"})
+        ask("api_request", handle=r.json()["id"], url="/v1/messages")
+        check("en-tête nommé : la clé seule, sans Bearer", seen[-1].headers["x-api-key"] == CLE + "-2" and "authorization" not in seen[-1].headers, seen[-1].headers)
+        coffre.set_may_use(A, False)
+        check("sans le droit, api_keys est vide", ask("api_keys")["items"] == [])
+        before = len(seen)
+        out = ask("api_request", handle=item, url="/v1/models")
+        check("agent sans le droit : refusé, rien n'est envoyé", out["success"] is False and out["error_type"] == "no_right" and len(seen) == before, out)
+        coffre.set_may_use(A, True)
+        with db.connect() as c:
+            c.execute("INSERT INTO coffre_retraits (agent_id, coffre_id) VALUES (?, ?)", (A, item))
+        out = ask("api_request", handle=item, url="/v1/models")
+        check("une clé retirée à cet agent : refusée", out["error_type"] == "unknown_handle" and len(seen) == before, out)
+        with db.connect() as c:
+            c.execute("DELETE FROM coffre_retraits")
+        out = ask("api_request", handle=item, url="/v1/models", method="DELETE", durci=True)
+        check("tour durci : une écriture avec la clé est refusée", out["error_type"] == "hardened" and len(seen) == before, out)
+        check("tour durci : une lecture passe", ask("api_request", handle=item, url="/v1/models", durci=True)["success"] is True)
+        other = client.post("/agent-api/coffre", headers={"Authorization": f"Bearer {relay.token_for('agent-bruno')}"}, json={"action": "api_request", "handle": item, "url": "/"}).json()
+        check("l'agent d'un autre propriétaire : clé inconnue", other["error_type"] in ("unknown_handle", "no_right"), other)
+        relay.active[A] = [conversation(UMA)]
+        out = ask("api_request", handle=item, url="/v1/models")
+        check("la tâche d'une personne invitée n'utilise pas la clé d'Alice", out["success"] is False and out["error_type"] in ("guest", "not_owner"), out)
+        relay.active[A] = [CONV]
+    finally:
+        coffre.httpx.AsyncClient, mcp.socket.getaddrinfo = real_client, real_dns
+        relay.active[A] = [CONV]
+    check("supprimer la clé", client.delete(f"/api/coffre/{item}", headers=web(ALICE)).status_code == 200 and all(i["handle"] != item for i in ask("api_keys")["items"]))
+    check("aucun journal ne contient la clé", not any(CLE in line for line in LOGS))
+
+
 def test_plugin_tool():
     """L'outil dans la machine de l'agent : il ne prend que list/fill/save_login/enter_code, et ne reçoit aucun secret."""
     sys.path.insert(0, "/app/noah/agent_plugin")
     import importlib
     garde = importlib.import_module("__init__")
-    check("le schéma de l'outil n'a aucun champ de secret", set(garde.VAULT_SCHEMA["parameters"]["properties"]) == {"action", "handle"})
+    check("le schéma de l'outil n'a aucun champ de secret", set(garde.VAULT_SCHEMA["parameters"]["properties"]) == {"action", "handle", "url", "method", "body"})
     check("une personne invitée n'a pas cet outil", garde.check_guest("browser_vault", {"action": "list"}, "/opt/data/profiles/u2") == garde.GUEST_VAULT)
+    check("api_request : une lecture n'appelle pas le juge, une écriture si", garde.no_effect("browser_vault", {"action": "api_request", "method": "GET"})
+          and garde.no_effect("browser_vault", {"action": "api_keys"}) and not garde.no_effect("browser_vault", {"action": "api_request", "method": "POST"})
+          and not garde.no_effect("browser_vault", {"action": "api_request", "method": "delete"}))
+    check("la réponse d'une API est triée comme un contenu de dehors", garde._is_untrusted("browser_vault", {"action": "api_request"}) and not garde._is_untrusted("browser_vault", {"action": "list"}))
+    check("la description dit quand l'utiliser", "api_request" in garde.VAULT_SCHEMA["description"] and "API" in garde.VAULT_SCHEMA["description"])
+    sent = []
+    real_call, garde._vault_call = garde._vault_call, lambda *words: (sent.append(words), {"success": True, "status": 200, "body": "{}"})[1]
+    try:
+        out = json.loads(garde._vault_tool({"action": "api_request", "handle": "cle_api_1", "url": "/v1/models", "method": "POST", "body": {"a": 1}}, session_id="noah-c1"))
+    finally:
+        garde._vault_call = real_call
+    words = json.loads(sent[0][1])
+    check("l'outil transmet la requête telle quelle, sans attendre ni recevoir de secret", out["success"] and sent[0][0] == "coffre" and words["handle"] == "cle_api_1" and words["method"] == "POST" and json.loads(words["body"]) == {"a": 1} and words["session"] == "noah-c1", words)
     calls = []
     answers = [{"attente": "x1"}, {"attente": "x1"}, {"success": True, "page": "changee"}]
 
@@ -460,6 +612,8 @@ test_saved_logins()
 test_what_is_kept()
 test_code()
 test_nothing_is_kept_in_clear()
+test_old_database_accepts_api_keys()
+test_api_keys()
 test_plugin_tool()
 test_override_is_consented()
 print(f"coffre : {checks} vérifications, tout est vert")

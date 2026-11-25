@@ -9,14 +9,16 @@ import { get, request, send } from "@/lib/api";
 import { useProof } from "./Proof";
 import { Button, Dialog, DialogContent, ErrorText, Input, Label } from "./ui";
 
-export type VaultGenre = "login" | "carte" | "totp";
+export type VaultGenre = "login" | "carte" | "totp" | "cle_api";
 export type VaultElement = { id: string; genre: VaultGenre; nom: string; site: string; origine: string; apercu: string; utilise_a: number | null };
 type VaultAgent = { id: string; nom: string; utiliser: boolean; partage: boolean };
 type ImportResult = { ajoutes: number; remplaces: number; refuses: { ligne: number; raison: string }[] };
 type Shown = Record<string, string>;
 
 const SHOWN_SECONDS = 30;
-const genres = (): [VaultGenre, string][] => [["login", t("Identifiant")], ["carte", t("Carte de paiement")], ["totp", t("Clé d'authentificateur")]];
+const DEFAULT_HEADER = "Authorization"; // i18n-ignore : un nom d'en-tête HTTP
+const API_EXAMPLE = "https://api.openai.com"; // i18n-ignore : une adresse d'exemple
+const genres = (): [VaultGenre, string][] => [["login", t("Identifiant")], ["carte", t("Carte de paiement")], ["totp", t("Clé d'authentificateur")], ["cle_api", t("Clé d'API")]];
 
 type WithProof = ReturnType<typeof useProof>["withProof"];
 
@@ -56,7 +58,7 @@ function ItemForm({ genre, element, initial, withProof, onSaved, onCancel }: { g
   return (
     <form onSubmit={submit} autoComplete="off" className="flex flex-col gap-2.5 rounded-xl border border-border p-3">
       {field("nom", t("Nom (facultatif)"), { maxLength: 60 })}
-      {genre !== "carte" && field("origine", t("Adresse du site"), { placeholder: keep, required: !editing, inputMode: "url", autoCapitalize: "none", spellCheck: false })}
+      {genre !== "carte" && field("origine", genre === "cle_api" ? t("Adresse de base de l'API") : t("Adresse du site"), { placeholder: keep ?? (genre === "cle_api" ? API_EXAMPLE : undefined), required: !editing, inputMode: "url", autoCapitalize: "none", spellCheck: false })}
       {genre === "login" && (
         <>
           {field("identifiant", t("Identifiant"), { maxLength: 320, required: !editing, autoCapitalize: "none", spellCheck: false, placeholder: keep, autoComplete: "off" })}
@@ -69,6 +71,13 @@ function ItemForm({ genre, element, initial, withProof, onSaved, onCancel }: { g
           {field("expiration", t("Expiration (MM/AA)"), { maxLength: 7, required: !editing, autoComplete: "off" })}
           {field("titulaire", t("Titulaire"), { maxLength: 120, autoComplete: "off" })}
           <p className="text-xs text-muted-foreground">{t("Le code de sécurité n'est jamais gardé : tu le tapes toi-même à chaque paiement.")}</p>
+        </>
+      )}
+      {genre === "cle_api" && (
+        <>
+          {field("entete", t("En-tête d'envoi"), { maxLength: 64, placeholder: keep ?? DEFAULT_HEADER, autoCapitalize: "none", spellCheck: false, autoComplete: "off" })}
+          {field("cle", t("Clé d'API"), { type: "password", maxLength: 4096, required: !editing, placeholder: keep, autoComplete: "new-password" })}
+          <p className="text-xs text-muted-foreground">{t("Authorization: Bearer <clé> par défaut. Pour un autre en-tête, écris son nom (ex. x-api-key).")} {t("Tes agents demandent à Noah d'appeler ce service avec la clé : ils ne la lisent jamais, et Noah n'envoie rien ailleurs que sur cette adresse.")}</p>
         </>
       )}
       {genre === "totp" && field("cle", t("Clé de configuration, ou adresse otpauth://"), { required: !editing, placeholder: keep, autoCapitalize: "characters", spellCheck: false, autoComplete: "off" })}
@@ -84,6 +93,7 @@ function ItemForm({ genre, element, initial, withProof, onSaved, onCancel }: { g
 function ShownValues({ genre, shown }: { genre: VaultGenre; shown: Shown }) {
   const rows: [string, string | undefined][] = genre === "login" ? [[t("Identifiant"), shown.identifiant], [t("Mot de passe"), shown.mot_de_passe]]
     : genre === "carte" ? [[t("Numéro de la carte"), shown.numero], [t("Expiration (MM/AA)"), shown.expiration], [t("Titulaire"), shown.titulaire]]
+    : genre === "cle_api" ? [[t("Clé d'API"), shown.cle], [t("En-tête"), shown.entete || DEFAULT_HEADER]]
     : [[t("Code du moment"), shown.code], [t("Clé de configuration, ou adresse otpauth://"), shown.cle]];
   return (
     <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-lg bg-muted/40 p-2 text-xs">
@@ -144,14 +154,14 @@ function VaultImport({ onDone }: { onDone: () => void }) {
   );
 }
 
-/** L'ajout d'un identifiant au coffre dans une fenêtre, champs déjà remplis : la carte « Ranger au coffre » d'une clé collée dans une discussion (X17).
+/** L'ajout d'une clé d'API au coffre dans une fenêtre, champs déjà remplis : la carte « Ranger au coffre » d'une clé collée dans une discussion (X17).
  *  La valeur ne passe que par ce formulaire et la même route que le reste du coffre : nulle part ailleurs. */
 export function VaultAddDialog({ initial, description, onClose, onSaved }: { initial: Record<string, string>; description: string; onClose: () => void; onSaved: () => void }) {
   const { withProof, proofDialog } = useProof();
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent title={t("Ranger cette clé au coffre")} description={description}>
-        <ItemForm genre="login" initial={initial} withProof={withProof} onCancel={onClose} onSaved={() => { onSaved(); onClose(); }} />
+        <ItemForm genre="cle_api" initial={initial} withProof={withProof} onCancel={onClose} onSaved={() => { onSaved(); onClose(); }} />
         {proofDialog}
       </DialogContent>
     </Dialog>
@@ -217,7 +227,7 @@ export function Vault() {
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-sm text-muted-foreground">{t("Tes identifiants, cartes et clés d'authentificateur, chiffrés sur ton serveur. Tes agents s'en servent sans jamais voir une valeur : Noah remplit la page lui-même.")}</p>
+      <p className="text-sm text-muted-foreground">{t("Tes identifiants, cartes, clés d'authentificateur et clés d'API, chiffrés sur ton serveur. Tes agents s'en servent sans jamais voir une valeur : Noah remplit la page, ou appelle l'API, lui-même.")}</p>
       {elements === null && !error && <p className="text-sm text-muted-foreground">{t("Chargement…")}</p>}
       {elements && elements.length === 0 && <p className="text-sm">{t("Ton coffre est vide.")}</p>}
       {elements && elements.length > 0 && (

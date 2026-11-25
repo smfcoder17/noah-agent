@@ -9,13 +9,13 @@ import { Button } from "./ui";
 
 const VaultAddDialog = lazy(() => import("./Vault").then((m) => ({ default: m.VaultAddDialog })));
 
-// i18n-ignore : des noms de services et leurs adresses, pareils dans toutes les langues
-const SERVICES: [RegExp, string, string][] = [
-  [/^sk-ant-/, "Anthropic", "https://console.anthropic.com"], [/^sk-or-/, "OpenRouter", "https://openrouter.ai"], [/^sk-/, "OpenAI", "https://platform.openai.com"], // i18n-ignore
-  [/^(ghp_|gho_|ghu_|ghs_|ghr_|github_pat_)/, "GitHub", "https://github.com"], [/^xox/, "Slack", "https://slack.com"], [/^AIza/, "Google", "https://aistudio.google.com"], // i18n-ignore
-  [/^AKIA/, "AWS", "https://aws.amazon.com"], [/^(sk_|rk_)/, "Stripe", "https://dashboard.stripe.com"], [/^gsk_/, "Groq", "https://console.groq.com"], // i18n-ignore
-  [/^xai-/, "xAI", "https://console.x.ai"], [/^hf_/, "Hugging Face", "https://huggingface.co"], [/^r8_/, "Replicate", "https://replicate.com"], // i18n-ignore
-  [/^pplx-/, "Perplexity", "https://www.perplexity.ai"], [/^nvapi-/, "NVIDIA", "https://build.nvidia.com"], [/^tvly-/, "Tavily", "https://app.tavily.com"], [/^fc-/, "Firecrawl", "https://www.firecrawl.dev"], // i18n-ignore
+// i18n-ignore : des noms de services, l'adresse de base de leur API et, si ce n'est pas Authorization: Bearer, l'en-tête qui porte la clé : pareils dans toutes les langues
+const SERVICES: [RegExp, string, string, string][] = [
+  [/^sk-ant-/, "Anthropic", "https://api.anthropic.com", "x-api-key"], [/^sk-or-/, "OpenRouter", "https://openrouter.ai", ""], [/^sk-/, "OpenAI", "https://api.openai.com", ""], // i18n-ignore
+  [/^(ghp_|gho_|ghu_|ghs_|ghr_|github_pat_)/, "GitHub", "https://api.github.com", ""], [/^xox/, "Slack", "https://slack.com", ""], [/^AIza/, "Google", "https://generativelanguage.googleapis.com", "x-goog-api-key"], // i18n-ignore
+  [/^AKIA/, "AWS", "", ""], [/^(sk_|rk_)/, "Stripe", "https://api.stripe.com", ""], [/^gsk_/, "Groq", "https://api.groq.com", ""], // i18n-ignore
+  [/^xai-/, "xAI", "https://api.x.ai", ""], [/^hf_/, "Hugging Face", "https://huggingface.co", ""], [/^r8_/, "Replicate", "https://api.replicate.com", ""], // i18n-ignore
+  [/^pplx-/, "Perplexity", "https://api.perplexity.ai", ""], [/^nvapi-/, "NVIDIA", "https://integrate.api.nvidia.com", ""], [/^tvly-/, "Tavily", "https://api.tavily.com", ""], [/^fc-/, "Firecrawl", "https://api.firecrawl.dev", ""], // i18n-ignore
 ];
 
 /** Le service d'une clé, d'après sa valeur ou, faute de valeur, son préfixe lisible (« sk- » ne dit pas OpenAI ou Anthropic : le premier). */
@@ -42,8 +42,8 @@ export default function OffreCleCartes({ text }: { text: string }) {
             {ouvert === i && (
               <Suspense fallback={null}>
                 <VaultAddDialog
-                  initial={{ nom, origine: service?.[2] ?? "", identifiant: t("clé d'API"), mot_de_passe: valeur }}
-                  description={valeur ? t("La clé est dans le champ « Mot de passe ». Chiffrée sur ton serveur, tes agents s'en servent sans jamais la lire.") : t("Colle ta clé dans le champ « Mot de passe » : elle n'est plus dans ce message. Chiffrée sur ton serveur, tes agents s'en servent sans jamais la lire.")}
+                  initial={{ nom, origine: service?.[2] ?? "", entete: service?.[3] ?? "", cle: valeur }}
+                  description={valeur ? t("La clé est dans le champ « Clé d'API ». Chiffrée sur ton serveur, tes agents la font utiliser par Noah sans jamais la lire.") : t("Colle ta clé dans le champ « Clé d'API » : elle n'est plus dans ce message. Chiffrée sur ton serveur, tes agents la font utiliser par Noah sans jamais la lire.")}
                   onClose={() => setOuvert(null)}
                   onSaved={() => setRangees((r) => [...r, i])}
                 />
