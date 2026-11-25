@@ -81,7 +81,7 @@ it("ajouter un autre service (nom, adresse, clé factice) puis le débrancher", 
   fetchApi.mockImplementation(async (path: string, init?: RequestInit) => {
     if (path === "/api/fournisseurs" && !init?.method) return Response.json(listing);
     if (path === "/api/fournisseurs" && init?.method === "POST") {
-      expect(JSON.parse(String(init.body))).toEqual({ nom: "Mon LLM", base_url: "http://llm.test/v1", api_key: "cle-factice" });
+      expect(JSON.parse(String(init.body))).toEqual({ nom: "Mon LLM", base_url: "http://example.test/v1", api_key: "cle-factice" });
       return Response.json({ connected: true, models: 2, id: "autre:mon-llm" });
     }
     if (path === "/api/fournisseurs/autre%3Alm-studio" && init?.method === "DELETE") return Response.json({ ok: true });
@@ -90,7 +90,7 @@ it("ajouter un autre service (nom, adresse, clé factice) puis le débrancher", 
   await act(async () => root.render(<Providers />));
   await click(button("Another provider"));
   await fill("Provider name", "Mon LLM");
-  await fill("Provider address", "http://llm.test/v1");
+  await fill("Provider address", "http://example.test/v1");
   await fill("Provider API key", "cle-factice");
   await click(button("Connect"));
   expect(calls()).toContain("POST /api/fournisseurs");
