@@ -6,6 +6,7 @@ privilège. Le serveur Noah Agent n'a donc jamais accès au socket Docker.
 """
 import base64
 import functools
+import hashlib
 import io
 import hmac
 import json
@@ -191,8 +192,19 @@ BROWSER_PREFIX = "noah-browser-"
 BROWSER_LABEL = "noah.browser"
 # Version des réglages du navigateur ; un conteneur plus ancien est recréé (le profil reste dans son volume).
 # 19 : aucune capacité, réseau des agents sans le lanceur (E1).
-# 20 : SETUID et SETGID pour le bureau (sous le compte 1001), empreinte à la taille de l'écran ; 17 : empreinte tirée une fois par agent, gardée dans /data/empreinte.json ; 15 : sessions enregistrées chaque minute (connexions gardées après un arrêt brutal) ; 14 : remplir une page de connexion ; 12 : image Noah avec bureau, sans uBlock ; 11 : toutes les routes sous clé ; 10 : clé du mode privé à part ; 9 : aucune capture pendant une prise en main ; 8 : jetons hors de la config Docker
-BROWSER_VERSION = "20"
+# 21 : extension déposée selon son contenu (BROWSER_SETTINGS), sauvegarde des sessions sans page cachée ; 20 : SETUID et SETGID pour le bureau (sous le compte 1001), empreinte à la taille de l'écran ; 17 : empreinte tirée une fois par agent, gardée dans /data/empreinte.json ; 15 : sessions enregistrées chaque minute (connexions gardées après un arrêt brutal) ; 14 : remplir une page de connexion ; 12 : image Noah avec bureau, sans uBlock ; 11 : toutes les routes sous clé ; 10 : clé du mode privé à part ; 9 : aucune capture pendant une prise en main ; 8 : jetons hors de la config Docker
+BROWSER_VERSION = "21"
+
+
+def _plugin_print() -> str:
+    """Empreinte de l'extension Noah et de sa déclaration. Elles ne sont déposées qu'à la création du navigateur : en 0.4.5,
+    seule l'extension changeait, et les navigateurs déjà créés gardaient l'ancienne (l'écran défilait encore). Avec cette
+    empreinte dans l'étiquette, tout changement de l'extension recrée chaque navigateur une fois (le profil reste dans son volume)."""
+    here = Path(__file__).parent / "camofox-noah"
+    return hashlib.sha256(b"".join((here / n).read_bytes() for n in ("index.js", "camofox.config.json"))).hexdigest()[:10]
+
+
+BROWSER_SETTINGS = f"{BROWSER_VERSION}-{_plugin_print()}"
 
 
 FROZEN_WAIT = 30  # secondes ; sous le délai de 120 s du serveur (hermes._launcher)
@@ -225,7 +237,7 @@ class BrowserKeys(BaseModel):
 
 def _browser_version(locale: str, timezone: str, proxy: bool) -> str:
     """Étiquette des réglages du navigateur. Sans sortie réseau elle reste celle d'avant : aucun navigateur n'est recréé pour rien."""
-    return f"{BROWSER_VERSION}:{locale}:{timezone}" + (":s" if proxy else "")
+    return f"{BROWSER_SETTINGS}:{locale}:{timezone}" + (":s" if proxy else "")
 
 
 def _version_proxy(label: str) -> bool:
@@ -337,7 +349,7 @@ def _ensure_browser(agent_id: str, body: BrowserKeys, image: str | None = None, 
         current = c.labels.get("noah.browser.version", "")
         # Langue et fuseau inconnus (ipinfo.io muet) : on garde l'identité en place plutôt que de recréer en UTC/en-US.
         same = current == version or (not (body.locale and body.timezone)
-                                      and current.split(":")[0] == BROWSER_VERSION and _version_proxy(current) == proxy)
+                                      and current.split(":")[0] == BROWSER_SETTINGS and _version_proxy(current) == proxy)
         if same:
             if c.status != "running":
                 c.start()
@@ -1734,6 +1746,30 @@ def _agents_vers_aiguillage_au_demarrage() -> None:
 
 threading.Thread(target=_agents_vers_aiguillage_au_demarrage, daemon=True).start()
 threading.Thread(target=_watch_network, daemon=True).start()
+
+
+def _stale_browsers_to_rest() -> list[str]:
+    """Navigateurs allumés sur d'autres réglages ou une autre extension que ce lanceur : mis au repos (arrêt propre, Camoufox
+    enregistre ses cookies), comme après une période sans usage. Leur réveil passe par _ensure_browser, qui les recrée avec
+    l'extension à jour. Sans cela, un navigateur resté allumé gardait l'ancienne extension jusqu'à sa prochaine mise au repos
+    (0.4.5 : l'écran défilait encore toutes les 3 min). Après la reprise d'une mise à jour, sous le verrou des navigateurs."""
+    _recovering.join(600)
+    rested = []
+    with _browser_lock:
+        for c in client.containers.list(filters={"label": BROWSER_LABEL}):
+            if c.labels.get("noah.browser.version", "").split(":")[0] == BROWSER_SETTINGS:
+                continue
+            try:
+                c.stop(timeout=20)
+                rested.append(c.name)
+            except Exception as e:  # noqa: BLE001 - déjà arrêté ou Docker occupé : il sera recréé à sa prochaine ouverture
+                print(f"[lanceur] {c.name} : mise au repos remise ({e})", flush=True)
+    if rested:
+        print(f"[lanceur] navigateurs mis au repos pour l'extension à jour : {', '.join(rested)}", flush=True)
+    return rested
+
+
+threading.Thread(target=_stale_browsers_to_rest, daemon=True).start()
 
 
 def not_updating(agent_id: str = "") -> None:

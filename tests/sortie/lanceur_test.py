@@ -121,7 +121,7 @@ def navigateur(**kw):
 # 1. Sans sortie : aucun conteneur de plus, le navigateur est celui d'avant (même étiquette, pas de PROXY_*).
 kw = navigateur(locale="fr-FR", timezone="Europe/Paris")
 assert not any(k.startswith("PROXY_") for k in kw["environment"]), kw["environment"]
-assert kw["labels"]["noah.browser.version"] == f"{launcher.BROWSER_VERSION}:fr-FR:Europe/Paris", kw["labels"]
+assert kw["labels"]["noah.browser.version"] == f"{launcher.BROWSER_SETTINGS}:fr-FR:Europe/Paris", kw["labels"]
 assert [n for n, *_ in world.created] == ["noah-browser-essai"] and not launcher._sortie_ready()
 r = web.get("/sortie")
 assert r.status_code == 200 and r.json() == {"conteneurs": {"noah-sortie-maison": False, "noah-sortie-vpn": False, "noah-sortie": False}, "aiguillage": None}, r.text
@@ -182,7 +182,7 @@ kw = navigateur(locale="fr-CA", timezone="America/Toronto")
 env = kw["environment"]
 assert (env["PROXY_HOST"], env["PROXY_PORT"], env["PROXY_PROTOCOL"]) == ("noah-sortie", "3128", "http"), env
 assert "PROXY_USERNAME" not in env and "PROXY_PASSWORD" not in env
-assert kw["labels"]["noah.browser.version"] == f"{launcher.BROWSER_VERSION}:fr-CA:America/Toronto:s"
+assert kw["labels"]["noah.browser.version"] == f"{launcher.BROWSER_SETTINGS}:fr-CA:America/Toronto:s"
 assert kw["cap_drop"] == ["ALL"] and sorted(kw.get("cap_add") or []) == ["SETGID", "SETUID"]
 print("4. le navigateur reçoit PROXY_HOST=noah-sortie, PROXY_PORT, étiquette « :s »")
 
@@ -243,12 +243,12 @@ print("4d. un agent d'avant la sortie est recréé une fois avec le proxy ; un a
 
 # 4 bis. Un navigateur sans proxy, une sortie ensuite configurée : recréé. Avec proxy, une identité vide le garde.
 nav = world.containers["noah-browser-essai"]
-nav.labels = {launcher.BROWSER_LABEL: "essai", "noah.browser.version": f"{launcher.BROWSER_VERSION}:fr-CA:America/Toronto:s"}
+nav.labels = {launcher.BROWSER_LABEL: "essai", "noah.browser.version": f"{launcher.BROWSER_SETTINGS}:fr-CA:America/Toronto:s"}
 nav.status = "exited"
 n_avant = len(world.created)
 r = launcher._ensure_browser("essai", launcher.BrowserKeys(api_key="a", vnc_password="b"))
 assert r == {"host": "noah-browser-essai", "created": False} and nav.status == "running" and len(world.created) == n_avant, "identité vide : le navigateur en place est gardé"
-nav.labels["noah.browser.version"] = f"{launcher.BROWSER_VERSION}:fr-CA:America/Toronto"  # créé avant la sortie
+nav.labels["noah.browser.version"] = f"{launcher.BROWSER_SETTINGS}:fr-CA:America/Toronto"  # créé avant la sortie
 assert not launcher._version_proxy(nav.labels["noah.browser.version"]) and launcher._version_proxy(nav.labels["noah.browser.version"] + ":s")
 nav.status = "exited"
 launcher._ensure_browser("essai", launcher.BrowserKeys(api_key="a", vnc_password="b"))
@@ -346,7 +346,7 @@ assert "noah-sortie-vpn" not in world.containers
 assert "noah-sortie" in world.containers and world.containers["noah-sortie"].labels["noah.sortie.amont"] == "", \
     "un navigateur créé avec le proxy tient encore à l'aiguillage : il reste, vidé (direct seulement)"
 assert not launcher._sortie_ready(), "vidé : les navigateurs créés maintenant ne passent plus par lui"
-world.containers["noah-browser-essai"].labels["noah.browser.version"] = f"{launcher.BROWSER_VERSION}:fr-FR:Europe/Paris"
+world.containers["noah-browser-essai"].labels["noah.browser.version"] = f"{launcher.BROWSER_SETTINGS}:fr-FR:Europe/Paris"
 navigateur(locale="fr-FR", timezone="Europe/Paris")
 assert "noah-sortie" in world.containers, "un agent créé avec le proxy tient encore à l'aiguillage : il reste, vidé"
 world.containers.pop("noah-agent-essai")

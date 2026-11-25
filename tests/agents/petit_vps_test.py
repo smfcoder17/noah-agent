@@ -292,7 +292,7 @@ print("12. suppression : conteneurs -ancien retirés, volumes restants nommés")
 
 # 13. Identité du navigateur : sans langue ni fuseau (ipinfo.io muet), le navigateur en place est gardé tel quel.
 launcher.container = lambda agent_id: None
-nav = MagicMock(status="exited", labels={"noah.browser.version": f"{launcher.BROWSER_VERSION}:fr-CA:America/Toronto"})
+nav = MagicMock(status="exited", labels={"noah.browser.version": f"{launcher.BROWSER_SETTINGS}:fr-CA:America/Toronto"})
 client.containers.get.side_effect = lambda nom: nav
 client.containers.create.reset_mock()
 assert launcher._ensure_browser("essai", launcher.BrowserKeys(api_key="a", vnc_password="b")) == {"host": "noah-browser-essai", "created": False}
@@ -310,7 +310,15 @@ try:
     sys.exit("réglages d'une autre version : le navigateur doit être recréé")
 except Recree:
     pass
-nav.labels = {"noah.browser.version": f"{launcher.BROWSER_VERSION}:fr-CA:America/Toronto"}
+# Même numéro de réglages, autre extension : en 0.4.5, l'extension corrigée ne partait pas sur les navigateurs déjà créés.
+assert launcher.BROWSER_SETTINGS.startswith(launcher.BROWSER_VERSION + "-") and len(launcher.BROWSER_SETTINGS) > len(launcher.BROWSER_VERSION) + 8
+nav.labels = {"noah.browser.version": f"{launcher.BROWSER_VERSION}-0000000000:fr-CA:America/Toronto"}
+try:
+    launcher._ensure_browser("essai", launcher.BrowserKeys(api_key="a", vnc_password="b"))
+    sys.exit("extension changée : le navigateur doit être recréé, même sans langue ni fuseau connus")
+except Recree:
+    pass
+nav.labels = {"noah.browser.version": f"{launcher.BROWSER_SETTINGS}:fr-CA:America/Toronto"}
 nav.reset_mock()
 try:
     launcher._ensure_browser("essai", launcher.BrowserKeys(api_key="a", vnc_password="b", locale="fr-FR", timezone="Europe/Paris"))
@@ -319,6 +327,18 @@ except Recree:
     pass
 client.containers.create.side_effect = None
 print("13. navigateur : une identité vide ne remplace jamais celle en place")
+
+# 13 ter. Au démarrage du lanceur, un navigateur allumé sur une autre extension est mis au repos : son réveil le recrée à jour.
+a_jour = MagicMock(labels={"noah.browser.version": f"{launcher.BROWSER_SETTINGS}:fr-CA:America/Toronto"})
+a_jour.name = "noah-browser-a"
+perime = MagicMock(labels={"noah.browser.version": f"{launcher.BROWSER_VERSION}-0000000000:fr-CA:America/Toronto:s"})
+perime.name = "noah-browser-b"
+liste = client.containers.list.side_effect
+client.containers.list.side_effect = lambda **kw: [a_jour, perime]
+assert launcher._stale_browsers_to_rest() == ["noah-browser-b"]
+assert perime.stop.called and not a_jour.stop.called and not perime.remove.called, "seul le navigateur périmé est arrêté, rien n'est supprimé"
+client.containers.list.side_effect = liste
+print("13 ter. extension changée : le navigateur allumé est mis au repos, celui à jour reste allumé")
 
 # 13 bis. Empreinte : un redémarrage la garde ; une nouvelle identité l'efface d'abord, navigateur arrêté ou non.
 nav = MagicMock(status="running", labels={launcher.BROWSER_LABEL: "essai"})
