@@ -931,6 +931,39 @@ def _remember_models(user: int, brains: dict) -> None:
                 db.set_setting(key, value)
 
 
+# Les alias que la ligne de commande de Claude Code accepte (« sonnet »), et le modèle qu'ils désignent aujourd'hui : un seul endroit.
+# Le modèle réellement servi, quand l'ordinateur le rapporte (`modele_exact`), passe avant cette table (remember_exact).
+PC_ALIAS_NAMES = {"ordinateur:claude-code": {"sonnet": "Claude Sonnet 5.5", "opus": "Claude Opus 5.5", "haiku": "Claude Haiku 5.5"}}
+_BRAND_WORDS = {"gpt": "GPT", "claude": "Claude", "grok": "Grok", "oss": "OSS"}
+
+
+def readable_model(model_id: str) -> str:
+    """Un identifiant de modèle dit comme un nom : « claude-opus-5-6-20270105 » → « Claude Opus 5.6 », « gpt-5.2-codex » → « GPT 5.2 Codex ».
+    Même règle que `readableModel` de l'interface : les dates (4 chiffres ou plus) tombent, « 5-6 » se lit « 5.6 »."""
+    words = [w for w in re.split(r"[-_]", re.sub(r"\[.*?\]|:.*$", "", model_id.split("/")[-1])) if w and not re.fullmatch(r"\d{4,}", w)]
+    out: list[str] = []
+    for w in words:
+        if re.fullmatch(r"\d", w) and out and re.search(r"\d$", out[-1]):
+            out[-1] += "." + w
+        else:
+            out.append(_BRAND_WORDS.get(w.lower()) or (w.upper() if re.match(r"v?\d", w, re.I) or re.fullmatch(r"o\d+", w, re.I) else w.capitalize()))
+    return " ".join(out)
+
+
+def remember_exact(user: int, provider: str, alias: str, exact: str) -> None:
+    """Le modèle que l'ordinateur a réellement servi pour cet alias : la liste le dit tel quel."""
+    if _MODEL_NAME.fullmatch(alias) and _MODEL_NAME.fullmatch(exact) and exact != alias:
+        db.set_setting(f"pc_reel:{user}:{provider}:{alias}", exact)
+
+
+def pc_model_name(provider: str, model: str, user: int | None = None) -> str:
+    """Le vrai nom d'un modèle d'abonnement, sans le nom du fournisseur : l'écran dit déjà d'où il vient."""
+    exact = db.get_setting(f"pc_reel:{user or db.owner_id()}:{provider}:{model}")
+    if exact:
+        return readable_model(exact)
+    return PC_ALIAS_NAMES.get(provider, {}).get(model) or readable_model(model)
+
+
 def pc_models(provider: str, user: int | None = None) -> list[dict]:
     """Les modèles que l'ordinateur annonce pour cet abonnement, comme ceux des autres fournisseurs, avec « compris dans l'abonnement »."""
     user = user or db.owner_id()
@@ -939,7 +972,7 @@ def pc_models(provider: str, user: int | None = None) -> list[dict]:
     except ValueError:
         names = []
     lab = {"ordinateur:claude-code": "anthropic", "ordinateur:grok": "xai"}.get(provider, "openai")
-    return [{"id": m, "name": f"{PC_NAME[provider]} · {m}", "lab": lab, "created": 0, "context": 200000 if lab == "anthropic" else 0,
+    return [{"id": m, "name": pc_model_name(provider, m, user), "lab": lab, "created": 0, "context": 200000 if lab == "anthropic" else 0,
              "price_in": None, "price_out": None, "tools": True, "vision": False, "free": False, "prix": INCLUDED, "abonnement": True}
             for m in names if isinstance(m, str) and _MODEL_NAME.fullmatch(m)]
 
@@ -983,6 +1016,7 @@ async def pc_call(link: dict, agent_id: str, body: dict, model: str) -> tuple[in
         exact = out.get("modele_exact")
         if isinstance(exact, str) and _MODEL_NAME.fullmatch(exact):  # le modèle réellement servi (« claude-haiku-5-5 »), pas l'alias choisi (« haiku »)
             out["modele"] = exact
+            remember_exact(link["user"], link["fournisseur"], model, exact)
         return 200, out
     status = out.get("statut") if isinstance(out, dict) and isinstance(out.get("statut"), int) and 400 <= out["statut"] < 600 else 502
     return status, out if isinstance(out, dict) else {}

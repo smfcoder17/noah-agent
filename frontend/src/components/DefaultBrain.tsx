@@ -91,7 +91,7 @@ export function DefaultBrain({ onDone, onCancel }: { onDone: () => void; onCance
               return <li key={tier} className="flex flex-col gap-1">
                 <div className="flex min-w-0 items-center gap-2 py-2 text-sm sm:pl-8">
                   <span className="w-16 shrink-0 text-muted-foreground">{label}</span>
-                  {model && <ProviderLogo modelId={model.modele} />}
+                  {model && <ProviderLogo modelId={model.modele} lab={model.modele.includes("/") ? undefined : model.fournisseur} />}
                   <span className="min-w-0 flex-1 truncate font-medium" title={model?.nom}>{model ? shortName(model.nom) : t("Aucun modèle disponible")}</span>
                   <button type="button" disabled={busy} aria-label={t("Changer le modèle {niveau}", { niveau: label })} aria-expanded={choosing === tier} className="shrink-0 cursor-pointer text-accent hover:underline" onClick={() => setChoosing(choosing === tier ? null : tier)}>{choosing === tier ? t("Fermer") : t("Changer")}</button>
                 </div>

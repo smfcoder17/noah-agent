@@ -7,7 +7,7 @@ import { type Level, type ListedModel, type ModeId, type ModeLink, type ModesSta
 import { cn, contextSize, money } from "@/lib/utils";
 import { ProviderLogo, labName, labOf } from "./ProviderLogo";
 import { Button, ErrorText, Input } from "./ui";
-import { locale, t } from "@/i18n";
+import { locale, t, tServeur } from "@/i18n";
 
 type Priced = { free?: boolean; price_in?: number | null; price_out?: number | null; prix?: string | null; abonnement?: boolean };
 
@@ -28,7 +28,7 @@ export const costLabel = (m: Priced, short = false) => {
 export const shortName = (name: string) => readableModel(name.replace(/^[^:]+:\s+/, ""));
 
 /** `via` : chez quel fournisseur on l'obtient, quand plusieurs sont branchés (le même modèle peut venir de deux). */
-export function ModelRow({ m, selected, onPick, via, className }: { m: Pick<Model, "id" | "name" | "vision" | "context"> & Priced; selected: boolean; onPick: () => void; via?: string; className?: string }) {
+export function ModelRow({ m, selected, onPick, via, className }: { m: Pick<Model, "id" | "name" | "vision" | "context"> & Priced & { lab?: string }; selected: boolean; onPick: () => void; via?: string; className?: string }) {
   const sub = [m.id.includes("/") ? labName(labOf(m.id)) : "", via].filter(Boolean).join(" · ");
   return (
     <button
@@ -43,7 +43,7 @@ export function ModelRow({ m, selected, onPick, via, className }: { m: Pick<Mode
         className,
       )}
     >
-      <ProviderLogo modelId={m.id} />
+      <ProviderLogo modelId={m.id} lab={m.id.includes("/") ? undefined : m.lab} />
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="truncate font-medium">{shortName(m.name)}</span>
         {sub && <span className="truncate text-xs text-muted-foreground" title={m.id}>{sub}</span>}
@@ -116,14 +116,14 @@ export function ModelSearch({ level, selected, onPick, autoFocus }: { level: Lev
   }, [level]);
   const counts = useMemo(() => {
     const got = new Map<string, string>();
-    for (const b of brands) got.set(b.id, b.label);
+    for (const b of brands) got.set(b.id, tServeur(b.label)); // libellés écrits par le serveur, en français
     const rows = new Map<string, { label: string; n: number }>();
     for (const m of models ?? []) {
       const known = rows.get(m.fournisseur);
       rows.set(m.fournisseur, { label: got.get(m.fournisseur) || known?.label || readableModel(m.fournisseur).replace(/^./, (c) => c.toUpperCase()),
                                n: (known?.n ?? 0) + 1 });
     }
-    for (const b of brands) if (!rows.has(b.id)) rows.set(b.id, { label: b.label, n: 0 });
+    for (const b of brands) if (!rows.has(b.id)) rows.set(b.id, { label: tServeur(b.label), n: 0 });
     return [...rows.entries()].map(([id, row]) => ({ id, ...row })).sort((a, b) => a.label.localeCompare(b.label, locale()) || a.id.localeCompare(b.id));
   }, [models, brands]);
   const items = useMemo(() => {
@@ -192,7 +192,7 @@ export function ModelSearch({ level, selected, onPick, autoFocus }: { level: Lev
                 </div>
               ) : (
                 <div key={it.key} style={{ position: "absolute", top: tops[i], left: 0, right: 0, height: ROW_H }}>
-                  <ModelRow m={it.m} selected={selected === it.m.id} onPick={() => onPick(it.m)} via={many ? labels.get(it.m.fournisseur) : undefined} className="h-full" />
+                  <ModelRow m={it.m} selected={selected === it.m.id} onPick={() => onPick(it.m)} via={many || it.m.abonnement ? labels.get(it.m.fournisseur) : undefined} className="h-full" />
                 </div>
               );
             })}
@@ -207,7 +207,7 @@ function Picked({ link }: { link: ModeLink | null | undefined }) {
   if (!link) return <span className="text-xs text-muted-foreground">{t("Aucun modèle pour ce mode avec tes clés.")}</span>;
   return (
     <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-      <ProviderLogo modelId={link.modele} className="size-5 shrink-0" />
+      <ProviderLogo modelId={link.modele} lab={link.modele.includes("/") ? undefined : link.fournisseur} className="size-5 shrink-0" />
       <span className="flex min-w-0 flex-col">
         <span className="truncate font-medium text-foreground">{shortName(link.nom)}</span>
         <span className="truncate tabular-nums">{costLabel(link)}</span>

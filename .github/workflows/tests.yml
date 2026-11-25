@@ -102,6 +102,7 @@ jobs:
       - name: "Abonnements par l'ordinateur : tâches confiées à Claude Code, forfait ChatGPT et bascule"
         run: |
           docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/desktop/abonnements_test.py"
+          docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c "pip install -q -r /app/requirements.txt && python /tests/desktop/modeles_noms_test.py"
           node tests/desktop/claude_test.mjs
           node tests/desktop/brancher_test.mjs
           node tests/desktop/chatgpt_test.mjs
