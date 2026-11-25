@@ -21,6 +21,8 @@ const LABS: Record<string, string> = {
   inception: "inception", "arcee-ai": "arcee-color", "stepfun-ai": "stepfun-color", baidu: "wenxin-color", "01-ai": "yi-color",
   gemini: "gemini-color", mistral: "mistral-color", "ollama-cloud": "ollama", openrouter: "openrouter-color", ollama: "ollama", upstage: "upstage-color", thudm: "chatglm-color", ideogram: "ideogram",
   "stability-ai": "stability-color", luma: "luma-color",
+  // Abonnements par l'ordinateur (ids des fournisseurs) et labo xAI tel que l'annonce le serveur (pc_models).
+  "ordinateur:claude-code": "anthropic", "ordinateur:chatgpt": "openai", "ordinateur:grok": "grok", xai: "grok",
 };
 
 // Noms affichés des labos (filtres). Noms de marques : les mêmes dans toutes les langues.
@@ -30,6 +32,7 @@ export const LAB_NAMES: Record<string, string> = {
   minimax: "MiniMax", nvidia: "NVIDIA", "black-forest-labs": "Black Forest Labs", bytedance: "ByteDance", // i18n-ignore : marque
   "bytedance-seed": "ByteDance", recraft: "Recraft", krea: "Krea", tencent: "Tencent", microsoft: "Microsoft", // i18n-ignore : marque
   elevenlabs: "ElevenLabs", "fish-audio": "Fish Audio", assemblyai: "AssemblyAI", kwaivgi: "Kling", runway: "Runway", // i18n-ignore : marque
+  xai: "xAI", "ordinateur:claude-code": "Claude Code", "ordinateur:chatgpt": "ChatGPT", "ordinateur:grok": "Grok", // i18n-ignore : marque
   heygen: "HeyGen", deepgram: "Deepgram", sourceful: "Sourceful", // i18n-ignore : marque
 };
 

@@ -931,11 +931,6 @@ def _remember_models(user: int, brains: dict) -> None:
                 db.set_setting(key, value)
 
 
-def _alias_name(alias: str) -> str:
-    """« haiku » se lit « Haiku » ; un nom déjà précis (grok-build…) reste tel quel."""
-    return alias.capitalize() if alias.isalpha() else alias
-
-
 def exact_of(provider: str, alias: str, user: int | None = None) -> str:
     """Le nom exact du modèle que cet alias a servi (« haiku » → « claude-haiku-5-5 »), appris à chaque tour passé par l'ordinateur ;
     pour Claude Code, à défaut, le modèle de la dernière mesure d'utilisation s'il porte l'alias. Vide : pas encore connu."""
@@ -954,7 +949,7 @@ def exact_of(provider: str, alias: str, user: int | None = None) -> str:
 
 
 def _remember_exact(user: int, provider: str, alias: str, exact: str) -> None:
-    """Un tour vient de servir `exact` pour l'alias choisi : le choix de modèle le montre ensuite à côté de l'alias."""
+    """Un tour vient de servir `exact` pour l'alias choisi : le choix de modèle prend ensuite son vrai nom."""
     if not alias or exact == alias or not _MODEL_NAME.fullmatch(exact):
         return
     try:
@@ -968,9 +963,36 @@ def _remember_exact(user: int, provider: str, alias: str, exact: str) -> None:
         db.set_setting(f"pc_exacts:{user}", json.dumps(known))
 
 
+# Les alias que la ligne de commande de Claude Code accepte (« sonnet »), et le modèle qu'ils désignent aujourd'hui : un seul endroit.
+# Le modèle réellement servi, quand l'ordinateur le rapporte (`modele_exact`, retenu par _remember_exact), passe avant cette table.
+PC_ALIAS_NAMES = {"ordinateur:claude-code": {"sonnet": "Claude Sonnet 5.5", "opus": "Claude Opus 5.5", "haiku": "Claude Haiku 5.5"}}
+_BRAND_WORDS = {"gpt": "GPT", "claude": "Claude", "grok": "Grok", "oss": "OSS"}
+
+
+def readable_model(model_id: str) -> str:
+    """Un identifiant de modèle dit comme un nom : « claude-opus-5-6-20270105 » → « Claude Opus 5.6 », « gpt-5.2-codex » → « GPT 5.2 Codex ».
+    Même règle que `readableModel` de l'interface : les dates (4 chiffres ou plus) tombent, « 5-6 » se lit « 5.6 »."""
+    words = [w for w in re.split(r"[-_]", re.sub(r"\[.*?\]|:.*$", "", model_id.split("/")[-1])) if w and not re.fullmatch(r"\d{4,}", w)]
+    out: list[str] = []
+    for w in words:
+        if re.fullmatch(r"\d", w) and out and re.search(r"\d$", out[-1]):
+            out[-1] += "." + w
+        else:
+            out.append(_BRAND_WORDS.get(w.lower()) or (w.upper() if re.match(r"v?\d", w, re.I) or re.fullmatch(r"o\d+", w, re.I) else w.capitalize()))
+    return " ".join(out)
+
+
+def pc_model_name(provider: str, model: str, user: int | None = None) -> str:
+    """Le vrai nom d'un modèle d'abonnement, sans le nom du fournisseur : l'écran dit déjà d'où il vient."""
+    exact = exact_of(provider, model, user)
+    if exact:
+        return readable_model(exact)
+    return PC_ALIAS_NAMES.get(provider, {}).get(model) or readable_model(model)
+
+
 def pc_models(provider: str, user: int | None = None) -> list[dict]:
     """Les modèles que l'ordinateur annonce pour cet abonnement, comme ceux des autres fournisseurs, avec « compris dans l'abonnement ».
-    Le nom exact, quand un tour l'a fait connaître, suit l'alias : « Claude Code · Haiku · claude-haiku-5-5 »."""
+    Le nom est le vrai nom du modèle (« Claude Haiku 5.5 ») : celui qu'un tour a fait connaître, sinon la table des alias ; `exact` garde l'identifiant."""
     user = user or db.owner_id()
     try:
         names = json.loads(db.get_setting(f"pc_modeles:{user}:{provider}") or "[]")
@@ -982,7 +1004,7 @@ def pc_models(provider: str, user: int | None = None) -> list[dict]:
         if not isinstance(m, str) or not _MODEL_NAME.fullmatch(m):
             continue
         exact = exact_of(provider, m, user)
-        out.append({"id": m, "name": " · ".join([PC_NAME[provider], _alias_name(m), *([exact] if exact else [])]), "exact": exact or None,
+        out.append({"id": m, "name": pc_model_name(provider, m, user), "exact": exact or None,
                     "lab": lab, "created": 0, "context": 200000 if lab == "anthropic" else 0,
                     "price_in": None, "price_out": None, "tools": True, "vision": False, "free": False, "prix": INCLUDED, "abonnement": True})
     return out

@@ -7,7 +7,7 @@ import { cn, money } from "@/lib/utils";
 import { costLabel, ModelRow, ModeRows, shortName } from "./Modes";
 import { ProviderLogo } from "./ProviderLogo";
 import { Button, ErrorText, Input, Label } from "./ui";
-import { t, tr } from "@/i18n";
+import { t, tr, tServeur } from "@/i18n";
 
 const HINTS: Record<string, string> = {
   openrouter: t("Des centaines de modèles, une seule clé"),
@@ -138,7 +138,7 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
       {/* 1. Fournisseur : replié une fois la clé enregistrée */}
       {keySaved && !changingProvider ? (
         <div className="flex items-center gap-3 rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm">
-          <span className="flex-1"><strong>{provider?.label}</strong> <span className="text-muted-foreground">{t("· clé enregistrée et chiffrée")}</span></span>
+          <span className="flex-1"><strong>{provider && tServeur(provider.label)}</strong> <span className="text-muted-foreground">{t("· clé enregistrée et chiffrée")}</span></span>
           <Button variant="outline" size="sm" onClick={() => setChangingProvider(true)}>{t("Changer")}</Button>
         </div>
       ) : (
@@ -156,7 +156,7 @@ export function ModelPicker({ first, onDone, onCancel }: { first?: boolean; onDo
                   provider?.id === p.id && "border-accent bg-accent-soft ring-1 ring-accent",
                 )}
               >
-                <span className="text-sm font-semibold">{p.label}</span>
+                <span className="text-sm font-semibold">{tServeur(p.label)}</span>
                 <span className="text-xs text-muted-foreground">{HINTS[p.id]}</span>
               </button>
             ))}

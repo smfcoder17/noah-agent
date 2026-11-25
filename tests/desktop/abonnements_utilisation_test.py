@@ -116,7 +116,7 @@ beat(None, grok={"installe": True, "connecte": True, "permis": True, "modeles": 
 row = next(p for p in pc.get("/api/fournisseurs").json() if p["id"] == "ordinateur:grok")
 assert row["pret"] is True, row
 models = desktop.pc_models("ordinateur:grok", ALICE)
-assert [m["id"] for m in models] == ["grok-4.3"] and models[0]["name"] == "Grok · grok-4.3" and models[0]["abonnement"] is True, models
+assert [m["id"] for m in models] == ["grok-4.3"] and models[0]["name"] == "Grok 4.3" and models[0]["abonnement"] is True, models
 print("7. Grok (ton ordinateur) : prêt seulement connecté et permis, modèles annoncés par l'ordinateur")
 
 # 8. Le nom exact du modèle réellement servi remplace l'alias dans l'Activité (« Claude Code · claude-haiku-5-5 · abonnement »).

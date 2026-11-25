@@ -1,5 +1,5 @@
-"""Noms exacts des modèles d'un abonnement de l'ordinateur : le choix de modèle montre « Claude Code · Haiku · claude-haiku-5-5 » quand un tour
-(ou la dernière mesure d'utilisation) a fait connaître le nom exact, sinon l'alias seul. Le choix reste l'alias (c'est lui que la CLI reçoit).
+"""Noms exacts des modèles d'un abonnement de l'ordinateur : le choix de modèle montre le vrai nom (« Claude Haiku 5.5 ») quand un tour
+(ou la dernière mesure d'utilisation) a fait connaître le nom exact, sinon celui de la table des alias. Le choix reste l'alias (c'est lui que la CLI reçoit).
 
     docker run --rm -v "$PWD/server:/app" -v "$PWD/tests:/tests" python:3.12-slim sh -c \\
       "pip install -q -r /app/requirements.txt && python /tests/desktop/noms_exacts_test.py"
@@ -27,7 +27,7 @@ def row(alias):
 
 
 # 1. Rien de connu : l'alias seul, en toutes lettres.
-assert row("haiku")["name"] == "Claude Code · Haiku" and row("haiku")["exact"] is None, row("haiku")
+assert row("haiku")["name"] == "Claude Haiku 5.5" and row("haiku")["exact"] is None, row("haiku")
 print("1. sans tour vu : « Claude Code · Haiku », l'alias seul")
 
 
@@ -43,8 +43,8 @@ finally:
     desktop._ask = real_ask
 assert status == 200 and out["modele"] == "claude-haiku-5-5", out
 h = row("haiku")
-assert h["id"] == "haiku" and h["exact"] == "claude-haiku-5-5" and h["name"] == "Claude Code · Haiku · claude-haiku-5-5", h
-assert row("sonnet")["exact"] is None and row("sonnet")["name"] == "Claude Code · Sonnet", "un autre alias n'emprunte pas ce nom"
+assert h["id"] == "haiku" and h["exact"] == "claude-haiku-5-5" and h["name"] == "Claude Haiku 5.5", h
+assert row("sonnet")["exact"] is None and row("sonnet")["name"] == "Claude Sonnet 5.5", "un autre alias n'emprunte pas ce nom"
 print("2. après un tour : « Claude Code · Haiku · claude-haiku-5-5 », l'identifiant reste « haiku », sonnet n'est pas touché")
 
 # 3. Sans tour de cet alias, la dernière mesure d'utilisation de Claude Code porte déjà un nom exact.

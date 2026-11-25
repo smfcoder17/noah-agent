@@ -125,11 +125,16 @@ export function readableModel(id: string | null | undefined): string {
   return free ? t("{nom} (gratuit)", { nom: out.join(" ") }) : out.join(" ");
 }
 
-/** « Haiku · claude-haiku-5-5 » : l'alias d'un abonnement de l'ordinateur (celui que la CLI reçoit) et le nom exact que le dernier tour a servi.
- * Sans nom exact connu, l'alias seul. */
+/** Les alias de Claude Code (ce que la CLI reçoit) et le modèle qu'ils désignent aujourd'hui, comme server/noah/desktop.py PC_ALIAS_NAMES. */
+const CLAUDE_ALIASES: Record<string, string> = { sonnet: "Claude Sonnet 5.5", opus: "Claude Opus 5.5", haiku: "Claude Haiku 5.5" }; // i18n-ignore : noms de modèles
+
+/** Le vrai nom d'un modèle d'abonnement de l'ordinateur : celui que le dernier tour a servi (« claude-haiku-5-5 » → « Claude Haiku 5.5 »),
+ * sinon celui que l'alias désigne aujourd'hui. Les autres fournisseurs : l'identifiant lu comme un nom. */
 export function nomAvecExact(model: string | null | undefined, exact: string | null | undefined): string {
-  const base = BRANDS[(model ?? "").trim().toLowerCase()] ?? readableModel(model); // « haiku » seul se lit « Haiku »
-  return base && exact && exact !== model ? `${base} · ${exact}` : base;
+  const alias = (model ?? "").trim().toLowerCase();
+  if (!alias) return "";
+  if (exact && exact !== model) return readableModel(exact);
+  return CLAUDE_ALIASES[alias] ?? BRANDS[alias] ?? readableModel(model);
 }
 
 /** Le nom d'un mode d'agent, « auto » compris (le niveau suit chaque demande : server/noah/complexite.py). */

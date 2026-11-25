@@ -440,4 +440,6 @@ export default {
   "Les adresses (Address ou AllowedIPs) de cette configuration n'ont pas la bonne forme.": "The addresses (Address or AllowedIPs) of this configuration are not in the right form.",
   "Il manque l'adresse du serveur VPN (Endpoint) ou la tienne (Address) dans cette configuration.": "This configuration is missing the VPN server's address (Endpoint) or yours (Address).",
   "Le lanceur a refusé cette configuration.": "The launcher refused this configuration.",
+  "Autre service compatible OpenAI": "Other OpenAI-compatible service",
+  "Ollama (cette machine ou une adresse)": "Ollama (this machine or an address)",
 } satisfies Record<string, string>;
